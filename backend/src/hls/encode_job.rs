@@ -410,11 +410,10 @@ pub async fn run_hls_encode_job(
 
                     if let Err(e) = sqlx::query(
                         "UPDATE files SET hls_ready = true, hls_key_id = $1, segment_count = $2, \
-                         hls_encode_status = 'ready', hls_encode_error = NULL, size_bytes = $3 WHERE id = $4",
+                         hls_encode_status = 'ready', hls_encode_error = NULL WHERE id = $3",
                     )
                     .bind(key_id.to_string())
                     .bind(output.segment_count as i32)
-                    .bind(stored_bytes as i64)
                     .bind(&file_id)
                     .execute(&pool)
                     .await

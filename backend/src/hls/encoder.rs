@@ -84,10 +84,9 @@ impl HlsEncoder {
         progress_tx: Option<tokio::sync::watch::Sender<i32>>,
     ) -> anyhow::Result<HlsOutput> {
         let segment_target_secs = timing.segment_target_secs;
-        if matches!(
-            codec_probe.encode_mode,
-            HlsEncodeMode::FullTranscode | HlsEncodeMode::AlignSegmentsRetranscode
-        ) && hardware.use_hardware_for_full_transcode()
+
+        if matches!(codec_probe.encode_mode, HlsEncodeMode::FullTranscode)
+            && hardware.use_hardware_for_full_transcode()
         {
             match Self::run_ffmpeg_session(FfmpegSessionParams {
                 input_path,
@@ -113,7 +112,7 @@ impl HlsEncoder {
             }
         }
 
-        Self::run_ffmpeg_session(FfmpegSessionParams {
+        match Self::run_ffmpeg_session(FfmpegSessionParams {
             input_path,
             output_dir,
             key,
@@ -122,9 +121,36 @@ impl HlsEncoder {
             segment_target_secs,
             video_encoder: ResolvedHardwareEncoder::Cpu,
             vaapi_device: &hardware.vaapi_device,
-            progress_tx,
+            progress_tx: progress_tx.clone(),
         })
         .await
+        {
+            Ok(output) => Ok(output),
+            Err(error) if codec_probe.encode_mode == HlsEncodeMode::RemuxCopy => {
+                // Human: Some sources fail stream copy — fall back to GOP-aligned re-encode.
+                // Agent: RETRIES AlignSegmentsRetranscode on CPU after RemuxCopy failure.
+                tracing::warn!(
+                    %error,
+                    "HLS remux copy failed; retrying with GOP-aligned H.264 re-encode"
+                );
+                let _ = tokio::fs::remove_dir_all(output_dir).await;
+                let mut fallback = codec_probe.clone();
+                fallback.encode_mode = HlsEncodeMode::AlignSegmentsRetranscode;
+                Self::run_ffmpeg_session(FfmpegSessionParams {
+                    input_path,
+                    output_dir,
+                    key,
+                    timing,
+                    codec_probe: &fallback,
+                    segment_target_secs,
+                    video_encoder: ResolvedHardwareEncoder::Cpu,
+                    vaapi_device: &hardware.vaapi_device,
+                    progress_tx,
+                })
+                .await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn run_ffmpeg_session(params: FfmpegSessionParams<'_>) -> anyhow::Result<HlsOutput> {
@@ -165,6 +191,10 @@ impl HlsEncoder {
         let mut pre_input_args: Vec<String> = Vec::new();
         let mut encode_args: Vec<String> = Vec::new();
 
+        // Human: Regenerate PTS on read so bad source timestamps do not break fMP4 HLS packaging.
+        // Agent: PREPENDED before `-i`; APPLIES to remux and transcode paths alike.
+        append_common_input_args(&mut pre_input_args);
+
         match codec_probe.encode_mode {
             HlsEncodeMode::RemuxCopy => {
                 encode_args.extend([
@@ -172,12 +202,20 @@ impl HlsEncoder {
                     "copy".into(),
                     "-bsf:a".into(),
                     "aac_adtstoasc".into(),
+                    "-avoid_negative_ts".into(),
+                    "make_zero".into(),
                 ]);
             }
             HlsEncodeMode::CopyVideoTranscodeAudio => {
-                encode_args.extend(["-c:v".into(), "copy".into()]);
+                encode_args.extend([
+                    "-c:v".into(),
+                    "copy".into(),
+                    "-avoid_negative_ts".into(),
+                    "make_zero".into(),
+                ]);
                 append_hls_audio_encode(&mut encode_args);
-                append_hls_timestamp_args(&mut encode_args, output_fps);
+                // Human: Do not force CFR `-r:v` on stream-copied video — that corrupts timestamps.
+                // Agent: SKIPS append_hls_timestamp_args; audio-only re-encode keeps source video timing.
             }
             HlsEncodeMode::AlignSegmentsRetranscode => {
                 append_align_segments_video_args(
@@ -311,6 +349,15 @@ impl HlsEncoder {
     }
 }
 
+// Human: Input-side flags shared by every HLS ffmpeg session.
+// Agent: APPENDS -fflags +genpts before `-i` to repair missing or corrupt source PTS.
+fn append_common_input_args(pre_input: &mut Vec<String>) {
+    pre_input.extend([
+        "-fflags".into(),
+        "+genpts+discardcorrupt".into(),
+    ]);
+}
+
 // Human: fMP4 HLS muxer — CMAF segments + init.mp4 beside stream.m3u8 for hls.js MSE playback.
 // Agent: APPENDS -hls_segment_type fmp4; MUST stay aligned with playlist EXT-X-MAP rewrite.
 // Human: fMP4 HLS muxer without ffmpeg AES (encrypted fMP4 is not implemented in ffmpeg 5.x).
@@ -377,6 +424,10 @@ fn append_hls_audio_encode(encode_args: &mut Vec<String>) {
         "128k".into(),
         "-ac".into(),
         "2".into(),
+        // Human: Resample audio to the video clock so A/V stay aligned across fMP4 segments.
+        // Agent: async=1 stretches/compresses audio slightly; first_pts=0 anchors at zero.
+        "-af".into(),
+        "aresample=async=1:first_pts=0".into(),
     ]);
 }
 

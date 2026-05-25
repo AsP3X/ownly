@@ -53,21 +53,37 @@ pub async fn probe_codecs(path: &Path) -> CodecProbe {
     }
 }
 
-// Human: Pick ffmpeg strategy from codecs — H.264 always gets GOP-aligned segments for browser HLS.
-// Agent: NEVER RemuxCopy; stream copy breaks on long/large sources (irregular keyframes, bad seeks).
+// Human: Pick the fastest ffmpeg path that still yields browser-safe fMP4 HLS.
+// Agent: PREFERS RemuxCopy for H.264+AAC; AlignSegments only for 24fps film GOP edge cases; else FullTranscode.
 pub fn resolve_encode_mode(
     video_codec: Option<&str>,
-    _audio_codec: Option<&str>,
+    audio_codec: Option<&str>,
     avg_frame_rate: Option<f64>,
 ) -> HlsEncodeMode {
-    let _ = avg_frame_rate;
-    let video_ok = matches!(video_codec, Some("h264"));
-
-    if video_ok {
-        HlsEncodeMode::AlignSegmentsRetranscode
-    } else {
-        HlsEncodeMode::FullTranscode
+    let video_h264 = matches!(video_codec, Some("h264"));
+    if !video_h264 {
+        return HlsEncodeMode::FullTranscode;
     }
+
+    if audio_codec.is_some_and(is_browser_safe_aac) {
+        // Human: Re-encode only 24fps film when GOP alignment is likely to break HLS segment seeks.
+        // Agent: AlignSegmentsRetranscode for 23.9–24.1 fps band; RemuxCopy otherwise (preserves size/sync).
+        if needs_hls_segment_align(avg_frame_rate) {
+            HlsEncodeMode::AlignSegmentsRetranscode
+        } else {
+            HlsEncodeMode::RemuxCopy
+        }
+    } else if audio_codec.is_some() {
+        HlsEncodeMode::CopyVideoTranscodeAudio
+    } else {
+        HlsEncodeMode::RemuxCopy
+    }
+}
+
+// Human: AAC-family audio can be remuxed into fMP4 HLS with the ADTS→ASC bitstream filter.
+// Agent: MATCHES ffprobe codec_name values aac and mp4a.
+fn is_browser_safe_aac(codec: &str) -> bool {
+    matches!(codec, "aac" | "mp4a")
 }
 
 // Human: True when HLS stream copy would likely produce irregular segment durations.
@@ -244,22 +260,30 @@ mod tests {
     }
 
     #[test]
-    fn resolve_encode_mode_aligns_all_h264_sources() {
+    fn resolve_encode_mode_prefers_remux_for_h264_aac() {
+        assert_eq!(
+            resolve_encode_mode(Some("h264"), Some("aac"), Some(30.0)),
+            HlsEncodeMode::RemuxCopy
+        );
         assert_eq!(
             resolve_encode_mode(Some("h264"), Some("aac"), Some(24.0)),
             HlsEncodeMode::AlignSegmentsRetranscode
         );
         assert_eq!(
-            resolve_encode_mode(Some("h264"), Some("aac"), Some(30.0)),
+            resolve_encode_mode(Some("h264"), Some("aac"), Some(23.976)),
             HlsEncodeMode::AlignSegmentsRetranscode
         );
         assert_eq!(
             resolve_encode_mode(Some("h264"), Some("ac3"), Some(24.0)),
-            HlsEncodeMode::AlignSegmentsRetranscode
+            HlsEncodeMode::CopyVideoTranscodeAudio
         );
         assert_eq!(
             resolve_encode_mode(Some("hevc"), Some("aac"), Some(24.0)),
             HlsEncodeMode::FullTranscode
+        );
+        assert_eq!(
+            resolve_encode_mode(Some("h264"), None, Some(30.0)),
+            HlsEncodeMode::RemuxCopy
         );
     }
 }
