@@ -1,7 +1,15 @@
 // Human: OneDrive-style drive shell — top bar, sidebar, recent files table on a light theme.
 // Agent: CALLS listFiles/uploadFile/fetchDashboard; READS auth user for profile chip.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import {
   ChevronRight,
   Download,
@@ -31,7 +39,12 @@ import {
   type FileItem,
   type FolderItem,
 } from "@/api/client";
+import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
+import {
+  ConfirmBulkDeleteDialog,
+  type BulkDeleteItem,
+} from "@/components/drive/ConfirmBulkDeleteDialog";
 import {
   ConfirmDeleteDialog,
   type DeleteTarget,
@@ -146,6 +159,9 @@ type FileTableProps = {
   locationLabel?: string;
   emptyMessage: string;
   dragEnabled?: boolean;
+  selectable?: boolean;
+  selectedFileIds?: Set<string>;
+  onSelectedFileIdsChange?: (ids: Set<string>) => void;
   onOpenFolder?: (folder: FolderItem) => void;
   onDeleteFolder?: (folderId: string) => void;
   onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
@@ -168,6 +184,9 @@ function FileTable({
   locationLabel = "My files",
   emptyMessage,
   dragEnabled = false,
+  selectable = false,
+  selectedFileIds,
+  onSelectedFileIdsChange,
   onOpenFolder,
   onDeleteFolder,
   onMoveFileToFolder,
@@ -178,11 +197,59 @@ function FileTable({
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const dragDepthRef = useRef<Map<string, number>>(new Map());
+  const selectAllRef = useRef<HTMLInputElement>(null);
   // Human: Ref mirrors dragging id so dragOver handlers see it before React re-renders.
   // Agent: WRITES in dragstart; READS in folder dragenter/over; CLEARS on dragend.
   const draggingFileIdRef = useRef<string | null>(null);
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const selectionEnabled = selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
+  const visibleFileIds = useMemo(() => files.map((file) => file.id), [files]);
+  const selectedVisibleCount = selectionEnabled
+    ? visibleFileIds.filter((id) => selectedFileIds.has(id)).length
+    : 0;
+  const allVisibleSelected =
+    selectionEnabled && visibleFileIds.length > 0 && selectedVisibleCount === visibleFileIds.length;
+  const someVisibleSelected =
+    selectionEnabled && selectedVisibleCount > 0 && selectedVisibleCount < visibleFileIds.length;
+
+  // Human: Mirror partial selection on the header checkbox via the native indeterminate flag.
+  // Agent: WRITES selectAllRef.indeterminate when some but not all visible files are checked.
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  // Human: Toggle one file row in the bulk selection set without mutating the parent Set in place.
+  // Agent: CLONES selectedFileIds; ADDS or REMOVES fileId; CALLS onSelectedFileIdsChange.
+  function toggleFileSelected(fileId: string, checked: boolean) {
+    if (!selectionEnabled) return;
+    const next = new Set(selectedFileIds);
+    if (checked) {
+      next.add(fileId);
+    } else {
+      next.delete(fileId);
+    }
+    onSelectedFileIdsChange(next);
+  }
+
+  // Human: Select or clear every file currently visible in the table (respects type/search filters).
+  // Agent: MERGES visible ids into selection or REMOVES them on clear-all.
+  function handleSelectAllVisible(event: ChangeEvent<HTMLInputElement>) {
+    if (!selectionEnabled) return;
+    const next = new Set(selectedFileIds);
+    if (event.target.checked) {
+      for (const fileId of visibleFileIds) {
+        next.add(fileId);
+      }
+    } else {
+      for (const fileId of visibleFileIds) {
+        next.delete(fileId);
+      }
+    }
+    onSelectedFileIdsChange(next);
+  }
 
   // Human: Clear drag highlights when the pointer leaves the table or the drag ends.
   // Agent: RESETS dropTargetFolderId and dragDepthRef on dragend.
@@ -272,6 +339,18 @@ function FileTable({
       <table className="w-full min-w-[640px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-neutral-500">
+            {selectionEnabled ? (
+              <th className="w-10 pb-3 pr-2 font-medium">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                  checked={allVisibleSelected}
+                  onChange={handleSelectAllVisible}
+                  aria-label="Select all files"
+                />
+              </th>
+            ) : null}
             <th className="pb-3 pr-4 font-medium">Name</th>
             <th className="pb-3 pr-4 font-medium">Opened</th>
             <th className="pb-3 pr-4 font-medium">Owner</th>
@@ -302,6 +381,7 @@ function FileTable({
                 isDropTarget && dropAllowed && "bg-blue-50 ring-2 ring-inset ring-blue-300",
               )}
             >
+              {selectionEnabled ? <td className="w-10 py-3 pr-2" aria-hidden /> : null}
               <td className="py-3 pr-4">
                 <button
                   type="button"
@@ -350,6 +430,7 @@ function FileTable({
           {files.map((file) => {
             const favourited = favouriteIds.has(file.id);
             const isDragging = draggingFileId === file.id;
+            const isSelected = selectionEnabled && selectedFileIds.has(file.id);
             return (
               <tr
                 key={file.id}
@@ -361,8 +442,21 @@ function FileTable({
                   "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
                   dragEnabled && "cursor-grab active:cursor-grabbing",
                   isDragging && "opacity-50",
+                  isSelected && "bg-blue-50/60",
                 )}
               >
+                {selectionEnabled ? (
+                  <td className="w-10 py-3 pr-2">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                      checked={isSelected}
+                      onChange={(event) => toggleFileSelected(file.id, event.target.checked)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`Select ${file.name}`}
+                    />
+                  </td>
+                ) : null}
                 <td className="py-3 pr-4">
                   <div className="flex min-w-0 items-start gap-3">
                     <FileTypeIcon mimeType={file.mime_type} />
@@ -629,11 +723,23 @@ export default function DrivePage() {
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(() => new Set());
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
     () => new Set(getFavouriteFileIds()),
   );
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
+
+  // Human: Remove selected ids that no longer exist in the current file listing (delete, move, refresh).
+  // Agent: INTERSECTS selectedFileIds with validFiles; SKIPS setState when nothing changed.
+  function pruneFileSelection(validFiles: FileItem[]) {
+    const validIds = new Set(validFiles.map((file) => file.id));
+    setSelectedFileIds((prev) => {
+      const next = new Set([...prev].filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }
 
   const refresh = useCallback(
     async (
@@ -656,6 +762,7 @@ export default function DrivePage() {
           const listing = await listFiles({ q: search });
           setFolders([]);
           setFiles(listing.files);
+          pruneFileSelection(listing.files);
         } else {
           const [folderListing, fileListing] = await Promise.all([
             listFolders(targetFolderId ? { parent_id: targetFolderId } : undefined),
@@ -663,6 +770,7 @@ export default function DrivePage() {
           ]);
           setFolders(folderListing.folders);
           setFiles(fileListing.files);
+          pruneFileSelection(fileListing.files);
         }
       } catch (e) {
         setError(getErrorMessage(e));
@@ -708,6 +816,7 @@ export default function DrivePage() {
 
   function openFolder(folder: FolderItem) {
     setActiveNav("my-files");
+    setSelectedFileIds(new Set());
     // Human: Ignore repeat opens when double-click fires after the first click already navigated.
     // Agent: SKIPS push when folder is already the current breadcrumb leaf.
     setFolderStack((prev) => {
@@ -717,6 +826,7 @@ export default function DrivePage() {
   }
 
   function goToFolderIndex(index: number) {
+    setSelectedFileIds(new Set());
     if (index < 0) {
       setFolderStack([]);
       return;
@@ -790,8 +900,74 @@ export default function DrivePage() {
     setFavouriteIds(new Set(getFavouriteFileIds()));
   }
 
+  // Human: Resolve selected ids to FileItem rows from the current in-memory listing.
+  // Agent: READS files + selectedFileIds; RETURNS items still present in the library cache.
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedFileIds.has(file.id)),
+    [files, selectedFileIds],
+  );
+
+  // Human: Queue downloads for every checked file and record recent access for Home.
+  // Agent: CALLS enqueueDownload per selection; CLEARS bulk selection after enqueue.
+  function handleBulkDownload() {
+    for (const file of selectedFiles) {
+      recordFileAccess(file.id);
+      enqueueDownload(file);
+    }
+    setSelectedFileIds(new Set());
+  }
+
+  // Human: Favourite all selected files, or remove favourites when every selected file is starred.
+  // Agent: READS favouriteIds; TOGGLES each selected id toward a uniform favourited state.
+  function handleBulkToggleFavourite() {
+    if (selectedFiles.length === 0) return;
+    const allFavourited = selectedFiles.every((file) => favouriteIds.has(file.id));
+    for (const file of selectedFiles) {
+      const isFavourited = favouriteIds.has(file.id);
+      if (allFavourited && isFavourited) {
+        toggleFavouriteFile(file.id);
+      } else if (!allFavourited && !isFavourited) {
+        toggleFavouriteFile(file.id);
+      }
+    }
+    setFavouriteIds(new Set(getFavouriteFileIds()));
+    setSelectedFileIds(new Set());
+  }
+
+  // Human: Open bulk delete confirmation for the current checkbox selection.
+  // Agent: MAPS selectedFiles to BulkDeleteItem list; WRITES bulkDeleteItems for dialog.
+  function handleBulkDeleteRequest() {
+    if (selectedFiles.length === 0) return;
+    setBulkDeleteItems(
+      selectedFiles.map((file) => ({
+        id: file.id,
+        name: file.name,
+      })),
+    );
+  }
+
+  // Human: Refresh drive state after bulk delete succeeds for one or more files.
+  // Agent: CLEARS prefs + selection; CALLS refresh for the active My files view.
+  function handleBulkDeleted(deletedIds: string[]) {
+    setError("");
+    for (const fileId of deletedIds) {
+      removeFilePreferences(fileId);
+    }
+    setFavouriteIds(new Set(getFavouriteFileIds()));
+    setSelectedFileIds(new Set());
+    setBulkDeleteItems([]);
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+  }
+
+  const bulkFavouriteLabel =
+    selectedFiles.length > 0 &&
+    selectedFiles.every((file) => favouriteIds.has(file.id))
+      ? "Remove from favourites"
+      : "Add to favourites";
+
   function handleNavChange(nav: NavItemId) {
     setActiveNav(nav);
+    setSelectedFileIds(new Set());
     if (nav === "home") {
       setQuery("");
       setTypeFilter("all");
@@ -852,6 +1028,14 @@ export default function DrivePage() {
           }}
           target={deleteTarget}
           onDeleted={handleDeleted}
+        />
+        <ConfirmBulkDeleteDialog
+          open={bulkDeleteItems.length > 0}
+          onOpenChange={(open) => {
+            if (!open) setBulkDeleteItems([]);
+          }}
+          items={bulkDeleteItems}
+          onDeleted={handleBulkDeleted}
         />
         <DownloadTransferPanel />
       {/* Top bar — profile avatar pinned on the far right */}
@@ -1143,11 +1327,23 @@ export default function DrivePage() {
                 </div>
               </div>
             ) : (
-              <FileTable
+              <div className="flex flex-col gap-3">
+                <BulkActionsBar
+                  selectedCount={selectedFiles.length}
+                  favouriteLabel={bulkFavouriteLabel}
+                  onDownload={handleBulkDownload}
+                  onToggleFavourite={handleBulkToggleFavourite}
+                  onDelete={handleBulkDeleteRequest}
+                  onClearSelection={() => setSelectedFileIds(new Set())}
+                />
+                <FileTable
                 folders={visibleFolders}
                 files={browserFiles}
                 ownerLabel={ownerLabel}
                 favouriteIds={favouriteIds}
+                selectable
+                selectedFileIds={selectedFileIds}
+                onSelectedFileIdsChange={setSelectedFileIds}
                 dragEnabled={!isSearchingMyFiles}
                 locationLabel={
                   folderStack.length > 0
@@ -1164,6 +1360,7 @@ export default function DrivePage() {
                 onDelete={requestDeleteFile}
                 onDownload={handleDownload}
               />
+              </div>
             )}
 
             <p className="mt-auto text-xs text-neutral-500">
