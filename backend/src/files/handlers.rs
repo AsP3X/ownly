@@ -916,7 +916,13 @@ pub async fn delete_file(
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
-    let (mime_type, hls_ready, hls_encode_status) = row.ok_or(AppError::NotFound)?;
+
+    let Some((mime_type, hls_ready, hls_encode_status)) = row else {
+        // Human: DELETE is idempotent — stale UI rows may reference files already purged.
+        // Agent: RETURNS ok without audit when row missing (retry after partial delete).
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    };
+
     ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let deleted =

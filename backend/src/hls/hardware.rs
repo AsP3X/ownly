@@ -187,7 +187,7 @@ pub fn append_full_transcode_encoder_args(
                 "-crf".into(),
                 "26".into(),
                 "-vf".into(),
-                "scale='min(1920,iw)':-2".into(),
+                "scale='min(1920,iw)':-2,format=yuv420p".into(),
             ]);
         }
         ResolvedHardwareEncoder::Nvenc => {
@@ -203,7 +203,7 @@ pub fn append_full_transcode_encoder_args(
                 "-cq".into(),
                 "26".into(),
                 "-vf".into(),
-                "scale='min(1920,iw)':-2".into(),
+                "scale='min(1920,iw)':-2,format=yuv420p".into(),
             ]);
         }
         ResolvedHardwareEncoder::Vaapi => {

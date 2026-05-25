@@ -511,8 +511,8 @@ mod tests {
 
     #[test]
     fn storage_object_count_matches_delete_attempts() {
-        assert_eq!(storage_object_count(None), 4);
-        assert_eq!(storage_object_count(Some(0)), 4);
-        assert_eq!(storage_object_count(Some(12)), 16);
+        assert_eq!(storage_object_count(None), 5);
+        assert_eq!(storage_object_count(Some(0)), 5);
+        assert_eq!(storage_object_count(Some(12)), 17);
     }
 }

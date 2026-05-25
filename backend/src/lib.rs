@@ -295,6 +295,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(shares::handlers::public_share_key),
         )
         .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/init",
+            get(shares::handlers::public_share_init),
+        )
+        .route(
             "/api/v1/public/shares/{token}/files/{file_id}/segments/{segment}",
             get(shares::handlers::public_share_segment),
         );
@@ -351,6 +355,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(hls::handlers::get_playlist),
         )
         .route("/api/v1/files/{id}/key", get(hls::handlers::get_key))
+        .route("/api/v1/files/{id}/init", get(hls::handlers::get_init))
         .route(
             "/api/v1/files/{id}/segments/{segment}",
             get(hls::handlers::get_segment),

@@ -848,7 +848,16 @@ export function uploadFileWithProgress(
 }
 
 export async function deleteFile(id: string) {
-  return apiFetch(`/files/${id}`, { method: "DELETE" });
+  try {
+    return await apiFetch(`/files/${id}`, { method: "DELETE" });
+  } catch (err) {
+    // Human: Treat missing files as deleted — drive list can lag after failed ingest or retries.
+    // Agent: SWALLOWS 404 from idempotent DELETE; RETHROWS other ApiError statuses.
+    if (err instanceof ApiError && err.status === 404) {
+      return { ok: true };
+    }
+    throw err;
+  }
 }
 
 // Human: Stop server-side HLS ingest for a video upload the user cancelled in the transfer panel.

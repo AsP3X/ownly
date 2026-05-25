@@ -49,6 +49,8 @@ futures-util = "0.3"
 mime_guess = "2"
 bytes = "1"
 aes-gcm = "0.10"
+aes = "0.8"
+cbc = "0.1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

@@ -20,7 +20,7 @@ use crate::{
         folders::FolderDto,
         handlers::{FileDto, FILE_COLUMNS},
     },
-    hls::handlers::build_playlist_for_playback,
+    hls::handlers::{build_playlist_for_playback, resolve_hls_aes_key, HlsPlaybackRow},
     rate_limit,
     shares::store::{
         ensure_browse_folder_in_share, ensure_file_owned_for_share, ensure_folder_owned_for_share,
@@ -603,14 +603,15 @@ pub async fn public_share_key(
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
     let share = resolve_active_share(&state.pool, &token).await?;
-    load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+    let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
-    let key = state
-        .hls_key_store
-        .get_key(&file_id)
-        .await
-        .map_err(|e| AppError::Storage(e.to_string()))?
-        .ok_or(AppError::NotFound)?;
+    let key = resolve_hls_aes_key(
+        state.storage.as_ref(),
+        &state.hls_key_store,
+        &row.storage_key,
+        &file_id,
+    )
+    .await?;
 
     Ok((
         [
@@ -631,15 +632,15 @@ pub async fn public_share_playlist(
     let share = resolve_active_share(&state.pool, &token).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
-    let row: Option<(String, Option<bool>, Option<i32>)> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count FROM files WHERE id = $1 AND user_id = $2",
+    let row: Option<HlsPlaybackRow> = sqlx::query_as(
+        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&file_id)
     .bind(&share.user_id)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (storage_key, hls_ready, segment_count) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, hls_ready, segment_count, size_bytes) = row.ok_or(AppError::NotFound)?;
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::BadRequest(
             "video is not ready for HLS playback yet".into(),
@@ -648,14 +649,18 @@ pub async fn public_share_playlist(
 
     let base_url = format!("/api/v1/public/shares/{token}/files/{file_id}");
     let key_uri = format!("{base_url}/key");
+    let init_uri = format!("{base_url}/init");
 
     let count = segment_count.unwrap_or(0) as usize;
+    let source_size = size_bytes.unwrap_or(0).max(0) as u64;
     let playlist = build_playlist_for_playback(
         state.storage.as_ref(),
         &storage_key,
         &base_url,
         &key_uri,
+        &init_uri,
         count,
+        source_size,
     )
     .await?;
 
@@ -693,20 +698,47 @@ pub async fn public_share_segment(
     }
 
     let key = format!("{}/segments/{segment_name}", row.storage_key);
-    let (stream, _, _) = state
+    let (stream, size, _) = state
         .storage
         .get_stream(&key)
         .await
         .map_err(|_| AppError::NotFound)?;
 
-    Ok((
-        [
-            (header::CONTENT_TYPE, "video/mp2t"),
-            (header::CACHE_CONTROL, "no-store, no-cache, must-revalidate"),
-        ],
-        Body::from_stream(stream),
-    )
-        .into_response())
+    Ok(crate::hls::handlers::segment_media_response(
+        stream,
+        size,
+        &segment_name,
+    ))
+}
+
+// Human: fMP4 init segment (EXT-X-MAP) for anonymous shared video playback.
+// Agent: READS {storage_key}/init.mp4; RATE LIMIT by token+file like media segments.
+pub async fn public_share_init(
+    State(state): State<Arc<AppState>>,
+    Path((token, file_id)): Path<(String, String)>,
+) -> Result<Response, AppError> {
+    let share = resolve_active_share(&state.pool, &token).await?;
+    let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+
+    if !row.hls_ready {
+        return Err(AppError::NotFound);
+    }
+
+    let rl_key = format!("public:{token}:{file_id}");
+    rate_limit::enforce(&state.hls_segment_rl, &rl_key)?;
+
+    let key = format!("{}/{}", row.storage_key, crate::hls::playlist::HLS_INIT_FILENAME);
+    let (stream, size, _) = state
+        .storage
+        .get_stream(&key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+
+    Ok(crate::hls::handlers::segment_media_response(
+        stream,
+        size,
+        crate::hls::playlist::HLS_INIT_FILENAME,
+    ))
 }
 
 // Human: Fetch one shared file row for inline preview pages (scoped by token).

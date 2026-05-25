@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import SetupPage from "@/pages/SetupPage";
 import LoginPage from "@/pages/LoginPage";
 import DrivePage from "@/pages/DrivePage";
+import AdminDashboardWireframePage from "@/pages/AdminDashboardWireframePage";
 import RegisterPage from "@/pages/RegisterPage";
 import PublicSharePage from "@/pages/PublicSharePage";
 
@@ -79,6 +80,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <DrivePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <AdminDashboardWireframePage />
                 </ProtectedRoute>
               }
             />

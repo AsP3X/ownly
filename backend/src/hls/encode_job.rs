@@ -8,8 +8,9 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 
-use crate::hls::key_store::KeyStore;
 use crate::hls::hardware::HlsHardwareEncode;
+use crate::hls::key_store::KeyStore;
+use crate::hls::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
 use crate::files::file_delete::purge_file_storage;
 use crate::storage::Storage;
 
@@ -98,7 +99,7 @@ async fn resolve_duration_seconds(
     probed
 }
 
-// Human: Upload all MPEG-TS segments to object storage with bounded parallelism.
+// Human: Upload all fMP4 media segments (.m4s) to object storage with bounded parallelism.
 // Agent: READS segments_dir; SPAWNS up to HLS_SEGMENT_UPLOAD_CONCURRENCY puts; RETURNS segment byte sum.
 async fn upload_hls_segments(
     pool: &PgPool,
@@ -120,7 +121,7 @@ async fn upload_hls_segments(
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("ts") {
+        if path.extension().and_then(|e| e.to_str()) != Some(HLS_SEGMENT_EXTENSION) {
             continue;
         }
         let name = path
@@ -169,7 +170,7 @@ async fn upload_hls_segments(
             if let Err(error) = storage
                 .put(
                     &format!("{prefix}segments/{name}"),
-                    "video/mp2t",
+                    "video/mp4",
                     data,
                 )
                 .await
@@ -215,7 +216,7 @@ pub async fn run_hls_encode_job(
     hardware: HlsHardwareEncode,
     job: HlsEncodeJob,
 ) -> Result<(), String> {
-    use crate::hls::encoder::HlsEncoder;
+    use crate::hls::encoder::{HlsEncodeTiming, HlsEncoder};
     use crate::hls::probe;
 
     let file_id = job.file_id.clone();
@@ -234,7 +235,7 @@ pub async fn run_hls_encode_job(
     mark_processing(&pool, &file_id).await;
     set_progress(&pool, &file_id, 5).await;
 
-    let key_result = key_store.create_key_for_file(&file_id).await;
+    let key_result = key_store.get_or_create_key_for_file(&file_id).await;
     let (key_id, key) = match key_result {
         Ok(pair) => pair,
         Err(e) => {
@@ -249,13 +250,21 @@ pub async fn run_hls_encode_job(
         resolve_duration_seconds(&pool, &file_id, &tmp_video, job.duration_seconds).await;
 
     let codec_probe = probe::probe_codecs(&tmp_video).await;
+    let source_size_bytes = tokio::fs::metadata(&tmp_video)
+        .await
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let segment_target_secs = crate::hls::playlist::hls_segment_target_secs(source_size_bytes);
     tracing::info!(
         %file_id,
         video_codec = ?codec_probe.video_codec,
         audio_codec = ?codec_probe.audio_codec,
+        avg_frame_rate = ?codec_probe.avg_frame_rate,
         encode_mode = ?codec_probe.encode_mode,
         video_encoder = ?hardware.resolved,
         duration_seconds,
+        source_size_bytes,
+        segment_target_secs,
         "HLS ingest starting ffmpeg"
     );
 
@@ -278,7 +287,10 @@ pub async fn run_hls_encode_job(
                 &tmp_video,
                 &hls_output_dir,
                 &key,
-                duration_seconds,
+                HlsEncodeTiming {
+                    duration_seconds,
+                    segment_target_secs,
+                },
                 codec_probe,
                 &hardware,
                 Some(progress_tx),
@@ -292,7 +304,7 @@ pub async fn run_hls_encode_job(
                 Ok(output) => {
                     set_progress(&pool, &file_id, 50).await;
                     let prefix = format!("{storage_key}/");
-                    let total_steps = 2 + output.segment_count;
+                    let total_steps = 3 + output.segment_count;
                     let mut current_step = 0usize;
                     let mut stored_bytes: u64 = 0;
 
@@ -340,6 +352,31 @@ pub async fn run_hls_encode_job(
                         .await
                     {
                         let msg = format!("upload hls key: {e}");
+                        mark_failed(&pool, &file_id, &msg).await;
+                        cleanup_work_dir(&work_dir).await;
+                        return Err(msg);
+                    }
+                    current_step += 1;
+
+                    let init_data = match tokio::fs::read(&output.init_path).await {
+                        Ok(data) => data,
+                        Err(e) => {
+                            let msg = format!("read hls init: {e}");
+                            mark_failed(&pool, &file_id, &msg).await;
+                            cleanup_work_dir(&work_dir).await;
+                            return Err(msg);
+                        }
+                    };
+                    stored_bytes += init_data.len() as u64;
+                    if let Err(e) = storage
+                        .put(
+                            &format!("{prefix}{HLS_INIT_FILENAME}"),
+                            "video/mp4",
+                            init_data,
+                        )
+                        .await
+                    {
+                        let msg = format!("upload hls init: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
                         cleanup_work_dir(&work_dir).await;
                         return Err(msg);
@@ -400,7 +437,9 @@ pub async fn run_hls_encode_job(
                 Err(e) => {
                     let msg = format!("ffmpeg transcode: {e}");
                     mark_failed(&pool, &file_id, &msg).await;
-                    cleanup_work_dir(&work_dir).await;
+                    // Human: Keep upload `source` for job retries — only drop partial ffmpeg output.
+                    // Agent: AVOIDS remove_dir_all(work_dir) so attempt 2+ still finds tmp_video.
+                    let _ = tokio::fs::remove_dir_all(&hls_output_dir).await;
                     Err(msg)
                 }
             }

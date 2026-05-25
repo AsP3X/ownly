@@ -9,3 +9,4 @@ pub mod hardware;
 pub mod key_store;
 pub mod playlist;
 pub mod probe;
+pub mod segment_crypto;

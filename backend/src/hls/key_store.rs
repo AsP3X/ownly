@@ -31,6 +31,26 @@ impl KeyStore {
         }
     }
 
+    // Human: Return an existing AES key for this file or create one — safe across HLS job retries.
+    // Agent: READS file_encryption_keys by file_id; INSERT only when row missing; REUSES key on retry.
+    pub async fn get_or_create_key_for_file(&self, file_id: &str) -> anyhow::Result<(Uuid, AesKey)> {
+        let row: Option<(String, Vec<u8>)> = sqlx::query_as(
+            "SELECT key_id, encrypted_key FROM file_encryption_keys WHERE file_id = $1",
+        )
+        .bind(file_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("fetching file encryption key")?;
+
+        if let Some((key_id, encrypted)) = row {
+            let key = self.decrypt_key(&encrypted)?;
+            let key_uuid = Uuid::parse_str(&key_id).context("invalid key_id in database")?;
+            return Ok((key_uuid, key));
+        }
+
+        self.create_key_for_file(file_id).await
+    }
+
     pub async fn create_key_for_file(&self, file_id: &str) -> anyhow::Result<(Uuid, AesKey)> {
         let mut key = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut key);

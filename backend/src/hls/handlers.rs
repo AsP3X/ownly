@@ -15,14 +15,17 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
-    hls::playlist::{
-        normalize_segment_rel_path, parse_segment_manifest, PlaylistGenerator,
-        HLS_SEGMENT_TARGET_SECS,
+    hls::{
+        key_store::{AesKey, KeyStore},
+        playlist::{
+            hls_segment_target_secs, normalize_segment_rel_path, parse_segment_manifest,
+            synthetic_segment_rel_path, PlaylistGenerator, HLS_INIT_FILENAME,
+        },
     },
     jobs::{self, model::HlsExportPayload, JobKind},
     rate_limit,
     stream_ticket,
-    storage::Storage,
+    storage::{Storage, StorageStream},
     AppState,
 };
 
@@ -31,13 +34,17 @@ pub struct TicketParams {
     pub ticket: Option<String>,
 }
 
+// Human: Row shape for HLS playback lookups — storage key, readiness, segment count, source size.
+// Agent: READ by ensure_file_owned; size_bytes drives synthetic playlist segment duration tier.
+pub(crate) type HlsPlaybackRow = (String, Option<bool>, Option<i32>, Option<i64>);
+
 async fn ensure_file_owned(
     state: &AppState,
     file_id: &str,
     user_id: &str,
-) -> Result<(String, Option<bool>, Option<i32>), AppError> {
-    let row: Option<(String, Option<bool>, Option<i32>)> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count FROM files WHERE id = $1 AND user_id = $2",
+) -> Result<(String, Option<bool>, Option<i32>, Option<i64>), AppError> {
+    let row: Option<HlsPlaybackRow> = sqlx::query_as(
+        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(file_id)
     .bind(user_id)
@@ -54,17 +61,21 @@ pub(crate) async fn build_playlist_for_playback(
     storage_key: &str,
     base_url: &str,
     key_uri: &str,
+    init_uri: &str,
     segment_count: usize,
+    source_size_bytes: u64,
 ) -> Result<String, AppError> {
+    let segment_target_secs = hls_segment_target_secs(source_size_bytes);
+    let init_key = format!("{storage_key}/{HLS_INIT_FILENAME}");
+    let fmp4_on_storage = storage.exists(&init_key).await.unwrap_or(false);
     let playlist_key = format!("{storage_key}/stream.m3u8");
     if let Ok(content) = read_storage_text(storage, &playlist_key).await {
+        let fmp4 = fmp4_on_storage || crate::hls::playlist::playlist_uses_fmp4(&content);
         if let Ok(playlist) =
-            PlaylistGenerator::rewrite_stored_playlist(&content, base_url, key_uri)
+            PlaylistGenerator::rewrite_stored_playlist(&content, base_url, key_uri, init_uri)
         {
             return Ok(playlist);
         }
-        // Human: Rewrite can fail on odd tags — still reuse ffmpeg EXTINF timings when parseable.
-        // Agent: CALLS parse_segment_manifest + generate; AVOIDS flat 6s synthetic drift on copy/remux.
         if let Ok((files, durations)) = parse_segment_manifest(&content) {
             if !files.is_empty() && files.len() == durations.len() {
                 let segment_files: Vec<String> = files
@@ -76,6 +87,8 @@ pub(crate) async fn build_playlist_for_playback(
                     &segment_files,
                     &durations,
                     key_uri,
+                    init_uri,
+                    fmp4,
                 ));
             }
         }
@@ -85,11 +98,33 @@ pub(crate) async fn build_playlist_for_playback(
         );
     }
 
+    let fmp4 = fmp4_on_storage;
+    // Human: DB segment_count can be 0 while storage still has a valid ffmpeg manifest.
+    // Agent: RE-PARSE stored playlist before emitting an empty synthetic manifest.
+    let effective_segment_count = if segment_count == 0 {
+        if let Ok(content) = read_storage_text(storage, &playlist_key).await {
+            parse_segment_manifest(&content)
+                .ok()
+                .map(|(files, durations)| {
+                    if !files.is_empty() && files.len() == durations.len() {
+                        files.len()
+                    } else {
+                        0
+                    }
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    } else {
+        segment_count
+    };
+
     let mut segment_files = Vec::new();
     let mut segment_durations = Vec::new();
-    for i in 0..segment_count {
-        segment_files.push(format!("segments/{i:04}.ts"));
-        segment_durations.push(HLS_SEGMENT_TARGET_SECS);
+    for i in 0..effective_segment_count {
+        segment_files.push(synthetic_segment_rel_path(i, fmp4));
+        segment_durations.push(segment_target_secs);
     }
 
     Ok(PlaylistGenerator::generate(
@@ -97,6 +132,8 @@ pub(crate) async fn build_playlist_for_playback(
         &segment_files,
         &segment_durations,
         key_uri,
+        init_uri,
+        fmp4,
     ))
 }
 
@@ -116,6 +153,53 @@ async fn read_storage_text(storage: &dyn Storage, key: &str) -> Result<String, A
         out.extend_from_slice(&chunk);
     }
     String::from_utf8(out).map_err(|e| AppError::Storage(format!("playlist not UTF-8: {e}")))
+}
+
+// Human: Read a small binary object from storage (AES key, segment blob header).
+// Agent: READS full stream into Vec; USED by resolve_hls_aes_key before key_store fallback.
+async fn read_storage_bytes(storage: &dyn Storage, key: &str) -> Result<Vec<u8>, AppError> {
+    use futures_util::TryStreamExt;
+
+    let (mut stream, _, _) = storage
+        .get_stream(key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+    let mut out = Vec::new();
+    while let Some(chunk) = stream.try_next().await.map_err(|e| {
+        AppError::Storage(format!("read storage object {key}: {e}"))
+    })? {
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
+// Human: Resolve the 16-byte AES-128 key used to encrypt uploaded HLS segments.
+// Agent: PREFERS {storage_key}/key.bin from encode upload; FALLBACK key_store DB decrypt.
+pub(crate) async fn resolve_hls_aes_key(
+    storage: &dyn Storage,
+    key_store: &KeyStore,
+    storage_key: &str,
+    file_id: &str,
+) -> Result<AesKey, AppError> {
+    let object_key = format!("{storage_key}/key.bin");
+    if let Ok(bytes) = read_storage_bytes(storage, &object_key).await {
+        if bytes.len() == 16 {
+            let mut key = [0u8; 16];
+            key.copy_from_slice(&bytes);
+            return Ok(key);
+        }
+        tracing::warn!(
+            %file_id,
+            len = bytes.len(),
+            "stored key.bin has unexpected length; falling back to key_store"
+        );
+    }
+
+    key_store
+        .get_key(file_id)
+        .await
+        .map_err(|e| AppError::Storage(e.to_string()))?
+        .ok_or(AppError::NotFound)
 }
 
 // Human: Tell the client which URL to pass to hls.js — playlist when ready, otherwise null with progress.
@@ -162,7 +246,7 @@ pub async fn get_playlist(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let (storage_key, hls_ready, segment_count) =
+    let (storage_key, hls_ready, segment_count, size_bytes) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -173,14 +257,18 @@ pub async fn get_playlist(
 
     let base_url = format!("/api/v1/files/{id}");
     let key_uri = format!("/api/v1/files/{id}/key");
+    let init_uri = format!("/api/v1/files/{id}/init");
 
     let count = segment_count.unwrap_or(0) as usize;
+    let source_size = size_bytes.unwrap_or(0).max(0) as u64;
     let playlist = build_playlist_for_playback(
         state.storage.as_ref(),
         &storage_key,
         &base_url,
         &key_uri,
+        &init_uri,
         count,
+        source_size,
     )
     .await?;
 
@@ -201,14 +289,16 @@ pub async fn get_key(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
+    let (storage_key, _, _, _) =
+        ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
-    let key = state
-        .hls_key_store
-        .get_key(&id)
-        .await
-        .map_err(|e| AppError::Storage(e.to_string()))?
-        .ok_or(AppError::NotFound)?;
+    let key = resolve_hls_aes_key(
+        state.storage.as_ref(),
+        &state.hls_key_store,
+        &storage_key,
+        &id,
+    )
+    .await?;
 
     Ok((
         [
@@ -225,7 +315,8 @@ pub async fn get_segment(
     Extension(claims): Extension<Claims>,
     Path((id, segment_name)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let (storage_key, hls_ready, _) = ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
+    let (storage_key, hls_ready, _, _) =
+        ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::NotFound);
@@ -242,20 +333,82 @@ pub async fn get_segment(
     }
 
     let key = format!("{storage_key}/segments/{segment_name}");
-    let (stream, _, _) = state
+    let (stream, size, _) = state
         .storage
         .get_stream(&key)
         .await
         .map_err(|_| AppError::NotFound)?;
 
-    Ok((
-        [
-            (header::CONTENT_TYPE, "video/mp2t"),
-            (header::CACHE_CONTROL, "no-store, no-cache, must-revalidate"),
-        ],
-        Body::from_stream(stream),
-    )
-        .into_response())
+    Ok(segment_media_response(stream, size, &segment_name))
+}
+
+// Human: AES-128 fMP4 init segment (EXT-X-MAP) for owned video playback.
+// Agent: READS {storage_key}/init.mp4; RATE LIMITS like media segments.
+pub async fn get_init(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let (storage_key, hls_ready, _, _) =
+        ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
+
+    if !hls_ready.unwrap_or(false) {
+        return Err(AppError::NotFound);
+    }
+
+    let rl_key = format!("{}:{}", claims.sub, id);
+    rate_limit::enforce(&state.hls_segment_rl, &rl_key)?;
+
+    let key = format!("{storage_key}/{HLS_INIT_FILENAME}");
+    let (stream, size, _) = state
+        .storage
+        .get_stream(&key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+
+    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
+}
+
+// Human: HLS media segment/init response with Content-Length and type by filename.
+// Agent: SETS video/mp4 for .m4s/.mp4 and video/mp2t for legacy .ts; no-store on all.
+pub(crate) fn segment_media_response(
+    stream: StorageStream,
+    size: u64,
+    object_name: &str,
+) -> Response {
+    let content_type = hls_segment_content_type(object_name);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        content_type
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().expect("octet-stream")),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "no-store, no-cache, must-revalidate"
+            .parse()
+            .expect("cache control"),
+    );
+    if size > 0 {
+        if let Ok(value) = size.to_string().parse() {
+            headers.insert(header::CONTENT_LENGTH, value);
+        }
+    }
+
+    (headers, Body::from_stream(stream)).into_response()
+}
+
+// Human: Pick Content-Type for proxied HLS objects (.m4s init/media vs legacy MPEG-TS).
+// Agent: USED by get_segment, get_init, and public share segment proxy.
+pub(crate) fn hls_segment_content_type(object_name: &str) -> &'static str {
+    if object_name.ends_with(".ts") {
+        "video/mp2t"
+    } else if object_name.ends_with(".m4s") || object_name.ends_with(".mp4") {
+        "video/mp4"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 // Human: Ticket-gated progressive stream before HLS is ready (not used once hls_ready; kept for parity).
@@ -498,4 +651,16 @@ pub async fn get_export(
         export_size,
         export_error,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hls_segment_content_type;
+
+    #[test]
+    fn hls_segment_content_type_by_extension() {
+        assert_eq!(hls_segment_content_type("0000.ts"), "video/mp2t");
+        assert_eq!(hls_segment_content_type("0000.m4s"), "video/mp4");
+        assert_eq!(hls_segment_content_type("init.mp4"), "video/mp4");
+    }
 }

@@ -1,10 +1,15 @@
 // Human: In-browser video preview via HLS — files are HLS-ready as soon as upload completes.
-// Agent: READS fetchVideoStreamUrl; USES hls.js + Authorization on XHR; RENDERS Dialog + video.
+// Agent: READS fetchVideoStreamUrl; USES hls-player helpers; RENDERS Dialog + video.
 
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import type { FileItem } from "@/api/client";
 import { fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
+import {
+  attachHlsErrorHandler,
+  attachVodSeekRecovery,
+  createHlsInstance,
+} from "@/lib/hls-player";
 import {
   Dialog,
   DialogContent,
@@ -31,24 +36,8 @@ function resolveStreamUrl(url: string): string {
   return new URL(path, window.location.origin).href;
 }
 
-// Human: Configure hls.js for on-demand AES-128 HLS (not live LL-HLS).
-// Agent: lowLatencyMode false; backBufferLength caps MSE memory; xhrSetup adds Bearer token.
-function createHlsInstance(): Hls {
-  return new Hls({
-    enableWorker: true,
-    lowLatencyMode: false,
-    backBufferLength: 90,
-    maxBufferHole: 0.5,
-    xhrSetup: (xhr) => {
-      const token = getToken();
-      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    },
-  });
-}
-
 export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
@@ -94,68 +83,43 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
     const video = videoRef.current;
     if (!video || !streamUrl || !open) return;
 
+    let hls: Hls | null = null;
     let disposed = false;
+    let detachSeek: (() => void) | undefined;
 
-    const destroyHls = () => {
-      hlsRef.current?.destroy();
-      hlsRef.current = null;
-    };
-
-    const failPlayback = (message: string) => {
-      if (!disposed) setError(message);
-      destroyHls();
-      video.removeAttribute("src");
-      video.load();
-    };
-
-    destroyHls();
+    const isActive = () => !disposed;
 
     if (streamUrl.includes("/playlist") && Hls.isSupported()) {
-      const hls = createHlsInstance();
-      hlsRef.current = hls;
+      hls = createHlsInstance((xhr) => {
+        const token = getToken();
+        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      });
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
+      attachHlsErrorHandler(hls, video, isActive, (message) => {
+        if (!disposed) setError(message);
+      });
+      // Human: Surface non-fatal hls.js errors in devtools when playback stalls on init only.
+      // Agent: LOGS fragParsingError / keyLoadError; does not change user-visible error unless fatal.
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal || disposed) return;
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            hls.startLoad();
-            break;
-          case Hls.ErrorTypes.MEDIA_ERROR:
-            hls.recoverMediaError();
-            break;
-          default:
-            failPlayback("Playback failed. Try again later.");
-            break;
+        if (!data.fatal) {
+          console.warn("[hls]", data.type, data.details, data);
         }
       });
-
-      return () => {
-        disposed = true;
-        destroyHls();
-        video.removeAttribute("src");
-        video.load();
-      };
-    }
-
-    if (streamUrl.includes("/playlist") && video.canPlayType("application/vnd.apple.mpegurl")) {
+      detachSeek = attachVodSeekRecovery(hls, video, isActive);
+    } else if (streamUrl.includes("/playlist") && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = streamUrl;
-      return () => {
-        disposed = true;
-        video.removeAttribute("src");
-        video.load();
-      };
+    } else if (streamUrl.includes("/playlist")) {
+      setError("This browser cannot play HLS video.");
+    } else {
+      video.src = streamUrl;
     }
 
-    if (streamUrl.includes("/playlist")) {
-      failPlayback("This browser cannot play HLS video.");
-      return;
-    }
-
-    video.src = streamUrl;
     return () => {
       disposed = true;
+      detachSeek?.();
+      if (hls) hls.destroy();
       video.removeAttribute("src");
       video.load();
     };
@@ -189,7 +153,6 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
             className="size-full max-h-full max-w-full object-contain"
             controls
             playsInline
-            preload="metadata"
           />
           {loadingStream ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white">

@@ -4,10 +4,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Context;
 use sqlx::PgPool;
 
 use crate::hls::encoder::HlsEncoder;
-use crate::hls::playlist::PlaylistGenerator;
+use crate::hls::playlist::{
+    normalize_segment_rel_path, parse_segment_manifest, playlist_uses_fmp4,
+    segment_aes_sequence_map, PlaylistGenerator, HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION,
+};
+use crate::hls::segment_crypto::decrypt_hls_media_segment;
 use crate::storage::Storage;
 
 const EXPORT_OBJECT_KEY: &str = "export.mp4";
@@ -145,19 +150,50 @@ async fn prepare_hls_workdir(
 
     let key_bytes = read_storage_object(storage, &format!("{prefix}key.bin")).await?;
     tokio::fs::write(work_dir.join("key.bin"), &key_bytes).await?;
+    let aes_key: [u8; 16] = key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored HLS AES key must be 16 bytes"))?;
 
-    let count = segment_count.max(0) as usize;
+    let playlist_key = format!("{prefix}stream.m3u8");
+    let stored_playlist = read_storage_object(storage, &playlist_key).await.ok();
+    let stored_text = stored_playlist
+        .as_ref()
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default();
+    let fmp4 = storage
+        .exists(&format!("{prefix}{HLS_INIT_FILENAME}"))
+        .await
+        .unwrap_or(false)
+        || playlist_uses_fmp4(&stored_text);
+
+    if fmp4 {
+        let init_bytes = read_storage_object(storage, &format!("{prefix}{HLS_INIT_FILENAME}")).await?;
+        tokio::fs::write(work_dir.join(HLS_INIT_FILENAME), &init_bytes).await?;
+    }
+
+    let (segment_names, segment_durations) = resolve_export_segments(
+        &stored_text,
+        segment_count,
+        fmp4,
+    )?;
+
+    let seq_map = segment_aes_sequence_map(&stored_text).unwrap_or_default();
+
+    let count = segment_names.len();
     let mut segment_files = Vec::new();
-    let mut segment_durations = Vec::new();
-    for i in 0..count {
-        let name = format!("{i:04}.ts");
-        let data = read_storage_object(storage, &format!("{prefix}segments/{name}")).await?;
-        tokio::fs::write(segments_dir.join(&name), &data).await?;
-        segment_files.push(format!("segments/{name}"));
-        segment_durations.push(4.0);
+    for (i, name) in segment_names.iter().enumerate() {
+        let storage_name = name.rsplit('/').next().unwrap_or(name.as_str());
+        let encrypted =
+            read_storage_object(storage, &format!("{prefix}segments/{storage_name}")).await?;
+        let sequence = seq_map
+            .get(storage_name)
+            .copied()
+            .with_context(|| format!("no AES sequence for segment {storage_name}"))?;
+        let clear = decrypt_hls_media_segment(&encrypted, &aes_key, sequence)?;
+        tokio::fs::write(segments_dir.join(storage_name), &clear).await?;
+        segment_files.push(normalize_segment_rel_path(name));
 
-        // Human: Long HLS videos spend most of export time fetching segments — surface progress in the tray.
-        // Agent: MAPS segment index to 5–39% before ffmpeg remux starts.
         if count > 0 {
             let pct = 5 + (((i + 1) as f64 / count as f64) * 34.0).round() as i32;
             set_export_progress(pool, file_id, pct).await;
@@ -165,19 +201,59 @@ async fn prepare_hls_workdir(
     }
 
     let key_uri = "key.bin";
-    let playlist_key = format!("{storage_key}/stream.m3u8");
-    let playlist = if let Ok(stored) = read_storage_object(storage, &playlist_key).await {
-        let stored_text = String::from_utf8(stored).unwrap_or_default();
-        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri)
+    let init_uri = HLS_INIT_FILENAME;
+    let playlist = if !stored_text.is_empty() {
+        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri, init_uri)
             .unwrap_or_else(|_| {
-                PlaylistGenerator::generate(".", &segment_files, &segment_durations, key_uri)
+                PlaylistGenerator::generate(
+                    ".",
+                    &segment_files,
+                    &segment_durations,
+                    key_uri,
+                    init_uri,
+                    fmp4,
+                )
             })
     } else {
-        PlaylistGenerator::generate(".", &segment_files, &segment_durations, key_uri)
+        PlaylistGenerator::generate(
+            ".",
+            &segment_files,
+            &segment_durations,
+            key_uri,
+            init_uri,
+            fmp4,
+        )
     };
     tokio::fs::write(work_dir.join("stream.m3u8"), playlist).await?;
 
     Ok(())
+}
+
+// Human: Segment filenames for export — prefer stored playlist order, else numbered TS/fMP4.
+// Agent: RETURNS parallel names + durations; LEGACY TS when fmp4 false and manifest missing.
+fn resolve_export_segments(
+    stored_playlist: &str,
+    segment_count: i32,
+    fmp4: bool,
+) -> anyhow::Result<(Vec<String>, Vec<f64>)> {
+    if let Ok((files, durations)) = parse_segment_manifest(stored_playlist) {
+        if !files.is_empty() && files.len() == durations.len() {
+            return Ok((files, durations));
+        }
+    }
+
+    let count = segment_count.max(0) as usize;
+    let mut names = Vec::new();
+    let mut durations = Vec::new();
+    for i in 0..count {
+        if fmp4 {
+            names.push(format!("segments/{i:04}.{HLS_SEGMENT_EXTENSION}"));
+        } else {
+            names.push(format!("segments/{i:04}.ts"));
+        }
+        durations.push(4.0);
+    }
+    Ok((names, durations))
 }
 
 async fn read_storage_object(storage: &dyn Storage, key: &str) -> anyhow::Result<Vec<u8>> {

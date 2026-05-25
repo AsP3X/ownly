@@ -20,6 +20,9 @@ server {
         proxy_read_timeout ${NGINX_PROXY_READ_TIMEOUT};
         proxy_send_timeout ${NGINX_PROXY_READ_TIMEOUT};
         proxy_request_buffering off;
+        # Human: Stream multi-MiB HLS segments to the browser without nginx disk buffering delays.
+        # Agent: proxy_buffering off; HELPS hls.js finish XHR before fragLoadingTimeOut on seek.
+        proxy_buffering off;
     }
 
     location / {

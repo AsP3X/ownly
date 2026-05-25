@@ -5,6 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Hls from "hls.js";
 import {
+  attachHlsErrorHandler,
+  attachVodSeekRecovery,
+  createHlsInstance,
+} from "@/lib/hls-player";
+import {
   ChevronRight,
   Download,
   FileIcon,
@@ -173,9 +178,10 @@ export default function PublicSharePage() {
         }
         const normalized = res.url.startsWith("http")
           ? res.url
-          : res.url.startsWith("/")
-            ? res.url
-            : `/${res.url}`;
+          : new URL(
+              res.url.startsWith("/") ? res.url : `/${res.url}`,
+              window.location.origin,
+            ).href;
         setStreamUrl(normalized);
       })
       .catch((e) => {
@@ -193,17 +199,24 @@ export default function PublicSharePage() {
     const video = videoRef.current;
     if (!video || !streamUrl) return;
     let hls: Hls | null = null;
+    let disposed = false;
+    let detachSeek: (() => void) | undefined;
+    const isActive = () => !disposed;
+
     if (streamUrl.includes("/playlist") && Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true });
+      hls = createHlsInstance();
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) setStreamError("Playback failed.");
+      attachHlsErrorHandler(hls, video, isActive, (message) => {
+        if (!disposed) setStreamError(message);
       });
+      detachSeek = attachVodSeekRecovery(hls, video, isActive);
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = streamUrl;
     }
     return () => {
+      disposed = true;
+      detachSeek?.();
       if (hls) hls.destroy();
       video.removeAttribute("src");
       video.load();
