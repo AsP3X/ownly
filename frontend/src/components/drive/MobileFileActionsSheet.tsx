@@ -1,5 +1,5 @@
-// Human: Touch-friendly bottom sheet listing file/folder actions — replaces right-click menu on mobile.
-// Agent: Sheet side=bottom; CALLS parent handlers for download/share/delete/details; CLOSES on action.
+// Human: Touch-friendly bottom action sheet for file/folder actions on mobile.
+// Agent: Sheet side=bottom; CALLS parent handlers; CLOSES on action selection.
 
 import {
   Copy,
@@ -13,7 +13,6 @@ import {
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -46,8 +45,8 @@ type MobileFileActionsSheetProps = {
   bulkSelectionCount?: number;
 };
 
-// Human: Full-width tappable row inside the mobile action sheet.
-// Agent: RENDERS button; variant destructive for delete actions.
+// Human: Full-width action row inside the grouped action card.
+// Agent: RENDERS button; destructive variant for delete actions.
 function ActionRow({
   icon,
   label,
@@ -67,13 +66,16 @@ function ActionRow({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        destructive
-          ? "text-red-700 hover:bg-red-50"
-          : "text-neutral-800 hover:bg-neutral-50",
+        "flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        destructive ? "text-red-600 active:bg-red-50" : "text-neutral-900 active:bg-neutral-50",
       )}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-100">
+      <span
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-full",
+          destructive ? "bg-red-50 text-red-600" : "bg-neutral-100 text-neutral-700",
+        )}
+      >
         {icon}
       </span>
       {label}
@@ -81,7 +83,7 @@ function ActionRow({
   );
 }
 
-// Human: Native-style action sheet for a single file or folder row on mobile.
+// Human: iOS-style action sheet with drag handle, grouped actions, and separate cancel pill.
 // Agent: READS target kind; WRITES onOpenChange(false) after each handler fires.
 export function MobileFileActionsSheet({
   target,
@@ -117,20 +119,26 @@ export function MobileFileActionsSheet({
     file && processing
       ? "Processing — most actions are unavailable"
       : file
-        ? "Choose an action for this file"
+        ? "File actions"
         : folder
-          ? "Choose an action for this folder"
+          ? "Folder actions"
           : undefined;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-[85vh] gap-0 rounded-t-2xl p-0">
-        <SheetHeader className="border-b border-neutral-100 px-4 py-4 text-left">
-          <SheetTitle className="truncate pr-8 text-base">{title}</SheetTitle>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className="gap-3 rounded-t-[1.25rem] border-0 bg-transparent p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-none"
+      >
+        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-neutral-300/80" aria-hidden />
+
+        <SheetHeader className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-neutral-200/70">
+          <SheetTitle className="truncate text-base font-semibold">{title}</SheetTitle>
           {subtitle ? <SheetDescription>{subtitle}</SheetDescription> : null}
         </SheetHeader>
 
-        <div className="overflow-y-auto px-2 py-2">
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200/70">
           {file ? (
             <>
               <ActionRow
@@ -139,12 +147,14 @@ export function MobileFileActionsSheet({
                 disabled={processing}
                 onClick={() => closeThen(() => onDetailsFile(file))}
               />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Download className="size-4" />}
                 label="Download"
                 disabled={processing}
                 onClick={() => closeThen(() => onDownload(file))}
               />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={
                   <Star className={cn("size-4", favourited && "fill-current text-amber-500")} />
@@ -153,6 +163,7 @@ export function MobileFileActionsSheet({
                 disabled={processing}
                 onClick={() => closeThen(() => onToggleFavourite(file.id))}
               />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Link2 className="size-4" />}
                 label="Share link"
@@ -161,8 +172,8 @@ export function MobileFileActionsSheet({
               />
               {showBulkActions ? (
                 <>
-                  <Separator className="my-2" />
-                  <p className="px-3 py-1 text-xs font-medium uppercase tracking-wide text-neutral-500">
+                  <div className="mx-4 border-t border-neutral-100" />
+                  <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
                     {bulkSelectionCount} files selected
                   </p>
                   <ActionRow
@@ -171,6 +182,7 @@ export function MobileFileActionsSheet({
                     disabled={!onCopyToFolder}
                     onClick={() => closeThen(() => onCopyToFolder?.())}
                   />
+                  <div className="mx-4 border-t border-neutral-100" />
                   <ActionRow
                     icon={<FolderInput className="size-4" />}
                     label="Move to…"
@@ -179,7 +191,7 @@ export function MobileFileActionsSheet({
                   />
                 </>
               ) : null}
-              <Separator className="my-2" />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Trash2 className="size-4" />}
                 label="Delete"
@@ -195,17 +207,19 @@ export function MobileFileActionsSheet({
                 label="Details"
                 onClick={() => closeThen(() => onDetailsFolder(folder))}
               />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Download className="size-4" />}
                 label="Download"
                 onClick={() => closeThen(() => onDownloadFolder(folder))}
               />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Link2 className="size-4" />}
                 label="Share link"
                 onClick={() => closeThen(() => onShareFolder(folder))}
               />
-              <Separator className="my-2" />
+              <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Trash2 className="size-4" />}
                 label="Delete"
@@ -216,16 +230,14 @@ export function MobileFileActionsSheet({
           ) : null}
         </div>
 
-        <div className="border-t border-neutral-100 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-12 w-full rounded-2xl border-0 bg-white text-[15px] font-semibold shadow-sm ring-1 ring-neutral-200/70"
+          onClick={() => onOpenChange(false)}
+        >
+          Cancel
+        </Button>
       </SheetContent>
     </Sheet>
   );

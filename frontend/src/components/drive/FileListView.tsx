@@ -1,7 +1,7 @@
-// Human: Mobile-native list view for the My files browser — folders and files as tappable rows.
+// Human: Mobile-native list view for the My files browser — grouped folders and files as tappable rows.
 // Agent: lg:hidden counterpart to FileTable; SUPPORTS selection, preview tap, and action sheet trigger.
 
-import { useEffect, useMemo, useRef, type ChangeEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type ChangeEvent, type ReactNode, type RefObject } from "react";
 import {
   ChevronRight,
   FileIcon,
@@ -17,11 +17,11 @@ import {
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
+import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
 import { formatBytes, formatFileOpened, isImageMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 
 type FileListViewProps = {
   folders?: FolderItem[];
@@ -51,33 +51,66 @@ type FileListViewProps = {
   onOpenActions: (target: MobileActionTarget) => void;
 };
 
-// Human: Compact mime icon for mobile list rows.
-// Agent: READS mime_type string; RETURNS lucide icon sized for list density.
-function FileTypeIcon({ mimeType }: { mimeType: string | null }) {
+// Human: Mime icon inside a soft rounded tile for mobile file rows.
+// Agent: READS mime_type; RETURNS icon wrapper with type-specific background tint.
+function FileTypeTile({ mimeType }: { mimeType: string | null }) {
   const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-5 shrink-0 text-blue-600";
-  if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
-  if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
-  if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
-  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return <FileSpreadsheet className={className} aria-hidden />;
-  }
-  if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return <Presentation className={className} aria-hidden />;
-  }
-  if (
+  let icon = <FileIcon className="size-5 text-blue-700" aria-hidden />;
+  let tone = "bg-blue-50";
+
+  if (mime.startsWith("image/")) {
+    icon = <ImageIcon className="size-5 text-sky-700" aria-hidden />;
+    tone = "bg-sky-50";
+  } else if (mime.startsWith("video/")) {
+    icon = <Film className="size-5 text-violet-700" aria-hidden />;
+    tone = "bg-violet-50";
+  } else if (mime.startsWith("audio/")) {
+    icon = <Music className="size-5 text-emerald-700" aria-hidden />;
+    tone = "bg-emerald-50";
+  } else if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
+    icon = <FileSpreadsheet className="size-5 text-green-700" aria-hidden />;
+    tone = "bg-green-50";
+  } else if (mime.includes("presentation") || mime.includes("powerpoint")) {
+    icon = <Presentation className="size-5 text-orange-700" aria-hidden />;
+    tone = "bg-orange-50";
+  } else if (
     mime.startsWith("text/") ||
     mime.includes("pdf") ||
     mime.includes("word") ||
     mime.includes("document")
   ) {
-    return <FileText className={className} aria-hidden />;
+    icon = <FileText className="size-5 text-blue-700" aria-hidden />;
+    tone = "bg-blue-50";
   }
-  return <FileIcon className={className} aria-hidden />;
+
+  return (
+    <span className={cn("flex size-11 shrink-0 items-center justify-center rounded-2xl", tone)}>
+      {icon}
+    </span>
+  );
 }
 
-// Human: Scrollable list replacing the desktop table on viewports below lg.
-// Agent: RENDERS folder rows first; OBSERVES scroll sentinel for infinite file load.
+// Human: Section wrapper for grouped mobile list blocks (Folders / Files).
+// Agent: RENDERS title + rounded card list container.
+function ListSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">{title}</h3>
+      <ul className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200/70">
+        {children}
+      </ul>
+    </section>
+  );
+}
+
+// Human: Scrollable grouped list replacing the desktop table on viewports below lg.
+// Agent: RENDERS folder section then file section; OBSERVES scroll sentinel for infinite load.
 export function FileListView({
   folders = [],
   files,
@@ -172,13 +205,17 @@ export function FileListView({
   }
 
   if (folders.length === 0 && files.length === 0) {
-    return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
+    return (
+      <p className="rounded-2xl bg-white px-4 py-10 text-center text-sm text-neutral-500 shadow-sm ring-1 ring-neutral-200/70 lg:hidden">
+        {emptyMessage}
+      </p>
+    );
   }
 
   return (
-    <div className="lg:hidden">
+    <div className="flex flex-col gap-5 lg:hidden">
       {hasMoreFolders && onLoadMoreFolders ? (
-        <div className="mb-2 flex justify-center">
+        <div className="flex justify-center">
           <Button
             type="button"
             variant="outline"
@@ -192,7 +229,7 @@ export function FileListView({
       ) : null}
 
       {selectionEnabled && selectableFileIds.length > 0 ? (
-        <label className="mb-2 flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+        <label className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm text-neutral-700 shadow-sm ring-1 ring-neutral-200/70">
           <input
             ref={selectAllRef}
             type="checkbox"
@@ -200,128 +237,135 @@ export function FileListView({
             checked={allVisibleSelected}
             onChange={handleSelectAllVisible}
           />
-          Select all
+          Select all files
         </label>
       ) : null}
 
-      <ul className="divide-y divide-neutral-100 overflow-hidden rounded-lg border border-neutral-200 bg-white">
-        {folders.map((folder) => (
-          <li key={folder.id}>
-            <div
-              className="flex items-center gap-2 px-2 py-1"
+      {folders.length > 0 ? (
+        <ListSection title="Folders">
+          {folders.map((folder, index) => (
+            <li
+              key={folder.id}
+              className={cn(index > 0 && "border-t border-neutral-100")}
               data-folder-id={folder.id}
             >
-              <button
-                type="button"
-                onClick={() => onOpenFolder?.(folder)}
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-3 text-left active:bg-neutral-50"
-              >
-                <Folder className="size-5 shrink-0 text-amber-500" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate font-medium text-neutral-900">{folder.name}</span>
-                    <SharedIndicator flags={folderShareFlags[folder.id]} />
-                  </div>
-                  <p className="truncate text-xs text-neutral-500">
-                    {locationLabel} · Folder · {ownerLabel}
-                  </p>
-                </div>
-                <ChevronRight className="size-4 shrink-0 text-neutral-400" aria-hidden />
-              </button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="shrink-0 text-neutral-500"
-                aria-label={`Actions for ${folder.name}`}
-                onClick={() => onOpenActions({ kind: "folder", folder })}
-              >
-                <MoreVertical className="size-4" />
-              </Button>
-            </div>
-          </li>
-        ))}
-
-        {files.map((file) => {
-          const isSelected = selectionEnabled && selectedFileIds.has(file.id);
-          const isVideo = file.mime_type?.startsWith("video/") ?? false;
-          const isImage = isImageMime(file.mime_type);
-          const processing = isFileProcessing(file);
-          const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
-          const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
-          const canPreview = canPreviewVideo || canPreviewImage;
-
-          return (
-            <li key={file.id}>
-              <div
-                className={cn(
-                  "flex items-center gap-2 px-2 py-1",
-                  processing && "bg-violet-50/40",
-                  isSelected && "bg-blue-50/60",
-                )}
-                data-file-id={file.id}
-              >
-                {selectionEnabled ? (
-                  <input
-                    type="checkbox"
-                    className="ml-1 size-4 shrink-0 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-                    checked={isSelected}
-                    disabled={processing}
-                    onChange={(event) => toggleFileSelected(file.id, event.target.checked)}
-                    aria-label={`Select ${file.name}`}
-                  />
-                ) : null}
+              <div className="flex items-center gap-1 pr-1">
                 <button
                   type="button"
-                  disabled={!canPreview && false}
-                  onClick={() => {
-                    if (canPreviewVideo) onPreviewVideo!(file);
-                    else if (canPreviewImage) onPreviewImage!(file);
-                  }}
-                  className={cn(
-                    "flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-3 text-left active:bg-neutral-50",
-                    !canPreview && "cursor-default",
-                  )}
+                  onClick={() => onOpenFolder?.(folder)}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50"
                 >
-                  <FileTypeIcon mimeType={file.mime_type} />
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50">
+                    <Folder className="size-5 text-amber-600" aria-hidden />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-neutral-900">{file.name}</span>
-                      <SharedIndicator flags={fileShareFlags[file.id]} />
-                      {processing ? (
-                        <FileProcessingBadge
-                          file={file}
-                          className="shrink-0 bg-violet-100 text-violet-900"
-                        />
-                      ) : null}
+                      <span className="truncate font-medium text-neutral-900">{folder.name}</span>
+                      <SharedIndicator flags={folderShareFlags[folder.id]} />
                     </div>
                     <p className="truncate text-xs text-neutral-500">
-                      {formatBytes(file.size_bytes)} · {formatFileOpened(file.updated_at)}
+                      {locationLabel} · {ownerLabel}
                     </p>
                   </div>
+                  <ChevronRight className="size-4 shrink-0 text-neutral-300" aria-hidden />
                 </button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="shrink-0 text-neutral-500"
-                  aria-label={`Actions for ${file.name}`}
-                  onClick={() => onOpenActions({ kind: "file", file })}
+                  className="shrink-0 text-neutral-400"
+                  aria-label={`Actions for ${folder.name}`}
+                  onClick={() => onOpenActions({ kind: "folder", folder })}
                 >
                   <MoreVertical className="size-4" />
                 </Button>
               </div>
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ListSection>
+      ) : null}
+
+      {files.length > 0 ? (
+        <ListSection title="Files">
+          {files.map((file, index) => {
+            const isSelected = selectionEnabled && selectedFileIds.has(file.id);
+            const isVideo = file.mime_type?.startsWith("video/") ?? false;
+            const isImage = isImageMime(file.mime_type);
+            const processing = isFileProcessing(file);
+            const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
+            const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
+
+            return (
+              <li
+                key={file.id}
+                className={cn(
+                  index > 0 && "border-t border-neutral-100",
+                  isSelected && "bg-blue-50/50",
+                  processing && "bg-violet-50/30",
+                )}
+                data-file-id={file.id}
+              >
+                <div className="flex items-center gap-1 pr-1">
+                  {selectionEnabled ? (
+                    <input
+                      type="checkbox"
+                      className="ml-3 size-4 shrink-0 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+                      checked={isSelected}
+                      disabled={processing}
+                      onChange={(event) => toggleFileSelected(file.id, event.target.checked)}
+                      aria-label={`Select ${file.name}`}
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (canPreviewVideo) onPreviewVideo!(file);
+                      else if (canPreviewImage) onPreviewImage!(file);
+                    }}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50",
+                      !canPreviewVideo && !canPreviewImage && "cursor-default",
+                    )}
+                  >
+                    <FileTypeTile mimeType={file.mime_type} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-medium text-neutral-900">{file.name}</span>
+                        <SharedIndicator flags={fileShareFlags[file.id]} />
+                      </div>
+                      <p className="truncate text-xs text-neutral-500">
+                        {formatBytes(file.size_bytes)} · {formatFileOpened(file.updated_at)}
+                      </p>
+                      {processing ? (
+                        <div className="mt-1.5">
+                          <FileProcessingBadge file={file} className="bg-violet-100 text-violet-900" />
+                        </div>
+                      ) : null}
+                    </div>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0 text-neutral-400"
+                    aria-label={`Actions for ${file.name}`}
+                    onClick={() => onOpenActions({ kind: "file", file })}
+                  >
+                    <MoreVertical className="size-4" />
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ListSection>
+      ) : null}
 
       <div ref={loadMoreSentinelRef} className="h-1" aria-hidden />
       {loadingMoreFiles ? (
-        <p className="py-3 text-center text-xs text-neutral-500">Loading more files…</p>
+        <p className="py-2 text-center text-xs text-neutral-500">Loading more files…</p>
       ) : null}
       {hasMoreFiles && !loadingMoreFiles ? (
-        <div className="flex justify-center py-2">
+        <div className="flex justify-center py-1">
           <Button type="button" variant="outline" size="sm" onClick={() => onLoadMoreFiles?.()}>
             Load more files
           </Button>

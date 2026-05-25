@@ -57,6 +57,8 @@ import {
   type MobileActionTarget,
 } from "@/components/drive/MobileFileActionsSheet";
 import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
+import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
+import { MobileHomeSection } from "@/components/drive/MobileHomeSection";
 import { MobileSidebarSheet } from "@/components/drive/MobileSidebarSheet";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import {
@@ -889,23 +891,25 @@ function HomeSection({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div>
+      <div className="hidden lg:block">
         <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
         <p className="text-sm text-neutral-500">{description}</p>
       </div>
-      <FileGrid
-        files={files}
-        ownerLabel={ownerLabel}
-        favouriteIds={favouriteIds}
-        locationLabel={locationLabel}
-        emptyMessage={emptyMessage}
-        onToggleFavourite={onToggleFavourite}
-        onDelete={onDelete}
-        onDownload={onDownload}
-        onPreviewVideo={onPreviewVideo}
-        onPreviewImage={onPreviewImage}
-        fileShareFlags={fileShareFlags}
-      />
+      <div className="hidden lg:block">
+        <FileGrid
+          files={files}
+          ownerLabel={ownerLabel}
+          favouriteIds={favouriteIds}
+          locationLabel={locationLabel}
+          emptyMessage={emptyMessage}
+          onToggleFavourite={onToggleFavourite}
+          onDelete={onDelete}
+          onDownload={onDownload}
+          onPreviewVideo={onPreviewVideo}
+          onPreviewImage={onPreviewImage}
+          fileShareFlags={fileShareFlags}
+        />
+      </div>
     </section>
   );
 }
@@ -1805,23 +1809,14 @@ export default function DrivePage() {
           onMoveToFolder={handleOpenFolderPicker}
           bulkSelectionCount={selectedFileIds.size}
         />
-      {/* Top bar — profile avatar pinned on the far right */}
-      <header className="shrink-0 border-b border-neutral-200 bg-white">
+      {/* Top bar — desktop only; mobile uses MobileDriveHeader below. */}
+      <header className="hidden shrink-0 border-b border-neutral-200 bg-white lg:block">
         <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <Button
               variant="ghost"
               size="icon-sm"
-              className="text-neutral-600 lg:hidden"
-              aria-label="Open menu"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <LayoutGrid />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="hidden text-neutral-600 lg:inline-flex"
+              className="text-neutral-600"
               aria-label="App menu"
             >
               <LayoutGrid />
@@ -1892,6 +1887,29 @@ export default function DrivePage() {
         </div>
       </header>
 
+      <MobileDriveHeader
+        activeNav={activeNav}
+        folderStack={folderStack}
+        query={query}
+        onQueryChange={setQuery}
+        initials={initials}
+        email={user?.email}
+        profileOpen={profileOpen}
+        profileRef={profileRef}
+        onProfileToggle={() => setProfileOpen((open) => !open)}
+        onLogout={() => {
+          setProfileOpen(false);
+          logout();
+        }}
+        onMenuOpen={() => setMobileSidebarOpen(true)}
+        onUpload={() => setUploadDialogOpen(true)}
+        onCreateFolder={() => {
+          setActiveNav("my-files");
+          setCreateFolderDialogOpen(true);
+        }}
+        onBack={() => goToFolderIndex(folderStack.length - 2)}
+      />
+
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:grid-rows-1">
         {/* Left sidebar — pinned from header to viewport bottom; storage block uses mt-auto. */}
         {/* Agent: lg:h-full + overflow-hidden keeps sidebar fixed while main scrolls independently. */}
@@ -1960,10 +1978,10 @@ export default function DrivePage() {
         {/* Agent: min-h-0 overflow-y-auto; READS user scroll; sidebar sibling stays viewport-anchored. */}
         <main
           ref={mainScrollRef}
-          className="min-h-0 overflow-y-auto p-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-6 lg:pb-6"
+          className="min-h-0 overflow-y-auto bg-[#f3f2f1] px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:bg-transparent lg:pb-6 lg:pt-0 lg:px-6"
         >
-          <div className="flex min-h-full flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none md:p-6 lg:border lg:bg-white lg:p-6 lg:shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-h-full flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none">
+            <div className="hidden flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold text-neutral-900">
                   {activeNav === "home" ? "Home" : "My files"}
@@ -2020,15 +2038,14 @@ export default function DrivePage() {
             </div>
 
             {activeNav === "my-files" ? (
-              <div className="flex flex-wrap gap-2 lg:flex-wrap">
-                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+              <div className="hidden flex-wrap gap-2 lg:flex">
                 {TYPE_FILTERS.map(({ id, label }) => (
                   <button
                     key={id}
                     type="button"
                     onClick={() => setTypeFilter(id)}
                     className={cn(
-                      "shrink-0 rounded-full px-3 py-1 text-sm transition-colors",
+                      "rounded-full px-3 py-1 text-sm transition-colors",
                       typeFilter === id
                         ? "bg-blue-50 font-medium text-blue-700 ring-1 ring-blue-200"
                         : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200",
@@ -2037,18 +2054,26 @@ export default function DrivePage() {
                     {label}
                   </button>
                 ))}
-                </div>
-                <div className="flex w-full gap-2 lg:hidden">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setCreateFolderDialogOpen(true)}
+              </div>
+            ) : null}
+
+            {activeNav === "my-files" ? (
+              <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {TYPE_FILTERS.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTypeFilter(id)}
+                    className={cn(
+                      "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
+                      typeFilter === id
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "bg-white text-neutral-700 ring-1 ring-neutral-200/80",
+                    )}
                   >
-                    <FolderPlus data-icon="inline-start" />
-                    New folder
-                  </Button>
-                </div>
+                    {label}
+                  </button>
+                ))}
               </div>
             ) : null}
 
@@ -2063,7 +2088,37 @@ export default function DrivePage() {
             {loading ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
             ) : activeNav === "home" ? (
-              <div className="flex flex-col gap-8">
+              <div className="flex flex-col gap-5 lg:gap-8">
+                <MobileHomeSection
+                  title="Recently accessed"
+                  files={recentFiles}
+                  locationLabel="My files"
+                  emptyMessage="No recent files yet. Open or download something from My files."
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
+                  onOpenActions={handleOpenMobileActions}
+                />
+                <MobileHomeSection
+                  title="Favourites"
+                  files={favouriteFiles}
+                  locationLabel="My files"
+                  emptyMessage="No favourites yet. Star a file to pin it here."
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
+                  onOpenActions={handleOpenMobileActions}
+                />
+                <MobileHomeSection
+                  title="Shared with you"
+                  files={sharedFiles}
+                  locationLabel="Shared"
+                  emptyMessage="Nothing shared with you yet."
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
+                  onOpenActions={handleOpenMobileActions}
+                />
                 <HomeSection
                   title="Recently accessed"
                   description="Files you opened or downloaded recently"
@@ -2228,6 +2283,7 @@ export default function DrivePage() {
         activeNav={activeNav}
         onNavChange={handleNavChange}
         onUpload={() => setUploadDialogOpen(true)}
+        onMenuOpen={() => setMobileSidebarOpen(true)}
       />
       </div>
     </DriveContextMenu>
