@@ -42,6 +42,13 @@ impl StorageEngine {
                 .map_err(internal)?;
             purged += 1;
         }
+        if purged > 0 {
+            tracing::info!(
+                purged,
+                ttl_secs = self.soft_delete_ttl_secs(),
+                "storage::purge_soft_deleted completed"
+            );
+        }
         Ok(purged)
     }
 

@@ -22,13 +22,23 @@ pub async fn link_or_copy_blob(src: &Path, dst: &Path) -> Result<(), StorageErro
     #[cfg(unix)]
     {
         match std::fs::hard_link(src, dst) {
-            Ok(()) => return Ok(()),
-            Err(e) if e.raw_os_error() == Some(ERR_CROSS_DEVICE) => {}
+            Ok(()) => {
+                tracing::debug!(src = %src.display(), dst = %dst.display(), "blob copied via hard link");
+                return Ok(());
+            }
+            Err(e) if e.raw_os_error() == Some(ERR_CROSS_DEVICE) => {
+                tracing::debug!(
+                    src = %src.display(),
+                    dst = %dst.display(),
+                    "hard link failed with EXDEV — falling back to file copy"
+                );
+            }
             Err(e) => return Err(internal(e)),
         }
     }
 
     fs::copy(src, dst).await.map_err(internal)?;
+    tracing::debug!(src = %src.display(), dst = %dst.display(), "blob copied via fs::copy");
     Ok(())
 }
 

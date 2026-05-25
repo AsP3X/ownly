@@ -135,6 +135,15 @@ impl StorageEngine {
 
         let _ = opts.read_pool_size;
 
+        tracing::info!(
+            meta_path = %meta_path,
+            data_dir = %data_dir,
+            upload_buffer_size = opts.upload_buffer_size,
+            multipart_part_size = opts.multipart_part_size,
+            soft_delete_ttl_secs = opts.soft_delete_ttl_secs,
+            "storage engine initialized"
+        );
+
         Ok(Self {
             write_pool,
             read_pool,
@@ -307,6 +316,15 @@ impl StorageEngine {
         let src_path = blob_path(&self.data_dir, &src_bucket, &src_key);
         let dst_path = blob_path(&self.data_dir, &dst_bucket, &dst_key);
 
+        tracing::info!(
+            src_bucket = %src_bucket,
+            src_key = %src_key,
+            dst_bucket = %dst_bucket,
+            dst_key = %dst_key,
+            logical_size_bytes = src_meta.size,
+            "copy_object started"
+        );
+
         // Human: Hard-link the on-disk blob when possible so copies share storage on the same volume.
         // Agent: CALLS link_or_copy_blob(src,dst); fallback fs::copy on EXDEV; metadata row for dst only.
         link_or_copy_blob(&src_path, &dst_path).await?;
@@ -335,6 +353,15 @@ impl StorageEngine {
         .execute(&self.write_pool)
         .await
         .map_err(internal)?;
+
+        tracing::info!(
+            src_bucket = %src_bucket,
+            src_key = %src_key,
+            dst_bucket = %dst_bucket,
+            dst_key = %dst_key,
+            logical_size_bytes = src_meta.size,
+            "copy_object complete"
+        );
 
         Ok(ObjectMetadata {
             bucket: dst_bucket,
@@ -510,6 +537,7 @@ impl StorageEngine {
         if_none_match: Option<&str>,
         if_modified_since: Option<i64>,
     ) -> Result<GetObjectOutcome, StorageError> {
+        let read_started = Instant::now();
         let meta = self
             .fetch_active_metadata(
                 &sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?,
@@ -518,6 +546,12 @@ impl StorageEngine {
             .await?;
 
         if self.is_not_modified(&meta, if_none_match, if_modified_since) {
+            tracing::debug!(
+                bucket = %meta.bucket,
+                key = %meta.key,
+                elapsed_ms = read_started.elapsed().as_millis() as u64,
+                "get_object not modified (conditional headers)"
+            );
             return Ok(GetObjectOutcome::NotModified(meta));
         }
 
@@ -525,6 +559,7 @@ impl StorageEngine {
         let range = range_header.and_then(|h| parse_content_range(h, total_size));
 
         let path = blob_path(&self.data_dir, &meta.bucket, &meta.key);
+        let blob_read_started = Instant::now();
         let blob = fs::read(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 StorageError::NotFound
@@ -532,16 +567,41 @@ impl StorageEngine {
                 StorageError::Internal(e.into())
             }
         })?;
+        let blob_read_ms = blob_read_started.elapsed().as_millis() as u64;
 
         // Human: Decompress (or pass through legacy raw blobs) so range requests apply to logical object bytes.
         // Agent: CALLS decompress_blob(blob, meta.size); slice Vec; streams via ReaderStream<Cursor>.
+        let decompress_started = Instant::now();
         let logical = decompress_blob(&blob, total_size)?;
+        let decompress_ms = decompress_started.elapsed().as_millis() as u64;
         let (start, _end, content_length) = Self::resolve_range(range, logical.len() as u64)?;
 
         let start_usize = start as usize;
         let end_usize = start_usize + content_length as usize;
         let slice = logical[start_usize..end_usize].to_vec();
         let stream = ReaderStream::new(Cursor::new(slice));
+
+        tracing::info!(
+            bucket = %meta.bucket,
+            key = %meta.key,
+            logical_size_bytes = total_size,
+            stored_blob_bytes = blob.len(),
+            content_length,
+            blob_read_ms,
+            decompress_ms,
+            elapsed_ms = read_started.elapsed().as_millis() as u64,
+            compressed = super::compression::is_compressed_blob(&blob),
+            "get_object blob read and decompressed"
+        );
+        if decompress_ms > 30_000 {
+            tracing::warn!(
+                bucket = %meta.bucket,
+                key = %meta.key,
+                logical_size_bytes = total_size,
+                decompress_ms,
+                "get_object decompression was slow — check CPU load"
+            );
+        }
 
         Ok(GetObjectOutcome::Content {
             stream,
@@ -608,6 +668,7 @@ impl StorageEngine {
         .map_err(internal)?;
 
         if exists == 0 {
+            tracing::debug!(bucket = %bucket, key = %safe_key, "delete_object skipped: not found");
             return Ok(());
         }
 
@@ -623,6 +684,12 @@ impl StorageEngine {
                 .execute(&self.write_pool)
                 .await
                 .map_err(internal)?;
+            tracing::info!(
+                bucket = %bucket,
+                key = %safe_key,
+                mode = "hard",
+                "delete_object complete"
+            );
             return Ok(());
         }
 
@@ -640,6 +707,15 @@ impl StorageEngine {
         .execute(&self.write_pool)
         .await
         .map_err(internal)?;
+
+        tracing::info!(
+            bucket = %bucket,
+            key = %safe_key,
+            mode = "soft",
+            drop_blob = self.soft_delete_drop_blob,
+            ttl_secs = self.soft_delete_ttl_secs,
+            "delete_object complete"
+        );
 
         Ok(())
     }

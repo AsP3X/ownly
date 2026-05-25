@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Map};
 use std::io;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::routes::errors::map_storage_error;
 use crate::routes::object::LimitReader;
@@ -43,18 +44,44 @@ pub async fn init_multipart(
     Query(query): Query<InitQuery>,
     req: Request,
 ) -> Response {
+    let started = Instant::now();
     let content_type = req
         .headers()
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok());
+
+    tracing::info!(
+        bucket = %params.bucket,
+        key = %query.key,
+        "init_multipart started"
+    );
 
     match state
         .storage
         .init_multipart(&params.bucket, &query.key, content_type)
         .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => map_storage_error(e).into_response(),
+        Ok(result) => {
+            tracing::info!(
+                bucket = %params.bucket,
+                key = %query.key,
+                upload_id = %result.upload_id,
+                part_size = result.part_size,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "init_multipart complete"
+            );
+            (StatusCode::OK, Json(result)).into_response()
+        }
+        Err(e) => {
+            tracing::error!(
+                bucket = %params.bucket,
+                key = %query.key,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %e,
+                "init_multipart failed"
+            );
+            map_storage_error(e).into_response()
+        }
     }
 }
 
@@ -63,13 +90,28 @@ pub async fn upload_part(
     Path(params): Path<UploadPartParams>,
     req: Request,
 ) -> Response {
+    let started = Instant::now();
+    tracing::info!(
+        bucket = %params.bucket,
+        upload_id = %params.upload_id,
+        part_number = params.part_number,
+        "upload_part started"
+    );
+
     let key = match state
         .storage
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
         Ok(k) => k,
-        Err(e) => return map_storage_error(e).into_response(),
+        Err(e) => {
+            tracing::error!(
+                upload_id = %params.upload_id,
+                error = %e,
+                "upload_part failed: unknown upload session"
+            );
+            return map_storage_error(e).into_response();
+        }
     };
 
     let max_part = state.storage.multipart_part_size();
@@ -95,8 +137,27 @@ pub async fn upload_part(
         )
         .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => map_storage_error(e).into_response(),
+        Ok(result) => {
+            tracing::info!(
+                bucket = %params.bucket,
+                upload_id = %params.upload_id,
+                part_number = params.part_number,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "upload_part complete"
+            );
+            (StatusCode::OK, Json(result)).into_response()
+        }
+        Err(e) => {
+            tracing::error!(
+                bucket = %params.bucket,
+                upload_id = %params.upload_id,
+                part_number = params.part_number,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %e,
+                "upload_part failed"
+            );
+            map_storage_error(e).into_response()
+        }
     }
 }
 
@@ -105,13 +166,27 @@ pub async fn complete_multipart(
     Path(params): Path<UploadSessionParams>,
     req: Request,
 ) -> Response {
+    let started = Instant::now();
+    tracing::info!(
+        bucket = %params.bucket,
+        upload_id = %params.upload_id,
+        "complete_multipart started"
+    );
+
     let key = match state
         .storage
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
         Ok(k) => k,
-        Err(e) => return map_storage_error(e).into_response(),
+        Err(e) => {
+            tracing::error!(
+                upload_id = %params.upload_id,
+                error = %e,
+                "complete_multipart failed: unknown upload session"
+            );
+            return map_storage_error(e).into_response();
+        }
     };
 
     let mut custom_meta_map = Map::new();
@@ -138,8 +213,28 @@ pub async fn complete_multipart(
         )
         .await
     {
-        Ok(meta) => (StatusCode::CREATED, Json(json!({ "etag": meta.etag }))).into_response(),
-        Err(e) => map_storage_error(e).into_response(),
+        Ok(meta) => {
+            state.metrics.add_uploaded(meta.size as u64);
+            tracing::info!(
+                bucket = %params.bucket,
+                key = %key,
+                upload_id = %params.upload_id,
+                logical_size_bytes = meta.size,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "complete_multipart complete"
+            );
+            (StatusCode::CREATED, Json(json!({ "etag": meta.etag }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!(
+                bucket = %params.bucket,
+                upload_id = %params.upload_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %e,
+                "complete_multipart failed"
+            );
+            map_storage_error(e).into_response()
+        }
     }
 }
 
@@ -147,13 +242,27 @@ pub async fn abort_multipart(
     State(state): State<Arc<AppState>>,
     Path(params): Path<UploadSessionParams>,
 ) -> Response {
+    let started = Instant::now();
+    tracing::info!(
+        bucket = %params.bucket,
+        upload_id = %params.upload_id,
+        "abort_multipart started"
+    );
+
     let key = match state
         .storage
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
         Ok(k) => k,
-        Err(e) => return map_storage_error(e).into_response(),
+        Err(e) => {
+            tracing::error!(
+                upload_id = %params.upload_id,
+                error = %e,
+                "abort_multipart failed: unknown upload session"
+            );
+            return map_storage_error(e).into_response();
+        }
     };
 
     match state
@@ -161,7 +270,24 @@ pub async fn abort_multipart(
         .abort_multipart(&params.bucket, &key, &params.upload_id)
         .await
     {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => map_storage_error(e).into_response(),
+        Ok(()) => {
+            tracing::info!(
+                bucket = %params.bucket,
+                upload_id = %params.upload_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "abort_multipart complete"
+            );
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => {
+            tracing::error!(
+                bucket = %params.bucket,
+                upload_id = %params.upload_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %e,
+                "abort_multipart failed"
+            );
+            map_storage_error(e).into_response()
+        }
     }
 }

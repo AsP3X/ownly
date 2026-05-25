@@ -558,7 +558,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
         </div>
 
-        <DialogFooter className="flex-row justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="flex-row justify-end gap-2 border-neutral-100 bg-neutral-50/80">
           {step === "select" ? (
             <>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>

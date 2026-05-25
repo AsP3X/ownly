@@ -58,6 +58,16 @@ pub struct DownloadUrlResponse {
     pub expires_in_seconds: u64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MoveFileRequest {
+    pub folder_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MoveFileResponse {
+    pub file: FileDto,
+}
+
 // Human: List the current user's files with optional folder filter and name search.
 // Agent: READS files WHERE user_id; SUM size_bytes; ORDER BY name.
 pub async fn list_files(
@@ -360,6 +370,72 @@ pub async fn download_url(
         url,
         expires_in_seconds: state.url_expiry_seconds,
     }))
+}
+
+// Human: Move a file into another folder or back to the drive root.
+// Agent: PATCH files.folder_id; VALIDATES folder ownership; AUDIT files.move.
+pub async fn move_file(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<MoveFileRequest>,
+) -> Result<Json<MoveFileResponse>, AppError> {
+    let current: Option<(Option<String>, String)> = sqlx::query_as(
+        "SELECT folder_id, name FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (current_folder_id, name) = current.ok_or(AppError::NotFound)?;
+
+    let target_folder_id = body
+        .folder_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if current_folder_id.as_deref() == target_folder_id.as_deref() {
+        return Err(AppError::BadRequest(
+            "file is already in this folder".into(),
+        ));
+    }
+
+    if let Some(ref folder_id) = target_folder_id {
+        ensure_folder_owned(&state.pool, &claims.sub, folder_id).await?;
+    }
+
+    let file: FileDto = sqlx::query_as(
+        "UPDATE files SET folder_id = $1, updated_at = NOW() \
+         WHERE id = $2 AND user_id = $3 \
+         RETURNING id, name, mime_type, size_bytes, folder_id, created_at, updated_at",
+    )
+    .bind(&target_folder_id)
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.move",
+        Some("file"),
+        Some(&id),
+        Some(serde_json::json!({
+            "name": name,
+            "from_folder_id": current_folder_id,
+            "to_folder_id": target_folder_id,
+        })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(MoveFileResponse { file }))
 }
 
 // Human: Remove file metadata and delete the blob from object storage.

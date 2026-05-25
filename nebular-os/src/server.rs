@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::{
     middleware,
     routing::{delete, get, post, put},
@@ -89,7 +91,42 @@ pub async fn create_app(storage: StorageEngine, cfg: Arc<NosConfig>) -> anyhow::
         .merge(protected_routes)
         .layer(NormalizePathLayer::trim_trailing_slash())
         .layer(cors)
-        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
+        // Human: Log every HTTP request with method, URI, status, and latency for ops visibility.
+        // Agent: TraceLayer EMITS info on response; WARN on server failures.
+        .layer(
+            ServiceBuilder::new().layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|request: &axum::http::Request<_>| {
+                        tracing::info_span!(
+                            "nos.http",
+                            method = %request.method(),
+                            uri = %request.uri(),
+                        )
+                    })
+                    .on_response(
+                        |response: &axum::http::Response<_>,
+                         latency: Duration,
+                         _span: &tracing::Span| {
+                            tracing::info!(
+                                status = response.status().as_u16(),
+                                latency_ms = latency.as_millis(),
+                                "nos.http response"
+                            );
+                        },
+                    )
+                    .on_failure(
+                        |error: tower_http::classify::ServerErrorsFailureClass,
+                         latency: Duration,
+                         _span: &tracing::Span| {
+                            tracing::warn!(
+                                failure = ?error,
+                                latency_ms = latency.as_millis(),
+                                "nos.http failed"
+                            );
+                        },
+                    ),
+            ),
+        )
         .with_state(state);
 
     Ok(app)

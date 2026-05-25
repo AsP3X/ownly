@@ -60,6 +60,14 @@ impl StorageEngine {
             .await
             .map_err(internal)?;
 
+        tracing::info!(
+            bucket = %bucket,
+            key = %safe_key,
+            upload_id = %upload_id,
+            part_size = self.multipart_part_size(),
+            "multipart session initialized"
+        );
+
         Ok(InitMultipartResult {
             upload_id,
             part_size: self.multipart_part_size(),
@@ -121,6 +129,15 @@ impl StorageEngine {
         .await
         .map_err(internal)?;
 
+        tracing::info!(
+            bucket = %bucket,
+            key = %safe_key,
+            upload_id = %upload_id,
+            part_number,
+            part_size_bytes = size,
+            "multipart part stored"
+        );
+
         Ok(PartUploadResult { etag })
     }
 
@@ -147,6 +164,8 @@ impl StorageEngine {
         if parts.is_empty() {
             return Err(StorageError::InvalidKey);
         }
+
+        let part_count = parts.len();
 
         let tmp_path = format!("{}/.tmp/{}.tmp", self.data_dir(), uuid::Uuid::new_v4());
         let final_path = blob_path(self.data_dir(), &bucket, &safe_key);
@@ -222,6 +241,14 @@ impl StorageEngine {
         }
 
         self.cleanup_multipart(upload_id).await?;
+        tracing::info!(
+            bucket = %bucket,
+            key = %safe_key,
+            upload_id = %upload_id,
+            logical_size_bytes = total_size,
+            part_count,
+            "multipart upload completed"
+        );
         Ok(super::types::ObjectMetadata {
             bucket: bucket.to_string(),
             key: safe_key,
@@ -246,7 +273,14 @@ impl StorageEngine {
         let safe_key = sanitize_key(key).map_err(|_| StorageError::InvalidKey)?;
         self.ensure_multipart_session(upload_id, &bucket, &safe_key)
             .await?;
-        self.cleanup_multipart(upload_id).await
+        self.cleanup_multipart(upload_id).await?;
+        tracing::info!(
+            bucket = %bucket,
+            key = %safe_key,
+            upload_id = %upload_id,
+            "multipart upload aborted"
+        );
+        Ok(())
     }
 
     async fn cleanup_multipart(&self, upload_id: &str) -> Result<(), StorageError> {

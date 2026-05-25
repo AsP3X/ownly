@@ -358,6 +358,15 @@ export async function deleteFile(id: string) {
   return apiFetch(`/files/${id}`, { method: "DELETE" });
 }
 
+// Human: Move a file into a folder or back to the drive root (folder_id omitted/null).
+// Agent: PATCH /files/{id} JSON { folder_id? }; RETURNS { file: FileItem }.
+export async function moveFile(id: string, folderId: string | null) {
+  return apiFetch(`/files/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ folder_id: folderId }),
+  }) as Promise<{ file: FileItem }>;
+}
+
 // Human: Progress snapshot for MEGA-style downloads — byte transfer vs browser save step.
 // Agent: phase downloading = XHR bytes; phase saving = blob write / anchor click.
 export type DownloadProgressUpdate = {

@@ -1,7 +1,7 @@
 // Human: OneDrive-style drive shell — top bar, sidebar, recent files table on a light theme.
-// Agent: CALLS listFiles/uploadFile/deleteFile/fetchDashboard; READS auth user for profile chip.
+// Agent: CALLS listFiles/uploadFile/fetchDashboard; READS auth user for profile chip.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   ChevronRight,
   Download,
@@ -23,16 +23,19 @@ import {
   Upload,
 } from "lucide-react";
 import {
-  deleteFile,
-  deleteFolder,
   fetchDashboard,
   getErrorMessage,
   listFiles,
   listFolders,
+  moveFile,
   type FileItem,
   type FolderItem,
 } from "@/api/client";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
+import {
+  ConfirmDeleteDialog,
+  type DeleteTarget,
+} from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
 import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
 import { UploadDialog } from "@/components/drive/UploadDialog";
@@ -142,15 +145,21 @@ type FileTableProps = {
   favouriteIds: Set<string>;
   locationLabel?: string;
   emptyMessage: string;
+  dragEnabled?: boolean;
   onOpenFolder?: (folder: FolderItem) => void;
   onDeleteFolder?: (folderId: string) => void;
+  onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
 };
 
+// Human: MIME payload key for HTML5 drag — keeps drop handler independent of React state timing.
+// Agent: SET on dragstart; READ on drop to resolve which file was moved.
+const FILE_DRAG_MIME = "application/x-mediavault-file-id";
+
 // Human: Reusable file rows table for the My files browser, with optional folder rows first.
-// Agent: RENDERS folder navigation + download/delete/favourite actions; CALLS onOpenFolder for drill-down.
+// Agent: RENDERS folder navigation + download/delete/favourite actions; SUPPORTS drag files onto folders.
 function FileTable({
   folders = [],
   files,
@@ -158,12 +167,102 @@ function FileTable({
   favouriteIds,
   locationLabel = "My files",
   emptyMessage,
+  dragEnabled = false,
   onOpenFolder,
   onDeleteFolder,
+  onMoveFileToFolder,
   onToggleFavourite,
   onDelete,
   onDownload,
 }: FileTableProps) {
+  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
+  const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
+  const dragDepthRef = useRef<Map<string, number>>(new Map());
+  // Human: Ref mirrors dragging id so dragOver handlers see it before React re-renders.
+  // Agent: WRITES in dragstart; READS in folder dragenter/over; CLEARS on dragend.
+  const draggingFileIdRef = useRef<string | null>(null);
+
+  const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+
+  // Human: Clear drag highlights when the pointer leaves the table or the drag ends.
+  // Agent: RESETS dropTargetFolderId and dragDepthRef on dragend.
+  const resetDragState = useCallback(() => {
+    draggingFileIdRef.current = null;
+    setDraggingFileId(null);
+    setDropTargetFolderId(null);
+    dragDepthRef.current.clear();
+  }, []);
+
+  // Human: Start dragging a file row — stash id for styling and for the folder drop handler.
+  // Agent: WRITES dataTransfer custom MIME + text/plain fallback.
+  function handleFileDragStart(event: DragEvent<HTMLTableRowElement>, fileId: string) {
+    if (!dragEnabled) {
+      event.preventDefault();
+      return;
+    }
+    draggingFileIdRef.current = fileId;
+    setDraggingFileId(fileId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(FILE_DRAG_MIME, fileId);
+    event.dataTransfer.setData("text/plain", fileId);
+  }
+
+  // Human: Resolve dragged file id from the drop event payload.
+  // Agent: READS FILE_DRAG_MIME first, then text/plain.
+  function readDraggedFileId(event: DragEvent): string | null {
+    const custom = event.dataTransfer.getData(FILE_DRAG_MIME);
+    if (custom) return custom;
+    const plain = event.dataTransfer.getData("text/plain");
+    return plain || draggingFileIdRef.current || draggingFileId;
+  }
+
+  // Human: Highlight a folder row while a file is dragged over it.
+  // Agent: TRACKS enter/leave depth per folder id to avoid flicker on child elements.
+  function handleFolderDragEnter(
+    event: DragEvent<HTMLTableRowElement>,
+    folderId: string,
+    fileId: string | null,
+  ) {
+    if (!dragEnabled || !fileId) return;
+    event.preventDefault();
+    const depth = (dragDepthRef.current.get(folderId) ?? 0) + 1;
+    dragDepthRef.current.set(folderId, depth);
+    setDropTargetFolderId(folderId);
+  }
+
+  function handleFolderDragLeave(folderId: string) {
+    const depth = (dragDepthRef.current.get(folderId) ?? 0) - 1;
+    if (depth <= 0) {
+      dragDepthRef.current.delete(folderId);
+      setDropTargetFolderId((current) => (current === folderId ? null : current));
+      return;
+    }
+    dragDepthRef.current.set(folderId, depth);
+  }
+
+  // Human: Accept file drop onto a folder and notify the parent to persist the move.
+  // Agent: CALLS onMoveFileToFolder when target differs from the file's current folder_id.
+  function handleFolderDrop(
+    event: DragEvent<HTMLTableRowElement>,
+    folder: FolderItem,
+  ) {
+    if (!dragEnabled || !onMoveFileToFolder) return;
+    event.preventDefault();
+    const fileId = readDraggedFileId(event);
+    resetDragState();
+    if (!fileId) return;
+
+    const file = fileById.get(fileId);
+    if (!file || file.folder_id === folder.id) return;
+
+    void onMoveFileToFolder(fileId, folder.id);
+  }
+
+  function canDropOnFolder(folderId: string, fileId: string | null): boolean {
+    if (!fileId) return false;
+    const file = fileById.get(fileId);
+    return Boolean(file && file.folder_id !== folderId);
+  }
   if (folders.length === 0 && files.length === 0) {
     return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
   }
@@ -180,11 +279,28 @@ function FileTable({
           </tr>
         </thead>
         <tbody>
-          {folders.map((folder) => (
+          {folders.map((folder) => {
+            const isDropTarget = dropTargetFolderId === folder.id;
+            const dropAllowed = canDropOnFolder(folder.id, draggingFileId);
+            return (
             <tr
               key={folder.id}
               data-folder-id={folder.id}
-              className="border-b border-neutral-100 transition-colors hover:bg-neutral-50"
+              onDoubleClick={() => onOpenFolder?.(folder)}
+              onDragEnter={(event) =>
+                handleFolderDragEnter(event, folder.id, draggingFileIdRef.current)
+              }
+              onDragOver={(event) => {
+                if (!dragEnabled || !canDropOnFolder(folder.id, draggingFileIdRef.current)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDragLeave={() => handleFolderDragLeave(folder.id)}
+              onDrop={(event) => handleFolderDrop(event, folder)}
+              className={cn(
+                "border-b border-neutral-100 transition-colors hover:bg-neutral-50 cursor-pointer",
+                isDropTarget && dropAllowed && "bg-blue-50 ring-2 ring-inset ring-blue-300",
+              )}
             >
               <td className="py-3 pr-4">
                 <button
@@ -206,7 +322,10 @@ function FileTable({
                 {ownerLabel}
               </td>
               <td className="py-3">
-                <div className="flex items-center justify-end gap-1">
+                <div
+                  className="flex items-center justify-end gap-1"
+                  onDoubleClick={(event) => event.stopPropagation()}
+                >
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -226,14 +345,23 @@ function FileTable({
                 </div>
               </td>
             </tr>
-          ))}
+            );
+          })}
           {files.map((file) => {
             const favourited = favouriteIds.has(file.id);
+            const isDragging = draggingFileId === file.id;
             return (
               <tr
                 key={file.id}
                 data-file-id={file.id}
-                className="border-b border-neutral-100 transition-colors hover:bg-neutral-50"
+                draggable={dragEnabled}
+                onDragStart={(event) => handleFileDragStart(event, file.id)}
+                onDragEnd={resetDragState}
+                className={cn(
+                  "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
+                  dragEnabled && "cursor-grab active:cursor-grabbing",
+                  isDragging && "opacity-50",
+                )}
               >
                 <td className="py-3 pr-4">
                   <div className="flex min-w-0 items-start gap-3">
@@ -500,6 +628,7 @@ export default function DrivePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
     () => new Set(getFavouriteFileIds()),
   );
@@ -579,7 +708,12 @@ export default function DrivePage() {
 
   function openFolder(folder: FolderItem) {
     setActiveNav("my-files");
-    setFolderStack((prev) => [...prev, { id: folder.id, name: folder.name }]);
+    // Human: Ignore repeat opens when double-click fires after the first click already navigated.
+    // Agent: SKIPS push when folder is already the current breadcrumb leaf.
+    setFolderStack((prev) => {
+      if (prev.at(-1)?.id === folder.id) return prev;
+      return [...prev, { id: folder.id, name: folder.name }];
+    });
   }
 
   function goToFolderIndex(index: number) {
@@ -588,17 +722,6 @@ export default function DrivePage() {
       return;
     }
     setFolderStack((prev) => prev.slice(0, index + 1));
-  }
-
-  async function handleDeleteFolder(id: string) {
-    setError("");
-    try {
-      await deleteFolder(id);
-      setFolderStack((prev) => prev.filter((crumb) => crumb.id !== id));
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    }
   }
 
   // Human: Close the profile menu when clicking outside the top-bar avatar cluster.
@@ -614,13 +737,44 @@ export default function DrivePage() {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [profileOpen]);
 
-  async function handleDelete(id: string) {
+  // Human: Open the delete confirmation dialog for a file row, grid tile, or context menu action.
+  // Agent: READS files state for display name; WRITES deleteTarget to show ConfirmDeleteDialog.
+  function requestDeleteFile(fileId: string) {
+    const file = files.find((item) => item.id === fileId);
+    if (!file) return;
+    setDeleteTarget({ kind: "file", id: fileId, name: file.name });
+  }
+
+  // Human: Open the delete confirmation dialog for a folder row action.
+  // Agent: READS folders state for display name; WRITES deleteTarget.
+  function requestDeleteFolder(folderId: string) {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setDeleteTarget({ kind: "folder", id: folderId, name: folder.name });
+  }
+
+  // Human: Refresh drive state after ConfirmDeleteDialog completes a successful delete.
+  // Agent: CLEARS file prefs / breadcrumb crumbs; CALLS refresh for current nav view.
+  function handleDeleted(target: DeleteTarget) {
+    setError("");
+    if (target.kind === "file") {
+      removeFilePreferences(target.id);
+      setFavouriteIds(new Set(getFavouriteFileIds()));
+    } else {
+      setFolderStack((prev) => prev.filter((crumb) => crumb.id !== target.id));
+    }
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+  }
+
+  // Human: Persist a drag-and-drop move by updating the file's folder_id on the API.
+  // Agent: CALLS moveFile; REFRESHES listing silently so the row disappears from the current folder.
+  async function handleMoveFileToFolder(fileId: string, folderId: string) {
     setError("");
     try {
-      await deleteFile(id);
-      removeFilePreferences(id);
-      setFavouriteIds(new Set(getFavouriteFileIds()));
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+      await moveFile(fileId, folderId);
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -665,7 +819,7 @@ export default function DrivePage() {
       favouriteIds={favouriteIds}
       activeNav={activeNav}
       onDownload={handleDownload}
-      onDelete={(id) => void handleDelete(id)}
+      onDelete={requestDeleteFile}
       onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
       onCreateFolder={() => setCreateFolderDialogOpen(true)}
@@ -690,6 +844,14 @@ export default function DrivePage() {
               silent: true,
             })
           }
+        />
+        <ConfirmDeleteDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+          target={deleteTarget}
+          onDeleted={handleDeleted}
         />
         <DownloadTransferPanel />
       {/* Top bar — profile avatar pinned on the far right */}
@@ -928,7 +1090,7 @@ export default function DrivePage() {
                   locationLabel="My files"
                   emptyMessage="No recent files yet. Open or download something from My files."
                   onToggleFavourite={handleToggleFavourite}
-                  onDelete={(id) => void handleDelete(id)}
+                  onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                 />
                 <HomeSection
@@ -940,7 +1102,7 @@ export default function DrivePage() {
                   locationLabel="My files"
                   emptyMessage="No favourites yet. Star a file to pin it here."
                   onToggleFavourite={handleToggleFavourite}
-                  onDelete={(id) => void handleDelete(id)}
+                  onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                 />
                 <HomeSection
@@ -952,7 +1114,7 @@ export default function DrivePage() {
                   locationLabel="Shared"
                   emptyMessage="Nothing shared with you yet."
                   onToggleFavourite={handleToggleFavourite}
-                  onDelete={(id) => void handleDelete(id)}
+                  onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                 />
               </div>
@@ -986,6 +1148,7 @@ export default function DrivePage() {
                 files={browserFiles}
                 ownerLabel={ownerLabel}
                 favouriteIds={favouriteIds}
+                dragEnabled={!isSearchingMyFiles}
                 locationLabel={
                   folderStack.length > 0
                     ? folderStack[folderStack.length - 1]?.name ?? "My files"
@@ -993,9 +1156,12 @@ export default function DrivePage() {
                 }
                 emptyMessage="No files in your library."
                 onOpenFolder={openFolder}
-                onDeleteFolder={(id) => void handleDeleteFolder(id)}
+                onDeleteFolder={requestDeleteFolder}
+                onMoveFileToFolder={(fileId, folderId) =>
+                  void handleMoveFileToFolder(fileId, folderId)
+                }
                 onToggleFavourite={handleToggleFavourite}
-                onDelete={(id) => void handleDelete(id)}
+                onDelete={requestDeleteFile}
                 onDownload={handleDownload}
               />
             )}

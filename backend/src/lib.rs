@@ -5,7 +5,7 @@ use axum::{
     extract::DefaultBodyLimit,
     http::{HeaderValue, Method, Request},
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use std::sync::Arc;
@@ -220,7 +220,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/files/{id}/download", get(files::handlers::download_file))
         .route("/api/v1/files/{id}/download-url", get(files::handlers::download_url))
-        .route("/api/v1/files/{id}", delete(files::handlers::delete_file))
+        .route(
+            "/api/v1/files/{id}",
+            patch(files::handlers::move_file).delete(files::handlers::delete_file),
+        )
         .route("/api/v1/folders", get(files::folders::list_folders).post(files::folders::create_folder))
         .route("/api/v1/folders/{id}", delete(files::folders::delete_folder))
         .route("/api/v1/dashboard", get(files::handlers::dashboard_summary))
