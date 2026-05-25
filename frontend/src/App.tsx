@@ -10,6 +10,7 @@ import SetupPage from "@/pages/SetupPage";
 import LoginPage from "@/pages/LoginPage";
 import DrivePage from "@/pages/DrivePage";
 import RegisterPage from "@/pages/RegisterPage";
+import PublicSharePage from "@/pages/PublicSharePage";
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
@@ -41,7 +42,7 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
       navigate(token ? "/" : "/login", { replace: true });
       return;
     }
-    if (!setupComplete && pathname !== "/setup") {
+    if (!setupComplete && pathname !== "/setup" && !pathname.startsWith("/s/")) {
       navigate("/setup", { replace: true });
     }
   }, [setupComplete, pathname, token, navigate]);
@@ -72,6 +73,7 @@ export default function App() {
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/s/:token" element={<PublicSharePage />} />
             <Route
               path="/"
               element={

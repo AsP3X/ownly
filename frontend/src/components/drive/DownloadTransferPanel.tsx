@@ -1,8 +1,8 @@
 // Human: Non-blocking MEGA-style download tray — floats over drive; does not block browsing.
-// Agent: SUBSCRIBES download-manager; RENDERS progress per job; CANCEL/DISMISS per row.
+// Agent: SUBSCRIBES download-manager; RENDERS queued/active/complete rows; CANCEL/DISMISS per row.
 
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Download, Loader2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Download, Loader2, X } from "lucide-react";
 import {
   cancelDownloadJob,
   dismissDownloadJob,
@@ -12,6 +12,11 @@ import {
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+type DownloadTransferPanelProps = {
+  minimized: boolean;
+  onMinimizedChange: (minimized: boolean) => void;
+};
 
 // Human: Compact progress bar for the floating download tray.
 // Agent: INDETERMINATE shimmer only when export byte progress unknown; otherwise width from percent.
@@ -46,15 +51,25 @@ function TransferProgressBar({
   );
 }
 
-function phaseLabel(phase: DownloadJob["phase"], progress: number): string {
-  if (phase === "processing") {
-    return progress > 0 ? `Preparing file… ${progress}%` : "Preparing file…";
+function phaseLabel(job: DownloadJob): string {
+  if (job.status === "queued") {
+    return "Waiting in queue…";
   }
-  if (phase === "saving") return "Saving…";
+  if (job.phase === "processing") {
+    if (job.kind === "folder" || job.kind === "bulk") {
+      const target = job.kind === "folder" ? "folder" : "files";
+      return job.progress > 0
+        ? `Compressing ${target}… ${job.progress}%`
+        : `Compressing ${target}…`;
+    }
+    return job.progress > 0 ? `Preparing file… ${job.progress}%` : "Preparing file…";
+  }
+  if (job.phase === "saving") return "Saving…";
   return "Downloading…";
 }
 
 function DownloadJobRow({ job }: { job: DownloadJob }) {
+  const isQueued = job.status === "queued";
   const isActive = job.status === "downloading";
 
   return (
@@ -65,21 +80,25 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
             <CheckCircle2 className="size-4 text-green-600" aria-hidden />
           ) : job.status === "error" ? (
             <AlertCircle className="size-4 text-red-500" aria-hidden />
+          ) : isQueued ? (
+            <Clock className="size-4 text-neutral-400" aria-hidden />
           ) : (
             <Loader2 className="size-4 animate-spin text-blue-600" aria-hidden />
           )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-medium text-neutral-900">{job.file.name}</p>
+            <p className="truncate text-sm font-medium text-neutral-900">{job.label}</p>
             {isActive ? (
               <span className="shrink-0 text-xs font-semibold tabular-nums text-blue-700">
                 {job.indeterminate ? "…" : `${job.progress}%`}
               </span>
+            ) : isQueued ? (
+              <span className="shrink-0 text-xs font-medium text-neutral-500">Queued</span>
             ) : null}
           </div>
           <p className="text-xs text-neutral-500">
-            {isActive ? phaseLabel(job.phase, job.progress) : formatBytes(job.file.size_bytes)}
+            {isActive || isQueued ? phaseLabel(job) : formatBytes(job.sizeBytes)}
           </p>
         </div>
         <Button
@@ -87,17 +106,16 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
           variant="ghost"
           size="icon-sm"
           className="shrink-0 text-neutral-500"
-          aria-label={isActive ? `Cancel download ${job.file.name}` : `Dismiss ${job.file.name}`}
-          onClick={() => (isActive ? cancelDownloadJob(job.id) : dismissDownloadJob(job.id))}
+          aria-label={isActive || isQueued ? `Cancel download ${job.label}` : `Dismiss ${job.label}`}
+          onClick={() =>
+            isActive || isQueued ? cancelDownloadJob(job.id) : dismissDownloadJob(job.id)
+          }
         >
           <X className="size-4" />
         </Button>
       </div>
       {isActive ? (
-        <TransferProgressBar
-          value={job.progress}
-          indeterminate={job.indeterminate}
-        />
+        <TransferProgressBar value={job.progress} indeterminate={job.indeterminate} />
       ) : job.status === "complete" ? (
         <TransferProgressBar value={100} complete />
       ) : null}
@@ -108,20 +126,23 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
   );
 }
 
-// Human: Floating tray shown when at least one download job exists.
-export function DownloadTransferPanel() {
+// Human: Floating download card — rendered inside TransferPanelStack (no fixed positioning here).
+export function DownloadTransferPanel({
+  minimized,
+  onMinimizedChange,
+}: DownloadTransferPanelProps) {
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
-  const [minimized, setMinimized] = useState(false);
 
   useEffect(() => subscribeDownloadJobs(setJobs), []);
 
   if (jobs.length === 0) return null;
 
   const activeCount = jobs.filter((job) => job.status === "downloading").length;
+  const queuedCount = jobs.filter((job) => job.status === "queued").length;
 
   return (
     <div
-      className="pointer-events-auto fixed bottom-4 right-4 z-50 w-[min(100vw-2rem,22rem)] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg"
+      className="pointer-events-auto w-full overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg"
       role="region"
       aria-label="Downloads"
     >
@@ -134,13 +155,18 @@ export function DownloadTransferPanel() {
               {activeCount} active
             </span>
           ) : null}
+          {queuedCount > 0 ? (
+            <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700">
+              {queuedCount} queued
+            </span>
+          ) : null}
         </div>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="h-7 px-2 text-xs"
-          onClick={() => setMinimized((value) => !value)}
+          onClick={() => onMinimizedChange(!minimized)}
         >
           {minimized ? "Show" : "Minimize"}
         </Button>

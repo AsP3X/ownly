@@ -26,6 +26,10 @@ fn test_config(database_url: &str) -> Config {
         cors_allowed_origins: String::new(),
         max_upload_bytes: 1024 * 1024,
         hls_segment_rpm: 480,
+        job_worker_count: 2,
+        job_stale_minutes: 15,
+        job_heartbeat_seconds: 30,
+        job_recovery_poll_seconds: 60,
     }
 }
 
@@ -216,4 +220,215 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
     .await
     .expect("audit count");
     assert!(audit_count >= 1);
+}
+
+// Human: Creating a public share requires an authenticated owner session.
+// Agent: POST /api/v1/shares without Authorization; EXPECT 401.
+#[tokio::test]
+async fn create_share_requires_authentication() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping create_share_requires_authentication: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping create_share_requires_authentication: {error}");
+            return;
+        }
+    };
+    let app = create_router(state);
+
+    let body = json!({
+        "resource_type": "file",
+        "resource_id": "does-not-matter"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/shares")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// Human: Unknown share tokens must not leak whether resources exist.
+// Agent: GET /api/v1/public/shares/{token}; EXPECT 404 envelope.
+#[tokio::test]
+async fn public_share_unknown_token_returns_not_found() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping public_share_unknown_token_returns_not_found: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping public_share_unknown_token_returns_not_found: {error}");
+            return;
+        }
+    };
+    let app = create_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/public/shares/not-a-real-token-value")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = response_json(response).await;
+    assert_eq!(json["error"]["code"], "not_found");
+}
+
+// Human: Public links expose only the shared file — sibling files stay unreachable.
+// Agent: SEEDS user + two files + share row; GET download for other file EXPECT 404.
+#[tokio::test]
+async fn public_share_download_is_scoped_to_shared_file_only() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping public_share_download_is_scoped_to_shared_file_only: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping public_share_download_is_scoped_to_shared_file_only: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let shared_file_id = uuid::Uuid::new_v4().to_string();
+    let other_file_id = uuid::Uuid::new_v4().to_string();
+    let share_id = uuid::Uuid::new_v4().to_string();
+    let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(format!("share-test-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    for (file_id, name, key) in [
+        (shared_file_id.as_str(), "shared.txt", "storage/shared"),
+        (other_file_id.as_str(), "private.txt", "storage/private"),
+    ] {
+        sqlx::query(
+            "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+             VALUES ($1, $2, $3, $4, 'text/plain', 4)",
+        )
+        .bind(file_id)
+        .bind(&user_id)
+        .bind(name)
+        .bind(key)
+        .execute(&state.pool)
+        .await
+        .expect("insert file");
+    }
+
+    sqlx::query(
+        "INSERT INTO public_shares (id, token, user_id, resource_type, resource_id) \
+         VALUES ($1, $2, $3, 'file', $4)",
+    )
+    .bind(&share_id)
+    .bind(token)
+    .bind(&user_id)
+    .bind(&shared_file_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert share");
+
+    let app = create_router(state.clone());
+
+    let overview = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/public/shares/{token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(overview.status(), StatusCode::OK);
+    let overview_json = response_json(overview).await;
+    assert_eq!(overview_json["share"]["name"], "shared.txt");
+
+    let allowed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/public/shares/{token}/files/{shared_file_id}/download"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        allowed.status() == StatusCode::OK || allowed.status() == StatusCode::INTERNAL_SERVER_ERROR,
+        "shared file download should pass scope check (storage may fail in test harness)"
+    );
+
+    let blocked = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/public/shares/{token}/files/{other_file_id}/download"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), StatusCode::NOT_FOUND);
+
+    sqlx::query("DELETE FROM public_shares WHERE id = $1")
+        .bind(&share_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
 }

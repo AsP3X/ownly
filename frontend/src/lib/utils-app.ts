@@ -45,6 +45,33 @@ export type FileTypeFilter =
 
 // Human: Client-side mime grouping for the drive filter pills (matches wireframe type chips).
 // Agent: READS FileItem.mime_type; RETURNS true when file belongs to the selected filter bucket.
+// Human: True when a stored file should open in the image gallery viewer.
+// Agent: READS mime_type; RETURNS true for any image/* bucket (PNG, JPEG, SVG, WebP, etc.).
+export function isImageMime(mimeType: string | null | undefined): boolean {
+  return (mimeType ?? "").toLowerCase().startsWith("image/");
+}
+
+// Human: Stable name order for gallery prev/next — matches folder listing sort (1, 2, 10…).
+// Agent: READS FileItem.name; RETURNS new array sorted with localeCompare + numeric.
+export function sortFilesByName<T extends { name: string }>(files: T[]): T[] {
+  return [...files].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),
+  );
+}
+
+// Human: All previewable images in the same folder as the clicked file, ordered by filename.
+// Agent: FILTERS allFiles by folder_id + image/*; SORTS by name for gallery navigation.
+export function buildImageGallery<T extends { id: string; name: string; mime_type: string | null; folder_id: string | null }>(
+  allFiles: T[],
+  anchor: T,
+): T[] {
+  return sortFilesByName(
+    allFiles.filter(
+      (file) => isImageMime(file.mime_type) && file.folder_id === anchor.folder_id,
+    ),
+  );
+}
+
 export function fileMatchesTypeFilter(
   mimeType: string | null | undefined,
   filter: FileTypeFilter,

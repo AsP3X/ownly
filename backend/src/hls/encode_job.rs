@@ -36,6 +36,31 @@ pub async fn mark_failed(pool: &PgPool, file_id: &str, message: &str) {
     .await;
 }
 
+// Human: Mark a video row as user-cancelled so drive UI and upload polling can stop cleanly.
+// Agent: WRITES hls_encode_status=cancelled; CLEARS progress/error; NO-OP when already ready.
+pub async fn mark_cancelled(pool: &PgPool, file_id: &str) {
+    let _ = sqlx::query(
+        "UPDATE files SET hls_encode_status = 'cancelled', hls_encode_error = NULL, conversion_progress = 0 \
+         WHERE id = $1 AND NOT hls_ready",
+    )
+    .bind(file_id)
+    .execute(pool)
+    .await;
+}
+
+// Human: True when ingest was cancelled while a worker is still winding down.
+// Agent: READS files.hls_encode_status; USED before mark_processing and before marking ready.
+async fn is_encode_cancelled(pool: &PgPool, file_id: &str) -> bool {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT hls_encode_status FROM files WHERE id = $1")
+            .bind(file_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
+
+    row.is_some_and(|(status,)| status.as_deref() == Some("cancelled"))
+}
+
 async fn set_progress(pool: &PgPool, file_id: &str, progress: i32) {
     let _ = sqlx::query("UPDATE files SET conversion_progress = $1 WHERE id = $2")
         .bind(progress)
@@ -69,18 +94,18 @@ pub async fn run_hls_encode_job(
     let file_id = job.file_id.clone();
     let storage_key = job.storage_key.clone();
     let tmp_video = job.tmp_video.clone();
-    let hls_tmp_dir = tmp_video
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("mediavault_hls_{file_id}")));
+    // Human: Keep all scratch files under a per-file work dir — never treat OS temp root as cleanup target.
+    // Agent: READS tmp_video parent when safe; WRITES hls_out under work_dir; cleanup removes work_dir only.
+    let work_dir = job_work_dir(&tmp_video, &file_id);
+    let hls_output_dir = work_dir.join("hls_out");
+
+    if is_encode_cancelled(&pool, &file_id).await {
+        cleanup_work_dir(&work_dir).await;
+        return Ok(());
+    }
 
     mark_processing(&pool, &file_id).await;
     set_progress(&pool, &file_id, 5).await;
-
-    let hls_output_dir = hls_tmp_dir
-        .parent()
-        .unwrap_or(&hls_tmp_dir)
-        .join(format!("mediavault_hls_out_{file_id}"));
 
     let key_result = key_store.create_key_for_file(&file_id).await;
     let (key_id, key) = match key_result {
@@ -88,7 +113,7 @@ pub async fn run_hls_encode_job(
         Err(e) => {
             let msg = format!("create encryption key: {e}");
             mark_failed(&pool, &file_id, &msg).await;
-            cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+            cleanup_work_dir(&work_dir).await;
             return Err(msg);
         }
     };
@@ -141,7 +166,7 @@ pub async fn run_hls_encode_job(
                         Err(e) => {
                             let msg = format!("read playlist: {e}");
                             mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                            cleanup_work_dir(&work_dir).await;
                             return Err(msg);
                         }
                     };
@@ -156,7 +181,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("upload playlist: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                        cleanup_work_dir(&work_dir).await;
                         return Err(msg);
                     }
                     current_step += 1;
@@ -166,7 +191,7 @@ pub async fn run_hls_encode_job(
                         Err(e) => {
                             let msg = format!("read hls key: {e}");
                             mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                            cleanup_work_dir(&work_dir).await;
                             return Err(msg);
                         }
                     };
@@ -181,7 +206,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("upload hls key: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                        cleanup_work_dir(&work_dir).await;
                         return Err(msg);
                     }
                     current_step += 1;
@@ -191,7 +216,7 @@ pub async fn run_hls_encode_job(
                         Err(e) => {
                             let msg = format!("read segments dir: {e}");
                             mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                            cleanup_work_dir(&work_dir).await;
                             return Err(msg);
                         }
                     };
@@ -231,6 +256,11 @@ pub async fn run_hls_encode_job(
 
                     set_progress(&pool, &file_id, 100).await;
 
+                    if is_encode_cancelled(&pool, &file_id).await {
+                        cleanup_work_dir(&work_dir).await;
+                        return Ok(());
+                    }
+
                     if let Err(e) = sqlx::query(
                         "UPDATE files SET hls_ready = true, hls_key_id = $1, segment_count = $2, \
                          hls_encode_status = 'ready', hls_encode_error = NULL, size_bytes = $3 WHERE id = $4",
@@ -244,7 +274,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("update hls status: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                        cleanup_work_dir(&work_dir).await;
                         return Err(msg);
                     }
 
@@ -254,21 +284,55 @@ pub async fn run_hls_encode_job(
                         stored_bytes,
                         "video HLS ingest complete"
                     );
-                    cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                    cleanup_work_dir(&work_dir).await;
                     Ok(())
                 }
                 Err(e) => {
                     let msg = format!("ffmpeg transcode: {e}");
                     mark_failed(&pool, &file_id, &msg).await;
-                    cleanup_dirs(&hls_tmp_dir, &hls_output_dir, &tmp_video).await;
+                    cleanup_work_dir(&work_dir).await;
                     Err(msg)
                 }
             }
     }
 }
 
-async fn cleanup_dirs(hls_tmp_dir: &Path, hls_output_dir: &Path, tmp_video: &Path) {
-    let _ = tokio::fs::remove_file(tmp_video).await;
-    let _ = tokio::fs::remove_dir_all(hls_tmp_dir).await;
-    let _ = tokio::fs::remove_dir_all(hls_output_dir).await;
+// Human: Resolve the per-upload scratch directory used for source video + ffmpeg output.
+// Agent: PREFERS tmp_video parent when it is a dedicated mediavault_upload_* dir under temp root.
+fn job_work_dir(tmp_video: &Path, file_id: &str) -> PathBuf {
+    if let Some(parent) = tmp_video.parent() {
+        if is_deletable_work_dir(parent) {
+            return parent.to_path_buf();
+        }
+    }
+    std::env::temp_dir().join(format!("mediavault_hls_{file_id}"))
+}
+
+// Human: Guard against deleting the OS temp root (e.g. /tmp) during HLS cleanup.
+// Agent: TRUE when path is strict child of std::env::temp_dir(); FALSE for temp root itself.
+fn is_deletable_work_dir(path: &Path) -> bool {
+    let temp_root = std::env::temp_dir();
+    path.starts_with(&temp_root) && path != temp_root.as_path()
+}
+
+async fn cleanup_work_dir(work_dir: &Path) {
+    if is_deletable_work_dir(work_dir) {
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_root_is_never_deletable_work_dir() {
+        assert!(!is_deletable_work_dir(std::env::temp_dir().as_path()));
+    }
+
+    #[test]
+    fn dedicated_upload_dir_is_deletable() {
+        let dir = std::env::temp_dir().join("mediavault_upload_test-file-id");
+        assert!(is_deletable_work_dir(&dir));
+    }
 }

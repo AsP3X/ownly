@@ -32,12 +32,16 @@ import {
 } from "lucide-react";
 import {
   fetchDashboard,
+  fetchFolderDeletionPreview,
+  fetchShareStatusBulk,
   getErrorMessage,
   listFiles,
   listFolders,
   moveFile,
   type FileItem,
+  type FolderDeletionPreview,
   type FolderItem,
+  type ShareFlags,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
@@ -50,15 +54,27 @@ import {
   type DeleteTarget,
 } from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
+import { ShareDialog, type ShareTarget } from "@/components/drive/ShareDialog";
+import {
+  ResourceDetailsDialog,
+  type DetailsTarget,
+} from "@/components/drive/ResourceDetailsDialog";
+import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
-import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
+import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
+import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
-import { enqueueDownload } from "@/lib/download-manager";
+import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
+import { subscribeUploadFileComplete } from "@/lib/upload-manager";
+import { isFileProcessing } from "@/lib/file-processing";
+import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  buildImageGallery,
   fileMatchesTypeFilter,
   formatBytes,
   formatFileOpened,
+  isImageMime,
   userInitials,
   type FileTypeFilter,
 } from "@/lib/utils-app";
@@ -170,6 +186,9 @@ type FileTableProps = {
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
+  onPreviewImage?: (file: FileItem) => void;
+  fileShareFlags?: Record<string, ShareFlags>;
+  folderShareFlags?: Record<string, ShareFlags>;
 };
 
 // Human: MIME payload key for HTML5 drag — keeps drop handler independent of React state timing.
@@ -196,6 +215,9 @@ function FileTable({
   onDelete,
   onDownload,
   onPreviewVideo,
+  onPreviewImage,
+  fileShareFlags = {},
+  folderShareFlags = {},
 }: FileTableProps) {
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -207,14 +229,23 @@ function FileTable({
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const selectionEnabled = selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
-  const visibleFileIds = useMemo(() => files.map((file) => file.id), [files]);
+  // Human: Bulk selection skips files still processing on the server.
+  // Agent: FILTERS isFileProcessing; USED by select-all and checkbox disabled state.
+  const selectableFileIds = useMemo(
+    () => files.filter((file) => !isFileProcessing(file)).map((file) => file.id),
+    [files],
+  );
   const selectedVisibleCount = selectionEnabled
-    ? visibleFileIds.filter((id) => selectedFileIds.has(id)).length
+    ? selectableFileIds.filter((id) => selectedFileIds.has(id)).length
     : 0;
   const allVisibleSelected =
-    selectionEnabled && visibleFileIds.length > 0 && selectedVisibleCount === visibleFileIds.length;
+    selectionEnabled &&
+    selectableFileIds.length > 0 &&
+    selectedVisibleCount === selectableFileIds.length;
   const someVisibleSelected =
-    selectionEnabled && selectedVisibleCount > 0 && selectedVisibleCount < visibleFileIds.length;
+    selectionEnabled &&
+    selectedVisibleCount > 0 &&
+    selectedVisibleCount < selectableFileIds.length;
 
   // Human: Mirror partial selection on the header checkbox via the native indeterminate flag.
   // Agent: WRITES selectAllRef.indeterminate when some but not all visible files are checked.
@@ -243,11 +274,11 @@ function FileTable({
     if (!selectionEnabled) return;
     const next = new Set(selectedFileIds);
     if (event.target.checked) {
-      for (const fileId of visibleFileIds) {
+      for (const fileId of selectableFileIds) {
         next.add(fileId);
       }
     } else {
-      for (const fileId of visibleFileIds) {
+      for (const fileId of selectableFileIds) {
         next.delete(fileId);
       }
     }
@@ -267,6 +298,11 @@ function FileTable({
   // Agent: WRITES dataTransfer custom MIME + text/plain fallback.
   function handleFileDragStart(event: DragEvent<HTMLTableRowElement>, fileId: string) {
     if (!dragEnabled) {
+      event.preventDefault();
+      return;
+    }
+    const file = fileById.get(fileId);
+    if (file && isFileProcessing(file)) {
       event.preventDefault();
       return;
     }
@@ -393,7 +429,10 @@ function FileTable({
                 >
                   <Folder className="size-[18px] shrink-0 text-amber-500" aria-hidden />
                   <div className="min-w-0 flex flex-col gap-0.5">
-                    <span className="truncate font-medium text-neutral-900">{folder.name}</span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-medium text-neutral-900">{folder.name}</span>
+                      <SharedIndicator flags={folderShareFlags[folder.id]} />
+                    </div>
                     <span className="text-xs text-neutral-500">{locationLabel} · Folder</span>
                   </div>
                 </button>
@@ -435,25 +474,33 @@ function FileTable({
             const isDragging = draggingFileId === file.id;
             const isSelected = selectionEnabled && selectedFileIds.has(file.id);
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
-            const canPreviewVideo = isVideo && onPreviewVideo !== undefined;
+            const isImage = isImageMime(file.mime_type);
+            const processing = isFileProcessing(file);
+            const canPreviewVideo =
+              isVideo && onPreviewVideo !== undefined && !processing;
+            const canPreviewImage =
+              isImage && onPreviewImage !== undefined && !processing;
+            const canPreview = canPreviewVideo || canPreviewImage;
             return (
               <tr
                 key={file.id}
                 data-file-id={file.id}
-                draggable={dragEnabled}
+                draggable={dragEnabled && !processing}
                 onDragStart={(event) => handleFileDragStart(event, file.id)}
                 onDragEnd={resetDragState}
                 onClick={(event) => {
-                  if (!canPreviewVideo) return;
+                  if (!canPreview) return;
                   const target = event.target;
                   if (!(target instanceof Element)) return;
                   if (target.closest('input[type="checkbox"]') || target.closest("button")) return;
-                  onPreviewVideo(file);
+                  if (canPreviewVideo) onPreviewVideo!(file);
+                  else onPreviewImage!(file);
                 }}
                 className={cn(
                   "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
-                  dragEnabled && "cursor-grab active:cursor-grabbing",
-                  canPreviewVideo && "cursor-pointer",
+                  dragEnabled && !processing && "cursor-grab active:cursor-grabbing",
+                  canPreview && "cursor-pointer",
+                  processing && "bg-violet-50/40",
                   isDragging && "opacity-50",
                   isSelected && "bg-blue-50/60",
                 )}
@@ -462,8 +509,9 @@ function FileTable({
                   <td className="w-10 py-3 pr-2">
                     <input
                       type="checkbox"
-                      className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                      className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
                       checked={isSelected}
+                      disabled={processing}
                       onChange={(event) => toggleFileSelected(file.id, event.target.checked)}
                       onClick={(event) => event.stopPropagation()}
                       aria-label={`Select ${file.name}`}
@@ -474,7 +522,13 @@ function FileTable({
                   <div className="flex min-w-0 items-start gap-3">
                     <FileTypeIcon mimeType={file.mime_type} />
                     <div className="min-w-0 flex flex-col gap-0.5">
-                      <span className="truncate font-medium text-neutral-900">{file.name}</span>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-medium text-neutral-900">{file.name}</span>
+                        <SharedIndicator flags={fileShareFlags[file.id]} />
+                        {processing ? (
+                          <FileProcessingBadge file={file} className="shrink-0 bg-violet-100 text-violet-900" />
+                        ) : null}
+                      </div>
                       <span className="text-xs text-neutral-500">
                         {locationLabel} · {formatBytes(file.size_bytes)}
                         {file.mime_type ? (
@@ -501,25 +555,33 @@ function FileTable({
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      disabled={processing}
                       onClick={() => onToggleFavourite(file.id)}
                       aria-label={favourited ? `Unfavourite ${file.name}` : `Favourite ${file.name}`}
-                      className={cn(favourited && "text-amber-500 hover:text-amber-600")}
+                      className={cn(
+                        favourited && "text-amber-500 hover:text-amber-600",
+                        processing && "opacity-40",
+                      )}
                     >
                       <Star className={cn("size-4", favourited && "fill-current")} />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      disabled={processing}
                       onClick={() => onDownload(file)}
                       aria-label={`Download ${file.name}`}
+                      className={cn(processing && "opacity-40")}
                     >
                       <Download />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      disabled={processing}
                       onClick={() => onDelete(file.id)}
                       aria-label={`Delete ${file.name}`}
+                      className={cn(processing && "opacity-40")}
                     >
                       <Trash2 />
                     </Button>
@@ -544,6 +606,8 @@ type FileGridProps = {
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
+  onPreviewImage?: (file: FileItem) => void;
+  fileShareFlags?: Record<string, ShareFlags>;
 };
 
 // Human: Large mime icon for Home grid tile previews (no thumbnail API yet).
@@ -583,6 +647,8 @@ function FileGrid({
   onDelete,
   onDownload,
   onPreviewVideo,
+  onPreviewImage,
+  fileShareFlags = {},
 }: FileGridProps) {
   if (files.length === 0) {
     return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
@@ -593,32 +659,47 @@ function FileGrid({
       {files.map((file) => {
         const favourited = favouriteIds.has(file.id);
         const isVideo = file.mime_type?.startsWith("video/") ?? false;
-        const canPreviewVideo = isVideo && onPreviewVideo !== undefined;
+        const isImage = isImageMime(file.mime_type);
+        const processing = isFileProcessing(file);
+        const canPreviewVideo =
+          isVideo && onPreviewVideo !== undefined && !processing;
+        const canPreviewImage =
+          isImage && onPreviewImage !== undefined && !processing;
+        const canPreview = canPreviewVideo || canPreviewImage;
         return (
           <article
             key={file.id}
             data-file-id={file.id}
             onClick={(event) => {
-              if (!canPreviewVideo) return;
+              if (!canPreview) return;
               const target = event.target;
               if (!(target instanceof Element)) return;
               if (target.closest("button")) return;
-              onPreviewVideo(file);
+              if (canPreviewVideo) onPreviewVideo!(file);
+              else onPreviewImage!(file);
             }}
             className={cn(
               "group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm",
-              canPreviewVideo && "cursor-pointer",
+              canPreview && "cursor-pointer",
+              processing && "border-violet-200 bg-violet-50/30",
             )}
           >
             <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f3f2f1]">
               <FileGridPreview mimeType={file.mime_type} />
+              {processing ? (
+                <div className="absolute inset-x-2 top-2 flex justify-center">
+                  <FileProcessingBadge file={file} className="bg-violet-100 text-violet-900 shadow-sm" />
+                </div>
+              ) : null}
               <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  disabled={processing}
                   className={cn(
                     "size-7 bg-white/90 hover:bg-white",
                     favourited && "text-amber-500 hover:text-amber-600",
+                    processing && "opacity-40",
                   )}
                   onClick={() => onToggleFavourite(file.id)}
                   aria-label={favourited ? `Unfavourite ${file.name}` : `Favourite ${file.name}`}
@@ -628,7 +709,8 @@ function FileGrid({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="size-7 bg-white/90 hover:bg-white"
+                  disabled={processing}
+                  className={cn("size-7 bg-white/90 hover:bg-white", processing && "opacity-40")}
                   onClick={() => onDownload(file)}
                   aria-label={`Download ${file.name}`}
                 >
@@ -637,7 +719,8 @@ function FileGrid({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="size-7 bg-white/90 hover:bg-white"
+                  disabled={processing}
+                  className={cn("size-7 bg-white/90 hover:bg-white", processing && "opacity-40")}
                   onClick={() => onDelete(file.id)}
                   aria-label={`Delete ${file.name}`}
                 >
@@ -646,9 +729,12 @@ function FileGrid({
               </div>
             </div>
             <div className="flex flex-col gap-1 px-3 py-2.5">
-              <p className="truncate text-sm font-medium text-neutral-900" title={file.name}>
-                {file.name}
-              </p>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-neutral-900" title={file.name}>
+                  {file.name}
+                </p>
+                <SharedIndicator flags={fileShareFlags[file.id]} className="size-3" />
+              </div>
               <p className="truncate text-xs text-neutral-500">
                 {locationLabel} · {formatFileOpened(file.updated_at)}
               </p>
@@ -677,6 +763,8 @@ function HomeSection({
   onDelete,
   onDownload,
   onPreviewVideo,
+  onPreviewImage,
+  fileShareFlags,
 }: {
   title: string;
   description: string;
@@ -689,6 +777,8 @@ function HomeSection({
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
+  onPreviewImage?: (file: FileItem) => void;
+  fileShareFlags?: Record<string, ShareFlags>;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -706,6 +796,8 @@ function HomeSection({
         onDelete={onDelete}
         onDownload={onDownload}
         onPreviewVideo={onPreviewVideo}
+        onPreviewImage={onPreviewImage}
+        fileShareFlags={fileShareFlags}
       />
     </section>
   );
@@ -753,19 +845,54 @@ export default function DrivePage() {
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [folderDeletePreview, setFolderDeletePreview] = useState<FolderDeletionPreview | null>(
+    null,
+  );
+  const [folderPreviewLoading, setFolderPreviewLoading] = useState(false);
+  const [folderPreviewError, setFolderPreviewError] = useState("");
   const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(() => new Set());
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
     () => new Set(getFavouriteFileIds()),
   );
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
+  const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
+  const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [detailsTarget, setDetailsTarget] = useState<DetailsTarget | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsInitialTab, setDetailsInitialTab] = useState<"details" | "sharing">("details");
+  const [fileShareFlags, setFileShareFlags] = useState<Record<string, ShareFlags>>({});
+  const [folderShareFlags, setFolderShareFlags] = useState<Record<string, ShareFlags>>({});
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
 
-  // Human: Remove selected ids that no longer exist in the current file listing (delete, move, refresh).
-  // Agent: INTERSECTS selectedFileIds with validFiles; SKIPS setState when nothing changed.
+  // Human: Refresh paperclip indicators for the files and folders currently on screen.
+  // Agent: POST /shares/status; WRITES fileShareFlags + folderShareFlags maps.
+  const refreshShareFlags = useCallback(async (fileIds: string[], folderIds: string[]) => {
+    if (fileIds.length === 0 && folderIds.length === 0) {
+      setFileShareFlags({});
+      setFolderShareFlags({});
+      return;
+    }
+    try {
+      const status = await fetchShareStatusBulk({
+        file_ids: fileIds,
+        folder_ids: folderIds,
+      });
+      setFileShareFlags(status.files);
+      setFolderShareFlags(status.folders);
+    } catch {
+      // Human: Share indicators are non-critical — a failed status poll must not block the drive.
+    }
+  }, []);
+
+  // Human: Remove selected ids that no longer exist or are still processing on the server.
+  // Agent: INTERSECTS selectedFileIds with actionable files; SKIPS setState when unchanged.
   function pruneFileSelection(validFiles: FileItem[]) {
-    const validIds = new Set(validFiles.map((file) => file.id));
+    const validIds = new Set(
+      validFiles.filter((file) => !isFileProcessing(file)).map((file) => file.id),
+    );
     setSelectedFileIds((prev) => {
       const next = new Set([...prev].filter((id) => validIds.has(id)));
       return next.size === prev.size ? prev : next;
@@ -789,8 +916,12 @@ export default function DrivePage() {
         setUsedBytes(dashboard.used_bytes);
         setQuotaBytes(dashboard.quota_bytes || 1);
 
+        let loadedFiles: FileItem[] = [];
+        let loadedFolders: FolderItem[] = [];
+
         if (search) {
           const listing = await listFiles({ q: search });
+          loadedFiles = listing.files;
           setFolders([]);
           setFiles(listing.files);
           pruneFileSelection(listing.files);
@@ -799,10 +930,17 @@ export default function DrivePage() {
             listFolders(targetFolderId ? { parent_id: targetFolderId } : undefined),
             listFiles(targetFolderId ? { folder_id: targetFolderId } : undefined),
           ]);
+          loadedFiles = fileListing.files;
+          loadedFolders = folderListing.folders;
           setFolders(folderListing.folders);
           setFiles(fileListing.files);
           pruneFileSelection(fileListing.files);
         }
+
+        await refreshShareFlags(
+          loadedFiles.map((file) => file.id),
+          loadedFolders.map((folder) => folder.id),
+        );
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
@@ -811,22 +949,32 @@ export default function DrivePage() {
         }
       }
     },
-    [currentFolderId],
+    [currentFolderId, refreshShareFlags],
   );
 
-  // Human: Refresh file list and quota after uploads without replacing the whole view with a spinner.
-  // Agent: CALLS refresh silent; WRITES recent access for uploaded ids so Home shows new files.
-  const handleUploadsComplete = useCallback(
-    ({ fileIds }: { fileIds: string[] }) => {
-      for (const fileId of fileIds) {
-        recordFileAccess(fileId);
-      }
+  // Human: Refresh the drive listing as each file finishes uploading in the corner panel.
+  // Agent: SUBSCRIBES upload-manager file events; CALLS refresh silent per uploaded id.
+  useEffect(() => {
+    return subscribeUploadFileComplete((fileId) => {
+      recordFileAccess(fileId);
       void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
-    },
-    [activeNav, query, refresh],
-  );
+    });
+  }, [activeNav, query, refresh]);
+
+  // Human: Poll the listing while any visible file is still processing so rows unlock when ready.
+  // Agent: INTERVAL silent refresh every 3s when isFileProcessing matches; CLEARS on unmount.
+  const hasProcessingFiles = useMemo(() => files.some(isFileProcessing), [files]);
+  useEffect(() => {
+    if (!hasProcessingFiles) return;
+    const timer = window.setInterval(() => {
+      void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [activeNav, hasProcessingFiles, query, refresh]);
 
   // Human: Load dashboard + file list when the page opens or the debounced search query changes.
   // Agent: DEBOUNCES query 300ms on My files; Home loads full library without name filter.
@@ -882,16 +1030,38 @@ export default function DrivePage() {
   // Agent: READS files state for display name; WRITES deleteTarget to show ConfirmDeleteDialog.
   function requestDeleteFile(fileId: string) {
     const file = files.find((item) => item.id === fileId);
-    if (!file) return;
+    if (!file || isFileProcessing(file)) return;
     setDeleteTarget({ kind: "file", id: fileId, name: file.name });
   }
 
   // Human: Open the delete confirmation dialog for a folder row action.
-  // Agent: READS folders state for display name; WRITES deleteTarget.
-  function requestDeleteFolder(folderId: string) {
+  // Agent: FETCHES deletion-preview; WRITES deleteTarget and folder content summary state.
+  async function requestDeleteFolder(folderId: string) {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
+
+    setFolderDeletePreview(null);
+    setFolderPreviewError("");
+    setFolderPreviewLoading(true);
     setDeleteTarget({ kind: "folder", id: folderId, name: folder.name });
+
+    try {
+      const preview = await fetchFolderDeletionPreview(folderId);
+      setFolderDeletePreview(preview);
+    } catch (e) {
+      setFolderPreviewError(getErrorMessage(e));
+    } finally {
+      setFolderPreviewLoading(false);
+    }
+  }
+
+  // Human: Clear folder delete preview state when the confirmation dialog closes.
+  // Agent: RESETS deleteTarget and preview fields together.
+  function closeDeleteDialog() {
+    setDeleteTarget(null);
+    setFolderDeletePreview(null);
+    setFolderPreviewLoading(false);
+    setFolderPreviewError("");
   }
 
   // Human: Refresh drive state after ConfirmDeleteDialog completes a successful delete.
@@ -910,6 +1080,9 @@ export default function DrivePage() {
   // Human: Persist a drag-and-drop move by updating the file's folder_id on the API.
   // Agent: CALLS moveFile; REFRESHES listing silently so the row disappears from the current folder.
   async function handleMoveFileToFolder(fileId: string, folderId: string) {
+    const file = files.find((item) => item.id === fileId);
+    if (file && isFileProcessing(file)) return;
+
     setError("");
     try {
       await moveFile(fileId, folderId);
@@ -922,18 +1095,86 @@ export default function DrivePage() {
   }
 
   function handleDownload(file: FileItem) {
+    if (isFileProcessing(file)) return;
     recordFileAccess(file.id);
     enqueueDownload(file);
+  }
+
+  // Human: Queue a compressed zip download for the selected folder tree.
+  // Agent: CALLS enqueueFolderDownload; SHOWS compressing progress in DownloadTransferPanel.
+  function handleDownloadFolder(folder: FolderItem) {
+    enqueueFolderDownload(folder);
   }
 
   // Human: Open the HLS video preview dialog for a stored video file.
   // Agent: SETS previewVideo; VideoPreviewDialog POLLS until hls_ready.
   function handlePreviewVideo(file: FileItem) {
+    if (isFileProcessing(file)) return;
     recordFileAccess(file.id);
     setPreviewVideo(file);
   }
 
+  // Human: Open the folder-scoped image gallery on the clicked image.
+  // Agent: SETS previewImage; ImagePreviewDialog NAVIGATES siblings sorted by filename.
+  function handlePreviewImage(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isImageMime(file.mime_type)) return;
+    recordFileAccess(file.id);
+    setPreviewImage(file);
+  }
+
+  function handleGalleryImageChange(file: FileItem) {
+    recordFileAccess(file.id);
+    setPreviewImage(file);
+  }
+
+  const galleryImages = useMemo(() => {
+    if (!previewImage) return [];
+    return buildImageGallery(files, previewImage);
+  }, [files, previewImage]);
+
+  // Human: Open the public link dialog for one file.
+  // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
+  function handleShareFile(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    setShareTarget({ resource_type: "file", resource_id: file.id, name: file.name });
+    setShareDialogOpen(true);
+  }
+
+  // Human: Open the public link dialog for one folder.
+  // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
+  function handleShareFolder(folder: FolderItem) {
+    setShareTarget({ resource_type: "folder", resource_id: folder.id, name: folder.name });
+    setShareDialogOpen(true);
+  }
+
+  // Human: Re-fetch share indicators after creating or revoking a link from any dialog.
+  // Agent: CALLS refreshShareFlags for current visible file/folder ids.
+  function handleShareChanged() {
+    void refreshShareFlags(
+      files.map((file) => file.id),
+      folders.map((folder) => folder.id),
+    );
+  }
+
+  // Human: Open the details dialog on the metadata or sharing tab.
+  // Agent: SETS detailsTarget + detailsInitialTab; ResourceDetailsDialog manages tabs.
+  function handleDetailsFile(file: FileItem, tab: "details" | "sharing" = "details") {
+    if (isFileProcessing(file)) return;
+    setDetailsInitialTab(tab);
+    setDetailsTarget({ kind: "file", file });
+    setDetailsOpen(true);
+  }
+
+  function handleDetailsFolder(folder: FolderItem, tab: "details" | "sharing" = "details") {
+    setDetailsInitialTab(tab);
+    setDetailsTarget({ kind: "folder", folder });
+    setDetailsOpen(true);
+  }
+
   function handleToggleFavourite(fileId: string) {
+    const file = files.find((item) => item.id === fileId);
+    if (file && isFileProcessing(file)) return;
     toggleFavouriteFile(fileId);
     setFavouriteIds(new Set(getFavouriteFileIds()));
   }
@@ -941,16 +1182,23 @@ export default function DrivePage() {
   // Human: Resolve selected ids to FileItem rows from the current in-memory listing.
   // Agent: READS files + selectedFileIds; RETURNS items still present in the library cache.
   const selectedFiles = useMemo(
-    () => files.filter((file) => selectedFileIds.has(file.id)),
+    () => files.filter((file) => selectedFileIds.has(file.id) && !isFileProcessing(file)),
     [files, selectedFileIds],
   );
 
-  // Human: Queue downloads for every checked file and record recent access for Home.
-  // Agent: CALLS enqueueDownload per selection; CLEARS bulk selection after enqueue.
+  // Human: Queue downloads for checked files — one file directly, multiple as a zip archive.
+  // Agent: CALLS enqueueDownload for single selection; CALLS enqueueBulkDownload for 2+ files.
   function handleBulkDownload() {
-    for (const file of selectedFiles) {
-      recordFileAccess(file.id);
-      enqueueDownload(file);
+    if (selectedFiles.length === 0) return;
+
+    if (selectedFiles.length === 1) {
+      recordFileAccess(selectedFiles[0]!.id);
+      enqueueDownload(selectedFiles[0]!);
+    } else {
+      for (const file of selectedFiles) {
+        recordFileAccess(file.id);
+      }
+      enqueueBulkDownload(selectedFiles);
     }
     setSelectedFileIds(new Set());
   }
@@ -1030,11 +1278,15 @@ export default function DrivePage() {
   return (
     <DriveContextMenu
       files={files}
+      folders={visibleFolders}
       favouriteIds={favouriteIds}
       activeNav={activeNav}
       onDownload={handleDownload}
+      onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
+      onPreviewImage={handlePreviewImage}
       onDelete={requestDeleteFile}
+      onDeleteFolder={requestDeleteFolder}
       onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
       onCreateFolder={() => setCreateFolderDialogOpen(true)}
@@ -1042,13 +1294,16 @@ export default function DrivePage() {
         void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined)
       }
       onNavChange={handleNavChange}
+      onShareFile={handleShareFile}
+      onShareFolder={handleShareFolder}
+      onDetailsFile={handleDetailsFile}
+      onDetailsFolder={handleDetailsFolder}
     >
       <div className="min-h-screen bg-[#f3f2f1] text-neutral-900">
         <UploadDialog
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
           folderId={activeNav === "my-files" ? currentFolderId : null}
-          onUploadsComplete={handleUploadsComplete}
         />
         <CreateFolderDialog
           open={createFolderDialogOpen}
@@ -1067,12 +1322,44 @@ export default function DrivePage() {
             if (!open) setPreviewVideo(null);
           }}
         />
+        <ImagePreviewDialog
+          images={galleryImages}
+          file={previewImage}
+          open={previewImage !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewImage(null);
+          }}
+          onFileChange={handleGalleryImageChange}
+        />
+        <ShareDialog
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          target={shareTarget}
+          onShareChanged={handleShareChanged}
+        />
+        <ResourceDetailsDialog
+          key={
+            detailsTarget
+              ? `${detailsTarget.kind}-${
+                  detailsTarget.kind === "file" ? detailsTarget.file.id : detailsTarget.folder.id
+                }-${detailsInitialTab}`
+              : "details-closed"
+          }
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          target={detailsTarget}
+          initialTab={detailsInitialTab}
+          onShareChanged={handleShareChanged}
+        />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}
           onOpenChange={(open) => {
-            if (!open) setDeleteTarget(null);
+            if (!open) closeDeleteDialog();
           }}
           target={deleteTarget}
+          folderPreview={folderDeletePreview}
+          folderPreviewLoading={folderPreviewLoading}
+          folderPreviewError={folderPreviewError}
           onDeleted={handleDeleted}
         />
         <ConfirmBulkDeleteDialog
@@ -1083,7 +1370,7 @@ export default function DrivePage() {
           items={bulkDeleteItems}
           onDeleted={handleBulkDeleted}
         />
-        <DownloadTransferPanel />
+        <TransferPanelStack />
       {/* Top bar — profile avatar pinned on the far right */}
       <header className="border-b border-neutral-200 bg-white">
         <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-4">
@@ -1323,6 +1610,8 @@ export default function DrivePage() {
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
                   title="Favourites"
@@ -1336,6 +1625,8 @@ export default function DrivePage() {
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
                   title="Shared with you"
@@ -1349,6 +1640,8 @@ export default function DrivePage() {
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
                 />
               </div>
             ) : visibleFolders.length === 0 && browserFiles.length === 0 ? (
@@ -1409,6 +1702,9 @@ export default function DrivePage() {
                 onDelete={requestDeleteFile}
                 onDownload={handleDownload}
                 onPreviewVideo={handlePreviewVideo}
+                onPreviewImage={handlePreviewImage}
+                fileShareFlags={fileShareFlags}
+                folderShareFlags={folderShareFlags}
               />
               </div>
             )}

@@ -24,12 +24,14 @@ pub mod error;
 pub mod files;
 pub mod hls;
 pub mod health;
+pub mod jobs;
 pub mod stream_ticket;
 pub mod rate_limit;
 pub mod redact;
 pub mod request_tracking;
 pub mod secrets;
 pub mod setup;
+pub mod shares;
 pub mod storage;
 
 use config::Config;
@@ -58,6 +60,8 @@ pub struct AppState {
     pub upload_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub hls_segment_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub hls_key_store: hls::key_store::KeyStore,
+    pub folder_download_jobs: files::zip_job::FolderDownloadRegistry,
+    pub delete_jobs: files::delete_job::DeleteJobRegistry,
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
 }
@@ -143,6 +147,8 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
             window,
         )),
         hls_key_store: hls::key_store::KeyStore::new(pool.clone(), config.signing_secret.clone()),
+        folder_download_jobs: files::zip_job::FolderDownloadRegistry::new(),
+        delete_jobs: files::delete_job::DeleteJobRegistry::new(),
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
     }))
@@ -254,15 +260,81 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/{id}/stream",
             get(hls::handlers::stream_file),
+        )
+        .route(
+            "/api/v1/public/shares/{token}",
+            get(shares::handlers::public_share_overview),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/contents",
+            get(shares::handlers::public_share_contents),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}",
+            get(shares::handlers::public_share_file),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/download",
+            get(shares::handlers::public_share_download),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/stream-url",
+            get(shares::handlers::public_share_stream_url),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/playlist",
+            get(shares::handlers::public_share_playlist),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/key",
+            get(shares::handlers::public_share_key),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/segments/{segment}",
+            get(shares::handlers::public_share_segment),
         );
 
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
         .route("/api/v1/files", get(files::handlers::list_files))
+        .route(
+            "/api/v1/files/deletion-preview",
+            post(files::delete_job::bulk_deletion_preview),
+        )
+        .route(
+            "/api/v1/files/delete",
+            post(files::delete_job::post_delete_job),
+        )
+        .route(
+            "/api/v1/files/delete/{job_id}",
+            get(files::delete_job::get_delete_job_status)
+                .delete(files::delete_job::cancel_delete_job),
+        )
+        .route(
+            "/api/v1/files/download",
+            post(files::bulk_download::post_bulk_download),
+        )
+        .route(
+            "/api/v1/files/download/{job_id}",
+            get(files::bulk_download::get_bulk_download_status)
+                .delete(files::bulk_download::delete_bulk_download_job),
+        )
+        .route(
+            "/api/v1/files/download/{job_id}/archive",
+            get(files::bulk_download::get_bulk_download_archive),
+        )
         .route("/api/v1/files/{id}", get(files::handlers::get_file))
+        .route(
+            "/api/v1/files/{id}/deletion-preview",
+            get(files::delete_job::file_deletion_preview),
+        )
         .route(
             "/api/v1/files/upload",
             post(files::handlers::upload_file).layer(DefaultBodyLimit::max(max_upload)),
+        )
+        .route(
+            "/api/v1/files/{id}/cancel-ingest",
+            post(files::handlers::cancel_video_ingest),
         )
         .route(
             "/api/v1/files/{id}/stream-url",
@@ -288,8 +360,31 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             patch(files::handlers::move_file).delete(files::handlers::delete_file),
         )
         .route("/api/v1/folders", get(files::folders::list_folders).post(files::folders::create_folder))
+        .route(
+            "/api/v1/folders/{id}/download",
+            get(files::folder_download::get_folder_download_status)
+                .post(files::folder_download::post_folder_download)
+                .delete(files::folder_download::delete_folder_download_job),
+        )
+        .route(
+            "/api/v1/folders/{id}/download/archive",
+            get(files::folder_download::get_folder_download_archive),
+        )
+        .route(
+            "/api/v1/folders/{id}/deletion-preview",
+            get(files::folders::folder_deletion_preview),
+        )
         .route("/api/v1/folders/{id}", delete(files::folders::delete_folder))
         .route("/api/v1/dashboard", get(files::handlers::dashboard_summary))
+        .route("/api/v1/shares", post(shares::handlers::create_share).get(shares::handlers::lookup_share))
+        .route("/api/v1/shares/status", post(shares::handlers::share_status_bulk))
+        .route("/api/v1/shares/resource", get(shares::handlers::resource_shares))
+        .route("/api/v1/shares/{id}", delete(shares::handlers::revoke_share))
+        .route("/api/v1/jobs", get(jobs::handlers::list_jobs))
+        .route(
+            "/api/v1/jobs/{id}",
+            get(jobs::handlers::get_job).delete(jobs::handlers::delete_job),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware));
 
     Router::new()
@@ -329,6 +424,7 @@ pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
+    jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;

@@ -41,6 +41,14 @@ pub struct Config {
     pub max_upload_bytes: u64,
     #[serde(default = "default_hls_segment_rpm")]
     pub hls_segment_rpm: u32,
+    #[serde(default = "default_job_worker_count")]
+    pub job_worker_count: u32,
+    #[serde(default = "default_job_stale_minutes")]
+    pub job_stale_minutes: u64,
+    #[serde(default = "default_job_heartbeat_seconds")]
+    pub job_heartbeat_seconds: u64,
+    #[serde(default = "default_job_recovery_poll_seconds")]
+    pub job_recovery_poll_seconds: u64,
 }
 
 impl Config {
@@ -105,7 +113,9 @@ fn default_auth_register_rpm() -> u32 {
 }
 
 fn default_upload_rpm() -> u32 {
-    30
+    // Human: Bulk folder uploads run ~3 concurrent × ~2/s — 30/min caused 429 + connection aborts.
+    // Agent: DEFAULT 180/min (~3/s rolling average); override with UPLOAD_RPM in Compose/.env.
+    180
 }
 
 fn default_max_upload_bytes() -> u64 {
@@ -116,4 +126,20 @@ fn default_max_upload_bytes() -> u64 {
 
 fn default_hls_segment_rpm() -> u32 {
     480
+}
+
+fn default_job_worker_count() -> u32 {
+    4
+}
+
+fn default_job_stale_minutes() -> u64 {
+    15
+}
+
+fn default_job_heartbeat_seconds() -> u64 {
+    30
+}
+
+fn default_job_recovery_poll_seconds() -> u64 {
+    60
 }

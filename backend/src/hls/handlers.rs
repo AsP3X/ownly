@@ -15,10 +15,11 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
-    hls::export_job::spawn_hls_export_job,
     hls::playlist::PlaylistGenerator,
+    jobs::{self, model::HlsExportPayload, JobKind},
     rate_limit,
     stream_ticket,
+    storage::Storage,
     AppState,
 };
 
@@ -41,6 +42,61 @@ async fn ensure_file_owned(
     .await?;
 
     row.ok_or(AppError::NotFound)
+}
+
+// Human: Load ffmpeg's stored stream.m3u8 and rewrite segment/key URIs for API playback.
+// Agent: READS {storage_key}/stream.m3u8; FALLBACK synthesizes playlist when object missing.
+pub(crate) async fn build_playlist_for_playback(
+    storage: &dyn Storage,
+    storage_key: &str,
+    base_url: &str,
+    key_uri: &str,
+    segment_count: usize,
+) -> Result<String, AppError> {
+    let playlist_key = format!("{storage_key}/stream.m3u8");
+    if let Ok(content) = read_storage_text(storage, &playlist_key).await {
+        if let Ok(playlist) =
+            PlaylistGenerator::rewrite_stored_playlist(&content, base_url, key_uri)
+        {
+            return Ok(playlist);
+        }
+        tracing::warn!(
+            storage_key,
+            "stored HLS playlist could not be rewritten; using synthetic fallback"
+        );
+    }
+
+    let mut segment_files = Vec::new();
+    let mut segment_durations = Vec::new();
+    for i in 0..segment_count {
+        segment_files.push(format!("segments/{i:04}.ts"));
+        segment_durations.push(4.0);
+    }
+
+    Ok(PlaylistGenerator::generate(
+        base_url,
+        &segment_files,
+        &segment_durations,
+        key_uri,
+    ))
+}
+
+// Human: Read a small storage object (playlist/key) into UTF-8 text for manifest rewriting.
+// Agent: READS storage stream; RETURNS Err when object missing or not valid UTF-8.
+async fn read_storage_text(storage: &dyn Storage, key: &str) -> Result<String, AppError> {
+    use futures_util::TryStreamExt;
+
+    let (mut stream, _, _) = storage
+        .get_stream(key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+    let mut out = Vec::new();
+    while let Some(chunk) = stream.try_next().await.map_err(|e| {
+        AppError::Storage(format!("read storage object {key}: {e}"))
+    })? {
+        out.extend_from_slice(&chunk);
+    }
+    String::from_utf8(out).map_err(|e| AppError::Storage(format!("playlist not UTF-8: {e}")))
 }
 
 // Human: Tell the client which URL to pass to hls.js — playlist when ready, otherwise null with progress.
@@ -100,20 +156,16 @@ pub async fn get_playlist(
     let key_uri = format!("/api/v1/files/{id}/key");
 
     let count = segment_count.unwrap_or(0) as usize;
-    let mut segment_files = Vec::new();
-    let mut segment_durations = Vec::new();
-    for i in 0..count {
-        segment_files.push(format!("segments/{:04}.ts", i));
-        segment_durations.push(4.0);
-    }
+    let playlist = build_playlist_for_playback(
+        state.storage.as_ref(),
+        &storage_key,
+        &base_url,
+        &key_uri,
+        count,
+    )
+    .await?;
 
     let _storage_key = storage_key;
-    let playlist = PlaylistGenerator::generate(
-        &base_url,
-        &segment_files,
-        &segment_durations,
-        &key_uri,
-    );
 
     Ok((
         [
@@ -329,10 +381,10 @@ pub async fn post_export(
         )));
     }
 
-    if export_status.as_deref() == Some("processing") {
+    if export_status.as_deref() == Some("processing") || export_status.as_deref() == Some("queued") {
         return Ok(Json(export_status_json(
             false,
-            Some("processing"),
+            export_status.as_deref(),
             export_progress,
             export_size,
             None,
@@ -350,13 +402,32 @@ pub async fn post_export(
     }
 
     let count = segment_count.unwrap_or(0);
-    spawn_hls_export_job(
-        state.pool.clone(),
-        state.storage.clone(),
-        id.clone(),
+
+    sqlx::query(
+        "UPDATE files SET download_export_status = 'queued', download_export_error = NULL, \
+         download_export_progress = 0, download_export_ready = false WHERE id = $1",
+    )
+    .bind(&id)
+    .execute(&state.pool)
+    .await?;
+
+    let payload = HlsExportPayload {
+        file_id: id.clone(),
         storage_key,
-        count,
-    );
+        segment_count: count,
+    };
+
+    jobs::enqueue_job(
+        &state.pool,
+        &claims.sub,
+        JobKind::HlsExport,
+        "Video export",
+        Some("file"),
+        Some(&id),
+        serde_json::to_value(payload)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("export job payload: {e}")))?,
+    )
+    .await?;
 
     audit::write_audit(
         &state.pool,
@@ -372,7 +443,7 @@ pub async fn post_export(
 
     Ok(Json(export_status_json(
         false,
-        Some("processing"),
+        Some("queued"),
         0,
         None,
         None,

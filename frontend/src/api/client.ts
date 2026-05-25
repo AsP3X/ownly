@@ -222,6 +222,193 @@ export async function deleteFolder(id: string) {
   return apiFetch(`/folders/${id}`, { method: "DELETE" });
 }
 
+export type FolderDeletionPreview = {
+  file_count: number;
+  subfolder_count: number;
+  content_types: Array<{ kind: string; label: string; count: number }>;
+};
+
+// Human: Summarize nested files and subfolders before confirming folder deletion.
+// Agent: GET /folders/:id/deletion-preview; RETURNS mime-type counts for ConfirmDeleteDialog.
+export async function fetchFolderDeletionPreview(folderId: string) {
+  return apiFetch(`/folders/${folderId}/deletion-preview`) as Promise<FolderDeletionPreview>;
+}
+
+// Human: Folder archive job status — server-side zip with max deflate compression.
+// Agent: POST starts job; GET polls progress; archive GET streams bytes when ready.
+export type FolderDownloadStatus = {
+  status: string;
+  progress: number;
+  ready: boolean;
+  archive_name: string;
+  size_bytes: number | null;
+  error?: string | null;
+};
+
+export async function startFolderDownload(folderId: string) {
+  return apiFetch(`/folders/${folderId}/download`, {
+    method: "POST",
+  }) as Promise<FolderDownloadStatus>;
+}
+
+export async function fetchFolderDownloadStatus(folderId: string) {
+  return apiFetch(`/folders/${folderId}/download`) as Promise<FolderDownloadStatus>;
+}
+
+export async function cancelFolderDownloadJob(folderId: string) {
+  return apiFetch(`/folders/${folderId}/download`, { method: "DELETE" });
+}
+
+export function folderDownloadArchiveUrl(folderId: string) {
+  return `${API_BASE}/folders/${folderId}/download/archive`;
+}
+
+export type BulkDownloadStatus = {
+  job_id: string;
+  status: string;
+  progress: number;
+  ready: boolean;
+  archive_name: string;
+  size_bytes: number | null;
+  error?: string | null;
+};
+
+// Human: Start a server-side zip job for multiple selected files.
+// Agent: POST /files/download JSON { file_ids }; RETURNS job_id + compressing status.
+export async function startBulkDownload(fileIds: string[]) {
+  return apiFetch("/files/download", {
+    method: "POST",
+    body: JSON.stringify({ file_ids: fileIds }),
+  }) as Promise<BulkDownloadStatus>;
+}
+
+export async function fetchBulkDownloadStatus(jobId: string) {
+  return apiFetch(`/files/download/${jobId}`) as Promise<BulkDownloadStatus>;
+}
+
+export async function cancelBulkDownloadJob(jobId: string) {
+  return apiFetch(`/files/download/${jobId}`, { method: "DELETE" });
+}
+
+export function bulkDownloadArchiveUrl(jobId: string) {
+  return `${API_BASE}/files/download/${jobId}/archive`;
+}
+
+const FOLDER_ZIP_POLL_MS = 1000;
+
+// Human: Build a compressed folder zip on the server, poll until ready, then save locally.
+// Agent: POST+poll GET /folders/:id/download; FETCH archive; CALLS saveBlobAsFile with dated zip name.
+export async function downloadFolderItem(
+  folder: FolderItem,
+  onProgress?: (update: DownloadProgressUpdate) => void,
+): Promise<{ method: DownloadMethod; archiveName: string }> {
+  await startFolderDownload(folder.id);
+
+  let archiveName = `${folder.name}.zip`;
+  let sizeBytes = 0;
+
+  for (;;) {
+    const status = await fetchFolderDownloadStatus(folder.id);
+    archiveName = status.archive_name;
+
+    if (status.status === "failed") {
+      throw new ApiError(
+        status.error ?? "Folder archive failed",
+        "folder_zip_failed",
+        500,
+      );
+    }
+
+    const indeterminate =
+      (status.status === "queued" ||
+        status.status === "compressing" ||
+        status.status === "processing") &&
+      status.progress <= 0;
+    onProgress?.({
+      phase: "processing",
+      percent: Math.min(99, status.progress),
+      indeterminate,
+      archiveName: status.archive_name,
+    });
+
+    if (status.ready) {
+      sizeBytes = status.size_bytes ?? 0;
+      onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+      break;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, FOLDER_ZIP_POLL_MS));
+  }
+
+  onProgress?.({ phase: "saving", percent: 90, indeterminate: false });
+  const blob = await downloadBytesWithFetch(
+    folderDownloadArchiveUrl(folder.id),
+    sizeBytes,
+    onProgress,
+    getToken(),
+  );
+  saveBlobAsFile(blob, archiveName);
+  onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
+  return { method: "api-blob", archiveName };
+}
+
+// Human: Build a compressed zip for multiple selected files, poll until ready, then save locally.
+// Agent: POST+poll GET /files/download/:job_id; FETCH archive; CALLS saveBlobAsFile with dated zip name.
+export async function downloadBulkFiles(
+  files: FileItem[],
+  onProgress?: (update: DownloadProgressUpdate) => void,
+  onJobStarted?: (jobId: string) => void,
+): Promise<{ method: DownloadMethod; archiveName: string; jobId: string }> {
+  const started = await startBulkDownload(files.map((file) => file.id));
+  onJobStarted?.(started.job_id);
+  let archiveName = started.archive_name;
+  let sizeBytes = 0;
+
+  for (;;) {
+    const status = await fetchBulkDownloadStatus(started.job_id);
+    archiveName = status.archive_name;
+
+    if (status.status === "failed") {
+      throw new ApiError(
+        status.error ?? "Bulk archive failed",
+        "bulk_zip_failed",
+        500,
+      );
+    }
+
+    const indeterminate =
+      (status.status === "queued" ||
+        status.status === "compressing" ||
+        status.status === "processing") &&
+      status.progress <= 0;
+    onProgress?.({
+      phase: "processing",
+      percent: Math.min(99, status.progress),
+      indeterminate,
+      archiveName: status.archive_name,
+    });
+
+    if (status.ready) {
+      sizeBytes = status.size_bytes ?? 0;
+      onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+      break;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, FOLDER_ZIP_POLL_MS));
+  }
+
+  onProgress?.({ phase: "saving", percent: 90, indeterminate: false });
+  const blob = await downloadBytesWithFetch(
+    bulkDownloadArchiveUrl(started.job_id),
+    sizeBytes,
+    onProgress,
+    getToken(),
+  );
+  saveBlobAsFile(blob, archiveName);
+  onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
+  return { method: "api-blob", archiveName, jobId: started.job_id };
+}
+
 export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
@@ -244,20 +431,85 @@ const PROCESSING_DISPLAY_MAX = 99;
 const PROCESSING_INDETERMINATE_MS = 2500;
 const VIDEO_INGEST_POLL_MS = 1500;
 
+// Human: Track in-flight uploads so the transfer panel can abort XHR and video ingest polling.
+// Agent: MAP sessionId → ActiveUploadSession; CALL abortUploadSession from upload-manager cancel.
+type ActiveUploadSession = {
+  xhr: XMLHttpRequest;
+  cancelled: boolean;
+  uploadedFileId: string | null;
+  clearProcessingTimer: () => void;
+  rejectUpload: ((error: ApiError) => void) | null;
+};
+
+const activeUploadSessions = new Map<string, ActiveUploadSession>();
+
+// Human: Abort one in-flight upload — stops XHR, ingest poll, and removes a partial server file when known.
+// Agent: SETS cancelled flag; CALLS xhr.abort; OPTIONAL deleteFile when uploadedFileId set.
+export function abortUploadSession(sessionId: string) {
+  const session = activeUploadSessions.get(sessionId);
+  if (!session || session.cancelled) return;
+
+  session.cancelled = true;
+  session.clearProcessingTimer();
+  session.xhr.abort();
+
+  if (session.uploadedFileId) {
+    void cancelVideoIngest(session.uploadedFileId)
+      .catch(() => {
+        // Human: Best-effort server cancel before deleting the partial file row.
+      })
+      .then(() => deleteFile(session.uploadedFileId!))
+      .catch(() => {
+        // Human: Best-effort cleanup after cancel during server-side processing.
+      });
+  }
+
+  session.rejectUpload?.(new ApiError("Upload cancelled", "upload_cancelled", 0));
+  activeUploadSessions.delete(sessionId);
+}
+
+export type BackgroundJobSummary = {
+  id: string;
+  kind: string;
+  status: string;
+  progress: number;
+  label: string;
+  error: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// Human: List recent background jobs for the authenticated user (restore tray after reload).
+// Agent: GET /jobs; RETURNS queued/running HLS encode rows for upload progress recovery.
+export async function listBackgroundJobs() {
+  return apiFetch("/jobs") as Promise<{ jobs: BackgroundJobSummary[] }>;
+}
+
 function isVideoAwaitingIngest(file: FileItem): boolean {
   return Boolean(file.mime_type?.startsWith("video/") && !file.hls_ready);
 }
 
 // Human: After multipart returns, poll files.conversion_progress until HLS ingest hits 100%.
-// Agent: CALLS fetchFile; MAPS 40–100% on same bar; THROWS when hls_encode_status failed.
-async function pollVideoIngestProgress(
+// Agent: CALLS fetchFile; MAPS 40–100% on same bar; THROWS when hls_encode_status failed or cancelled.
+export async function waitForFileIngestCompletion(
   fileId: string,
   onProgress?: (update: UploadProgressUpdate) => void,
+  isCancelled?: () => boolean,
 ): Promise<FileItem> {
   const encodeSpan = 100 - UPLOAD_BYTES_PERCENT;
 
   for (;;) {
+    if (isCancelled?.()) {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
+
     const { file } = await fetchFile(fileId);
+
+    if (isCancelled?.()) {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
 
     if (file.hls_encode_status === "failed") {
       throw new ApiError(
@@ -265,6 +517,20 @@ async function pollVideoIngestProgress(
         "video_ingest_failed",
         500,
       );
+    }
+
+    if (file.hls_encode_status === "cancelled") {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
+
+    if (file.hls_encode_status === "queued") {
+      onProgress?.({
+        phase: "processing",
+        percent: UPLOAD_BYTES_PERCENT,
+        indeterminate: true,
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INGEST_POLL_MS));
+      continue;
     }
 
     if (file.hls_ready) {
@@ -292,14 +558,20 @@ async function pollVideoIngestProgress(
 }
 
 // Human: Upload one file with XMLHttpRequest so the UI can show byte-level progress.
-// Agent: POST /files/upload multipart; optional folder_id field; CALLS onProgress; RETURNS { file: FileItem }.
+// Agent: POST /files/upload multipart; optional folder_id + sessionId for cancel; RETURNS { file: FileItem }.
 export function uploadFileWithProgress(
   file: File,
   onProgress?: (update: UploadProgressUpdate) => void,
-  options?: { folderId?: string | null },
+  options?: {
+    folderId?: string | null;
+    sessionId?: string;
+    /** Fires when the API accepted the upload and returned a file row (before HLS ingest finishes). */
+    onServerFileRegistered?: (file: FileItem) => void;
+  },
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
     const isVideoUpload = file.type.startsWith("video/");
+    const sessionId = options?.sessionId ?? crypto.randomUUID();
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append("file", file);
@@ -320,10 +592,28 @@ export function uploadFileWithProgress(
       }
     };
 
+    const session: ActiveUploadSession = {
+      xhr,
+      cancelled: false,
+      uploadedFileId: null,
+      clearProcessingTimer,
+      rejectUpload: null,
+    };
+    activeUploadSessions.set(sessionId, session);
+
+    const finishSession = () => {
+      activeUploadSessions.delete(sessionId);
+    };
+
+    let settled = false;
     const fail = (error: ApiError) => {
+      if (settled) return;
+      settled = true;
       clearProcessingTimer();
+      finishSession();
       reject(error);
     };
+    session.rejectUpload = fail;
 
     const emitProcessing = () => {
       const elapsed = processingStartedAt > 0 ? Date.now() - processingStartedAt : 0;
@@ -403,14 +693,28 @@ export function uploadFileWithProgress(
 
       if (xhr.status >= 200 && xhr.status < 300) {
         const payload = data as { file: FileItem };
+        session.uploadedFileId = payload.file.id;
+        options?.onServerFileRegistered?.(payload.file);
         void (async () => {
           try {
+            if (session.cancelled) {
+              throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+            }
             let file = payload.file;
             if (isVideoAwaitingIngest(file)) {
-              file = await pollVideoIngestProgress(file.id, onProgress);
+              file = await waitForFileIngestCompletion(
+                file.id,
+                onProgress,
+                () => session.cancelled,
+              );
             } else {
               onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
             }
+            if (session.cancelled) {
+              throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+            }
+            clearProcessingTimer();
+            finishSession();
             resolve({ file });
           } catch (error) {
             if (error instanceof ApiError) {
@@ -471,6 +775,68 @@ export async function deleteFile(id: string) {
   return apiFetch(`/files/${id}`, { method: "DELETE" });
 }
 
+// Human: Stop server-side HLS ingest for a video upload the user cancelled in the transfer panel.
+// Agent: POST /files/:id/cancel-ingest; WRITES job cancelled + hls_encode_status; THEN deleteFile can succeed.
+export async function cancelVideoIngest(fileId: string) {
+  return apiFetch(`/files/${fileId}/cancel-ingest`, { method: "POST" }) as Promise<{ ok: boolean }>;
+}
+
+export type FileDeletionPreview = {
+  id: string;
+  name: string;
+  storage_object_count: number;
+  segment_count: number | null;
+};
+
+export type BulkDeletionPreview = {
+  file_count: number;
+  storage_object_count: number;
+  files: FileDeletionPreview[];
+};
+
+export type DeleteJobStatus = {
+  job_id: string;
+  status: string;
+  progress: number;
+  total_blobs: number;
+  deleted_blobs: number;
+  total_files: number;
+  deleted_files: number;
+  ready: boolean;
+  error?: string | null;
+  deleted_file_ids: string[];
+};
+
+// Human: Count storage blobs that would be purged before confirming a single-file delete.
+// Agent: GET /files/:id/deletion-preview; READS segment_count-derived storage_object_count.
+export async function fetchFileDeletionPreview(fileId: string) {
+  return apiFetch(`/files/${fileId}/deletion-preview`) as Promise<FileDeletionPreview>;
+}
+
+// Human: Count total storage blobs for a multi-select delete confirmation dialog.
+// Agent: POST /files/deletion-preview JSON { file_ids }; SUMS per-file storage_object_count.
+export async function fetchBulkDeletionPreview(fileIds: string[]) {
+  return apiFetch("/files/deletion-preview", {
+    method: "POST",
+    body: JSON.stringify({ file_ids: fileIds }),
+  }) as Promise<BulkDeletionPreview>;
+}
+
+// Human: Start a background delete job with blob-level progress polling.
+// Agent: POST /files/delete JSON { file_ids }; RETURNS job_id + initial status snapshot.
+export async function startDeleteJob(fileIds: string[]) {
+  return apiFetch("/files/delete", {
+    method: "POST",
+    body: JSON.stringify({ file_ids: fileIds }),
+  }) as Promise<DeleteJobStatus>;
+}
+
+// Human: Poll blob purge progress for an in-flight delete job.
+// Agent: GET /files/delete/:job_id; READ-ONLY status for dialog progress bars.
+export async function fetchDeleteJobStatus(jobId: string) {
+  return apiFetch(`/files/delete/${jobId}`) as Promise<DeleteJobStatus>;
+}
+
 // Human: Move a file into a folder or back to the drive root (folder_id omitted/null).
 // Agent: PATCH /files/{id} JSON { folder_id? }; RETURNS { file: FileItem }.
 export async function moveFile(id: string, folderId: string | null) {
@@ -487,6 +853,8 @@ export type DownloadProgressUpdate = {
   percent: number;
   /** True when byte progress stalls — server still streaming/decompressing. */
   indeterminate?: boolean;
+  /** Folder zip jobs surface the dated archive filename while compressing. */
+  archiveName?: string;
 };
 
 export type VideoExportStatus = {
@@ -533,7 +901,8 @@ export async function ensureVideoExportReady(
   for (;;) {
     const status = await fetchVideoExportStatus(file.id);
     const indeterminate =
-      status.status === "processing" && status.progress <= 0;
+      (status.status === "queued" || status.status === "processing") &&
+      status.progress <= 0;
     onProgress?.({
       phase: "processing",
       percent: Math.min(99, status.progress),
@@ -579,6 +948,24 @@ export async function fetchFileDownloadUrl(id: string) {
 
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
+}
+
+// Human: Load file bytes for in-browser preview without triggering a save dialog.
+// Agent: FETCHES /files/:id/download with JWT; FALLBACK to presigned URL; RETURNS Blob for object URLs.
+export async function fetchFileBlobForPreview(file: FileItem): Promise<Blob> {
+  const token = getToken();
+  const authHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+
+  let response = await fetch(fileDownloadUrl(file.id), { headers: authHeaders });
+  if (!response.ok) {
+    const presigned = await fetchFileDownloadUrl(file.id);
+    response = await fetch(presigned.url);
+    if (!response.ok) {
+      throw new ApiError(response.statusText || "Preview failed", "preview_failed", response.status);
+    }
+  }
+
+  return response.blob();
 }
 
 // Human: Trigger browser save via temporary object URL (primary MEGA-style save path).
@@ -769,4 +1156,151 @@ export async function downloadFileItem(
 
 export async function versionInfo() {
   return apiFetch("/version") as Promise<{ version: string; git_sha: string; environment: string }>;
+}
+
+export type PublicShareInfo = {
+  resource_type: "file" | "folder";
+  resource_id: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  hls_ready: boolean | null;
+};
+
+export type ShareLink = {
+  id: string;
+  token: string;
+  resource_type: "file" | "folder";
+  resource_id: string;
+  created_at: string;
+};
+
+export type ShareFlags = {
+  public: boolean;
+  users: boolean;
+};
+
+export type ResourceSharesResponse = {
+  public_share: ShareLink | null;
+  user_shares: unknown[];
+};
+
+// Human: Build the browser URL visitors use to open a public share without signing in.
+// Agent: USES window.location.origin + /s/{token}; RETURNS absolute URL string.
+export function publicSharePageUrl(token: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/s/${token}`;
+}
+
+// Human: Create or reuse a public link for one owned file or folder.
+// Agent: POST /shares; REQUIRES auth; RETURNS ShareLink with unguessable token.
+export async function createPublicShare(payload: {
+  resource_type: "file" | "folder";
+  resource_id: string;
+}) {
+  return apiFetch("/shares", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as Promise<{ share: ShareLink }>;
+}
+
+// Human: Look up an existing active public link for a file or folder.
+// Agent: GET /shares?file_id= or folder_id=; RETURNS share or null.
+export async function lookupPublicShare(params: { file_id?: string; folder_id?: string }) {
+  const search = new URLSearchParams();
+  if (params.file_id) search.set("file_id", params.file_id);
+  if (params.folder_id) search.set("folder_id", params.folder_id);
+  return apiFetch(`/shares?${search.toString()}`) as Promise<{ share: ShareLink | null }>;
+}
+
+// Human: Revoke a public link so the token stops working.
+// Agent: DELETE /shares/:id; REQUIRES auth.
+export async function revokePublicShare(shareId: string) {
+  return apiFetch(`/shares/${shareId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Bulk check which listed files/folders have active share links (for paperclip indicators).
+// Agent: POST /shares/status; RETURNS maps of ShareFlags keyed by resource id.
+export async function fetchShareStatusBulk(payload: {
+  file_ids?: string[];
+  folder_ids?: string[];
+}) {
+  return apiFetch("/shares/status", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as Promise<{ files: Record<string, ShareFlags>; folders: Record<string, ShareFlags> }>;
+}
+
+// Human: Fetch all share links attached to one file or folder for the details dialog.
+// Agent: GET /shares/resource?file_id= or folder_id=; RETURNS public_share + user_shares.
+export async function fetchResourceShares(params: { file_id?: string; folder_id?: string }) {
+  const search = new URLSearchParams();
+  if (params.file_id) search.set("file_id", params.file_id);
+  if (params.folder_id) search.set("folder_id", params.folder_id);
+  return apiFetch(`/shares/resource?${search.toString()}`, {
+    cache: "no-store",
+  }) as Promise<ResourceSharesResponse>;
+}
+
+// Human: Anonymous metadata for a public share token (no Authorization header required).
+// Agent: GET /public/shares/:token; RETURNS PublicShareInfo.
+export async function fetchPublicShareOverview(token: string) {
+  return apiFetch(`/public/shares/${encodeURIComponent(token)}`, {
+    cache: "no-store",
+  }) as Promise<{ share: PublicShareInfo }>;
+}
+
+// Human: List files and subfolders inside a folder-type public share at one level.
+// Agent: GET /public/shares/:token/contents?folder_id=; SCOPED to shared subtree only.
+export async function fetchPublicShareContents(token: string, folderId?: string | null) {
+  const search = new URLSearchParams();
+  if (folderId) search.set("folder_id", folderId);
+  const qs = search.toString();
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(token)}/contents${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  ) as Promise<{
+    files: FileItem[];
+    folders: FolderItem[];
+    total_bytes: number;
+    file_count: number;
+    current_folder_id: string;
+    root_folder_id: string;
+  }>;
+}
+
+// Human: Resolve HLS playlist URL for a video inside a public share.
+// Agent: GET /public/shares/:token/files/:id/stream-url; NO auth.
+export async function fetchPublicVideoStreamUrl(token: string, fileId: string) {
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/stream-url`,
+    { cache: "no-store" },
+  ) as Promise<VideoStreamUrlResponse>;
+}
+
+// Human: Download one file from a public share through the API proxy.
+// Agent: GET /public/shares/:token/files/:id/download; RETURNS Blob for save-as.
+export async function downloadPublicShareFile(token: string, fileId: string, fileName: string) {
+  const res = await fetch(
+    `${API_BASE}/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/download`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let message = res.statusText;
+    try {
+      const body = JSON.parse(text) as { error?: { message?: string } };
+      message = body.error?.message ?? message;
+    } catch {
+      // keep status text
+    }
+    throw new ApiError(message, "download_failed", res.status);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

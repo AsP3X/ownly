@@ -35,8 +35,10 @@ services:
       dockerfile: Dockerfile
     container_name: mediavault-object-storage
     environment:
-      NOS_JWT_SECRET: ${NOS_JWT_SECRET:-}
-      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-}
+      # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
+      # Agent: EMPTY host env falls back here; NOT in KNOWN_WEAK_SECRETS; shared with backend OBJECT_STORAGE_JWT_SECRET.
+      NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
+      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
@@ -71,9 +73,12 @@ services:
     container_name: mediavault-backend
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://mediavault:mediavault@postgres:5432/mediavault}
-      JWT_SECRET: ${JWT_SECRET:-}
-      SIGNING_SECRET: ${SIGNING_SECRET:-}
-      OBJECT_STORAGE_JWT_SECRET: ${NOS_JWT_SECRET:-}
+      TMPDIR: /tmp
+      # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
+      # Agent: MUST match object-storage NOS_JWT_SECRET default when host env is unset.
+      JWT_SECRET: ${JWT_SECRET:-ownly-compose-local-dev-mediavault-jwt-secret-not-for-production}
+      SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-mediavault-signing-secret-not-for-production}
+      OBJECT_STORAGE_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
       OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:9000}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-media}
@@ -85,7 +90,7 @@ services:
       GIT_SHA: ${GIT_SHA:-unknown}
       AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
-      UPLOAD_RPM: ${UPLOAD_RPM:-30}
+      UPLOAD_RPM: ${UPLOAD_RPM:-180}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
     ports:
       - "3000:3000"

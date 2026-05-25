@@ -49,9 +49,11 @@ futures-util = "0.3"
 mime_guess = "2"
 bytes = "1"
 aes-gcm = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 hyper = { version = "1", features = ["full"] }
 tempfile = "3"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres"] }
+uuid = { version = "1", features = ["v4"] }

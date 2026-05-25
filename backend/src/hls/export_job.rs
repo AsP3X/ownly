@@ -165,7 +165,16 @@ async fn prepare_hls_workdir(
     }
 
     let key_uri = "key.bin";
-    let playlist = PlaylistGenerator::generate(".", &segment_files, &segment_durations, key_uri);
+    let playlist_key = format!("{storage_key}/stream.m3u8");
+    let playlist = if let Ok(stored) = read_storage_object(storage, &playlist_key).await {
+        let stored_text = String::from_utf8(stored).unwrap_or_default();
+        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri)
+            .unwrap_or_else(|_| {
+                PlaylistGenerator::generate(".", &segment_files, &segment_durations, key_uri)
+            })
+    } else {
+        PlaylistGenerator::generate(".", &segment_files, &segment_durations, key_uri)
+    };
     tokio::fs::write(work_dir.join("stream.m3u8"), playlist).await?;
 
     Ok(())

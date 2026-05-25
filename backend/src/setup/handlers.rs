@@ -98,7 +98,8 @@ pub async fn setup_status(State(state): State<Arc<AppState>>) -> Result<Json<Set
 pub async fn setup_database_info(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SetupDatabaseInfo>, AppError> {
-    ensure_not_complete(&state).await?;
+    // Human: Read-only env snapshot for the wizard — safe before and after first admin exists.
+    // Agent: NO ensure_not_complete; READS AppState database_url only.
     Ok(Json(SetupDatabaseInfo {
         driver: db::driver_from_url(&state.database_url)
             .unwrap_or("unknown")
@@ -110,7 +111,8 @@ pub async fn setup_database_info(
 pub async fn setup_storage_info(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<StorageInfo>, AppError> {
-    ensure_not_complete(&state).await?;
+    // Human: Read-only object-storage defaults for the wizard — no mutation, no 409 after setup.
+    // Agent: NO ensure_not_complete; READS AppState storage fields only.
     Ok(Json(StorageInfo {
         object_storage_url: state.object_storage_url.clone(),
         object_storage_public_url: state.object_storage_public_url.clone(),

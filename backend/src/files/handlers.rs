@@ -17,8 +17,12 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
-    files::folders::ensure_folder_owned,
-    hls::encode_job::{spawn_hls_encode_job, HlsEncodeJob},
+    files::{
+        file_delete::delete_owned_file_row,
+        folders::ensure_folder_owned,
+        processing::ensure_file_not_processing,
+    },
+    jobs::{self, model::HlsEncodePayload, JobKind},
     rate_limit,
     request_tracking,
     AppState,
@@ -26,10 +30,14 @@ use crate::{
 
 // Human: Shared column list for file rows including HLS transcode metadata.
 // Agent: USED in SELECT/RETURNING for list, get, upload, and move handlers.
-const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
+pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
     hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
+
+type DownloadFileRow = (String, String, Option<String>, bool, bool, Option<String>);
+type DownloadUrlRow = (String, Option<String>, bool, bool, Option<String>);
+type MoveFileCurrentRow = (Option<String>, String, Option<String>, bool, Option<String>);
 
 // Human: True when the vault keeps an HLS bundle (no standalone original blob).
 // Agent: USED by download/export handlers to branch away from raw storage_key GET.
@@ -159,6 +167,20 @@ pub async fn get_file(
     Ok(Json(serde_json::json!({ "file": file })))
 }
 
+// Human: Discard an entire multipart body without storing it — used when rejecting before upload work.
+// Agent: READS every field to EOF; IGNORES parse errors so the HTTP connection can close cleanly.
+async fn drain_multipart(multipart: &mut Multipart) {
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(field)) => {
+                let _ = field.bytes().await;
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+}
+
 // Human: Accept multipart uploads and persist bytes to object storage with metadata in Postgres.
 // Agent: WRITES storage PUT + files INSERT; RATE LIMITED upload_rl; AUDIT files.upload; LOGS phase timings.
 pub async fn upload_file(
@@ -176,7 +198,12 @@ pub async fn upload_file(
         "files.upload started"
     );
 
-    rate_limit::enforce(&state.upload_rl, &claims.sub)?;
+    // Human: Reject over quota but still drain the multipart body so the client gets a clean 429.
+    // Agent: READS all multipart fields when rate limited; AVOIDS ERR_CONNECTION_ABORTED mid-body.
+    if let Err(e) = rate_limit::enforce(&state.upload_rl, &claims.sub) {
+        drain_multipart(&mut multipart).await;
+        return Err(e);
+    }
 
     let mut filename = String::from("untitled");
     let mut folder_id: Option<String> = None;
@@ -283,7 +310,13 @@ pub async fn upload_file(
     let db_started = Instant::now();
 
     let file: FileDto = if is_video {
-        let tmp_path = std::env::temp_dir().join(format!("mv_upload_{file_id}"));
+        // Human: Spool each video under its own work dir so HLS cleanup never removes the OS temp root.
+        // Agent: WRITES mediavault_upload_{file_id}/source; create_dir_all before write; PASSED to HlsEncodeJob.
+        let work_dir = std::env::temp_dir().join(format!("mediavault_upload_{file_id}"));
+        tokio::fs::create_dir_all(&work_dir)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("create upload work dir: {e}")))?;
+        let tmp_path = work_dir.join("source");
         tokio::fs::write(&tmp_path, &data)
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("write upload temp file: {e}")))?;
@@ -292,7 +325,7 @@ pub async fn upload_file(
         let _: FileDto = sqlx::query_as(&format!(
             "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
              duration_seconds, hls_encode_status, conversion_progress) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'processing', 0) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0) \
              RETURNING {FILE_COLUMNS}"
         ))
         .bind(&file_id)
@@ -312,17 +345,24 @@ pub async fn upload_file(
             "files.upload HLS ingest queued (client polls conversion_progress)"
         );
 
-        spawn_hls_encode_job(
-            state.pool.clone(),
-            state.storage.clone(),
-            state.hls_key_store.clone(),
-            HlsEncodeJob {
-                file_id: file_id.clone(),
-                storage_key: storage_key.clone(),
-                tmp_video: tmp_path,
-                duration_seconds,
-            },
-        );
+        let payload = HlsEncodePayload {
+            file_id: file_id.clone(),
+            storage_key: storage_key.clone(),
+            tmp_video: tmp_path.to_string_lossy().to_string(),
+            duration_seconds,
+        };
+
+        jobs::enqueue_job(
+            &state.pool,
+            &claims.sub,
+            JobKind::HlsEncode,
+            &filename,
+            Some("file"),
+            Some(&file_id),
+            serde_json::to_value(payload)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("encode job payload: {e}")))?,
+        )
+        .await?;
 
         sqlx::query_as(&format!(
             "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
@@ -412,8 +452,8 @@ pub async fn download_file(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let row: Option<(String, String, Option<String>, bool, bool)> = sqlx::query_as(
-        "SELECT storage_key, name, mime_type, hls_ready, download_export_ready \
+    let row: Option<DownloadFileRow> = sqlx::query_as(
+        "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
@@ -421,7 +461,10 @@ pub async fn download_file(
     .fetch_optional(&state.pool)
     .await?;
 
-    let (storage_key, name, mime_type, hls_ready, export_ready) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, name, mime_type, hls_ready, export_ready, hls_encode_status) =
+        row.ok_or(AppError::NotFound)?;
+
+    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
         if !export_ready {
@@ -470,15 +513,18 @@ pub async fn download_url(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
-    let row: Option<(String, Option<String>, bool, bool)> = sqlx::query_as(
-        "SELECT storage_key, mime_type, hls_ready, download_export_ready \
+    let row: Option<DownloadUrlRow> = sqlx::query_as(
+        "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
-    let (storage_key, mime_type, hls_ready, export_ready) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, mime_type, hls_ready, export_ready, hls_encode_status) =
+        row.ok_or(AppError::NotFound)?;
+
+    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
         if !export_ready {
@@ -511,15 +557,19 @@ pub async fn move_file(
     Path(id): Path<String>,
     Json(body): Json<MoveFileRequest>,
 ) -> Result<Json<MoveFileResponse>, AppError> {
-    let current: Option<(Option<String>, String)> = sqlx::query_as(
-        "SELECT folder_id, name FROM files WHERE id = $1 AND user_id = $2",
+    let current: Option<MoveFileCurrentRow> = sqlx::query_as(
+        "SELECT folder_id, name, mime_type, hls_ready, hls_encode_status \
+         FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (current_folder_id, name) = current.ok_or(AppError::NotFound)?;
+    let (current_folder_id, name, mime_type, hls_ready, hls_encode_status) =
+        current.ok_or(AppError::NotFound)?;
+
+    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let target_folder_id = body
         .folder_id
@@ -567,6 +617,54 @@ pub async fn move_file(
     Ok(Json(MoveFileResponse { file }))
 }
 
+// Human: Cancel server-side HLS ingest for a video still being transcoded after upload.
+// Agent: POST /api/v1/files/:id/cancel-ingest; WRITES job cancelled + file hls_encode_status; AUDIT files.ingest.cancel.
+pub async fn cancel_video_ingest(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let row: Option<(Option<String>, bool)> = sqlx::query_as(
+        "SELECT mime_type, hls_ready FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, hls_ready) = row.ok_or(AppError::NotFound)?;
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest(
+            "only video files can cancel ingest".into(),
+        ));
+    }
+    if hls_ready {
+        return Err(AppError::Conflict(
+            "video ingest already finished".into(),
+        ));
+    }
+
+    let cancelled = jobs::cancel_hls_encode_for_file(&state.pool, &claims.sub, &id).await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.ingest.cancel",
+        Some("file"),
+        Some(&id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(serde_json::json!({ "ok": cancelled })))
+}
+
 // Human: Remove file metadata and delete the blob from object storage.
 // Agent: DELETE files row; CALLS storage.delete; AUDIT files.delete.
 pub async fn delete_file(
@@ -575,25 +673,18 @@ pub async fn delete_file(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row: Option<(String, String, Option<i32>)> = sqlx::query_as(
-        "SELECT storage_key, name, segment_count FROM files WHERE id = $1 AND user_id = $2",
+    let row: Option<(Option<String>, bool, Option<String>)> = sqlx::query_as(
+        "SELECT mime_type, hls_ready, hls_encode_status FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
-    let (storage_key, name, segment_count) = row.ok_or(AppError::NotFound)?;
+    let (mime_type, hls_ready, hls_encode_status) = row.ok_or(AppError::NotFound)?;
+    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
-    sqlx::query("DELETE FROM files WHERE id = $1 AND user_id = $2")
-        .bind(&id)
-        .bind(&claims.sub)
-        .execute(&state.pool)
-        .await?;
-
-    delete_hls_artifacts(&state, &storage_key, segment_count).await;
-    // Human: Legacy videos may still have a blob at storage_key; HLS-only rows have no root object.
-    // Agent: BEST-EFFORT DELETE root key; IGNORE 404 from Nebular.
-    let _ = state.storage.delete(&storage_key).await;
+    let deleted =
+        delete_owned_file_row(&state, &state.pool, &claims.sub, &id).await?;
 
     audit::write_audit(
         &state.pool,
@@ -601,36 +692,13 @@ pub async fn delete_file(
         "files.delete",
         Some("file"),
         Some(&id),
-        Some(serde_json::json!({ "name": name })),
+        Some(serde_json::json!({ "name": deleted.name })),
         &headers,
     )
     .await
     .ok();
 
     Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-// Human: Remove HLS playlist, key, and segment objects alongside the original file blob.
-// Agent: BEST-EFFORT DELETE on `{storage_key}/stream.m3u8`, key.bin, and numbered segments.
-async fn delete_hls_artifacts(state: &AppState, storage_key: &str, segment_count: Option<i32>) {
-    let _ = state
-        .storage
-        .delete(&format!("{storage_key}/stream.m3u8"))
-        .await;
-    let _ = state.storage.delete(&format!("{storage_key}/key.bin")).await;
-    let _ = state
-        .storage
-        .delete(&format!("{storage_key}/{EXPORT_OBJECT_SUFFIX}"))
-        .await;
-    if let Some(count) = segment_count {
-        for i in 0..count.max(0) {
-            let name = format!("{i:04}.ts");
-            let _ = state
-                .storage
-                .delete(&format!("{storage_key}/segments/{name}"))
-                .await;
-        }
-    }
 }
 
 // Human: Return instance branding and storage summary for the drive dashboard header.

@@ -3,11 +3,11 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  Copy,
   Download,
   ExternalLink,
   FolderPlus,
   FolderOpen,
+  Info,
   Link2,
   RefreshCw,
   Share2,
@@ -16,7 +16,8 @@ import {
   Upload,
 } from "lucide-react";
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
-import type { FileItem } from "@/api/client";
+import type { FileItem, FolderItem } from "@/api/client";
+import { isFileProcessing } from "@/lib/file-processing";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -36,16 +37,24 @@ type NavItemId = "home" | "my-files";
 type DriveContextMenuProps = {
   children: ReactNode;
   files: FileItem[];
+  folders: FolderItem[];
   favouriteIds: Set<string>;
   activeNav: NavItemId;
   onDownload: (file: FileItem) => void;
+  onDownloadFolder: (folder: FolderItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
+  onPreviewImage?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
+  onDeleteFolder: (folderId: string) => void;
   onToggleFavourite: (fileId: string) => void;
   onUpload: () => void;
   onCreateFolder: () => void;
   onRefresh: () => void;
   onNavChange: (nav: NavItemId) => void;
+  onShareFile: (file: FileItem) => void;
+  onShareFolder: (folder: FolderItem) => void;
+  onDetailsFile: (file: FileItem) => void;
+  onDetailsFolder: (folder: FolderItem) => void;
 };
 
 // Human: Walk DOM ancestors to find the file row or card that received the right click.
@@ -60,35 +69,67 @@ function findFileIdFromEvent(event: Event): string | null {
   return null;
 }
 
+// Human: Walk DOM ancestors to find the folder row that received the right click.
+// Agent: READS data-folder-id attribute; RETURNS folder id or null when a file row was not hit first.
+function findFolderIdFromEvent(event: Event): string | null {
+  let node = event.target;
+  while (node instanceof Element) {
+    if (node.hasAttribute("data-file-id")) return null;
+    const folderId = node.getAttribute("data-folder-id");
+    if (folderId) return folderId;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 export function DriveContextMenu({
   children,
   files,
+  folders,
   favouriteIds,
   activeNav,
   onDownload,
+  onDownloadFolder,
   onPreviewVideo,
+  onPreviewImage,
   onDelete,
+  onDeleteFolder,
   onToggleFavourite,
   onUpload,
   onCreateFolder,
   onRefresh,
   onNavChange,
+  onShareFile,
+  onShareFolder,
+  onDetailsFile,
+  onDetailsFolder,
 }: DriveContextMenuProps) {
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
+  const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const folderById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders],
+  );
   const targetFile = targetFileId ? fileById.get(targetFileId) : undefined;
+  const targetFolder = targetFolderId ? folderById.get(targetFolderId) : undefined;
   const targetFavourited = targetFile ? favouriteIds.has(targetFile.id) : false;
+  const targetProcessing = targetFile ? isFileProcessing(targetFile) : false;
 
-  // Human: Resolve which file (if any) was under the pointer when the menu opened.
-  // Agent: WRITES targetFileId from eventDetails.event on open; CLEARS on close.
+  // Human: Resolve which file or folder (if any) was under the pointer when the menu opened.
+  // Agent: WRITES target ids from eventDetails.event on open; CLEARS on close.
   const handleOpenChange = useCallback(
     (open: boolean, eventDetails: ContextMenuPrimitive.Root.ChangeEventDetails) => {
       if (open) {
-        setTargetFileId(findFileIdFromEvent(eventDetails.event));
+        const fileId = findFileIdFromEvent(eventDetails.event);
+        const folderId = fileId ? null : findFolderIdFromEvent(eventDetails.event);
+        setTargetFileId(fileId);
+        setTargetFolderId(folderId);
         return;
       }
       setTargetFileId(null);
+      setTargetFolderId(null);
     },
     [],
   );
@@ -100,13 +141,23 @@ export function DriveContextMenu({
         {targetFile ? (
           <ContextMenuGroup>
             <ContextMenuLabel className="truncate">{targetFile.name}</ContextMenuLabel>
+            {targetProcessing ? (
+              <p className="px-2 py-1.5 text-xs text-violet-800">Processing — actions unavailable</p>
+            ) : null}
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onDownload(targetFile)}>
+            <ContextMenuItem disabled={targetProcessing} onClick={() => onDetailsFile(targetFile)}>
+              <Info />
+              Details
+            </ContextMenuItem>
+            <ContextMenuItem disabled={targetProcessing} onClick={() => onDownload(targetFile)}>
               <Download />
               Download
               <ContextMenuShortcut>⌘D</ContextMenuShortcut>
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onToggleFavourite(targetFile.id)}>
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onToggleFavourite(targetFile.id)}
+            >
               <Star className={targetFavourited ? "fill-current text-amber-500" : undefined} />
               {targetFavourited ? "Remove from favourites" : "Add to favourites"}
             </ContextMenuItem>
@@ -118,18 +169,12 @@ export function DriveContextMenu({
                 Share
               </ContextMenuSubTrigger>
               <ContextMenuSubContent>
-                <ContextMenuItem disabled>
+                <ContextMenuItem
+                  disabled={targetProcessing}
+                  onClick={() => onShareFile(targetFile)}
+                >
                   <Link2 />
-                  Copy link
-                </ContextMenuItem>
-                <ContextMenuItem disabled>
-                  <ExternalLink />
-                  Open in new tab
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem disabled>
-                  <Copy />
-                  Copy file name
+                  Copy public link
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
@@ -140,24 +185,64 @@ export function DriveContextMenu({
                 Open with
               </ContextMenuSubTrigger>
               <ContextMenuSubContent>
-                <ContextMenuItem onClick={() => onDownload(targetFile)}>
+                <ContextMenuItem disabled={targetProcessing} onClick={() => onDownload(targetFile)}>
                   <Download />
                   Download to device
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={
-                    !targetFile.mime_type?.startsWith("video/") || !onPreviewVideo
+                    targetProcessing ||
+                    !targetFile.mime_type?.startsWith("video/") ||
+                    !onPreviewVideo
                   }
                   onClick={() => targetFile && onPreviewVideo?.(targetFile)}
                 >
                   <ExternalLink />
                   Play in browser
                 </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing ||
+                    !targetFile.mime_type?.startsWith("image/") ||
+                    !onPreviewImage
+                  }
+                  onClick={() => targetFile && onPreviewImage?.(targetFile)}
+                >
+                  <ExternalLink />
+                  View in gallery
+                </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
 
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onClick={() => onDelete(targetFile.id)}>
+            <ContextMenuItem
+              variant="destructive"
+              disabled={targetProcessing}
+              onClick={() => onDelete(targetFile.id)}
+            >
+              <Trash2 />
+              Delete
+            </ContextMenuItem>
+          </ContextMenuGroup>
+        ) : targetFolder ? (
+          <ContextMenuGroup>
+            <ContextMenuLabel className="truncate">{targetFolder.name}</ContextMenuLabel>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => onDetailsFolder(targetFolder)}>
+              <Info />
+              Details
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onDownloadFolder(targetFolder)}>
+              <Download />
+              Download
+              <ContextMenuShortcut>⌘D</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onShareFolder(targetFolder)}>
+              <Link2 />
+              Copy public link
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onClick={() => onDeleteFolder(targetFolder.id)}>
               <Trash2 />
               Delete
             </ContextMenuItem>

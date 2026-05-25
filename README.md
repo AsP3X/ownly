@@ -11,18 +11,13 @@ Self-hosted personal cloud storage for documents, images, videos, audio, and mor
 
 ## Quick start (Docker)
 
-Generate secrets once:
-
-```bash
-chmod +x init-env.sh
-docker compose --profile init run --rm init-env
-```
-
-Start the full stack:
+Start the full stack (no `.env` or secret setup required for local Compose):
 
 ```bash
 docker compose up --build
 ```
+
+For non-Docker development or production-like random secrets, run `init-env.sh` once (or `docker compose --profile init run --rm init-env`) to generate `.env` files from the examples.
 
 Open **http://localhost:8080** — the onboarding wizard runs on first launch.
 
