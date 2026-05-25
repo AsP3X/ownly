@@ -119,6 +119,94 @@ function formatElapsed(seconds: number) {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
+// Human: Fixed-height panel for the file currently uploading — always pinned above the queue.
+// Agent: RENDERS phase label, progress bar, and elapsed time; RESERVED height prevents dialog jitter.
+function ActiveUploadPanel({
+  item,
+  processingElapsedSec,
+}: {
+  item: UploadQueueItem | undefined;
+  processingElapsedSec: number;
+}) {
+  const isProcessing = item?.phase === "processing";
+
+  return (
+    <div
+      className={cn(
+        "flex h-[8.75rem] shrink-0 flex-col gap-2 rounded-xl border p-4",
+        item && isProcessing && "border-violet-200 bg-violet-50",
+        item && !isProcessing && "border-blue-200 bg-blue-50",
+        !item && "border-neutral-200 bg-neutral-50",
+      )}
+    >
+      {item ? (
+        <>
+          <div
+            className={cn(
+              "flex items-center gap-2 text-xs font-semibold uppercase tracking-wide",
+              isProcessing ? "text-violet-800" : "text-blue-800",
+            )}
+          >
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            {activePhaseLabel(item.phase)}
+          </div>
+          <div className="flex min-h-0 flex-1 items-start gap-3">
+            <FileIcon
+              className={cn(
+                "mt-0.5 size-5 shrink-0",
+                isProcessing ? "text-violet-700" : "text-blue-700",
+              )}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="truncate text-sm font-medium text-neutral-900">{item.file.name}</p>
+                <span
+                  className={cn(
+                    "w-16 shrink-0 text-right text-sm font-bold tabular-nums",
+                    isProcessing ? "text-violet-800" : "text-blue-800",
+                  )}
+                >
+                  {isProcessing && item.indeterminate ? "Working…" : `${item.progress}%`}
+                </span>
+              </div>
+              <UploadProgressBar
+                value={item.progress}
+                phase={item.phase}
+                indeterminate={item.indeterminate}
+              />
+              <p className="h-4 truncate text-xs text-neutral-600">
+                {formatBytes(item.file.size)}
+                {isProcessing ? (
+                  <span className="text-neutral-500">
+                    {" "}
+                    · Processing ({formatElapsed(processingElapsedSec)})
+                  </span>
+                ) : null}
+              </p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">
+          Preparing next file…
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Human: Compact row for files still waiting — no progress bar; active file lives in the top panel.
+function WaitingQueueRow({ item }: { item: UploadQueueItem }) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-2.5">
+      <Clock className="size-4 shrink-0 text-neutral-400" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-sm text-neutral-800">{item.file.name}</span>
+      <span className="shrink-0 text-xs text-neutral-500">{formatBytes(item.file.size)}</span>
+    </li>
+  );
+}
+
 export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsComplete }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
@@ -163,9 +251,9 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
     [],
   );
 
-  const waitingItems = queue.filter((item) => item.status === "queued");
   const doneCount = queue.filter((item) => item.status === "done").length;
   const errorCount = queue.filter((item) => item.status === "error").length;
+  const waitingItems = queue.filter((item) => item.status === "queued");
   const isUploading = step === "uploading";
 
   // Human: Notify parent with uploaded file ids so drive can refresh and show new items on Home.
@@ -334,9 +422,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
     step === "select"
       ? "Add files and remove any you do not want. Press Upload when ready."
       : step === "uploading"
-        ? activeItem?.phase === "processing"
-          ? "Saving files to storage — compression and blob write may take a while for large files."
-          : "Please keep this window open until uploads finish."
+        ? "Please keep this window open until uploads finish. Large files may take several minutes to process."
         : errorCount > 0
           ? `${doneCount} succeeded, ${errorCount} failed.`
           : `All ${doneCount} file${doneCount === 1 ? "" : "s"} uploaded successfully.`;
@@ -349,7 +435,11 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
       >
         <DialogHeader className="border-b border-neutral-100 px-6 py-5">
           <DialogTitle className="text-lg text-neutral-900">{stepTitle}</DialogTitle>
-          <DialogDescription className="text-neutral-500">{stepDescription}</DialogDescription>
+          <DialogDescription
+            className={cn("text-neutral-500", step === "uploading" && "min-h-10")}
+          >
+            {stepDescription}
+          </DialogDescription>
         </DialogHeader>
 
         <input
@@ -416,92 +506,27 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
 
           {step === "uploading" ? (
-            <>
-              {activeItem ? (
-                <div
-                  className={cn(
-                    "flex flex-col gap-3 rounded-xl border p-4",
-                    activeItem.phase === "processing"
-                      ? "border-violet-200 bg-violet-50"
-                      : "border-blue-200 bg-blue-50",
+            <div className="flex h-80 flex-col gap-3">
+              <p className="shrink-0 text-sm font-medium text-neutral-900">
+                {doneCount + errorCount} of {queue.length} complete
+              </p>
+              {/* Agent: Active file lifted out of queue; progress UI stays in this fixed top slot. */}
+              <ActiveUploadPanel item={activeItem} processingElapsedSec={processingElapsedSec} />
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <h3 className="shrink-0 text-sm font-medium text-neutral-900">
+                  Waiting ({waitingItems.length})
+                </h3>
+                <ul className="min-h-0 flex-1 divide-y divide-neutral-100 overflow-y-auto rounded-xl border border-neutral-200 bg-white">
+                  {waitingItems.length > 0 ? (
+                    waitingItems.map((item) => <WaitingQueueRow key={item.id} item={item} />)
+                  ) : (
+                    <li className="flex h-full min-h-[4.5rem] items-center justify-center px-4 text-sm text-neutral-500">
+                      No files waiting
+                    </li>
                   )}
-                >
-                  <div
-                    className={cn(
-                      "flex items-center gap-2 text-xs font-semibold uppercase tracking-wide",
-                      activeItem.phase === "processing" ? "text-violet-800" : "text-blue-800",
-                    )}
-                  >
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                    {activePhaseLabel(activeItem.phase)}
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <FileIcon
-                      className={cn(
-                        "mt-0.5 size-5 shrink-0",
-                        activeItem.phase === "processing" ? "text-violet-700" : "text-blue-700",
-                      )}
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1 flex flex-col gap-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-medium text-neutral-900">
-                          {activeItem.file.name}
-                        </p>
-                        <span
-                          className={cn(
-                            "shrink-0 text-sm font-bold tabular-nums",
-                            activeItem.phase === "processing" ? "text-violet-800" : "text-blue-800",
-                          )}
-                        >
-                          {activeItem.phase === "processing" && activeItem.indeterminate
-                            ? "Working…"
-                            : `${activeItem.progress}%`}
-                        </span>
-                      </div>
-                      <UploadProgressBar
-                        value={activeItem.progress}
-                        phase={activeItem.phase}
-                        indeterminate={activeItem.indeterminate}
-                      />
-                      <p className="text-xs text-neutral-600">
-                        {formatBytes(activeItem.file.size)}
-                        {activeItem.phase === "processing" ? (
-                          <span className="text-neutral-500">
-                            {" "}
-                            ·{" "}
-                            {activeItem.indeterminate
-                              ? `Compressing and storing on server (${formatElapsed(processingElapsedSec)} elapsed — large files often take several minutes)`
-                              : "Storing and compressing blob…"}
-                          </span>
-                        ) : null}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {waitingItems.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-sm font-medium text-neutral-900">
-                    Waiting ({waitingItems.length})
-                  </h3>
-                  <ul className="max-h-40 divide-y divide-neutral-100 overflow-y-auto rounded-xl border border-neutral-200 bg-white">
-                    {waitingItems.map((item) => (
-                      <li key={item.id} className="flex items-center gap-3 px-4 py-2.5">
-                        <Clock className="size-4 shrink-0 text-neutral-400" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-800">
-                          {item.file.name}
-                        </span>
-                        <span className="shrink-0 text-xs text-neutral-500">
-                          {formatBytes(item.file.size)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </>
+                </ul>
+              </div>
+            </div>
           ) : null}
 
           {step === "complete" ? (
@@ -575,8 +600,8 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
             </>
           ) : null}
           {step === "uploading" ? (
-            <Button type="button" disabled>
-              {activeItem?.phase === "processing" ? "Processing…" : "Uploading…"}
+            <Button type="button" className="min-w-[8.5rem]" disabled>
+              Uploading…
             </Button>
           ) : null}
           {step === "complete" ? (
