@@ -165,6 +165,38 @@ export async function listFiles(params?: { q?: string; folder_id?: string }) {
   }>;
 }
 
+export type FolderItem = {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// Human: List folders at the drive root or under a parent folder id.
+// Agent: GET /folders?parent_id=; OMITS parent_id query for root listing.
+export async function listFolders(params?: { parent_id?: string }) {
+  const search = new URLSearchParams();
+  if (params?.parent_id) search.set("parent_id", params.parent_id);
+  const qs = search.toString();
+  return apiFetch(`/folders${qs ? `?${qs}` : ""}`) as Promise<{
+    folders: FolderItem[];
+  }>;
+}
+
+// Human: Create a folder for organizing files in the drive browser.
+// Agent: POST /folders JSON { name, parent_id? }; RETURNS { folder: FolderItem }.
+export async function createFolder(payload: { name: string; parent_id?: string | null }) {
+  return apiFetch("/folders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as Promise<{ folder: FolderItem }>;
+}
+
+export async function deleteFolder(id: string) {
+  return apiFetch(`/folders/${id}`, { method: "DELETE" });
+}
+
 export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
@@ -186,15 +218,19 @@ const PROCESSING_DISPLAY_MAX = 99;
 const PROCESSING_INDETERMINATE_MS = 2500;
 
 // Human: Upload one file with XMLHttpRequest so the UI can show byte-level progress.
-// Agent: POST /files/upload multipart; CALLS onProgress with phase + percent; RETURNS { file: FileItem }.
+// Agent: POST /files/upload multipart; optional folder_id field; CALLS onProgress; RETURNS { file: FileItem }.
 export function uploadFileWithProgress(
   file: File,
   onProgress?: (update: UploadProgressUpdate) => void,
+  options?: { folderId?: string | null },
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append("file", file);
+    if (options?.folderId) {
+      form.append("folder_id", options.folderId);
+    }
     const url = `${API_BASE}/files/upload`;
     const token = getToken();
 

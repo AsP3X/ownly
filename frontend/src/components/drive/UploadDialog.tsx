@@ -57,6 +57,7 @@ function pendingFileId(file: File, index: number) {
 type UploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  folderId?: string | null;
   onUploadsComplete?: (payload: UploadsCompletePayload) => void;
 };
 
@@ -118,7 +119,7 @@ function formatElapsed(seconds: number) {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
-export function UploadDialog({ open, onOpenChange, onUploadsComplete }: UploadDialogProps) {
+export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsComplete }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
   const queueRef = useRef<UploadQueueItem[]>([]);
@@ -202,20 +203,24 @@ export function UploadDialog({ open, onOpenChange, onUploadsComplete }: UploadDi
         );
 
         try {
-          const result = await uploadFileWithProgress(file, (update) => {
-            setQueueSync((prev) =>
-              prev.map((item) =>
-                item.id === uploadId
-                  ? {
-                      ...item,
-                      progress: update.percent,
-                      phase: update.phase,
-                      indeterminate: update.indeterminate,
-                    }
-                  : item,
-              ),
-            );
-          });
+          const result = await uploadFileWithProgress(
+            file,
+            (update) => {
+              setQueueSync((prev) =>
+                prev.map((item) =>
+                  item.id === uploadId
+                    ? {
+                        ...item,
+                        progress: update.percent,
+                        phase: update.phase,
+                        indeterminate: update.indeterminate,
+                      }
+                    : item,
+                ),
+              );
+            },
+            { folderId },
+          );
           setQueueSync((prev) =>
             prev.map((item) =>
               item.id === uploadId
@@ -251,7 +256,7 @@ export function UploadDialog({ open, onOpenChange, onUploadsComplete }: UploadDi
       setStep("complete");
       notifyUploadsComplete();
     }
-  }, [setQueueSync, notifyUploadsComplete]);
+  }, [setQueueSync, notifyUploadsComplete, folderId]);
 
   // Human: Append picked files to the selection list (no upload until user confirms).
   // Agent: READS FileList; WRITES pendingFiles; DOES NOT start processor.

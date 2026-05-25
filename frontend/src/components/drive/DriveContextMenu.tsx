@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FolderPlus,
   FolderOpen,
   Link2,
   RefreshCw,
@@ -41,6 +42,7 @@ type DriveContextMenuProps = {
   onDelete: (fileId: string) => void;
   onToggleFavourite: (fileId: string) => void;
   onUpload: () => void;
+  onCreateFolder: () => void;
   onRefresh: () => void;
   onNavChange: (nav: NavItemId) => void;
 };
@@ -66,6 +68,7 @@ export function DriveContextMenu({
   onDelete,
   onToggleFavourite,
   onUpload,
+  onCreateFolder,
   onRefresh,
   onNavChange,
 }: DriveContextMenuProps) {
@@ -159,6 +162,10 @@ export function DriveContextMenu({
             <ContextMenuItem onClick={onUpload}>
               <Upload />
               Upload files
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onCreateFolder}>
+              <FolderPlus />
+              New folder
             </ContextMenuItem>
             <ContextMenuItem onClick={onRefresh}>
               <RefreshCw />

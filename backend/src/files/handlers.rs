@@ -14,7 +14,13 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use crate::{
-    audit, auth::handlers::Claims, error::AppError, rate_limit, request_tracking, AppState,
+    audit,
+    auth::handlers::Claims,
+    error::AppError,
+    files::folders::ensure_folder_owned,
+    rate_limit,
+    request_tracking,
+    AppState,
 };
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -182,6 +188,12 @@ pub async fn upload_file(
     }
     if data.len() as u64 > state.max_upload_bytes {
         return Err(AppError::BadRequest("file exceeds maximum upload size".into()));
+    }
+
+    // Human: Reject uploads into folders the caller does not own.
+    // Agent: READS folders via ensure_folder_owned before storage PUT.
+    if let Some(ref target_folder_id) = folder_id {
+        ensure_folder_owned(&state.pool, &claims.sub, target_folder_id).await?;
     }
 
     let size_bytes = data.len();

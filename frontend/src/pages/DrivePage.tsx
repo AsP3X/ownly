@@ -3,11 +3,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ChevronRight,
   Download,
   FileIcon,
   FileSpreadsheet,
   FileText,
   Film,
+  Folder,
+  FolderPlus,
   ImageIcon,
   LayoutGrid,
   LogOut,
@@ -21,11 +24,15 @@ import {
 } from "lucide-react";
 import {
   deleteFile,
+  deleteFolder,
   fetchDashboard,
   getErrorMessage,
   listFiles,
+  listFolders,
   type FileItem,
+  type FolderItem,
 } from "@/api/client";
+import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
 import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
 import { UploadDialog } from "@/components/drive/UploadDialog";
@@ -54,6 +61,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 
 type NavItemId = "home" | "my-files";
+type FolderCrumb = { id: string; name: string };
 
 const TYPE_FILTERS: { id: FileTypeFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -128,29 +136,35 @@ function SidebarNavItem({
 }
 
 type FileTableProps = {
+  folders?: FolderItem[];
   files: FileItem[];
   ownerLabel: string;
   favouriteIds: Set<string>;
   locationLabel?: string;
   emptyMessage: string;
+  onOpenFolder?: (folder: FolderItem) => void;
+  onDeleteFolder?: (folderId: string) => void;
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
 };
 
-// Human: Reusable file rows table for the My files browser.
-// Agent: RENDERS download/delete/favourite actions; CALLS onDownload for MEGA-style transfer.
+// Human: Reusable file rows table for the My files browser, with optional folder rows first.
+// Agent: RENDERS folder navigation + download/delete/favourite actions; CALLS onOpenFolder for drill-down.
 function FileTable({
+  folders = [],
   files,
   ownerLabel,
   favouriteIds,
   locationLabel = "My files",
   emptyMessage,
+  onOpenFolder,
+  onDeleteFolder,
   onToggleFavourite,
   onDelete,
   onDownload,
 }: FileTableProps) {
-  if (files.length === 0) {
+  if (folders.length === 0 && files.length === 0) {
     return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
   }
 
@@ -166,6 +180,53 @@ function FileTable({
           </tr>
         </thead>
         <tbody>
+          {folders.map((folder) => (
+            <tr
+              key={folder.id}
+              data-folder-id={folder.id}
+              className="border-b border-neutral-100 transition-colors hover:bg-neutral-50"
+            >
+              <td className="py-3 pr-4">
+                <button
+                  type="button"
+                  onClick={() => onOpenFolder?.(folder)}
+                  className="flex min-w-0 items-start gap-3 text-left"
+                >
+                  <Folder className="size-[18px] shrink-0 text-amber-500" aria-hidden />
+                  <div className="min-w-0 flex flex-col gap-0.5">
+                    <span className="truncate font-medium text-neutral-900">{folder.name}</span>
+                    <span className="text-xs text-neutral-500">{locationLabel} · Folder</span>
+                  </div>
+                </button>
+              </td>
+              <td className="py-3 pr-4 whitespace-nowrap text-neutral-700">
+                {formatFileOpened(folder.updated_at)}
+              </td>
+              <td className="py-3 pr-4 whitespace-nowrap capitalize text-neutral-700">
+                {ownerLabel}
+              </td>
+              <td className="py-3">
+                <div className="flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onOpenFolder?.(folder)}
+                    aria-label={`Open ${folder.name}`}
+                  >
+                    <Folder className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onDeleteFolder?.(folder.id)}
+                    aria-label={`Delete ${folder.name}`}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
           {files.map((file) => {
             const favourited = favouriteIds.has(file.id);
             return (
@@ -426,7 +487,10 @@ export default function DrivePage() {
   const { user, logout } = useAuth();
   const profileRef = useRef<HTMLDivElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [folderStack, setFolderStack] = useState<FolderCrumb[]>([]);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
@@ -440,28 +504,47 @@ export default function DrivePage() {
     () => new Set(getFavouriteFileIds()),
   );
 
-  const refresh = useCallback(async (search?: string, options?: { silent?: boolean }) => {
-    if (!options?.silent) {
-      setLoading(true);
-    }
-    setError("");
-    try {
-      const [dashboard, listing] = await Promise.all([
-        fetchDashboard(),
-        listFiles(search ? { q: search } : undefined),
-      ]);
-      setInstanceName(dashboard.instance_name);
-      setUsedBytes(dashboard.used_bytes);
-      setQuotaBytes(dashboard.quota_bytes || 1);
-      setFiles(listing.files);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
+  const currentFolderId = folderStack.at(-1)?.id ?? null;
+
+  const refresh = useCallback(
+    async (
+      search?: string,
+      options?: { silent?: boolean; folderId?: string | null },
+    ) => {
       if (!options?.silent) {
-        setLoading(false);
+        setLoading(true);
       }
-    }
-  }, []);
+      setError("");
+      try {
+        const targetFolderId =
+          options?.folderId !== undefined ? options.folderId : currentFolderId;
+        const dashboard = await fetchDashboard();
+        setInstanceName(dashboard.instance_name);
+        setUsedBytes(dashboard.used_bytes);
+        setQuotaBytes(dashboard.quota_bytes || 1);
+
+        if (search) {
+          const listing = await listFiles({ q: search });
+          setFolders([]);
+          setFiles(listing.files);
+        } else {
+          const [folderListing, fileListing] = await Promise.all([
+            listFolders(targetFolderId ? { parent_id: targetFolderId } : undefined),
+            listFiles(targetFolderId ? { folder_id: targetFolderId } : undefined),
+          ]);
+          setFolders(folderListing.folders);
+          setFiles(fileListing.files);
+        }
+      } catch (e) {
+        setError(getErrorMessage(e));
+      } finally {
+        if (!options?.silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [currentFolderId],
+  );
 
   // Human: Refresh file list and quota after uploads without replacing the whole view with a spinner.
   // Agent: CALLS refresh silent; WRITES recent access for uploaded ids so Home shows new files.
@@ -492,7 +575,31 @@ export default function DrivePage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query, refresh, activeNav]);
+  }, [query, refresh, activeNav, folderStack]);
+
+  function openFolder(folder: FolderItem) {
+    setActiveNav("my-files");
+    setFolderStack((prev) => [...prev, { id: folder.id, name: folder.name }]);
+  }
+
+  function goToFolderIndex(index: number) {
+    if (index < 0) {
+      setFolderStack([]);
+      return;
+    }
+    setFolderStack((prev) => prev.slice(0, index + 1));
+  }
+
+  async function handleDeleteFolder(id: string) {
+    setError("");
+    try {
+      await deleteFolder(id);
+      setFolderStack((prev) => prev.filter((crumb) => crumb.id !== id));
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }
 
   // Human: Close the profile menu when clicking outside the top-bar avatar cluster.
   // Agent: LISTENS document mousedown; WRITES profileOpen false when target outside profileRef.
@@ -534,6 +641,7 @@ export default function DrivePage() {
     if (nav === "home") {
       setQuery("");
       setTypeFilter("all");
+      setFolderStack([]);
     }
   }
 
@@ -543,6 +651,8 @@ export default function DrivePage() {
       ? files.filter((file) => file.name.toLowerCase().includes(query.trim().toLowerCase()))
       : files;
   const browserFiles = files.filter((file) => fileMatchesTypeFilter(file.mime_type, typeFilter));
+  const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
+  const visibleFolders = isSearchingMyFiles ? [] : folders;
   const recentFiles = sortFilesByRecentAccess(nameFilteredFiles, 12);
   const favouriteFiles = pickFavouriteFiles(nameFilteredFiles);
   const sharedFiles: FileItem[] = [];
@@ -558,6 +668,7 @@ export default function DrivePage() {
       onDelete={(id) => void handleDelete(id)}
       onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
+      onCreateFolder={() => setCreateFolderDialogOpen(true)}
       onRefresh={() =>
         void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined)
       }
@@ -567,7 +678,18 @@ export default function DrivePage() {
         <UploadDialog
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
+          folderId={activeNav === "my-files" ? currentFolderId : null}
           onUploadsComplete={handleUploadsComplete}
+        />
+        <CreateFolderDialog
+          open={createFolderDialogOpen}
+          onOpenChange={setCreateFolderDialogOpen}
+          parentFolderId={currentFolderId}
+          onFolderCreated={() =>
+            void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+              silent: true,
+            })
+          }
         />
         <DownloadTransferPanel />
       {/* Top bar — profile avatar pinned on the far right */}
@@ -653,6 +775,17 @@ export default function DrivePage() {
             <Upload data-icon="inline-start" />
             Create or upload
           </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-center rounded-md border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50"
+            onClick={() => {
+              setActiveNav("my-files");
+              setCreateFolderDialogOpen(true);
+            }}
+          >
+            <FolderPlus data-icon="inline-start" />
+            New folder
+          </Button>
 
           <nav className="flex flex-col gap-0.5" aria-label="Drive navigation">
             <SidebarNavItem
@@ -699,7 +832,7 @@ export default function DrivePage() {
         <main className="p-4 md:p-6">
           <div className="flex min-h-[640px] flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+              <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold text-neutral-900">
                   {activeNav === "home" ? "Home" : "My files"}
                 </h1>
@@ -708,6 +841,37 @@ export default function DrivePage() {
                     ? "Recently accessed, favourites, and shared with you"
                     : "Browse everything in your library"}
                 </p>
+                {activeNav === "my-files" && folderStack.length > 0 ? (
+                  <nav
+                    className="flex flex-wrap items-center gap-1 text-sm text-neutral-600"
+                    aria-label="Folder path"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => goToFolderIndex(-1)}
+                      className="rounded px-1 font-medium text-blue-700 hover:bg-blue-50"
+                    >
+                      My files
+                    </button>
+                    {folderStack.map((crumb, index) => (
+                      <span key={crumb.id} className="flex items-center gap-1">
+                        <ChevronRight className="size-3.5 text-neutral-400" aria-hidden />
+                        <button
+                          type="button"
+                          onClick={() => goToFolderIndex(index)}
+                          className={cn(
+                            "rounded px-1 hover:bg-neutral-100",
+                            index === folderStack.length - 1
+                              ? "font-medium text-neutral-900"
+                              : "text-blue-700 hover:bg-blue-50",
+                          )}
+                        >
+                          {crumb.name}
+                        </button>
+                      </span>
+                    ))}
+                  </nav>
+                ) : null}
               </div>
               {activeNav === "my-files" ? (
                 <div className="relative w-full max-w-xs">
@@ -792,21 +956,44 @@ export default function DrivePage() {
                   onDownload={handleDownload}
                 />
               </div>
-            ) : browserFiles.length === 0 ? (
+            ) : visibleFolders.length === 0 && browserFiles.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-center">
                 <FileIcon className="size-10 text-neutral-400" />
-                <p className="font-medium text-neutral-900">No files found</p>
+                <p className="font-medium text-neutral-900">Nothing here yet</p>
                 <p className="text-sm text-neutral-500">
-                  Upload a file or change your search and filters.
+                  Create a folder, upload a file, or change your search and filters.
                 </p>
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCreateFolderDialogOpen(true)}
+                  >
+                    <FolderPlus data-icon="inline-start" />
+                    New folder
+                  </Button>
+                  <Button
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={() => setUploadDialogOpen(true)}
+                  >
+                    <Upload data-icon="inline-start" />
+                    Upload files
+                  </Button>
+                </div>
               </div>
             ) : (
               <FileTable
+                folders={visibleFolders}
                 files={browserFiles}
                 ownerLabel={ownerLabel}
                 favouriteIds={favouriteIds}
-                locationLabel="My files"
+                locationLabel={
+                  folderStack.length > 0
+                    ? folderStack[folderStack.length - 1]?.name ?? "My files"
+                    : "My files"
+                }
                 emptyMessage="No files in your library."
+                onOpenFolder={openFolder}
+                onDeleteFolder={(id) => void handleDeleteFolder(id)}
                 onToggleFavourite={handleToggleFavourite}
                 onDelete={(id) => void handleDelete(id)}
                 onDownload={handleDownload}
@@ -817,7 +1004,7 @@ export default function DrivePage() {
               {instanceName}
               {activeNav === "home"
                 ? ` · ${recentFiles.length} recent · ${favouriteFiles.length} favourites`
-                : ` · ${browserFiles.length} file${browserFiles.length === 1 ? "" : "s"} shown`}
+                : ` · ${visibleFolders.length} folder${visibleFolders.length === 1 ? "" : "s"} · ${browserFiles.length} file${browserFiles.length === 1 ? "" : "s"} shown`}
             </p>
           </div>
         </main>
