@@ -26,6 +26,7 @@ import {
   listFiles,
   type FileItem,
 } from "@/api/client";
+import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
 import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { enqueueDownload } from "@/lib/download-manager";
@@ -170,6 +171,7 @@ function FileTable({
             return (
               <tr
                 key={file.id}
+                data-file-id={file.id}
                 className="border-b border-neutral-100 transition-colors hover:bg-neutral-50"
               >
                 <td className="py-3 pr-4">
@@ -295,6 +297,7 @@ function FileGrid({
         return (
           <article
             key={file.id}
+            data-file-id={file.id}
             className="group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm"
           >
             <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f3f2f1]">
@@ -547,13 +550,26 @@ export default function DrivePage() {
   const initials = userInitials(user?.email);
 
   return (
-    <div className="min-h-screen bg-[#f3f2f1] text-neutral-900">
-      <UploadDialog
-        open={uploadDialogOpen}
-        onOpenChange={setUploadDialogOpen}
-        onUploadsComplete={handleUploadsComplete}
-      />
-      <DownloadTransferPanel />
+    <DriveContextMenu
+      files={files}
+      favouriteIds={favouriteIds}
+      activeNav={activeNav}
+      onDownload={handleDownload}
+      onDelete={(id) => void handleDelete(id)}
+      onToggleFavourite={handleToggleFavourite}
+      onUpload={() => setUploadDialogOpen(true)}
+      onRefresh={() =>
+        void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined)
+      }
+      onNavChange={handleNavChange}
+    >
+      <div className="min-h-screen bg-[#f3f2f1] text-neutral-900">
+        <UploadDialog
+          open={uploadDialogOpen}
+          onOpenChange={setUploadDialogOpen}
+          onUploadsComplete={handleUploadsComplete}
+        />
+        <DownloadTransferPanel />
       {/* Top bar — profile avatar pinned on the far right */}
       <header className="border-b border-neutral-200 bg-white">
         <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-4">
@@ -806,6 +822,7 @@ export default function DrivePage() {
           </div>
         </main>
       </div>
-    </div>
+      </div>
+    </DriveContextMenu>
   );
 }
