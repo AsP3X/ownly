@@ -1,0 +1,36 @@
+---
+description: sqlx migrations are immutable once applied; add new numbered files instead of editing old ones
+globs: backend/migrations/**/*
+alwaysApply: true
+---
+
+# sqlx migrations (immutable after apply)
+
+This project uses **sqlx** migrations under `backend/migrations/postgres/`. The API runs them at startup; Docker Compose fails if a migration file's checksum no longer matches `_sqlx_migrations`.
+
+## Rule
+
+**Never edit a migration file that has already been applied** (locally, in Docker, CI, or production)—**unless the user explicitly specifies and instructs you to do so**. Schema changes after ship must be a **new** sequentially numbered file (e.g. `002_…sql`, `003_…sql`).
+
+- **Do:** add `ALTER TABLE …`, new tables, indexes, seeds in a new migration.
+- **Do not:** change SQL in `001_…`, etc. after any environment has run them.
+
+Editing an applied migration causes:
+
+```text
+migration N was previously applied but has been modified (sqlx checksum mismatch)
+```
+
+and the API container exits before serving traffic.
+
+## Agent behavior
+
+When a task needs a schema change:
+
+1. Check existing files in `backend/migrations/postgres/` and pick the **next** number.
+2. Create a new `.sql` file only; leave prior migrations untouched **unless the user explicitly instructs editing an existing applied migration**.
+3. If the user reports checksum mismatch, explain the cause and recommend resetting the dev database or forward-fixing with a new migration — not rewriting applied migration history.
+
+## Production
+
+Do not edit old migrations without an explicit ops plan; add a forward migration instead.

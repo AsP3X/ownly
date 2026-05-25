@@ -1,0 +1,46 @@
+---
+description: Regression testing requirements when adding or changing features
+alwaysApply: true
+---
+
+# Regression testing
+
+New features and refactors must **not break existing behavior**. Treat regression protection as part of the feature, not optional cleanup.
+
+## Mindset
+
+- **Preserve contracts**: HTTP status codes, JSON shapes (`AppError` envelope per `api-error-shape.mdc`), auth flows, migration behavior, and user-visible flows that worked before must still work after your change—unless the task explicitly documents a breaking change and updates all consumers in the same work.
+- **Test the blast radius, not just the diff**: Ask what existing code paths your change touches (auth, setup, files, storage, DB queries, routing).
+
+## Test inventory (this repo)
+
+| Area | Automated checks | Notes |
+| --- | --- | --- |
+| **Backend (`backend/`)** | `cargo test -p mediavault-backend`, `cargo clippy -p mediavault-backend -- -D warnings` | Add integration tests under `backend/tests/` for HTTP-visible behavior. |
+| **Frontend (`frontend/`)** | `npm run build`, `npm run lint` | Manual smoke: setup wizard, login, upload, download, delete. |
+| **Migrations** | API startup / `cargo test` | New migrations only (`api-sqlx-migrations.mdc`). |
+
+**Local API tests:** From repo root with Postgres running and `DATABASE_URL` set:
+
+```bash
+cd backend && cargo test
+```
+
+## Verification matrix (by change type)
+
+| You changed… | Required checks |
+| --- | --- |
+| **API handler, middleware, auth** | `cargo test`; add/extend integration test when behavior is HTTP-visible |
+| **SQL schema or queries** | New migration file only; `cargo test`; smoke affected flows |
+| **Error responses or status codes** | API tests; confirm frontend still parses errors via `getErrorMessage` |
+| **Vite pages, hooks, API client** | `npm run build` + `npm run lint`; manual smoke of setup, login, drive |
+| **Cross-cutting refactor** | Full backend test suite + frontend build + clippy on touched crates |
+
+## Manual smoke paths
+
+1. **Setup** — Fresh stack shows `/setup`; wizard completes and lands on drive.
+2. **Auth** — Login/logout; protected routes return 401 without token.
+3. **Files** — Upload, list, search, download, delete.
+4. **Storage** — Nebular OS health check passes; uploads persist after restart.
+
+Report which commands and smokes you ran when claiming completion.

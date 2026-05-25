@@ -1,0 +1,41 @@
+[package]
+name = "nebular-os"
+version = "0.1.0"
+edition = "2024"
+authors = ["Niklas Vorberg"]
+license = "LicenseRef-NOCL-1.0"
+license-file = "LICENSE"
+description = "Standalone self-hosted object storage with an S3-like HTTP API"
+repository = "https://github.com/AsP3X/nebular-os"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "compression-full", "normalize-path", "cors"] }
+dashmap = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chrono"] }
+jsonwebtoken = "9"
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+thiserror = "2"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+anyhow = "1"
+dotenvy = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+urlencoding = "2"
+zstd = "0.13"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

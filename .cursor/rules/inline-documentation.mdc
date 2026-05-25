@@ -1,0 +1,33 @@
+---
+description: Mandatory inline comments (human + optional AI-digestible line) on Rust and TypeScript/TSX
+globs: "**/*.{rs,ts,tsx}"
+alwaysApply: true
+---
+
+# Inline documentation (required)
+
+**Applies to `*.rs`, `*.ts`, and `*.tsx` only.**
+
+**All new or modified code in these files must include clean, human-readable inline comments.** Where behavior is non-trivial, **each such comment must also include an `// Agent:` line** (in TSX inside JSX, use `{/* Agent: ... */}`) unless redundant.
+
+## What to comment
+
+- **Every non-trivial module, function, hook, or component**: purpose and side effects.
+- **Non-obvious logic**: why something is done, edge cases, ordering constraints.
+- **Sections in longer files**: short header comments before logical blocks.
+
+## AI-oriented line (when applicable)
+
+- **Rust and TypeScript (outside JSX):** `// Human:` and `// Agent:`
+- **TSX inside JSX:** `{/* Human: ... */}` and `{/* Agent: ... */}`
+
+On the **Agent** line, prefer structured phrasing: `READS`, `WRITES`, `CALLS`, `RETURNS`, `HTTP`, `DB`, env vars, failure modes.
+
+## Style
+
+- Place comments **above** the code they describe.
+- Keep comments **up to date** when behavior changes.
+
+## Out of scope
+
+- Do not comment every trivial line. **Do** comment anything another developer would need to edit safely.

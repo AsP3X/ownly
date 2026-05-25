@@ -1,0 +1,31 @@
+---
+description: HTTP error JSON, logging vs client messages for backend and frontend API client
+alwaysApply: true
+---
+
+# API responses, errors, and logging
+
+This project's HTTP API contract and observability patterns are **fixed by convention**. Follow them for **`backend/`** (Rust / Axum) and **`frontend/src/api/client.ts`**.
+
+## Canonical error JSON (Rust `/api/v1`)
+
+- **Error HTTP bodies** must be JSON matching the envelope produced by **`AppError`** in `backend/src/error.rs`:  
+  `{ "error": { "code": string, "message": string } }`  
+  Status code comes from the same error type (`IntoResponse` on `AppError`).
+- **Handlers** should return **`Result<..., AppError>`** and build failures with appropriate `AppError` variants. **Do not** introduce alternate error shapes for the same API surface unless the user explicitly approves a breaking contract change—and then **update** the Vite client's error parsing in the same work.
+
+## What clients see vs what logs contain
+
+- **Responses**: `message` (and `code`) must stay **safe for end users** — no stack traces, SQL fragments, internal hostnames, tokens, or secrets in JSON bodies.
+- **Server logs**: use **`tracing`** with enough detail to debug. Map to **generic** `AppError` text for the HTTP body.
+- **Do not** log credentials, session tokens, or full third-party error payloads unless scrubbed.
+
+## Vite client alignment
+
+- **`frontend/src/api/client.ts`** uses **`getErrorMessage`** and **`ApiError`** assuming the **`error.message`** (and **`error.code`**) envelope. If you change the Rust error schema, **update the client in the same change set**.
+
+## Anti-patterns
+
+- Mixing **JSON error envelope** with **plain-text** error bodies on the same base path.
+- Returning **500** with detailed internal causes in the JSON **`message`** field.
+- Logging **PII** at **error** level in hot paths without redaction.

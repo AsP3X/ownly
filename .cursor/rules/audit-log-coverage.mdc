@@ -1,0 +1,41 @@
+---
+description: Require audit log entries for new/changed mutations and security-sensitive actions
+alwaysApply: true
+---
+
+# Audit log coverage (mandatory review)
+
+Semantic user and admin actions must appear in **`audit_logs`**. Raw HTTP logs are **not** a substitute.
+
+## When you must add or update audit logging
+
+Treat every **new or changed** API behavior as an audit candidate if it:
+
+- **Creates, updates, deletes, or archives** data
+- **Changes auth or sessions** (login, logout, register)
+- **Changes permissions, groups, or admin settings**
+- **Runs privileged admin tools**
+
+**Usually exempt:**
+
+- Read-only **GET** handlers and list/detail endpoints
+- Pure **`tracing`** / metrics
+
+If unsure, **add audit** — missing rows are harder to fix in production.
+
+## How to implement (this project)
+
+Use **`audit::write_audit`** in `backend/src/audit.rs`:
+
+- Pass `HeaderMap` when available for IP and User-Agent capture.
+- Use dotted action names: `auth.login`, `files.upload`, `files.delete`.
+- Align **`resource_type`** and **`resource_id`** with the primary entity.
+- Do **not** put secrets, passwords, or tokens in **`context`**.
+
+## Agent checklist (before "done")
+
+When your diff touches **`backend/src/**`** routes or auth:
+
+1. List every **new or modified mutation**.
+2. For each, confirm **audit added or intentionally exempt** (state why if exempt).
+3. Mention audit coverage in the completion summary.

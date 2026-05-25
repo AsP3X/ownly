@@ -1,0 +1,110 @@
+services:
+  init-env:
+    image: alpine:latest
+    container_name: mediavault-init-env
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command:
+      - sh
+      - -c
+      - sed -e 's/\r$$//' /workspace/init-env.sh > /tmp/init-env.sh && sh /tmp/init-env.sh
+    profiles:
+      - init
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediavault-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mediavault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mediavault}
+      POSTGRES_DB: ${POSTGRES_DB:-mediavault}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mediavault}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  object-storage:
+    build:
+      context: ./nebular-os
+      dockerfile: Dockerfile
+    container_name: mediavault-object-storage
+    environment:
+      NOS_JWT_SECRET: ${NOS_JWT_SECRET:-}
+      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-}
+      NOS_BIND_ADDR: 0.0.0.0:9000
+      NOS_DATA_DIR: /data/blobs
+      NOS_META_PATH: /data/meta/metadata.db
+      # Human: Reclaim blob disk promptly on delete and re-compress legacy raw blobs in the background.
+      # Agent: NOS_SOFT_DELETE_DROP_BLOB drops files on soft-delete; NOS_RECOMPRESS_* migrates pre-zstd objects.
+      NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
+      NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
+      NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
+      NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
+      NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
+      # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
+      # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
+      NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
+      RUST_LOG: info
+    ports:
+      - "9000:9000"
+    volumes:
+      - nebular_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    container_name: mediavault-backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://mediavault:mediavault@postgres:5432/mediavault}
+      JWT_SECRET: ${JWT_SECRET:-}
+      SIGNING_SECRET: ${SIGNING_SECRET:-}
+      OBJECT_STORAGE_JWT_SECRET: ${NOS_JWT_SECRET:-}
+      OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
+      OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:9000}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-media}
+      STORAGE_MODE: ${STORAGE_MODE:-proxy}
+      URL_EXPIRY_SECONDS: ${URL_EXPIRY_SECONDS:-3600}
+      RUST_LOG: ${RUST_LOG:-info}
+      BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3000}
+      MEDIAVAULT_ENVIRONMENT: ${MEDIAVAULT_ENVIRONMENT:-development}
+      GIT_SHA: ${GIT_SHA:-unknown}
+      AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
+      AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
+      UPLOAD_RPM: ${UPLOAD_RPM:-30}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      object-storage:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mediavault-frontend
+    environment:
+      # Human: nginx client_max_body_size uses the same byte cap as the API.
+      # Agent: envsubst in nginx.conf.template; NGINX_PROXY_READ_TIMEOUT for multi-GB uploads.
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
+      NGINX_PROXY_READ_TIMEOUT: ${NGINX_PROXY_READ_TIMEOUT:-3600s}
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  nebular_data:

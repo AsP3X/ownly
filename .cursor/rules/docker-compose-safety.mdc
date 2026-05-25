@@ -1,0 +1,39 @@
+---
+description: Docker Compose dev safety and volume protection for MediaVault
+alwaysApply: true
+---
+
+# Docker Compose and database safety
+
+Supplements **`data-safety.mdc`** — read both before any Compose or database operation.
+
+## Mandatory for agents
+
+- **Never run `docker compose down -v`** (or `docker volume rm`) unless the user **explicitly** requests destruction of local database volumes and confirms data loss is acceptable.
+- **Never assume** the dev Compose Postgres volume is disposable. Users may store important files metadata and accounts there.
+- Prefer **`scripts/compose-dev-down.sh`** (no `-v`) to stop the dev stack.
+- If volume removal is truly required, require **`MEDIAVAULT_CONFIRM_DESTROY_DATA=yes scripts/compose-dev-down.sh --destroy-volumes`** and explicit user confirmation first.
+
+## Compose layout (this project)
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | **Default local stack** — Postgres + Nebular OS + Rust API + production web (nginx + Vite `dist/`) |
+
+Environment-specific values belong in `.env` (gitignored), copied from `.env.example` via `init-env.sh`.
+
+## Do not create new Compose variants
+
+- **Never add** new `docker-compose*.yml` / `docker-compose*.yaml` files unless the user **explicitly** asks for a new variant by name.
+- **Forbidden without explicit request:** staging, CI, test, override, or environment-specific compose files.
+- **Instead:** change the existing compose file, use Compose **profiles**, or drive differences with **env vars** (`.env`).
+- **Do not** rename Compose `container_name` or volume identifiers without **explicit user request**.
+
+## Production database
+
+- Production should use managed PostgreSQL (RDS, Cloud SQL, etc.) with backups and PITR — not a Docker volume.
+- Set `MEDIAVAULT_ENVIRONMENT=production` on production API hosts.
+
+## Migrations
+
+- Applied migrations are **immutable**. Production fixes are **new migration files** only — never edit `001_*`, `002_*`, etc. after they have shipped.

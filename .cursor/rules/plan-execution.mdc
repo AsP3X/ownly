@@ -1,0 +1,27 @@
+---
+description: Follow implementation plans step-by-step; complete, verify, and iterate until correct
+alwaysApply: true
+---
+
+# Plan execution and completion
+
+When the user provides a plan (for example under `.cursor/plans/` or pasted in chat), treat it as a **binding checklist**, not a loose outline.
+
+## Execution
+
+- **Work in order** unless the plan explicitly allows parallel tracks or reordering.
+- **Cover every item** — implement, test, or explicitly call out blockers.
+- **One pass is not enough** if anything failed: loop back and finish remaining items.
+
+## Verification
+
+- After substantive changes, **run the relevant checks** (`cargo test`, `cargo clippy`, `npm run build`, Docker smoke as appropriate).
+- Confirm behavior matches the plan's intent, not only that code compiles.
+
+## Done criteria
+
+Do not say the work is complete until:
+
+1. Every plan step is addressed.
+2. Project checks you ran are **green** (or you document exact failures).
+3. Nothing material from the plan was left unimplemented.
