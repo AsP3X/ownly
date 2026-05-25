@@ -50,6 +50,7 @@ import {
   type DeleteTarget,
 } from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
+import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { enqueueDownload } from "@/lib/download-manager";
@@ -728,6 +729,7 @@ export default function DrivePage() {
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
     () => new Set(getFavouriteFileIds()),
   );
+  const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
 
@@ -895,6 +897,13 @@ export default function DrivePage() {
     enqueueDownload(file);
   }
 
+  // Human: Open the HLS video preview dialog for a stored video file.
+  // Agent: SETS previewVideo; VideoPreviewDialog POLLS until hls_ready.
+  function handlePreviewVideo(file: FileItem) {
+    recordFileAccess(file.id);
+    setPreviewVideo(file);
+  }
+
   function handleToggleFavourite(fileId: string) {
     toggleFavouriteFile(fileId);
     setFavouriteIds(new Set(getFavouriteFileIds()));
@@ -995,6 +1004,7 @@ export default function DrivePage() {
       favouriteIds={favouriteIds}
       activeNav={activeNav}
       onDownload={handleDownload}
+      onPreviewVideo={handlePreviewVideo}
       onDelete={requestDeleteFile}
       onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
@@ -1020,6 +1030,13 @@ export default function DrivePage() {
               silent: true,
             })
           }
+        />
+        <VideoPreviewDialog
+          file={previewVideo}
+          open={previewVideo !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewVideo(null);
+          }}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}

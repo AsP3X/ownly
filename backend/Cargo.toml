@@ -48,6 +48,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 mime_guess = "2"
 bytes = "1"
+aes-gcm = "0.10"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

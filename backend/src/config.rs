@@ -39,6 +39,8 @@ pub struct Config {
     pub cors_allowed_origins: String,
     #[serde(default = "default_max_upload_bytes")]
     pub max_upload_bytes: u64,
+    #[serde(default = "default_hls_segment_rpm")]
+    pub hls_segment_rpm: u32,
 }
 
 impl Config {
@@ -110,4 +112,8 @@ fn default_max_upload_bytes() -> u64 {
     // Human: Default cap for a single upload — 10 GiB; override with MAX_UPLOAD_BYTES.
     // Agent: MUST stay <= nginx client_max_body_size and NOS_MAX_BODY_SIZE in Compose.
     10 * 1024 * 1024 * 1024
+}
+
+fn default_hls_segment_rpm() -> u32 {
+    480
 }

@@ -151,7 +151,32 @@ export type FileItem = {
   folder_id: string | null;
   created_at: string;
   updated_at: string;
+  hls_ready: boolean;
+  hls_encode_status: string | null;
+  hls_encode_error: string | null;
+  conversion_progress: number;
+  duration_seconds: number | null;
 };
+
+export type VideoStreamUrlResponse = {
+  url: string | null;
+  hls_ready: boolean;
+  conversion_progress: number;
+  hls_encode_status: string | null;
+  hls_encode_error?: string | null;
+};
+
+// Human: Poll a single file row including HLS transcode progress fields.
+// Agent: GET /files/:id; RETURNS { file: FileItem }.
+export async function fetchFile(id: string) {
+  return apiFetch(`/files/${id}`) as Promise<{ file: FileItem }>;
+}
+
+// Human: Resolve the HLS playlist URL when the video is ready for in-browser playback.
+// Agent: GET /files/:id/stream-url; RETURNS VideoStreamUrlResponse.
+export async function fetchVideoStreamUrl(id: string) {
+  return apiFetch(`/files/${id}/stream-url`) as Promise<VideoStreamUrlResponse>;
+}
 
 export async function listFiles(params?: { q?: string; folder_id?: string }) {
   const search = new URLSearchParams();
@@ -210,12 +235,61 @@ export type UploadProgressUpdate = {
   indeterminate?: boolean;
 };
 
-// Human: Share of the bar reserved for each phase so processing time is visible on large files.
-// Agent: uploading caps at UPLOAD_PHASE_MAX; processing eases toward PROCESSING_ASYMPTOTE until load.
-const UPLOAD_PHASE_MAX = 62;
+// Human: Upload bytes use the first slice of 0–100%; video HLS ingest uses the rest via server poll.
+// Agent: UPLOAD_BYTES_PERCENT + encode progress maps to full bar; non-video keeps indeterminate tail.
+const UPLOAD_BYTES_PERCENT = 40;
+const UPLOAD_PHASE_MAX = UPLOAD_BYTES_PERCENT;
 const PROCESSING_ASYMPTOTE = 99.4;
 const PROCESSING_DISPLAY_MAX = 99;
 const PROCESSING_INDETERMINATE_MS = 2500;
+const VIDEO_INGEST_POLL_MS = 1500;
+
+function isVideoAwaitingIngest(file: FileItem): boolean {
+  return Boolean(file.mime_type?.startsWith("video/") && !file.hls_ready);
+}
+
+// Human: After multipart returns, poll files.conversion_progress until HLS ingest hits 100%.
+// Agent: CALLS fetchFile; MAPS 40–100% on same bar; THROWS when hls_encode_status failed.
+async function pollVideoIngestProgress(
+  fileId: string,
+  onProgress?: (update: UploadProgressUpdate) => void,
+): Promise<FileItem> {
+  const encodeSpan = 100 - UPLOAD_BYTES_PERCENT;
+
+  for (;;) {
+    const { file } = await fetchFile(fileId);
+
+    if (file.hls_encode_status === "failed") {
+      throw new ApiError(
+        file.hls_encode_error ?? "Video processing failed",
+        "video_ingest_failed",
+        500,
+      );
+    }
+
+    if (file.hls_ready) {
+      onProgress?.({
+        phase: "processing",
+        percent: 100,
+        indeterminate: false,
+      });
+      return file;
+    }
+
+    const encodePct = Math.min(
+      100,
+      UPLOAD_BYTES_PERCENT +
+        Math.round((file.conversion_progress / 100) * encodeSpan),
+    );
+    onProgress?.({
+      phase: "processing",
+      percent: Math.min(PROCESSING_DISPLAY_MAX, encodePct),
+      indeterminate: false,
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INGEST_POLL_MS));
+  }
+}
 
 // Human: Upload one file with XMLHttpRequest so the UI can show byte-level progress.
 // Agent: POST /files/upload multipart; optional folder_id field; CALLS onProgress; RETURNS { file: FileItem }.
@@ -225,6 +299,7 @@ export function uploadFileWithProgress(
   options?: { folderId?: string | null },
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
+    const isVideoUpload = file.type.startsWith("video/");
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append("file", file);
@@ -287,7 +362,15 @@ export function uploadFileWithProgress(
         );
         onProgress({ phase: "uploading", percent });
         if (ratio >= 1) {
-          startProcessingPhase();
+          if (isVideoUpload) {
+            onProgress({
+              phase: "processing",
+              percent: UPLOAD_BYTES_PERCENT,
+              indeterminate: false,
+            });
+          } else {
+            startProcessingPhase();
+          }
         }
       } else if (event.loaded > 0) {
         onProgress({ phase: "uploading", percent: Math.min(UPLOAD_PHASE_MAX - 1, 40) });
@@ -295,12 +378,19 @@ export function uploadFileWithProgress(
     });
 
     xhr.upload.addEventListener("load", () => {
-      startProcessingPhase();
+      if (isVideoUpload) {
+        onProgress?.({
+          phase: "processing",
+          percent: UPLOAD_BYTES_PERCENT,
+          indeterminate: false,
+        });
+      } else {
+        startProcessingPhase();
+      }
     });
 
     xhr.addEventListener("load", () => {
       clearProcessingTimer();
-      onProgress?.({ phase: "processing", percent: 100 });
       const text = xhr.responseText;
       let data: unknown = null;
       if (text) {
@@ -312,7 +402,30 @@ export function uploadFileWithProgress(
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(data as { file: FileItem });
+        const payload = data as { file: FileItem };
+        void (async () => {
+          try {
+            let file = payload.file;
+            if (isVideoAwaitingIngest(file)) {
+              file = await pollVideoIngestProgress(file.id, onProgress);
+            } else {
+              onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+            }
+            resolve({ file });
+          } catch (error) {
+            if (error instanceof ApiError) {
+              fail(error);
+              return;
+            }
+            fail(
+              new ApiError(
+                error instanceof Error ? error.message : "Upload failed",
+                "upload_failed",
+                0,
+              ),
+            );
+          }
+        })();
         return;
       }
 
@@ -370,11 +483,77 @@ export async function moveFile(id: string, folderId: string | null) {
 // Human: Progress snapshot for MEGA-style downloads — byte transfer vs browser save step.
 // Agent: phase downloading = XHR bytes; phase saving = blob write / anchor click.
 export type DownloadProgressUpdate = {
-  phase: "downloading" | "saving";
+  phase: "processing" | "downloading" | "saving";
   percent: number;
   /** True when byte progress stalls — server still streaming/decompressing. */
   indeterminate?: boolean;
 };
+
+export type VideoExportStatus = {
+  status: string;
+  progress: number;
+  ready: boolean;
+  size_bytes: number | null;
+  error?: string | null;
+};
+
+function isHlsStoredVideo(file: FileItem): boolean {
+  return Boolean(file.mime_type?.startsWith("video/") && file.hls_ready);
+}
+
+function mp4DownloadFilename(name: string): string {
+  if (name.toLowerCase().endsWith(".mp4")) return name;
+  const dot = name.lastIndexOf(".");
+  if (dot > 0) return `${name.slice(0, dot)}.mp4`;
+  return `${name}.mp4`;
+}
+
+// Human: Start background HLS→MP4 remux if needed (idempotent when export already cached).
+// Agent: POST /files/:id/export; RETURNS VideoExportStatus.
+export async function startVideoExport(fileId: string) {
+  return apiFetch(`/files/${fileId}/export`, { method: "POST" }) as Promise<VideoExportStatus>;
+}
+
+// Human: Poll export job progress for the download tray.
+// Agent: GET /files/:id/export; RETURNS VideoExportStatus.
+export async function fetchVideoExportStatus(fileId: string) {
+  return apiFetch(`/files/${fileId}/export`) as Promise<VideoExportStatus>;
+}
+
+const EXPORT_POLL_MS = 2000;
+
+// Human: Block until cached MP4 exists, reporting progress like upload processing.
+// Agent: POST then poll GET; THROWS on failed; RETURNS export size_bytes for download progress.
+export async function ensureVideoExportReady(
+  file: FileItem,
+  onProgress?: (update: DownloadProgressUpdate) => void,
+): Promise<number> {
+  await startVideoExport(file.id);
+
+  for (;;) {
+    const status = await fetchVideoExportStatus(file.id);
+    const indeterminate =
+      status.status === "processing" && status.progress <= 0;
+    onProgress?.({
+      phase: "processing",
+      percent: Math.min(99, status.progress),
+      indeterminate,
+    });
+
+    if (status.ready) {
+      onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+      return status.size_bytes ?? file.size_bytes;
+    }
+    if (status.status === "failed") {
+      throw new ApiError(
+        status.error ?? "Video export failed",
+        "export_failed",
+        500,
+      );
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, EXPORT_POLL_MS));
+  }
+}
 
 export type DownloadMethod = "presigned-blob" | "api-blob" | "presigned-direct";
 
@@ -535,14 +714,23 @@ export async function downloadFileItem(
   let presignedUrl: string | null = null;
   let lastError: unknown = null;
 
+  const hlsVideo = isHlsStoredVideo(file);
+  let downloadName = file.name;
+  let downloadSize = file.size_bytes;
+
+  if (hlsVideo) {
+    downloadSize = await ensureVideoExportReady(file, onProgress);
+    downloadName = mp4DownloadFilename(file.name);
+  }
+
   try {
     const blob = await downloadBytesWithFetch(
       fileDownloadUrl(file.id),
-      file.size_bytes,
+      downloadSize,
       onProgress,
       token,
     );
-    saveBlobAsFile(blob, file.name);
+    saveBlobAsFile(blob, downloadName);
     return { method: "api-blob" };
   } catch (error) {
     lastError = error;
@@ -555,8 +743,8 @@ export async function downloadFileItem(
     const presigned = await fetchFileDownloadUrl(file.id);
     presignedUrl = presigned.url;
     try {
-      const blob = await downloadBytesWithFetch(presignedUrl, file.size_bytes, onProgress, null);
-      saveBlobAsFile(blob, file.name);
+      const blob = await downloadBytesWithFetch(presignedUrl, downloadSize, onProgress, null);
+      saveBlobAsFile(blob, downloadName);
       return { method: "presigned-blob" };
     } catch (error) {
       lastError = error;
@@ -569,7 +757,7 @@ export async function downloadFileItem(
   }
 
   if (presignedUrl) {
-    triggerDirectUrlDownload(presignedUrl, file.name);
+    triggerDirectUrlDownload(presignedUrl, downloadName);
     onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
     return { method: "presigned-direct" };
   }

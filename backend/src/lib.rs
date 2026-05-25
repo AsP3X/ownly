@@ -22,7 +22,9 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod files;
+pub mod hls;
 pub mod health;
+pub mod stream_ticket;
 pub mod rate_limit;
 pub mod redact;
 pub mod request_tracking;
@@ -54,6 +56,8 @@ pub struct AppState {
     pub auth_login_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub auth_register_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub upload_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    pub hls_segment_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    pub hls_key_store: hls::key_store::KeyStore,
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
 }
@@ -109,7 +113,7 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
 
     let window = Duration::from_secs(60);
     Ok(Arc::new(AppState {
-        pool,
+        pool: pool.clone(),
         storage,
         jwt_secret: config.jwt_secret.clone(),
         signing_secret: config.signing_secret.clone(),
@@ -134,6 +138,11 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
             config.upload_rpm.max(1) as usize,
             window,
         )),
+        hls_segment_rl: Arc::new(rate_limit::PerKeyRateLimiter::new(
+            config.hls_segment_rpm.max(1) as usize,
+            window,
+        )),
+        hls_key_store: hls::key_store::KeyStore::new(pool.clone(), config.signing_secret.clone()),
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
     }))
@@ -209,14 +218,36 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/registration",
             get(auth::handlers::public_registration_setting),
+        )
+        .route(
+            "/api/v1/files/{id}/stream",
+            get(hls::handlers::stream_file),
         );
 
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
         .route("/api/v1/files", get(files::handlers::list_files))
+        .route("/api/v1/files/{id}", get(files::handlers::get_file))
         .route(
             "/api/v1/files/upload",
             post(files::handlers::upload_file).layer(DefaultBodyLimit::max(max_upload)),
+        )
+        .route(
+            "/api/v1/files/{id}/stream-url",
+            get(hls::handlers::get_stream_url),
+        )
+        .route(
+            "/api/v1/files/{id}/playlist",
+            get(hls::handlers::get_playlist),
+        )
+        .route("/api/v1/files/{id}/key", get(hls::handlers::get_key))
+        .route(
+            "/api/v1/files/{id}/segments/{segment}",
+            get(hls::handlers::get_segment),
+        )
+        .route(
+            "/api/v1/files/{id}/export",
+            get(hls::handlers::get_export).post(hls::handlers::post_export),
         )
         .route("/api/v1/files/{id}/download", get(files::handlers::download_file))
         .route("/api/v1/files/{id}/download-url", get(files::handlers::download_url))

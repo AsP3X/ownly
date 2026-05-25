@@ -39,6 +39,7 @@ type DriveContextMenuProps = {
   favouriteIds: Set<string>;
   activeNav: NavItemId;
   onDownload: (file: FileItem) => void;
+  onPreviewVideo?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
   onToggleFavourite: (fileId: string) => void;
   onUpload: () => void;
@@ -65,6 +66,7 @@ export function DriveContextMenu({
   favouriteIds,
   activeNav,
   onDownload,
+  onPreviewVideo,
   onDelete,
   onToggleFavourite,
   onUpload,
@@ -142,9 +144,14 @@ export function DriveContextMenu({
                   <Download />
                   Download to device
                 </ContextMenuItem>
-                <ContextMenuItem disabled>
+                <ContextMenuItem
+                  disabled={
+                    !targetFile.mime_type?.startsWith("video/") || !onPreviewVideo
+                  }
+                  onClick={() => targetFile && onPreviewVideo?.(targetFile)}
+                >
                   <ExternalLink />
-                  Browser preview
+                  Play in browser
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>

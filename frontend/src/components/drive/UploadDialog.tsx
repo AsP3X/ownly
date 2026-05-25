@@ -111,8 +111,11 @@ function UploadProgressBar({
   );
 }
 
-function activePhaseLabel(phase: UploadPhase) {
-  return phase === "processing" ? "Processing into storage" : "Uploading to server";
+function activePhaseLabel(phase: UploadPhase, isVideo: boolean) {
+  if (phase === "processing") {
+    return isVideo ? "Processing video" : "Processing into storage";
+  }
+  return "Uploading to server";
 }
 
 // Human: Show how long server-side storage has been running during indeterminate processing.
@@ -143,7 +146,7 @@ function ActiveUploadPanel({ item }: { item: UploadQueueItem }) {
   return (
     <div
       className={cn(
-        "flex shrink-0 flex-col gap-2 rounded-xl border p-3",
+        "flex min-w-0 shrink-0 flex-col gap-2 overflow-hidden rounded-xl border p-3",
         isProcessing ? "border-violet-200 bg-violet-50" : "border-blue-200 bg-blue-50",
       )}
     >
@@ -154,7 +157,7 @@ function ActiveUploadPanel({ item }: { item: UploadQueueItem }) {
         )}
       >
         <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        {activePhaseLabel(item.phase)}
+        {activePhaseLabel(item.phase, item.file.type.startsWith("video/"))}
       </div>
       <div className="flex items-start gap-3">
         <FileIcon
@@ -186,7 +189,10 @@ function ActiveUploadPanel({ item }: { item: UploadQueueItem }) {
             {isProcessing ? (
               <span className="text-neutral-500">
                 {" "}
-                · Processing ({formatElapsed(processingElapsedSec)})
+                ·{" "}
+                {item.file.type.startsWith("video/") && !item.indeterminate
+                  ? `Encoding (${formatElapsed(processingElapsedSec)})`
+                  : `Processing (${formatElapsed(processingElapsedSec)})`}
               </span>
             ) : null}
           </p>
@@ -444,13 +450,16 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal>
       <DialogContent
-        className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-xl"
+        className="w-full max-w-[min(36rem,calc(100%-2rem))] gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-xl"
         showCloseButton={!isUploading}
       >
-        <DialogHeader className="border-b border-neutral-100 px-6 py-5">
-          <DialogTitle className="text-lg text-neutral-900">{stepTitle}</DialogTitle>
+        <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
+          <DialogTitle className="truncate text-lg text-neutral-900">{stepTitle}</DialogTitle>
           <DialogDescription
-            className={cn("text-neutral-500", step === "uploading" && "min-h-10")}
+            className={cn(
+              "break-words text-neutral-500",
+              step === "uploading" && "min-h-10",
+            )}
           >
             {stepDescription}
           </DialogDescription>
@@ -464,7 +473,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           onChange={(event) => addPendingFiles(event.target.files)}
         />
 
-        <div className="flex flex-col gap-4 px-6 py-5">
+        <div className="flex min-w-0 flex-col gap-4 overflow-hidden px-6 py-5">
           {step === "select" ? (
             <>
               <button
@@ -520,7 +529,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
 
           {step === "uploading" ? (
-            <div className="flex max-h-[28rem] flex-col gap-3">
+            <div className="flex max-h-[28rem] min-w-0 flex-col gap-3 overflow-hidden">
               <p className="shrink-0 text-sm font-medium text-neutral-900">
                 {doneCount + errorCount} of {queue.length} complete
                 {activeItems.length > 0
@@ -563,10 +572,10 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
 
           {step === "complete" ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex min-w-0 flex-col gap-3">
               <div
                 className={cn(
-                  "flex items-center gap-3 rounded-xl px-4 py-3",
+                  "flex min-w-0 items-center gap-3 rounded-xl px-4 py-3",
                   errorCount > 0 ? "bg-amber-50 text-amber-900" : "bg-green-50 text-green-900",
                 )}
               >
@@ -575,19 +584,22 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
                 ) : (
                   <CheckCircle2 className="size-5 shrink-0" aria-hidden />
                 )}
-                <p className="text-sm font-medium">
+                <p className="min-w-0 text-sm font-medium">
                   {errorCount > 0
                     ? `${doneCount} uploaded · ${errorCount} failed`
                     : `${doneCount} file${doneCount === 1 ? "" : "s"} uploaded`}
                 </p>
               </div>
-              <ul className="max-h-64 divide-y divide-neutral-100 overflow-y-auto rounded-xl border border-neutral-200">
+              <ul className="max-h-64 min-w-0 divide-y divide-neutral-100 overflow-y-auto overflow-x-hidden rounded-xl border border-neutral-200">
                 {queue.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 px-4 py-3">
+                  <li
+                    key={item.id}
+                    className="flex min-w-0 items-start gap-3 px-4 py-3 sm:items-center"
+                  >
                     {item.status === "done" ? (
-                      <CheckCircle2 className="size-5 shrink-0 text-green-600" aria-hidden />
+                      <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-600 sm:mt-0" aria-hidden />
                     ) : (
-                      <AlertCircle className="size-5 shrink-0 text-red-500" aria-hidden />
+                      <AlertCircle className="mt-0.5 size-5 shrink-0 text-red-500 sm:mt-0" aria-hidden />
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-neutral-900">
@@ -601,7 +613,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
                     </div>
                     <span
                       className={cn(
-                        "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                        "max-w-full shrink-0 truncate rounded-full px-2.5 py-0.5 text-xs font-medium",
                         item.status === "done"
                           ? "bg-green-100 text-green-800"
                           : "bg-red-100 text-red-800",
@@ -616,7 +628,7 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
         </div>
 
-        <DialogFooter className="flex-row justify-end gap-2 border-neutral-100 bg-neutral-50/80">
+        <DialogFooter className="min-w-0 w-full shrink-0 flex-row justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
           {step === "select" ? (
             <>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>

@@ -25,6 +25,7 @@ fn test_config(database_url: &str) -> Config {
         upload_rpm: 30,
         cors_allowed_origins: String::new(),
         max_upload_bytes: 1024 * 1024,
+        hls_segment_rpm: 480,
     }
 }
 

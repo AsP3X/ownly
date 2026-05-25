@@ -18,12 +18,14 @@ function TransferProgressBar({
   value,
   indeterminate,
   complete,
+  processing,
 }: {
   value: number;
   indeterminate?: boolean;
   complete?: boolean;
+  processing?: boolean;
 }) {
-  if (indeterminate && !complete) {
+  if ((indeterminate || processing) && !complete) {
     return (
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-neutral-200">
         <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
@@ -43,6 +45,12 @@ function TransferProgressBar({
       />
     </div>
   );
+}
+
+function phaseLabel(phase: DownloadJob["phase"]): string {
+  if (phase === "processing") return "Preparing file…";
+  if (phase === "saving") return "Saving…";
+  return "Downloading…";
 }
 
 function DownloadJobRow({ job }: { job: DownloadJob }) {
@@ -69,7 +77,9 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
               </span>
             ) : null}
           </div>
-          <p className="text-xs text-neutral-500">{formatBytes(job.file.size_bytes)}</p>
+          <p className="text-xs text-neutral-500">
+            {isActive ? phaseLabel(job.phase) : formatBytes(job.file.size_bytes)}
+          </p>
         </div>
         <Button
           type="button"
@@ -83,7 +93,11 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
         </Button>
       </div>
       {isActive ? (
-        <TransferProgressBar value={job.progress} indeterminate={job.indeterminate} />
+        <TransferProgressBar
+          value={job.progress}
+          indeterminate={job.indeterminate}
+          processing={job.phase === "processing"}
+        />
       ) : job.status === "complete" ? (
         <TransferProgressBar value={100} complete />
       ) : null}
