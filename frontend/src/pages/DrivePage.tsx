@@ -169,6 +169,7 @@ type FileTableProps = {
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
+  onPreviewVideo?: (file: FileItem) => void;
 };
 
 // Human: MIME payload key for HTML5 drag — keeps drop handler independent of React state timing.
@@ -194,6 +195,7 @@ function FileTable({
   onToggleFavourite,
   onDelete,
   onDownload,
+  onPreviewVideo,
 }: FileTableProps) {
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -432,6 +434,8 @@ function FileTable({
             const favourited = favouriteIds.has(file.id);
             const isDragging = draggingFileId === file.id;
             const isSelected = selectionEnabled && selectedFileIds.has(file.id);
+            const isVideo = file.mime_type?.startsWith("video/") ?? false;
+            const canPreviewVideo = isVideo && onPreviewVideo !== undefined;
             return (
               <tr
                 key={file.id}
@@ -439,9 +443,17 @@ function FileTable({
                 draggable={dragEnabled}
                 onDragStart={(event) => handleFileDragStart(event, file.id)}
                 onDragEnd={resetDragState}
+                onClick={(event) => {
+                  if (!canPreviewVideo) return;
+                  const target = event.target;
+                  if (!(target instanceof Element)) return;
+                  if (target.closest('input[type="checkbox"]') || target.closest("button")) return;
+                  onPreviewVideo(file);
+                }}
                 className={cn(
                   "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
                   dragEnabled && "cursor-grab active:cursor-grabbing",
+                  canPreviewVideo && "cursor-pointer",
                   isDragging && "opacity-50",
                   isSelected && "bg-blue-50/60",
                 )}
@@ -531,6 +543,7 @@ type FileGridProps = {
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
+  onPreviewVideo?: (file: FileItem) => void;
 };
 
 // Human: Large mime icon for Home grid tile previews (no thumbnail API yet).
@@ -569,6 +582,7 @@ function FileGrid({
   onToggleFavourite,
   onDelete,
   onDownload,
+  onPreviewVideo,
 }: FileGridProps) {
   if (files.length === 0) {
     return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
@@ -578,11 +592,23 @@ function FileGrid({
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
       {files.map((file) => {
         const favourited = favouriteIds.has(file.id);
+        const isVideo = file.mime_type?.startsWith("video/") ?? false;
+        const canPreviewVideo = isVideo && onPreviewVideo !== undefined;
         return (
           <article
             key={file.id}
             data-file-id={file.id}
-            className="group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm"
+            onClick={(event) => {
+              if (!canPreviewVideo) return;
+              const target = event.target;
+              if (!(target instanceof Element)) return;
+              if (target.closest("button")) return;
+              onPreviewVideo(file);
+            }}
+            className={cn(
+              "group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm",
+              canPreviewVideo && "cursor-pointer",
+            )}
           >
             <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f3f2f1]">
               <FileGridPreview mimeType={file.mime_type} />
@@ -650,6 +676,7 @@ function HomeSection({
   onToggleFavourite,
   onDelete,
   onDownload,
+  onPreviewVideo,
 }: {
   title: string;
   description: string;
@@ -661,6 +688,7 @@ function HomeSection({
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDownload: (file: FileItem) => void;
+  onPreviewVideo?: (file: FileItem) => void;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -677,6 +705,7 @@ function HomeSection({
         onToggleFavourite={onToggleFavourite}
         onDelete={onDelete}
         onDownload={onDownload}
+        onPreviewVideo={onPreviewVideo}
       />
     </section>
   );
@@ -1293,6 +1322,7 @@ export default function DrivePage() {
                   onToggleFavourite={handleToggleFavourite}
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
+                  onPreviewVideo={handlePreviewVideo}
                 />
                 <HomeSection
                   title="Favourites"
@@ -1305,6 +1335,7 @@ export default function DrivePage() {
                   onToggleFavourite={handleToggleFavourite}
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
+                  onPreviewVideo={handlePreviewVideo}
                 />
                 <HomeSection
                   title="Shared with you"
@@ -1317,6 +1348,7 @@ export default function DrivePage() {
                   onToggleFavourite={handleToggleFavourite}
                   onDelete={requestDeleteFile}
                   onDownload={handleDownload}
+                  onPreviewVideo={handlePreviewVideo}
                 />
               </div>
             ) : visibleFolders.length === 0 && browserFiles.length === 0 ? (
@@ -1376,6 +1408,7 @@ export default function DrivePage() {
                 onToggleFavourite={handleToggleFavourite}
                 onDelete={requestDeleteFile}
                 onDownload={handleDownload}
+                onPreviewVideo={handlePreviewVideo}
               />
               </div>
             )}
