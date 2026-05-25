@@ -50,8 +50,8 @@ export type UploadsCompletePayload = {
   fileIds: string[];
 };
 
-function pendingFileId(file: File, index: number) {
-  return `pending-${file.name}-${file.size}-${file.lastModified}-${index}`;
+function createQueueItemId() {
+  return crypto.randomUUID();
 }
 
 type UploadDialogProps = {
@@ -60,6 +60,10 @@ type UploadDialogProps = {
   folderId?: string | null;
   onUploadsComplete?: (payload: UploadsCompletePayload) => void;
 };
+
+// Human: Cap parallel browser→API uploads so large batches do not saturate bandwidth or the server.
+// Agent: READS queue; RUNS up to MAX_CONCURRENT_UPLOADS workers that claim queued rows synchronously.
+const MAX_CONCURRENT_UPLOADS = 3;
 
 // Human: Native width-based bar; indeterminate mode when server compression time is unknown.
 // Agent: RENDERS determinate fill for upload; processing uses sliding shimmer when indeterminate.
@@ -119,79 +123,75 @@ function formatElapsed(seconds: number) {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
-// Human: Fixed-height panel for the file currently uploading — always pinned above the queue.
-// Agent: RENDERS phase label, progress bar, and elapsed time; RESERVED height prevents dialog jitter.
-function ActiveUploadPanel({
-  item,
-  processingElapsedSec,
-}: {
-  item: UploadQueueItem | undefined;
-  processingElapsedSec: number;
-}) {
-  const isProcessing = item?.phase === "processing";
+// Human: Per-file panel while uploading — tracks its own processing elapsed time.
+// Agent: RENDERS phase label, progress bar, elapsed; RUNS interval when phase=processing.
+function ActiveUploadPanel({ item }: { item: UploadQueueItem }) {
+  const isProcessing = item.phase === "processing";
+  const [processingElapsedSec, setProcessingElapsedSec] = useState(0);
+
+  // Human: Tick elapsed seconds while Nebular compresses/stores so the UI does not look frozen.
+  // Agent: RUNS interval when phase=processing; parent key remounts panel when phase changes.
+  useEffect(() => {
+    if (!isProcessing) return;
+    const started = Date.now();
+    const timerId = window.setInterval(() => {
+      setProcessingElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timerId);
+  }, [isProcessing]);
 
   return (
     <div
       className={cn(
-        "flex h-[8.75rem] shrink-0 flex-col gap-2 rounded-xl border p-4",
-        item && isProcessing && "border-violet-200 bg-violet-50",
-        item && !isProcessing && "border-blue-200 bg-blue-50",
-        !item && "border-neutral-200 bg-neutral-50",
+        "flex shrink-0 flex-col gap-2 rounded-xl border p-3",
+        isProcessing ? "border-violet-200 bg-violet-50" : "border-blue-200 bg-blue-50",
       )}
     >
-      {item ? (
-        <>
-          <div
-            className={cn(
-              "flex items-center gap-2 text-xs font-semibold uppercase tracking-wide",
-              isProcessing ? "text-violet-800" : "text-blue-800",
-            )}
-          >
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            {activePhaseLabel(item.phase)}
-          </div>
-          <div className="flex min-h-0 flex-1 items-start gap-3">
-            <FileIcon
+      <div
+        className={cn(
+          "flex items-center gap-2 text-xs font-semibold uppercase tracking-wide",
+          isProcessing ? "text-violet-800" : "text-blue-800",
+        )}
+      >
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        {activePhaseLabel(item.phase)}
+      </div>
+      <div className="flex items-start gap-3">
+        <FileIcon
+          className={cn(
+            "mt-0.5 size-5 shrink-0",
+            isProcessing ? "text-violet-700" : "text-blue-700",
+          )}
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="truncate text-sm font-medium text-neutral-900">{item.file.name}</p>
+            <span
               className={cn(
-                "mt-0.5 size-5 shrink-0",
-                isProcessing ? "text-violet-700" : "text-blue-700",
+                "w-16 shrink-0 text-right text-sm font-bold tabular-nums",
+                isProcessing ? "text-violet-800" : "text-blue-800",
               )}
-              aria-hidden
-            />
-            <div className="min-w-0 flex-1 flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="truncate text-sm font-medium text-neutral-900">{item.file.name}</p>
-                <span
-                  className={cn(
-                    "w-16 shrink-0 text-right text-sm font-bold tabular-nums",
-                    isProcessing ? "text-violet-800" : "text-blue-800",
-                  )}
-                >
-                  {isProcessing && item.indeterminate ? "Working…" : `${item.progress}%`}
-                </span>
-              </div>
-              <UploadProgressBar
-                value={item.progress}
-                phase={item.phase}
-                indeterminate={item.indeterminate}
-              />
-              <p className="h-4 truncate text-xs text-neutral-600">
-                {formatBytes(item.file.size)}
-                {isProcessing ? (
-                  <span className="text-neutral-500">
-                    {" "}
-                    · Processing ({formatElapsed(processingElapsedSec)})
-                  </span>
-                ) : null}
-              </p>
-            </div>
+            >
+              {isProcessing && item.indeterminate ? "Working…" : `${item.progress}%`}
+            </span>
           </div>
-        </>
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">
-          Preparing next file…
+          <UploadProgressBar
+            value={item.progress}
+            phase={item.phase}
+            indeterminate={item.indeterminate}
+          />
+          <p className="truncate text-xs text-neutral-600">
+            {formatBytes(item.file.size)}
+            {isProcessing ? (
+              <span className="text-neutral-500">
+                {" "}
+                · Processing ({formatElapsed(processingElapsedSec)})
+              </span>
+            ) : null}
+          </p>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -217,36 +217,20 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
   const [step, setStep] = useState<UploadStep>("select");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
-  const [processingElapsedSec, setProcessingElapsedSec] = useState(0);
 
   useEffect(() => {
     onCompleteRef.current = onUploadsComplete;
   }, [onUploadsComplete]);
 
-  const activeItem = queue.find((item) => item.status === "uploading");
-
-  // Human: Tick elapsed seconds while Nebular compresses/stores so the UI does not look frozen.
-  // Agent: RUNS interval when step=uploading and active file phase=processing; RESETS otherwise.
-  useEffect(() => {
-    if (step !== "uploading" || activeItem?.phase !== "processing") {
-      setProcessingElapsedSec(0);
-      return;
-    }
-    const started = Date.now();
-    setProcessingElapsedSec(0);
-    const timerId = window.setInterval(() => {
-      setProcessingElapsedSec(Math.floor((Date.now() - started) / 1000));
-    }, 1000);
-    return () => window.clearInterval(timerId);
-  }, [step, activeItem?.id, activeItem?.phase]);
+  const activeItems = queue.filter((item) => item.status === "uploading");
 
   const setQueueSync = useCallback(
     (updater: UploadQueueItem[] | ((prev: UploadQueueItem[]) => UploadQueueItem[])) => {
-      setQueue((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        queueRef.current = next;
-        return next;
-      });
+      // Human: Always patch from queueRef so parallel workers do not clobber each other via stale React state.
+      // Agent: READS queueRef.current; WRITES queueRef + setQueue in one synchronous step.
+      const next = typeof updater === "function" ? updater(queueRef.current) : updater;
+      queueRef.current = next;
+      setQueue(next);
     },
     [],
   );
@@ -268,92 +252,122 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
     onCompleteRef.current?.({ fileIds });
   }, []);
 
-  // Human: Upload queued files sequentially; transition to complete step when finished.
-  // Agent: READS queueRef; UPDATES progress; SETS step complete; CALLS onUploadsComplete on success.
+  // Human: Claim the next queued row synchronously so parallel workers never double-start a file.
+  // Agent: READS/WRITES queueRef; RETURNS claimed item or null when queue is empty.
+  const claimNextQueued = useCallback((): UploadQueueItem | null => {
+    let claimed: UploadQueueItem | null = null;
+    setQueueSync((prev) => {
+      const queuedIndex = prev.findIndex((item) => item.status === "queued");
+      if (queuedIndex === -1) return prev;
+
+      const queued = prev[queuedIndex];
+      claimed = {
+        ...queued,
+        status: "uploading",
+        progress: 0,
+        phase: "uploading",
+      };
+      return prev.map((item, index) => (index === queuedIndex ? claimed! : item));
+    });
+    return claimed;
+  }, [setQueueSync]);
+
+  // Human: Upload one claimed file and update queue progress until done or error.
+  // Agent: CALLS uploadFileWithProgress; WRITES queueRef status done|error.
+  const uploadClaimedItem = useCallback(
+    async (claimed: UploadQueueItem) => {
+      const uploadId = claimed.id;
+      const file = claimed.file;
+
+      try {
+        const result = await uploadFileWithProgress(
+          file,
+          (update) => {
+            setQueueSync((prev) =>
+              prev.map((item) =>
+                item.id === uploadId
+                  ? {
+                      ...item,
+                      progress: update.percent,
+                      phase: update.phase,
+                      indeterminate: update.indeterminate,
+                    }
+                  : item,
+              ),
+            );
+          },
+          { folderId },
+        );
+        const uploadedFileId = result?.file?.id;
+        if (!uploadedFileId) {
+          throw new Error("Upload finished but the server response was missing file metadata.");
+        }
+        setQueueSync((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "done" as const,
+                  progress: 100,
+                  phase: "processing" as const,
+                  indeterminate: false,
+                  uploadedFileId,
+                }
+              : item,
+          ),
+        );
+      } catch (error) {
+        setQueueSync((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? { ...item, status: "error" as const, error: getErrorMessage(error) }
+              : item,
+          ),
+        );
+      }
+    },
+    [setQueueSync, folderId],
+  );
+
+  // Human: Run up to MAX_CONCURRENT_UPLOADS workers that drain the queue in parallel.
+  // Agent: READS queueRef via claimNextQueued; AWAITS worker pool; SETS step complete.
   const runProcessor = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
 
-    try {
+    const worker = async () => {
       while (true) {
-        const next = queueRef.current.find((item) => item.status === "queued");
-        if (!next) break;
-
-        const uploadId = next.id;
-        const file = next.file;
-
-        setQueueSync((prev) =>
-          prev.map((item) =>
-            item.id === uploadId
-              ? { ...item, status: "uploading" as const, progress: 0, phase: "uploading" as const }
-              : item,
-          ),
-        );
-
-        try {
-          const result = await uploadFileWithProgress(
-            file,
-            (update) => {
-              setQueueSync((prev) =>
-                prev.map((item) =>
-                  item.id === uploadId
-                    ? {
-                        ...item,
-                        progress: update.percent,
-                        phase: update.phase,
-                        indeterminate: update.indeterminate,
-                      }
-                    : item,
-                ),
-              );
-            },
-            { folderId },
-          );
-          setQueueSync((prev) =>
-            prev.map((item) =>
-              item.id === uploadId
-                ? {
-                    ...item,
-                    status: "done" as const,
-                    progress: 100,
-                    phase: "processing" as const,
-                    indeterminate: false,
-                    uploadedFileId: result.file.id,
-                  }
-                : item,
-            ),
-          );
-        } catch (error) {
-          setQueueSync((prev) =>
-            prev.map((item) =>
-              item.id === uploadId
-                ? { ...item, status: "error" as const, error: getErrorMessage(error) }
-                : item,
-            ),
-          );
-        }
+        const claimed = claimNextQueued();
+        if (!claimed) break;
+        await uploadClaimedItem(claimed);
       }
+    };
+
+    try {
+      await Promise.all(
+        Array.from({ length: MAX_CONCURRENT_UPLOADS }, () => worker()),
+      );
     } finally {
       processingRef.current = false;
-      const snapshot = queueRef.current;
-      const stillQueued = snapshot.some((item) => item.status === "queued");
-      if (stillQueued) {
-        setTimeout(() => void runProcessor(), 0);
-        return;
-      }
-      setStep("complete");
-      notifyUploadsComplete();
     }
-  }, [setQueueSync, notifyUploadsComplete, folderId]);
+
+    const stillQueued = queueRef.current.some((item) => item.status === "queued");
+    const stillUploading = queueRef.current.some((item) => item.status === "uploading");
+    if (stillQueued || stillUploading) {
+      setTimeout(() => void runProcessor(), 0);
+      return;
+    }
+    setStep("complete");
+    notifyUploadsComplete();
+  }, [claimNextQueued, uploadClaimedItem, notifyUploadsComplete]);
 
   // Human: Append picked files to the selection list (no upload until user confirms).
   // Agent: READS FileList; WRITES pendingFiles; DOES NOT start processor.
   const addPendingFiles = useCallback((selected: FileList | null) => {
     if (!selected?.length) return;
     setPendingFiles((prev) => {
-      const base = prev.length;
-      const incoming = Array.from(selected).map((file, index) => ({
-        id: pendingFileId(file, base + index),
+      const incoming = Array.from(selected).map((file) => ({
+        id: createQueueItemId(),
         file,
       }));
       return [...prev, ...incoming];
@@ -506,12 +520,31 @@ export function UploadDialog({ open, onOpenChange, folderId = null, onUploadsCom
           ) : null}
 
           {step === "uploading" ? (
-            <div className="flex h-80 flex-col gap-3">
+            <div className="flex max-h-[28rem] flex-col gap-3">
               <p className="shrink-0 text-sm font-medium text-neutral-900">
                 {doneCount + errorCount} of {queue.length} complete
+                {activeItems.length > 0
+                  ? ` · ${activeItems.length} uploading (max ${MAX_CONCURRENT_UPLOADS})`
+                  : ""}
               </p>
-              {/* Agent: Active file lifted out of queue; progress UI stays in this fixed top slot. */}
-              <ActiveUploadPanel item={activeItem} processingElapsedSec={processingElapsedSec} />
+              <div className="flex shrink-0 flex-col gap-2">
+                <h3 className="text-sm font-medium text-neutral-900">
+                  Uploading ({activeItems.length})
+                </h3>
+                {activeItems.length > 0 ? (
+                  <ul className="flex max-h-56 flex-col gap-2 overflow-y-auto">
+                    {activeItems.map((item) => (
+                      <li key={`${item.id}-${item.phase}`}>
+                        <ActiveUploadPanel item={item} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">
+                    Preparing next files…
+                  </p>
+                )}
+              </div>
               <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <h3 className="shrink-0 text-sm font-medium text-neutral-900">
                   Waiting ({waitingItems.length})
