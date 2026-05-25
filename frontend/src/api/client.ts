@@ -520,7 +520,7 @@ export async function fetchVideoExportStatus(fileId: string) {
   return apiFetch(`/files/${fileId}/export`) as Promise<VideoExportStatus>;
 }
 
-const EXPORT_POLL_MS = 2000;
+const EXPORT_POLL_MS = 1000;
 
 // Human: Block until cached MP4 exists, reporting progress like upload processing.
 // Agent: POST then poll GET; THROWS on failed; RETURNS export size_bytes for download progress.

@@ -148,8 +148,45 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
     }))
 }
 
+// Human: Nebular OS may bind only after startup recompression; retry before failing API boot.
+// Agent: HTTP GET /health; RETRIES up to 60s; BAILS if still unreachable in proxy mode.
+async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
+    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    const MAX_ATTEMPTS: u32 = 60;
+    const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+    let client = reqwest::Client::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match client.get(&health_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                info!("Nebular OS health check passed");
+                return Ok(());
+            }
+            Ok(resp) => tracing::warn!(
+                status = %resp.status(),
+                attempt,
+                %health_url,
+                "Nebular OS health check returned non-success; retrying"
+            ),
+            Err(e) => tracing::warn!(
+                error = %e,
+                attempt,
+                %health_url,
+                "Nebular OS health check request failed; retrying"
+            ),
+        }
+        if attempt < MAX_ATTEMPTS {
+            tokio::time::sleep(RETRY_INTERVAL).await;
+        }
+    }
+
+    anyhow::bail!(
+        "Nebular OS health check failed after {MAX_ATTEMPTS} attempts at {health_url}"
+    )
+}
+
 // Human: Production startup path — connect Postgres, verify Nebular OS, then assemble AppState.
-// Agent: CALLS NebulaStorage health GET; BAILS if proxy mode storage unreachable.
+// Agent: CALLS wait_for_nebular_health; BAILS if proxy mode storage unreachable.
 pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
     let storage: Arc<dyn Storage> = if config.storage_mode == "proxy" {
         let nebula = NebulaStorage::new(
@@ -159,12 +196,7 @@ pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> 
             &config.object_storage_jwt_secret,
             &config.signing_secret,
         )?;
-        let health_url = format!("{}/health", config.object_storage_url.trim_end_matches('/'));
-        match reqwest::get(&health_url).await {
-            Ok(resp) if resp.status().is_success() => info!("Nebular OS health check passed"),
-            Ok(resp) => anyhow::bail!("Nebular OS health check failed with status {}", resp.status()),
-            Err(e) => anyhow::bail!("Nebular OS health check failed: {e} at {health_url}"),
-        }
+        wait_for_nebular_health(&config.object_storage_url).await?;
         Arc::new(nebula)
     } else {
         anyhow::bail!("only proxy storage mode is supported in this release");
@@ -275,6 +307,17 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
 // Human: Load config, build state, bind TCP, and serve until shutdown.
 // Agent: CALLS create_app_state + create_router; LISTENS on BIND_ADDR env.
+// Human: Guarantee a writable OS temp directory before video upload/HLS/export scratch files are created.
+// Agent: READS TMPDIR or /tmp via std::env::temp_dir; CALLS create_dir_all at startup.
+fn ensure_temp_dir() -> anyhow::Result<()> {
+    let temp_dir = std::env::temp_dir();
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        anyhow::anyhow!("create temp dir {}: {e}", temp_dir.display())
+    })?;
+    info!(temp_dir = %temp_dir.display(), "temp directory ready for upload scratch files");
+    Ok(())
+}
+
 pub async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -284,6 +327,7 @@ pub async fn run() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
+    ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
     let app = create_router(state);
 

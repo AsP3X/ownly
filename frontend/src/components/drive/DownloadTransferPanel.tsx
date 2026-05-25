@@ -14,18 +14,17 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 // Human: Compact progress bar for the floating download tray.
+// Agent: INDETERMINATE shimmer only when export byte progress unknown; otherwise width from percent.
 function TransferProgressBar({
   value,
   indeterminate,
   complete,
-  processing,
 }: {
   value: number;
   indeterminate?: boolean;
   complete?: boolean;
-  processing?: boolean;
 }) {
-  if ((indeterminate || processing) && !complete) {
+  if (indeterminate && !complete) {
     return (
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-neutral-200">
         <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
@@ -47,8 +46,10 @@ function TransferProgressBar({
   );
 }
 
-function phaseLabel(phase: DownloadJob["phase"]): string {
-  if (phase === "processing") return "Preparing file…";
+function phaseLabel(phase: DownloadJob["phase"], progress: number): string {
+  if (phase === "processing") {
+    return progress > 0 ? `Preparing file… ${progress}%` : "Preparing file…";
+  }
   if (phase === "saving") return "Saving…";
   return "Downloading…";
 }
@@ -78,7 +79,7 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
             ) : null}
           </div>
           <p className="text-xs text-neutral-500">
-            {isActive ? phaseLabel(job.phase) : formatBytes(job.file.size_bytes)}
+            {isActive ? phaseLabel(job.phase, job.progress) : formatBytes(job.file.size_bytes)}
           </p>
         </div>
         <Button
@@ -96,7 +97,6 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
         <TransferProgressBar
           value={job.progress}
           indeterminate={job.indeterminate}
-          processing={job.phase === "processing"}
         />
       ) : job.status === "complete" ? (
         <TransferProgressBar value={100} complete />

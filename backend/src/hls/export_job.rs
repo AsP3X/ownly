@@ -69,6 +69,8 @@ pub async fn run_hls_export_job(
         &storage_key,
         segment_count,
         &work_dir,
+        &pool,
+        &file_id,
     )
     .await
     {
@@ -132,6 +134,8 @@ async fn prepare_hls_workdir(
     storage_key: &str,
     segment_count: i32,
     work_dir: &Path,
+    pool: &PgPool,
+    file_id: &str,
 ) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(work_dir).await?;
     let segments_dir = work_dir.join("segments");
@@ -151,6 +155,13 @@ async fn prepare_hls_workdir(
         tokio::fs::write(segments_dir.join(&name), &data).await?;
         segment_files.push(format!("segments/{name}"));
         segment_durations.push(4.0);
+
+        // Human: Long HLS videos spend most of export time fetching segments — surface progress in the tray.
+        // Agent: MAPS segment index to 5–39% before ffmpeg remux starts.
+        if count > 0 {
+            let pct = 5 + (((i + 1) as f64 / count as f64) * 34.0).round() as i32;
+            set_export_progress(pool, file_id, pct).await;
+        }
     }
 
     let key_uri = "key.bin";

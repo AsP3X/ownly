@@ -14,7 +14,10 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y libssl3 ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
+# Human: debian:bookworm-slim omits /tmp; video HLS ingest spools uploads via std::env::temp_dir().
+# Agent: WRITES scratch files under /tmp (mv_upload_*, mediavault_hls_*, mv_export_*).
+RUN apt-get update && apt-get install -y libssl3 ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp && chmod 1777 /tmp
 
 WORKDIR /app
 COPY --from=builder /app/target/release/mediavault-backend /app/mediavault-backend
