@@ -28,7 +28,7 @@ export function BulkActionsBar({
 
   return (
     <div
-      className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 max-lg:fixed max-lg:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-lg:left-4 max-lg:right-4 max-lg:z-30 max-lg:shadow-lg lg:static"
       role="toolbar"
       aria-label="Bulk file actions"
     >

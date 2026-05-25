@@ -9,7 +9,9 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type RefObject,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronRight,
   Download,
@@ -31,10 +33,15 @@ import {
   Upload,
 } from "lucide-react";
 import {
+  batchFiles,
+  buildShareFlagMaps,
   fetchDashboard,
+  fetchFile,
   fetchFolderDeletionPreview,
   fetchShareStatusBulk,
+  FILES_PAGE_SIZE,
   getErrorMessage,
+  copyFile,
   listFiles,
   listFolders,
   moveFile,
@@ -44,6 +51,13 @@ import {
   type ShareFlags,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
+import { FileListView } from "@/components/drive/FileListView";
+import {
+  MobileFileActionsSheet,
+  type MobileActionTarget,
+} from "@/components/drive/MobileFileActionsSheet";
+import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
+import { MobileSidebarSheet } from "@/components/drive/MobileSidebarSheet";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import {
   ConfirmBulkDeleteDialog,
@@ -54,6 +68,7 @@ import {
   type DeleteTarget,
 } from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
+import { FolderPickerDialog, type FolderPickerCrumb } from "@/components/drive/FolderPickerDialog";
 import { ShareDialog, type ShareTarget } from "@/components/drive/ShareDialog";
 import {
   ResourceDetailsDialog,
@@ -71,15 +86,16 @@ import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/l
 import { useAuth } from "@/hooks/useAuth";
 import {
   buildImageGallery,
-  fileMatchesTypeFilter,
   formatBytes,
   formatFileOpened,
   isImageMime,
+  sortFilesByName,
   userInitials,
   type FileTypeFilter,
 } from "@/lib/utils-app";
 import {
   getFavouriteFileIds,
+  getRecentFileIds,
   pickFavouriteFiles,
   recordFileAccess,
   removeFilePreferences,
@@ -189,11 +205,22 @@ type FileTableProps = {
   onPreviewImage?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
+  hasMoreFiles?: boolean;
+  loadingMoreFiles?: boolean;
+  onLoadMoreFiles?: () => void;
+  hasMoreFolders?: boolean;
+  loadingMoreFolders?: boolean;
+  onLoadMoreFolders?: () => void;
+  /** Main pane scroll element — virtualizer and load-more observe this, not an inner box. */
+  scrollElementRef?: RefObject<HTMLElement | null>;
 };
 
 // Human: MIME payload key for HTML5 drag — keeps drop handler independent of React state timing.
 // Agent: SET on dragstart; READ on drop to resolve which file was moved.
 const FILE_DRAG_MIME = "application/x-mediavault-file-id";
+// Human: Fixed row height estimate for virtualized file rows in the drive table.
+// Agent: USED by @tanstack/react-virtual estimateSize; MATCHES py-3 row padding.
+const FILE_TABLE_ROW_HEIGHT = 56;
 
 // Human: Reusable file rows table for the My files browser, with optional folder rows first.
 // Agent: RENDERS folder navigation + download/delete/favourite actions; SUPPORTS drag files onto folders.
@@ -218,7 +245,15 @@ function FileTable({
   onPreviewImage,
   fileShareFlags = {},
   folderShareFlags = {},
+  hasMoreFiles = false,
+  loadingMoreFiles = false,
+  onLoadMoreFiles,
+  hasMoreFolders = false,
+  loadingMoreFolders = false,
+  onLoadMoreFolders,
+  scrollElementRef,
 }: FileTableProps) {
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const dragDepthRef = useRef<Map<string, number>>(new Map());
@@ -235,6 +270,40 @@ function FileTable({
     () => files.filter((file) => !isFileProcessing(file)).map((file) => file.id),
     [files],
   );
+  const columnCount = selectionEnabled ? 5 : 4;
+
+  // Human: Only mount visible file rows; scroll tracking uses the main pane, not a nested box.
+  // Agent: READS scrollElementRef from DrivePage main; CALLS onLoadMoreFiles via IntersectionObserver.
+  const rowVirtualizer = useVirtualizer({
+    count: files.length,
+    getScrollElement: () => scrollElementRef?.current ?? null,
+    estimateSize: () => FILE_TABLE_ROW_HEIGHT,
+    overscan: 12,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+      : 0;
+
+  useEffect(() => {
+    const root = scrollElementRef?.current ?? null;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel || !onLoadMoreFiles || !hasMoreFiles || loadingMoreFiles) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMoreFiles();
+        }
+      },
+      { root, rootMargin: "240px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreFiles, loadingMoreFiles, onLoadMoreFiles, files.length, scrollElementRef]);
   const selectedVisibleCount = selectionEnabled
     ? selectableFileIds.filter((id) => selectedFileIds.has(id)).length
     : 0;
@@ -375,6 +444,19 @@ function FileTable({
 
   return (
     <div className="overflow-x-auto">
+      {hasMoreFolders && onLoadMoreFolders ? (
+        <div className="mb-2 flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loadingMoreFolders}
+            onClick={() => onLoadMoreFolders()}
+          >
+            {loadingMoreFolders ? "Loading folders…" : "Load more folders"}
+          </Button>
+        </div>
+      ) : null}
       <table className="w-full min-w-[640px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-neutral-500">
@@ -469,7 +551,14 @@ function FileTable({
             </tr>
             );
           })}
-          {files.map((file) => {
+          {paddingTop > 0 ? (
+            <tr aria-hidden>
+              <td colSpan={columnCount} style={{ height: paddingTop, padding: 0, border: "none" }} />
+            </tr>
+          ) : null}
+          {virtualRows.map((virtualRow) => {
+            const file = files[virtualRow.index];
+            if (!file) return null;
             const favourited = favouriteIds.has(file.id);
             const isDragging = draggingFileId === file.id;
             const isSelected = selectionEnabled && selectedFileIds.has(file.id);
@@ -484,6 +573,8 @@ function FileTable({
             return (
               <tr
                 key={file.id}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
                 data-file-id={file.id}
                 draggable={dragEnabled && !processing}
                 onDragStart={(event) => handleFileDragStart(event, file.id)}
@@ -590,8 +681,24 @@ function FileTable({
               </tr>
             );
           })}
+          {paddingBottom > 0 ? (
+            <tr aria-hidden>
+              <td colSpan={columnCount} style={{ height: paddingBottom, padding: 0, border: "none" }} />
+            </tr>
+          ) : null}
         </tbody>
       </table>
+      <div ref={loadMoreSentinelRef} className="h-1" aria-hidden />
+      {loadingMoreFiles ? (
+        <p className="py-3 text-center text-xs text-neutral-500">Loading more files…</p>
+      ) : null}
+      {hasMoreFiles && !loadingMoreFiles ? (
+        <div className="flex justify-center py-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onLoadMoreFiles?.()}>
+            Load more files
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -691,7 +798,7 @@ function FileGrid({
                   <FileProcessingBadge file={file} className="bg-violet-100 text-violet-900 shadow-sm" />
                 </div>
               ) : null}
-              <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <div className="absolute right-2 top-2 flex gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -830,6 +937,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 export default function DrivePage() {
   const { user, logout } = useAuth();
   const profileRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -852,6 +960,15 @@ export default function DrivePage() {
   const [folderPreviewError, setFolderPreviewError] = useState("");
   const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(() => new Set());
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [folderPickerFiles, setFolderPickerFiles] = useState<FileItem[]>([]);
+  const [folderPickerStack, setFolderPickerStack] = useState<FolderPickerCrumb[]>([]);
+  const [folderPickerFolders, setFolderPickerFolders] = useState<FolderItem[]>([]);
+  const [folderPickerLoading, setFolderPickerLoading] = useState(false);
+  const [folderPickerError, setFolderPickerError] = useState("");
+  const [folderPickerSubmitting, setFolderPickerSubmitting] = useState<"copy" | "move" | null>(
+    null,
+  );
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
     () => new Set(getFavouriteFileIds()),
   );
@@ -864,10 +981,36 @@ export default function DrivePage() {
   const [detailsInitialTab, setDetailsInitialTab] = useState<"details" | "sharing">("details");
   const [fileShareFlags, setFileShareFlags] = useState<Record<string, ShareFlags>>({});
   const [folderShareFlags, setFolderShareFlags] = useState<Record<string, ShareFlags>>({});
+  const [fileCount, setFileCount] = useState(0);
+  const [hasMoreFiles, setHasMoreFiles] = useState(false);
+  const [filesLoadingMore, setFilesLoadingMore] = useState(false);
+  const [folderCount, setFolderCount] = useState(0);
+  const [hasMoreFolders, setHasMoreFolders] = useState(false);
+  const [foldersLoadingMore, setFoldersLoadingMore] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
+  const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
+  const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
+  const dashboardLoadedRef = useRef(false);
 
-  // Human: Refresh paperclip indicators for the files and folders currently on screen.
+  // Human: Storage summary for the sidebar — fetched once per page session, not every folder open.
+  // Agent: GET /dashboard; WRITES instanceName, usedBytes, quotaBytes; CALLS again after mutations.
+  const refreshDashboard = useCallback(async () => {
+    try {
+      const dashboard = await fetchDashboard();
+      setInstanceName(dashboard.instance_name);
+      setUsedBytes(dashboard.used_bytes);
+      setQuotaBytes(dashboard.quota_bytes || 1);
+      dashboardLoadedRef.current = true;
+    } catch {
+      // Human: Dashboard stats are non-critical — a failed fetch must not block browsing.
+    }
+  }, []);
+
+  // Human: Refresh paperclip indicators after share dialog changes (list rows may be stale).
   // Agent: POST /shares/status; WRITES fileShareFlags + folderShareFlags maps.
   const refreshShareFlags = useCallback(async (fileIds: string[], folderIds: string[]) => {
     if (fileIds.length === 0 && folderIds.length === 0) {
@@ -902,45 +1045,83 @@ export default function DrivePage() {
   const refresh = useCallback(
     async (
       search?: string,
-      options?: { silent?: boolean; folderId?: string | null },
+      options?: { silent?: boolean; folderId?: string | null; nav?: NavItemId },
     ) => {
       if (!options?.silent) {
         setLoading(true);
       }
       setError("");
+      if (!dashboardLoadedRef.current) {
+        void refreshDashboard();
+      }
+      const nav = options?.nav ?? activeNav;
       try {
         const targetFolderId =
           options?.folderId !== undefined ? options.folderId : currentFolderId;
-        const dashboard = await fetchDashboard();
-        setInstanceName(dashboard.instance_name);
-        setUsedBytes(dashboard.used_bytes);
-        setQuotaBytes(dashboard.quota_bytes || 1);
 
-        let loadedFiles: FileItem[] = [];
-        let loadedFolders: FolderItem[] = [];
-
-        if (search) {
-          const listing = await listFiles({ q: search });
-          loadedFiles = listing.files;
+        if (nav === "home" && !search) {
+          const homeIds = [
+            ...new Set([...getRecentFileIds(), ...getFavouriteFileIds()]),
+          ].slice(0, FILES_PAGE_SIZE);
+          const { files: homeFiles } = await batchFiles(homeIds, "minimal");
           setFolders([]);
-          setFiles(listing.files);
-          pruneFileSelection(listing.files);
-        } else {
-          const [folderListing, fileListing] = await Promise.all([
-            listFolders(targetFolderId ? { parent_id: targetFolderId } : undefined),
-            listFiles(targetFolderId ? { folder_id: targetFolderId } : undefined),
-          ]);
-          loadedFiles = fileListing.files;
-          loadedFolders = folderListing.folders;
-          setFolders(folderListing.folders);
-          setFiles(fileListing.files);
-          pruneFileSelection(fileListing.files);
+          setFiles(homeFiles);
+          setFileCount(homeFiles.length);
+          setHasMoreFiles(false);
+          setFolderCount(0);
+          setHasMoreFolders(false);
+          const flags = buildShareFlagMaps(homeFiles, []);
+          setFileShareFlags(flags.files);
+          setFolderShareFlags({});
+          pruneFileSelection(homeFiles);
+          return;
         }
 
-        await refreshShareFlags(
-          loadedFiles.map((file) => file.id),
-          loadedFolders.map((folder) => folder.id),
-        );
+        if (search) {
+          const listing = await listFiles({
+            q: search,
+            limit: FILES_PAGE_SIZE,
+            offset: 0,
+            fields: "minimal",
+            type_filter: serverTypeFilter,
+          });
+          setFolders([]);
+          setFiles(listing.files);
+          setFileCount(listing.file_count);
+          setHasMoreFiles(listing.has_more);
+          setFolderCount(0);
+          setHasMoreFolders(false);
+          const flags = buildShareFlagMaps(listing.files, []);
+          setFileShareFlags(flags.files);
+          setFolderShareFlags({});
+          pruneFileSelection(listing.files);
+          return;
+        }
+
+        const [folderListing, fileListing] = await Promise.all([
+          listFolders({
+            parent_id: targetFolderId ?? undefined,
+            limit: FILES_PAGE_SIZE,
+            offset: 0,
+          }),
+          listFiles({
+            folder_id: targetFolderId ?? undefined,
+            limit: FILES_PAGE_SIZE,
+            offset: 0,
+            fields: "minimal",
+            type_filter: serverTypeFilter,
+          }),
+        ]);
+        setFolders(folderListing.folders);
+        setFiles(fileListing.files);
+        setFileCount(fileListing.file_count);
+        setHasMoreFiles(fileListing.has_more);
+        setFolderCount(folderListing.folder_count);
+        setHasMoreFolders(folderListing.has_more);
+        const flags = buildShareFlagMaps(fileListing.files, folderListing.folders);
+        setFileShareFlags(flags.files);
+        setFolderShareFlags(flags.folders);
+        pruneFileSelection(fileListing.files);
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
@@ -949,49 +1130,125 @@ export default function DrivePage() {
         }
       }
     },
-    [currentFolderId, refreshShareFlags],
+    [activeNav, currentFolderId, refreshDashboard, serverTypeFilter],
   );
 
+  // Human: Append the next page of files for the open folder or active search.
+  // Agent: GET /files with offset=files.length; MERGES rows + share_public flags.
+  const loadMoreFiles = useCallback(async () => {
+    if (!hasMoreFiles || filesLoadingMore || loading) return;
+    setFilesLoadingMore(true);
+    setError("");
+    try {
+      const listing = await listFiles({
+        q: isSearchingMyFiles ? query.trim() : undefined,
+        folder_id: isSearchingMyFiles ? undefined : (currentFolderId ?? undefined),
+        limit: FILES_PAGE_SIZE,
+        offset: files.length,
+        fields: "minimal",
+        type_filter: serverTypeFilter,
+      });
+      setFiles((prev) => [...prev, ...listing.files]);
+      setHasMoreFiles(listing.has_more);
+      setFileCount(listing.file_count);
+      const flags = buildShareFlagMaps(listing.files, []);
+      setFileShareFlags((prev) => ({ ...prev, ...flags.files }));
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setFilesLoadingMore(false);
+    }
+  }, [
+    currentFolderId,
+    files.length,
+    filesLoadingMore,
+    hasMoreFiles,
+    isSearchingMyFiles,
+    loading,
+    query,
+    serverTypeFilter,
+  ]);
+
+  // Human: Append the next page of subfolders when a directory has many children.
+  // Agent: GET /folders with offset=folders.length; MERGES folder share flags.
+  const loadMoreFolders = useCallback(async () => {
+    if (!hasMoreFolders || foldersLoadingMore || loading) return;
+    setFoldersLoadingMore(true);
+    setError("");
+    try {
+      const listing = await listFolders({
+        parent_id: currentFolderId ?? undefined,
+        limit: FILES_PAGE_SIZE,
+        offset: folders.length,
+      });
+      setFolders((prev) => [...prev, ...listing.folders]);
+      setHasMoreFolders(listing.has_more);
+      setFolderCount(listing.folder_count);
+      const flags = buildShareFlagMaps([], listing.folders);
+      setFolderShareFlags((prev) => ({ ...prev, ...flags.folders }));
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setFoldersLoadingMore(false);
+    }
+  }, [currentFolderId, folders.length, foldersLoadingMore, hasMoreFolders, loading]);
+
   // Human: Refresh the drive listing as each file finishes uploading in the corner panel.
-  // Agent: SUBSCRIBES upload-manager file events; CALLS refresh silent per uploaded id.
+  // Agent: SUBSCRIBES upload-manager file events; CALLS refresh silent + dashboard stats.
   useEffect(() => {
     return subscribeUploadFileComplete((fileId) => {
       recordFileAccess(fileId);
+      void refreshDashboard();
       void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
+        nav: activeNav,
       });
     });
-  }, [activeNav, query, refresh]);
+  }, [activeNav, query, refresh, refreshDashboard]);
 
-  // Human: Poll the listing while any visible file is still processing so rows unlock when ready.
-  // Agent: INTERVAL silent refresh every 3s when isFileProcessing matches; CLEARS on unmount.
-  const hasProcessingFiles = useMemo(() => files.some(isFileProcessing), [files]);
+  // Human: Poll only processing file rows instead of reloading the entire folder listing.
+  // Agent: GET /files/:id every 3s; PATCHES matching rows in files state.
+  const processingFileIds = useMemo(
+    () => files.filter(isFileProcessing).map((file) => file.id),
+    [files],
+  );
+  const processingIdsKey = processingFileIds.join(",");
   useEffect(() => {
-    if (!hasProcessingFiles) return;
+    if (!processingIdsKey) return;
     const timer = window.setInterval(() => {
-      void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
-        silent: true,
-      });
+      void (async () => {
+        try {
+          const updates = await Promise.all(
+            processingFileIds.map((fileId) => fetchFile(fileId)),
+          );
+          setFiles((prev) => {
+            const byId = new Map(updates.map((entry) => [entry.file.id, entry.file]));
+            return prev.map((file) => byId.get(file.id) ?? file);
+          });
+        } catch {
+          // Human: Processing poll failures are non-critical — next interval retries.
+        }
+      })();
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [activeNav, hasProcessingFiles, query, refresh]);
+  }, [processingIdsKey, processingFileIds]);
 
-  // Human: Load dashboard + file list when the page opens or the debounced search query changes.
-  // Agent: DEBOUNCES query 300ms on My files; Home loads full library without name filter.
+  // Human: Load file list when the page opens, folder changes, search, or type filter changes.
+  // Agent: DEBOUNCES query 300ms on My files; Home uses batch API via refresh().
   useEffect(() => {
     let cancelled = false;
     const searchOnMyFiles = activeNav === "my-files" ? query.trim() : "";
     const delay = searchOnMyFiles ? 300 : 0;
     const timer = window.setTimeout(() => {
       if (!cancelled) {
-        void refresh(searchOnMyFiles || undefined);
+        void refresh(searchOnMyFiles || undefined, { nav: activeNav });
       }
     }, delay);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query, refresh, activeNav, folderStack]);
+  }, [query, refresh, activeNav, folderStack, typeFilter]);
 
   function openFolder(folder: FolderItem) {
     setActiveNav("my-files");
@@ -1074,7 +1331,10 @@ export default function DrivePage() {
     } else {
       setFolderStack((prev) => prev.filter((crumb) => crumb.id !== target.id));
     }
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+    void refreshDashboard();
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      nav: activeNav,
+    });
   }
 
   // Human: Persist a drag-and-drop move by updating the file's folder_id on the API.
@@ -1091,6 +1351,110 @@ export default function DrivePage() {
       });
     } catch (e) {
       setError(getErrorMessage(e));
+    }
+  }
+
+  // Human: Load folders for one level of the picker breadcrumb.
+  // Agent: GET /folders?parent_id=; WRITES folderPickerFolders + loading flags.
+  async function loadFolderPickerLevel(parentId: string | null) {
+    setFolderPickerLoading(true);
+    setFolderPickerError("");
+    try {
+      const listing = await listFolders(parentId ? { parent_id: parentId } : undefined);
+      setFolderPickerFolders(sortFilesByName(listing.folders));
+    } catch (err) {
+      setFolderPickerError(getErrorMessage(err));
+      setFolderPickerFolders([]);
+    } finally {
+      setFolderPickerLoading(false);
+    }
+  }
+
+  function closeFolderPicker() {
+    setFolderPickerOpen(false);
+    setFolderPickerFiles([]);
+    setFolderPickerStack([]);
+    setFolderPickerFolders([]);
+    setFolderPickerError("");
+    setFolderPickerSubmitting(null);
+  }
+
+  // Human: Open the folder picker for the current multi-selection.
+  // Agent: WRITES folderPickerFiles from selectedFiles; LOADS root folders; OPENS dialog.
+  function handleOpenFolderPicker() {
+    if (selectedFiles.length < 2) return;
+    setFolderPickerFiles(selectedFiles);
+    setFolderPickerStack([]);
+    setFolderPickerSubmitting(null);
+    setFolderPickerError("");
+    setFolderPickerOpen(true);
+    void loadFolderPickerLevel(null);
+  }
+
+  // Human: Navigate the picker breadcrumb and refresh the folder listing for that level.
+  // Agent: WRITES folderPickerStack; CALLS loadFolderPickerLevel with leaf id or null.
+  function handleFolderPickerNavigate(stack: FolderPickerCrumb[]) {
+    setFolderPickerStack(stack);
+    void loadFolderPickerLevel(stack.at(-1)?.id ?? null);
+  }
+
+  const folderPickerTargetId = folderPickerStack.at(-1)?.id ?? null;
+
+  // Human: Copy every selected file into the folder currently shown in the picker.
+  // Agent: SEQUENTIAL POST /files/:id/copy; REFRESHES listing; CLEARS selection on success.
+  async function handleFolderPickerCopy() {
+    if (folderPickerFiles.length === 0) return;
+
+    setFolderPickerSubmitting("copy");
+    setFolderPickerError("");
+    setError("");
+    try {
+      for (const file of folderPickerFiles) {
+        await copyFile(file.id, folderPickerTargetId);
+      }
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+      setSelectedFileIds(new Set());
+      closeFolderPicker();
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setFolderPickerError(message);
+      setError(message);
+    } finally {
+      setFolderPickerSubmitting(null);
+    }
+  }
+
+  // Human: Move selected files that are not already in the picker destination folder.
+  // Agent: SKIPS same-folder rows; PATCH moveFile per file; REFRESHES; CLEARS selection.
+  async function handleFolderPickerMove() {
+    const toMove = folderPickerFiles.filter(
+      (file) => (file.folder_id ?? null) !== folderPickerTargetId,
+    );
+    if (toMove.length === 0) {
+      setFolderPickerError("Every selected file is already in this folder.");
+      return;
+    }
+
+    setFolderPickerSubmitting("move");
+    setFolderPickerError("");
+    setError("");
+    try {
+      for (const file of toMove) {
+        await moveFile(file.id, folderPickerTargetId);
+      }
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+      setSelectedFileIds(new Set());
+      closeFolderPicker();
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setFolderPickerError(message);
+      setError(message);
+    } finally {
+      setFolderPickerSubmitting(null);
     }
   }
 
@@ -1242,7 +1606,10 @@ export default function DrivePage() {
     setFavouriteIds(new Set(getFavouriteFileIds()));
     setSelectedFileIds(new Set());
     setBulkDeleteItems([]);
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined);
+    void refreshDashboard();
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      nav: activeNav,
+    });
   }
 
   const bulkFavouriteLabel =
@@ -1261,14 +1628,25 @@ export default function DrivePage() {
     }
   }
 
+  // Human: Open the bottom action sheet for one file or folder row on mobile.
+  // Agent: WRITES mobileActionTarget + mobileActionsOpen; USED by FileListView ⋯ button.
+  function handleOpenMobileActions(target: MobileActionTarget) {
+    setMobileActionTarget(target);
+    setMobileActionsOpen(true);
+  }
+
   const usagePercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
   const nameFilteredFiles =
     activeNav === "home" && query.trim()
       ? files.filter((file) => file.name.toLowerCase().includes(query.trim().toLowerCase()))
       : files;
-  const browserFiles = files.filter((file) => fileMatchesTypeFilter(file.mime_type, typeFilter));
-  const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
-  const visibleFolders = isSearchingMyFiles ? [] : folders;
+  // Human: Default browser order — A–Z with numeric segments (1, 2, 10 not 1, 10, 2).
+  // Agent: MATCHES backend natural_sort_key; RE-SORTS loaded pages for consistent display.
+  const browserFiles = useMemo(() => sortFilesByName(nameFilteredFiles), [nameFilteredFiles]);
+  const visibleFolders = useMemo(
+    () => (isSearchingMyFiles ? [] : sortFilesByName(folders)),
+    [folders, isSearchingMyFiles],
+  );
   const recentFiles = sortFilesByRecentAccess(nameFilteredFiles, 12);
   const favouriteFiles = pickFavouriteFiles(nameFilteredFiles);
   const sharedFiles: FileItem[] = [];
@@ -1281,6 +1659,7 @@ export default function DrivePage() {
       folders={visibleFolders}
       favouriteIds={favouriteIds}
       activeNav={activeNav}
+      selectedFileIds={selectedFileIds}
       onDownload={handleDownload}
       onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
@@ -1298,8 +1677,12 @@ export default function DrivePage() {
       onShareFolder={handleShareFolder}
       onDetailsFile={handleDetailsFile}
       onDetailsFolder={handleDetailsFolder}
+      onCopyToFolder={handleOpenFolderPicker}
+      onMoveToFolder={handleOpenFolderPicker}
     >
-      <div className="min-h-screen bg-[#f3f2f1] text-neutral-900">
+      {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
+      {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
+      <div className="flex h-screen flex-col overflow-hidden bg-[#f3f2f1] text-neutral-900">
         <UploadDialog
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
@@ -1370,12 +1753,77 @@ export default function DrivePage() {
           items={bulkDeleteItems}
           onDeleted={handleBulkDeleted}
         />
+        <FolderPickerDialog
+          open={folderPickerOpen}
+          onOpenChange={(open) => {
+            if (!open) closeFolderPicker();
+          }}
+          files={folderPickerFiles}
+          folderStack={folderPickerStack}
+          folders={folderPickerFolders}
+          loading={folderPickerLoading}
+          error={folderPickerError}
+          submitting={folderPickerSubmitting}
+          onNavigate={handleFolderPickerNavigate}
+          onCopy={handleFolderPickerCopy}
+          onMove={handleFolderPickerMove}
+        />
         <TransferPanelStack />
+        <MobileSidebarSheet
+          open={mobileSidebarOpen}
+          onOpenChange={setMobileSidebarOpen}
+          activeNav={activeNav}
+          usedBytes={usedBytes}
+          quotaBytes={quotaBytes}
+          usagePercent={usagePercent}
+          onNavChange={handleNavChange}
+          onUpload={() => setUploadDialogOpen(true)}
+          onCreateFolder={() => {
+            setActiveNav("my-files");
+            setCreateFolderDialogOpen(true);
+          }}
+          storageBar={<StorageUsageBar usedBytes={usedBytes} quotaBytes={quotaBytes} />}
+        />
+        <MobileFileActionsSheet
+          target={mobileActionTarget}
+          open={mobileActionsOpen}
+          onOpenChange={(open) => {
+            setMobileActionsOpen(open);
+            if (!open) setMobileActionTarget(null);
+          }}
+          favouriteIds={favouriteIds}
+          onDownload={handleDownload}
+          onDownloadFolder={handleDownloadFolder}
+          onToggleFavourite={handleToggleFavourite}
+          onDelete={requestDeleteFile}
+          onDeleteFolder={requestDeleteFolder}
+          onShareFile={handleShareFile}
+          onShareFolder={handleShareFolder}
+          onDetailsFile={handleDetailsFile}
+          onDetailsFolder={handleDetailsFolder}
+          onCopyToFolder={handleOpenFolderPicker}
+          onMoveToFolder={handleOpenFolderPicker}
+          bulkSelectionCount={selectedFileIds.size}
+        />
       {/* Top bar — profile avatar pinned on the far right */}
-      <header className="border-b border-neutral-200 bg-white">
-        <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-4">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon-sm" className="text-neutral-600" aria-label="App menu">
+      <header className="shrink-0 border-b border-neutral-200 bg-white">
+        <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-neutral-600 lg:hidden"
+              aria-label="Open menu"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <LayoutGrid />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="hidden text-neutral-600 lg:inline-flex"
+              aria-label="App menu"
+            >
               <LayoutGrid />
             </Button>
             <div className="flex size-7 items-center justify-center rounded-md bg-blue-600 text-xs font-bold text-white">
@@ -1409,7 +1857,7 @@ export default function DrivePage() {
             >
               Get more storage
             </Button>
-            <Button variant="ghost" size="icon-sm" className="text-neutral-600" aria-label="Settings">
+            <Button variant="ghost" size="icon-sm" className="hidden text-neutral-600 sm:inline-flex" aria-label="Settings">
               <Settings />
             </Button>
             <div ref={profileRef} className="relative">
@@ -1444,9 +1892,10 @@ export default function DrivePage() {
         </div>
       </header>
 
-      <div className="grid min-h-[calc(100vh-52px)] grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
-        {/* Left sidebar */}
-        <aside className="flex flex-col gap-4 border-b border-neutral-200 bg-white px-4 py-4 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:grid-rows-1">
+        {/* Left sidebar — pinned from header to viewport bottom; storage block uses mt-auto. */}
+        {/* Agent: lg:h-full + overflow-hidden keeps sidebar fixed while main scrolls independently. */}
+        <aside className="hidden shrink-0 flex-col gap-4 overflow-hidden border-b border-neutral-200 bg-white px-4 py-4 lg:flex lg:h-full lg:border-b-0 lg:border-r">
           <Button
             className="w-full justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
             onClick={() => setUploadDialogOpen(true)}
@@ -1507,9 +1956,13 @@ export default function DrivePage() {
           </div>
         </aside>
 
-        {/* Main content — Home hub vs My files browser */}
-        <main className="p-4 md:p-6">
-          <div className="flex min-h-[640px] flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+        {/* Main content — Home hub vs My files browser; sole vertical scroll region below header. */}
+        {/* Agent: min-h-0 overflow-y-auto; READS user scroll; sidebar sibling stays viewport-anchored. */}
+        <main
+          ref={mainScrollRef}
+          className="min-h-0 overflow-y-auto p-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-6 lg:pb-6"
+        >
+          <div className="flex min-h-full flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none md:p-6 lg:border lg:bg-white lg:p-6 lg:shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold text-neutral-900">
@@ -1553,7 +2006,7 @@ export default function DrivePage() {
                 ) : null}
               </div>
               {activeNav === "my-files" ? (
-                <div className="relative w-full max-w-xs">
+                <div className="relative hidden w-full max-w-xs sm:block">
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
                   <Input
                     className="h-9 pl-9"
@@ -1567,14 +2020,15 @@ export default function DrivePage() {
             </div>
 
             {activeNav === "my-files" ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 lg:flex-wrap">
+                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
                 {TYPE_FILTERS.map(({ id, label }) => (
                   <button
                     key={id}
                     type="button"
                     onClick={() => setTypeFilter(id)}
                     className={cn(
-                      "rounded-full px-3 py-1 text-sm transition-colors",
+                      "shrink-0 rounded-full px-3 py-1 text-sm transition-colors",
                       typeFilter === id
                         ? "bg-blue-50 font-medium text-blue-700 ring-1 ring-blue-200"
                         : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200",
@@ -1583,6 +2037,18 @@ export default function DrivePage() {
                     {label}
                   </button>
                 ))}
+                </div>
+                <div className="flex w-full gap-2 lg:hidden">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setCreateFolderDialogOpen(true)}
+                  >
+                    <FolderPlus data-icon="inline-start" />
+                    New folder
+                  </Button>
+                </div>
               </div>
             ) : null}
 
@@ -1592,7 +2058,7 @@ export default function DrivePage() {
               </Alert>
             ) : null}
 
-            <Separator className="bg-neutral-200" />
+            <Separator className="hidden bg-neutral-200 lg:block" />
 
             {loading ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
@@ -1678,6 +2144,7 @@ export default function DrivePage() {
                   onDelete={handleBulkDeleteRequest}
                   onClearSelection={() => setSelectedFileIds(new Set())}
                 />
+                <div className="hidden lg:block">
                 <FileTable
                 folders={visibleFolders}
                 files={browserFiles}
@@ -1705,19 +2172,63 @@ export default function DrivePage() {
                 onPreviewImage={handlePreviewImage}
                 fileShareFlags={fileShareFlags}
                 folderShareFlags={folderShareFlags}
+                hasMoreFiles={hasMoreFiles}
+                loadingMoreFiles={filesLoadingMore}
+                onLoadMoreFiles={() => void loadMoreFiles()}
+                hasMoreFolders={hasMoreFolders}
+                loadingMoreFolders={foldersLoadingMore}
+                onLoadMoreFolders={() => void loadMoreFolders()}
+                scrollElementRef={mainScrollRef}
               />
+                </div>
+                <FileListView
+                  folders={visibleFolders}
+                  files={browserFiles}
+                  ownerLabel={ownerLabel}
+                  favouriteIds={favouriteIds}
+                  selectable
+                  selectedFileIds={selectedFileIds}
+                  onSelectedFileIdsChange={setSelectedFileIds}
+                  locationLabel={
+                    folderStack.length > 0
+                      ? folderStack[folderStack.length - 1]?.name ?? "My files"
+                      : "My files"
+                  }
+                  emptyMessage="No files in your library."
+                  onOpenFolder={openFolder}
+                  onToggleFavourite={handleToggleFavourite}
+                  onDelete={requestDeleteFile}
+                  onDownload={handleDownload}
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  fileShareFlags={fileShareFlags}
+                  folderShareFlags={folderShareFlags}
+                  hasMoreFiles={hasMoreFiles}
+                  loadingMoreFiles={filesLoadingMore}
+                  onLoadMoreFiles={() => void loadMoreFiles()}
+                  hasMoreFolders={hasMoreFolders}
+                  loadingMoreFolders={foldersLoadingMore}
+                  onLoadMoreFolders={() => void loadMoreFolders()}
+                  scrollElementRef={mainScrollRef}
+                  onOpenActions={handleOpenMobileActions}
+                />
               </div>
             )}
 
-            <p className="mt-auto text-xs text-neutral-500">
+            <p className="mt-auto hidden text-xs text-neutral-500 lg:block">
               {instanceName}
               {activeNav === "home"
                 ? ` · ${recentFiles.length} recent · ${favouriteFiles.length} favourites`
-                : ` · ${visibleFolders.length} folder${visibleFolders.length === 1 ? "" : "s"} · ${browserFiles.length} file${browserFiles.length === 1 ? "" : "s"} shown`}
+                : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}
             </p>
           </div>
         </main>
       </div>
+      <MobileBottomNav
+        activeNav={activeNav}
+        onNavChange={handleNavChange}
+        onUpload={() => setUploadDialogOpen(true)}
+      />
       </div>
     </DriveContextMenu>
   );

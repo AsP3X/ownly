@@ -84,6 +84,7 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
         pool,
         state.storage.clone(),
         state.hls_key_store.clone(),
+        state.hls_hardware.clone(),
         encode_job,
     )
     .await;

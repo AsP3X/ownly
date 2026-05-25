@@ -3,10 +3,23 @@
 
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
+use serde::Deserialize;
 use sha2::Sha256;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::storage::{Storage, StorageStream};
+
+#[derive(Debug, Deserialize)]
+struct ListApiResult {
+    items: Vec<ListApiItem>,
+    is_truncated: bool,
+    next_start_after: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListApiItem {
+    key: String,
+}
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -148,6 +161,42 @@ impl Storage for NebulaStorage {
             anyhow::bail!("object storage DELETE failed: {}", status);
         }
         Ok(())
+    }
+
+    async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        let list_url = format!("{}/{}", self.base_url, self.bucket);
+        let mut keys = Vec::new();
+        let mut start_after: Option<String> = None;
+
+        loop {
+            let mut request = self
+                .client
+                .get(&list_url)
+                .header(reqwest::header::AUTHORIZATION, self.auth_header())
+                .query(&[("prefix", prefix), ("limit", "1000")]);
+
+            if let Some(ref after) = start_after {
+                request = request.query(&[("start_after", after.as_str())]);
+            }
+
+            let response = request.send().await?;
+            if !response.status().is_success() {
+                anyhow::bail!("object storage LIST failed: {}", response.status());
+            }
+
+            let page: ListApiResult = response.json().await?;
+            keys.extend(page.items.into_iter().map(|item| item.key));
+
+            if !page.is_truncated {
+                break;
+            }
+            start_after = page.next_start_after;
+            if start_after.is_none() {
+                break;
+            }
+        }
+
+        Ok(keys)
     }
 
     async fn put(&self, key: &str, content_type: &str, data: Vec<u8>) -> anyhow::Result<()> {

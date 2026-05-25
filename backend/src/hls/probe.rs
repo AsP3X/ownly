@@ -6,11 +6,28 @@ use tokio::process::Command;
 
 const DEFAULT_DURATION_SECONDS: i32 = 3600;
 
-/// Human: Tracks whether ffmpeg can remux without re-encoding (H.264 + AAC).
-/// Agent: READS ffprobe stream codec_name; USED by HlsEncoder before full transcode.
+/// Human: How ffmpeg should package this source for browser HLS playback.
+/// Agent: REMUX_COPY is fastest; COPY_VIDEO transcodes audio only; FULL transcodes both tracks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HlsEncodeMode {
+    RemuxCopy,
+    CopyVideoTranscodeAudio,
+    FullTranscode,
+}
+
+/// Human: Tracks source codecs and the fastest safe ffmpeg strategy for HLS ingest.
+/// Agent: READS ffprobe stream codec_name; USED by HlsEncoder before ffmpeg spawn.
+#[derive(Debug, Clone)]
 pub struct CodecProbe {
-    pub can_remux_copy: bool,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub encode_mode: HlsEncodeMode,
+}
+
+impl CodecProbe {
+    pub fn can_remux_copy(self) -> bool {
+        self.encode_mode == HlsEncodeMode::RemuxCopy
+    }
 }
 
 pub async fn probe_codecs(path: &Path) -> CodecProbe {
@@ -20,8 +37,20 @@ pub async fn probe_codecs(path: &Path) -> CodecProbe {
     let video_ok = matches!(video.as_deref(), Some("h264"));
     let audio_ok = matches!(audio.as_deref(), Some("aac") | Some("mp4a"));
 
+    let encode_mode = if video_ok && audio_ok {
+        HlsEncodeMode::RemuxCopy
+    } else if video_ok {
+        // Human: Movie rips often ship H.264 + AC3/EAC3 — remux video, transcode audio only.
+        // Agent: COPY_VIDEO avoids re-encoding picture; AAC stereo for browser HLS.
+        HlsEncodeMode::CopyVideoTranscodeAudio
+    } else {
+        HlsEncodeMode::FullTranscode
+    };
+
     CodecProbe {
-        can_remux_copy: video_ok && audio_ok,
+        video_codec: video,
+        audio_codec: audio,
+        encode_mode,
     }
 }
 

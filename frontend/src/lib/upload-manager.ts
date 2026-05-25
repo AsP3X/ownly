@@ -84,12 +84,10 @@ const MAX_CONCURRENT_UPLOADS = 3;
 const UPLOAD_MAX_RETRIES = 6;
 const UPLOAD_RETRY_BASE_MS = 1_500;
 const UPLOAD_RETRY_MAX_MS = 30_000;
+/** Human: When the API returns 429, pause all upload workers until the server window clears. */
+let uploadPumpPausedUntil = 0;
 
 const UPLOAD_BATCH_STORAGE_KEY = "mediavault_upload_batch";
-
-const UPLOAD_BYTES_PERCENT = 40;
-
-
 
 type PersistedUploadItem = UploadItemSnapshot;
 
@@ -396,11 +394,9 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
             phase: isVideoAwaitingIngest(file) ? ("processing" as const) : item.phase,
 
-            progress: isVideoAwaitingIngest(file)
-
-              ? Math.max(item.progress, UPLOAD_BYTES_PERCENT)
-
-              : item.progress,
+            // Human: Switch to the processing bar at 0% once bytes are on the server.
+            // Agent: RESET progress when video ingest begins so upload bar is not carried over.
+            progress: isVideoAwaitingIngest(file) ? 0 : item.progress,
 
           }
 
@@ -599,7 +595,7 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
       status: "uploading" as const,
 
-      progress: Math.max(UPLOAD_BYTES_PERCENT, job.progress),
+      progress: Math.min(100, Math.max(0, job.progress)),
 
       phase: "processing" as const,
 
@@ -825,6 +821,21 @@ function sleepMs(delayMs: number): Promise<void> {
   });
 }
 
+// Human: Extend the global upload pause when any worker hits 429 — other slots wait too.
+// Agent: WRITES uploadPumpPausedUntil; MAX with existing deadline so overlapping 429s use the longest wait.
+function pauseUploadPumpFor(delayMs: number) {
+  uploadPumpPausedUntil = Math.max(uploadPumpPausedUntil, Date.now() + delayMs);
+}
+
+// Human: Block pump/retry until the coordinated rate-limit pause expires.
+// Agent: READS uploadPumpPausedUntil; AWAITS sleep when still in the future.
+async function waitForUploadPumpUnpause() {
+  const waitMs = uploadPumpPausedUntil - Date.now();
+  if (waitMs > 0) {
+    await sleepMs(waitMs);
+  }
+}
+
 // Human: Detect transient upload failures worth retrying (429 throttle or dropped connection).
 // Agent: READS ApiError status/code; RETURNS true for rate_limited and network_error.
 function isRetryableUploadError(error: unknown): boolean {
@@ -849,6 +860,7 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
   const folderId = claimed.folderId ?? batch.folderId;
 
   try {
+    await waitForUploadPumpUnpause();
     const result = await uploadFileWithProgress(
       claimed.localFile,
       (update) => {
@@ -900,7 +912,13 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
       retryAttempt < UPLOAD_MAX_RETRIES
     ) {
       const nextAttempt = retryAttempt + 1;
-      const delayMs = uploadRetryDelayMs(nextAttempt);
+      const retryAfterMs =
+        error instanceof ApiError && error.retryAfterSeconds
+          ? error.retryAfterSeconds * 1000
+          : uploadRetryDelayMs(nextAttempt);
+      if (error instanceof ApiError && error.status === 429) {
+        pauseUploadPumpFor(retryAfterMs);
+      }
       updateItems((items) =>
         items.map((item) =>
           item.id === uploadId
@@ -914,7 +932,7 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
             : item,
         ),
       );
-      await sleepMs(delayMs);
+      await waitForUploadPumpUnpause();
       if (!batch || batch.items.find((item) => item.id === uploadId)?.status === "cancelled") {
         return;
       }
@@ -983,29 +1001,22 @@ function maybeCompleteBatchWhenIdle() {
 // Agent: CLAIMS synchronously in a loop; on each finish RE-CALLS pump so appended files start immediately.
 
 function pumpUploadQueue() {
-
   if (!batch || batch.status !== "uploading") return;
 
+  void (async () => {
+    await waitForUploadPumpUnpause();
+    if (!batch || batch.status !== "uploading") return;
 
+    while (countInFlightBrowserUploads() < MAX_CONCURRENT_UPLOADS) {
+      const claimed = claimNextQueued();
+      if (!claimed) break;
 
-  while (countInFlightBrowserUploads() < MAX_CONCURRENT_UPLOADS) {
-
-    const claimed = claimNextQueued();
-
-    if (!claimed) break;
-
-
-
-    void uploadClaimedItem(claimed).finally(() => {
-
-      pumpUploadQueue();
-
-      maybeCompleteBatchWhenIdle();
-
-    });
-
-  }
-
+      void uploadClaimedItem(claimed).finally(() => {
+        pumpUploadQueue();
+        maybeCompleteBatchWhenIdle();
+      });
+    }
+  })();
 }
 
 

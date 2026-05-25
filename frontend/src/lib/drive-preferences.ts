@@ -40,6 +40,12 @@ function writeFavouriteIds(ids: string[]) {
   localStorage.setItem(FAVOURITES_KEY, JSON.stringify(ids));
 }
 
+// Human: Return recent file ids in access order for Home batch loading.
+// Agent: READS mediavault_recent_files; RETURNS fileId strings only.
+export function getRecentFileIds(): string[] {
+  return readRecent().map((entry) => entry.fileId);
+}
+
 // Human: Record that the user opened or downloaded a file (feeds Home → Recently accessed).
 // Agent: WRITES mediavault_recent_files; PROMOTES fileId to front; TRIMS to MAX_RECENT.
 export function recordFileAccess(fileId: string) {

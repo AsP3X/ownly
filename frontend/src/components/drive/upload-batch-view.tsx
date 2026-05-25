@@ -16,8 +16,8 @@ export const QUEUE_ROW_HEIGHT = "2.25rem";
 export const ACTIVE_STACK_HEIGHT = `calc(${VISIBLE_ACTIVE_ROWS} * ${ACTIVE_ROW_HEIGHT})`;
 export const QUEUE_BOX_HEIGHT = `calc(${VISIBLE_QUEUED_ROWS} * ${QUEUE_ROW_HEIGHT})`;
 
-// Human: Native width-based bar; indeterminate mode when server compression time is unknown.
-// Agent: RENDERS determinate fill for upload; processing uses sliding shimmer when indeterminate.
+// Human: Separate bars per phase — upload (blue), encode (violet), then storage (emerald) replaces encode.
+// Agent: RENDERS one bar at a time from phase; processing uses sliding shimmer when indeterminate.
 export function UploadProgressBar({
   value,
   phase,
@@ -40,7 +40,7 @@ export function UploadProgressBar({
         aria-busy="true"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label="Processing into storage"
+        aria-label="Processing video"
       >
         <div className="absolute inset-y-0 left-0 w-full bg-violet-200/60" />
         <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-violet-600" />
@@ -49,7 +49,18 @@ export function UploadProgressBar({
   }
 
   const clamped = Math.min(100, Math.max(0, value));
-  const fillClass = phase === "processing" ? "bg-violet-600" : "bg-blue-600";
+  const fillClass =
+    phase === "storing"
+      ? "bg-emerald-600"
+      : phase === "processing"
+        ? "bg-violet-600"
+        : "bg-blue-600";
+  const ariaLabel =
+    phase === "storing"
+      ? "Moving to storage"
+      : phase === "processing"
+        ? "Processing video"
+        : "Uploading to server";
   return (
     <div
       className={cn("h-1.5 w-full overflow-hidden rounded-full bg-neutral-200/80", className)}
@@ -57,7 +68,7 @@ export function UploadProgressBar({
       aria-valuenow={clamped}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label={phase === "processing" ? "Processing into storage" : "Uploading to server"}
+      aria-label={ariaLabel}
     >
       <div
         className={cn("h-full rounded-full transition-[width] duration-150 ease-out", fillClass)}
@@ -68,10 +79,38 @@ export function UploadProgressBar({
 }
 
 function activePhaseLabel(phase: UploadPhase, isVideo: boolean) {
+  if (phase === "storing") {
+    return "Moving to storage";
+  }
   if (phase === "processing") {
     return isVideo ? "Processing video" : "Processing";
   }
   return "Uploading";
+}
+
+function activePhaseAccent(phase: UploadPhase) {
+  if (phase === "storing") {
+    return {
+      row: "bg-emerald-50/70",
+      spinner: "text-emerald-700",
+      percent: "text-emerald-800",
+      detail: "text-emerald-700",
+    };
+  }
+  if (phase === "processing") {
+    return {
+      row: "bg-violet-50/70",
+      spinner: "text-violet-700",
+      percent: "text-violet-800",
+      detail: "text-violet-700",
+    };
+  }
+  return {
+    row: "bg-blue-50/50",
+    spinner: "text-blue-700",
+    percent: "text-blue-800",
+    detail: "text-blue-700",
+  };
 }
 
 function formatElapsed(seconds: number) {
@@ -90,47 +129,46 @@ export function ActiveUploadRow({
   item: UploadItemSnapshot;
   onCancel?: (itemId: string) => void;
 }) {
-  const isProcessing = item.phase === "processing";
+  const isPostUpload = item.phase === "processing" || item.phase === "storing";
   const isVideo = item.mimeType.startsWith("video/");
-  const [processingElapsedSec, setProcessingElapsedSec] = useState(0);
+  const accent = activePhaseAccent(item.phase);
+  const [phaseElapsedSec, setPhaseElapsedSec] = useState(0);
 
   useEffect(() => {
-    if (!isProcessing) return;
+    if (!isPostUpload) return;
     const started = Date.now();
     const timerId = window.setInterval(() => {
-      setProcessingElapsedSec(Math.floor((Date.now() - started) / 1000));
+      setPhaseElapsedSec(Math.floor((Date.now() - started) / 1000));
     }, 1000);
     return () => window.clearInterval(timerId);
-  }, [isProcessing]);
+  }, [isPostUpload, item.phase]);
 
   const statusLabel = activePhaseLabel(item.phase, isVideo);
   const percentLabel =
-    isProcessing && item.indeterminate ? "Working…" : `${item.progress}%`;
+    isPostUpload && item.indeterminate ? "Working…" : `${item.progress}%`;
+  const elapsedDetail =
+    item.phase === "processing" && isVideo && !item.indeterminate
+      ? `Encoding ${formatElapsed(phaseElapsedSec)}`
+      : formatElapsed(phaseElapsedSec);
 
   return (
     <div
       className={cn(
         "flex h-[var(--upload-active-row-height)] min-h-[var(--upload-active-row-height)] flex-col justify-center gap-1.5 px-3.5 py-2",
-        isProcessing ? "bg-violet-50/70" : "bg-blue-50/50",
+        accent.row,
       )}
       style={{ ["--upload-active-row-height" as string]: ACTIVE_ROW_HEIGHT }}
     >
       <div className="flex min-w-0 items-center gap-2">
         <Loader2
-          className={cn(
-            "size-3.5 shrink-0 animate-spin",
-            isProcessing ? "text-violet-700" : "text-blue-700",
-          )}
+          className={cn("size-3.5 shrink-0 animate-spin", accent.spinner)}
           aria-hidden
         />
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">
           {item.fileName}
         </p>
         <span
-          className={cn(
-            "shrink-0 text-xs font-semibold tabular-nums",
-            isProcessing ? "text-violet-800" : "text-blue-800",
-          )}
+          className={cn("shrink-0 text-xs font-semibold tabular-nums", accent.percent)}
         >
           {percentLabel}
         </span>
@@ -155,13 +193,11 @@ export function ActiveUploadRow({
       <p className="truncate text-[11px] leading-tight text-neutral-500">
         {formatBytes(item.fileSize)}
         <span className="text-neutral-400"> · </span>
-        <span className={isProcessing ? "text-violet-700" : "text-blue-700"}>{statusLabel}</span>
-        {isProcessing ? (
+        <span className={accent.detail}>{statusLabel}</span>
+        {isPostUpload ? (
           <>
             <span className="text-neutral-400"> · </span>
-            {isVideo && !item.indeterminate
-              ? `Encoding ${formatElapsed(processingElapsedSec)}`
-              : formatElapsed(processingElapsedSec)}
+            {elapsedDetail}
           </>
         ) : null}
       </p>

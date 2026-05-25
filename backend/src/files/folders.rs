@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     audit, auth::handlers::Claims, error::AppError, files::file_delete::delete_owned_file_row,
+    files::listing::{self, ListFoldersParams},
     AppState,
 };
 
@@ -26,12 +27,16 @@ pub struct FolderDto {
 
 #[derive(Debug, Serialize)]
 pub struct FolderListResponse {
-    pub folders: Vec<FolderDto>,
+    pub folders: Vec<listing::FolderListItem>,
+    pub folder_count: i64,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct FolderListQuery {
     pub parent_id: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,8 +235,8 @@ pub async fn ensure_folder_owned(
     Ok(())
 }
 
-// Human: List folders at the root or under a specific parent folder.
-// Agent: READS folders WHERE user_id AND parent_id filter; ORDER BY name.
+// Human: Paginated folder listing at the root or under a parent folder.
+// Agent: READS listing::list_owned_folders; RETURNS share_public per row + has_more.
 pub async fn list_folders(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -241,18 +246,23 @@ pub async fn list_folders(
         ensure_folder_owned(&state.pool, &claims.sub, parent_id).await?;
     }
 
-    let folders: Vec<FolderDto> = sqlx::query_as(
-        "SELECT id, name, parent_id, created_at, updated_at \
-         FROM folders \
-         WHERE user_id = $1 AND (($2::text IS NULL AND parent_id IS NULL) OR parent_id = $2) \
-         ORDER BY name ASC",
+    let (limit, offset) = listing::normalize_page(query.limit, query.offset);
+    let response = listing::list_owned_folders(
+        &state.pool,
+        &claims.sub,
+        ListFoldersParams {
+            parent_id: query.parent_id,
+            limit,
+            offset,
+        },
     )
-    .bind(&claims.sub)
-    .bind(&query.parent_id)
-    .fetch_all(&state.pool)
     .await?;
 
-    Ok(Json(FolderListResponse { folders }))
+    Ok(Json(FolderListResponse {
+        folders: response.folders,
+        folder_count: response.folder_count,
+        has_more: response.has_more,
+    }))
 }
 
 // Human: Create a folder at the root or inside an existing parent folder.

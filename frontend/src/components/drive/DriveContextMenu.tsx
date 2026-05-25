@@ -3,8 +3,10 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
+  Copy,
   Download,
   ExternalLink,
+  FolderInput,
   FolderPlus,
   FolderOpen,
   Info,
@@ -40,6 +42,7 @@ type DriveContextMenuProps = {
   folders: FolderItem[];
   favouriteIds: Set<string>;
   activeNav: NavItemId;
+  selectedFileIds?: Set<string>;
   onDownload: (file: FileItem) => void;
   onDownloadFolder: (folder: FolderItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
@@ -55,6 +58,8 @@ type DriveContextMenuProps = {
   onShareFolder: (folder: FolderItem) => void;
   onDetailsFile: (file: FileItem) => void;
   onDetailsFolder: (folder: FolderItem) => void;
+  onCopyToFolder?: () => void;
+  onMoveToFolder?: () => void;
 };
 
 // Human: Walk DOM ancestors to find the file row or card that received the right click.
@@ -88,6 +93,7 @@ export function DriveContextMenu({
   folders,
   favouriteIds,
   activeNav,
+  selectedFileIds,
   onDownload,
   onDownloadFolder,
   onPreviewVideo,
@@ -103,6 +109,8 @@ export function DriveContextMenu({
   onShareFolder,
   onDetailsFile,
   onDetailsFolder,
+  onCopyToFolder,
+  onMoveToFolder,
 }: DriveContextMenuProps) {
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
   const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
@@ -116,6 +124,33 @@ export function DriveContextMenu({
   const targetFolder = targetFolderId ? folderById.get(targetFolderId) : undefined;
   const targetFavourited = targetFile ? favouriteIds.has(targetFile.id) : false;
   const targetProcessing = targetFile ? isFileProcessing(targetFile) : false;
+  const multiSelectedCount = selectedFileIds?.size ?? 0;
+  const bulkSelectionLabel =
+    multiSelectedCount === 2 ? "2 files selected" : `${multiSelectedCount} files selected`;
+  // Human: Bulk copy/move applies when 2+ files are checked and the right-clicked row is in that set.
+  // Agent: READS selectedFileIds + targetFile; USED to append bulk items without replacing file menu.
+  const bulkSelectionOnTargetFile =
+    multiSelectedCount >= 2 &&
+    targetFile !== undefined &&
+    selectedFileIds?.has(targetFile.id) === true;
+  const bulkSelectionOnWorkspace =
+    multiSelectedCount >= 2 && !targetFile && !targetFolder;
+
+  const bulkSelectionItems =
+    multiSelectedCount >= 2 ? (
+      <>
+        <ContextMenuSeparator />
+        <ContextMenuLabel className="truncate">{bulkSelectionLabel}</ContextMenuLabel>
+        <ContextMenuItem disabled={!onCopyToFolder} onClick={() => onCopyToFolder?.()}>
+          <Copy />
+          Copy to…
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!onMoveToFolder} onClick={() => onMoveToFolder?.()}>
+          <FolderInput />
+          Move to…
+        </ContextMenuItem>
+      </>
+    ) : null;
 
   // Human: Resolve which file or folder (if any) was under the pointer when the menu opened.
   // Agent: WRITES target ids from eventDetails.event on open; CLEARS on close.
@@ -223,6 +258,7 @@ export function DriveContextMenu({
               <Trash2 />
               Delete
             </ContextMenuItem>
+            {bulkSelectionOnTargetFile ? bulkSelectionItems : null}
           </ContextMenuGroup>
         ) : targetFolder ? (
           <ContextMenuGroup>
@@ -263,6 +299,8 @@ export function DriveContextMenu({
               <RefreshCw />
               Refresh
             </ContextMenuItem>
+
+            {bulkSelectionOnWorkspace ? bulkSelectionItems : null}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger>

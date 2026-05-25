@@ -5,6 +5,7 @@ pub mod encode_job;
 pub mod export_job;
 pub mod encoder;
 pub mod handlers;
+pub mod hardware;
 pub mod key_store;
 pub mod playlist;
 pub mod probe;

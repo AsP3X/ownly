@@ -2,12 +2,20 @@
 // Agent: SPAWNS tokio task; MUTATES files.hls_* + conversion_progress; READS storage; CALLS HlsEncoder + KeyStore.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use sqlx::PgPool;
+use tokio::task::JoinSet;
 
 use crate::hls::key_store::KeyStore;
+use crate::hls::hardware::HlsHardwareEncode;
+use crate::files::file_delete::purge_file_storage;
 use crate::storage::Storage;
+
+// Human: Cap concurrent Nebular PUTs during HLS segment upload — balances throughput vs connection load.
+// Agent: USED by upload_hls_segments; TUNABLE constant (8–16 typical).
+const HLS_SEGMENT_UPLOAD_CONCURRENCY: usize = 12;
 
 #[derive(Clone)]
 pub struct HlsEncodeJob {
@@ -69,14 +77,132 @@ async fn set_progress(pool: &PgPool, file_id: &str, progress: i32) {
         .await;
 }
 
+// Human: Probe duration in the worker when upload spooled the file without blocking on ffprobe.
+// Agent: READS tmp_video via ffprobe when payload duration is 0; WRITES files.duration_seconds.
+async fn resolve_duration_seconds(
+    pool: &PgPool,
+    file_id: &str,
+    tmp_video: &Path,
+    payload_duration: i32,
+) -> i32 {
+    if payload_duration > 0 {
+        return payload_duration;
+    }
+
+    let probed = crate::hls::probe::probe_duration_seconds(tmp_video).await;
+    let _ = sqlx::query("UPDATE files SET duration_seconds = $1 WHERE id = $2")
+        .bind(probed)
+        .bind(file_id)
+        .execute(pool)
+        .await;
+    probed
+}
+
+// Human: Upload all MPEG-TS segments to object storage with bounded parallelism.
+// Agent: READS segments_dir; SPAWNS up to HLS_SEGMENT_UPLOAD_CONCURRENCY puts; RETURNS segment byte sum.
+async fn upload_hls_segments(
+    pool: &PgPool,
+    storage: Arc<dyn Storage>,
+    file_id: &str,
+    prefix: &str,
+    segments_dir: &Path,
+    completed_steps: usize,
+    total_steps: usize,
+) -> u64 {
+    let mut segment_paths: Vec<(String, PathBuf)> = Vec::new();
+    let mut entries = match tokio::fs::read_dir(segments_dir).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::error!(%file_id, %error, "failed to read HLS segments directory");
+            return 0;
+        }
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("ts") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        segment_paths.push((name, path));
+    }
+    segment_paths.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(HLS_SEGMENT_UPLOAD_CONCURRENCY));
+    let completed = Arc::new(AtomicUsize::new(completed_steps));
+    let stored_bytes = Arc::new(AtomicU64::new(0));
+    let mut tasks = JoinSet::new();
+
+    for (name, path) in segment_paths {
+        let permit = match semaphore.clone().acquire_owned().await {
+            Ok(permit) => permit,
+            Err(error) => {
+                tracing::error!(%file_id, %error, "failed to acquire segment upload permit");
+                break;
+            }
+        };
+
+        let storage = storage.clone();
+        let prefix = prefix.to_string();
+        let file_id = file_id.to_string();
+        let pool = pool.clone();
+        let completed = completed.clone();
+        let stored_bytes = stored_bytes.clone();
+
+        tasks.spawn(async move {
+            let _permit = permit;
+            if is_encode_cancelled(&pool, &file_id).await {
+                return;
+            }
+            let data = match tokio::fs::read(&path).await {
+                Ok(data) => data,
+                Err(error) => {
+                    tracing::error!(%file_id, segment = %name, %error, "failed to read segment");
+                    return;
+                }
+            };
+            let len = data.len() as u64;
+            if let Err(error) = storage
+                .put(
+                    &format!("{prefix}segments/{name}"),
+                    "video/mp2t",
+                    data,
+                )
+                .await
+            {
+                tracing::error!(%file_id, segment = %name, %error, "failed to upload segment");
+                return;
+            }
+
+            stored_bytes.fetch_add(len, Ordering::Relaxed);
+            let step = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            let upload_pct = 50 + ((step as f64 / total_steps as f64) * 50.0) as i32;
+            set_progress(&pool, &file_id, upload_pct.min(99)).await;
+        });
+    }
+
+    while tasks.join_next().await.is_some() {
+        if is_encode_cancelled(pool, file_id).await {
+            break;
+        }
+    }
+
+    stored_bytes.load(Ordering::Relaxed)
+}
+
 pub fn spawn_hls_encode_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
     key_store: KeyStore,
+    hardware: HlsHardwareEncode,
     job: HlsEncodeJob,
 ) {
     tokio::spawn(async move {
-        if let Err(e) = run_hls_encode_job(pool, storage, key_store, job).await {
+        if let Err(e) = run_hls_encode_job(pool, storage, key_store, hardware, job).await {
             tracing::error!(error = %e, "background HLS encode failed");
         }
     });
@@ -86,6 +212,7 @@ pub async fn run_hls_encode_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
     key_store: KeyStore,
+    hardware: HlsHardwareEncode,
     job: HlsEncodeJob,
 ) -> Result<(), String> {
     use crate::hls::encoder::HlsEncoder;
@@ -100,7 +227,7 @@ pub async fn run_hls_encode_job(
     let hls_output_dir = work_dir.join("hls_out");
 
     if is_encode_cancelled(&pool, &file_id).await {
-        cleanup_work_dir(&work_dir).await;
+        cleanup_cancelled_encode(storage, &storage_key, None, &work_dir).await;
         return Ok(());
     }
 
@@ -118,11 +245,18 @@ pub async fn run_hls_encode_job(
         }
     };
 
+    let duration_seconds =
+        resolve_duration_seconds(&pool, &file_id, &tmp_video, job.duration_seconds).await;
+
     let codec_probe = probe::probe_codecs(&tmp_video).await;
     tracing::info!(
         %file_id,
-        can_remux_copy = codec_probe.can_remux_copy,
-        "HLS ingest codec probe"
+        video_codec = ?codec_probe.video_codec,
+        audio_codec = ?codec_probe.audio_codec,
+        encode_mode = ?codec_probe.encode_mode,
+        video_encoder = ?hardware.resolved,
+        duration_seconds,
+        "HLS ingest starting ffmpeg"
     );
 
     let (progress_tx, mut progress_rx) = tokio::sync::watch::channel(0i32);
@@ -144,8 +278,9 @@ pub async fn run_hls_encode_job(
                 &tmp_video,
                 &hls_output_dir,
                 &key,
-                job.duration_seconds,
+                duration_seconds,
                 codec_probe,
+                &hardware,
                 Some(progress_tx),
             )
             .await;
@@ -211,53 +346,28 @@ pub async fn run_hls_encode_job(
                     }
                     current_step += 1;
 
-                    let mut segment_entries = match tokio::fs::read_dir(&output.segments_dir).await {
-                        Ok(entries) => entries,
-                        Err(e) => {
-                            let msg = format!("read segments dir: {e}");
-                            mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_work_dir(&work_dir).await;
-                            return Err(msg);
-                        }
-                    };
-                    while let Ok(Some(entry)) = segment_entries.next_entry().await {
-                        let path = entry.path();
-                        if path.extension().and_then(|e| e.to_str()) != Some("ts") {
-                            continue;
-                        }
-                        let name = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let data = match tokio::fs::read(&path).await {
-                            Ok(d) => d,
-                            Err(e) => {
-                                tracing::error!(%file_id, segment = %name, error = %e, "failed to read segment");
-                                continue;
-                            }
-                        };
-                        stored_bytes += data.len() as u64;
-                        if let Err(e) = storage
-                            .put(
-                                &format!("{prefix}segments/{name}"),
-                                "video/mp2t",
-                                data,
-                            )
-                            .await
-                        {
-                            tracing::error!(%file_id, segment = %name, error = %e, "failed to upload segment");
-                        }
-                        current_step += 1;
-                        let upload_pct =
-                            50 + ((current_step as f64 / total_steps as f64) * 50.0) as i32;
-                        set_progress(&pool, &file_id, upload_pct.min(99)).await;
-                    }
+                    let segment_bytes = upload_hls_segments(
+                        &pool,
+                        storage.clone(),
+                        &file_id,
+                        &prefix,
+                        &output.segments_dir,
+                        current_step,
+                        total_steps,
+                    )
+                    .await;
+                    stored_bytes += segment_bytes;
 
                     set_progress(&pool, &file_id, 100).await;
 
                     if is_encode_cancelled(&pool, &file_id).await {
-                        cleanup_work_dir(&work_dir).await;
+                        cleanup_cancelled_encode(
+                            storage,
+                            &storage_key,
+                            Some(output.segment_count as i32),
+                            &work_dir,
+                        )
+                        .await;
                         return Ok(());
                     }
 
@@ -313,6 +423,16 @@ fn job_work_dir(tmp_video: &Path, file_id: &str) -> PathBuf {
 fn is_deletable_work_dir(path: &Path) -> bool {
     let temp_root = std::env::temp_dir();
     path.starts_with(&temp_root) && path != temp_root.as_path()
+}
+
+async fn cleanup_cancelled_encode(
+    storage: Arc<dyn Storage>,
+    storage_key: &str,
+    segment_count: Option<i32>,
+    work_dir: &Path,
+) {
+    purge_file_storage(storage, storage_key, segment_count).await;
+    cleanup_work_dir(work_dir).await;
 }
 
 async fn cleanup_work_dir(work_dir: &Path) {

@@ -3,9 +3,11 @@
 
 pub mod bulk_download;
 pub mod delete_job;
+pub mod file_copy;
 pub mod file_delete;
 pub mod folder_download;
 pub mod folders;
 pub mod handlers;
+pub mod listing;
 pub mod processing;
 pub mod zip_job;

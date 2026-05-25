@@ -9,8 +9,10 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
@@ -18,8 +20,10 @@ use crate::{
     auth::handlers::Claims,
     error::AppError,
     files::{
-        file_delete::delete_owned_file_row,
+        file_copy::{copy_storage_artifacts, unique_name_in_folder, CopyFileSourceRow},
+        file_delete::{delete_owned_file_row, purge_file_storage},
         folders::ensure_folder_owned,
+        listing::{self, ListFilesParams},
         processing::ensure_file_not_processing,
     },
     jobs::{self, model::HlsEncodePayload, JobKind},
@@ -77,15 +81,34 @@ pub struct FileDto {
 
 #[derive(Debug, Serialize)]
 pub struct FileListResponse {
-    pub files: Vec<FileDto>,
+    pub files: Vec<listing::FileListItem>,
     pub total_bytes: i64,
     pub file_count: i64,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub folder_id: Option<String>,
     pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    /// When `"minimal"`, omit heavy HLS detail fields from each row.
+    pub fields: Option<String>,
+    /// Matches frontend type filter buckets: documents, images, video, etc.
+    pub type_filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchFilesRequest {
+    pub ids: Vec<String>,
+    /// When `"minimal"`, omit heavy HLS detail fields from each row.
+    pub fields: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchFilesResponse {
+    pub files: Vec<listing::FileListItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,48 +127,70 @@ pub struct MoveFileRequest {
     pub folder_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CopyFileRequest {
+    pub folder_id: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MoveFileResponse {
     pub file: FileDto,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CopyFileResponse {
+    pub file: FileDto,
+}
+
 // Human: List the current user's files with optional folder filter and name search.
 // Agent: READS files WHERE user_id; SUM size_bytes; ORDER BY name.
+// Human: Paginated file listing for one folder, search, or root with optional type filter.
+// Agent: READS listing::list_owned_files; RETURNS has_more + share_public per row.
 pub async fn list_files(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<FileListResponse>, AppError> {
-    let search = query.q.as_deref().unwrap_or("").trim().to_lowercase();
+    let (limit, offset) = listing::normalize_page(query.limit, query.offset);
+    let minimal = query.fields.as_deref() == Some("minimal");
+    let type_filter = query
+        .type_filter
+        .as_deref()
+        .filter(|value| !value.is_empty() && *value != "all")
+        .map(str::to_string);
 
-    let files: Vec<FileDto> = if search.is_empty() {
-        sqlx::query_as(&format!(
-            "SELECT {FILE_COLUMNS} FROM files WHERE user_id = $1 \
-             AND (($2::text IS NULL AND folder_id IS NULL) OR folder_id = $2) ORDER BY name ASC"
-        ))
-        .bind(&claims.sub)
-        .bind(&query.folder_id)
-        .fetch_all(&state.pool)
-        .await?
-    } else {
-        let pattern = format!("%{search}%");
-        sqlx::query_as(&format!(
-            "SELECT {FILE_COLUMNS} FROM files WHERE user_id = $1 AND LOWER(name) LIKE $2 ORDER BY name ASC"
-        ))
-        .bind(&claims.sub)
-        .bind(&pattern)
-        .fetch_all(&state.pool)
-        .await?
-    };
-
-    let total_bytes: i64 = files.iter().map(|f| f.size_bytes).sum();
-    let file_count = files.len() as i64;
+    let response = listing::list_owned_files(
+        &state.pool,
+        &claims.sub,
+        ListFilesParams {
+            folder_id: query.folder_id,
+            search: query.q,
+            limit,
+            offset,
+            minimal,
+            type_filter,
+        },
+    )
+    .await?;
 
     Ok(Json(FileListResponse {
-        files,
-        total_bytes,
-        file_count,
+        files: response.files,
+        total_bytes: response.total_bytes,
+        file_count: response.file_count,
+        has_more: response.has_more,
     }))
+}
+
+// Human: Resolve a bounded set of owned files by id for Home recent/favourites.
+// Agent: POST body ids[]; READS listing::batch_owned_files; AUDIT exempt (read-only batch get).
+pub async fn batch_files(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<BatchFilesRequest>,
+) -> Result<Json<BatchFilesResponse>, AppError> {
+    let minimal = body.fields.as_deref() == Some("minimal");
+    let files = listing::batch_owned_files(&state.pool, &claims.sub, body.ids, minimal).await?;
+    Ok(Json(BatchFilesResponse { files }))
 }
 
 // Human: Fetch one file row for preview polling and detail views.
@@ -181,6 +226,60 @@ async fn drain_multipart(multipart: &mut Multipart) {
     }
 }
 
+// Human: Where the uploaded bytes landed — in RAM for small files, on disk for video ingest.
+// Agent: Video variant avoids Vec allocation; Memory variant feeds storage.put for non-video uploads.
+enum ReceivedUploadBody {
+    Memory(Vec<u8>),
+    VideoSpool {
+        tmp_path: PathBuf,
+        size_bytes: u64,
+    },
+}
+
+// Human: Stream one multipart file field to disk with a rolling size cap check.
+// Agent: WRITES chunks via AsyncWriteExt; RETURNS total bytes; ERRORS when max_bytes exceeded.
+async fn stream_multipart_field_to_path(
+    mut field: axum::extract::multipart::Field<'_>,
+    dest: &std::path::Path,
+    max_bytes: u64,
+) -> Result<u64, AppError> {
+    let mut file = tokio::fs::File::create(dest).await.map_err(|error| {
+        AppError::Internal(anyhow::anyhow!("create upload temp file: {error}"))
+    })?;
+    let mut size_bytes: u64 = 0;
+
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|error| AppError::BadRequest(error.to_string()))?
+    {
+        size_bytes += chunk.len() as u64;
+        if size_bytes > max_bytes {
+            return Err(AppError::BadRequest(
+                "file exceeds maximum upload size".into(),
+            ));
+        }
+        file.write_all(&chunk).await.map_err(|error| {
+            AppError::Internal(anyhow::anyhow!("write upload temp file: {error}"))
+        })?;
+    }
+
+    Ok(size_bytes)
+}
+
+// Human: Guess whether a multipart part should use the video spool path before reading bytes.
+// Agent: READS filename + content_type; TRUE when MIME or extension resolves to video/*.
+fn multipart_part_is_video(filename: &str, content_type: &str) -> bool {
+    if content_type.starts_with("video/") {
+        return true;
+    }
+    mime_guess::from_path(filename)
+        .first_or_octet_stream()
+        .type_()
+        .as_str()
+        == "video"
+}
+
 // Human: Accept multipart uploads and persist bytes to object storage with metadata in Postgres.
 // Agent: WRITES storage PUT + files INSERT; RATE LIMITED upload_rl; AUDIT files.upload; LOGS phase timings.
 pub async fn upload_file(
@@ -205,9 +304,10 @@ pub async fn upload_file(
         return Err(e);
     }
 
+    let file_id = Uuid::new_v4().to_string();
     let mut filename = String::from("untitled");
     let mut folder_id: Option<String> = None;
-    let mut data: Vec<u8> = Vec::new();
+    let mut received_body: Option<ReceivedUploadBody> = None;
     let mut content_type = String::from("application/octet-stream");
 
     while let Some(field) = multipart
@@ -231,30 +331,60 @@ pub async fn upload_file(
                     user_id = %claims.sub,
                     filename = %filename,
                     content_type = %content_type,
-                    "files.upload reading multipart body (browser may show upload complete before this finishes)"
+                    "files.upload receiving multipart body"
                 );
-                data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?
-                    .to_vec();
-                let multipart_ms = multipart_read_started.elapsed().as_millis() as u64;
-                tracing::info!(
-                    request_id = %request_id.0,
-                    user_id = %claims.sub,
-                    filename = %filename,
-                    size_bytes = data.len(),
-                    multipart_read_ms = multipart_ms,
-                    "files.upload multipart body read complete"
-                );
-                if multipart_ms > 30_000 {
-                    tracing::warn!(
+
+                if multipart_part_is_video(&filename, &content_type) {
+                    let work_dir =
+                        std::env::temp_dir().join(format!("mediavault_upload_{file_id}"));
+                    tokio::fs::create_dir_all(&work_dir).await.map_err(|error| {
+                        AppError::Internal(anyhow::anyhow!("create upload work dir: {error}"))
+                    })?;
+                    let tmp_path = work_dir.join("source");
+                    let size_bytes = stream_multipart_field_to_path(
+                        field,
+                        &tmp_path,
+                        state.max_upload_bytes,
+                    )
+                    .await?;
+                    received_body = Some(ReceivedUploadBody::VideoSpool {
+                        tmp_path,
+                        size_bytes,
+                    });
+                    tracing::info!(
                         request_id = %request_id.0,
+                        user_id = %claims.sub,
+                        filename = %filename,
+                        size_bytes,
+                        multipart_read_ms = multipart_read_started.elapsed().as_millis() as u64,
+                        spooled_to_disk = true,
+                        "files.upload video spooled to temp file"
+                    );
+                } else {
+                    let data = field
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::BadRequest(e.to_string()))?
+                        .to_vec();
+                    let multipart_ms = multipart_read_started.elapsed().as_millis() as u64;
+                    tracing::info!(
+                        request_id = %request_id.0,
+                        user_id = %claims.sub,
                         filename = %filename,
                         size_bytes = data.len(),
                         multipart_read_ms = multipart_ms,
-                        "files.upload multipart read was slow — check nginx proxy buffering or client link"
+                        "files.upload multipart body read complete"
                     );
+                    if multipart_ms > 30_000 {
+                        tracing::warn!(
+                            request_id = %request_id.0,
+                            filename = %filename,
+                            size_bytes = data.len(),
+                            multipart_read_ms = multipart_ms,
+                            "files.upload multipart read was slow — check nginx proxy buffering or client link"
+                        );
+                    }
+                    received_body = Some(ReceivedUploadBody::Memory(data));
                 }
             }
             Some("folder_id") => {
@@ -270,12 +400,8 @@ pub async fn upload_file(
         }
     }
 
-    if data.is_empty() {
-        return Err(AppError::BadRequest("file is required".into()));
-    }
-    if data.len() as u64 > state.max_upload_bytes {
-        return Err(AppError::BadRequest("file exceeds maximum upload size".into()));
-    }
+    let received_body =
+        received_body.ok_or_else(|| AppError::BadRequest("file is required".into()))?;
 
     // Human: Reject uploads into folders the caller does not own.
     // Agent: READS folders via ensure_folder_owned before storage PUT.
@@ -283,8 +409,6 @@ pub async fn upload_file(
         ensure_folder_owned(&state.pool, &claims.sub, target_folder_id).await?;
     }
 
-    let size_bytes = data.len();
-    let file_id = Uuid::new_v4().to_string();
     let storage_key = format!("users/{}/files/{}", claims.sub, file_id);
 
     let mime = if content_type.is_empty() {
@@ -295,123 +419,138 @@ pub async fn upload_file(
         content_type
     };
 
-    let is_video = mime.starts_with("video/");
-
-    tracing::info!(
-        request_id = %request_id.0,
-        file_id = %file_id,
-        storage_key = %storage_key,
-        size_bytes,
-        is_video,
-        "files.upload object storage PUT starting (backend re-sends full payload to Nebular OS)"
-    );
     let storage_put_started = Instant::now();
-
     let db_started = Instant::now();
 
-    let file: FileDto = if is_video {
-        // Human: Spool each video under its own work dir so HLS cleanup never removes the OS temp root.
-        // Agent: WRITES mediavault_upload_{file_id}/source; create_dir_all before write; PASSED to HlsEncodeJob.
-        let work_dir = std::env::temp_dir().join(format!("mediavault_upload_{file_id}"));
-        tokio::fs::create_dir_all(&work_dir)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("create upload work dir: {e}")))?;
-        let tmp_path = work_dir.join("source");
-        tokio::fs::write(&tmp_path, &data)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("write upload temp file: {e}")))?;
-        let duration_seconds = crate::hls::probe::probe_duration_seconds(&tmp_path).await;
-
-        let _: FileDto = sqlx::query_as(&format!(
-            "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
-             duration_seconds, hls_encode_status, conversion_progress) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0) \
-             RETURNING {FILE_COLUMNS}"
-        ))
-        .bind(&file_id)
-        .bind(&claims.sub)
-        .bind(&folder_id)
-        .bind(&filename)
-        .bind(&storage_key)
-        .bind(&mime)
-        .bind(size_bytes as i64)
-        .bind(duration_seconds)
-        .fetch_one(&state.pool)
-        .await?;
-
-        tracing::info!(
-            request_id = %request_id.0,
-            file_id = %file_id,
-            "files.upload HLS ingest queued (client polls conversion_progress)"
-        );
-
-        let payload = HlsEncodePayload {
-            file_id: file_id.clone(),
-            storage_key: storage_key.clone(),
-            tmp_video: tmp_path.to_string_lossy().to_string(),
-            duration_seconds,
-        };
-
-        jobs::enqueue_job(
-            &state.pool,
-            &claims.sub,
-            JobKind::HlsEncode,
-            &filename,
-            Some("file"),
-            Some(&file_id),
-            serde_json::to_value(payload)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("encode job payload: {e}")))?,
-        )
-        .await?;
-
-        sqlx::query_as(&format!(
-            "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
-        ))
-        .bind(&file_id)
-        .bind(&claims.sub)
-        .fetch_one(&state.pool)
-        .await?
-    } else {
-        state
-            .storage
-            .put(&storage_key, &mime, data)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    request_id = %request_id.0,
-                    file_id = %file_id,
-                    storage_key = %storage_key,
-                    size_bytes,
-                    storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
-                    error = %e,
-                    "files.upload object storage PUT failed"
-                );
-                AppError::Storage(e.to_string())
-            })?;
-
-        let storage_put_ms = storage_put_started.elapsed().as_millis() as u64;
-        tracing::info!(
-            request_id = %request_id.0,
-            file_id = %file_id,
-            storage_key = %storage_key,
+    let file: FileDto = match received_body {
+        ReceivedUploadBody::VideoSpool {
+            tmp_path,
             size_bytes,
-            storage_put_ms,
-            "files.upload object storage PUT complete"
-        );
+        } => {
+            if size_bytes == 0 {
+                let _ = tokio::fs::remove_file(&tmp_path).await;
+                return Err(AppError::BadRequest("file is required".into()));
+            }
 
-        sqlx::query_as(&format!(
-            "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
-        ))
-        .bind(&file_id)
-        .bind(&claims.sub)
-        .bind(&folder_id)
-        .bind(&filename)
-        .bind(&storage_key)
-        .bind(&mime)
-        .bind(size_bytes as i64)
-        .fetch_one(&state.pool)
-        .await?
+            tracing::info!(
+                request_id = %request_id.0,
+                file_id = %file_id,
+                storage_key = %storage_key,
+                size_bytes,
+                is_video = true,
+                "files.upload persisting video metadata"
+            );
+
+            let _: FileDto = sqlx::query_as(&format!(
+                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                 duration_seconds, hls_encode_status, conversion_progress) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, 'queued', 0) \
+                 RETURNING {FILE_COLUMNS}"
+            ))
+            .bind(&file_id)
+            .bind(&claims.sub)
+            .bind(&folder_id)
+            .bind(&filename)
+            .bind(&storage_key)
+            .bind(&mime)
+            .bind(size_bytes as i64)
+            .fetch_one(&state.pool)
+            .await?;
+
+            tracing::info!(
+                request_id = %request_id.0,
+                file_id = %file_id,
+                "files.upload HLS ingest queued (duration probed in background worker)"
+            );
+
+            let payload = HlsEncodePayload {
+                file_id: file_id.clone(),
+                storage_key: storage_key.clone(),
+                tmp_video: tmp_path.to_string_lossy().to_string(),
+                duration_seconds: 0,
+            };
+
+            jobs::enqueue_job(
+                &state.pool,
+                &claims.sub,
+                JobKind::HlsEncode,
+                &filename,
+                Some("file"),
+                Some(&file_id),
+                serde_json::to_value(payload)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("encode job payload: {e}")))?,
+            )
+            .await?;
+
+            sqlx::query_as(&format!(
+                "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
+            ))
+            .bind(&file_id)
+            .bind(&claims.sub)
+            .fetch_one(&state.pool)
+            .await?
+        }
+        ReceivedUploadBody::Memory(data) => {
+            if data.is_empty() {
+                return Err(AppError::BadRequest("file is required".into()));
+            }
+            if data.len() as u64 > state.max_upload_bytes {
+                return Err(AppError::BadRequest(
+                    "file exceeds maximum upload size".into(),
+                ));
+            }
+            let size_bytes = data.len() as u64;
+
+            tracing::info!(
+                request_id = %request_id.0,
+                file_id = %file_id,
+                storage_key = %storage_key,
+                size_bytes,
+                is_video = false,
+                "files.upload object storage PUT starting"
+            );
+
+            state
+                .storage
+                .put(&storage_key, &mime, data)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        request_id = %request_id.0,
+                        file_id = %file_id,
+                        storage_key = %storage_key,
+                        size_bytes,
+                        storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
+                        error = %e,
+                        "files.upload object storage PUT failed"
+                    );
+                    AppError::Storage(e.to_string())
+                })?;
+
+            let storage_put_ms = storage_put_started.elapsed().as_millis() as u64;
+            tracing::info!(
+                request_id = %request_id.0,
+                file_id = %file_id,
+                storage_key = %storage_key,
+                size_bytes,
+                storage_put_ms,
+                "files.upload object storage PUT complete"
+            );
+
+            sqlx::query_as(&format!(
+                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
+            ))
+            .bind(&file_id)
+            .bind(&claims.sub)
+            .bind(&folder_id)
+            .bind(&filename)
+            .bind(&storage_key)
+            .bind(&mime)
+            .bind(size_bytes as i64)
+            .fetch_one(&state.pool)
+            .await?
+        }
     };
     tracing::info!(
         request_id = %request_id.0,
@@ -426,7 +565,7 @@ pub async fn upload_file(
         "files.upload",
         Some("file"),
         Some(&file_id),
-        Some(serde_json::json!({ "name": filename, "size_bytes": size_bytes })),
+        Some(serde_json::json!({ "name": filename, "size_bytes": file.size_bytes })),
         &headers,
     )
     .await
@@ -437,7 +576,7 @@ pub async fn upload_file(
         user_id = %claims.sub,
         file_id = %file_id,
         filename = %filename,
-        size_bytes,
+        size_bytes = file.size_bytes,
         total_ms = upload_started.elapsed().as_millis() as u64,
         "files.upload complete"
     );
@@ -617,6 +756,99 @@ pub async fn move_file(
     Ok(Json(MoveFileResponse { file }))
 }
 
+// Human: Duplicate a file into another folder or the drive root with independent storage blobs.
+// Agent: POST files.copy; COPIES storage artifacts; INSERTS new row; AUDIT files.copy.
+pub async fn copy_file(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<CopyFileRequest>,
+) -> Result<Json<CopyFileResponse>, AppError> {
+    let source: Option<CopyFileSourceRow> = sqlx::query_as(
+        "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
+         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds \
+         FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let source = source.ok_or(AppError::NotFound)?;
+
+    ensure_file_not_processing(
+        &source.mime_type,
+        source.hls_ready,
+        &source.hls_encode_status,
+    )?;
+
+    let target_folder_id = body
+        .folder_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(ref folder_id) = target_folder_id {
+        ensure_folder_owned(&state.pool, &claims.sub, folder_id).await?;
+    }
+
+    let new_file_id = Uuid::new_v4().to_string();
+    let new_storage_key = format!("users/{}/files/{}", claims.sub, new_file_id);
+    let copy_name =
+        unique_name_in_folder(&state.pool, &claims.sub, &target_folder_id, &source.name).await?;
+
+    copy_storage_artifacts(
+        &state,
+        &source.storage_key,
+        &new_storage_key,
+        source.segment_count,
+    )
+    .await?;
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+         duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
+         segment_count) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+         RETURNING {FILE_COLUMNS}"
+    ))
+    .bind(&new_file_id)
+    .bind(&claims.sub)
+    .bind(&target_folder_id)
+    .bind(&copy_name)
+    .bind(&new_storage_key)
+    .bind(&source.mime_type)
+    .bind(source.size_bytes)
+    .bind(source.duration_seconds)
+    .bind(source.hls_ready)
+    .bind(&source.hls_encode_status)
+    .bind(&source.hls_encode_error)
+    .bind(source.conversion_progress)
+    .bind(source.segment_count)
+    .fetch_one(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.copy",
+        Some("file"),
+        Some(&new_file_id),
+        Some(serde_json::json!({
+            "name": copy_name,
+            "source_file_id": id,
+            "to_folder_id": target_folder_id,
+        })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(CopyFileResponse { file }))
+}
+
 // Human: Cancel server-side HLS ingest for a video still being transcoded after upload.
 // Agent: POST /api/v1/files/:id/cancel-ingest; WRITES job cancelled + file hls_encode_status; AUDIT files.ingest.cancel.
 pub async fn cancel_video_ingest(
@@ -625,15 +857,15 @@ pub async fn cancel_video_ingest(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row: Option<(Option<String>, bool)> = sqlx::query_as(
-        "SELECT mime_type, hls_ready FROM files WHERE id = $1 AND user_id = $2",
+    let row: Option<(Option<String>, bool, String, Option<i32>)> = sqlx::query_as(
+        "SELECT mime_type, hls_ready, storage_key, segment_count FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (mime_type, hls_ready) = row.ok_or(AppError::NotFound)?;
+    let (mime_type, hls_ready, storage_key, segment_count) = row.ok_or(AppError::NotFound)?;
     if !mime_type
         .as_deref()
         .is_some_and(|m| m.starts_with("video/"))
@@ -649,6 +881,10 @@ pub async fn cancel_video_ingest(
     }
 
     let cancelled = jobs::cancel_hls_encode_for_file(&state.pool, &claims.sub, &id).await?;
+
+    if cancelled {
+        purge_file_storage(state.storage.clone(), &storage_key, segment_count).await;
+    }
 
     audit::write_audit(
         &state.pool,

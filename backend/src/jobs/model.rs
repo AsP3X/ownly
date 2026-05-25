@@ -96,6 +96,8 @@ pub struct HlsEncodePayload {
     pub file_id: String,
     pub storage_key: String,
     pub tmp_video: String,
+    /// Human: When zero, the worker runs ffprobe on `tmp_video` before ffmpeg starts.
+    /// Agent: SET by upload handler after disk spool; UPDATES files.duration_seconds in worker.
     pub duration_seconds: i32,
 }
 

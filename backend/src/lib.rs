@@ -64,6 +64,7 @@ pub struct AppState {
     pub delete_jobs: files::delete_job::DeleteJobRegistry,
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
+    pub hls_hardware: hls::hardware::HlsHardwareEncode,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -116,6 +117,9 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
         .unwrap_or_else(|| "unknown".to_string());
 
     let window = Duration::from_secs(60);
+    let mut hls_hardware = hls::hardware::HlsHardwareEncode::from_config(config);
+    hls_hardware.detect_and_log().await;
+
     Ok(Arc::new(AppState {
         pool: pool.clone(),
         storage,
@@ -151,6 +155,7 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
         delete_jobs: files::delete_job::DeleteJobRegistry::new(),
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
+        hls_hardware,
     }))
 }
 
@@ -297,6 +302,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
         .route("/api/v1/files", get(files::handlers::list_files))
+        .route("/api/v1/files/batch", post(files::handlers::batch_files))
         .route(
             "/api/v1/files/deletion-preview",
             post(files::delete_job::bulk_deletion_preview),
@@ -355,6 +361,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/files/{id}/download", get(files::handlers::download_file))
         .route("/api/v1/files/{id}/download-url", get(files::handlers::download_url))
+        .route("/api/v1/files/{id}/copy", post(files::handlers::copy_file))
         .route(
             "/api/v1/files/{id}",
             patch(files::handlers::move_file).delete(files::handlers::delete_file),

@@ -51,8 +51,8 @@ export function isImageMime(mimeType: string | null | undefined): boolean {
   return (mimeType ?? "").toLowerCase().startsWith("image/");
 }
 
-// Human: Stable name order for gallery prev/next — matches folder listing sort (1, 2, 10…).
-// Agent: READS FileItem.name; RETURNS new array sorted with localeCompare + numeric.
+// Human: Stable name order for drive browser, gallery, and folder listings.
+// Agent: READS name; RETURNS localeCompare with numeric:true — matches DB natural_sort_key().
 export function sortFilesByName<T extends { name: string }>(files: T[]): T[] {
   return [...files].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),

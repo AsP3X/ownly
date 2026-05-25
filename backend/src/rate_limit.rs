@@ -1,5 +1,5 @@
 // Human: Simple per-key rolling window rate limiter for auth and upload endpoints.
-// Agent: READS key; INCREMENTS counter in window; RETURNS Err RateLimited when over cap.
+// Agent: READS key; INCREMENTS counter in window; RETURNS AppError::rate_limited with Retry-After when over cap.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -24,14 +24,23 @@ impl PerKeyRateLimiter {
 }
 
 // Human: Record one request for the key and reject when the rolling window is full.
-// Agent: MUTATES hits map; RETURNS AppError::RateLimited when len >= max after prune.
+// Agent: MUTATES hits map; RETURNS AppError::rate_limited when len >= max after prune.
 pub fn enforce(limiter: &PerKeyRateLimiter, key: &str) -> Result<(), AppError> {
     let now = Instant::now();
     let mut guard = limiter.hits.lock().expect("rate limiter lock");
     let entries = guard.entry(key.to_string()).or_default();
     entries.retain(|t| now.duration_since(*t) < limiter.window);
     if entries.len() >= limiter.max {
-        return Err(AppError::RateLimited);
+        let oldest = *entries
+            .iter()
+            .min()
+            .expect("rate limit entries non-empty when at cap");
+        let retry_after_secs = limiter
+            .window
+            .saturating_sub(now.duration_since(oldest))
+            .as_secs()
+            .max(1);
+        return Err(AppError::rate_limited(retry_after_secs));
     }
     entries.push(now);
     Ok(())
@@ -55,4 +64,27 @@ pub fn client_ip_from_headers(headers: &axum::http::HeaderMap) -> String {
         })
         .unwrap_or("unknown")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // Human: When the rolling window is full, enforce must report seconds until the oldest hit expires.
+    // Agent: FILLS limiter to cap; ASSERTS retry_after_secs is within the configured window.
+    #[test]
+    fn enforce_returns_retry_after_when_at_cap() {
+        let limiter = PerKeyRateLimiter::new(2, Duration::from_secs(60));
+        enforce(&limiter, "user-a").expect("first request allowed");
+        enforce(&limiter, "user-a").expect("second request allowed");
+        let err = enforce(&limiter, "user-a").expect_err("third request must be throttled");
+        match err {
+            AppError::RateLimited { retry_after_secs } => {
+                assert!(retry_after_secs >= 1);
+                assert!(retry_after_secs <= 60);
+            }
+            other => panic!("expected rate limited, got {other:?}"),
+        }
+    }
 }

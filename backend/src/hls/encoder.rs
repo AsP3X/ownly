@@ -1,12 +1,14 @@
 // Human: ffmpeg HLS packaging for video — H.264 + AAC in AES-128 MPEG-TS segments for browser playback.
-// Agent: SPAWNS ffmpeg; WRITES key_info + segments; EMITS HlsOutput; parse_ffmpeg_progress maps stderr time= to percent.
+// Agent: SPAWNS ffmpeg; WRITES key_info + segments; OPTIONAL GPU encode with CPU fallback on failure.
 
 use anyhow::{bail, Context};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::probe::CodecProbe;
+use super::hardware::{append_full_transcode_encoder_args, HlsHardwareEncode, ResolvedHardwareEncoder};
+use super::probe::{CodecProbe, HlsEncodeMode};
 
 pub struct HlsOutput {
     pub playlist_path: PathBuf,
@@ -16,6 +18,19 @@ pub struct HlsOutput {
 }
 
 pub struct HlsEncoder;
+
+// Human: Inputs for one ffmpeg HLS packaging run — keeps spawn helper arity small for clippy.
+// Agent: BUILT by transcode(); PASSED to run_ffmpeg_session().
+struct FfmpegSessionParams<'a> {
+    input_path: &'a Path,
+    output_dir: &'a Path,
+    key: &'a [u8; 16],
+    duration_seconds: i32,
+    codec_probe: &'a CodecProbe,
+    video_encoder: ResolvedHardwareEncoder,
+    vaapi_device: &'a str,
+    progress_tx: Option<tokio::sync::watch::Sender<i32>>,
+}
 
 impl HlsEncoder {
     /// Human: Remux encrypted HLS on disk into one MP4 (stream copy — no quality loss).
@@ -44,7 +59,7 @@ impl HlsEncoder {
 
         let status = child.wait().await.context("waiting for ffmpeg export")?;
         if !status.success() {
-            bail!("ffmpeg export exited with code: {:?}", status.code());
+            bail!("ffmpeg exited with code: {:?}", status.code());
         }
         Ok(())
     }
@@ -55,8 +70,59 @@ impl HlsEncoder {
         key: &[u8; 16],
         duration_seconds: i32,
         codec_probe: CodecProbe,
+        hardware: &HlsHardwareEncode,
         progress_tx: Option<tokio::sync::watch::Sender<i32>>,
     ) -> anyhow::Result<HlsOutput> {
+        if codec_probe.encode_mode == HlsEncodeMode::FullTranscode
+            && hardware.use_hardware_for_full_transcode()
+        {
+            match Self::run_ffmpeg_session(FfmpegSessionParams {
+                input_path,
+                output_dir,
+                key,
+                duration_seconds,
+                codec_probe: &codec_probe,
+                video_encoder: hardware.resolved,
+                vaapi_device: &hardware.vaapi_device,
+                progress_tx: progress_tx.clone(),
+            })
+            .await
+            {
+                Ok(output) => return Ok(output),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        encoder = ?hardware.resolved,
+                        "hardware ffmpeg failed; falling back to CPU libx264"
+                    );
+                }
+            }
+        }
+
+        Self::run_ffmpeg_session(FfmpegSessionParams {
+            input_path,
+            output_dir,
+            key,
+            duration_seconds,
+            codec_probe: &codec_probe,
+            video_encoder: ResolvedHardwareEncoder::Cpu,
+            vaapi_device: &hardware.vaapi_device,
+            progress_tx,
+        })
+        .await
+    }
+
+    async fn run_ffmpeg_session(params: FfmpegSessionParams<'_>) -> anyhow::Result<HlsOutput> {
+        let FfmpegSessionParams {
+            input_path,
+            output_dir,
+            key,
+            duration_seconds,
+            codec_probe,
+            video_encoder,
+            vaapi_device,
+            progress_tx,
+        } = params;
         tokio::fs::create_dir_all(output_dir)
             .await
             .context("creating HLS output directory")?;
@@ -86,44 +152,59 @@ impl HlsEncoder {
             .await
             .context("writing key info file")?;
 
-        let mut args: Vec<String> = vec![
-            "-i".into(),
-            input_path.to_str().context("invalid input path")?.into(),
-        ];
+        let mut pre_input_args: Vec<String> = Vec::new();
+        let mut encode_args: Vec<String> = Vec::new();
 
-        if codec_probe.can_remux_copy {
-            args.extend([
-                "-c".into(),
-                "copy".into(),
-                "-bsf:v".into(),
-                "h264_mp4toannexb".into(),
-                "-bsf:a".into(),
-                "aac_adtstoasc".into(),
-            ]);
-        } else {
-            args.extend([
-                "-c:v".into(),
-                "libx264".into(),
-                "-preset".into(),
-                "medium".into(),
-                "-crf".into(),
-                "23".into(),
-                "-vf".into(),
-                "scale='min(1920,iw)':-2".into(),
-                "-c:a".into(),
-                "aac".into(),
-                "-b:a".into(),
-                "128k".into(),
-            ]);
+        match codec_probe.encode_mode {
+            HlsEncodeMode::RemuxCopy => {
+                encode_args.extend([
+                    "-c".into(),
+                    "copy".into(),
+                    "-bsf:v".into(),
+                    "h264_mp4toannexb".into(),
+                    "-bsf:a".into(),
+                    "aac_adtstoasc".into(),
+                ]);
+            }
+            HlsEncodeMode::CopyVideoTranscodeAudio => {
+                encode_args.extend([
+                    "-c:v".into(),
+                    "copy".into(),
+                    "-bsf:v".into(),
+                    "h264_mp4toannexb".into(),
+                    "-c:a".into(),
+                    "aac".into(),
+                    "-b:a".into(),
+                    "128k".into(),
+                    "-ac".into(),
+                    "2".into(),
+                ]);
+            }
+            HlsEncodeMode::FullTranscode => {
+                append_full_transcode_encoder_args(
+                    &mut pre_input_args,
+                    &mut encode_args,
+                    video_encoder,
+                    vaapi_device,
+                );
+            }
         }
 
+        let mut args = pre_input_args;
+        args.extend([
+            "-i".into(),
+            input_path.to_str().context("invalid input path")?.into(),
+        ]);
+        args.extend(encode_args);
         args.extend([
             "-f".into(),
             "hls".into(),
             "-hls_time".into(),
-            "4".into(),
+            "6".into(),
             "-hls_list_size".into(),
             "0".into(),
+            "-max_muxing_queue_size".into(),
+            "1024".into(),
             "-hls_segment_filename".into(),
             segment_pattern_str.to_string(),
             "-hls_key_info_file".into(),
@@ -139,6 +220,7 @@ impl HlsEncoder {
             .spawn()
             .context("spawning ffmpeg")?;
 
+        let ffmpeg_started = Instant::now();
         let duration = duration_seconds as f64;
         let progress_tx_clone = progress_tx.clone();
         let stderr_handle = child.stderr.take().map(|stderr| {
@@ -164,6 +246,14 @@ impl HlsEncoder {
         if !status.success() {
             bail!("ffmpeg exited with code: {:?}", status.code());
         }
+
+        tracing::info!(
+            encode_mode = ?codec_probe.encode_mode,
+            video_encoder = ?video_encoder,
+            segment_seconds = 6,
+            ffmpeg_elapsed_ms = ffmpeg_started.elapsed().as_millis() as u64,
+            "ffmpeg HLS packaging finished"
+        );
 
         let mut segment_count = 0usize;
         let mut entries = tokio::fs::read_dir(&segments_dir)

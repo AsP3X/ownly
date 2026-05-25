@@ -15,7 +15,10 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
-    hls::playlist::PlaylistGenerator,
+    hls::playlist::{
+        normalize_segment_rel_path, parse_segment_manifest, PlaylistGenerator,
+        HLS_SEGMENT_TARGET_SECS,
+    },
     jobs::{self, model::HlsExportPayload, JobKind},
     rate_limit,
     stream_ticket,
@@ -60,6 +63,22 @@ pub(crate) async fn build_playlist_for_playback(
         {
             return Ok(playlist);
         }
+        // Human: Rewrite can fail on odd tags — still reuse ffmpeg EXTINF timings when parseable.
+        // Agent: CALLS parse_segment_manifest + generate; AVOIDS flat 6s synthetic drift on copy/remux.
+        if let Ok((files, durations)) = parse_segment_manifest(&content) {
+            if !files.is_empty() && files.len() == durations.len() {
+                let segment_files: Vec<String> = files
+                    .iter()
+                    .map(|path| normalize_segment_rel_path(path))
+                    .collect();
+                return Ok(PlaylistGenerator::generate(
+                    base_url,
+                    &segment_files,
+                    &durations,
+                    key_uri,
+                ));
+            }
+        }
         tracing::warn!(
             storage_key,
             "stored HLS playlist could not be rewritten; using synthetic fallback"
@@ -70,7 +89,7 @@ pub(crate) async fn build_playlist_for_playback(
     let mut segment_durations = Vec::new();
     for i in 0..segment_count {
         segment_files.push(format!("segments/{i:04}.ts"));
-        segment_durations.push(4.0);
+        segment_durations.push(HLS_SEGMENT_TARGET_SECS);
     }
 
     Ok(PlaylistGenerator::generate(

@@ -51,6 +51,17 @@ impl Storage for MemoryStorage {
         Ok(())
     }
 
+    async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        let guard = self.blobs.lock().expect("memory storage lock");
+        let mut keys: Vec<String> = guard
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect();
+        keys.sort();
+        Ok(keys)
+    }
+
     fn presigned_url(&self, key: &str, _expiry_seconds: u64) -> anyhow::Result<String> {
         Ok(format!("memory://{key}"))
     }

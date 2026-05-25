@@ -3,6 +3,10 @@
 
 use std::path::Path;
 
+// Human: Target HLS segment length from ffmpeg `-hls_time` — keep synthetic fallbacks aligned.
+// Agent: READ by handlers synthetic path; MUST match encoder.rs hls_time when that value changes.
+pub const HLS_SEGMENT_TARGET_SECS: f64 = 6.0;
+
 pub struct PlaylistGenerator;
 
 impl PlaylistGenerator {
@@ -18,12 +22,14 @@ impl PlaylistGenerator {
             if line.starts_with("#EXT-X-KEY:") {
                 out.push(rewrite_key_uri(line, key_uri));
             } else if !line.starts_with('#') && !line.trim().is_empty() {
-                let name = line
-                    .trim()
-                    .rsplit('/')
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("invalid segment line in stored playlist"))?;
-                out.push(format!("{base_url}/segments/{name}"));
+                // Human: Tolerate odd segment URI lines — keep original when basename is missing.
+                // Agent: AVOIDS failing whole rewrite; synthetic fallback would lose real EXTINF timing.
+                let trimmed = line.trim();
+                if let Some(name) = trimmed.rsplit('/').next().filter(|s| !s.is_empty()) {
+                    out.push(format!("{base_url}/segments/{name}"));
+                } else {
+                    out.push(trimmed.to_string());
+                }
             } else {
                 out.push(line.to_string());
             }
@@ -55,7 +61,10 @@ impl PlaylistGenerator {
         ];
 
         for (i, file) in segment_files.iter().enumerate() {
-            let duration = segment_durations.get(i).copied().unwrap_or(4.0);
+            let duration = segment_durations
+                .get(i)
+                .copied()
+                .unwrap_or(HLS_SEGMENT_TARGET_SECS);
             lines.push(format!("#EXTINF:{duration:.3},"));
             lines.push(format!("{base_url}/{file}"));
         }
@@ -71,7 +80,7 @@ impl PlaylistGenerator {
 }
 
 // Human: Replace the URI="..." portion of an #EXT-X-KEY line while keeping METHOD/IV tags.
-// Agent: USED by rewrite_stored_playlist; PREFIX ends at URI= so quotes are not doubled.
+// Agent: USED by rewrite_stored_playlist; HANDLES quoted and unquoted ffmpeg URI forms.
 fn rewrite_key_uri(line: &str, key_uri: &str) -> String {
     if let Some(uri_start) = line.find("URI=\"") {
         let after_uri = uri_start + 5;
@@ -81,7 +90,28 @@ fn rewrite_key_uri(line: &str, key_uri: &str) -> String {
             return format!("{prefix}\"{key_uri}\"{suffix}");
         }
     }
+    if let Some(uri_start) = line.find("URI=") {
+        let after_uri = uri_start + 4;
+        let end = line[after_uri..]
+            .find(',')
+            .map(|idx| after_uri + idx)
+            .unwrap_or(line.len());
+        let prefix = &line[..uri_start + 4];
+        let suffix = &line[end..];
+        return format!("{prefix}\"{key_uri}\"{suffix}");
+    }
     format!("#EXT-X-KEY:METHOD=AES-128,URI=\"{key_uri}\"")
+}
+
+// Human: Normalize ffmpeg segment paths for `generate()` which expects `segments/NNNN.ts`.
+// Agent: USED when rewrite fails but parse_segment_manifest succeeds.
+pub fn normalize_segment_rel_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.contains('/') {
+        trimmed.to_string()
+    } else {
+        format!("segments/{trimmed}")
+    }
 }
 
 // Human: Extract segment paths and #EXTINF durations from a stored ffmpeg playlist.
@@ -139,5 +169,28 @@ segments/0001.ts
         assert!(!out.contains("URI=\"\""), "double-quoted key URI: {out}");
         assert!(out.contains("/api/v1/files/abc/segments/0000.ts"));
         assert!(out.contains("/api/v1/files/abc/segments/0001.ts"));
+    }
+
+    #[test]
+    fn rewrite_stored_playlist_handles_unquoted_key_uri() {
+        let stored = "\
+#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI=key.bin
+#EXTINF:6.0,
+segments/0000.ts
+#EXT-X-ENDLIST
+";
+        let out = PlaylistGenerator::rewrite_stored_playlist(
+            stored,
+            "/api/v1/files/abc",
+            "/api/v1/files/abc/key",
+        )
+        .expect("rewrite");
+
+        assert!(
+            out.contains("#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/abc/key\""),
+            "out={out}"
+        );
+        assert!(out.contains("#EXTINF:6.0,"));
     }
 }

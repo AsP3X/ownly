@@ -2,7 +2,7 @@
 // Agent: EMITS `{ error: { code, message, fields? } }` JSON; MAPS AppError variants to HTTP status; LOGS internals only in tracing.
 
 use axum::{
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -45,7 +45,9 @@ pub enum AppError {
     Validation(String, Value),
 
     #[error("rate limit exceeded")]
-    RateLimited,
+    RateLimited {
+        retry_after_secs: u64,
+    },
 
     #[error("conflict: {0}")]
     Conflict(String),
@@ -64,6 +66,14 @@ impl AppError {
         AppError::Validation(message.into(), fields)
     }
 
+    // Human: Rate-limit rejection with a Retry-After hint for upload/auth throttling.
+    // Agent: RETURNS RateLimited variant; HTTP 429; EMITS Retry-After header in into_response.
+    pub fn rate_limited(retry_after_secs: u64) -> Self {
+        AppError::RateLimited {
+            retry_after_secs: retry_after_secs.max(1),
+        }
+    }
+
     fn code(&self) -> &'static str {
         match self {
             AppError::Database(_) => "database_error",
@@ -72,7 +82,7 @@ impl AppError {
             AppError::Forbidden(_) => "forbidden",
             AppError::BadRequest(_) => "bad_request",
             AppError::Validation(_, _) => "validation_error",
-            AppError::RateLimited => "rate_limited",
+            AppError::RateLimited { .. } => "rate_limited",
             AppError::Conflict(_) => "conflict",
             AppError::Internal(_) => "internal_error",
             AppError::Storage(_) => "storage_error",
@@ -87,7 +97,7 @@ impl AppError {
             AppError::Forbidden(msg) => msg.clone(),
             AppError::BadRequest(msg) => msg.clone(),
             AppError::Validation(msg, _) => msg.clone(),
-            AppError::RateLimited => "rate limit exceeded; try again shortly".into(),
+            AppError::RateLimited { .. } => "rate limit exceeded; try again shortly".into(),
             AppError::Conflict(msg) => msg.clone(),
             AppError::Internal(_) => "internal server error".into(),
             AppError::Storage(_) => "storage error".into(),
@@ -110,7 +120,7 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::BadRequest(_) | AppError::Validation(_, _) => StatusCode::BAD_REQUEST,
-            AppError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            AppError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -131,7 +141,15 @@ impl IntoResponse for AppError {
             },
         });
 
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if let AppError::RateLimited { retry_after_secs } = &self {
+            if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 
@@ -139,6 +157,7 @@ impl IntoResponse for AppError {
 mod tests {
     use super::AppError;
     use axum::body::to_bytes;
+    use axum::http::header::RETRY_AFTER;
     use axum::response::IntoResponse;
 
     // Human: Contract test — validation errors must expose field map to clients.
@@ -156,5 +175,15 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(json["error"]["code"], "validation_error");
         assert_eq!(json["error"]["fields"]["email"], "required");
+    }
+
+    // Human: Throttled clients rely on Retry-After to back off without hammering upload endpoints.
+    // Agent: Builds rate_limited AppError; ASSERTS HTTP 429 and Retry-After header value.
+    #[tokio::test]
+    async fn rate_limited_error_includes_retry_after_header() {
+        let err = AppError::rate_limited(12);
+        let response = err.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), "12");
     }
 }

@@ -3,7 +3,7 @@
 
 import { Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fileProcessingLabel } from "@/lib/file-processing";
+import { fileProcessingLabel, isFileMovingToStorage } from "@/lib/file-processing";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
@@ -12,16 +12,20 @@ type FileProcessingBadgeProps = {
   className?: string;
 };
 
-// Human: Compact “Processing” chip shown beside file names in the drive browser.
-// Agent: DISPLAYS animated spinner; LABEL from conversion_progress when available.
+// Human: Compact status chip shown beside file names while server-side video ingest runs.
+// Agent: DISPLAYS animated spinner; LABEL from encode vs storage progress when available.
 export function FileProcessingBadge({ file, className }: FileProcessingBadgeProps) {
+  const storing = isFileMovingToStorage(file);
   return (
     <Badge
       variant="secondary"
       className={cn("gap-1", className)}
       aria-label={fileProcessingLabel(file)}
     >
-      <Loader2 className="size-3 animate-spin text-violet-700" aria-hidden />
+      <Loader2
+        className={cn("size-3 animate-spin", storing ? "text-emerald-700" : "text-violet-700")}
+        aria-hidden
+      />
       {fileProcessingLabel(file)}
     </Badge>
   );

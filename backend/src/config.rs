@@ -49,6 +49,10 @@ pub struct Config {
     pub job_heartbeat_seconds: u64,
     #[serde(default = "default_job_recovery_poll_seconds")]
     pub job_recovery_poll_seconds: u64,
+    #[serde(default = "default_hls_hardware_encode")]
+    pub hls_hardware_encode: String,
+    #[serde(default = "default_hls_vaapi_device")]
+    pub hls_vaapi_device: String,
 }
 
 impl Config {
@@ -113,9 +117,9 @@ fn default_auth_register_rpm() -> u32 {
 }
 
 fn default_upload_rpm() -> u32 {
-    // Human: Bulk folder uploads run ~3 concurrent × ~2/s — 30/min caused 429 + connection aborts.
-    // Agent: DEFAULT 180/min (~3/s rolling average); override with UPLOAD_RPM in Compose/.env.
-    180
+    // Human: Bulk folder uploads run ~3 concurrent; small files on localhost exceed ~3/s sustained.
+    // Agent: DEFAULT 600/min (~10/s rolling average); override with UPLOAD_RPM in Compose/.env.
+    600
 }
 
 fn default_max_upload_bytes() -> u64 {
@@ -142,4 +146,14 @@ fn default_job_heartbeat_seconds() -> u64 {
 
 fn default_job_recovery_poll_seconds() -> u64 {
     60
+}
+
+fn default_hls_hardware_encode() -> String {
+    // Human: Try GPU encoders when device nodes exist; set `off` to force CPU-only ingest.
+    // Agent: VALUES auto|off|nvenc|vaapi|qsv; READ by hls::hardware at startup.
+    "auto".into()
+}
+
+fn default_hls_vaapi_device() -> String {
+    "/dev/dri/renderD128".into()
 }

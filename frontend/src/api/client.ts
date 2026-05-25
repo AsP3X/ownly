@@ -7,17 +7,34 @@ export class ApiError extends Error {
   code: string;
   status: number;
   fields?: Record<string, unknown>;
+  /** Seconds from Retry-After when the server throttled the request (429). */
+  retryAfterSeconds?: number;
 
-  constructor(message: string, code: string, status: number, fields?: Record<string, unknown>) {
+  constructor(
+    message: string,
+    code: string,
+    status: number,
+    fields?: Record<string, unknown>,
+    retryAfterSeconds?: number,
+  ) {
     super(message);
     this.code = code;
     this.status = status;
     this.fields = fields;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
 function getToken(): string | null {
   return localStorage.getItem("mediavault_token");
+}
+
+// Human: Parse Retry-After from throttled API responses so upload backoff can align with the server window.
+// Agent: READS header string; RETURNS integer seconds or undefined when missing/invalid.
+function parseRetryAfterSeconds(headerValue: string | null): number | undefined {
+  if (!headerValue) return undefined;
+  const parsed = Number.parseInt(headerValue.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export function getErrorMessage(err: unknown): string {
@@ -55,7 +72,13 @@ async function apiFetch(path: string, init: RequestInit = {}) {
         ? body.error
         : errorObject?.message ?? res.statusText;
     const code = errorObject?.code ?? "request_failed";
-    throw new ApiError(message, code, res.status, errorObject?.fields);
+    throw new ApiError(
+      message,
+      code,
+      res.status,
+      errorObject?.fields,
+      parseRetryAfterSeconds(res.headers.get("Retry-After")),
+    );
   }
 
   return data;
@@ -153,9 +176,11 @@ export type FileItem = {
   updated_at: string;
   hls_ready: boolean;
   hls_encode_status: string | null;
-  hls_encode_error: string | null;
+  hls_encode_error?: string | null;
   conversion_progress: number;
-  duration_seconds: number | null;
+  duration_seconds?: number | null;
+  /** True when an active public share link exists for this file. */
+  share_public?: boolean;
 };
 
 export type VideoStreamUrlResponse = {
@@ -178,16 +203,47 @@ export async function fetchVideoStreamUrl(id: string) {
   return apiFetch(`/files/${id}/stream-url`) as Promise<VideoStreamUrlResponse>;
 }
 
-export async function listFiles(params?: { q?: string; folder_id?: string }) {
+// Human: Default page size for paginated drive file listings.
+// Agent: MATCHES backend listing::DEFAULT_LIST_LIMIT; USED by DrivePage refresh + load-more.
+export const FILES_PAGE_SIZE = 200;
+
+export type ListFilesParams = {
+  q?: string;
+  folder_id?: string;
+  limit?: number;
+  offset?: number;
+  fields?: "minimal" | "full";
+  type_filter?: string;
+};
+
+export type FileListResult = {
+  files: FileItem[];
+  total_bytes: number;
+  file_count: number;
+  has_more: boolean;
+};
+
+// Human: Paginated file listing for one folder, search, or library root.
+// Agent: GET /files with limit/offset; REQUESTS minimal rows + optional type_filter.
+export async function listFiles(params?: ListFilesParams) {
   const search = new URLSearchParams();
   if (params?.q) search.set("q", params.q);
   if (params?.folder_id) search.set("folder_id", params.folder_id);
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  if (params?.offset !== undefined) search.set("offset", String(params.offset));
+  if (params?.fields) search.set("fields", params.fields);
+  if (params?.type_filter) search.set("type_filter", params.type_filter);
   const qs = search.toString();
-  return apiFetch(`/files${qs ? `?${qs}` : ""}`) as Promise<{
-    files: FileItem[];
-    total_bytes: number;
-    file_count: number;
-  }>;
+  return apiFetch(`/files${qs ? `?${qs}` : ""}`) as Promise<FileListResult>;
+}
+
+// Human: Resolve owned files by id for Home recent/favourites without listing whole folders.
+// Agent: POST /files/batch; RETURNS minimal rows with share_public when present.
+export async function batchFiles(ids: string[], fields: "minimal" | "full" = "minimal") {
+  return apiFetch("/files/batch", {
+    method: "POST",
+    body: JSON.stringify({ ids, fields }),
+  }) as Promise<{ files: FileItem[] }>;
 }
 
 export type FolderItem = {
@@ -196,16 +252,28 @@ export type FolderItem = {
   parent_id: string | null;
   created_at: string;
   updated_at: string;
+  /** True when an active public share link exists for this folder. */
+  share_public?: boolean;
 };
 
-// Human: List folders at the drive root or under a parent folder id.
+export type ListFoldersParams = {
+  parent_id?: string;
+  limit?: number;
+  offset?: number;
+};
+
+// Human: Paginated folder listing at the drive root or under a parent folder id.
 // Agent: GET /folders?parent_id=; OMITS parent_id query for root listing.
-export async function listFolders(params?: { parent_id?: string }) {
+export async function listFolders(params?: ListFoldersParams) {
   const search = new URLSearchParams();
   if (params?.parent_id) search.set("parent_id", params.parent_id);
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  if (params?.offset !== undefined) search.set("offset", String(params.offset));
   const qs = search.toString();
   return apiFetch(`/folders${qs ? `?${qs}` : ""}`) as Promise<{
     folders: FolderItem[];
+    folder_count: number;
+    has_more: boolean;
   }>;
 }
 
@@ -413,23 +481,23 @@ export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
 
-// Human: Progress snapshot for the upload dialog — network transfer vs server blob processing.
-// Agent: phase uploading = browser→API bytes; phase processing = API→storage + DB until response.
+// Human: Progress snapshot for the upload dialog — network transfer vs server-side video ingest steps.
+// Agent: uploading = browser→API bytes; processing = ffmpeg HLS encode; storing = Nebular PUT of segments.
 export type UploadProgressUpdate = {
-  phase: "uploading" | "processing";
+  phase: "uploading" | "processing" | "storing";
   percent: number;
   /** True when server work is ongoing but byte-level progress is unknown (avoids a frozen %). */
   indeterminate?: boolean;
 };
 
-// Human: Upload bytes use the first slice of 0–100%; video HLS ingest uses the rest via server poll.
-// Agent: UPLOAD_BYTES_PERCENT + encode progress maps to full bar; non-video keeps indeterminate tail.
-const UPLOAD_BYTES_PERCENT = 40;
-const UPLOAD_PHASE_MAX = UPLOAD_BYTES_PERCENT;
+// Human: Upload, encode, and storage each use their own 0–100% bar; each phase replaces the prior bar.
+// Agent: uploading = XHR bytes; processing = conversion_progress 0–50; storing = conversion_progress 50–100.
 const PROCESSING_ASYMPTOTE = 99.4;
 const PROCESSING_DISPLAY_MAX = 99;
 const PROCESSING_INDETERMINATE_MS = 2500;
 const VIDEO_INGEST_POLL_MS = 1500;
+/** Human: Backend writes ffmpeg progress into conversion_progress 5–50, then Nebular uploads 50–100. */
+const HLS_STORAGE_PROGRESS_START = 50;
 
 // Human: Track in-flight uploads so the transfer panel can abort XHR and video ingest polling.
 // Agent: MAP sessionId → ActiveUploadSession; CALL abortUploadSession from upload-manager cancel.
@@ -491,15 +559,42 @@ function isVideoAwaitingIngest(file: FileItem): boolean {
   return Boolean(file.mime_type?.startsWith("video/") && !file.hls_ready);
 }
 
+// Human: Map server conversion_progress into separate encode vs storage bars for the upload tray.
+// Agent: READS conversion_progress + hls_ready; RETURNS phase processing|storing with 0–100% display percent.
+function mapVideoIngestProgressUpdate(
+  file: Pick<FileItem, "conversion_progress" | "hls_ready" | "hls_encode_status">,
+): UploadProgressUpdate {
+  if (file.hls_ready) {
+    return { phase: "storing", percent: 100, indeterminate: false };
+  }
+
+  if (file.hls_encode_status === "queued") {
+    return { phase: "processing", percent: 0, indeterminate: true };
+  }
+
+  const raw = file.conversion_progress;
+  if (raw >= HLS_STORAGE_PROGRESS_START) {
+    const percent = Math.min(
+      PROCESSING_DISPLAY_MAX,
+      Math.round(((raw - HLS_STORAGE_PROGRESS_START) / HLS_STORAGE_PROGRESS_START) * 100),
+    );
+    return { phase: "storing", percent, indeterminate: false };
+  }
+
+  const percent = Math.min(
+    PROCESSING_DISPLAY_MAX,
+    Math.round((raw / HLS_STORAGE_PROGRESS_START) * 100),
+  );
+  return { phase: "processing", percent, indeterminate: false };
+}
+
 // Human: After multipart returns, poll files.conversion_progress until HLS ingest hits 100%.
-// Agent: CALLS fetchFile; MAPS 40–100% on same bar; THROWS when hls_encode_status failed or cancelled.
+// Agent: CALLS fetchFile; MAPS conversion_progress to processing then storing bars; THROWS on failed/cancelled.
 export async function waitForFileIngestCompletion(
   fileId: string,
   onProgress?: (update: UploadProgressUpdate) => void,
   isCancelled?: () => boolean,
 ): Promise<FileItem> {
-  const encodeSpan = 100 - UPLOAD_BYTES_PERCENT;
-
   for (;;) {
     if (isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
@@ -523,35 +618,11 @@ export async function waitForFileIngestCompletion(
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
     }
 
-    if (file.hls_encode_status === "queued") {
-      onProgress?.({
-        phase: "processing",
-        percent: UPLOAD_BYTES_PERCENT,
-        indeterminate: true,
-      });
-      await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INGEST_POLL_MS));
-      continue;
-    }
+    onProgress?.(mapVideoIngestProgressUpdate(file));
 
     if (file.hls_ready) {
-      onProgress?.({
-        phase: "processing",
-        percent: 100,
-        indeterminate: false,
-      });
       return file;
     }
-
-    const encodePct = Math.min(
-      100,
-      UPLOAD_BYTES_PERCENT +
-        Math.round((file.conversion_progress / 100) * encodeSpan),
-    );
-    onProgress?.({
-      phase: "processing",
-      percent: Math.min(PROCESSING_DISPLAY_MAX, encodePct),
-      indeterminate: false,
-    });
 
     await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INGEST_POLL_MS));
   }
@@ -582,7 +653,7 @@ export function uploadFileWithProgress(
     const token = getToken();
 
     let processingTimer: ReturnType<typeof setInterval> | null = null;
-    let processingPercent = UPLOAD_PHASE_MAX;
+    let processingPercent = 0;
     let processingStartedAt = 0;
 
     const clearProcessingTimer = () => {
@@ -619,18 +690,18 @@ export function uploadFileWithProgress(
       const elapsed = processingStartedAt > 0 ? Date.now() - processingStartedAt : 0;
       const display = Math.min(
         PROCESSING_DISPLAY_MAX,
-        Math.max(UPLOAD_PHASE_MAX, Math.floor(processingPercent)),
+        Math.max(0, Math.floor(processingPercent)),
       );
       const indeterminate =
         elapsed >= PROCESSING_INDETERMINATE_MS || display >= PROCESSING_DISPLAY_MAX;
       onProgress?.({ phase: "processing", percent: display, indeterminate });
     };
 
-    // Human: After bytes leave the browser, ease toward ~99% while the API stores/compresses the blob.
-    // Agent: INTERVAL uses asymptotic steps; indeterminate after delay so the bar never looks frozen.
+    // Human: After upload hits 100%, a fresh processing bar eases toward ~99% while the API stores the blob.
+    // Agent: INTERVAL uses asymptotic steps from 0%; indeterminate after delay so the bar never looks frozen.
     const startProcessingPhase = () => {
       if (processingTimer) return;
-      processingPercent = UPLOAD_PHASE_MAX;
+      processingPercent = 0;
       processingStartedAt = Date.now();
       emitProcessing();
       processingTimer = setInterval(() => {
@@ -646,16 +717,13 @@ export function uploadFileWithProgress(
       if (!onProgress) return;
       if (event.lengthComputable && event.total > 0) {
         const ratio = event.loaded / event.total;
-        const percent = Math.min(
-          UPLOAD_PHASE_MAX,
-          Math.round(ratio * UPLOAD_PHASE_MAX),
-        );
+        const percent = Math.min(100, Math.round(ratio * 100));
         onProgress({ phase: "uploading", percent });
         if (ratio >= 1) {
           if (isVideoUpload) {
             onProgress({
               phase: "processing",
-              percent: UPLOAD_BYTES_PERCENT,
+              percent: 0,
               indeterminate: false,
             });
           } else {
@@ -663,7 +731,7 @@ export function uploadFileWithProgress(
           }
         }
       } else if (event.loaded > 0) {
-        onProgress({ phase: "uploading", percent: Math.min(UPLOAD_PHASE_MAX - 1, 40) });
+        onProgress({ phase: "uploading", percent: 50 });
       }
     });
 
@@ -671,7 +739,7 @@ export function uploadFileWithProgress(
       if (isVideoUpload) {
         onProgress?.({
           phase: "processing",
-          percent: UPLOAD_BYTES_PERCENT,
+          percent: 0,
           indeterminate: false,
         });
       } else {
@@ -754,7 +822,15 @@ export function uploadFileWithProgress(
         }
       }
       const code = errorObject?.code ?? "request_failed";
-      fail(new ApiError(message, code, xhr.status, errorObject?.fields));
+      fail(
+        new ApiError(
+          message,
+          code,
+          xhr.status,
+          errorObject?.fields,
+          parseRetryAfterSeconds(xhr.getResponseHeader("Retry-After")),
+        ),
+      );
     });
 
     xhr.addEventListener("error", () => {
@@ -842,6 +918,15 @@ export async function fetchDeleteJobStatus(jobId: string) {
 export async function moveFile(id: string, folderId: string | null) {
   return apiFetch(`/files/${id}`, {
     method: "PATCH",
+    body: JSON.stringify({ folder_id: folderId }),
+  }) as Promise<{ file: FileItem }>;
+}
+
+// Human: Duplicate a file into another folder or the drive root with new storage blobs.
+// Agent: POST /files/{id}/copy JSON { folder_id? }; RETURNS { file: FileItem }.
+export async function copyFile(id: string, folderId: string | null) {
+  return apiFetch(`/files/${id}/copy`, {
+    method: "POST",
     body: JSON.stringify({ folder_id: folderId }),
   }) as Promise<{ file: FileItem }>;
 }
@@ -1179,6 +1264,27 @@ export type ShareFlags = {
   public: boolean;
   users: boolean;
 };
+
+// Human: Build paperclip indicator maps from list rows that include share_public.
+// Agent: MAPS share_public=true to ShareFlags; USED after list/batch responses.
+export function buildShareFlagMaps(
+  files: FileItem[],
+  folders: FolderItem[],
+): { files: Record<string, ShareFlags>; folders: Record<string, ShareFlags> } {
+  const fileFlags: Record<string, ShareFlags> = {};
+  for (const file of files) {
+    if (file.share_public) {
+      fileFlags[file.id] = { public: true, users: false };
+    }
+  }
+  const folderFlags: Record<string, ShareFlags> = {};
+  for (const folder of folders) {
+    if (folder.share_public) {
+      folderFlags[folder.id] = { public: true, users: false };
+    }
+  }
+  return { files: fileFlags, folders: folderFlags };
+}
 
 export type ResourceSharesResponse = {
   public_share: ShareLink | null;
