@@ -978,7 +978,10 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
-  const profileRef = useRef<HTMLDivElement>(null);
+  // Human: Separate refs for desktop and mobile profile menus — a shared ref breaks outside-click detection on lg+.
+  // Agent: desktopProfileRef + mobileProfileRef; WRITTEN by each header; READ by dismiss handler.
+  const desktopProfileRef = useRef<HTMLDivElement>(null);
+  const mobileProfileRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
@@ -1337,12 +1340,15 @@ export default function DrivePage() {
     setFolderStack((prev) => prev.slice(0, index + 1));
   }
 
-  // Human: Close the profile menu when clicking outside the top-bar avatar cluster.
-  // Agent: LISTENS document mousedown; WRITES profileOpen false when target outside profileRef.
+  // Human: Close the profile menu when clicking outside either desktop or mobile avatar cluster.
+  // Agent: LISTENS document mousedown; READS both profile refs; WRITES profileOpen false when outside both.
   useEffect(() => {
     if (!profileOpen) return;
     function onPointerDown(event: MouseEvent) {
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const insideDesktop = desktopProfileRef.current?.contains(target) ?? false;
+      const insideMobile = mobileProfileRef.current?.contains(target) ?? false;
+      if (!insideDesktop && !insideMobile) {
         setProfileOpen(false);
       }
     }
@@ -1973,7 +1979,7 @@ export default function DrivePage() {
             <Button variant="ghost" size="icon-sm" className="hidden text-neutral-600 sm:inline-flex" aria-label="Settings">
               <Settings />
             </Button>
-            <div ref={profileRef} className="relative">
+            <div ref={desktopProfileRef} className="relative">
               <button
                 type="button"
                 aria-label="Open profile menu"
@@ -2013,7 +2019,7 @@ export default function DrivePage() {
         initials={initials}
         email={user?.email}
         profileOpen={profileOpen}
-        profileRef={profileRef}
+        profileRef={mobileProfileRef}
         onProfileToggle={() => setProfileOpen((open) => !open)}
         onLogout={() => {
           setProfileOpen(false);
