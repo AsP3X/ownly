@@ -4,6 +4,8 @@ import SwiftUI
 // Agent: BINDS DriveViewModel searchQuery folderStack; CALLS navigate/goUp/refresh callbacks.
 struct DriveExplorerHeader: View {
     @Bindable var viewModel: DriveViewModel
+    @Bindable var uploadManager: UploadManager
+    var onOpenUploadQueue: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -55,28 +57,14 @@ struct DriveExplorerHeader: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                Task { await viewModel.refresh() }
-            } label: {
-                Group {
-                    if viewModel.isRefreshing {
-                        MediaVaultBouncingDots(
-                            tint: DriveExplorerStyle.accent,
-                            dotSize: 5,
-                            bounceHeight: 3
-                        )
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(DriveExplorerStyle.accent)
-                    }
-                }
-                .frame(width: 34, height: 34)
-                .background(DriveExplorerStyle.surfaceRaised, in: Circle())
-                .overlay(Circle().stroke(DriveExplorerStyle.separator, lineWidth: 1))
+            if uploadManager.hasBatch {
+                UploadHeaderProgressButton(
+                    percent: uploadManager.overallPercent,
+                    isActive: uploadManager.isUploading,
+                    action: onOpenUploadQueue
+                )
+                .accessibilityHint("Opens upload queue")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Refresh")
         }
     }
 
@@ -154,7 +142,11 @@ struct DriveExplorerHeader: View {
 }
 
 #Preview {
-    DriveExplorerHeader(viewModel: DriveViewModel())
+    DriveExplorerHeader(
+        viewModel: DriveViewModel(),
+        uploadManager: UploadManager(),
+        onOpenUploadQueue: {}
+    )
         .background(
             LinearGradient(
                 colors: [DriveExplorerStyle.backgroundTop, DriveExplorerStyle.backgroundBottom],

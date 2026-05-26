@@ -40,6 +40,6 @@ ios/MediaVault/
 
 **Auth:** Keychain token → skip splash on cold start. Logout clears token and profile hints.
 
-**Drive UI:** `ContentView` is a placeholder until the native file browser is built.
+**Drive UI:** `FilesView` lists folders and files; pull-to-refresh reloads the current folder. The center **Upload** button opens the system file picker; uploads run in the background with the same phased progress as the web transfer panel (upload → encode → storage for video). Tap the circular progress control in the Files header to open the upload queue.
 
 The web client lives in `frontend/`; mirror its `/api/v1` paths and `{ error: { code, message } }` envelope in `Auth/AuthService.swift`.

@@ -7,8 +7,9 @@ struct ContentView: View {
     var showServerConfig: Binding<Bool> = .constant(false)
     var onLogout: (() -> Void)? = nil
 
+    @Environment(\.appState) private var appState
     @State private var selectedTab: MainTab = .files
-    @State private var showUploadPlaceholder = false
+    @State private var showUploadFilePicker = false
 
     var body: some View {
         ZStack {
@@ -25,7 +26,7 @@ struct ContentView: View {
                 Spacer()
                 LiquidGlassTabBar(
                     selectedTab: $selectedTab,
-                    onUpload: { showUploadPlaceholder = true }
+                    onUpload: { showUploadFilePicker = true }
                 )
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
@@ -33,10 +34,17 @@ struct ContentView: View {
         }
         .opacity(isMainVisible ? 1 : 0)
         .preferredColorScheme(.light)
-        .alert("Upload", isPresented: $showUploadPlaceholder) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("File upload will be available when the native drive UI is implemented.")
+        .uploadFilePicker(isPresented: $showUploadFilePicker) { urls in
+            appState.uploadManager.startBatch(
+                fileURLs: urls,
+                folderId: appState.uploadManager.targetFolderId
+            )
+        }
+        .onAppear {
+            appState.uploadManager.bind(config: appState.config)
+        }
+        .onChange(of: appState.config) { _, newConfig in
+            appState.uploadManager.bind(config: newConfig)
         }
     }
 

@@ -13,6 +13,8 @@ import SwiftUI
 @Observable
 final class AppState {
     var config: ServerConfig
+    /// Shared upload queue used by the Files tab header and bottom-bar upload action.
+    let uploadManager = UploadManager()
 
     init(config: ServerConfig = ServerConfig.load()) {
         self.config = config

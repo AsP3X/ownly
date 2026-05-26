@@ -7,6 +7,7 @@ struct FilesView: View {
     @State private var viewModel = DriveViewModel()
     @State private var videoFileForPlayback: DriveFile?
     @State private var videoUnavailableMessage: String?
+    @State private var showUploadTransferSheet = false
 
     var body: some View {
         ZStack {
@@ -18,7 +19,11 @@ struct FilesView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                DriveExplorerHeader(viewModel: viewModel)
+                DriveExplorerHeader(
+                    viewModel: viewModel,
+                    uploadManager: appState.uploadManager,
+                    onOpenUploadQueue: { showUploadTransferSheet = true }
+                )
 
                 ScrollView {
                     VStack(spacing: 18) {
@@ -76,9 +81,26 @@ struct FilesView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.82), value: viewModel.errorMessage)
         .task {
             viewModel.bind(config: appState.config)
+            appState.uploadManager.bind(config: appState.config)
+            appState.uploadManager.targetFolderId = viewModel.currentFolderId
+            appState.uploadManager.onFileUploaded = {
+                Task { await viewModel.refresh() }
+            }
         }
         .onChange(of: appState.config) { _, newConfig in
             viewModel.bind(config: newConfig)
+            appState.uploadManager.bind(config: newConfig)
+        }
+        .onChange(of: viewModel.currentFolderId) { _, folderId in
+            appState.uploadManager.targetFolderId = folderId
+        }
+        .sheet(isPresented: $showUploadTransferSheet) {
+            UploadTransferSheet(uploadManager: appState.uploadManager)
+        }
+        .onChange(of: appState.uploadManager.hasBatch) { _, hasBatch in
+            if hasBatch, !showUploadTransferSheet, appState.uploadManager.isUploading {
+                showUploadTransferSheet = true
+            }
         }
         .fullScreenCover(item: $videoFileForPlayback) { file in
             VideoPlayerView(file: file, config: appState.config)
@@ -149,7 +171,7 @@ struct FilesView: View {
 
             Text(viewModel.isSearching
                  ? "Try a different search term."
-                 : "Upload files or create folders from the web app for now.")
+                 : "Tap Upload below to add files to this folder.")
                 .font(.subheadline)
                 .foregroundStyle(DriveExplorerStyle.textSecondary)
                 .multilineTextAlignment(.center)
