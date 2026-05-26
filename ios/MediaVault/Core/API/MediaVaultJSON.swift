@@ -11,6 +11,19 @@ enum MediaVaultJSON {
         return decoder
     }
 
+    nonisolated static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom(encodeDate)
+        return encoder
+    }
+
+    nonisolated private static func encodeDate(_ date: Date, into encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        try container.encode(formatter.string(from: date))
+    }
+
     nonisolated private static func decodeDate(from decoder: Decoder) throws -> Date {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)

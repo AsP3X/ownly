@@ -24,6 +24,7 @@ use crate::{
             HLS_SEGMENT_EXTENSION,
         },
     },
+    hls::export::export_cache_is_valid,
     jobs::{self, model::HlsExportPayload, JobKind},
     rate_limit,
     stream_ticket,
@@ -806,7 +807,7 @@ pub async fn post_export(
         ));
     }
 
-    if export_ready {
+    if export_cache_is_valid(export_ready, export_size) {
         return Ok(Json(export_status_json(
             true,
             Some("ready"),
@@ -814,6 +815,16 @@ pub async fn post_export(
             export_size,
             None,
         )));
+    }
+
+    // Human: Stale tiny exports (legacy bug) must not block re-export on web/iOS download.
+    // Agent: WHEN ready flag set but size invalid, fall through and enqueue a fresh HlsExport job.
+    if export_ready {
+        tracing::warn!(
+            file_id = %id,
+            export_size_bytes = ?export_size,
+            "invalid cached video export — re-queueing remux"
+        );
     }
 
     if export_status.as_deref() == Some("processing") || export_status.as_deref() == Some("queued") {
@@ -907,9 +918,14 @@ pub async fn get_export(
         ));
     }
 
+    let ready = export_cache_is_valid(export_ready, export_size);
     Ok(Json(export_status_json(
-        export_ready,
-        export_status.as_deref(),
+        ready,
+        if ready {
+            Some("ready")
+        } else {
+            export_status.as_deref()
+        },
         export_progress,
         export_size,
         export_error,

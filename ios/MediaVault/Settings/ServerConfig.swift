@@ -47,6 +47,20 @@ struct ServerConfig: Equatable {
     }
 
     /// Resolves absolute `http(s)://…` URLs or API paths (`/api/v1/…` or `/files/…`) against `apiBaseURL`.
+    /// Web app origin for public share pages (`/s/{token}`), without the `/api/v1` prefix.
+    var webOriginURL: URL? {
+        var components = URLComponents()
+        components.scheme = useHTTPS ? "https" : "http"
+        components.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        components.port = port > 0 ? port : nil
+        components.path = "/"
+        return components.url
+    }
+
+    func publicSharePageURL(token: String) -> URL? {
+        webOriginURL?.appending(path: "s/\(token)")
+    }
+
     func resolveAPIURL(_ pathOrURL: String) -> URL? {
         let trimmed = pathOrURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

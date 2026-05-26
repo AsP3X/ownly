@@ -77,8 +77,13 @@ services:
       # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
       # Agent: MUST match object-storage NOS_JWT_SECRET default when host env is unset.
       JWT_SECRET: ${JWT_SECRET:-ownly-compose-local-dev-mediavault-jwt-secret-not-for-production}
-      SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-mediavault-signing-secret-not-for-production}
+      # Human: Presigned signatures must match Nebular's NOS_SIGNING_SECRET in local Compose.
+      # Agent: KEEP fallback aligned with object-storage NOS_SIGNING_SECRET to avoid 401 invalid signature.
+      SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
       OBJECT_STORAGE_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
+      # Human: Presigned download URLs must use Nebular's HMAC secret (read by create_app_state).
+      # Agent: PASS NOS_SIGNING_SECRET into backend; lib.rs prefers this over SIGNING_SECRET for storage.
+      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
       OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:9000}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-media}

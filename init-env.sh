@@ -34,6 +34,16 @@ init_env_file() {
     done
 
     mv "$tmp_file" "$env_file"
+
+    # Human: Nebular presigned URLs must use the same HMAC secret as mediavault-backend (NOS_SIGNING_SECRET).
+    # Agent: SYNC NOS_SIGNING_SECRET from SIGNING_SECRET when both exist in root .env (init used separate GENERATE_ME values).
+    if [ "$env_file" = ".env" ]; then
+        signing="$(grep '^SIGNING_SECRET=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+        if [ -n "$signing" ] && grep -q '^NOS_SIGNING_SECRET=' "$env_file" 2>/dev/null; then
+            perl -i -pe "BEGIN { \$s = q{$signing} } if (/^NOS_SIGNING_SECRET=/) { \$_ = \"NOS_SIGNING_SECRET=\$s\\n\" }" "$env_file"
+        fi
+    fi
+
     echo "$env_file is ready."
 }
 

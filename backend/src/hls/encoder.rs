@@ -67,10 +67,58 @@ impl HlsEncoder {
             .spawn()
             .context("spawning ffmpeg export")?;
 
+        let stderr_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let stderr_for_task = stderr_tail.clone();
+        let stderr_handle = child.stderr.take().map(|stderr| {
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if let Ok(mut guard) = stderr_for_task.lock() {
+                        guard.push(line);
+                        if guard.len() > 48 {
+                            let drain = guard.len() - 48;
+                            guard.drain(0..drain);
+                        }
+                    }
+                }
+            })
+        });
+
         let status = child.wait().await.context("waiting for ffmpeg export")?;
+        if let Some(handle) = stderr_handle {
+            let _ = handle.await;
+        }
+
         if !status.success() {
+            let tail = stderr_tail
+                .lock()
+                .map(|lines| lines.join("\n"))
+                .unwrap_or_default();
+            tracing::error!(
+                exit_code = ?status.code(),
+                ffmpeg_stderr_tail = %tail,
+                "ffmpeg HLS export remux failed"
+            );
             bail!("ffmpeg exited with code: {:?}", status.code());
         }
+
+        let meta = tokio::fs::metadata(output_mp4)
+            .await
+            .context("reading export mp4 metadata")?;
+        if meta.len() < 4096 {
+            let tail = stderr_tail
+                .lock()
+                .map(|lines| lines.join("\n"))
+                .unwrap_or_default();
+            tracing::error!(
+                export_bytes = meta.len(),
+                ffmpeg_stderr_tail = %tail,
+                "ffmpeg export produced a suspiciously small MP4"
+            );
+            bail!("ffmpeg export output too small ({} bytes)", meta.len());
+        }
+
         Ok(())
     }
 

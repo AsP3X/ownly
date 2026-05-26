@@ -5,7 +5,10 @@ import SwiftUI
 struct FileExplorerListView: View {
     @Bindable var viewModel: DriveViewModel
     let config: ServerConfig
+    var favouriteIds: Set<String> = []
     var onOpenVideo: ((DriveFile) -> Void)? = nil
+    var onFileAction: ((DriveFile, DriveFileMenuAction) -> Void)? = nil
+    var onFolderAction: ((DriveFolder, DriveFolderMenuAction) -> Void)? = nil
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24, pinnedViews: []) {
@@ -54,6 +57,9 @@ struct FileExplorerListView: View {
             }
         }
         .buttonStyle(.plain)
+        .driveFolderContextMenu(folder: folder) { action in
+            onFolderAction?(folder, action)
+        }
         .onAppear {
             Task { await viewModel.loadMoreIfNeeded(currentItemId: folder.id) }
         }
@@ -71,6 +77,9 @@ struct FileExplorerListView: View {
             } else {
                 fileRowContent(file)
             }
+        }
+        .driveFileContextMenu(file: file, isFavourite: favouriteIds.contains(file.id)) { action in
+            onFileAction?(file, action)
         }
         .onAppear {
             Task { await viewModel.loadMoreIfNeeded(currentItemId: file.id) }

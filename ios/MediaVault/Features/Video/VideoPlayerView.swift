@@ -9,6 +9,10 @@ struct VideoPlayerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = VideoPlayerViewModel()
+    @State private var exportURL: URL?
+    @State private var showExportShare = false
+    @State private var isExporting = false
+    @State private var exportErrorMessage: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -35,6 +39,23 @@ struct VideoPlayerView: View {
         .onDisappear {
             viewModel.player?.pause()
             OrientationLock.setVideoPlaybackActive(false)
+        }
+        .sheet(isPresented: $showExportShare) {
+            if let exportURL {
+                DriveActivityShareSheet(items: [exportURL])
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .alert(
+            "Export failed",
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { if !$0 { exportErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportErrorMessage ?? "")
         }
     }
 
@@ -94,9 +115,14 @@ struct VideoPlayerView: View {
                 .background(Color.black.opacity(0.55))
             }
 
-            closeButton
-                .padding(.top, 12)
-                .padding(.trailing, 16)
+            HStack(spacing: 12) {
+                if file.isHlsStoredVideo {
+                    exportButton
+                }
+                closeButton
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 16)
         }
     }
 
@@ -118,6 +144,10 @@ struct VideoPlayerView: View {
             }
 
             Spacer(minLength: 0)
+
+            if file.isHlsStoredVideo {
+                exportButton
+            }
         }
     }
 
@@ -154,6 +184,40 @@ struct VideoPlayerView: View {
                 .foregroundStyle(.white, .white.opacity(0.28))
         }
         .accessibilityLabel("Close video")
+    }
+
+    private var exportButton: some View {
+        Button {
+            Task { await exportVideo() }
+        } label: {
+            Group {
+                if isExporting {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 34, height: 34)
+        }
+        .disabled(isExporting)
+        .accessibilityLabel("Export video")
+    }
+
+    private func exportVideo() async {
+        guard !isExporting else { return }
+        isExporting = true
+        defer { isExporting = false }
+
+        switch await DriveService.downloadFileForSharing(config: config, file: file) {
+        case .failure(let error):
+            exportErrorMessage = error.localizedDescription
+        case .success(let url):
+            exportURL = url
+            showExportShare = true
+        }
     }
 
     private func formatDuration(_ seconds: Int) -> String {

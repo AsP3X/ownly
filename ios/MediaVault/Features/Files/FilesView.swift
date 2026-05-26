@@ -8,6 +8,13 @@ struct FilesView: View {
     @State private var videoFileForPlayback: DriveFile?
     @State private var videoUnavailableMessage: String?
     @State private var showUploadTransferSheet = false
+    @State private var detailsTarget: DriveActionTarget?
+    @State private var deleteTarget: DriveActionTarget?
+    @State private var activityShareItems: [Any] = []
+    @State private var showActivityShare = false
+    @State private var isPerformingDriveAction = false
+    @State private var driveActionStatus = "Working…"
+    @State private var successMessage: String?
 
     var body: some View {
         ZStack {
@@ -40,14 +47,19 @@ struct FilesView: View {
                                 RecentFilesCardView(
                                     files: viewModel.files,
                                     config: appState.config,
-                                    onOpenVideo: openVideo
+                                    favouriteIds: DriveFavouritesStore.shared.ids,
+                                    onOpenVideo: openVideo,
+                                    onFileAction: handleFileMenuAction
                                 )
                             }
 
                             FileExplorerListView(
                                 viewModel: viewModel,
                                 config: appState.config,
-                                onOpenVideo: openVideo
+                                favouriteIds: DriveFavouritesStore.shared.ids,
+                                onOpenVideo: openVideo,
+                                onFileAction: handleFileMenuAction,
+                                onFolderAction: handleFolderMenuAction
                             )
                         }
 
@@ -63,22 +75,34 @@ struct FilesView: View {
                     .padding(.top, 14)
                     .padding(.bottom, 28)
                 }
+                // Agent: Detached task avoids SwiftUI cancelling URLSession when the pull gesture ends.
                 .refreshable {
-                    await viewModel.refresh()
+                    await Task.detached { @MainActor in
+                        await viewModel.refresh()
+                    }.value
                 }
             }
         }
         .padding(.bottom, 96)
         .preferredColorScheme(.light)
         .overlay(alignment: .bottom) {
-            if let error = viewModel.errorMessage {
-                errorBanner(error)
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 108)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            VStack(spacing: 10) {
+                if isPerformingDriveAction {
+                    performingBanner
+                }
+                if let successMessage {
+                    successBanner(successMessage)
+                }
+                if let error = viewModel.errorMessage {
+                    errorBanner(error)
+                }
             }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 108)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: viewModel.errorMessage)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: successMessage)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isPerformingDriveAction)
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: viewModel.errorMessage)
         .task {
             viewModel.bind(config: appState.config)
             appState.uploadManager.bind(config: appState.config)
@@ -105,6 +129,34 @@ struct FilesView: View {
         .fullScreenCover(item: $videoFileForPlayback) { file in
             VideoPlayerView(file: file, config: appState.config)
         }
+        .sheet(item: $detailsTarget) { target in
+            DriveItemDetailsSheet(target: target, config: appState.config) {
+                Task { await viewModel.refresh() }
+            }
+        }
+        .sheet(isPresented: $showActivityShare) {
+            DriveActivityShareSheet(items: activityShareItems)
+                .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog(
+            deleteDialogTitle,
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let target = deleteTarget else { return }
+                deleteTarget = nil
+                Task { await performDelete(target) }
+            }
+            Button("Cancel", role: .cancel) {
+                deleteTarget = nil
+            }
+        } message: {
+            Text(deleteDialogMessage)
+        }
         .alert(
             "Video unavailable",
             isPresented: Binding(
@@ -115,6 +167,143 @@ struct FilesView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(videoUnavailableMessage ?? "")
+        }
+    }
+
+    // MARK: - Context menu actions
+
+    private var deleteDialogTitle: String {
+        guard let deleteTarget else { return "Delete?" }
+        switch deleteTarget {
+        case .file:
+            return "Delete file?"
+        case .folder:
+            return "Delete folder?"
+        }
+    }
+
+    private var deleteDialogMessage: String {
+        guard let deleteTarget else { return "" }
+        return "“\(deleteTarget.name)” will be removed permanently."
+    }
+
+    private func handleFileMenuAction(file: DriveFile, action: DriveFileMenuAction) {
+        switch action {
+        case .details:
+            detailsTarget = .file(file)
+        case .download:
+            Task { await downloadFile(file) }
+        case .toggleFavourite:
+            let favourited = DriveFavouritesStore.shared.toggle(file.id)
+            flashSuccess(favourited ? "Added to favourites" : "Removed from favourites")
+        case .shareLink:
+            Task { await copyPublicLink(resourceType: "file", resourceId: file.id, name: file.name) }
+        case .delete:
+            deleteTarget = .file(file)
+        }
+    }
+
+    private func handleFolderMenuAction(folder: DriveFolder, action: DriveFolderMenuAction) {
+        switch action {
+        case .details:
+            detailsTarget = .folder(folder)
+        case .download:
+            Task { await downloadFolder(folder) }
+        case .shareLink:
+            Task { await copyPublicLink(resourceType: "folder", resourceId: folder.id, name: folder.name) }
+        case .delete:
+            deleteTarget = .folder(folder)
+        }
+    }
+
+    private func copyPublicLink(resourceType: String, resourceId: String, name: String) async {
+        isPerformingDriveAction = true
+        defer { isPerformingDriveAction = false }
+
+        switch await DriveService.ensurePublicSharePageURL(
+            config: appState.config,
+            resourceType: resourceType,
+            resourceId: resourceId
+        ) {
+        case .failure(let error):
+            viewModel.reportError(error.localizedDescription)
+        case .success(let url):
+            UIPasteboard.general.string = url.absoluteString
+            flashSuccess("Link copied for “\(name)”")
+            await viewModel.refresh()
+        }
+    }
+
+    private func downloadFile(_ file: DriveFile) async {
+        isPerformingDriveAction = true
+        driveActionStatus = file.isHlsStoredVideo ? "Preparing export…" : "Downloading…"
+        defer {
+            isPerformingDriveAction = false
+            driveActionStatus = "Working…"
+        }
+
+        switch await DriveService.downloadFileForSharing(
+            config: appState.config,
+            file: file,
+            onExportProgress: { percent in
+                Task { @MainActor in
+                    driveActionStatus = "Preparing export \(percent)%"
+                }
+            }
+        ) {
+        case .failure(let error):
+            viewModel.reportError(error.localizedDescription)
+        case .success(let destination):
+            activityShareItems = [destination]
+            showActivityShare = true
+        }
+    }
+
+    private func downloadFolder(_ folder: DriveFolder) async {
+        isPerformingDriveAction = true
+        defer { isPerformingDriveAction = false }
+
+        switch await DriveService.downloadFolderArchive(config: appState.config, folder: folder) {
+        case .failure(let error):
+            viewModel.reportError(error.localizedDescription)
+        case .success(let url):
+            activityShareItems = [url]
+            showActivityShare = true
+        }
+    }
+
+    private func performDelete(_ target: DriveActionTarget) async {
+        isPerformingDriveAction = true
+        defer { isPerformingDriveAction = false }
+
+        switch target {
+        case .file(let file):
+            switch await DriveService.deleteFile(config: appState.config, fileId: file.id) {
+            case .failure(let error):
+                viewModel.reportError(error.localizedDescription)
+            case .success:
+                DriveFavouritesStore.shared.remove(file.id)
+                viewModel.removeFile(id: file.id)
+                flashSuccess("File deleted")
+            }
+        case .folder(let folder):
+            switch await DriveService.deleteFolder(config: appState.config, folderId: folder.id) {
+            case .failure(let error):
+                viewModel.reportError(error.localizedDescription)
+            case .success:
+                viewModel.removeFolder(id: folder.id)
+                flashSuccess("Folder deleted")
+            }
+        }
+    }
+
+    private func flashSuccess(_ message: String) {
+        successMessage = message
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            if successMessage == message {
+                successMessage = nil
+            }
         }
     }
 
@@ -178,6 +367,43 @@ struct FilesView: View {
                 .padding(.horizontal, 32)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var performingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(DriveExplorerStyle.accent)
+            Text(driveActionStatus)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(DriveExplorerStyle.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(DriveExplorerStyle.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(DriveExplorerStyle.separator, lineWidth: 1)
+        }
+    }
+
+    private func successBanner(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(DriveExplorerStyle.accent)
+            Text(message)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(DriveExplorerStyle.textPrimary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(DriveExplorerStyle.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(DriveExplorerStyle.accent.opacity(0.24), lineWidth: 1)
+        }
     }
 
     private func errorBanner(_ message: String) -> some View {

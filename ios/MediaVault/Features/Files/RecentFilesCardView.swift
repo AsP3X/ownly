@@ -5,7 +5,9 @@ import SwiftUI
 struct RecentFilesCardView: View {
     let files: [DriveFile]
     let config: ServerConfig
+    var favouriteIds: Set<String> = []
     var onOpenVideo: ((DriveFile) -> Void)? = nil
+    var onFileAction: ((DriveFile, DriveFileMenuAction) -> Void)? = nil
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -29,7 +31,13 @@ struct RecentFilesCardView: View {
 
                 LazyVGrid(columns: columns, spacing: 14) {
                     ForEach(recentFiles) { file in
-                        RecentFileCard(file: file, config: config, onOpenVideo: onOpenVideo)
+                        RecentFileCard(
+                            file: file,
+                            config: config,
+                            isFavourite: favouriteIds.contains(file.id),
+                            onOpenVideo: onOpenVideo,
+                            onFileAction: onFileAction
+                        )
                     }
                 }
             }
@@ -43,7 +51,9 @@ struct RecentFilesCardView: View {
 private struct RecentFileCard: View {
     let file: DriveFile
     let config: ServerConfig
+    var isFavourite: Bool = false
     var onOpenVideo: ((DriveFile) -> Void)? = nil
+    var onFileAction: ((DriveFile, DriveFileMenuAction) -> Void)? = nil
 
     var body: some View {
         Group {
@@ -57,6 +67,9 @@ private struct RecentFileCard: View {
             } else {
                 cardBody
             }
+        }
+        .driveFileContextMenu(file: file, isFavourite: isFavourite) { action in
+            onFileAction?(file, action)
         }
     }
 

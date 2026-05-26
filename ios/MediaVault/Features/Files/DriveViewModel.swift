@@ -24,6 +24,8 @@ final class DriveViewModel {
 
     private var config: ServerConfig?
     private var searchTask: Task<Void, Never>?
+    /// Bumped on each refresh so stale/cancelled loads do not overwrite newer results or show errors.
+    private var loadGeneration: UInt = 0
 
     var isSearching: Bool {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -55,14 +57,13 @@ final class DriveViewModel {
 
     func refresh() async {
         guard let config else { return }
-        isRefreshing = true
-        errorMessage = nil
-        defer { isRefreshing = false }
+        let generation = beginRefresh()
+        defer { endRefresh(generation) }
 
         if isSearching {
-            await loadSearch(config: config, reset: true)
+            await loadSearch(config: config, reset: true, generation: generation)
         } else {
-            await loadBrowse(config: config, reset: true)
+            await loadBrowse(config: config, reset: true, generation: generation)
         }
     }
 
@@ -109,6 +110,22 @@ final class DriveViewModel {
         Task { await refresh() }
     }
 
+    func removeFile(id: String) {
+        files.removeAll { $0.id == id }
+    }
+
+    func removeFolder(id: String) {
+        folders.removeAll { $0.id == id }
+    }
+
+    func reportError(_ message: String) {
+        errorMessage = message
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+
     // MARK: - Private loading
 
     private func scheduleSearchRefresh() {
@@ -120,7 +137,7 @@ final class DriveViewModel {
         }
     }
 
-    private func loadBrowse(config: ServerConfig, reset: Bool) async {
+    private func loadBrowse(config: ServerConfig, reset: Bool, generation: UInt) async {
         if reset {
             folders = []
             files = []
@@ -143,6 +160,7 @@ final class DriveViewModel {
 
         switch await foldersResult {
         case .success(let response):
+            guard isCurrentGeneration(generation) else { return }
             if reset {
                 folders = response.folders
             } else {
@@ -150,11 +168,12 @@ final class DriveViewModel {
             }
             hasMoreFolders = response.hasMore
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            recordFailure(error, generation: generation)
         }
 
         switch await filesResult {
         case .success(let response):
+            guard isCurrentGeneration(generation) else { return }
             if reset {
                 files = response.files
             } else {
@@ -162,11 +181,11 @@ final class DriveViewModel {
             }
             hasMoreFiles = response.hasMore
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            recordFailure(error, generation: generation)
         }
     }
 
-    private func loadSearch(config: ServerConfig, reset: Bool) async {
+    private func loadSearch(config: ServerConfig, reset: Bool, generation: UInt) async {
         folders = []
         hasMoreFolders = false
 
@@ -184,6 +203,7 @@ final class DriveViewModel {
 
         switch result {
         case .success(let response):
+            guard isCurrentGeneration(generation) else { return }
             if reset {
                 files = response.files
             } else {
@@ -191,7 +211,7 @@ final class DriveViewModel {
             }
             hasMoreFiles = response.hasMore
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            recordFailure(error, generation: generation)
         }
     }
 
@@ -210,7 +230,7 @@ final class DriveViewModel {
             folders.append(contentsOf: response.folders)
             hasMoreFolders = response.hasMore
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            recordFailure(error, generation: loadGeneration)
         }
     }
 
@@ -230,8 +250,32 @@ final class DriveViewModel {
             files.append(contentsOf: response.files)
             hasMoreFiles = response.hasMore
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            recordFailure(error, generation: loadGeneration)
         }
+    }
+
+    private func beginRefresh() -> UInt {
+        loadGeneration += 1
+        isRefreshing = true
+        errorMessage = nil
+        return loadGeneration
+    }
+
+    private func endRefresh(_ generation: UInt) {
+        if generation == loadGeneration {
+            isRefreshing = false
+        }
+    }
+
+    private func isCurrentGeneration(_ generation: UInt) -> Bool {
+        generation == loadGeneration
+    }
+
+    /// Surfaces real failures only — ignores cancellation and superseded refresh generations.
+    private func recordFailure(_ error: DriveServiceError, generation: UInt) {
+        guard isCurrentGeneration(generation) else { return }
+        guard !error.isCancellation else { return }
+        errorMessage = error.localizedDescription
     }
 
 }

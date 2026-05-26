@@ -137,3 +137,21 @@ func isImageMime(_ mimeType: String?) -> Bool {
 func isVideoMime(_ mimeType: String?) -> Bool {
     (mimeType ?? "").lowercased().hasPrefix("video/")
 }
+
+extension DriveFile {
+    /// Vault stores processed uploads as HLS only — downloads use remuxed `export.mp4`.
+    var isHlsStoredVideo: Bool {
+        isVideoMime(mimeType) && hlsReady
+    }
+
+    /// Download filename for remuxed exports — preserve stem, force `.mp4` extension.
+    var mp4DownloadName: String {
+        let lower = name.lowercased()
+        if lower.hasSuffix(".mp4") { return name }
+        if let dot = name.lastIndex(of: ".") {
+            let stem = String(name[..<dot])
+            return "\(stem).mp4"
+        }
+        return "\(name).mp4"
+    }
+}

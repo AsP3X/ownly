@@ -200,12 +200,18 @@ async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
 // Agent: CALLS wait_for_nebular_health; BAILS if proxy mode storage unreachable.
 pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
     let storage: Arc<dyn Storage> = if config.storage_mode == "proxy" {
+        // Human: Presigned object URLs must be signed with the same secret Nebular OS verifies (NOS_SIGNING_SECRET).
+        // Agent: PREFERS NOS_SIGNING_SECRET env; FALLBACK signing_secret for local dev without Compose.
+        let object_storage_signing = std::env::var("NOS_SIGNING_SECRET")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| config.signing_secret.clone());
         let nebula = NebulaStorage::new(
             config.object_storage_url.clone(),
             config.object_storage_public_url.clone(),
             config.object_storage_bucket.clone(),
             &config.object_storage_jwt_secret,
-            &config.signing_secret,
+            &object_storage_signing,
         )?;
         wait_for_nebular_health(&config.object_storage_url).await?;
         Arc::new(nebula)

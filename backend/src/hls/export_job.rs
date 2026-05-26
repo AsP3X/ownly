@@ -8,8 +8,9 @@ use anyhow::Context;
 use sqlx::PgPool;
 
 use crate::hls::encoder::HlsEncoder;
+use crate::hls::export::{looks_like_mp4, segment_rel_path_for_export, MIN_EXPORT_MP4_BYTES};
 use crate::hls::playlist::{
-    hls_segment_storage_aliases, normalize_segment_rel_path, parse_segment_manifest,
+    hls_segment_storage_aliases, parse_segment_manifest,
     playlist_uses_fmp4,
     segment_aes_sequence_map, PlaylistGenerator, HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION,
 };
@@ -105,6 +106,19 @@ pub async fn run_hls_export_job(
         }
     };
 
+    // Human: Never publish a "ready" export if ffmpeg produced an empty/truncated file.
+    // Agent: VALIDATES MP4 length + ftyp box; MARKS download_export_status=failed on invalid output.
+    if mp4_bytes.len() < MIN_EXPORT_MP4_BYTES as usize || !looks_like_mp4(&mp4_bytes) {
+        mark_export_failed(
+            &pool,
+            &file_id,
+            "export produced an invalid MP4 (likely playlist/key mismatch)",
+        )
+        .await;
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        return;
+    }
+
     let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
     if let Err(e) = storage
         .put(&export_key, "video/mp4", mp4_bytes.clone())
@@ -196,7 +210,7 @@ async fn prepare_hls_workdir(
             .with_context(|| format!("no AES sequence for segment {storage_name}"))?;
         let clear = decrypt_hls_media_segment(&encrypted, &aes_key, sequence)?;
         tokio::fs::write(segments_dir.join(&resolved_name), &clear).await?;
-        segment_files.push(normalize_segment_rel_path(name));
+        segment_files.push(segment_rel_path_for_export(name));
 
         if count > 0 {
             let pct = 5 + (((i + 1) as f64 / count as f64) * 34.0).round() as i32;
@@ -204,33 +218,43 @@ async fn prepare_hls_workdir(
         }
     }
 
+    if segment_files.is_empty() {
+        anyhow::bail!("no HLS segments available for export");
+    }
+
+    let durations = align_segment_durations(&segment_files, &segment_durations);
     let key_uri = "key.bin";
     let init_uri = HLS_INIT_FILENAME;
-    let playlist = if !stored_text.is_empty() {
-        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri, init_uri, fmp4)
-            .unwrap_or_else(|_| {
-                PlaylistGenerator::generate(
-                    ".",
-                    &segment_files,
-                    &segment_durations,
-                    key_uri,
-                    init_uri,
-                    fmp4,
-                )
-            })
-    } else {
-        PlaylistGenerator::generate(
-            ".",
-            &segment_files,
-            &segment_durations,
-            key_uri,
-            init_uri,
-            fmp4,
-        )
-    };
-    tokio::fs::write(work_dir.join("stream.m3u8"), playlist).await?;
+    // Human: Always build a local relative-path VOD manifest — stored playlists use API URLs unsuitable for ffmpeg.
+    // Agent: CALLS generate(".", …); STRIPS #EXT-X-KEY because segments on disk are already decrypted.
+    let playlist = PlaylistGenerator::generate(
+        ".",
+        &segment_files,
+        &durations,
+        key_uri,
+        init_uri,
+        fmp4,
+    );
+    let clear_playlist = strip_aes128_tags(&playlist);
+    tokio::fs::write(work_dir.join("stream.m3u8"), clear_playlist).await?;
 
     Ok(())
+}
+
+fn strip_aes128_tags(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("#EXT-X-KEY:"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+fn align_segment_durations(segment_files: &[String], parsed: &[f64]) -> Vec<f64> {
+    if parsed.len() == segment_files.len() {
+        return parsed.to_vec();
+    }
+    vec![4.0; segment_files.len()]
 }
 
 // Human: Segment filenames for export — prefer stored playlist order, else numbered TS/fMP4.

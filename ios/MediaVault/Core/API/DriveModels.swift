@@ -87,6 +87,30 @@ struct FolderListResponse: Decodable, Sendable {
     }
 }
 
+/// Poll response for `GET`/`POST` `/files/:id/export` (HLS → MP4 remux before download).
+struct FileDownloadURLResponse: Decodable, Sendable {
+    let url: String
+    let expiresInSeconds: Int
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case expiresInSeconds = "expires_in_seconds"
+    }
+}
+
+struct VideoExportStatus: Decodable, Sendable {
+    let status: String
+    let progress: Int
+    let ready: Bool
+    let sizeBytes: Int64?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, progress, ready, error
+        case sizeBytes = "size_bytes"
+    }
+}
+
 struct VideoStreamURLResponse: Decodable, Sendable {
     let url: String?
     let hlsReady: Bool
@@ -117,11 +141,65 @@ struct FileListResponse: Decodable, Sendable {
     }
 }
 
+struct ShareLink: Codable, Identifiable, Sendable, Hashable {
+    let id: String
+    let token: String
+    let resourceType: String
+    let resourceId: String
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, token
+        case resourceType = "resource_type"
+        case resourceId = "resource_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct ShareLookupResponse: Decodable, Sendable {
+    let share: ShareLink?
+}
+
+struct ShareCreateResponse: Decodable, Sendable {
+    let share: ShareLink
+}
+
+struct ResourceSharesResponse: Decodable, Sendable {
+    let publicShare: ShareLink?
+
+    enum CodingKeys: String, CodingKey {
+        case publicShare = "public_share"
+    }
+}
+
+struct FolderDownloadStatus: Decodable, Sendable {
+    let status: String
+    let progress: Int
+    let ready: Bool
+    let archiveName: String
+    let sizeBytes: Int64?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, progress, ready, error
+        case archiveName = "archive_name"
+        case sizeBytes = "size_bytes"
+    }
+}
+
 enum DriveServiceError: LocalizedError, Equatable {
     case noServerURL
     case unauthorized
     case network(description: String)
     case server(message: String)
+    /// Pull-to-refresh or a superseded load cancelled in-flight requests — not user-facing.
+    case cancelled
+
+    /// True when the failure is task/URL cancellation, not a server or config problem.
+    var isCancellation: Bool {
+        if case .cancelled = self { return true }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
@@ -133,6 +211,8 @@ enum DriveServiceError: LocalizedError, Equatable {
             description
         case .server(let message):
             message
+        case .cancelled:
+            nil
         }
     }
 }

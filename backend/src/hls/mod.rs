@@ -2,6 +2,7 @@
 // Agent: MODULES encoder/encode_job/handlers/key_store/playlist; USED on video upload and `/files/:id/playlist` playback.
 
 pub mod encode_job;
+pub mod export;
 pub mod export_job;
 pub mod encoder;
 pub mod handlers;

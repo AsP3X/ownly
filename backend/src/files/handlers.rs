@@ -5,7 +5,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
     http::{header, HeaderMap},
-    response::{IntoResponse, Response},
+    response::{Response},
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ use crate::{
         listing::{self, ListFilesParams},
         processing::ensure_file_not_processing,
     },
+    hls::export::export_cache_is_valid,
     jobs::{self, model::HlsEncodePayload, JobKind},
     rate_limit,
     request_tracking,
@@ -39,8 +40,8 @@ pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_i
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
-type DownloadFileRow = (String, String, Option<String>, bool, bool, Option<String>);
-type DownloadUrlRow = (String, Option<String>, bool, bool, Option<String>);
+type DownloadFileRow = (String, String, Option<String>, bool, bool, Option<String>, Option<i64>);
+type DownloadUrlRow = (String, Option<String>, bool, bool, Option<String>, Option<i64>);
 type MoveFileCurrentRow = (Option<String>, String, Option<String>, bool, Option<String>);
 
 // Human: True when the vault keeps an HLS bundle (no standalone original blob).
@@ -592,21 +593,28 @@ pub async fn download_file(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let row: Option<DownloadFileRow> = sqlx::query_as(
-        "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status, \
+         download_export_size_bytes FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (storage_key, name, mime_type, hls_ready, export_ready, hls_encode_status) =
-        row.ok_or(AppError::NotFound)?;
+    let (
+        storage_key,
+        name,
+        mime_type,
+        hls_ready,
+        export_ready,
+        hls_encode_status,
+        export_size,
+    ) = row.ok_or(AppError::NotFound)?;
 
     ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
-        if !export_ready {
+        if !export_cache_is_valid(export_ready, export_size) {
             return Err(AppError::Conflict(
                 "video export is not ready — poll /export and retry".into(),
             ));
@@ -635,14 +643,19 @@ pub async fn download_file(
     } else {
         mime_type.unwrap_or(content_type)
     };
-    Ok((
-        [
-            (header::CONTENT_TYPE, resolved_type),
-            (header::CONTENT_DISPOSITION, disposition),
-        ],
-        body,
-    )
-        .into_response())
+
+    // Human: Clients (especially URLSession) need Content-Length to read the full object when proxying storage.
+    // Agent: SETS Content-Length from storage metadata when known; avoids truncated MP4 downloads on iOS.
+    let mut builder = Response::builder()
+        .header(header::CONTENT_TYPE, resolved_type)
+        .header(header::CONTENT_DISPOSITION, disposition);
+    if _len > 0 {
+        builder = builder.header(header::CONTENT_LENGTH, _len);
+    }
+
+    builder
+        .body(body)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("download response: {e}")))
 }
 
 // Human: Return a time-limited presigned URL for direct client download from object storage.
@@ -653,20 +666,26 @@ pub async fn download_url(
     Path(id): Path<String>,
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
     let row: Option<DownloadUrlRow> = sqlx::query_as(
-        "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status, \
+         download_export_size_bytes FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
-    let (storage_key, mime_type, hls_ready, export_ready, hls_encode_status) =
-        row.ok_or(AppError::NotFound)?;
+    let (
+        storage_key,
+        mime_type,
+        hls_ready,
+        export_ready,
+        hls_encode_status,
+        export_size,
+    ) = row.ok_or(AppError::NotFound)?;
 
     ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
-        if !export_ready {
+        if !export_cache_is_valid(export_ready, export_size) {
             return Err(AppError::Conflict(
                 "video export is not ready — poll /export and retry".into(),
             ));
