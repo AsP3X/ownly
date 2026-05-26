@@ -46,6 +46,13 @@ enum DriveService {
         return await authorizedGET(config: config, path: "/files", query: query)
     }
 
+    static func fetchVideoStreamURL(
+        config: ServerConfig,
+        fileId: String
+    ) async -> Result<VideoStreamURLResponse, DriveServiceError> {
+        await authorizedGET(config: config, path: "/files/\(fileId)/stream-url", query: [])
+    }
+
     static func downloadImageData(config: ServerConfig, fileId: String) async -> Data? {
         guard let request = try? authorizedRequest(config: config, path: "/files/\(fileId)/download") else {
             return nil

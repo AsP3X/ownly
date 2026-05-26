@@ -267,6 +267,22 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(hls::handlers::stream_file),
         )
         .route(
+            "/api/v1/files/{id}/hls/manifest.m3u8",
+            get(hls::handlers::get_hls_manifest),
+        )
+        .route(
+            "/api/v1/files/{id}/hls/key",
+            get(hls::handlers::get_hls_key),
+        )
+        .route(
+            "/api/v1/files/{id}/hls/init",
+            get(hls::handlers::get_hls_init),
+        )
+        .route(
+            "/api/v1/files/{id}/hls/segments/{segment}",
+            get(hls::handlers::get_hls_segment),
+        )
+        .route(
             "/api/v1/public/shares/{token}",
             get(shares::handlers::public_share_overview),
         )

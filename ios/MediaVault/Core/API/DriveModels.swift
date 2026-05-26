@@ -68,6 +68,22 @@ struct FolderListResponse: Decodable, Sendable {
     }
 }
 
+struct VideoStreamURLResponse: Decodable, Sendable {
+    let url: String?
+    let hlsReady: Bool
+    let conversionProgress: Int
+    let hlsEncodeStatus: String?
+    let hlsEncodeError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case hlsReady = "hls_ready"
+        case conversionProgress = "conversion_progress"
+        case hlsEncodeStatus = "hls_encode_status"
+        case hlsEncodeError = "hls_encode_error"
+    }
+}
+
 struct FileListResponse: Decodable, Sendable {
     let files: [DriveFile]
     let totalBytes: Int64

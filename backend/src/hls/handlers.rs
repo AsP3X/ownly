@@ -36,6 +36,10 @@ pub struct TicketParams {
     pub ticket: Option<String>,
 }
 
+// Human: How long an HLS playback ticket remains valid for AVPlayer segment fetches without JWT.
+// Agent: PASSED to stream_ticket::generate_ticket from get_stream_url; MUST match ticket validation on /hls/* routes.
+const HLS_PLAYBACK_TICKET_TTL_SECS: u64 = 4 * 3600;
+
 // Human: Row shape for HLS playback lookups — storage key, readiness, segment count, source size.
 // Agent: READ by ensure_file_owned; size_bytes drives synthetic playlist segment duration tier.
 pub(crate) type HlsPlaybackRow = (String, Option<bool>, Option<i32>, Option<i64>);
@@ -54,6 +58,92 @@ async fn ensure_file_owned(
     .await?;
 
     row.ok_or(AppError::NotFound)
+}
+
+// Human: HLS playback row lookup by file id only — used for ticket-gated public HLS routes.
+// Agent: READS files without user_id; NOT FOUND when id missing; ticket still binds user in HMAC.
+async fn ensure_file_playback(
+    state: &AppState,
+    file_id: &str,
+) -> Result<HlsPlaybackRow, AppError> {
+    let row: Option<HlsPlaybackRow> = sqlx::query_as(
+        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    row.ok_or(AppError::NotFound)
+}
+
+// Human: Require a valid stream ticket on public HLS sub-resource requests.
+// Agent: READS TicketParams.ticket; CALLS stream_ticket::validate_ticket; RETURNS Unauthorized when missing/invalid.
+fn require_hls_ticket(
+    params: &TicketParams,
+    file_id: &str,
+    secret: &str,
+) -> Result<(), AppError> {
+    let ticket = params.ticket.as_deref().ok_or(AppError::Unauthorized)?;
+    stream_ticket::validate_ticket(ticket, file_id, secret)
+}
+
+// Human: Percent-encode a query value so dotted HMAC tickets are safe in playlist URIs.
+// Agent: USED when building manifest URL and when appending ticket= to each playlist line.
+pub(crate) fn encode_query_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+// Human: Append the same playback ticket to every absolute URI in an HLS manifest.
+// Agent: REWRITES path lines and URI="..." attributes; SKIPS lines that already contain ticket=.
+pub(crate) fn append_ticket_to_playlist(playlist: &str, ticket: &str) -> String {
+    let encoded = encode_query_component(ticket);
+    playlist
+        .lines()
+        .map(|line| append_ticket_to_playlist_line(line, &encoded))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn append_ticket_to_playlist_line(line: &str, encoded_ticket: &str) -> String {
+    if let Some(uri_start) = line.find("URI=\"") {
+        let quote_start = uri_start + 5;
+        let rest = &line[quote_start..];
+        let Some(end_rel) = rest.find('"') else {
+            return line.to_string();
+        };
+        let uri = &rest[..end_rel];
+        if uri.contains("ticket=") {
+            return line.to_string();
+        }
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        let new_uri = format!("{uri}{sep}ticket={encoded_ticket}");
+        return format!(
+            "{}{}{}",
+            &line[..quote_start],
+            new_uri,
+            &line[quote_start + end_rel..]
+        );
+    }
+
+    let trimmed = line.trim();
+    if trimmed.starts_with('/') && !trimmed.starts_with('#') {
+        if trimmed.contains("ticket=") {
+            return line.to_string();
+        }
+        let sep = if trimmed.contains('?') { '&' } else { '?' };
+        return format!("{trimmed}{sep}ticket={encoded_ticket}");
+    }
+
+    line.to_string()
 }
 
 // Human: Load ffmpeg's stored stream.m3u8 and rewrite segment/key URIs for API playback.
@@ -257,7 +347,14 @@ pub async fn get_stream_url(
         row.ok_or(AppError::NotFound)?;
 
     if hls_ready.unwrap_or(false) {
-        let playlist_url = format!("/api/v1/files/{id}/playlist");
+        let ticket = stream_ticket::generate_ticket(
+            &id,
+            &claims.sub,
+            &state.signing_secret,
+            HLS_PLAYBACK_TICKET_TTL_SECS,
+        );
+        let encoded = encode_query_component(&ticket);
+        let playlist_url = format!("/api/v1/files/{id}/hls/manifest.m3u8?ticket={encoded}");
         return Ok(Json(serde_json::json!({
             "url": playlist_url,
             "hls_ready": true,
@@ -397,6 +494,142 @@ pub async fn get_init(
         .map_err(|_| AppError::NotFound)?;
 
     Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
+}
+
+// Human: Ticket-gated HLS master manifest for native AVPlayer HTTP playback (no JWT on segments).
+// Agent: validate_ticket; BUILD playlist under /hls/*; APPEND ticket= to every sub-resource URI.
+pub async fn get_hls_manifest(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<TicketParams>,
+) -> Result<Response, AppError> {
+    require_hls_ticket(&params, &id, &state.signing_secret)?;
+    let ticket = params.ticket.as_deref().expect("ticket checked");
+
+    let (storage_key, hls_ready, segment_count, size_bytes) =
+        ensure_file_playback(state.as_ref(), &id).await?;
+
+    if !hls_ready.unwrap_or(false) {
+        return Err(AppError::NotFound);
+    }
+
+    let encoded = encode_query_component(ticket);
+    let base_url = format!("/api/v1/files/{id}/hls");
+    let key_uri = format!("/api/v1/files/{id}/hls/key?ticket={encoded}");
+    let init_uri = format!("/api/v1/files/{id}/hls/init?ticket={encoded}");
+
+    let count = segment_count.unwrap_or(0) as usize;
+    let source_size = size_bytes.unwrap_or(0).max(0) as u64;
+    let playlist = build_playlist_for_playback(
+        state.storage.as_ref(),
+        &storage_key,
+        &base_url,
+        &key_uri,
+        &init_uri,
+        count,
+        source_size,
+    )
+    .await?;
+    let playlist = append_ticket_to_playlist(&playlist, ticket);
+
+    let _storage_key = storage_key;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.apple.mpegurl"),
+            (header::CACHE_CONTROL, "no-store, no-cache, must-revalidate"),
+        ],
+        playlist,
+    )
+        .into_response())
+}
+
+// Human: Ticket-gated AES-128 key for HLS playback without Authorization header.
+// Agent: validate_ticket; READS key.bin or key_store; SAME bytes as authenticated get_key.
+pub async fn get_hls_key(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<TicketParams>,
+) -> Result<Response, AppError> {
+    require_hls_ticket(&params, &id, &state.signing_secret)?;
+
+    let (storage_key, _, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+
+    let key = resolve_hls_aes_key(
+        state.storage.as_ref(),
+        &state.hls_key_store,
+        &storage_key,
+        &id,
+    )
+    .await?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CACHE_CONTROL, "no-store, no-cache, must-revalidate"),
+        ],
+        key.to_vec(),
+    )
+        .into_response())
+}
+
+// Human: Ticket-gated fMP4 init segment for EXT-X-MAP without JWT.
+// Agent: validate_ticket; RATE LIMITS per file id; STREAMS {storage_key}/init.mp4.
+pub async fn get_hls_init(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<TicketParams>,
+) -> Result<Response, AppError> {
+    require_hls_ticket(&params, &id, &state.signing_secret)?;
+
+    let (storage_key, hls_ready, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+
+    if !hls_ready.unwrap_or(false) {
+        return Err(AppError::NotFound);
+    }
+
+    let rl_key = format!("ticket:{id}");
+    rate_limit::enforce(&state.hls_segment_rl, &rl_key)?;
+
+    let key = format!("{storage_key}/{HLS_INIT_FILENAME}");
+    let (stream, size, _) = state
+        .storage
+        .get_stream(&key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+
+    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
+}
+
+// Human: Ticket-gated encrypted media segment proxy for AVPlayer.
+// Agent: validate_ticket; OPEN segment aliases; RATE LIMITS ticket:{file_id}.
+pub async fn get_hls_segment(
+    State(state): State<Arc<AppState>>,
+    Path((id, segment_name)): Path<(String, String)>,
+    Query(params): Query<TicketParams>,
+) -> Result<Response, AppError> {
+    require_hls_ticket(&params, &id, &state.signing_secret)?;
+
+    let (storage_key, hls_ready, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+
+    if !hls_ready.unwrap_or(false) {
+        return Err(AppError::NotFound);
+    }
+
+    let rl_key = format!("ticket:{id}");
+    rate_limit::enforce(&state.hls_segment_rl, &rl_key)?;
+
+    if !segment_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.')
+    {
+        return Err(AppError::BadRequest("invalid segment name".into()));
+    }
+
+    let (stream, size, resolved_name) =
+        open_hls_segment(state.storage.as_ref(), &storage_key, &segment_name).await?;
+
+    Ok(segment_media_response(stream, size, &resolved_name))
 }
 
 // Human: HLS media segment/init response with Content-Length and type by filename.
@@ -685,12 +918,34 @@ pub async fn get_export(
 
 #[cfg(test)]
 mod tests {
-    use super::hls_segment_content_type;
+    use super::{
+        append_ticket_to_playlist, encode_query_component, hls_segment_content_type,
+    };
 
     #[test]
     fn hls_segment_content_type_by_extension() {
         assert_eq!(hls_segment_content_type("0000.ts"), "video/mp2t");
         assert_eq!(hls_segment_content_type("0000.m4s"), "video/mp4");
         assert_eq!(hls_segment_content_type("init.mp4"), "video/mp4");
+    }
+
+    #[test]
+    fn append_ticket_to_playlist_paths_and_uri_attrs() {
+        let ticket = "file.user.9999.deadbeef";
+        let input = concat!(
+            "#EXTM3U\n",
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/f/key\"\n",
+            "/api/v1/files/f/hls/segments/0000.m4s\n",
+        );
+        let out = append_ticket_to_playlist(input, ticket);
+        assert!(out.contains("/api/v1/files/f/key?ticket="));
+        assert!(out.contains("/api/v1/files/f/hls/segments/0000.m4s?ticket="));
+        assert!(!out.contains("ticket=ticket="));
+    }
+
+    #[test]
+    fn encode_query_component_leaves_ticket_dots() {
+        let ticket = "a.b.c.d";
+        assert_eq!(encode_query_component(ticket), ticket);
     }
 }

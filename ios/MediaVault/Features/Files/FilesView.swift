@@ -5,6 +5,8 @@ import SwiftUI
 struct FilesView: View {
     @Environment(\.appState) private var appState
     @State private var viewModel = DriveViewModel()
+    @State private var videoFileForPlayback: DriveFile?
+    @State private var videoUnavailableMessage: String?
 
     var body: some View {
         ZStack {
@@ -30,10 +32,18 @@ struct FilesView: View {
                                 .padding(.top, 28)
                         } else {
                             if !viewModel.isSearching {
-                                RecentFilesCardView(files: viewModel.files, config: appState.config)
+                                RecentFilesCardView(
+                                    files: viewModel.files,
+                                    config: appState.config,
+                                    onOpenVideo: openVideo
+                                )
                             }
 
-                            FileExplorerListView(viewModel: viewModel, config: appState.config)
+                            FileExplorerListView(
+                                viewModel: viewModel,
+                                config: appState.config,
+                                onOpenVideo: openVideo
+                            )
                         }
 
                         if viewModel.isLoadingMore {
@@ -70,6 +80,42 @@ struct FilesView: View {
         .onChange(of: appState.config) { _, newConfig in
             viewModel.bind(config: newConfig)
         }
+        .fullScreenCover(item: $videoFileForPlayback) { file in
+            VideoPlayerView(file: file, config: appState.config)
+        }
+        .alert(
+            "Video unavailable",
+            isPresented: Binding(
+                get: { videoUnavailableMessage != nil },
+                set: { if !$0 { videoUnavailableMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(videoUnavailableMessage ?? "")
+        }
+    }
+
+    // MARK: - Video playback
+
+    private func openVideo(_ file: DriveFile) {
+        guard isVideoMime(file.mimeType) else { return }
+
+        if FileProcessing.isProcessing(file) {
+            videoUnavailableMessage = FileProcessing.label(for: file)
+            return
+        }
+
+        guard file.hlsReady else {
+            if file.hlsEncodeStatus == "failed" {
+                videoUnavailableMessage = file.hlsEncodeError ?? "Video processing failed."
+            } else {
+                videoUnavailableMessage = "This video is not ready for playback yet."
+            }
+            return
+        }
+
+        videoFileForPlayback = file
     }
 
     // MARK: - Loading, empty & error states

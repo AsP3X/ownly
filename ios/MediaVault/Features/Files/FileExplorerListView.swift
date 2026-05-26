@@ -5,6 +5,7 @@ import SwiftUI
 struct FileExplorerListView: View {
     @Bindable var viewModel: DriveViewModel
     let config: ServerConfig
+    var onOpenVideo: ((DriveFile) -> Void)? = nil
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24, pinnedViews: []) {
@@ -59,6 +60,24 @@ struct FileExplorerListView: View {
     }
 
     private func fileRow(_ file: DriveFile) -> some View {
+        Group {
+            if isVideoMime(file.mimeType), let onOpenVideo {
+                Button {
+                    onOpenVideo(file)
+                } label: {
+                    fileRowContent(file)
+                }
+                .buttonStyle(.plain)
+            } else {
+                fileRowContent(file)
+            }
+        }
+        .onAppear {
+            Task { await viewModel.loadMoreIfNeeded(currentItemId: file.id) }
+        }
+    }
+
+    private func fileRowContent(_ file: DriveFile) -> some View {
         FileListRow(
             title: file.name,
             subtitle: fileSubtitle(file),
@@ -66,9 +85,12 @@ struct FileExplorerListView: View {
             isFolder: false,
             sharePublic: file.sharePublic,
             processingLabel: FileProcessing.isProcessing(file) ? FileProcessing.label(for: file) : nil
-        )
-        .onAppear {
-            Task { await viewModel.loadMoreIfNeeded(currentItemId: file.id) }
+        ) {
+            if isVideoMime(file.mimeType), file.hlsReady, !FileProcessing.isProcessing(file) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(DriveExplorerStyle.video)
+            }
         }
     }
 

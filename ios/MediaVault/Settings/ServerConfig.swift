@@ -45,6 +45,26 @@ struct ServerConfig: Equatable {
 
         return URL(string: baseString + normalized)
     }
+
+    /// Resolves absolute `http(s)://…` URLs or API paths (`/api/v1/…` or `/files/…`) against `apiBaseURL`.
+    func resolveAPIURL(_ pathOrURL: String) -> URL? {
+        let trimmed = pathOrURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
+            return URL(string: trimmed)
+        }
+
+        var normalized = trimmed
+        let apiPrefix = "/\(Self.apiPathPrefix)"
+        if normalized.hasPrefix(apiPrefix) {
+            normalized = String(normalized.dropFirst(apiPrefix.count))
+        }
+        if !normalized.hasPrefix("/") {
+            normalized = "/\(normalized)"
+        }
+        return requestURL(path: normalized)
+    }
 }
 
 private enum Keys {

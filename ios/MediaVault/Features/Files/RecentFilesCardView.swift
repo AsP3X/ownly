@@ -5,6 +5,7 @@ import SwiftUI
 struct RecentFilesCardView: View {
     let files: [DriveFile]
     let config: ServerConfig
+    var onOpenVideo: ((DriveFile) -> Void)? = nil
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -28,7 +29,7 @@ struct RecentFilesCardView: View {
 
                 LazyVGrid(columns: columns, spacing: 14) {
                     ForEach(recentFiles) { file in
-                        RecentFileCard(file: file, config: config)
+                        RecentFileCard(file: file, config: config, onOpenVideo: onOpenVideo)
                     }
                 }
             }
@@ -42,8 +43,24 @@ struct RecentFilesCardView: View {
 private struct RecentFileCard: View {
     let file: DriveFile
     let config: ServerConfig
+    var onOpenVideo: ((DriveFile) -> Void)? = nil
 
     var body: some View {
+        Group {
+            if isVideoMime(file.mimeType), let onOpenVideo {
+                Button {
+                    onOpenVideo(file)
+                } label: {
+                    cardBody
+                }
+                .buttonStyle(.plain)
+            } else {
+                cardBody
+            }
+        }
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             preview
                 .frame(height: 118)
@@ -80,6 +97,16 @@ private struct RecentFileCard: View {
                 FileGridThumbnail(file: file, config: config)
             } else {
                 FileTypeIconView(mimeType: file.mimeType, size: 52)
+            }
+
+            if isVideoMime(file.mimeType),
+               file.hlsReady,
+               !FileProcessing.isProcessing(file) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 36))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, DriveExplorerStyle.video.opacity(0.85))
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
             }
 
             if FileProcessing.isProcessing(file) {

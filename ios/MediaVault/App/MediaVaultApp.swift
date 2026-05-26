@@ -4,6 +4,7 @@ import SwiftUI
 // Agent: @main App; @State AppState; body WindowGroup RootView environment appState.
 @main
 struct MediaVaultApp: App {
+    @UIApplicationDelegateAdaptor(MediaVaultAppDelegate.self) private var appDelegate
     @AppStorage("mediavault.appearance") private var appearance: String = "system"
     @State private var appState = AppState()
 

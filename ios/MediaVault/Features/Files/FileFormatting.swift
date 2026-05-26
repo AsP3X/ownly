@@ -133,3 +133,7 @@ enum FileProcessing {
 func isImageMime(_ mimeType: String?) -> Bool {
     (mimeType ?? "").lowercased().hasPrefix("image/")
 }
+
+func isVideoMime(_ mimeType: String?) -> Bool {
+    (mimeType ?? "").lowercased().hasPrefix("video/")
+}
