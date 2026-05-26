@@ -138,7 +138,10 @@ export function MobileDriveHeader({
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 px-4 py-3 text-sm text-neutral-800 active:bg-neutral-50"
-                  onClick={onLogout}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onLogout();
+                  }}
                 >
                   <LogOut className="size-4" />
                   Sign out

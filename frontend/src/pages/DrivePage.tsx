@@ -997,6 +997,14 @@ export default function DrivePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // Human: End the session from profile menus — mousedown avoids click being swallowed by overlapping layers.
+  // Agent: WRITES profileOpen false; CALLS logout; USED by desktop + mobile profile menus.
+  const handleSignOut = useCallback(() => {
+    setProfileOpen(false);
+    logout();
+  }, [logout]);
+
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [folderDeletePreview, setFolderDeletePreview] = useState<FolderDeletionPreview | null>(
     null,
@@ -1934,7 +1942,8 @@ export default function DrivePage() {
           bulkSelectionCount={selectedFileIds.size}
         />
       {/* Top bar — desktop only; mobile uses MobileDriveHeader below. */}
-      <header className="hidden shrink-0 border-b border-neutral-200 bg-white lg:block">
+      {/* Agent: relative z-20 keeps the profile dropdown above the main grid so Sign out receives clicks. */}
+      <header className="relative z-20 hidden shrink-0 border-b border-neutral-200 bg-white lg:block">
         <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <Button
@@ -1996,9 +2005,9 @@ export default function DrivePage() {
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50"
-                    onClick={() => {
-                      setProfileOpen(false);
-                      logout();
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSignOut();
                     }}
                   >
                     <LogOut className="size-4" />
@@ -2021,10 +2030,7 @@ export default function DrivePage() {
         profileOpen={profileOpen}
         profileRef={mobileProfileRef}
         onProfileToggle={() => setProfileOpen((open) => !open)}
-        onLogout={() => {
-          setProfileOpen(false);
-          logout();
-        }}
+        onLogout={handleSignOut}
         onMenuOpen={() => setMobileSidebarOpen(true)}
         onUpload={() => setUploadDialogOpen(true)}
         onCreateFolder={() => {
