@@ -1,12 +1,24 @@
 // Human: File picker modal — select files then hand off to the floating upload transfer panel.
-// Agent: WRITES startUploadBatch; CLOSES dialog immediately so the drive stays interactive.
+// Agent: WRITES startUploadBatch; CHECKS upload conflicts; RESTORES recycle matches on Continue.
 
-import { useCallback, useEffect, useRef, useState, Children, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Children, type ReactNode } from "react";
 import { FileIcon, Upload, X } from "lucide-react";
 import {
   QUEUE_BOX_HEIGHT,
   QUEUE_ROW_HEIGHT,
 } from "@/components/drive/upload-batch-view";
+import { UploadConflictDialog } from "@/components/drive/UploadDuplicateDialog";
+import {
+  checkUploadNameDuplicates,
+  getErrorMessage,
+  restoreRecycleBinItems,
+  type UploadNameDuplicate,
+  type UploadRecycleMatch,
+} from "@/api/client";
+import {
+  buildSmartContinueLabel,
+  buildUploadConflictPlan,
+} from "@/lib/upload-conflicts";
 import { startUploadBatch, subscribeUploadBatch } from "@/lib/upload-manager";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -33,6 +45,8 @@ type UploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   folderId?: string | null;
+  /** Human: Refresh drive listings after recycle-bin restores from the upload preflight. */
+  onLibraryChanged?: () => void;
 };
 
 // Human: Bordered scroll list for files awaiting upload confirmation in the picker dialog.
@@ -69,12 +83,36 @@ function PendingFileListBox({
   );
 }
 
-// Human: Modal to pick files — uploads run in UploadTransferPanel after the user confirms.
-// Agent: CALLS startUploadBatch on submit; CLOSES dialog; DOES NOT block drive interaction.
-export function UploadDialog({ open, onOpenChange, folderId = null }: UploadDialogProps) {
+// Human: Modal to pick files — uploads run in UploadTransferPanel after conflict resolution.
+// Agent: CALLS checkUploadNameDuplicates; SHOWS UploadConflictDialog; RESTORES recycle matches.
+export function UploadDialog({
+  open,
+  onOpenChange,
+  folderId = null,
+  onLibraryChanged,
+}: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [activeUploadBatch, setActiveUploadBatch] = useState(false);
+  const [checkingConflicts, setCheckingConflicts] = useState(false);
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [duplicateMatches, setDuplicateMatches] = useState<UploadNameDuplicate[]>([]);
+  const [recycleMatches, setRecycleMatches] = useState<UploadRecycleMatch[]>([]);
+  const [conflictCheckError, setConflictCheckError] = useState("");
+  const [resolvingConflicts, setResolvingConflicts] = useState(false);
+
+  const continueLabel = useMemo(
+    () => buildSmartContinueLabel(pendingFiles, duplicateMatches, recycleMatches),
+    [pendingFiles, duplicateMatches, recycleMatches],
+  );
+
+  const continueDisabled = useMemo(() => {
+    const plan = buildUploadConflictPlan(pendingFiles, duplicateMatches, recycleMatches, {
+      skipDuplicates: true,
+      restoreRecycle: true,
+    });
+    return plan.restoreCount === 0 && plan.uploadCount === 0;
+  }, [pendingFiles, duplicateMatches, recycleMatches]);
 
   // Human: Hint when reopening the picker while the corner panel still has work in flight.
   // Agent: SUBSCRIBES upload-manager while open; WRITES activeUploadBatch from batch status.
@@ -105,21 +143,104 @@ export function UploadDialog({ open, onOpenChange, folderId = null }: UploadDial
     fileInputRef.current?.click();
   }
 
+  function resetConflictState() {
+    setConflictCheckError("");
+    setDuplicateMatches([]);
+    setRecycleMatches([]);
+    setConflictDialogOpen(false);
+  }
+
   function handleOpenChange(next: boolean) {
-    if (!next) setPendingFiles([]);
+    if (!next) {
+      setPendingFiles([]);
+      resetConflictState();
+    }
     onOpenChange(next);
   }
 
-  // Human: Hand files to upload-manager and close — progress moves to the corner panel.
-  // Agent: CALLS startUploadBatch; CLEARS pendingFiles; WRITES onOpenChange(false).
-  function handleStartUpload() {
-    if (pendingFiles.length === 0) return;
-    startUploadBatch(
-      pendingFiles.map((item) => item.file),
-      folderId,
-    );
+  // Human: Queue files in upload-manager and close the picker after conflict resolution.
+  // Agent: CALLS startUploadBatch when files remain; CLEARS pending state; CLOSES dialogs.
+  function beginUpload(files: File[]) {
+    resetConflictState();
     setPendingFiles([]);
     onOpenChange(false);
+    if (files.length > 0) {
+      startUploadBatch(files, folderId);
+    }
+  }
+
+  // Human: Restore recycle-bin rows and upload the remaining pending files per user choice.
+  // Agent: POST restoreRecycleBinItems; CALLS beginUpload; WRITES onLibraryChanged after restore.
+  async function executeUploadPlan(options: {
+    skipDuplicates: boolean;
+    restoreRecycle: boolean;
+  }) {
+    const plan = buildUploadConflictPlan(
+      pendingFiles,
+      duplicateMatches,
+      recycleMatches,
+      options,
+    );
+
+    setResolvingConflicts(true);
+    setConflictCheckError("");
+    try {
+      if (options.restoreRecycle && plan.restoreFileIds.length > 0) {
+        await restoreRecycleBinItems({
+          file_ids: plan.restoreFileIds,
+          folder_ids: [],
+        });
+        onLibraryChanged?.();
+      }
+      beginUpload(plan.uploadFiles);
+    } catch (error) {
+      setConflictCheckError(getErrorMessage(error));
+      setConflictDialogOpen(false);
+    } finally {
+      setResolvingConflicts(false);
+    }
+  }
+
+  // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
+  // Agent: POST checkUploadNameDuplicates; OPENS UploadConflictDialog when any matches exist.
+  async function handleStartUpload() {
+    if (pendingFiles.length === 0 || checkingConflicts) return;
+
+    setConflictCheckError("");
+    setCheckingConflicts(true);
+    try {
+      const files = pendingFiles.map((item) => ({
+        name: item.file.name,
+        // Human: Force an integer byte size so JSON always includes size_bytes for the API contract.
+        // Agent: AVOIDS omitted/NaN sizes that trigger Axum JSON 422 on check-upload-names.
+        size_bytes: Math.max(0, Math.floor(Number(item.file.size) || 0)),
+      }));
+      const { duplicates, recycle_matches } = await checkUploadNameDuplicates(files);
+      if (duplicates.length > 0 || recycle_matches.length > 0) {
+        setDuplicateMatches(duplicates);
+        setRecycleMatches(recycle_matches);
+        setConflictDialogOpen(true);
+        return;
+      }
+      beginUpload(pendingFiles.map((item) => item.file));
+    } catch (error) {
+      setConflictCheckError(getErrorMessage(error));
+    } finally {
+      setCheckingConflicts(false);
+    }
+  }
+
+  function handleSmartContinue() {
+    void executeUploadPlan({ skipDuplicates: true, restoreRecycle: true });
+  }
+
+  function handleUploadAnyway() {
+    void executeUploadPlan({ skipDuplicates: false, restoreRecycle: false });
+  }
+
+  function handleCancelConflictDialog() {
+    setConflictDialogOpen(false);
+    resetConflictState();
   }
 
   return (
@@ -148,6 +269,12 @@ export function UploadDialog({ open, onOpenChange, folderId = null }: UploadDial
             <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
               Uploads are running in the panel at the bottom-right. Files you add here join the
               same queue.
+            </p>
+          ) : null}
+
+          {conflictCheckError ? (
+            <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {conflictCheckError}
             </p>
           ) : null}
 
@@ -205,13 +332,28 @@ export function UploadDialog({ open, onOpenChange, folderId = null }: UploadDial
             type="button"
             size="sm"
             className="bg-blue-600 text-white hover:bg-blue-700"
-            disabled={pendingFiles.length === 0}
-            onClick={handleStartUpload}
+            disabled={pendingFiles.length === 0 || checkingConflicts}
+            onClick={() => void handleStartUpload()}
           >
-            Upload {pendingFiles.length > 0 ? `(${pendingFiles.length})` : ""}
+            {checkingConflicts
+              ? "Checking…"
+              : `Upload ${pendingFiles.length > 0 ? `(${pendingFiles.length})` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <UploadConflictDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+        duplicates={duplicateMatches}
+        recycleMatches={recycleMatches}
+        continueLabel={continueLabel}
+        continueDisabled={continueDisabled}
+        continuing={resolvingConflicts}
+        onContinue={handleSmartContinue}
+        onUploadAnyway={handleUploadAnyway}
+        onCancel={handleCancelConflictDialog}
+      />
     </Dialog>
   );
 }

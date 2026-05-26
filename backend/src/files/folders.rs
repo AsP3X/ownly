@@ -11,8 +11,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    audit, auth::handlers::Claims, error::AppError, files::file_delete::delete_owned_file_row,
+    audit, auth::handlers::Claims, error::AppError,
+    files::file_delete::{delete_owned_file_row, storage_object_count},
     files::listing::{self, ListFoldersParams},
+    files::recycle_bin::{self, DeleteQuery, ACTIVE_FILES_SQL, ACTIVE_FOLDERS_SQL},
     AppState,
 };
 
@@ -68,6 +70,8 @@ pub struct FolderDeletionPreviewResponse {
     pub file_count: u32,
     pub subfolder_count: u32,
     pub content_types: Vec<FolderContentTypeCount>,
+    pub file_ids: Vec<String>,
+    pub storage_object_count: u32,
 }
 
 // Human: Map a stored mime type to a drive filter bucket for deletion preview summaries.
@@ -123,9 +127,9 @@ async fn collect_folder_contents(
     let mut queue = vec![root_folder_id.to_string()];
 
     while let Some(folder_id) = queue.pop() {
-        let subfolders: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM folders WHERE user_id = $1 AND parent_id = $2",
-        )
+        let subfolders: Vec<(String,)> = sqlx::query_as(&format!(
+            "SELECT id FROM folders WHERE user_id = $1 AND parent_id = $2 AND {ACTIVE_FOLDERS_SQL}",
+        ))
         .bind(user_id)
         .bind(&folder_id)
         .fetch_all(pool)
@@ -136,9 +140,10 @@ async fn collect_folder_contents(
             queue.push(child_id);
         }
 
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT id, mime_type FROM files WHERE user_id = $1 AND folder_id = $2",
-        )
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(&format!(
+            "SELECT id, mime_type FROM files \
+             WHERE user_id = $1 AND folder_id = $2 AND {ACTIVE_FILES_SQL}",
+        ))
         .bind(user_id)
         .bind(&folder_id)
         .fetch_all(pool)
@@ -150,6 +155,70 @@ async fn collect_folder_contents(
     }
 
     Ok((files, subfolder_count))
+}
+
+// Human: Resolve preview file rows for an active or trashed folder subtree.
+// Agent: READS deleted_at on root folder; USES trashed subtree walk when already in recycle bin.
+async fn folder_files_for_deletion_preview(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    folder_id: &str,
+) -> Result<(Vec<FolderContentFile>, u32, u32), AppError> {
+    let deleted_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT deleted_at FROM folders WHERE id = $1 AND user_id = $2",
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if deleted_at.is_some() {
+        let (file_ids, folder_ids) =
+            recycle_bin::collect_trashed_folder_subtree(pool, user_id, folder_id).await?;
+        let subfolder_count = folder_ids.len().saturating_sub(1) as u32;
+        if file_ids.is_empty() {
+            return Ok((Vec::new(), subfolder_count, 0));
+        }
+
+        let rows: Vec<(String, Option<String>, Option<i32>)> = sqlx::query_as(
+            "SELECT id, mime_type, segment_count FROM files WHERE user_id = $1 AND id = ANY($2)",
+        )
+        .bind(user_id)
+        .bind(&file_ids)
+        .fetch_all(pool)
+        .await?;
+
+        let storage_object_count = rows
+            .iter()
+            .map(|(_, _, segment_count)| storage_object_count(*segment_count))
+            .sum();
+
+        let files = rows
+            .into_iter()
+            .map(|(id, mime_type, _)| FolderContentFile { id, mime_type })
+            .collect();
+
+        return Ok((files, subfolder_count, storage_object_count));
+    }
+
+    let (files, subfolder_count) = collect_folder_contents(pool, user_id, folder_id).await?;
+    let file_ids: Vec<String> = files.iter().map(|file| file.id.clone()).collect();
+    let storage_object_count = if file_ids.is_empty() {
+        0
+    } else {
+        let rows: Vec<(Option<i32>,)> = sqlx::query_as(
+            "SELECT segment_count FROM files WHERE user_id = $1 AND id = ANY($2)",
+        )
+        .bind(user_id)
+        .bind(&file_ids)
+        .fetch_all(pool)
+        .await?;
+        rows.iter()
+            .map(|(segment_count,)| storage_object_count(*segment_count))
+            .sum()
+    };
+
+    Ok((files, subfolder_count, storage_object_count))
 }
 
 // Human: Aggregate nested file mime types into labeled counts for the delete confirmation UI.
@@ -187,13 +256,16 @@ pub async fn folder_deletion_preview(
 ) -> Result<Json<FolderDeletionPreviewResponse>, AppError> {
     ensure_folder_owned(&state.pool, &claims.sub, &id).await?;
 
-    let (files, subfolder_count) =
-        collect_folder_contents(&state.pool, &claims.sub, &id).await?;
+    let (files, subfolder_count, storage_object_count) =
+        folder_files_for_deletion_preview(&state.pool, &claims.sub, &id).await?;
+    let file_ids: Vec<String> = files.iter().map(|file| file.id.clone()).collect();
 
     Ok(Json(FolderDeletionPreviewResponse {
         file_count: files.len() as u32,
         subfolder_count,
         content_types: summarize_content_types(&files),
+        file_ids,
+        storage_object_count,
     }))
 }
 
@@ -316,24 +388,68 @@ pub async fn create_folder(
     Ok(Json(CreateFolderResponse { folder }))
 }
 
-// Human: Delete a folder, all nested subfolders, and every file in the subtree from storage.
-// Agent: DELETE files in subtree; DELETE folders row (CASCADE children); AUDIT folders.delete.
+// Human: Move a folder to the recycle bin, or permanently delete when ?permanent=true.
+// Agent: DEFAULT soft-deletes subtree (folders.trash); permanent purges storage blobs per file.
 pub async fn delete_folder(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT name FROM folders WHERE id = $1 AND user_id = $2")
-            .bind(&id)
-            .bind(&claims.sub)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (name,) = row.ok_or(AppError::NotFound)?;
+    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT name, deleted_at FROM folders WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (name, deleted_at) = row.ok_or(AppError::NotFound)?;
 
-    let (files, subfolder_count) =
-        collect_folder_contents(&state.pool, &claims.sub, &id).await?;
+    if !query.permanent {
+        if deleted_at.is_some() {
+            return Ok(Json(serde_json::json!({ "ok": true })));
+        }
+
+        recycle_bin::soft_delete_owned_folder(&state.pool, &claims.sub, &id).await?;
+
+        audit::write_audit(
+            &state.pool,
+            Some(&claims.sub),
+            "folders.trash",
+            Some("folder"),
+            Some(&id),
+            Some(serde_json::json!({ "name": name })),
+            &headers,
+        )
+        .await
+        .ok();
+
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    }
+
+    let (files, subfolder_count) = if deleted_at.is_some() {
+        let (file_ids, folder_ids) =
+            recycle_bin::collect_trashed_folder_subtree(&state.pool, &claims.sub, &id).await?;
+        let subfolder_count = folder_ids.len().saturating_sub(1) as u32;
+        let files: Vec<FolderContentFile> = if file_ids.is_empty() {
+            Vec::new()
+        } else {
+            let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+                "SELECT id, mime_type FROM files WHERE user_id = $1 AND id = ANY($2)",
+            )
+            .bind(&claims.sub)
+            .bind(&file_ids)
+            .fetch_all(&state.pool)
+            .await?;
+            rows.into_iter()
+                .map(|(id, mime_type)| FolderContentFile { id, mime_type })
+                .collect()
+        };
+        (files, subfolder_count)
+    } else {
+        collect_folder_contents(&state.pool, &claims.sub, &id).await?
+    };
     let content_types = summarize_content_types(&files);
     let file_count = files.len() as u32;
     let file_ids: Vec<String> = files.into_iter().map(|file| file.id).collect();
@@ -344,12 +460,12 @@ pub async fn delete_folder(
         audit::write_audit(
             &state.pool,
             Some(&claims.sub),
-            "files.delete",
+            "files.delete.permanent",
             Some("file"),
             Some(file_id),
             Some(serde_json::json!({
                 "name": deleted.name,
-                "via": "folders.delete",
+                "via": "folders.delete.permanent",
                 "folder_id": id,
             })),
             &headers,
@@ -367,7 +483,7 @@ pub async fn delete_folder(
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),
-        "folders.delete",
+        "folders.delete.permanent",
         Some("folder"),
         Some(&id),
         Some(serde_json::json!({

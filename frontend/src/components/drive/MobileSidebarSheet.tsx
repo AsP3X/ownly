@@ -21,7 +21,7 @@ import {
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files";
+type NavItemId = "home" | "my-files" | "recycle-bin";
 
 type MobileSidebarSheetProps = {
   open: boolean;
@@ -147,7 +147,12 @@ export function MobileSidebarSheet({
               onClick={() => handleNav("my-files")}
             />
             <DrawerNavItem label="Shared" icon={<Users className="size-4" />} active={false} disabled />
-            <DrawerNavItem label="Recycle bin" icon={<Trash2 className="size-4" />} active={false} disabled />
+            <DrawerNavItem
+              label="Recycle bin"
+              icon={<Trash2 className="size-4" />}
+              active={activeNav === "recycle-bin"}
+              onClick={() => handleNav("recycle-bin")}
+            />
           </nav>
 
           <div className="mt-auto flex flex-col gap-3">

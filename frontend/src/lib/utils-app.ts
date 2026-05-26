@@ -51,6 +51,13 @@ export function isImageMime(mimeType: string | null | undefined): boolean {
   return (mimeType ?? "").toLowerCase().startsWith("image/");
 }
 
+// Human: True when a stored file should open in the PDF viewer dialog.
+// Agent: READS mime_type; RETURNS true for application/pdf and other */pdf buckets.
+export function isPdfMime(mimeType: string | null | undefined): boolean {
+  const mime = (mimeType ?? "").toLowerCase();
+  return mime === "application/pdf" || mime.endsWith("/pdf");
+}
+
 // Human: Stable name order for drive browser, gallery, and folder listings.
 // Agent: READS name; RETURNS localeCompare with numeric:true — matches DB natural_sort_key().
 export function sortFilesByName<T extends { name: string }>(files: T[]): T[] {

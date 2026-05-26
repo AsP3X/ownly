@@ -5,6 +5,13 @@ import Hls from "hls.js";
 
 export type HlsAuthSetup = (xhr: XMLHttpRequest) => void;
 
+// Human: Detect HLS playlist URLs returned by stream-url (legacy /playlist or ticket-gated manifest.m3u8).
+// Agent: READS url string; RETURNS true for .m3u8 or /playlist paths so hls.js handles encrypted fMP4.
+export function isHlsStreamUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes(".m3u8") || lower.includes("/playlist");
+}
+
 // Human: Build hls.js for AES-128 VOD — main-thread decrypt + transmux for encrypted fMP4.
 // Agent: enableWorker false (worker breaks AES-128 fMP4 in hls.js); maxAudioFramesDrift 4.
 export function createHlsInstance(xhrSetup?: HlsAuthSetup): Hls {

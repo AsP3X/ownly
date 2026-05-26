@@ -7,6 +7,13 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Human: Alpine nginx omits .mjs — pdf.js worker fails strict module MIME checks without this.
+    # Agent: MERGES application/javascript for mjs; REQUIRED for react-pdf worker in /assets/*.mjs.
+    include /etc/nginx/mime.types;
+    types {
+        application/javascript mjs;
+    }
+
     # Agent: Must match backend MAX_UPLOAD_BYTES — nginx rejects the body before Axum sees it.
     client_max_body_size ${MAX_UPLOAD_BYTES};
 
@@ -27,5 +34,12 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;
+    }
+
+    # Human: Belt-and-suspenders for any remaining .mjs assets from future bundler output.
+    # Agent: FORCES application/javascript Content-Type; MATCHES location before generic static fallthrough.
+    location ~* \.mjs$ {
+        default_type application/javascript;
+        try_files $uri =404;
     }
 }

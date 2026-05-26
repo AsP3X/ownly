@@ -38,6 +38,7 @@ import {
   fetchDashboard,
   fetchFile,
   fetchFolderDeletionPreview,
+  fetchRecycleBin,
   fetchShareStatusBulk,
   FILES_PAGE_SIZE,
   getErrorMessage,
@@ -48,6 +49,7 @@ import {
   type FileItem,
   type FolderDeletionPreview,
   type FolderItem,
+  type RecycleBinResponse,
   type ShareFlags,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
@@ -79,8 +81,10 @@ import {
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
+import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
+import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -91,6 +95,7 @@ import {
   formatBytes,
   formatFileOpened,
   isImageMime,
+  isPdfMime,
   sortFilesByName,
   userInitials,
   type FileTypeFilter,
@@ -111,7 +116,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 
-type NavItemId = "home" | "my-files";
+type NavItemId = "home" | "my-files" | "recycle-bin";
 type FolderCrumb = { id: string; name: string };
 
 const TYPE_FILTERS: { id: FileTypeFilter; label: string }[] = [
@@ -205,6 +210,7 @@ type FileTableProps = {
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
   hasMoreFiles?: boolean;
@@ -245,6 +251,7 @@ function FileTable({
   onDownload,
   onPreviewVideo,
   onPreviewImage,
+  onPreviewPdf,
   fileShareFlags = {},
   folderShareFlags = {},
   hasMoreFiles = false,
@@ -566,12 +573,14 @@ function FileTable({
             const isSelected = selectionEnabled && selectedFileIds.has(file.id);
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
             const isImage = isImageMime(file.mime_type);
+            const isPdf = isPdfMime(file.mime_type);
             const processing = isFileProcessing(file);
             const canPreviewVideo =
               isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage =
               isImage && onPreviewImage !== undefined && !processing;
-            const canPreview = canPreviewVideo || canPreviewImage;
+            const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+            const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
             return (
               <tr
                 key={file.id}
@@ -587,7 +596,8 @@ function FileTable({
                   if (!(target instanceof Element)) return;
                   if (target.closest('input[type="checkbox"]') || target.closest("button")) return;
                   if (canPreviewVideo) onPreviewVideo!(file);
-                  else onPreviewImage!(file);
+                  else if (canPreviewImage) onPreviewImage!(file);
+                  else onPreviewPdf!(file);
                 }}
                 className={cn(
                   "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
@@ -716,6 +726,7 @@ type FileGridProps = {
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
 };
 
@@ -757,6 +768,7 @@ function FileGrid({
   onDownload,
   onPreviewVideo,
   onPreviewImage,
+  onPreviewPdf,
   fileShareFlags = {},
 }: FileGridProps) {
   if (files.length === 0) {
@@ -769,12 +781,14 @@ function FileGrid({
         const favourited = favouriteIds.has(file.id);
         const isVideo = file.mime_type?.startsWith("video/") ?? false;
         const isImage = isImageMime(file.mime_type);
+        const isPdf = isPdfMime(file.mime_type);
         const processing = isFileProcessing(file);
         const canPreviewVideo =
           isVideo && onPreviewVideo !== undefined && !processing;
         const canPreviewImage =
           isImage && onPreviewImage !== undefined && !processing;
-        const canPreview = canPreviewVideo || canPreviewImage;
+        const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+        const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
         return (
           <article
             key={file.id}
@@ -785,7 +799,8 @@ function FileGrid({
               if (!(target instanceof Element)) return;
               if (target.closest("button")) return;
               if (canPreviewVideo) onPreviewVideo!(file);
-              else onPreviewImage!(file);
+              else if (canPreviewImage) onPreviewImage!(file);
+              else onPreviewPdf!(file);
             }}
             className={cn(
               "group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm",
@@ -873,6 +888,7 @@ function HomeSection({
   onDownload,
   onPreviewVideo,
   onPreviewImage,
+  onPreviewPdf,
   fileShareFlags,
 }: {
   title: string;
@@ -887,6 +903,7 @@ function HomeSection({
   onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
 }) {
   return (
@@ -907,6 +924,7 @@ function HomeSection({
           onDownload={onDownload}
           onPreviewVideo={onPreviewVideo}
           onPreviewImage={onPreviewImage}
+          onPreviewPdf={onPreviewPdf}
           fileShareFlags={fileShareFlags}
         />
       </div>
@@ -978,6 +996,7 @@ export default function DrivePage() {
   );
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
+  const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [detailsTarget, setDetailsTarget] = useState<DetailsTarget | null>(null);
@@ -994,6 +1013,8 @@ export default function DrivePage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
+  const [recycleBinData, setRecycleBinData] = useState<RecycleBinResponse | null>(null);
+  const [recycleBinError, setRecycleBinError] = useState("");
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
@@ -1060,6 +1081,27 @@ export default function DrivePage() {
       }
       const nav = options?.nav ?? activeNav;
       try {
+        if (nav === "recycle-bin") {
+          setFolders([]);
+          setFiles([]);
+          setFileCount(0);
+          setHasMoreFiles(false);
+          setFolderCount(0);
+          setHasMoreFolders(false);
+          setFileShareFlags({});
+          setFolderShareFlags({});
+          setSelectedFileIds(new Set());
+          try {
+            const data = await fetchRecycleBin();
+            setRecycleBinData(data);
+            setRecycleBinError("");
+          } catch (err) {
+            setRecycleBinData(null);
+            setRecycleBinError(getErrorMessage(err));
+          }
+          return;
+        }
+
         const targetFolderId =
           options?.folderId !== undefined ? options.folderId : currentFolderId;
 
@@ -1491,6 +1533,15 @@ export default function DrivePage() {
     setPreviewImage(file);
   }
 
+  // Human: Open the in-browser PDF viewer for stored application/pdf files.
+  // Agent: SETS previewPdf; PdfPreviewDialog FETCHES bytes and RENDERS pages via pdf.js.
+  function handlePreviewPdf(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isPdfMime(file.mime_type)) return;
+    recordFileAccess(file.id);
+    setPreviewPdf(file);
+  }
+
   function handleGalleryImageChange(file: FileItem) {
     recordFileAccess(file.id);
     setPreviewImage(file);
@@ -1625,7 +1676,7 @@ export default function DrivePage() {
   function handleNavChange(nav: NavItemId) {
     setActiveNav(nav);
     setSelectedFileIds(new Set());
-    if (nav === "home") {
+    if (nav === "home" || nav === "recycle-bin") {
       setQuery("");
       setTypeFilter("all");
       setFolderStack([]);
@@ -1668,6 +1719,7 @@ export default function DrivePage() {
       onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
       onPreviewImage={handlePreviewImage}
+      onPreviewPdf={handlePreviewPdf}
       onDelete={requestDeleteFile}
       onDeleteFolder={requestDeleteFolder}
       onToggleFavourite={handleToggleFavourite}
@@ -1691,6 +1743,12 @@ export default function DrivePage() {
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
           folderId={activeNav === "my-files" ? currentFolderId : null}
+          onLibraryChanged={() =>
+            void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+              silent: true,
+              nav: activeNav,
+            })
+          }
         />
         <CreateFolderDialog
           open={createFolderDialogOpen}
@@ -1717,6 +1775,13 @@ export default function DrivePage() {
             if (!open) setPreviewImage(null);
           }}
           onFileChange={handleGalleryImageChange}
+        />
+        <PdfPreviewDialog
+          file={previewPdf}
+          open={previewPdf !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewPdf(null);
+          }}
         />
         <ShareDialog
           open={shareDialogOpen}
@@ -1945,7 +2010,11 @@ export default function DrivePage() {
               onClick={() => handleNavChange("my-files")}
             />
             <SidebarNavItem label="Shared" active={false} disabled />
-            <SidebarNavItem label="Recycle bin" active={false} disabled />
+            <SidebarNavItem
+              label="Recycle bin"
+              active={activeNav === "recycle-bin"}
+              onClick={() => handleNavChange("recycle-bin")}
+            />
           </nav>
 
           <Separator className="bg-neutral-200" />
@@ -1984,12 +2053,18 @@ export default function DrivePage() {
             <div className="hidden flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold text-neutral-900">
-                  {activeNav === "home" ? "Home" : "My files"}
+                  {activeNav === "home"
+                    ? "Home"
+                    : activeNav === "recycle-bin"
+                      ? "Recycle bin"
+                      : "My files"}
                 </h1>
                 <p className="text-sm text-neutral-500">
                   {activeNav === "home"
                     ? "Recently accessed, favourites, and shared with you"
-                    : "Browse everything in your library"}
+                    : activeNav === "recycle-bin"
+                      ? "Restore deleted files and folders, or remove them permanently"
+                      : "Browse everything in your library"}
                 </p>
                 {activeNav === "my-files" && folderStack.length > 0 ? (
                   <nav
@@ -2087,6 +2162,16 @@ export default function DrivePage() {
 
             {loading ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
+            ) : activeNav === "recycle-bin" ? (
+              <RecycleBinPanel
+                data={recycleBinData}
+                loading={loading}
+                error={recycleBinError}
+                onRefresh={() =>
+                  void refresh(undefined, { nav: "recycle-bin", silent: true })
+                }
+                onChanged={() => void refreshDashboard()}
+              />
             ) : activeNav === "home" ? (
               <div className="flex flex-col gap-5 lg:gap-8">
                 <MobileHomeSection
@@ -2096,6 +2181,7 @@ export default function DrivePage() {
                   emptyMessage="No recent files yet. Open or download something from My files."
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2106,6 +2192,7 @@ export default function DrivePage() {
                   emptyMessage="No favourites yet. Star a file to pin it here."
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2116,6 +2203,7 @@ export default function DrivePage() {
                   emptyMessage="Nothing shared with you yet."
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2132,6 +2220,7 @@ export default function DrivePage() {
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
@@ -2147,6 +2236,7 @@ export default function DrivePage() {
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
@@ -2162,6 +2252,7 @@ export default function DrivePage() {
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                 />
               </div>
@@ -2225,6 +2316,7 @@ export default function DrivePage() {
                 onDownload={handleDownload}
                 onPreviewVideo={handlePreviewVideo}
                 onPreviewImage={handlePreviewImage}
+                onPreviewPdf={handlePreviewPdf}
                 fileShareFlags={fileShareFlags}
                 folderShareFlags={folderShareFlags}
                 hasMoreFiles={hasMoreFiles}
@@ -2256,6 +2348,7 @@ export default function DrivePage() {
                   onDownload={handleDownload}
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}
@@ -2274,7 +2367,9 @@ export default function DrivePage() {
               {instanceName}
               {activeNav === "home"
                 ? ` · ${recentFiles.length} recent · ${favouriteFiles.length} favourites`
-                : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}
+                : activeNav === "recycle-bin"
+                  ? " · Deleted items are kept for 30 days"
+                  : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}
             </p>
           </div>
         </main>

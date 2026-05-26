@@ -22,6 +22,7 @@ use crate::{
             delete_owned_file_row_with_progress, storage_object_count,
         },
         processing::ensure_files_not_processing,
+        recycle_bin,
     },
     AppState,
 };
@@ -104,6 +105,8 @@ pub struct BulkDeletionPreviewRequest {
 #[derive(Debug, Deserialize)]
 pub struct StartDeleteJobRequest {
     pub file_ids: Vec<String>,
+    #[serde(default)]
+    pub permanent: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,7 +173,8 @@ async fn load_owned_files_for_delete(
     file_ids: &[String],
 ) -> Result<Vec<FilePreviewRow>, AppError> {
     let rows: Vec<FilePreviewRow> = sqlx::query_as(
-        "SELECT id, name, segment_count FROM files WHERE user_id = $1 AND id = ANY($2) ORDER BY name ASC",
+        "SELECT id, name, segment_count FROM files \
+         WHERE user_id = $1 AND id = ANY($2) ORDER BY name ASC",
     )
     .bind(user_id)
     .bind(file_ids)
@@ -246,6 +250,18 @@ pub async fn bulk_deletion_preview(
     Ok(Json(preview_from_rows(&rows)))
 }
 
+// Human: Preview blob purge scope for an arbitrary owned file id list (including recycle bin rows).
+// Agent: READS files by id; SUMS storage_object_count; USED by recycle-bin deletion-preview route.
+pub async fn preview_files_for_permanent_delete(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    file_ids: Vec<String>,
+) -> Result<BulkDeletionPreviewResponse, AppError> {
+    let file_ids = normalize_file_ids(file_ids)?;
+    let rows = load_owned_files_for_delete(pool, user_id, &file_ids).await?;
+    Ok(preview_from_rows(&rows))
+}
+
 // Human: Ensure the caller owns the delete job before polling status.
 // Agent: READS registry key user_id:delete:job_id; RETURNS NotFound when missing.
 async fn ensure_delete_job_owned(
@@ -265,6 +281,7 @@ async fn run_delete_job(
     user_id: String,
     registry_key: String,
     file_ids: Vec<String>,
+    permanent: bool,
     headers: HeaderMap,
 ) {
     use std::sync::{
@@ -285,10 +302,14 @@ async fn run_delete_job(
         }
     };
 
-    let total_blobs: u32 = rows
-        .iter()
-        .map(|(_, _, segment_count)| storage_object_count(*segment_count))
-        .sum();
+    let total_blobs: u32 = if permanent {
+        rows
+            .iter()
+            .map(|(_, _, segment_count)| storage_object_count(*segment_count))
+            .sum()
+    } else {
+        0
+    };
     let total_files = rows.len() as u32;
 
     if let Some(mut job) = state.delete_jobs.get(&registry_key).await {
@@ -341,30 +362,41 @@ async fn run_delete_job(
             break;
         }
 
-        let blob_counter = deleted_blobs.clone();
-        let delete_result = delete_owned_file_row_with_progress(
-            &state,
-            &state.pool,
-            &user_id,
-            &file_id,
-            move |_file_deleted, _file_total| {
-                blob_counter.fetch_add(1, Ordering::Relaxed);
-            },
-        )
-        .await;
+        let delete_result = if permanent {
+            let blob_counter = deleted_blobs.clone();
+            delete_owned_file_row_with_progress(
+                &state,
+                &state.pool,
+                &user_id,
+                &file_id,
+                move |_file_deleted, _file_total| {
+                    blob_counter.fetch_add(1, Ordering::Relaxed);
+                },
+            )
+            .await
+            .map(|deleted| deleted.name)
+        } else {
+            recycle_bin::soft_delete_owned_file(&state.pool, &user_id, &file_id)
+                .await
+        };
 
         match delete_result {
-            Ok(deleted) => {
+            Ok(deleted_name) => {
                 deleted_files = deleted_files.saturating_add(1);
                 deleted_file_ids.push(file_id.clone());
 
+                let action = if permanent {
+                    "files.delete.permanent"
+                } else {
+                    "files.trash"
+                };
                 audit::write_audit(
                     &state.pool,
                     Some(&user_id),
-                    "files.delete",
+                    action,
                     Some("file"),
                     Some(&file_id),
-                    Some(serde_json::json!({ "name": deleted.name })),
+                    Some(serde_json::json!({ "name": deleted_name })),
                     &headers,
                 )
                 .await
@@ -428,6 +460,7 @@ pub async fn post_delete_job(
 ) -> Result<Json<DeleteJobStatusResponse>, AppError> {
     let file_ids = normalize_file_ids(body.file_ids)?;
     ensure_files_not_processing(&state.pool, &claims.sub, &file_ids).await?;
+    let permanent = body.permanent;
     let preview_rows = load_owned_files_for_delete(&state.pool, &claims.sub, &file_ids).await?;
     let preview = preview_from_rows(&preview_rows);
 
@@ -436,7 +469,11 @@ pub async fn post_delete_job(
     let job = DeleteJob {
         status: "queued".to_string(),
         progress: 0,
-        total_blobs: preview.storage_object_count,
+        total_blobs: if permanent {
+            preview.storage_object_count
+        } else {
+            0
+        },
         deleted_blobs: 0,
         total_files: preview.file_count,
         deleted_files: 0,
@@ -447,10 +484,15 @@ pub async fn post_delete_job(
     };
     state.delete_jobs.set(key.clone(), job.clone()).await;
 
+    let audit_action = if permanent {
+        "files.delete.start"
+    } else {
+        "files.trash.start"
+    };
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),
-        "files.delete.start",
+        audit_action,
         Some("delete_job"),
         Some(&job_id),
         Some(serde_json::json!({
@@ -465,12 +507,14 @@ pub async fn post_delete_job(
     let work_state = state.clone();
     let work_user = claims.sub.clone();
     let work_headers = headers.clone();
+    let work_permanent = permanent;
     tokio::spawn(async move {
         run_delete_job(
             work_state,
             work_user,
             key,
             file_ids,
+            work_permanent,
             work_headers,
         )
         .await;

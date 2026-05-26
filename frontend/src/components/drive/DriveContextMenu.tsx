@@ -20,6 +20,7 @@ import {
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
+import { isPdfMime } from "@/lib/utils-app";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -34,7 +35,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
-type NavItemId = "home" | "my-files";
+type NavItemId = "home" | "my-files" | "recycle-bin";
 
 type DriveContextMenuProps = {
   children: ReactNode;
@@ -47,6 +48,7 @@ type DriveContextMenuProps = {
   onDownloadFolder: (folder: FolderItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onToggleFavourite: (fileId: string) => void;
@@ -98,6 +100,7 @@ export function DriveContextMenu({
   onDownloadFolder,
   onPreviewVideo,
   onPreviewImage,
+  onPreviewPdf,
   onDelete,
   onDeleteFolder,
   onToggleFavourite,
@@ -245,6 +248,17 @@ export function DriveContextMenu({
                 >
                   <ExternalLink />
                   View in gallery
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing ||
+                    !isPdfMime(targetFile.mime_type) ||
+                    !onPreviewPdf
+                  }
+                  onClick={() => targetFile && onPreviewPdf?.(targetFile)}
+                >
+                  <ExternalLink />
+                  View PDF
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>

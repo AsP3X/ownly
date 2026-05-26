@@ -330,6 +330,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/files", get(files::handlers::list_files))
         .route("/api/v1/files/batch", post(files::handlers::batch_files))
         .route(
+            "/api/v1/files/check-upload-names",
+            post(files::handlers::check_upload_names),
+        )
+        .route(
             "/api/v1/files/deletion-preview",
             post(files::delete_job::bulk_deletion_preview),
         )
@@ -410,6 +414,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/folders/{id}", delete(files::folders::delete_folder))
         .route("/api/v1/dashboard", get(files::handlers::dashboard_summary))
+        .route(
+            "/api/v1/recycle-bin",
+            get(files::recycle_bin::list_recycle_bin).delete(files::recycle_bin::empty_recycle_bin),
+        )
+        .route(
+            "/api/v1/recycle-bin/deletion-preview",
+            get(files::recycle_bin::recycle_bin_deletion_preview),
+        )
+        .route(
+            "/api/v1/recycle-bin/restore",
+            post(files::recycle_bin::restore_recycle_bin_items),
+        )
         .route("/api/v1/shares", post(shares::handlers::create_share).get(shares::handlers::lookup_share))
         .route("/api/v1/shares/status", post(shares::handlers::share_status_bulk))
         .route("/api/v1/shares/resource", get(shares::handlers::resource_shares))
@@ -459,6 +475,7 @@ pub async fn run() -> anyhow::Result<()> {
     ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
+    files::recycle_bin::start_recycle_bin_purger(state.clone());
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;

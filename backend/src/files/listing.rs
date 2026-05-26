@@ -3,7 +3,10 @@
 
 use sqlx::PgPool;
 
-use crate::error::AppError;
+use crate::{
+    error::AppError,
+    files::recycle_bin::{F_ACTIVE_FILES_SQL, FO_ACTIVE_FOLDERS_SQL},
+};
 
 pub const DEFAULT_LIST_LIMIT: i64 = 200;
 pub const MAX_LIST_LIMIT: i64 = 500;
@@ -163,6 +166,7 @@ pub async fn list_owned_files(
     let (files, file_count, total_bytes) = if search.is_empty() {
         let mut where_parts = vec![
             "f.user_id = $1".to_string(),
+            F_ACTIVE_FILES_SQL.to_string(),
             "(($2::text IS NULL AND f.folder_id IS NULL) OR f.folder_id = $2)".to_string(),
         ];
         if let Some(clause) = type_clause {
@@ -199,6 +203,7 @@ pub async fn list_owned_files(
         let pattern = format!("%{search}%");
         let mut where_parts = vec![
             "f.user_id = $1".to_string(),
+            F_ACTIVE_FILES_SQL.to_string(),
             "LOWER(f.name) LIKE $2".to_string(),
         ];
         if let Some(clause) = type_clause {
@@ -276,7 +281,7 @@ pub async fn batch_owned_files(
 
     let list_sql = format!(
         "SELECT {select_cols} FROM files f \
-         WHERE f.user_id = $1 AND f.id = ANY($2)"
+         WHERE f.user_id = $1 AND {F_ACTIVE_FILES_SQL} AND f.id = ANY($2)"
     );
     let rows: Vec<FileListItem> = sqlx::query_as(&list_sql)
         .bind(user_id)
@@ -300,7 +305,10 @@ pub async fn list_owned_folders(
     user_id: &str,
     params: ListFoldersParams,
 ) -> Result<FolderListResponse, AppError> {
-    let where_sql = "fo.user_id = $1 AND (($2::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $2)";
+    let where_sql = format!(
+        "fo.user_id = $1 AND {FO_ACTIVE_FOLDERS_SQL} \
+         AND (($2::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $2)"
+    );
 
     let folder_count: (i64,) = sqlx::query_as(&format!(
         "SELECT COALESCE(COUNT(*), 0) FROM folders fo WHERE {where_sql}"
@@ -335,4 +343,221 @@ pub async fn list_owned_folders(
         folder_count,
         has_more,
     })
+}
+
+// Human: One library row that already uses the filename the user wants to upload.
+// Agent: SERIALIZED in check-upload-names response; folder_name from LEFT JOIN folders.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct UploadNameDuplicateMatch {
+    pub id: String,
+    pub name: String,
+    pub folder_id: Option<String>,
+    pub folder_name: Option<String>,
+    pub size_bytes: i64,
+}
+
+// Human: Incoming upload filename mapped to every owned library row with the same name.
+// Agent: GROUPED from flat SQL rows; upload_name preserves client casing for display.
+#[derive(Debug, serde::Serialize)]
+pub struct UploadNameDuplicate {
+    pub upload_name: String,
+    pub existing: Vec<UploadNameDuplicateMatch>,
+}
+
+// Human: One proposed upload row sent from the browser before queueing bytes.
+// Agent: READS name + size_bytes; USED for recycle-bin exact matching.
+#[derive(Debug, Clone)]
+pub struct UploadCheckCandidate {
+    pub name: String,
+    pub size_bytes: i64,
+}
+
+// Human: Trashed library row that exactly matches a pending upload (name + byte size).
+// Agent: SERIALIZED in check-upload-names response; includes restore eligibility.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UploadRecycleMatchItem {
+    pub id: String,
+    pub name: String,
+    pub folder_id: Option<String>,
+    pub folder_name: Option<String>,
+    pub size_bytes: i64,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub can_restore: bool,
+}
+
+// Human: Pending upload mapped to the best recycle-bin row to restore instead of re-uploading.
+// Agent: GROUPED per candidate; PREFERS most recently deleted row when several match.
+#[derive(Debug, serde::Serialize)]
+pub struct UploadRecycleMatch {
+    pub upload_name: String,
+    pub upload_size_bytes: i64,
+    pub trashed: UploadRecycleMatchItem,
+}
+
+// Human: Dedupe and bound upload preflight candidates from the file picker.
+// Agent: TRIMS names; DEDUPES by (name, size_bytes); CAPS at MAX_BATCH_IDS.
+pub fn normalize_upload_check_candidates(
+    files: Vec<UploadCheckCandidate>,
+) -> Vec<UploadCheckCandidate> {
+    let mut normalized = Vec::new();
+    for file in files {
+        let name = file.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if !normalized
+            .iter()
+            .any(|existing: &UploadCheckCandidate| {
+                existing.name == name && existing.size_bytes == file.size_bytes
+            })
+        {
+            normalized.push(UploadCheckCandidate {
+                name: name.to_string(),
+                size_bytes: file.size_bytes,
+            });
+        }
+    }
+    normalized.into_iter().take(MAX_BATCH_IDS).collect()
+}
+
+// Human: Find owned active files whose display name exactly matches any proposed upload filename.
+// Agent: READS files + folders globally (any folder_id); RETURNS grouped duplicates only.
+pub async fn check_upload_name_duplicates(
+    pool: &PgPool,
+    user_id: &str,
+    upload_names: Vec<String>,
+) -> Result<Vec<UploadNameDuplicate>, AppError> {
+    let mut unique_names: Vec<String> = Vec::new();
+    for name in upload_names {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !unique_names.iter().any(|existing| existing == trimmed) {
+            unique_names.push(trimmed.to_string());
+        }
+    }
+
+    if unique_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let names: Vec<String> = unique_names.into_iter().take(MAX_BATCH_IDS).collect();
+
+    // Human: Static SQL avoids format placeholders leaking into Postgres when the predicate is table-qualified.
+    // Agent: READS active files globally; active filter must stay aligned with recycle_bin::F_ACTIVE_FILES_SQL.
+    const CHECK_UPLOAD_NAME_DUPLICATES_SQL: &str = "\
+        SELECT f.id, f.name, f.folder_id, f.size_bytes, fo.name AS folder_name \
+        FROM files f \
+        LEFT JOIN folders fo ON fo.id = f.folder_id AND fo.user_id = f.user_id \
+        WHERE f.user_id = $1 AND f.deleted_at IS NULL AND f.name = ANY($2::text[]) \
+        ORDER BY natural_sort_key(f.name) ASC, lower(f.name) ASC, fo.name NULLS FIRST";
+    let rows: Vec<UploadNameDuplicateMatch> = sqlx::query_as(CHECK_UPLOAD_NAME_DUPLICATES_SQL)
+        .bind(user_id)
+        .bind(&names)
+        .fetch_all(pool)
+        .await?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut by_name: std::collections::BTreeMap<String, Vec<UploadNameDuplicateMatch>> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        by_name.entry(row.name.clone()).or_default().push(row);
+    }
+
+    let duplicates = names
+        .into_iter()
+        .filter_map(|upload_name| {
+            by_name.get(&upload_name).map(|existing| UploadNameDuplicate {
+                upload_name: upload_name.clone(),
+                existing: existing.clone(),
+            })
+        })
+        .collect();
+
+    Ok(duplicates)
+}
+
+// Human: Find recycle-bin rows that exactly match pending uploads by filename and byte size.
+// Agent: READS deleted files + folder restore eligibility; PREFERS newest deleted_at per key.
+pub async fn check_upload_recycle_matches(
+    pool: &PgPool,
+    user_id: &str,
+    candidates: &[UploadCheckCandidate],
+) -> Result<Vec<UploadRecycleMatch>, AppError> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let names: Vec<String> = candidates
+        .iter()
+        .map(|candidate| candidate.name.clone())
+        .collect();
+
+    #[derive(Debug, sqlx::FromRow)]
+    struct RecycleCandidateRow {
+        id: String,
+        name: String,
+        folder_id: Option<String>,
+        folder_name: Option<String>,
+        size_bytes: i64,
+        deleted_at: chrono::DateTime<chrono::Utc>,
+        can_restore: bool,
+    }
+
+    let list_sql = "SELECT f.id, f.name, f.folder_id, f.size_bytes, fo.name AS folder_name, f.deleted_at, \
+         CASE \
+           WHEN f.folder_id IS NULL THEN true \
+           WHEN EXISTS ( \
+             SELECT 1 FROM folders p \
+             WHERE p.id = f.folder_id AND p.user_id = f.user_id AND p.deleted_at IS NULL \
+           ) THEN true \
+           ELSE false \
+         END AS can_restore \
+         FROM files f \
+         LEFT JOIN folders fo ON fo.id = f.folder_id AND fo.user_id = f.user_id \
+         WHERE f.user_id = $1 AND f.deleted_at IS NOT NULL AND f.name = ANY($2::text[]) \
+         ORDER BY f.deleted_at DESC";
+
+    let rows: Vec<RecycleCandidateRow> = sqlx::query_as(list_sql)
+        .bind(user_id)
+        .bind(&names)
+        .fetch_all(pool)
+        .await?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut best_by_key: std::collections::BTreeMap<(String, i64), RecycleCandidateRow> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let key = (row.name.clone(), row.size_bytes);
+        best_by_key.entry(key).or_insert(row);
+    }
+
+    let mut matches = Vec::new();
+    for candidate in candidates {
+        let Some(row) = best_by_key.get(&(candidate.name.clone(), candidate.size_bytes)) else {
+            continue;
+        };
+        matches.push(UploadRecycleMatch {
+            upload_name: candidate.name.clone(),
+            upload_size_bytes: candidate.size_bytes,
+            trashed: UploadRecycleMatchItem {
+                id: row.id.clone(),
+                name: row.name.clone(),
+                folder_id: row.folder_id.clone(),
+                folder_name: row.folder_name.clone(),
+                size_bytes: row.size_bytes,
+                deleted_at: row.deleted_at,
+                can_restore: row.can_restore,
+            },
+        });
+    }
+
+    Ok(matches)
 }

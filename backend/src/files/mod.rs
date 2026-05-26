@@ -10,4 +10,6 @@ pub mod folders;
 pub mod handlers;
 pub mod listing;
 pub mod processing;
+pub mod recycle_bin;
+pub mod upload_validation;
 pub mod zip_job;

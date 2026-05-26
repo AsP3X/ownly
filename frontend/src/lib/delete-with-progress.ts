@@ -35,8 +35,9 @@ export function shouldUseDeleteJob(preview: {
 export async function runDeleteJobWithProgress(
   fileIds: string[],
   onProgress: (status: DeleteJobStatus) => void,
+  options?: { permanent?: boolean },
 ): Promise<DeleteJobStatus> {
-  let status = await startDeleteJob(fileIds);
+  let status = await startDeleteJob(fileIds, options);
   onProgress(status);
 
   while (!status.ready) {

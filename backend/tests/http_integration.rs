@@ -434,3 +434,457 @@ async fn public_share_download_is_scoped_to_shared_file_only() {
         .await
         .ok();
 }
+
+// Human: Upload duplicate detection should find owned files by exact name across every folder.
+// Agent: POST /api/v1/files/check-upload-names; EXPECT duplicates for existing names only.
+#[tokio::test]
+async fn check_upload_names_finds_library_duplicates_globally() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping check_upload_names_finds_library_duplicates_globally: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping check_upload_names_finds_library_duplicates_globally: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let existing_file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("dup-check-{user_id}@example.com");
+
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, NULL, 'Archive')",
+    )
+    .bind(&folder_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, $3, 'report.pdf', 'storage/report', 'application/pdf', 2048)",
+    )
+    .bind(&existing_file_id)
+    .bind(&user_id)
+    .bind(&folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let body = json!({
+        "files": [
+            { "name": "report.pdf", "size_bytes": 2048 },
+            { "name": "new-file.txt", "size_bytes": 128 }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/check-upload-names")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    let duplicates = json["duplicates"].as_array().expect("duplicates array");
+    assert_eq!(duplicates.len(), 1);
+    assert_eq!(duplicates[0]["upload_name"], "report.pdf");
+    assert_eq!(duplicates[0]["existing"][0]["id"], existing_file_id);
+    assert_eq!(duplicates[0]["existing"][0]["folder_name"], "Archive");
+    let recycle_matches = json["recycle_matches"].as_array().expect("recycle_matches array");
+    assert!(recycle_matches.is_empty());
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Upload preflight should surface exact recycle-bin matches by filename and byte size.
+// Agent: POST /files/check-upload-names; EXPECT recycle_matches when deleted row matches size.
+#[tokio::test]
+async fn check_upload_names_finds_exact_recycle_bin_matches() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping check_upload_names_finds_exact_recycle_bin_matches: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping check_upload_names_finds_exact_recycle_bin_matches: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let trashed_file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("recycle-check-{user_id}@example.com");
+
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, NULL, 'Archive')",
+    )
+    .bind(&folder_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, deleted_at) \
+         VALUES ($1, $2, $3, 'report.pdf', 'storage/report-trashed', 'application/pdf', 2048, now())",
+    )
+    .bind(&trashed_file_id)
+    .bind(&user_id)
+    .bind(&folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert trashed file");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let body = json!({
+        "files": [
+            { "name": "report.pdf", "size_bytes": 2048 },
+            { "name": "report.pdf", "size_bytes": 4096 }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/check-upload-names")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    let duplicates = json["duplicates"].as_array().expect("duplicates array");
+    assert!(duplicates.is_empty());
+    let recycle_matches = json["recycle_matches"].as_array().expect("recycle_matches array");
+    assert_eq!(recycle_matches.len(), 1);
+    assert_eq!(recycle_matches[0]["upload_name"], "report.pdf");
+    assert_eq!(recycle_matches[0]["upload_size_bytes"], 2048);
+    assert_eq!(recycle_matches[0]["trashed"]["id"], trashed_file_id);
+    assert_eq!(recycle_matches[0]["trashed"]["can_restore"], true);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: HTML uploads must pass the duplicate-name preflight like any other document type.
+// Agent: POST /files/check-upload-names with .html basename; EXPECT 200 and empty duplicate lists.
+#[tokio::test]
+async fn check_upload_names_accepts_html_documents() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping check_upload_names_accepts_html_documents: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping check_upload_names_accepts_html_documents: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("html-check-{user_id}@example.com");
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let body = json!({
+        "files": [
+            { "name": "notes/page.html", "size_bytes": 4096 }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/check-upload-names")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    assert!(json["duplicates"].as_array().expect("duplicates array").is_empty());
+    assert!(json["recycle_matches"]
+        .as_array()
+        .expect("recycle_matches array")
+        .is_empty());
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Soft-deleting a file moves it out of the drive list and into the recycle bin.
+// Agent: DELETE /files/:id default; GET /recycle-bin lists it; POST restore returns it to /files.
+#[tokio::test]
+async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping soft_delete_moves_file_to_recycle_bin_and_restore_returns_it: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping soft_delete_moves_file_to_recycle_bin_and_restore_returns_it: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("recycle-{user_id}@example.com");
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'trash-me.txt', 'storage/trash-me', 'text/plain', 12)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/files/{file_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/files")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_json = response_json(list_response).await;
+    assert_eq!(list_json["file_count"], 0);
+
+    let bin_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/recycle-bin")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bin_response.status(), StatusCode::OK);
+    let bin_json = response_json(bin_response).await;
+    assert_eq!(bin_json["total_count"], 1);
+    assert_eq!(bin_json["files"][0]["id"], file_id);
+
+    let restore_body = json!({ "file_ids": [file_id], "folder_ids": [] });
+    let restore_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/recycle-bin/restore")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(restore_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(restore_response.status(), StatusCode::OK);
+
+    let relist_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/files")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let relist_json = response_json(relist_response).await;
+    assert_eq!(relist_json["file_count"], 1);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

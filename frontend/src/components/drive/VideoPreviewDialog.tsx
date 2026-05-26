@@ -9,6 +9,7 @@ import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
   createHlsInstance,
+  isHlsStreamUrl,
 } from "@/lib/hls-player";
 import {
   Dialog,
@@ -89,7 +90,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
 
     const isActive = () => !disposed;
 
-    if (streamUrl.includes("/playlist") && Hls.isSupported()) {
+    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance((xhr) => {
         const token = getToken();
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -108,9 +109,9 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
         }
       });
       detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (streamUrl.includes("/playlist") && video.canPlayType("application/vnd.apple.mpegurl")) {
+    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = streamUrl;
-    } else if (streamUrl.includes("/playlist")) {
+    } else if (isHlsStreamUrl(streamUrl)) {
       setError("This browser cannot play HLS video.");
     } else {
       video.src = streamUrl;

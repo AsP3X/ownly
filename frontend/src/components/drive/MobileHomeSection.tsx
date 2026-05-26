@@ -16,7 +16,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isImageMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isImageMime, isPdfMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +28,7 @@ type MobileHomeSectionProps = {
   fileShareFlags?: Record<string, ShareFlags>;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
   onOpenActions: (target: MobileActionTarget) => void;
 };
 
@@ -80,6 +81,7 @@ export function MobileHomeSection({
   fileShareFlags = {},
   onPreviewVideo,
   onPreviewImage,
+  onPreviewPdf,
   onOpenActions,
 }: MobileHomeSectionProps) {
   if (files.length === 0) {
@@ -100,9 +102,12 @@ export function MobileHomeSection({
         {files.map((file, index) => {
           const isVideo = file.mime_type?.startsWith("video/") ?? false;
           const isImage = isImageMime(file.mime_type);
+          const isPdf = isPdfMime(file.mime_type);
           const processing = isFileProcessing(file);
           const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
           const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
+          const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+          const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
 
           return (
             <li
@@ -116,10 +121,11 @@ export function MobileHomeSection({
                   onClick={() => {
                     if (canPreviewVideo) onPreviewVideo!(file);
                     else if (canPreviewImage) onPreviewImage!(file);
+                    else if (canPreviewPdf) onPreviewPdf!(file);
                   }}
                   className={cn(
                     "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50",
-                    !canPreviewVideo && !canPreviewImage && "cursor-default",
+                    !canPreview && "cursor-default",
                   )}
                 >
                   <HomeFileIcon mimeType={file.mime_type} />

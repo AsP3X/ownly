@@ -246,6 +246,49 @@ export async function batchFiles(ids: string[], fields: "minimal" | "full" = "mi
   }) as Promise<{ files: FileItem[] }>;
 }
 
+export type UploadNameDuplicateMatch = {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  folder_name: string | null;
+  size_bytes: number;
+};
+
+export type UploadNameDuplicate = {
+  upload_name: string;
+  existing: UploadNameDuplicateMatch[];
+};
+
+export type UploadRecycleMatchItem = {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  folder_name: string | null;
+  size_bytes: number;
+  deleted_at: string;
+  can_restore: boolean;
+};
+
+export type UploadRecycleMatch = {
+  upload_name: string;
+  upload_size_bytes: number;
+  trashed: UploadRecycleMatchItem;
+};
+
+export type UploadCheckCandidate = {
+  name: string;
+  size_bytes: number;
+};
+
+// Human: Detect active-library duplicates and exact recycle-bin matches before uploading bytes.
+// Agent: POST /files/check-upload-names; READS globally; MATCHES recycle rows by name + size_bytes.
+export async function checkUploadNameDuplicates(files: UploadCheckCandidate[]) {
+  return apiFetch("/files/check-upload-names", {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  }) as Promise<{ duplicates: UploadNameDuplicate[]; recycle_matches: UploadRecycleMatch[] }>;
+}
+
 export type FolderItem = {
   id: string;
   name: string;
@@ -286,14 +329,17 @@ export async function createFolder(payload: { name: string; parent_id?: string |
   }) as Promise<{ folder: FolderItem }>;
 }
 
-export async function deleteFolder(id: string) {
-  return apiFetch(`/folders/${id}`, { method: "DELETE" });
+export async function deleteFolder(id: string, options?: { permanent?: boolean }) {
+  const query = options?.permanent ? "?permanent=true" : "";
+  return apiFetch(`/folders/${id}${query}`, { method: "DELETE" });
 }
 
 export type FolderDeletionPreview = {
   file_count: number;
   subfolder_count: number;
   content_types: Array<{ kind: string; label: string; count: number }>;
+  file_ids: string[];
+  storage_object_count: number;
 };
 
 // Human: Summarize nested files and subfolders before confirming folder deletion.
@@ -847,9 +893,10 @@ export function uploadFileWithProgress(
   });
 }
 
-export async function deleteFile(id: string) {
+export async function deleteFile(id: string, options?: { permanent?: boolean }) {
+  const query = options?.permanent ? "?permanent=true" : "";
   try {
-    return await apiFetch(`/files/${id}`, { method: "DELETE" });
+    return await apiFetch(`/files/${id}${query}`, { method: "DELETE" });
   } catch (err) {
     // Human: Treat missing files as deleted — drive list can lag after failed ingest or retries.
     // Agent: SWALLOWS 404 from idempotent DELETE; RETHROWS other ApiError statuses.
@@ -908,11 +955,14 @@ export async function fetchBulkDeletionPreview(fileIds: string[]) {
 }
 
 // Human: Start a background delete job with blob-level progress polling.
-// Agent: POST /files/delete JSON { file_ids }; RETURNS job_id + initial status snapshot.
-export async function startDeleteJob(fileIds: string[]) {
+// Agent: POST /files/delete JSON { file_ids, permanent? }; RETURNS job_id + initial status snapshot.
+export async function startDeleteJob(fileIds: string[], options?: { permanent?: boolean }) {
   return apiFetch("/files/delete", {
     method: "POST",
-    body: JSON.stringify({ file_ids: fileIds }),
+    body: JSON.stringify({
+      file_ids: fileIds,
+      permanent: options?.permanent ?? false,
+    }),
   }) as Promise<DeleteJobStatus>;
 }
 
@@ -920,6 +970,66 @@ export async function startDeleteJob(fileIds: string[]) {
 // Agent: GET /files/delete/:job_id; READ-ONLY status for dialog progress bars.
 export async function fetchDeleteJobStatus(jobId: string) {
   return apiFetch(`/files/delete/${jobId}`) as Promise<DeleteJobStatus>;
+}
+
+export type RecycleBinFileItem = {
+  id: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  folder_id: string | null;
+  folder_name: string | null;
+  deleted_at: string;
+  expires_at: string;
+};
+
+export type RecycleBinFolderItem = {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  file_count: number;
+  deleted_at: string;
+  expires_at: string;
+};
+
+export type RecycleBinResponse = {
+  files: RecycleBinFileItem[];
+  folders: RecycleBinFolderItem[];
+  total_count: number;
+};
+
+// Human: List top-level items in the caller's recycle bin.
+// Agent: GET /recycle-bin; READS soft-deleted files and folders with expiry timestamps.
+export async function fetchRecycleBin() {
+  return apiFetch("/recycle-bin") as Promise<RecycleBinResponse>;
+}
+
+// Human: Preview blob counts for every file currently in the recycle bin (empty-bin confirmation).
+// Agent: GET /recycle-bin/deletion-preview; SUMS storage_object_count across trashed files.
+export async function fetchRecycleBinDeletionPreview() {
+  return apiFetch("/recycle-bin/deletion-preview") as Promise<BulkDeletionPreview>;
+}
+
+// Human: Restore selected recycle bin files and folders back to the drive.
+// Agent: POST /recycle-bin/restore JSON { file_ids, folder_ids }; CLEARS deleted_at server-side.
+export async function restoreRecycleBinItems(payload: {
+  file_ids: string[];
+  folder_ids: string[];
+}) {
+  return apiFetch("/recycle-bin/restore", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as Promise<{ ok: boolean; restored_files: number; restored_folders: number }>;
+}
+
+// Human: Permanently purge every item currently in the recycle bin.
+// Agent: DELETE /recycle-bin; CALLS storage purge for each trashed file on the server.
+export async function emptyRecycleBin() {
+  return apiFetch("/recycle-bin", { method: "DELETE" }) as Promise<{
+    ok: boolean;
+    purged_files: number;
+    purged_folders: number;
+  }>;
 }
 
 // Human: Move a file into a folder or back to the drive root (folder_id omitted/null).

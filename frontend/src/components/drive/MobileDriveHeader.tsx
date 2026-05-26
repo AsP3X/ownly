@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files";
+type NavItemId = "home" | "my-files" | "recycle-bin";
 type FolderCrumb = { id: string; name: string };
 
 type MobileDriveHeaderProps = {
@@ -58,7 +58,9 @@ export function MobileDriveHeader({
     ? (folderStack.at(-1)?.name ?? "My files")
     : activeNav === "home"
       ? "Home"
-      : "My files";
+      : activeNav === "recycle-bin"
+        ? "Recycle bin"
+        : "My files";
 
   return (
     <header className="sticky top-0 z-30 shrink-0 border-b border-neutral-200/80 bg-[#f3f2f1]/95 backdrop-blur-xl lg:hidden">

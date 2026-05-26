@@ -4,7 +4,7 @@
 import { FolderOpen, Home, Menu, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files";
+type NavItemId = "home" | "my-files" | "recycle-bin";
 
 type MobileBottomNavProps = {
   activeNav: NavItemId;

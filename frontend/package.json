@@ -26,6 +26,7 @@
     "lucide-react": "^1.16.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-pdf": "^10.4.1",
     "react-router-dom": "^7.15.1",
     "shadcn": "^4.8.0",
     "tailwind-merge": "^3.6.0",
@@ -45,9 +46,5 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12"
-  },
-  "optionalDependencies": {
-    "@emnapi/core": "1.10.0",
-    "@emnapi/runtime": "1.10.0"
   }
 }

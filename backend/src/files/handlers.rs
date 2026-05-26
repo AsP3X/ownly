@@ -4,6 +4,7 @@
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
+    extract::rejection::JsonRejection,
     http::{header, HeaderMap},
     response::{Response},
     Extension, Json,
@@ -25,6 +26,8 @@ use crate::{
         folders::ensure_folder_owned,
         listing::{self, ListFilesParams},
         processing::ensure_file_not_processing,
+        recycle_bin::{self, DeleteQuery, ACTIVE_FILES_SQL},
+        upload_validation::{self, normalize_upload_filename, normalize_upload_size_bytes},
     },
     hls::export::export_cache_is_valid,
     jobs::{self, model::HlsEncodePayload, JobKind},
@@ -112,6 +115,24 @@ pub struct BatchFilesResponse {
     pub files: Vec<listing::FileListItem>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UploadCheckCandidateInput {
+    pub name: String,
+    #[serde(alias = "sizeBytes", deserialize_with = "upload_validation::deserialize_upload_size_bytes")]
+    pub size_bytes: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckUploadNamesRequest {
+    pub files: Vec<UploadCheckCandidateInput>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckUploadNamesResponse {
+    pub duplicates: Vec<listing::UploadNameDuplicate>,
+    pub recycle_matches: Vec<listing::UploadRecycleMatch>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UploadResponse {
     pub file: FileDto,
@@ -194,6 +215,74 @@ pub async fn batch_files(
     Ok(Json(BatchFilesResponse { files }))
 }
 
+// Human: Detect active-library duplicates and exact recycle-bin matches before uploading bytes.
+// Agent: POST files[]; VALIDATES filenames; READS listing checks globally; AUDIT exempt (read-only preflight).
+pub async fn check_upload_names(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    body: Result<Json<CheckUploadNamesRequest>, JsonRejection>,
+) -> Result<Json<CheckUploadNamesResponse>, AppError> {
+    let Json(body) = body.map_err(|rejection| {
+        AppError::BadRequest(format!(
+            "invalid upload check request: {}",
+            rejection.body_text()
+        ))
+    })?;
+
+    if body.files.is_empty() {
+        return Err(AppError::BadRequest(
+            "at least one file is required".into(),
+        ));
+    }
+
+    let mut candidates = Vec::with_capacity(body.files.len());
+    for (index, file) in body.files.into_iter().enumerate() {
+        let name = normalize_upload_filename(&file.name).map_err(|error| match error {
+            AppError::Validation(message, fields) => AppError::validation(
+                message,
+                serde_json::json!({
+                    "files": {
+                        index.to_string(): fields,
+                    }
+                }),
+            ),
+            other => other,
+        })?;
+        let size_bytes = normalize_upload_size_bytes(file.size_bytes).map_err(|error| match error {
+            AppError::Validation(message, fields) => AppError::validation(
+                message,
+                serde_json::json!({
+                    "files": {
+                        index.to_string(): fields,
+                    }
+                }),
+            ),
+            other => other,
+        })?;
+        candidates.push(listing::UploadCheckCandidate {
+            name,
+            size_bytes: size_bytes as i64,
+        });
+    }
+
+    let normalized = listing::normalize_upload_check_candidates(candidates);
+    if normalized.is_empty() {
+        return Err(AppError::BadRequest(
+            "at least one valid filename is required".into(),
+        ));
+    }
+
+    let upload_names: Vec<String> = normalized.iter().map(|file| file.name.clone()).collect();
+    let duplicates =
+        listing::check_upload_name_duplicates(&state.pool, &claims.sub, upload_names).await?;
+    let recycle_matches =
+        listing::check_upload_recycle_matches(&state.pool, &claims.sub, &normalized).await?;
+    Ok(Json(CheckUploadNamesResponse {
+        duplicates,
+        recycle_matches,
+    }))
+}
+
 // Human: Fetch one file row for preview polling and detail views.
 // Agent: READS files WHERE id + user_id; RETURNS FileDto with HLS fields.
 pub async fn get_file(
@@ -202,7 +291,8 @@ pub async fn get_file(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let file: Option<FileDto> = sqlx::query_as(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
+        "SELECT {FILE_COLUMNS} FROM files \
+         WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
     ))
     .bind(&id)
     .bind(&claims.sub)
@@ -269,11 +359,8 @@ async fn stream_multipart_field_to_path(
 }
 
 // Human: Guess whether a multipart part should use the video spool path before reading bytes.
-// Agent: READS filename + content_type; TRUE when MIME or extension resolves to video/*.
-fn multipart_part_is_video(filename: &str, content_type: &str) -> bool {
-    if content_type.starts_with("video/") {
-        return true;
-    }
+// Agent: READS filename extension only; IGNORES spoofed Content-Type so HTML cannot hijack HLS ingest.
+fn multipart_part_is_video(filename: &str, _content_type: &str) -> bool {
     mime_guess::from_path(filename)
         .first_or_octet_stream()
         .type_()
@@ -404,6 +491,10 @@ pub async fn upload_file(
     let received_body =
         received_body.ok_or_else(|| AppError::BadRequest("file is required".into()))?;
 
+    // Human: Strip client-supplied path segments before persisting the display name.
+    // Agent: CALLS normalize_upload_filename; REJECTS traversal/control chars; ALLOWS .html documents.
+    let filename = normalize_upload_filename(&filename)?;
+
     // Human: Reject uploads into folders the caller does not own.
     // Agent: READS folders via ensure_folder_owned before storage PUT.
     if let Some(ref target_folder_id) = folder_id {
@@ -412,10 +503,15 @@ pub async fn upload_file(
 
     let storage_key = format!("users/{}/files/{}", claims.sub, file_id);
 
+    let guessed_mime = mime_guess::from_path(&filename)
+        .first_or_octet_stream()
+        .to_string();
+    // Human: Prefer filename-based MIME when clients spoof video/* on non-video uploads.
+    // Agent: PREVENTS text/html and other documents from inheriting a forged Content-Type header.
     let mime = if content_type.is_empty() {
-        mime_guess::from_path(&filename)
-            .first_or_octet_stream()
-            .to_string()
+        guessed_mime
+    } else if content_type.starts_with("video/") && !guessed_mime.starts_with("video/") {
+        guessed_mime
     } else {
         content_type
     };
@@ -920,23 +1016,26 @@ pub async fn cancel_video_ingest(
     Ok(Json(serde_json::json!({ "ok": cancelled })))
 }
 
-// Human: Remove file metadata and delete the blob from object storage.
-// Agent: DELETE files row; CALLS storage.delete; AUDIT files.delete.
+// Human: Move a file to the recycle bin, or permanently delete when ?permanent=true.
+// Agent: DEFAULT soft-deletes (files.trash); permanent CALLS delete_owned_file_row + storage purge.
 pub async fn delete_file(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row: Option<(Option<String>, bool, Option<String>)> = sqlx::query_as(
-        "SELECT mime_type, hls_ready, hls_encode_status FROM files WHERE id = $1 AND user_id = $2",
-    )
-    .bind(&id)
-    .bind(&claims.sub)
-    .fetch_optional(&state.pool)
-    .await?;
+    let row: Option<(Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as(
+            "SELECT mime_type, hls_ready, hls_encode_status, deleted_at \
+             FROM files WHERE id = $1 AND user_id = $2",
+        )
+        .bind(&id)
+        .bind(&claims.sub)
+        .fetch_optional(&state.pool)
+        .await?;
 
-    let Some((mime_type, hls_ready, hls_encode_status)) = row else {
+    let Some((mime_type, hls_ready, hls_encode_status, deleted_at)) = row else {
         // Human: DELETE is idempotent — stale UI rows may reference files already purged.
         // Agent: RETURNS ok without audit when row missing (retry after partial delete).
         return Ok(Json(serde_json::json!({ "ok": true })));
@@ -944,20 +1043,38 @@ pub async fn delete_file(
 
     ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
 
-    let deleted =
-        delete_owned_file_row(&state, &state.pool, &claims.sub, &id).await?;
+    if query.permanent {
+        let deleted =
+            delete_owned_file_row(&state, &state.pool, &claims.sub, &id).await?;
 
-    audit::write_audit(
-        &state.pool,
-        Some(&claims.sub),
-        "files.delete",
-        Some("file"),
-        Some(&id),
-        Some(serde_json::json!({ "name": deleted.name })),
-        &headers,
-    )
-    .await
-    .ok();
+        audit::write_audit(
+            &state.pool,
+            Some(&claims.sub),
+            "files.delete.permanent",
+            Some("file"),
+            Some(&id),
+            Some(serde_json::json!({ "name": deleted.name })),
+            &headers,
+        )
+        .await
+        .ok();
+    } else if deleted_at.is_some() {
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    } else {
+        let name = recycle_bin::soft_delete_owned_file(&state.pool, &claims.sub, &id).await?;
+
+        audit::write_audit(
+            &state.pool,
+            Some(&claims.sub),
+            "files.trash",
+            Some("file"),
+            Some(&id),
+            Some(serde_json::json!({ "name": name })),
+            &headers,
+        )
+        .await
+        .ok();
+    }
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

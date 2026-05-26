@@ -8,6 +8,7 @@ import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
   createHlsInstance,
+  isHlsStreamUrl,
 } from "@/lib/hls-player";
 import {
   ChevronRight,
@@ -203,7 +204,7 @@ export default function PublicSharePage() {
     let detachSeek: (() => void) | undefined;
     const isActive = () => !disposed;
 
-    if (streamUrl.includes("/playlist") && Hls.isSupported()) {
+    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance();
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -211,8 +212,10 @@ export default function PublicSharePage() {
         if (!disposed) setStreamError(message);
       });
       detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = streamUrl;
+    } else if (isHlsStreamUrl(streamUrl)) {
+      setStreamError("This browser cannot play HLS video.");
     }
     return () => {
       disposed = true;
