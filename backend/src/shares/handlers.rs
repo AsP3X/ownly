@@ -20,7 +20,9 @@ use crate::{
         folders::FolderDto,
         handlers::{FileDto, FILE_COLUMNS},
     },
-    hls::handlers::{build_playlist_for_playback, resolve_hls_aes_key, HlsPlaybackRow},
+    hls::handlers::{
+        build_playlist_for_playback, open_hls_segment, resolve_hls_aes_key, HlsPlaybackRow,
+    },
     rate_limit,
     shares::store::{
         ensure_browse_folder_in_share, ensure_file_owned_for_share, ensure_folder_owned_for_share,
@@ -697,17 +699,17 @@ pub async fn public_share_segment(
         return Err(AppError::BadRequest("invalid segment name".into()));
     }
 
-    let key = format!("{}/segments/{segment_name}", row.storage_key);
-    let (stream, size, _) = state
-        .storage
-        .get_stream(&key)
-        .await
-        .map_err(|_| AppError::NotFound)?;
+    let (stream, size, resolved_name) = open_hls_segment(
+        state.storage.as_ref(),
+        &row.storage_key,
+        &segment_name,
+    )
+    .await?;
 
     Ok(crate::hls::handlers::segment_media_response(
         stream,
         size,
-        &segment_name,
+        &resolved_name,
     ))
 }
 

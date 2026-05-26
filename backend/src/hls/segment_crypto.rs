@@ -61,7 +61,9 @@ pub fn decrypt_hls_media_segment(
 // Human: Parse `0007.m4s` style names into the HLS media sequence index for IV derivation.
 // Agent: RETURNS None for init.mp4 or non-numeric stems.
 pub fn segment_sequence_from_filename(name: &str) -> Option<u32> {
-    let stem = name.strip_suffix(".m4s")?;
+    let stem = name
+        .strip_suffix(".m4s")
+        .or_else(|| name.strip_suffix(".ts"))?;
     stem.parse::<u32>().ok()
 }
 
@@ -134,6 +136,7 @@ mod tests {
     #[test]
     fn segment_sequence_from_m4s_name() {
         assert_eq!(segment_sequence_from_filename("0007.m4s"), Some(7));
+        assert_eq!(segment_sequence_from_filename("0007.ts"), Some(7));
         assert_eq!(segment_sequence_from_filename("init.mp4"), None);
     }
 

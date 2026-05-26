@@ -10,3 +10,4 @@ pub mod key_store;
 pub mod playlist;
 pub mod probe;
 pub mod segment_crypto;
+pub mod segment_upload;

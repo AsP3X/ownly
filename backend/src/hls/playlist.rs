@@ -40,6 +40,36 @@ pub fn playlist_uses_fmp4(content: &str) -> bool {
     content.contains("#EXT-X-MAP:") || content.contains(".m4s")
 }
 
+// Human: Map legacy `.ts` segment names to `.m4s` when storage holds an fMP4 bundle.
+// Agent: USED by rewrite_stored_playlist and synthetic manifest generation; NO-OP when prefer_fmp4 false.
+pub fn normalize_playback_segment_basename(name: &str, prefer_fmp4: bool) -> String {
+    if prefer_fmp4 {
+        if let Some(stem) = name.strip_suffix(".ts") {
+            return format!("{stem}.{HLS_SEGMENT_EXTENSION}");
+        }
+    }
+    name.to_string()
+}
+
+// Human: Ordered storage keys to try when a segment GET uses the wrong extension.
+// Agent: TRIES requested name first, then `.ts`↔`.m4s` alias for migrated bundles.
+pub fn hls_segment_storage_aliases(segment_name: &str) -> Vec<String> {
+    let primary = segment_name.to_string();
+    let mut aliases = vec![primary.clone()];
+    if let Some(stem) = segment_name.strip_suffix(".ts") {
+        let alt = format!("{stem}.{HLS_SEGMENT_EXTENSION}");
+        if alt != primary {
+            aliases.push(alt);
+        }
+    } else if let Some(stem) = segment_name.strip_suffix(&format!(".{HLS_SEGMENT_EXTENSION}")) {
+        let alt = format!("{stem}.ts");
+        if alt != primary {
+            aliases.push(alt);
+        }
+    }
+    aliases
+}
+
 // Human: Relative segment path for synthetic playlists when the stored manifest is missing.
 // Agent: EMITS `.m4s` for new ingest; `.ts` for legacy TS-only bundles.
 pub fn synthetic_segment_rel_path(index: usize, fmp4: bool) -> String {
@@ -60,6 +90,7 @@ impl PlaylistGenerator {
         base_url: &str,
         key_uri: &str,
         init_uri: &str,
+        prefer_fmp4: bool,
     ) -> anyhow::Result<String> {
         let mut out = Vec::new();
         for line in content.lines() {
@@ -75,7 +106,9 @@ impl PlaylistGenerator {
                     if name == HLS_INIT_FILENAME {
                         continue;
                     }
-                    out.push(format!("{base_url}/segments/{name}"));
+                    let playback_name =
+                        normalize_playback_segment_basename(name, prefer_fmp4);
+                    out.push(format!("{base_url}/segments/{playback_name}"));
                 } else {
                     out.push(trimmed.to_string());
                 }
@@ -297,6 +330,21 @@ pub fn normalize_segment_rel_path(path: &str) -> String {
     }
 }
 
+// Human: Normalize a manifest segment path and upgrade `.ts` basenames when serving fMP4.
+// Agent: USED when regenerating playlists from stored ffmpeg manifests.
+pub fn normalize_segment_rel_path_for_playback(path: &str, prefer_fmp4: bool) -> String {
+    let rel = normalize_segment_rel_path(path);
+    if !prefer_fmp4 {
+        return rel;
+    }
+    if let Some((dir, base)) = rel.rsplit_once('/') {
+        let base = normalize_playback_segment_basename(base, true);
+        format!("{dir}/{base}")
+    } else {
+        normalize_playback_segment_basename(&rel, true)
+    }
+}
+
 // Human: `#EXT-X-MEDIA-SEQUENCE` base used for AES-128 IV derivation on each media segment.
 // Agent: READS stored ffmpeg playlist; DEFAULT 0 when tag missing.
 pub fn parse_media_sequence(content: &str) -> u32 {
@@ -376,6 +424,7 @@ segments/0001.ts
             "/api/v1/files/abc",
             "/api/v1/files/abc/key",
             "/api/v1/files/abc/init",
+            false,
         )
         .expect("rewrite");
 
@@ -412,6 +461,7 @@ segments/0000.m4s
             "/api/v1/files/abc",
             "/api/v1/files/abc/key",
             "/api/v1/files/abc/init",
+            true,
         )
         .expect("rewrite");
 
@@ -466,6 +516,7 @@ init.mp4
             "/api/v1/files/abc",
             "/api/v1/files/abc/key",
             "/api/v1/files/abc/init",
+            true,
         )
         .expect("rewrite");
 
@@ -494,6 +545,28 @@ segments/0003.m4s
         let map = segment_aes_sequence_map(stored).expect("map");
         assert_eq!(map.get("0002.m4s"), Some(&2));
         assert_eq!(map.get("0003.m4s"), Some(&3));
+    }
+
+    #[test]
+    fn rewrite_upgrades_legacy_ts_segments_when_prefer_fmp4() {
+        let stored = "\
+#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:6.000,
+segments/0000.ts
+#EXT-X-ENDLIST
+";
+        let out = PlaylistGenerator::rewrite_stored_playlist(
+            stored,
+            "/api/v1/files/abc",
+            "/api/v1/files/abc/key",
+            "/api/v1/files/abc/init",
+            true,
+        )
+        .expect("rewrite");
+
+        assert!(out.contains("/api/v1/files/abc/segments/0000.m4s"), "out={out}");
+        assert!(!out.contains("0000.ts"), "out={out}");
     }
 
     #[test]

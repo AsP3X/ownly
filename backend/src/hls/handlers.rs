@@ -18,8 +18,10 @@ use crate::{
     hls::{
         key_store::{AesKey, KeyStore},
         playlist::{
-            hls_segment_target_secs, normalize_segment_rel_path, parse_segment_manifest,
+            hls_segment_storage_aliases, hls_segment_target_secs,
+            normalize_segment_rel_path_for_playback, parse_segment_manifest,
             synthetic_segment_rel_path, PlaylistGenerator, HLS_INIT_FILENAME,
+            HLS_SEGMENT_EXTENSION,
         },
     },
     jobs::{self, model::HlsExportPayload, JobKind},
@@ -66,21 +68,25 @@ pub(crate) async fn build_playlist_for_playback(
     source_size_bytes: u64,
 ) -> Result<String, AppError> {
     let segment_target_secs = hls_segment_target_secs(source_size_bytes);
-    let init_key = format!("{storage_key}/{HLS_INIT_FILENAME}");
-    let fmp4_on_storage = storage.exists(&init_key).await.unwrap_or(false);
+    let fmp4_on_storage = storage_hls_uses_fmp4(storage, storage_key).await;
     let playlist_key = format!("{storage_key}/stream.m3u8");
     if let Ok(content) = read_storage_text(storage, &playlist_key).await {
         let fmp4 = fmp4_on_storage || crate::hls::playlist::playlist_uses_fmp4(&content);
-        if let Ok(playlist) =
-            PlaylistGenerator::rewrite_stored_playlist(&content, base_url, key_uri, init_uri)
-        {
+        let prefer_fmp4 = fmp4;
+        if let Ok(playlist) = PlaylistGenerator::rewrite_stored_playlist(
+            &content,
+            base_url,
+            key_uri,
+            init_uri,
+            prefer_fmp4,
+        ) {
             return Ok(playlist);
         }
         if let Ok((files, durations)) = parse_segment_manifest(&content) {
             if !files.is_empty() && files.len() == durations.len() {
                 let segment_files: Vec<String> = files
                     .iter()
-                    .map(|path| normalize_segment_rel_path(path))
+                    .map(|path| normalize_segment_rel_path_for_playback(path, prefer_fmp4))
                     .collect();
                 return Ok(PlaylistGenerator::generate(
                     base_url,
@@ -135,6 +141,34 @@ pub(crate) async fn build_playlist_for_playback(
         init_uri,
         fmp4,
     ))
+}
+
+// Human: Detect fMP4 HLS bundles in storage — init.mp4 or at least one `.m4s` segment.
+// Agent: USED before rewriting legacy `.ts` playlists; AVOIDS false TS synthetic manifests.
+pub(crate) async fn storage_hls_uses_fmp4(storage: &dyn Storage, storage_key: &str) -> bool {
+    let init_key = format!("{storage_key}/{HLS_INIT_FILENAME}");
+    if storage.exists(&init_key).await.unwrap_or(false) {
+        return true;
+    }
+    let first_m4s = format!("{storage_key}/segments/0000.{HLS_SEGMENT_EXTENSION}");
+    storage.exists(&first_m4s).await.unwrap_or(false)
+}
+
+// Human: Open an encrypted HLS media segment, trying `.ts` / `.m4s` aliases when needed.
+// Agent: READS `{storage_key}/segments/*`; RETURNS resolved basename for Content-Type.
+pub(crate) async fn open_hls_segment(
+    storage: &dyn Storage,
+    storage_key: &str,
+    segment_name: &str,
+) -> Result<(StorageStream, u64, String), AppError> {
+    for name in hls_segment_storage_aliases(segment_name) {
+        let key = format!("{storage_key}/segments/{name}");
+        match storage.get_stream(&key).await {
+            Ok((stream, size, _)) => return Ok((stream, size, name)),
+            Err(_) => continue,
+        }
+    }
+    Err(AppError::NotFound)
 }
 
 // Human: Read a small storage object (playlist/key) into UTF-8 text for manifest rewriting.
@@ -332,14 +366,10 @@ pub async fn get_segment(
         return Err(AppError::BadRequest("invalid segment name".into()));
     }
 
-    let key = format!("{storage_key}/segments/{segment_name}");
-    let (stream, size, _) = state
-        .storage
-        .get_stream(&key)
-        .await
-        .map_err(|_| AppError::NotFound)?;
+    let (stream, size, resolved_name) =
+        open_hls_segment(state.storage.as_ref(), &storage_key, &segment_name).await?;
 
-    Ok(segment_media_response(stream, size, &segment_name))
+    Ok(segment_media_response(stream, size, &resolved_name))
 }
 
 // Human: AES-128 fMP4 init segment (EXT-X-MAP) for owned video playback.

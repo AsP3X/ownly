@@ -9,10 +9,11 @@ use sqlx::PgPool;
 
 use crate::hls::encoder::HlsEncoder;
 use crate::hls::playlist::{
-    normalize_segment_rel_path, parse_segment_manifest, playlist_uses_fmp4,
+    hls_segment_storage_aliases, normalize_segment_rel_path, parse_segment_manifest,
+    playlist_uses_fmp4,
     segment_aes_sequence_map, PlaylistGenerator, HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION,
 };
-use crate::hls::segment_crypto::decrypt_hls_media_segment;
+use crate::hls::segment_crypto::{decrypt_hls_media_segment, segment_sequence_from_filename};
 use crate::storage::Storage;
 
 const EXPORT_OBJECT_KEY: &str = "export.mp4";
@@ -184,14 +185,17 @@ async fn prepare_hls_workdir(
     let mut segment_files = Vec::new();
     for (i, name) in segment_names.iter().enumerate() {
         let storage_name = name.rsplit('/').next().unwrap_or(name.as_str());
-        let encrypted =
-            read_storage_object(storage, &format!("{prefix}segments/{storage_name}")).await?;
+        let (encrypted, resolved_name) =
+            read_hls_segment_object(storage, &prefix, storage_name).await?;
         let sequence = seq_map
             .get(storage_name)
             .copied()
+            .or_else(|| seq_map.get(&resolved_name).copied())
+            .or_else(|| segment_sequence_from_filename(storage_name))
+            .or_else(|| segment_sequence_from_filename(&resolved_name))
             .with_context(|| format!("no AES sequence for segment {storage_name}"))?;
         let clear = decrypt_hls_media_segment(&encrypted, &aes_key, sequence)?;
-        tokio::fs::write(segments_dir.join(storage_name), &clear).await?;
+        tokio::fs::write(segments_dir.join(&resolved_name), &clear).await?;
         segment_files.push(normalize_segment_rel_path(name));
 
         if count > 0 {
@@ -203,7 +207,7 @@ async fn prepare_hls_workdir(
     let key_uri = "key.bin";
     let init_uri = HLS_INIT_FILENAME;
     let playlist = if !stored_text.is_empty() {
-        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri, init_uri)
+        PlaylistGenerator::rewrite_stored_playlist(&stored_text, ".", key_uri, init_uri, fmp4)
             .unwrap_or_else(|_| {
                 PlaylistGenerator::generate(
                     ".",
@@ -265,4 +269,20 @@ async fn read_storage_object(storage: &dyn Storage, key: &str) -> anyhow::Result
         out.extend_from_slice(&chunk);
     }
     Ok(out)
+}
+
+// Human: Load one encrypted HLS segment, trying `.ts` / `.m4s` storage aliases.
+// Agent: READS `{prefix}segments/*`; USED when stored playlist names disagree with object keys.
+async fn read_hls_segment_object(
+    storage: &dyn Storage,
+    prefix: &str,
+    storage_name: &str,
+) -> anyhow::Result<(Vec<u8>, String)> {
+    for name in hls_segment_storage_aliases(storage_name) {
+        let key = format!("{prefix}segments/{name}");
+        if let Ok(bytes) = read_storage_object(storage, &key).await {
+            return Ok((bytes, name));
+        }
+    }
+    anyhow::bail!("HLS segment not found in storage: {storage_name}")
 }

@@ -11,12 +11,11 @@ use tokio::task::JoinSet;
 use crate::hls::hardware::HlsHardwareEncode;
 use crate::hls::key_store::KeyStore;
 use crate::hls::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
+use crate::hls::segment_upload::{
+    collect_segment_sizes, plan_segment_upload, put_hls_segment_with_retry, DynamicUploadLimiter,
+};
 use crate::files::file_delete::purge_file_storage;
 use crate::storage::Storage;
-
-// Human: Cap concurrent Nebular PUTs during HLS segment upload — balances throughput vs connection load.
-// Agent: USED by upload_hls_segments; TUNABLE constant (8–16 typical).
-const HLS_SEGMENT_UPLOAD_CONCURRENCY: usize = 12;
 
 #[derive(Clone)]
 pub struct HlsEncodeJob {
@@ -99,50 +98,106 @@ async fn resolve_duration_seconds(
     probed
 }
 
-// Human: Upload all fMP4 media segments (.m4s) to object storage with bounded parallelism.
-// Agent: READS segments_dir; SPAWNS up to HLS_SEGMENT_UPLOAD_CONCURRENCY puts; RETURNS segment byte sum.
-async fn upload_hls_segments(
-    pool: &PgPool,
+// Human: Outcome of parallel HLS segment uploads — used to fail ingest when storage is incomplete.
+// Agent: COMPARED against ffmpeg segment_count before hls_ready is set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SegmentUploadOutcome {
+    expected: usize,
+    uploaded: usize,
+    failed: usize,
+    bytes: u64,
+}
+
+// Human: User-safe failure text when not every segment reached object storage.
+// Agent: WRITTEN to files.hls_encode_error; MENTIONS partial counts for support logs.
+fn segment_upload_failure_message(outcome: &SegmentUploadOutcome) -> String {
+    if outcome.expected == 0 {
+        return "no HLS segments were produced".to_string();
+    }
+    format!(
+        "uploaded {} of {} video segments ({} failed); object storage may be unavailable — try re-uploading",
+        outcome.uploaded, outcome.expected, outcome.failed
+    )
+}
+
+// Human: Count `.m4s` objects under `{storage_key}/segments/` after upload.
+// Agent: READS storage list API; USED as final gate before marking hls_ready.
+async fn count_stored_hls_segments(
+    storage: &dyn Storage,
+    storage_key: &str,
+) -> anyhow::Result<usize> {
+    let prefix = format!("{storage_key}/segments/");
+    let keys = storage.list_keys_with_prefix(&prefix).await?;
+    Ok(keys
+        .iter()
+        .filter(|key| key.ends_with(&format!(".{HLS_SEGMENT_EXTENSION}")))
+        .count())
+}
+
+// Human: Inputs for parallel HLS segment upload after ffmpeg packaging.
+// Agent: PASSED to upload_hls_segments; storage_key used for post-upload verification list.
+struct SegmentUploadRequest<'a> {
+    pool: &'a PgPool,
     storage: Arc<dyn Storage>,
-    file_id: &str,
-    prefix: &str,
-    segments_dir: &Path,
+    file_id: &'a str,
+    storage_key: &'a str,
+    prefix: &'a str,
+    segments_dir: &'a Path,
     completed_steps: usize,
     total_steps: usize,
-) -> u64 {
-    let mut segment_paths: Vec<(String, PathBuf)> = Vec::new();
-    let mut entries = match tokio::fs::read_dir(segments_dir).await {
-        Ok(entries) => entries,
-        Err(error) => {
-            tracing::error!(%file_id, %error, "failed to read HLS segments directory");
-            return 0;
-        }
-    };
+}
 
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some(HLS_SEGMENT_EXTENSION) {
-            continue;
-        }
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        segment_paths.push((name, path));
+// Human: Upload all fMP4 media segments (.m4s) with dynamic byte-weighted parallelism.
+// Agent: PLANS from segment sizes; LIMITS in-flight bytes; SHRINKS budget on storage pressure.
+async fn upload_hls_segments(
+    request: SegmentUploadRequest<'_>,
+) -> Result<SegmentUploadOutcome, String> {
+    let SegmentUploadRequest {
+        pool,
+        storage,
+        file_id,
+        storage_key,
+        prefix,
+        segments_dir,
+        completed_steps,
+        total_steps,
+    } = request;
+
+    let segments = collect_segment_sizes(segments_dir, HLS_SEGMENT_EXTENSION)
+        .await
+        .map_err(|error| format!("read HLS segments directory: {error}"))?;
+
+    let expected = segments.len();
+    if expected == 0 {
+        return Err("no HLS segments were produced".to_string());
     }
-    segment_paths.sort_by(|left, right| left.0.cmp(&right.0));
 
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(HLS_SEGMENT_UPLOAD_CONCURRENCY));
+    let sizes: Vec<u64> = segments.iter().map(|(_, _, size)| *size).collect();
+    let plan = plan_segment_upload(&sizes);
+    tracing::info!(
+        %file_id,
+        segments = plan.segment_count,
+        parallel_hint = plan.parallel_hint,
+        max_segment_mb = plan.max_segment_bytes / (1024 * 1024),
+        p95_segment_mb = plan.p95_segment_bytes / (1024 * 1024),
+        total_permits = plan.total_permits,
+        max_in_flight_mb = crate::hls::segment_upload::HLS_UPLOAD_MAX_IN_FLIGHT_BYTES / (1024 * 1024),
+        "HLS segment upload plan"
+    );
+
+    let limiter = Arc::new(DynamicUploadLimiter::from_plan(&plan));
+    let parallel_gate = Arc::new(tokio::sync::Semaphore::new(plan.parallel_hint));
     let completed = Arc::new(AtomicUsize::new(completed_steps));
     let stored_bytes = Arc::new(AtomicU64::new(0));
+    let uploaded_count = Arc::new(AtomicUsize::new(0));
+    let failed_count = Arc::new(AtomicUsize::new(0));
     let mut tasks = JoinSet::new();
 
-    for (name, path) in segment_paths {
-        let permit = match semaphore.clone().acquire_owned().await {
+    for (name, path, size_bytes) in segments {
+        let parallel_permit = match parallel_gate.clone().acquire_owned().await {
             Ok(permit) => permit,
             Err(error) => {
-                tracing::error!(%file_id, %error, "failed to acquire segment upload permit");
+                tracing::error!(%file_id, %error, "failed to acquire parallel upload slot");
                 break;
             }
         };
@@ -153,36 +208,45 @@ async fn upload_hls_segments(
         let pool = pool.clone();
         let completed = completed.clone();
         let stored_bytes = stored_bytes.clone();
+        let uploaded_count = uploaded_count.clone();
+        let failed_count = failed_count.clone();
+        let limiter = limiter.clone();
 
         tasks.spawn(async move {
-            let _permit = permit;
+            let _parallel_permit = parallel_permit;
             if is_encode_cancelled(&pool, &file_id).await {
                 return;
             }
-            let data = match tokio::fs::read(&path).await {
-                Ok(data) => data,
+            let byte_permit = match limiter.acquire_for_segment(size_bytes).await {
+                Ok(permit) => permit,
                 Err(error) => {
-                    tracing::error!(%file_id, segment = %name, %error, "failed to read segment");
+                    tracing::error!(%file_id, segment = %name, %error, "failed to acquire byte upload budget");
+                    failed_count.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
             };
-            let len = data.len() as u64;
-            if let Err(error) = storage
-                .put(
-                    &format!("{prefix}segments/{name}"),
-                    "video/mp4",
-                    data,
-                )
-                .await
+            let _byte_permit = byte_permit;
+            let object_key = format!("{prefix}segments/{name}");
+            match put_hls_segment_with_retry(
+                storage.as_ref(),
+                &object_key,
+                &path,
+                limiter.as_ref(),
+            )
+            .await
             {
-                tracing::error!(%file_id, segment = %name, %error, "failed to upload segment");
-                return;
+                Ok(len) => {
+                    stored_bytes.fetch_add(len, Ordering::Relaxed);
+                    uploaded_count.fetch_add(1, Ordering::Relaxed);
+                    let step = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                    let upload_pct = 50 + ((step as f64 / total_steps as f64) * 50.0) as i32;
+                    set_progress(&pool, &file_id, upload_pct.min(99)).await;
+                }
+                Err(error) => {
+                    failed_count.fetch_add(1, Ordering::Relaxed);
+                    tracing::error!(%file_id, segment = %name, %error, "failed to upload segment");
+                }
             }
-
-            stored_bytes.fetch_add(len, Ordering::Relaxed);
-            let step = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            let upload_pct = 50 + ((step as f64 / total_steps as f64) * 50.0) as i32;
-            set_progress(&pool, &file_id, upload_pct.min(99)).await;
         });
     }
 
@@ -192,7 +256,30 @@ async fn upload_hls_segments(
         }
     }
 
-    stored_bytes.load(Ordering::Relaxed)
+    let uploaded = uploaded_count.load(Ordering::Relaxed);
+    let failed = failed_count.load(Ordering::Relaxed);
+    let bytes = stored_bytes.load(Ordering::Relaxed);
+    let mut outcome = SegmentUploadOutcome {
+        expected,
+        uploaded,
+        failed,
+        bytes,
+    };
+
+    if uploaded != expected {
+        return Err(segment_upload_failure_message(&outcome));
+    }
+
+    let stored_in_bucket = count_stored_hls_segments(storage.as_ref(), storage_key)
+        .await
+        .map_err(|error| format!("verify HLS segments in storage: {error}"))?;
+    if stored_in_bucket != expected {
+        outcome.uploaded = stored_in_bucket;
+        outcome.failed = expected.saturating_sub(stored_in_bucket);
+        return Err(segment_upload_failure_message(&outcome));
+    }
+
+    Ok(outcome)
 }
 
 pub fn spawn_hls_encode_job(
@@ -383,17 +470,38 @@ pub async fn run_hls_encode_job(
                     }
                     current_step += 1;
 
-                    let segment_bytes = upload_hls_segments(
-                        &pool,
-                        storage.clone(),
-                        &file_id,
-                        &prefix,
-                        &output.segments_dir,
-                        current_step,
+                    let segment_outcome = match upload_hls_segments(SegmentUploadRequest {
+                        pool: &pool,
+                        storage: storage.clone(),
+                        file_id: &file_id,
+                        storage_key: &storage_key,
+                        prefix: &prefix,
+                        segments_dir: &output.segments_dir,
+                        completed_steps: current_step,
                         total_steps,
-                    )
-                    .await;
-                    stored_bytes += segment_bytes;
+                    })
+                    .await
+                    {
+                        Ok(outcome) => outcome,
+                        Err(msg) => {
+                            tracing::error!(
+                                %file_id,
+                                segments = output.segment_count,
+                                error = %msg,
+                                "HLS segment upload incomplete"
+                            );
+                            mark_failed(&pool, &file_id, &msg).await;
+                            purge_file_storage(
+                                storage.clone(),
+                                &storage_key,
+                                Some(output.segment_count as i32),
+                            )
+                            .await;
+                            cleanup_work_dir(&work_dir).await;
+                            return Err(msg);
+                        }
+                    };
+                    stored_bytes += segment_outcome.bytes;
 
                     set_progress(&pool, &file_id, 100).await;
 
@@ -428,6 +536,7 @@ pub async fn run_hls_encode_job(
                         %file_id,
                         segments = output.segment_count,
                         stored_bytes,
+                        uploaded_segments = segment_outcome.uploaded,
                         "video HLS ingest complete"
                     );
                     cleanup_work_dir(&work_dir).await;
@@ -492,5 +601,17 @@ mod tests {
     fn dedicated_upload_dir_is_deletable() {
         let dir = std::env::temp_dir().join("mediavault_upload_test-file-id");
         assert!(is_deletable_work_dir(&dir));
+    }
+
+    #[test]
+    fn segment_upload_failure_message_describes_partial_upload() {
+        let msg = segment_upload_failure_message(&SegmentUploadOutcome {
+            expected: 150,
+            uploaded: 12,
+            failed: 138,
+            bytes: 2_000_111,
+        });
+        assert!(msg.contains("12 of 150"));
+        assert!(msg.contains("138 failed"));
     }
 }
