@@ -1,10 +1,13 @@
 import SwiftUI
 
 // Human: Signed-in Files tab — hybrid explorer with recent cards followed by folder-first list navigation.
-// Agent: OWNS DriveViewModel; BINDS appState.config; RENDERS DriveExplorerHeader RecentFilesCardView FileExplorerListView.
+// Agent: OWNS DriveViewModel; BINDS appState.config + ConnectivityMonitor; RENDERS offline cache or connection error UI.
 struct FilesView: View {
     @Environment(\.appState) private var appState
+    var onSessionExpired: (() -> Void)? = nil
+
     @State private var viewModel = DriveViewModel()
+    @State private var connectivity = ConnectivityMonitor.shared
     @State private var videoFileForPlayback: DriveFile?
     @State private var videoUnavailableMessage: String?
     @State private var showUploadTransferSheet = false
@@ -34,9 +37,24 @@ struct FilesView: View {
 
                 ScrollView {
                     VStack(spacing: 18) {
-                        explorerSummary
+                        if viewModel.isOfflineMode {
+                            offlineBanner
+                        }
 
-                        if viewModel.isLoadingInitialContent {
+                        if viewModel.showsConnectionError {
+                            DriveConnectionErrorView(
+                                isRetrying: viewModel.isRetryingConnection,
+                                onRetry: {
+                                    Task { await viewModel.retryConnection() }
+                                }
+                            )
+                        } else {
+                            explorerSummary
+                        }
+
+                        if viewModel.showsConnectionError {
+                            EmptyView()
+                        } else if viewModel.isLoadingInitialContent {
                             loadingState
                                 .padding(.top, 48)
                         } else if viewModel.isEmpty {
@@ -78,7 +96,11 @@ struct FilesView: View {
                 // Agent: Detached task avoids SwiftUI cancelling URLSession when the pull gesture ends.
                 .refreshable {
                     await Task.detached { @MainActor in
-                        await viewModel.refresh()
+                        if viewModel.showsConnectionError {
+                            await viewModel.retryConnection()
+                        } else {
+                            await viewModel.refresh()
+                        }
                     }.value
                 }
             }
@@ -104,11 +126,22 @@ struct FilesView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isPerformingDriveAction)
         }
         .task {
+            viewModel.onSessionExpired = onSessionExpired
             viewModel.bind(config: appState.config)
             appState.uploadManager.bind(config: appState.config)
             appState.uploadManager.targetFolderId = viewModel.currentFolderId
             appState.uploadManager.onFileUploaded = {
                 Task { await viewModel.refresh() }
+            }
+        }
+        .onChange(of: connectivity.isOnline) { wasOnline, isOnline in
+            if wasOnline, !isOnline {
+                viewModel.handleConnectivityLost()
+            }
+        }
+        .onChange(of: connectivity.onlineRestoredGeneration) { _, generation in
+            Task {
+                await viewModel.observeConnectivityRestored(generation: generation)
             }
         }
         .onChange(of: appState.config) { _, newConfig in
@@ -330,6 +363,25 @@ struct FilesView: View {
     }
 
     // MARK: - Loading, empty & error states
+
+    private var offlineBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(DriveExplorerStyle.warning)
+            Text("Offline — showing saved folder and file names from your last visit.")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(DriveExplorerStyle.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(DriveExplorerStyle.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(DriveExplorerStyle.warning.opacity(0.22), lineWidth: 1)
+        }
+        .padding(.horizontal, 22)
+    }
 
     private var loadingState: some View {
         MediaVaultBouncingDots(tint: DriveExplorerStyle.accent)

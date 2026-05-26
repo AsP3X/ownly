@@ -1,8 +1,8 @@
 import Observation
 import SwiftUI
 
-// Human: Drive browser state — folder stack, search, and pagination for the hybrid Files tab.
-// Agent: CALLS DriveService listFolders listFiles; WRITES folders files folderStack; READS ServerConfig from bind().
+// Human: Drive browser state — folder stack, search, pagination, and offline top-level cache for the Files tab.
+// Agent: CALLS DriveService listFolders listFiles; READS ConnectivityMonitor + DriveTopLevelCache; WRITES folders files cache on root refresh.
 @Observable
 @MainActor
 final class DriveViewModel {
@@ -14,6 +14,11 @@ final class DriveViewModel {
     private(set) var isRefreshing = false
     private(set) var isLoadingMore = false
     private(set) var errorMessage: String?
+    /// Showing cached root listing while the device is offline.
+    private(set) var isOfflineMode = false
+    /// No network and no cached top-level rows — show connection error UI.
+    private(set) var showsConnectionError = false
+    private(set) var isRetryingConnection = false
 
     var searchQuery = "" {
         didSet {
@@ -22,10 +27,14 @@ final class DriveViewModel {
         }
     }
 
+    /// Called when `GET /me` fails after connectivity returns (session expired).
+    var onSessionExpired: (() -> Void)?
+
     private var config: ServerConfig?
     private var searchTask: Task<Void, Never>?
     /// Bumped on each refresh so stale/cancelled loads do not overwrite newer results or show errors.
     private var loadGeneration: UInt = 0
+    private var connectivityObservationGeneration: UInt = 0
 
     var isSearching: Bool {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -33,6 +42,7 @@ final class DriveViewModel {
 
     var currentTitle: String {
         if isSearching { return "Search" }
+        if isOfflineMode { return "All files (offline)" }
         return folderStack.last?.name ?? "All files"
     }
 
@@ -41,22 +51,38 @@ final class DriveViewModel {
     }
 
     var isEmpty: Bool {
-        folders.isEmpty && files.isEmpty && !isRefreshing
+        folders.isEmpty && files.isEmpty && !isRefreshing && !showsConnectionError
     }
 
     /// True while the initial folder/file fetch is in flight and the list has been cleared.
     var isLoadingInitialContent: Bool {
-        isRefreshing && folders.isEmpty && files.isEmpty
+        isRefreshing && folders.isEmpty && files.isEmpty && !showsConnectionError
     }
 
     func bind(config: ServerConfig) {
         guard self.config != config else { return }
         self.config = config
-        Task { await refresh() }
+        connectivityObservationGeneration = ConnectivityMonitor.shared.onlineRestoredGeneration
+        Task {
+            if ConnectivityMonitor.shared.isOnline {
+                await refresh()
+            } else {
+                await loadOfflineSnapshot(config: config)
+            }
+        }
     }
 
     func refresh() async {
         guard let config else { return }
+
+        if !ConnectivityMonitor.shared.isOnline {
+            await loadOfflineSnapshot(config: config)
+            return
+        }
+
+        isOfflineMode = false
+        showsConnectionError = false
+
         let generation = beginRefresh()
         defer { endRefresh(generation) }
 
@@ -64,10 +90,61 @@ final class DriveViewModel {
             await loadSearch(config: config, reset: true, generation: generation)
         } else {
             await loadBrowse(config: config, reset: true, generation: generation)
+            persistTopLevelCacheIfNeeded(config: config, generation: generation)
         }
     }
 
+    func retryConnection() async {
+        guard let config else { return }
+        isRetryingConnection = true
+        defer { isRetryingConnection = false }
+
+        if ConnectivityMonitor.shared.isOnline {
+            await handleConnectivityRestored()
+        } else {
+            await loadOfflineSnapshot(config: config)
+        }
+    }
+
+    func handleConnectivityRestored() async {
+        guard let config else { return }
+
+        showsConnectionError = false
+        isOfflineMode = false
+        folderStack.removeAll()
+        searchQuery = ""
+
+        let generation = beginRefresh()
+        defer { endRefresh(generation) }
+
+        switch await AuthService.validateSession(config: config) {
+        case .unauthorized:
+            onSessionExpired?()
+        case .unreachable(let message):
+            recordFailure(.network(description: message), generation: generation)
+            await loadOfflineSnapshot(config: config)
+        case .valid:
+            if isSearching {
+                await loadSearch(config: config, reset: true, generation: generation)
+            } else {
+                await loadBrowse(config: config, reset: true, generation: generation)
+                persistTopLevelCacheIfNeeded(config: config, generation: generation)
+            }
+        }
+    }
+
+    func handleConnectivityLost() {
+        guard let config else { return }
+        if !folderStack.isEmpty {
+            folderStack.removeAll()
+            searchQuery = ""
+        }
+        searchTask?.cancel()
+        Task { await loadOfflineSnapshot(config: config) }
+    }
+
     func loadMoreIfNeeded(currentItemId: String) async {
+        guard !isOfflineMode else { return }
         guard let config, !isLoadingMore, !isRefreshing else { return }
 
         if !isSearching, folders.contains(where: { $0.id == currentItemId }), hasMoreFolders {
@@ -81,6 +158,10 @@ final class DriveViewModel {
     }
 
     func openFolder(_ folder: DriveFolder) {
+        if isOfflineMode {
+            errorMessage = "Connect to the internet to open folders."
+            return
+        }
         folderStack.append(FolderCrumb(id: folder.id, name: folder.name))
         searchQuery = ""
         Task { await refresh() }
@@ -128,7 +209,53 @@ final class DriveViewModel {
 
     // MARK: - Private loading
 
+    /// Observes connectivity restoration from `FilesView.onChange`.
+    func observeConnectivityRestored(generation: UInt) async {
+        guard generation != connectivityObservationGeneration else { return }
+        connectivityObservationGeneration = generation
+        await handleConnectivityRestored()
+    }
+
+    private func loadOfflineSnapshot(config: ServerConfig) async {
+        isRefreshing = false
+        isOfflineMode = false
+        hasMoreFolders = false
+        hasMoreFiles = false
+        errorMessage = nil
+
+        let entries = DriveTopLevelCache.load(for: config)
+        if entries.isEmpty {
+            folders = []
+            files = []
+            showsConnectionError = true
+            return
+        }
+
+        applyCachedEntries(entries)
+        showsConnectionError = false
+        isOfflineMode = true
+    }
+
+    private func applyCachedEntries(_ entries: [CachedDriveEntry]) {
+        folders = entries.filter { $0.itemType == .folder }.map { $0.asDriveFolder() }
+        files = entries.filter { $0.itemType == .file }.map { $0.asDriveFile() }
+    }
+
+    private func persistTopLevelCacheIfNeeded(config: ServerConfig, generation: UInt) {
+        guard isCurrentGeneration(generation) else { return }
+        guard currentFolderId == nil, !isSearching else { return }
+
+        let entries =
+            folders.map { CachedDriveEntry(folder: $0) }
+            + files.map { CachedDriveEntry(file: $0) }
+        DriveTopLevelCache.save(entries, for: config)
+    }
+
     private func scheduleSearchRefresh() {
+        guard !isOfflineMode else {
+            errorMessage = "Search requires an internet connection."
+            return
+        }
         searchTask?.cancel()
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
@@ -168,6 +295,10 @@ final class DriveViewModel {
             }
             hasMoreFolders = response.hasMore
         case .failure(let error):
+            if shouldUseOfflineCacheAfterFailure(error) {
+                await loadOfflineSnapshot(config: config)
+                return
+            }
             recordFailure(error, generation: generation)
         }
 
@@ -181,6 +312,10 @@ final class DriveViewModel {
             }
             hasMoreFiles = response.hasMore
         case .failure(let error):
+            if shouldUseOfflineCacheAfterFailure(error) {
+                await loadOfflineSnapshot(config: config)
+                return
+            }
             recordFailure(error, generation: generation)
         }
     }
@@ -211,6 +346,10 @@ final class DriveViewModel {
             }
             hasMoreFiles = response.hasMore
         case .failure(let error):
+            if shouldUseOfflineCacheAfterFailure(error) {
+                await loadOfflineSnapshot(config: config)
+                return
+            }
             recordFailure(error, generation: generation)
         }
     }
@@ -258,6 +397,7 @@ final class DriveViewModel {
         loadGeneration += 1
         isRefreshing = true
         errorMessage = nil
+        showsConnectionError = false
         return loadGeneration
     }
 
@@ -276,6 +416,14 @@ final class DriveViewModel {
         guard isCurrentGeneration(generation) else { return }
         guard !error.isCancellation else { return }
         errorMessage = error.localizedDescription
+    }
+
+    private func shouldUseOfflineCacheAfterFailure(_ error: DriveServiceError) -> Bool {
+        guard currentFolderId == nil, !isSearching else { return false }
+        guard !error.isCancellation else { return false }
+        if !ConnectivityMonitor.shared.isOnline { return true }
+        if case .network = error { return true }
+        return false
     }
 
 }

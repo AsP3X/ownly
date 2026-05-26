@@ -2,8 +2,48 @@ import Foundation
 
 // Human: Password auth client aligned with MediaVault `/api/v1` routes and AppError JSON envelope.
 // Agent: STATIC login/register/registrationSetting; BUILDS URLs from ServerConfig.apiBaseURL; PARSES AuthResponse and APIErrorBody.
+enum SessionValidationResult: Equatable, Sendable {
+    case valid(user: AuthUser)
+    case unauthorized
+    case unreachable(message: String)
+}
+
 enum AuthService {
     private static let timeout: TimeInterval = 20
+
+    /// Confirms the stored bearer token against `GET /api/v1/me` after connectivity returns.
+    static func validateSession(config: ServerConfig) async -> SessionValidationResult {
+        guard let token = AuthTokenStorage.getToken(), !token.isEmpty else {
+            return .unauthorized
+        }
+        guard let url = config.requestURL(path: "/me") else {
+            return .unreachable(message: "Server URL is not configured.")
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        AppIdentity.apply(to: &request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .unreachable(message: "Invalid response")
+            }
+            if http.statusCode == 401 {
+                return .unauthorized
+            }
+            guard (200 ..< 300).contains(http.statusCode) else {
+                let message = parseErrorMessage(from: data) ?? "Session check failed."
+                return .unreachable(message: message)
+            }
+            let user = try MediaVaultJSON.makeDecoder().decode(AuthUser.self, from: data)
+            return .valid(user: user)
+        } catch {
+            return .unreachable(message: error.localizedDescription)
+        }
+    }
 
     static func registrationSetting(config: ServerConfig) async -> Bool {
         guard let url = config.requestURL(path: "/settings/registration") else { return false }

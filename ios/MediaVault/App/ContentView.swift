@@ -52,7 +52,7 @@ struct ContentView: View {
     private var tabContent: some View {
         switch selectedTab {
         case .files:
-            FilesView()
+            FilesView(onSessionExpired: { onLogout?() })
         case .settings:
             MainSettingsView(
                 onShowServerConfig: { showServerConfig.wrappedValue = true },

@@ -55,23 +55,57 @@ struct DriveFile: Codable, Identifiable, Sendable, Hashable {
         case sharePublic = "share_public"
     }
 
+    // Human: Memberwise initializer for offline cache placeholders and tests.
+    // Agent: SETS defaults for optional encode/HLS fields; USED DriveTopLevelCache offline rows.
+    init(
+        id: String,
+        name: String,
+        mimeType: String?,
+        sizeBytes: Int64,
+        folderId: String?,
+        createdAt: Date,
+        updatedAt: Date,
+        hlsReady: Bool,
+        hlsEncodeStatus: String?,
+        hlsEncodeError: String?,
+        conversionProgress: Int,
+        durationSeconds: Int?,
+        sharePublic: Bool
+    ) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.folderId = folderId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.hlsReady = hlsReady
+        self.hlsEncodeStatus = hlsEncodeStatus
+        self.hlsEncodeError = hlsEncodeError
+        self.conversionProgress = conversionProgress
+        self.durationSeconds = durationSeconds
+        self.sharePublic = sharePublic
+    }
+
     // Human: Upload and GET /files/:id return `FileDto` without `share_public`; list rows include it.
     // Agent: DECODES share_public when present; DEFAULT false for upload/get payloads.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
-        sizeBytes = try container.decode(Int64.self, forKey: .sizeBytes)
-        folderId = try container.decodeIfPresent(String.self, forKey: .folderId)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        hlsReady = try container.decode(Bool.self, forKey: .hlsReady)
-        hlsEncodeStatus = try container.decodeIfPresent(String.self, forKey: .hlsEncodeStatus)
-        hlsEncodeError = try container.decodeIfPresent(String.self, forKey: .hlsEncodeError)
-        conversionProgress = try container.decodeIfPresent(Int.self, forKey: .conversionProgress) ?? 0
-        durationSeconds = try container.decodeIfPresent(Int.self, forKey: .durationSeconds)
-        sharePublic = try container.decodeIfPresent(Bool.self, forKey: .sharePublic) ?? false
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            mimeType: try container.decodeIfPresent(String.self, forKey: .mimeType),
+            sizeBytes: try container.decode(Int64.self, forKey: .sizeBytes),
+            folderId: try container.decodeIfPresent(String.self, forKey: .folderId),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            updatedAt: try container.decode(Date.self, forKey: .updatedAt),
+            hlsReady: try container.decode(Bool.self, forKey: .hlsReady),
+            hlsEncodeStatus: try container.decodeIfPresent(String.self, forKey: .hlsEncodeStatus),
+            hlsEncodeError: try container.decodeIfPresent(String.self, forKey: .hlsEncodeError),
+            conversionProgress: try container.decodeIfPresent(Int.self, forKey: .conversionProgress) ?? 0,
+            durationSeconds: try container.decodeIfPresent(Int.self, forKey: .durationSeconds),
+            sharePublic: try container.decodeIfPresent(Bool.self, forKey: .sharePublic) ?? false
+        )
     }
 }
 

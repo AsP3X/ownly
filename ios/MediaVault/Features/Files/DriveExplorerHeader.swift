@@ -13,7 +13,9 @@ struct DriveExplorerHeader: View {
             if !viewModel.isSearching {
                 breadcrumbRow
             }
-            searchField
+            if !viewModel.isOfflineMode {
+                searchField
+            }
         }
         .padding(.horizontal, 22)
         .padding(.top, 18)

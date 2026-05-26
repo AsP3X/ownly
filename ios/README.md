@@ -42,4 +42,6 @@ ios/MediaVault/
 
 **Drive UI:** `FilesView` lists folders and files; pull-to-refresh reloads the current folder. **Long-press** a file or folder for the same actions as the web drive (details, download, favourites, public link, delete). The center **Upload** button opens the system file picker; uploads run in the background with the same phased progress as the web transfer panel (upload → encode → storage for video). Tap the circular progress control in the Files header to open the upload queue.
 
+**Offline:** When there is no network at launch, the file explorer shows a cached **top-level** listing (file/folder names and types only). If nothing was cached yet, a connection error screen offers **Check again**. When connectivity returns, the app validates the session (`GET /me`), refreshes the drive, and updates the cache.
+
 The web client lives in `frontend/`; mirror its `/api/v1` paths and `{ error: { code, message } }` envelope in `Auth/AuthService.swift`.
