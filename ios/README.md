@@ -1,11 +1,11 @@
 # MediaVault iOS
 
-Native iOS client for [MediaVault](../README.md). This folder is the starting point for the SwiftUI app.
+Native iOS client for [MediaVault](../README.md), rebuilt from the **Cloudwrkz iOS 26** app shell.
 
 ## Requirements
 
-- macOS with [Xcode 15+](https://developer.apple.com/xcode/)
-- iOS 17+ deployment target (adjust in the Xcode project if you need older OS support)
+- macOS with Xcode 26+ (uses `glassEffect` on iOS 26)
+- iOS 26 deployment target
 - A running MediaVault API (local Docker stack or remote instance)
 
 ## Open the project
@@ -17,48 +17,29 @@ open MediaVault.xcodeproj
 
 Select the **MediaVault** scheme and an iPhone simulator, then run (⌘R).
 
-## API base URL
+## Server configuration
 
-The app reads `API_BASE_URL` from `Info.plist` (default: `http://127.0.0.1:3000/api/v1`).
+Default API base URL: `http://127.0.0.1:3000/api/v1` (Docker on your Mac).
 
-For a simulator talking to the Docker API on your Mac, that default is usually correct. For a physical device, set the host to your machine's LAN IP (not `127.0.0.1`).
+On auth screens, use the **gear** button to change host, port, and HTTPS. The status pill checks `GET /api/v1/setup/status`.
 
-Override at build time with an `.xcconfig` or Xcode build setting if needed.
+For a physical device, set the host to your Mac's LAN IP instead of `127.0.0.1`.
 
-## Layout
+## Architecture (Cloudwrkz template)
 
 ```
-ios/
-├── MediaVault.xcodeproj/     # Xcode project
-└── MediaVault/
-    ├── MediaVaultApp.swift   # App entry point
-    ├── ContentView.swift     # Signed-in drive shell (placeholder)
-    ├── Core/
-    │   ├── Configuration/    # API URL and app constants
-    │   ├── Security/         # Keychain helpers
-    │   ├── Auth/             # Session + auth models
-    │   ├── Onboarding/       # Onboarding completion flags
-    │   └── API/              # HTTP client aligned with backend error shape
-    ├── Design/
-    │   └── Glass/            # Frosted-glass UI primitives
-    └── Features/
-        ├── Root/             # Onboarding vs drive routing
-        └── Onboarding/       # First-use onboarding flow (6 steps)
+ios/MediaVault/
+├── App/                 # MediaVaultApp, RootView, SplashView, ContentView, AppState
+├── Auth/                # AuthFlowController, Login/Register, AuthService, Keychain token
+├── Core/                # AppIdentity (User-Agent)
+├── Design/              # MediaVaultDesign (liquid glass, colors, motion)
+└── Settings/            # ServerConfig, health pill, config sheet
 ```
 
-## First-use onboarding
+**Routing:** `RootView` keeps `ContentView` mounted and layers splash/login/register on top with elastic slide transitions — same pattern as Cloudwrkz.
 
-On first launch the app walks through:
+**Auth:** Keychain token → skip splash on cold start. Logout clears token and profile hints.
 
-1. Welcome
-2. Connect to your MediaVault server (`/api/v1` URL)
-3. Sign in (or create account when registration is enabled)
-4. Photos permission (skippable)
-5. Feature highlights (skippable)
-6. Ready → Drive shell
+**Drive UI:** `ContentView` is a placeholder until the native file browser is built.
 
-Server URL and auth token are stored in Keychain. Onboarding completion flags live in `UserDefaults`. After sign-out, returning users resume at the sign-in step.
-
-Run in the simulator with your Docker API on `http://127.0.0.1:3000/api/v1` (default in `Info.plist`).
-
-The web client lives in `frontend/`; mirror its API paths and `{ error: { code, message } }` handling in `Core/API/`.
+The web client lives in `frontend/`; mirror its `/api/v1` paths and `{ error: { code, message } }` envelope in `Auth/AuthService.swift`.
