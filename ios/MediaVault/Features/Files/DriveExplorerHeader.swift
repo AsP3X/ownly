@@ -60,8 +60,11 @@ struct DriveExplorerHeader: View {
             } label: {
                 Group {
                     if viewModel.isRefreshing {
-                        MediaVaultSpinner(tint: DriveExplorerStyle.accent)
-                            .scaleEffect(0.78)
+                        MediaVaultBouncingDots(
+                            tint: DriveExplorerStyle.accent,
+                            dotSize: 5,
+                            bounceHeight: 3
+                        )
                     } else {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 16, weight: .semibold))

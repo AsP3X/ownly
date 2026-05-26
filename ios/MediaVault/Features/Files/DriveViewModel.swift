@@ -42,6 +42,11 @@ final class DriveViewModel {
         folders.isEmpty && files.isEmpty && !isRefreshing
     }
 
+    /// True while the initial folder/file fetch is in flight and the list has been cleared.
+    var isLoadingInitialContent: Bool {
+        isRefreshing && folders.isEmpty && files.isEmpty
+    }
+
     func bind(config: ServerConfig) {
         guard self.config != config else { return }
         self.config = config

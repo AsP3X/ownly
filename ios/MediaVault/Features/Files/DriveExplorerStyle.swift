@@ -29,3 +29,33 @@ enum DriveExplorerStyle {
     static let generic = Color(red: 0.48, green: 0.53, blue: 0.62)
     static let warning = Color(red: 0.76, green: 0.42, blue: 0.00)
 }
+
+// Human: Three-dot indeterminate loader for folder/file fetches in the Files explorer.
+// Agent: STRUCT MediaVaultBouncingDots; STAGGERED easeInOut repeatForever per dot; DEFAULT tint DriveExplorerStyle.accent.
+struct MediaVaultBouncingDots: View {
+    var tint: Color = DriveExplorerStyle.accent
+    var dotSize: CGFloat = 8
+    var bounceHeight: CGFloat = 6
+
+    @State private var isAnimating = false
+
+    var body: some View {
+        HStack(spacing: dotSize * 0.65) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(tint)
+                    .frame(width: dotSize, height: dotSize)
+                    .offset(y: isAnimating ? -bounceHeight : 0)
+                    .animation(
+                        .easeInOut(duration: 0.42)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(index) * 0.14),
+                        value: isAnimating
+                    )
+            }
+        }
+        .frame(height: dotSize + bounceHeight)
+        .onAppear { isAnimating = true }
+        .onDisappear { isAnimating = false }
+    }
+}

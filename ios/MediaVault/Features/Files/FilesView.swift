@@ -22,7 +22,10 @@ struct FilesView: View {
                     VStack(spacing: 18) {
                         explorerSummary
 
-                        if viewModel.isEmpty {
+                        if viewModel.isLoadingInitialContent {
+                            loadingState
+                                .padding(.top, 48)
+                        } else if viewModel.isEmpty {
                             emptyState
                                 .padding(.top, 28)
                         } else {
@@ -36,7 +39,7 @@ struct FilesView: View {
                         if viewModel.isLoadingMore {
                             HStack {
                                 Spacer()
-                                MediaVaultSpinner(tint: DriveExplorerStyle.accent)
+                                MediaVaultBouncingDots(tint: DriveExplorerStyle.accent)
                                 Spacer()
                             }
                             .padding(.vertical, 20)
@@ -69,7 +72,13 @@ struct FilesView: View {
         }
     }
 
-    // MARK: - Empty & error states
+    // MARK: - Loading, empty & error states
+
+    private var loadingState: some View {
+        MediaVaultBouncingDots(tint: DriveExplorerStyle.accent)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Loading files and folders")
+    }
 
     private var explorerSummary: some View {
         HStack(spacing: 10) {
