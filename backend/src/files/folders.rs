@@ -164,12 +164,14 @@ async fn folder_files_for_deletion_preview(
     user_id: &str,
     folder_id: &str,
 ) -> Result<(Vec<FolderContentFile>, u32, u32), AppError> {
+    // Human: Trashed folders use recycle-bin subtree walk; active folders use live BFS.
+    // Agent: READS deleted_at as Option — NULL means active folder, not missing row.
     let deleted_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
         "SELECT deleted_at FROM folders WHERE id = $1 AND user_id = $2",
     )
     .bind(folder_id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
 
     if deleted_at.is_some() {

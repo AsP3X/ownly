@@ -20,7 +20,7 @@ import {
   buildUploadConflictPlan,
 } from "@/lib/upload-conflicts";
 import { startUploadBatch, subscribeUploadBatch } from "@/lib/upload-manager";
-import { formatBytes } from "@/lib/utils-app";
+import { createClientId, formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,10 +36,6 @@ type PendingFile = {
   id: string;
   file: File;
 };
-
-function createQueueItemId() {
-  return crypto.randomUUID();
-}
 
 type UploadDialogProps = {
   open: boolean;
@@ -127,7 +123,7 @@ export function UploadDialog({
     if (!selected?.length) return;
     setPendingFiles((prev) => {
       const incoming = Array.from(selected).map((file) => ({
-        id: createQueueItemId(),
+        id: createClientId(),
         file,
       }));
       return [...prev, ...incoming];

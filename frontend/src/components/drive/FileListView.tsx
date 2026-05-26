@@ -19,7 +19,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isImageMime, isPdfMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ type FileListViewProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
   hasMoreFiles?: boolean;
@@ -125,6 +126,7 @@ export function FileListView({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewAudio,
   fileShareFlags = {},
   folderShareFlags = {},
   hasMoreFiles = false,
@@ -294,11 +296,14 @@ export function FileListView({
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
             const isImage = isImageMime(file.mime_type);
             const isPdf = isPdfMime(file.mime_type);
+            const isAudio = isAudioMime(file.mime_type);
             const processing = isFileProcessing(file);
             const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
             const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-            const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
+            const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
+            const canPreview =
+              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
 
             return (
               <li
@@ -327,6 +332,7 @@ export function FileListView({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(
                       "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50",

@@ -1,6 +1,15 @@
 // Human: Format byte counts for storage usage displays in the drive UI.
 // Agent: READS number; RETURNS human-readable string with B/KB/MB/GB.
 
+// Human: Client-side row/session ids must work on HTTP live hosts, not only HTTPS/localhost.
+// Agent: USES crypto.randomUUID in secure contexts; FALLBACK time+random when API is missing.
+export function createClientId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -58,6 +67,27 @@ export function isPdfMime(mimeType: string | null | undefined): boolean {
   return mime === "application/pdf" || mime.endsWith("/pdf");
 }
 
+// Human: True when a stored file should open in the in-browser audio player dialog.
+// Agent: READS mime_type; RETURNS true for any audio/* bucket.
+export function isAudioMime(mimeType: string | null | undefined): boolean {
+  return (mimeType ?? "").toLowerCase().startsWith("audio/");
+}
+
+// Human: Derive a short uppercase format label from mime type or file extension for player chips.
+// Agent: READS mime_type + name; RETURNS e.g. MP3, FLAC, or M4A.
+export function audioFormatLabel(mimeType: string | null | undefined, fileName: string): string {
+  const mime = (mimeType ?? "").toLowerCase();
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "MP3";
+  if (mime.includes("flac")) return "FLAC";
+  if (mime.includes("wav")) return "WAV";
+  if (mime.includes("ogg")) return "OGG";
+  if (mime.includes("opus")) return "OPUS";
+  if (mime.includes("aac")) return "AAC";
+  if (mime.includes("m4a") || mime.includes("mp4")) return "M4A";
+  const ext = fileName.split(".").pop()?.toUpperCase();
+  return ext && ext.length <= 5 ? ext : "AUDIO";
+}
+
 // Human: Stable name order for drive browser, gallery, and folder listings.
 // Agent: READS name; RETURNS localeCompare with numeric:true — matches DB natural_sort_key().
 export function sortFilesByName<T extends { name: string }>(files: T[]): T[] {
@@ -75,6 +105,19 @@ export function buildImageGallery<T extends { id: string; name: string; mime_typ
   return sortFilesByName(
     allFiles.filter(
       (file) => isImageMime(file.mime_type) && file.folder_id === anchor.folder_id,
+    ),
+  );
+}
+
+// Human: All previewable audio files in the same folder as the clicked file, ordered by filename.
+// Agent: FILTERS allFiles by folder_id + audio/*; SORTS by name for player queue navigation.
+export function buildAudioGallery<T extends { id: string; name: string; mime_type: string | null; folder_id: string | null }>(
+  allFiles: T[],
+  anchor: T,
+): T[] {
+  return sortFilesByName(
+    allFiles.filter(
+      (file) => isAudioMime(file.mime_type) && file.folder_id === anchor.folder_id,
     ),
   );
 }

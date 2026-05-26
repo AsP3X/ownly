@@ -1,6 +1,8 @@
 // Human: Typed fetch wrapper for the MediaVault API with JWT auth and consistent error parsing.
 // Agent: READS localStorage token; EMITS Authorization header; PARSES `{ error: { code, message, fields? } }`.
 
+import { createClientId } from "@/lib/utils-app";
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
 
 export class ApiError extends Error {
@@ -688,7 +690,7 @@ export function uploadFileWithProgress(
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
     const isVideoUpload = file.type.startsWith("video/");
-    const sessionId = options?.sessionId ?? crypto.randomUUID();
+    const sessionId = options?.sessionId ?? createClientId();
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append("file", file);
@@ -1152,6 +1154,20 @@ export async function fetchFileDownloadUrl(id: string) {
 
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
+}
+
+// Human: Streamable preview URL for audio — presigned storage URL enables byte-range buffering in <audio>.
+// Agent: GET /files/:id/download-url; FALLBACK blob object URL when presign fails.
+export async function fetchFileStreamUrlForPreview(
+  file: FileItem,
+): Promise<{ url: string; revokeOnClose: boolean }> {
+  try {
+    const presigned = await fetchFileDownloadUrl(file.id);
+    return { url: presigned.url, revokeOnClose: false };
+  } catch {
+    const blob = await fetchFileBlobForPreview(file);
+    return { url: URL.createObjectURL(blob), revokeOnClose: true };
+  }
 }
 
 // Human: Load file bytes for in-browser preview without triggering a save dialog.

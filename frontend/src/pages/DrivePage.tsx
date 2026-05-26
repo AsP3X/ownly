@@ -82,6 +82,7 @@ import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
 import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
+import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -91,9 +92,11 @@ import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  buildAudioGallery,
   buildImageGallery,
   formatBytes,
   formatFileOpened,
+  isAudioMime,
   isImageMime,
   isPdfMime,
   sortFilesByName,
@@ -211,6 +214,7 @@ type FileTableProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
   hasMoreFiles?: boolean;
@@ -252,6 +256,7 @@ function FileTable({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewAudio,
   fileShareFlags = {},
   folderShareFlags = {},
   hasMoreFiles = false,
@@ -574,13 +579,17 @@ function FileTable({
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
             const isImage = isImageMime(file.mime_type);
             const isPdf = isPdfMime(file.mime_type);
+            const isAudio = isAudioMime(file.mime_type);
             const processing = isFileProcessing(file);
             const canPreviewVideo =
               isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage =
               isImage && onPreviewImage !== undefined && !processing;
             const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-            const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
+            const canPreviewAudio =
+              isAudio && onPreviewAudio !== undefined && !processing;
+            const canPreview =
+              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
             return (
               <tr
                 key={file.id}
@@ -597,7 +606,8 @@ function FileTable({
                   if (target.closest('input[type="checkbox"]') || target.closest("button")) return;
                   if (canPreviewVideo) onPreviewVideo!(file);
                   else if (canPreviewImage) onPreviewImage!(file);
-                  else onPreviewPdf!(file);
+                  else if (canPreviewPdf) onPreviewPdf!(file);
+                  else if (canPreviewAudio) onPreviewAudio!(file);
                 }}
                 className={cn(
                   "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
@@ -727,6 +737,7 @@ type FileGridProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
 };
 
@@ -769,6 +780,7 @@ function FileGrid({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewAudio,
   fileShareFlags = {},
 }: FileGridProps) {
   if (files.length === 0) {
@@ -782,13 +794,17 @@ function FileGrid({
         const isVideo = file.mime_type?.startsWith("video/") ?? false;
         const isImage = isImageMime(file.mime_type);
         const isPdf = isPdfMime(file.mime_type);
+        const isAudio = isAudioMime(file.mime_type);
         const processing = isFileProcessing(file);
         const canPreviewVideo =
           isVideo && onPreviewVideo !== undefined && !processing;
         const canPreviewImage =
           isImage && onPreviewImage !== undefined && !processing;
         const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-        const canPreview = canPreviewVideo || canPreviewImage || canPreviewPdf;
+        const canPreviewAudio =
+          isAudio && onPreviewAudio !== undefined && !processing;
+        const canPreview =
+          canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
         return (
           <article
             key={file.id}
@@ -800,7 +816,8 @@ function FileGrid({
               if (target.closest("button")) return;
               if (canPreviewVideo) onPreviewVideo!(file);
               else if (canPreviewImage) onPreviewImage!(file);
-              else onPreviewPdf!(file);
+              else if (canPreviewPdf) onPreviewPdf!(file);
+              else if (canPreviewAudio) onPreviewAudio!(file);
             }}
             className={cn(
               "group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm",
@@ -889,6 +906,7 @@ function HomeSection({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewAudio,
   fileShareFlags,
 }: {
   title: string;
@@ -904,6 +922,7 @@ function HomeSection({
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
 }) {
   return (
@@ -925,6 +944,7 @@ function HomeSection({
           onPreviewVideo={onPreviewVideo}
           onPreviewImage={onPreviewImage}
           onPreviewPdf={onPreviewPdf}
+          onPreviewAudio={onPreviewAudio}
           fileShareFlags={fileShareFlags}
         />
       </div>
@@ -997,6 +1017,7 @@ export default function DrivePage() {
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [detailsTarget, setDetailsTarget] = useState<DetailsTarget | null>(null);
@@ -1542,6 +1563,15 @@ export default function DrivePage() {
     setPreviewPdf(file);
   }
 
+  // Human: Open the Aurora-style audio player for stored audio/* files.
+  // Agent: SETS previewAudio; AudioPreviewDialog FETCHES blob URL and RENDERS transport UI.
+  function handlePreviewAudio(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isAudioMime(file.mime_type)) return;
+    recordFileAccess(file.id);
+    setPreviewAudio(file);
+  }
+
   function handleGalleryImageChange(file: FileItem) {
     recordFileAccess(file.id);
     setPreviewImage(file);
@@ -1551,6 +1581,16 @@ export default function DrivePage() {
     if (!previewImage) return [];
     return buildImageGallery(files, previewImage);
   }, [files, previewImage]);
+
+  const galleryAudio = useMemo(() => {
+    if (!previewAudio) return [];
+    return buildAudioGallery(files, previewAudio);
+  }, [files, previewAudio]);
+
+  function handleGalleryAudioChange(file: FileItem) {
+    recordFileAccess(file.id);
+    setPreviewAudio(file);
+  }
 
   // Human: Open the public link dialog for one file.
   // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
@@ -1720,8 +1760,10 @@ export default function DrivePage() {
       onPreviewVideo={handlePreviewVideo}
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
+      onPreviewAudio={handlePreviewAudio}
       onDelete={requestDeleteFile}
       onDeleteFolder={requestDeleteFolder}
+      onBulkDelete={handleBulkDeleteRequest}
       onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
       onCreateFolder={() => setCreateFolderDialogOpen(true)}
@@ -1782,6 +1824,15 @@ export default function DrivePage() {
           onOpenChange={(open) => {
             if (!open) setPreviewPdf(null);
           }}
+        />
+        <AudioPreviewDialog
+          tracks={galleryAudio}
+          file={previewAudio}
+          open={previewAudio !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewAudio(null);
+          }}
+          onFileChange={handleGalleryAudioChange}
         />
         <ShareDialog
           open={shareDialogOpen}
@@ -1866,12 +1917,14 @@ export default function DrivePage() {
           onToggleFavourite={handleToggleFavourite}
           onDelete={requestDeleteFile}
           onDeleteFolder={requestDeleteFolder}
+          onBulkDelete={handleBulkDeleteRequest}
           onShareFile={handleShareFile}
           onShareFolder={handleShareFolder}
           onDetailsFile={handleDetailsFile}
           onDetailsFolder={handleDetailsFolder}
           onCopyToFolder={handleOpenFolderPicker}
           onMoveToFolder={handleOpenFolderPicker}
+          selectedFileIds={selectedFileIds}
           bulkSelectionCount={selectedFileIds.size}
         />
       {/* Top bar — desktop only; mobile uses MobileDriveHeader below. */}
@@ -2182,6 +2235,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2193,6 +2247,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2204,6 +2259,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                   onOpenActions={handleOpenMobileActions}
                 />
@@ -2221,6 +2277,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
@@ -2237,6 +2294,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                 />
                 <HomeSection
@@ -2253,6 +2311,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                 />
               </div>
@@ -2317,6 +2376,7 @@ export default function DrivePage() {
                 onPreviewVideo={handlePreviewVideo}
                 onPreviewImage={handlePreviewImage}
                 onPreviewPdf={handlePreviewPdf}
+      onPreviewAudio={handlePreviewAudio}
                 fileShareFlags={fileShareFlags}
                 folderShareFlags={folderShareFlags}
                 hasMoreFiles={hasMoreFiles}
@@ -2349,6 +2409,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}

@@ -20,7 +20,7 @@ import {
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
-import { isPdfMime } from "@/lib/utils-app";
+import { isAudioMime, isPdfMime } from "@/lib/utils-app";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -49,8 +49,11 @@ type DriveContextMenuProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  /** Human: Delete every checked file when the context menu targets one of them. */
+  onBulkDelete?: () => void;
   onToggleFavourite: (fileId: string) => void;
   onUpload: () => void;
   onCreateFolder: () => void;
@@ -101,8 +104,10 @@ export function DriveContextMenu({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewAudio,
   onDelete,
   onDeleteFolder,
+  onBulkDelete,
   onToggleFavourite,
   onUpload,
   onCreateFolder,
@@ -139,7 +144,9 @@ export function DriveContextMenu({
   const bulkSelectionOnWorkspace =
     multiSelectedCount >= 2 && !targetFile && !targetFolder;
 
-  const bulkSelectionItems =
+  // Human: Shared copy/move block; workspace menu also exposes bulk delete here.
+  // Agent: includeDelete=true only for empty-area right-click so file rows keep one Delete item.
+  const bulkSelectionItems = (includeDelete: boolean) =>
     multiSelectedCount >= 2 ? (
       <>
         <ContextMenuSeparator />
@@ -152,8 +159,28 @@ export function DriveContextMenu({
           <FolderInput />
           Move to…
         </ContextMenuItem>
+        {includeDelete ? (
+          <ContextMenuItem
+            variant="destructive"
+            disabled={!onBulkDelete}
+            onClick={() => onBulkDelete?.()}
+          >
+            <Trash2 />
+            Delete {multiSelectedCount} files
+          </ContextMenuItem>
+        ) : null}
       </>
     ) : null;
+
+  // Human: Route delete to bulk confirmation when the pointer is on a checked file row.
+  // Agent: CALLS onBulkDelete for multi-select; FALLS BACK to onDelete for a single target.
+  function handleDeleteTargetFile() {
+    if (bulkSelectionOnTargetFile) {
+      onBulkDelete?.();
+      return;
+    }
+    if (targetFile) onDelete(targetFile.id);
+  }
 
   // Human: Resolve which file or folder (if any) was under the pointer when the menu opened.
   // Agent: WRITES target ids from eventDetails.event on open; CLEARS on close.
@@ -260,6 +287,17 @@ export function DriveContextMenu({
                   <ExternalLink />
                   View PDF
                 </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing ||
+                    !isAudioMime(targetFile.mime_type) ||
+                    !onPreviewAudio
+                  }
+                  onClick={() => targetFile && onPreviewAudio?.(targetFile)}
+                >
+                  <ExternalLink />
+                  Play audio
+                </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
 
@@ -267,12 +305,12 @@ export function DriveContextMenu({
             <ContextMenuItem
               variant="destructive"
               disabled={targetProcessing}
-              onClick={() => onDelete(targetFile.id)}
+              onClick={handleDeleteTargetFile}
             >
               <Trash2 />
-              Delete
+              {bulkSelectionOnTargetFile ? `Delete ${multiSelectedCount} files` : "Delete"}
             </ContextMenuItem>
-            {bulkSelectionOnTargetFile ? bulkSelectionItems : null}
+            {bulkSelectionOnTargetFile ? bulkSelectionItems(false) : null}
           </ContextMenuGroup>
         ) : targetFolder ? (
           <ContextMenuGroup>
@@ -314,7 +352,7 @@ export function DriveContextMenu({
               Refresh
             </ContextMenuItem>
 
-            {bulkSelectionOnWorkspace ? bulkSelectionItems : null}
+            {bulkSelectionOnWorkspace ? bulkSelectionItems(true) : null}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger>

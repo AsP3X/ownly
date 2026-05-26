@@ -36,12 +36,15 @@ type MobileFileActionsSheetProps = {
   onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  /** Human: Delete every checked file when the sheet targets one of them. */
+  onBulkDelete?: () => void;
   onShareFile: (file: FileItem) => void;
   onShareFolder: (folder: FolderItem) => void;
   onDetailsFile: (file: FileItem) => void;
   onDetailsFolder: (folder: FolderItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
+  selectedFileIds?: Set<string>;
   bulkSelectionCount?: number;
 };
 
@@ -95,19 +98,23 @@ export function MobileFileActionsSheet({
   onToggleFavourite,
   onDelete,
   onDeleteFolder,
+  onBulkDelete,
   onShareFile,
   onShareFolder,
   onDetailsFile,
   onDetailsFolder,
   onCopyToFolder,
   onMoveToFolder,
+  selectedFileIds,
   bulkSelectionCount = 0,
 }: MobileFileActionsSheetProps) {
   const file = target?.kind === "file" ? target.file : undefined;
   const folder = target?.kind === "folder" ? target.folder : undefined;
   const favourited = file ? favouriteIds.has(file.id) : false;
   const processing = file ? isFileProcessing(file) : false;
-  const showBulkActions = bulkSelectionCount >= 2 && file !== undefined;
+  const bulkSelectionOnTargetFile =
+    bulkSelectionCount >= 2 && file !== undefined && selectedFileIds?.has(file.id) === true;
+  const showBulkActions = bulkSelectionOnTargetFile;
 
   function closeThen(run: () => void) {
     onOpenChange(false);
@@ -194,10 +201,18 @@ export function MobileFileActionsSheet({
               <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Trash2 className="size-4" />}
-                label="Delete"
+                label={
+                  bulkSelectionOnTargetFile
+                    ? `Delete ${bulkSelectionCount} files`
+                    : "Delete"
+                }
                 disabled={processing}
                 destructive
-                onClick={() => closeThen(() => onDelete(file.id))}
+                onClick={() =>
+                  closeThen(() =>
+                    bulkSelectionOnTargetFile ? onBulkDelete?.() : onDelete(file.id),
+                  )
+                }
               />
             </>
           ) : folder ? (

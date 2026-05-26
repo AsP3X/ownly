@@ -14,6 +14,7 @@ import {
   type FileItem,
   type FolderItem,
 } from "@/api/client";
+import { createClientId } from "@/lib/utils-app";
 
 export type DownloadJobStatus = "queued" | "downloading" | "complete" | "error";
 export type DownloadJobKind = "file" | "folder" | "bulk";
@@ -220,7 +221,7 @@ function enqueueJobRow(row: DownloadJob) {
 // Human: Queue a background file download — returns immediately; progress via subscribe.
 // Agent: ADDS queued row; PUMPS worker pool; DOES NOT block the drive UI.
 export function enqueueDownload(file: FileItem) {
-  const id = crypto.randomUUID();
+  const id = createClientId();
   enqueueJobRow({
     id,
     kind: "file",
@@ -239,7 +240,7 @@ export function enqueueDownload(file: FileItem) {
 // Human: Queue a background zip download for multiple selected files.
 // Agent: ADDS queued row; RUNS bulk runner when claimed; SHOWS compressing in tray.
 export function enqueueBulkDownload(files: FileItem[]) {
-  const id = crypto.randomUUID();
+  const id = createClientId();
   const label = `${files.length} files`;
   enqueueJobRow({
     id,
@@ -259,7 +260,7 @@ export function enqueueBulkDownload(files: FileItem[]) {
 // Human: Queue a background folder zip download with server-side max compression.
 // Agent: ADDS queued row; CALLS downloadFolderItem when worker claims the job.
 export function enqueueFolderDownload(folder: FolderItem) {
-  const id = crypto.randomUUID();
+  const id = createClientId();
   enqueueJobRow({
     id,
     kind: "folder",

@@ -28,6 +28,8 @@ import {
 
 } from "@/api/client";
 
+import { createClientId } from "@/lib/utils-app";
+
 
 
 export type UploadItemStatus = "queued" | "uploading" | "done" | "error" | "cancelled";
@@ -577,7 +579,7 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
   batch = {
 
-    id: crypto.randomUUID(),
+    id: createClientId(),
 
     status: "uploading",
 
@@ -585,7 +587,7 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
     items: active.map((job) => ({
 
-      id: crypto.randomUUID(),
+      id: createClientId(),
 
       fileName: job.label,
 
@@ -1067,7 +1069,7 @@ function queuedItemsFromFiles(files: File[], folderId: string | null): InternalU
 
   return files.map((file) => ({
 
-    id: crypto.randomUUID(),
+    id: createClientId(),
 
     localFile: file,
 
@@ -1121,7 +1123,7 @@ export function startUploadBatch(files: File[], folderId: string | null) {
 
   batch = {
 
-    id: crypto.randomUUID(),
+    id: createClientId(),
 
     status: "uploading",
 

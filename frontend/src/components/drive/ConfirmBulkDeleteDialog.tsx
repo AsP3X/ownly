@@ -299,6 +299,14 @@ export function ConfirmBulkDeleteDialog({
               Cancel
             </Button>
             <div className="flex flex-row flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={confirming || count === 0 || previewLoading}
+                onClick={(event) => void handleSubmit(event, true)}
+              >
+                {confirming && confirmMode === "permanent" ? "Deleting…" : "Permanently"}
+              </Button>
               {permanentOnly ? null : (
                 <Button
                   type="button"
@@ -310,14 +318,6 @@ export function ConfirmBulkDeleteDialog({
                   {confirming && confirmMode === "recycle" ? "Recycling…" : "Recycle"}
                 </Button>
               )}
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={confirming || count === 0 || previewLoading}
-                onClick={(event) => void handleSubmit(event, true)}
-              >
-                {confirming && confirmMode === "permanent" ? "Deleting…" : "Permanently"}
-              </Button>
             </div>
           </DialogFooter>
         </form>
