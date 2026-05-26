@@ -11,6 +11,7 @@ import {
   revokePublicShare,
   type ShareLink,
 } from "@/api/client";
+import { copyTextToClipboard } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { ShareTarget } from "@/components/drive/ShareDialog";
@@ -87,8 +88,9 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
 
   async function handleCopy() {
     if (!pageUrl) return;
+    setError("");
     try {
-      await navigator.clipboard.writeText(pageUrl);
+      await copyTextToClipboard(pageUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {

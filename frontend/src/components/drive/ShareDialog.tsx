@@ -1,5 +1,5 @@
 // Human: Modal to create, copy, or revoke a public link for one file or folder.
-// Agent: CALLS createPublicShare/lookupPublicShare/revokePublicShare; WRITES clipboard via publicSharePageUrl.
+// Agent: CALLS createPublicShare/lookupPublicShare/revokePublicShare; WRITES clipboard via copyTextToClipboard.
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, Link2, Loader2, ShieldOff } from "lucide-react";
@@ -11,6 +11,7 @@ import {
   revokePublicShare,
   type ShareLink,
 } from "@/api/client";
+import { copyTextToClipboard } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -95,8 +96,9 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
 
   async function handleCopy() {
     if (!pageUrl) return;
+    setError("");
     try {
-      await navigator.clipboard.writeText(pageUrl);
+      await copyTextToClipboard(pageUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {

@@ -10,6 +10,45 @@ export function createClientId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
+// Human: Copy text to the system clipboard from share links and similar UI actions.
+// Agent: CALLS navigator.clipboard.writeText when allowed; FALLBACK document.execCommand on plain HTTP hosts.
+export async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof document === "undefined") {
+    throw new Error("Clipboard is not available.");
+  }
+
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Agent: Secure-context API may reject on HTTP live deployments — fall through to execCommand.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("execCommand copy failed");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
