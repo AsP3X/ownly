@@ -1,0 +1,12 @@
+# Human: GPU override for local Compose — merge with docker-compose.yml.
+# Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build`; REQUIRES NVIDIA Container Toolkit.
+services:
+  backend:
+    environment:
+      # Human: WSL2/Docker Desktop only mounts NVENC libs when `video` capability is requested.
+      # Agent: WITHOUT these, /dev/dxg may exist but ffmpeg fails with libnvidia-encode.so.1 missing.
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    # Human: Pass the host NVIDIA GPU into the backend for optional NVENC HLS ingest.
+    # Agent: REQUIRED for HLS_HARDWARE_ENCODE=auto to resolve beyond CPU; verified with docker run --gpus all.
+    gpus: all

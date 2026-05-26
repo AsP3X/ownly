@@ -93,13 +93,9 @@ services:
       UPLOAD_RPM: ${UPLOAD_RPM:-600}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       # Human: Optional GPU HLS ingest — auto|off|nvenc|vaapi|qsv (defaults to auto; CPU when no GPU).
-      # Agent: READ by hls::hardware at startup; NVENC needs NVIDIA Container Toolkit + GPU reservation below.
+      # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}
       HLS_VAAPI_DEVICE: ${HLS_VAAPI_DEVICE:-/dev/dri/renderD128}
-      # Human: WSL2/Docker Desktop only mounts NVENC libs when `video` capability is requested.
-      # Agent: WITHOUT these, /dev/dxg may exist but ffmpeg fails with libnvidia-encode.so.1 missing.
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     ports:
       - "3000:3000"
     depends_on:
@@ -107,9 +103,6 @@ services:
         condition: service_healthy
       object-storage:
         condition: service_healthy
-    # Human: Pass the host NVIDIA GPU into the backend for optional NVENC HLS ingest.
-    # Agent: REQUIRED for HLS_HARDWARE_ENCODE=auto to resolve beyond CPU; verified with docker run --gpus all.
-    gpus: all
 
   frontend:
     build:
