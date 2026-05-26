@@ -1,8 +1,8 @@
-// Human: In-browser PDF viewer — page navigation and zoom; structured for future annotation/editing layers.
-// Agent: FETCHES fetchFileBlobForPreview; RENDERS react-pdf Document+Page; READS pdf-viewer worker setup.
+// Human: In-browser PDF viewer — continuous vertical scroll through all pages with zoom controls.
+// Agent: FETCHES fetchFileBlobForPreview; RENDERS react-pdf Document + stacked Page list; READS pdf-viewer worker.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, ZoomIn, ZoomOut } from "lucide-react";
+import { Loader2, ZoomIn, ZoomOut } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, getErrorMessage } from "@/api/client";
@@ -56,7 +56,7 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [numPages, setNumPages] = useState(0);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [pageWidth, setPageWidth] = useState<number | undefined>(undefined);
   const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
@@ -69,12 +69,12 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
   }, []);
 
   // Human: Reset viewer state when switching files or reopening the dialog.
-  // Agent: CLEARS pdfData, page index, zoom; FETCH effect loads bytes for the active file id.
+  // Agent: CLEARS pdfData and zoom; FETCH effect loads bytes for the active file id.
   useEffect(() => {
     setPdfData(null);
     setError("");
     setNumPages(0);
-    setPageNumber(1);
+    setCurrentPage(1);
     setZoom(DEFAULT_ZOOM);
   }, [file?.id]);
 
@@ -127,17 +127,6 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     };
   }, [open, file]);
 
-  const hasPrevious = pageNumber > 1;
-  const hasNext = numPages > 0 && pageNumber < numPages;
-
-  const goPrevious = useCallback(() => {
-    setPageNumber((current) => Math.max(1, current - 1));
-  }, []);
-
-  const goNext = useCallback(() => {
-    setPageNumber((current) => (numPages > 0 ? Math.min(numPages, current + 1) : current));
-  }, [numPages]);
-
   const zoomIn = useCallback(() => {
     setZoom((current) => clampZoom(current + ZOOM_STEP));
   }, []);
@@ -146,7 +135,7 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     setZoom((current) => clampZoom(current - ZOOM_STEP));
   }, []);
 
-  // Human: Ctrl+wheel zooms; plain wheel scrolls the page pane when content overflows.
+  // Human: Ctrl+wheel zooms; plain wheel scrolls through the stacked pages.
   // Agent: LISTENS wheel on viewportNode; preventDefault ONLY when event.ctrlKey is set.
   const applyWheelZoom = useCallback((deltaY: number) => {
     const direction = deltaY < 0 ? 1 : -1;
@@ -157,34 +146,22 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     setZoom((current) => clampZoom(current + direction * step));
   }, []);
 
-  const goPreviousRef = useRef(goPrevious);
-  const goNextRef = useRef(goNext);
   const zoomInRef = useRef(zoomIn);
   const zoomOutRef = useRef(zoomOut);
 
   useEffect(() => {
-    goPreviousRef.current = goPrevious;
-    goNextRef.current = goNext;
     zoomInRef.current = zoomIn;
     zoomOutRef.current = zoomOut;
-  }, [goPrevious, goNext, zoomIn, zoomOut]);
+  }, [zoomIn, zoomOut]);
 
-  // Human: Keyboard shortcuts for page turns and zoom while the dialog has focus.
-  // Agent: LISTENS document keydown capture; PREVENTS default for handled keys.
+  // Human: Keyboard shortcuts for zoom while the dialog has focus.
+  // Agent: LISTENS document keydown capture; PREVENTS default for +/− keys.
   useEffect(() => {
     if (!open) return;
 
     function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
       if (event.isComposing) return;
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        event.stopPropagation();
-        goPreviousRef.current();
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        event.stopPropagation();
-        goNextRef.current();
-      } else if (event.key === "+" || event.key === "=") {
+      if (event.key === "+" || event.key === "=") {
         event.preventDefault();
         zoomInRef.current();
       } else if (event.key === "-") {
@@ -211,18 +188,61 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     return () => viewportNode.removeEventListener("wheel", handleWheel);
   }, [open, viewportNode, applyWheelZoom]);
 
-  const handleContentKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      goPrevious();
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      goNext();
-    }
-  };
+  // Human: Track which stacked page is in view while scrolling — shown in the bottom-right chip.
+  // Agent: READS data-pdf-page wrappers on scroll/resize; WRITES currentPage from viewport focus line.
+  useEffect(() => {
+    if (!open || !viewportNode || numPages === 0) return;
 
-  const positionLabel = numPages > 0 ? `Page ${pageNumber} of ${numPages}` : null;
+    const updateCurrentPage = () => {
+      const pageElements = viewportNode.querySelectorAll<HTMLElement>("[data-pdf-page]");
+      if (pageElements.length === 0) return;
+
+      const viewportRect = viewportNode.getBoundingClientRect();
+      const focusLine = viewportRect.top + viewportRect.height * 0.35;
+
+      for (const pageElement of pageElements) {
+        const pageNumber = Number(pageElement.dataset.pdfPage);
+        if (!pageNumber) continue;
+
+        const rect = pageElement.getBoundingClientRect();
+        if (focusLine >= rect.top && focusLine <= rect.bottom) {
+          setCurrentPage(pageNumber);
+          return;
+        }
+      }
+
+      let closestPage = 1;
+      let closestDistance = Number.POSITIVE_INFINITY;
+
+      for (const pageElement of pageElements) {
+        const pageNumber = Number(pageElement.dataset.pdfPage);
+        if (!pageNumber) continue;
+
+        const rect = pageElement.getBoundingClientRect();
+        const pageCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(pageCenter - focusLine);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPage = pageNumber;
+        }
+      }
+
+      setCurrentPage(closestPage);
+    };
+
+    updateCurrentPage();
+    viewportNode.addEventListener("scroll", updateCurrentPage, { passive: true });
+    const resizeObserver = new ResizeObserver(updateCurrentPage);
+    resizeObserver.observe(viewportNode);
+
+    return () => {
+      viewportNode.removeEventListener("scroll", updateCurrentPage);
+      resizeObserver.disconnect();
+    };
+  }, [open, viewportNode, numPages, zoom, pageWidth]);
+
+  const pageCountLabel =
+    numPages === 1 ? "1 page" : numPages > 1 ? `${numPages} pages` : null;
   const scaledWidth = pageWidth ? Math.round(pageWidth * zoom) : undefined;
 
   return (
@@ -240,43 +260,18 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
           height: "95vh",
           maxHeight: "95vh",
         }}
-        onKeyDown={handleContentKeyDown}
       >
         <DialogHeader className="shrink-0 gap-1 border-b px-4 py-3 pr-12">
           <DialogTitle className="truncate">{file?.name ?? "PDF preview"}</DialogTitle>
           <DialogDescription>
-            {positionLabel
-              ? `${positionLabel} — Ctrl+scroll zooms; scroll pans; arrow keys turn pages.`
+            {pageCountLabel
+              ? `${pageCountLabel} — scroll to read; Ctrl+scroll zooms.`
               : "View PDF pages in the browser. Editing will be added in a later release."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasPrevious}
-              onClick={goPrevious}
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="min-w-[7rem] text-center text-sm text-neutral-600">
-              {positionLabel ?? "—"}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasNext}
-              onClick={goNext}
-              aria-label="Next page"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          <span className="text-sm text-neutral-600">{pageCountLabel ?? "—"}</span>
 
           <div className="flex items-center gap-1">
             <Button
@@ -305,58 +300,77 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
           </div>
         </div>
 
-        <div
-          ref={viewportRef}
-          tabIndex={-1}
-          className="relative min-h-0 flex-1 overflow-auto bg-neutral-100 px-4 py-6 outline-none"
-        >
-          {error ? (
-            <p className="text-destructive px-4 text-center text-sm" role="alert">
-              {error}
-            </p>
-          ) : null}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={viewportRef}
+            tabIndex={-1}
+            className="h-full overflow-auto bg-neutral-100 px-4 py-6 outline-none"
+          >
+            {error ? (
+              <p className="text-destructive px-4 text-center text-sm" role="alert">
+                {error}
+              </p>
+            ) : null}
 
-          {pdfData ? (
-            // Human: Viewer shell — future edit mode can mount annotation tools above this canvas stack.
-            // Agent: RENDERS react-pdf layers; onLoadSuccess SETS numPages; Page WRITES canvas + text layer.
-            <div className="mx-auto flex w-fit flex-col items-center">
-              <Document
-                file={pdfData}
-                loading={
-                  <div className="flex items-center gap-2 py-12 text-sm text-neutral-600">
-                    <Loader2 className="size-5 animate-spin" aria-hidden />
-                    Rendering PDF…
-                  </div>
-                }
-                onLoadSuccess={({ numPages: loadedPages }) => {
-                  setNumPages(loadedPages);
-                  setPageNumber((current) => Math.min(current, loadedPages));
-                }}
-                onLoadError={(loadError) => {
-                  setError(loadError.message || "Could not open this PDF.");
-                }}
-                className="flex flex-col items-center"
-              >
-                <Page
-                  pageNumber={pageNumber}
-                  width={scaledWidth}
-                  renderAnnotationLayer
-                  renderTextLayer
+            {pdfData ? (
+              // Human: Continuous scroll stack — future edit mode can overlay tools per page canvas.
+              // Agent: MAPS 1..numPages to Page components; onLoadSuccess SETS numPages from Document.
+              <div className="mx-auto flex w-fit flex-col items-center gap-4">
+                <Document
+                  file={pdfData}
                   loading={
-                    <div className="flex min-h-[40vh] items-center justify-center">
-                      <Loader2 className="size-6 animate-spin text-neutral-500" aria-hidden />
+                    <div className="flex items-center gap-2 py-12 text-sm text-neutral-600">
+                      <Loader2 className="size-5 animate-spin" aria-hidden />
+                      Rendering PDF…
                     </div>
                   }
-                  className={cn("shadow-md", loading && "opacity-70")}
-                />
-              </Document>
-            </div>
-          ) : null}
+                  onLoadSuccess={({ numPages: loadedPages }) => {
+                    setNumPages(loadedPages);
+                    setCurrentPage(1);
+                  }}
+                  onLoadError={(loadError) => {
+                    setError(loadError.message || "Could not open this PDF.");
+                  }}
+                  className="flex flex-col items-center gap-4"
+                >
+                  {numPages > 0
+                    ? Array.from({ length: numPages }, (_, index) => (
+                        <div key={`page-${index + 1}`} data-pdf-page={index + 1}>
+                          <Page
+                            pageNumber={index + 1}
+                            width={scaledWidth}
+                            renderAnnotationLayer
+                            renderTextLayer
+                            loading={
+                              <div className="flex min-h-[24rem] items-center justify-center">
+                                <Loader2 className="size-6 animate-spin text-neutral-500" aria-hidden />
+                              </div>
+                            }
+                            className={cn("shadow-md", loading && "opacity-70")}
+                          />
+                        </div>
+                      ))
+                    : null}
+                </Document>
+              </div>
+            ) : null}
 
-          {loading && !pdfData ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-neutral-100 text-sm text-neutral-600">
-              <Loader2 className="size-6 animate-spin" aria-hidden />
-              <span className="sr-only">Loading PDF…</span>
+            {loading && !pdfData ? (
+              <div className="flex min-h-[40vh] items-center justify-center text-sm text-neutral-600">
+                <Loader2 className="size-6 animate-spin" aria-hidden />
+                <span className="sr-only">Loading PDF…</span>
+              </div>
+            ) : null}
+          </div>
+
+          {numPages > 0 ? (
+            // Human: Fixed to the viewer pane corner — stays visible while PDF pages scroll underneath.
+            // Agent: absolute on outer shell (not scroll child); READS currentPage from scroll tracker.
+            <div
+              className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-full bg-neutral-900/80 px-3 py-1.5 text-xs font-medium text-white shadow-md backdrop-blur-sm"
+              aria-live="polite"
+            >
+              Page {currentPage} of {numPages}
             </div>
           ) : null}
         </div>
