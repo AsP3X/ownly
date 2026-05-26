@@ -13,6 +13,19 @@
 		A1B2C3D404 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D504 /* APIClient.swift */; };
 		A1B2C3D405 /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D505 /* APIError.swift */; };
 		A1B2C3D406 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D506 /* Assets.xcassets */; };
+		A1B2C3D408 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D508 /* KeychainStore.swift */; };
+		A1B2C3D409 /* ServerConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D509 /* ServerConfiguration.swift */; };
+		A1B2C3D40A /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50A /* AuthModels.swift */; };
+		A1B2C3D40B /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50B /* SessionStore.swift */; };
+		A1B2C3D40C /* OnboardingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50C /* OnboardingStore.swift */; };
+		A1B2C3D40D /* MediaVaultAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50D /* MediaVaultAPI.swift */; };
+		A1B2C3D40E /* GlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50E /* GlassStyle.swift */; };
+		A1B2C3D40F /* OnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50F /* OnboardingStep.swift */; };
+		A1B2C3D700 /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D600 /* OnboardingViewModel.swift */; };
+		A1B2C3D701 /* OnboardingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D601 /* OnboardingViews.swift */; };
+		A1B2C3D702 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D602 /* OnboardingFlowView.swift */; };
+		A1B2C3D703 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D603 /* RootView.swift */; };
+		A1B2C3D704 /* OnboardingDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D604 /* OnboardingDesign.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +37,19 @@
 		A1B2C3D505 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		A1B2C3D506 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1B2C3D507 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B2C3D508 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		A1B2C3D509 /* ServerConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfiguration.swift; sourceTree = "<group>"; };
+		A1B2C3D50A /* AuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
+		A1B2C3D50B /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		A1B2C3D50C /* OnboardingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStore.swift; sourceTree = "<group>"; };
+		A1B2C3D50D /* MediaVaultAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaVaultAPI.swift; sourceTree = "<group>"; };
+		A1B2C3D50E /* GlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassStyle.swift; sourceTree = "<group>"; };
+		A1B2C3D50F /* OnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStep.swift; sourceTree = "<group>"; };
+		A1B2C3D600 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
+		A1B2C3D601 /* OnboardingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViews.swift; sourceTree = "<group>"; };
+		A1B2C3D602 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
+		A1B2C3D603 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A1B2C3D604 /* OnboardingDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingDesign.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,6 +77,8 @@
 				A1B2C3D501 /* MediaVaultApp.swift */,
 				A1B2C3D502 /* ContentView.swift */,
 				A1B2C3D530 /* Core */,
+				A1B2C3D536 /* Design */,
+				A1B2C3D537 /* Features */,
 				A1B2C3D506 /* Assets.xcassets */,
 				A1B2C3D507 /* Info.plist */,
 			);
@@ -70,6 +98,9 @@
 			children = (
 				A1B2C3D531 /* Configuration */,
 				A1B2C3D532 /* API */,
+				A1B2C3D533 /* Security */,
+				A1B2C3D534 /* Auth */,
+				A1B2C3D535 /* Onboarding */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -78,6 +109,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D503 /* AppConfiguration.swift */,
+				A1B2C3D509 /* ServerConfiguration.swift */,
 			);
 			path = Configuration;
 			sourceTree = "<group>";
@@ -87,8 +119,87 @@
 			children = (
 				A1B2C3D504 /* APIClient.swift */,
 				A1B2C3D505 /* APIError.swift */,
+				A1B2C3D50D /* MediaVaultAPI.swift */,
 			);
 			path = API;
+			sourceTree = "<group>";
+		};
+		A1B2C3D533 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D508 /* KeychainStore.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		A1B2C3D534 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D50A /* AuthModels.swift */,
+				A1B2C3D50B /* SessionStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		A1B2C3D535 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D50C /* OnboardingStore.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		A1B2C3D536 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D538 /* Glass */,
+				A1B2C3D53A /* Onboarding */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		A1B2C3D53A /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D604 /* OnboardingDesign.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		A1B2C3D538 /* Glass */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D50E /* GlassStyle.swift */,
+			);
+			path = Glass;
+			sourceTree = "<group>";
+		};
+		A1B2C3D537 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D539 /* Root */,
+				A1B2C3D540F /* Onboarding */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		A1B2C3D539 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D603 /* RootView.swift */,
+			);
+			path = Root;
+			sourceTree = "<group>";
+		};
+		A1B2C3D540F /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D50F /* OnboardingStep.swift */,
+				A1B2C3D600 /* OnboardingViewModel.swift */,
+				A1B2C3D601 /* OnboardingViews.swift */,
+				A1B2C3D602 /* OnboardingFlowView.swift */,
+			);
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -165,6 +276,19 @@
 				A1B2C3D403 /* AppConfiguration.swift in Sources */,
 				A1B2C3D404 /* APIClient.swift in Sources */,
 				A1B2C3D405 /* APIError.swift in Sources */,
+				A1B2C3D408 /* KeychainStore.swift in Sources */,
+				A1B2C3D409 /* ServerConfiguration.swift in Sources */,
+				A1B2C3D40A /* AuthModels.swift in Sources */,
+				A1B2C3D40B /* SessionStore.swift in Sources */,
+				A1B2C3D40C /* OnboardingStore.swift in Sources */,
+				A1B2C3D40D /* MediaVaultAPI.swift in Sources */,
+				A1B2C3D40E /* GlassStyle.swift in Sources */,
+				A1B2C3D40F /* OnboardingStep.swift in Sources */,
+				A1B2C3D700 /* OnboardingViewModel.swift in Sources */,
+				A1B2C3D701 /* OnboardingViews.swift in Sources */,
+				A1B2C3D702 /* OnboardingFlowView.swift in Sources */,
+				A1B2C3D703 /* RootView.swift in Sources */,
+				A1B2C3D704 /* OnboardingDesign.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

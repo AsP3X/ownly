@@ -32,17 +32,33 @@ ios/
 ├── MediaVault.xcodeproj/     # Xcode project
 └── MediaVault/
     ├── MediaVaultApp.swift   # App entry point
-    ├── ContentView.swift     # Root UI shell
+    ├── ContentView.swift     # Signed-in drive shell (placeholder)
     ├── Core/
     │   ├── Configuration/    # API URL and app constants
+    │   ├── Security/         # Keychain helpers
+    │   ├── Auth/             # Session + auth models
+    │   ├── Onboarding/       # Onboarding completion flags
     │   └── API/              # HTTP client aligned with backend error shape
-    └── Assets.xcassets/
+    ├── Design/
+    │   └── Glass/            # Frosted-glass UI primitives
+    └── Features/
+        ├── Root/             # Onboarding vs drive routing
+        └── Onboarding/       # First-use onboarding flow (6 steps)
 ```
 
-## Next steps
+## First-use onboarding
 
-- Auth flow (login, token storage in Keychain)
-- Drive file list and upload
-- Share extension / background downloads (later)
+On first launch the app walks through:
+
+1. Welcome
+2. Connect to your MediaVault server (`/api/v1` URL)
+3. Sign in (or create account when registration is enabled)
+4. Photos permission (skippable)
+5. Feature highlights (skippable)
+6. Ready → Drive shell
+
+Server URL and auth token are stored in Keychain. Onboarding completion flags live in `UserDefaults`. After sign-out, returning users resume at the sign-in step.
+
+Run in the simulator with your Docker API on `http://127.0.0.1:3000/api/v1` (default in `Info.plist`).
 
 The web client lives in `frontend/`; mirror its API paths and `{ error: { code, message } }` handling in `Core/API/`.
