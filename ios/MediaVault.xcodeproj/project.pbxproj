@@ -3,57 +3,23 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		A1B2C3D401 /* MediaVaultApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D501 /* MediaVaultApp.swift */; };
-		A1B2C3D402 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D502 /* ContentView.swift */; };
-		A1B2C3D403 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D503 /* AppConfiguration.swift */; };
-		A1B2C3D404 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D504 /* APIClient.swift */; };
-		A1B2C3D405 /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D505 /* APIError.swift */; };
-		A1B2C3D406 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D506 /* Assets.xcassets */; };
-		A1B2C3D408 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D508 /* KeychainStore.swift */; };
-		A1B2C3D409 /* ServerConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D509 /* ServerConfiguration.swift */; };
-		A1B2C3D40A /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50A /* AuthModels.swift */; };
-		A1B2C3D40B /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50B /* SessionStore.swift */; };
-		A1B2C3D40C /* OnboardingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50C /* OnboardingStore.swift */; };
-		A1B2C3D40D /* MediaVaultAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50D /* MediaVaultAPI.swift */; };
-		A1B2C3D40E /* GlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50E /* GlassStyle.swift */; };
-		A1B2C3D40F /* OnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D50F /* OnboardingStep.swift */; };
-		A1B2C3D700 /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D600 /* OnboardingViewModel.swift */; };
-		A1B2C3D701 /* OnboardingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D601 /* OnboardingViews.swift */; };
-		A1B2C3D702 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D602 /* OnboardingFlowView.swift */; };
-		A1B2C3D703 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D603 /* RootView.swift */; };
-		A1B2C3D704 /* OnboardingDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D604 /* OnboardingDesign.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
-		A1B2C3D500 /* MediaVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A1B2C3D501 /* MediaVaultApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaVaultApp.swift; sourceTree = "<group>"; };
-		A1B2C3D502 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		A1B2C3D503 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
-		A1B2C3D504 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		A1B2C3D505 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
-		A1B2C3D506 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A1B2C3D507 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1B2C3D508 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
-		A1B2C3D509 /* ServerConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfiguration.swift; sourceTree = "<group>"; };
-		A1B2C3D50A /* AuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
-		A1B2C3D50B /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
-		A1B2C3D50C /* OnboardingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStore.swift; sourceTree = "<group>"; };
-		A1B2C3D50D /* MediaVaultAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaVaultAPI.swift; sourceTree = "<group>"; };
-		A1B2C3D50E /* GlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassStyle.swift; sourceTree = "<group>"; };
-		A1B2C3D50F /* OnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStep.swift; sourceTree = "<group>"; };
-		A1B2C3D600 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
-		A1B2C3D601 /* OnboardingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViews.swift; sourceTree = "<group>"; };
-		A1B2C3D602 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
-		A1B2C3D603 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		A1B2C3D604 /* OnboardingDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingDesign.swift; sourceTree = "<group>"; };
+		MV0000030000000000000001 /* MediaVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		MV0000050000000000000001 /* MediaVault */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MediaVault;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
-		A1B2C3D510 /* Frameworks */ = {
+		MV00000F0000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -63,294 +29,123 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A1B2C3D520 = {
+		MV0000040000000000000001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1B2C3D521 /* MediaVault */,
-				A1B2C3D522 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
-		A1B2C3D521 /* MediaVault */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D501 /* MediaVaultApp.swift */,
-				A1B2C3D502 /* ContentView.swift */,
-				A1B2C3D530 /* Core */,
-				A1B2C3D536 /* Design */,
-				A1B2C3D537 /* Features */,
-				A1B2C3D506 /* Assets.xcassets */,
-				A1B2C3D507 /* Info.plist */,
-			);
-			path = MediaVault;
-			sourceTree = "<group>";
-		};
-		A1B2C3D522 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D500 /* MediaVault.app */,
+				MV0000030000000000000001 /* MediaVault.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A1B2C3D530 /* Core */ = {
+		MV00000A0000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				A1B2C3D531 /* Configuration */,
-				A1B2C3D532 /* API */,
-				A1B2C3D533 /* Security */,
-				A1B2C3D534 /* Auth */,
-				A1B2C3D535 /* Onboarding */,
+				MV0000050000000000000001 /* MediaVault */,
+				MV0000040000000000000001 /* Products */,
 			);
-			path = Core;
-			sourceTree = "<group>";
-		};
-		A1B2C3D531 /* Configuration */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D503 /* AppConfiguration.swift */,
-				A1B2C3D509 /* ServerConfiguration.swift */,
-			);
-			path = Configuration;
-			sourceTree = "<group>";
-		};
-		A1B2C3D532 /* API */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D504 /* APIClient.swift */,
-				A1B2C3D505 /* APIError.swift */,
-				A1B2C3D50D /* MediaVaultAPI.swift */,
-			);
-			path = API;
-			sourceTree = "<group>";
-		};
-		A1B2C3D533 /* Security */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D508 /* KeychainStore.swift */,
-			);
-			path = Security;
-			sourceTree = "<group>";
-		};
-		A1B2C3D534 /* Auth */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D50A /* AuthModels.swift */,
-				A1B2C3D50B /* SessionStore.swift */,
-			);
-			path = Auth;
-			sourceTree = "<group>";
-		};
-		A1B2C3D535 /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D50C /* OnboardingStore.swift */,
-			);
-			path = Onboarding;
-			sourceTree = "<group>";
-		};
-		A1B2C3D536 /* Design */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D538 /* Glass */,
-				A1B2C3D53A /* Onboarding */,
-			);
-			path = Design;
-			sourceTree = "<group>";
-		};
-		A1B2C3D53A /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D604 /* OnboardingDesign.swift */,
-			);
-			path = Onboarding;
-			sourceTree = "<group>";
-		};
-		A1B2C3D538 /* Glass */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D50E /* GlassStyle.swift */,
-			);
-			path = Glass;
-			sourceTree = "<group>";
-		};
-		A1B2C3D537 /* Features */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D539 /* Root */,
-				A1B2C3D540F /* Onboarding */,
-			);
-			path = Features;
-			sourceTree = "<group>";
-		};
-		A1B2C3D539 /* Root */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D603 /* RootView.swift */,
-			);
-			path = Root;
-			sourceTree = "<group>";
-		};
-		A1B2C3D540F /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D50F /* OnboardingStep.swift */,
-				A1B2C3D600 /* OnboardingViewModel.swift */,
-				A1B2C3D601 /* OnboardingViews.swift */,
-				A1B2C3D602 /* OnboardingFlowView.swift */,
-			);
-			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A1B2C3D540 /* MediaVault */ = {
+		MV0000020000000000000001 /* MediaVault */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A1B2C3D560 /* Build configuration list for PBXNativeTarget "MediaVault" */;
+			buildConfigurationList = MV0000160000000000000001 /* Build configuration list for PBXNativeTarget "MediaVault" */;
 			buildPhases = (
-				A1B2C3D541 /* Sources */,
-				A1B2C3D510 /* Frameworks */,
-				A1B2C3D542 /* Resources */,
+				MV00000E0000000000000001 /* Sources */,
+				MV00000F0000000000000001 /* Frameworks */,
+				MV0000100000000000000001 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				MV0000050000000000000001 /* MediaVault */,
+			);
 			name = MediaVault;
+			packageProductDependencies = (
+			);
 			productName = MediaVault;
-			productReference = A1B2C3D500 /* MediaVault.app */;
+			productReference = MV0000030000000000000001 /* MediaVault.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A1B2C3D550 /* Project object */ = {
+		MV00000B0000000000000001 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
 				TargetAttributes = {
-					A1B2C3D540 = {
-						CreatedOnToolsVersion = 15.0;
+					MV0000020000000000000001 = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
-			buildConfigurationList = A1B2C3D551 /* Build configuration list for PBXProject "MediaVault" */;
-			compatibilityVersion = "Xcode 14.0";
+			buildConfigurationList = MV00000C0000000000000002 /* Build configuration list for PBXProject "MediaVault" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = A1B2C3D520;
-			productRefGroup = A1B2C3D522 /* Products */;
+			mainGroup = MV00000A0000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = MV0000040000000000000001 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A1B2C3D540 /* MediaVault */,
+				MV0000020000000000000001 /* MediaVault */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A1B2C3D542 /* Resources */ = {
+		MV0000100000000000000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D406 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A1B2C3D541 /* Sources */ = {
+		MV00000E0000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D401 /* MediaVaultApp.swift in Sources */,
-				A1B2C3D402 /* ContentView.swift in Sources */,
-				A1B2C3D403 /* AppConfiguration.swift in Sources */,
-				A1B2C3D404 /* APIClient.swift in Sources */,
-				A1B2C3D405 /* APIError.swift in Sources */,
-				A1B2C3D408 /* KeychainStore.swift in Sources */,
-				A1B2C3D409 /* ServerConfiguration.swift in Sources */,
-				A1B2C3D40A /* AuthModels.swift in Sources */,
-				A1B2C3D40B /* SessionStore.swift in Sources */,
-				A1B2C3D40C /* OnboardingStore.swift in Sources */,
-				A1B2C3D40D /* MediaVaultAPI.swift in Sources */,
-				A1B2C3D40E /* GlassStyle.swift in Sources */,
-				A1B2C3D40F /* OnboardingStep.swift in Sources */,
-				A1B2C3D700 /* OnboardingViewModel.swift in Sources */,
-				A1B2C3D701 /* OnboardingViews.swift in Sources */,
-				A1B2C3D702 /* OnboardingFlowView.swift in Sources */,
-				A1B2C3D703 /* RootView.swift in Sources */,
-				A1B2C3D704 /* OnboardingDesign.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		A1B2C3D570 /* Debug */ = {
+		MV0000140000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",
 				);
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -358,63 +153,29 @@
 			};
 			name = Debug;
 		};
-		A1B2C3D571 /* Release */ = {
+		MV0000150000000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
-		A1B2C3D572 /* Debug */ = {
+		MV0000170000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -423,14 +184,15 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MediaVault/Info.plist;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MediaVault;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -438,15 +200,19 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mediavault.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
-		A1B2C3D573 /* Release */ = {
+		MV0000180000000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -455,14 +221,15 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MediaVault/Info.plist;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MediaVault;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -470,9 +237,13 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mediavault.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -481,25 +252,25 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1B2C3D551 /* Build configuration list for PBXProject "MediaVault" */ = {
+		MV00000C0000000000000002 /* Build configuration list for PBXProject "MediaVault" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1B2C3D570 /* Debug */,
-				A1B2C3D571 /* Release */,
+				MV0000140000000000000001 /* Debug */,
+				MV0000150000000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A1B2C3D560 /* Build configuration list for PBXNativeTarget "MediaVault" */ = {
+		MV0000160000000000000001 /* Build configuration list for PBXNativeTarget "MediaVault" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1B2C3D572 /* Debug */,
-				A1B2C3D573 /* Release */,
+				MV0000170000000000000001 /* Debug */,
+				MV0000180000000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = A1B2C3D550 /* Project object */;
+	rootObject = MV00000B0000000000000001 /* Project object */;
 }
