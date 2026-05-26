@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use crate::hls::playlist::HLS_SEGMENT_EXTENSION;
 use crate::storage::Storage;
 
 // Human: Target aggregate upload buffer — Nebular OOM at ~12×5 MiB concurrent bodies in Compose.
@@ -24,7 +25,7 @@ const HLS_UPLOAD_PERMIT_UNIT_BYTES: u64 = 2 * 1024 * 1024;
 
 // Human: Hard cap on simultaneous segment tasks regardless of size.
 // Agent: CEILING on plan_segment_upload; PAIRED with byte budget.
-const HLS_UPLOAD_MAX_PARALLEL_SEGMENTS: usize = 8;
+pub const HLS_UPLOAD_MAX_PARALLEL_SEGMENTS: usize = 8;
 
 // Human: Retry segment PUTs when object storage restarts or refuses connections mid-ingest.
 // Agent: EXPONENTIAL backoff starting 250ms; RE-READS segment file each attempt.
@@ -35,9 +36,70 @@ const HLS_SEGMENT_PUT_RETRY_BASE_MS: u64 = 250;
 // Agent: ADDITIVE +100 permille steps; RESET streak on any failure.
 const HLS_UPLOAD_RECOVERY_SUCCESS_STREAK: u32 = 8;
 
-/// Human: Planned upload parallelism derived from segment file sizes on disk.
-/// Agent: LOGGED at ingest; DRIVES DynamicUploadLimiter initial budget.
+// Human: Result of parallel HLS segment PUTs — ingest must not set hls_ready unless complete.
+// Agent: VALIDATED by validate_segment_upload_outcome before marking files.hls_ready.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentUploadOutcome {
+    pub expected: usize,
+    pub uploaded: usize,
+    pub failed: usize,
+    pub bytes: u64,
+}
+
+// Human: User-safe failure when not every segment reached object storage (partial Nebular ingest).
+// Agent: WRITTEN to files.hls_encode_error; REGRESSION: issue where hls_ready was true with gaps.
+pub fn segment_upload_failure_message(outcome: &SegmentUploadOutcome) -> String {
+    if outcome.expected == 0 {
+        return "no HLS segments were produced".to_string();
+    }
+    format!(
+        "uploaded {} of {} video segments ({} failed); object storage may be unavailable — try re-uploading",
+        outcome.uploaded, outcome.expected, outcome.failed
+    )
+}
+
+// Human: True when every segment uploaded and none failed — required before hls_ready.
+// Agent: RETURNS Err(message) for regression tests and encode_job completion gate.
+pub fn validate_segment_upload_outcome(outcome: &SegmentUploadOutcome) -> Result<(), String> {
+    if outcome.uploaded == outcome.expected && outcome.failed == 0 && outcome.expected > 0 {
+        return Ok(());
+    }
+    Err(segment_upload_failure_message(outcome))
+}
+
+// Human: Count `.m4s` objects under `{storage_key}/segments/` after upload.
+// Agent: READS storage list API; FINAL gate when PUT counters and storage disagree.
+pub async fn count_stored_hls_segments(
+    storage: &dyn Storage,
+    storage_key: &str,
+) -> anyhow::Result<usize> {
+    let prefix = format!("{storage_key}/segments/");
+    let keys = storage.list_keys_with_prefix(&prefix).await?;
+    Ok(keys
+        .iter()
+        .filter(|key| key.ends_with(&format!(".{HLS_SEGMENT_EXTENSION}")))
+        .count())
+}
+
+// Human: Verify upload counters and storage listing both match ffmpeg segment_count.
+// Agent: RETURNS Err on partial ingest; USED by encode_job before UPDATE hls_ready.
+pub async fn verify_hls_segments_in_storage(
+    storage: &dyn Storage,
+    storage_key: &str,
+    mut outcome: SegmentUploadOutcome,
+) -> Result<SegmentUploadOutcome, String> {
+    validate_segment_upload_outcome(&outcome)?;
+    let stored_in_bucket = count_stored_hls_segments(storage, storage_key)
+        .await
+        .map_err(|error| format!("verify HLS segments in storage: {error}"))?;
+    if stored_in_bucket != outcome.expected {
+        outcome.uploaded = stored_in_bucket;
+        outcome.failed = outcome.expected.saturating_sub(stored_in_bucket);
+        return Err(segment_upload_failure_message(&outcome));
+    }
+    Ok(outcome)
+}
+
 pub struct SegmentUploadPlan {
     pub segment_count: usize,
     pub max_segment_bytes: u64,
@@ -296,5 +358,36 @@ mod tests {
     fn storage_pressure_detection_matches_transport_errors() {
         let err = anyhow::anyhow!("error sending request for url (http://object-storage:9000/x)");
         assert!(is_likely_storage_pressure(&err));
+    }
+
+    #[test]
+    fn segment_upload_failure_message_describes_partial_upload() {
+        let msg = segment_upload_failure_message(&SegmentUploadOutcome {
+            expected: 150,
+            uploaded: 12,
+            failed: 138,
+            bytes: 2_000_111,
+        });
+        assert!(msg.contains("12 of 150"));
+        assert!(msg.contains("138 failed"));
+    }
+
+    #[test]
+    fn validate_rejects_partial_and_accepts_complete() {
+        let partial = SegmentUploadOutcome {
+            expected: 5,
+            uploaded: 2,
+            failed: 3,
+            bytes: 0,
+        };
+        assert!(validate_segment_upload_outcome(&partial).is_err());
+
+        let complete = SegmentUploadOutcome {
+            expected: 2,
+            uploaded: 2,
+            failed: 0,
+            bytes: 10,
+        };
+        assert!(validate_segment_upload_outcome(&complete).is_ok());
     }
 }

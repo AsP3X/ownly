@@ -12,7 +12,9 @@ use crate::hls::hardware::HlsHardwareEncode;
 use crate::hls::key_store::KeyStore;
 use crate::hls::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
 use crate::hls::segment_upload::{
-    collect_segment_sizes, plan_segment_upload, put_hls_segment_with_retry, DynamicUploadLimiter,
+    collect_segment_sizes, plan_segment_upload, put_hls_segment_with_retry,
+    verify_hls_segments_in_storage, DynamicUploadLimiter,
+    SegmentUploadOutcome,
 };
 use crate::files::file_delete::purge_file_storage;
 use crate::storage::Storage;
@@ -96,42 +98,6 @@ async fn resolve_duration_seconds(
         .execute(pool)
         .await;
     probed
-}
-
-// Human: Outcome of parallel HLS segment uploads — used to fail ingest when storage is incomplete.
-// Agent: COMPARED against ffmpeg segment_count before hls_ready is set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SegmentUploadOutcome {
-    expected: usize,
-    uploaded: usize,
-    failed: usize,
-    bytes: u64,
-}
-
-// Human: User-safe failure text when not every segment reached object storage.
-// Agent: WRITTEN to files.hls_encode_error; MENTIONS partial counts for support logs.
-fn segment_upload_failure_message(outcome: &SegmentUploadOutcome) -> String {
-    if outcome.expected == 0 {
-        return "no HLS segments were produced".to_string();
-    }
-    format!(
-        "uploaded {} of {} video segments ({} failed); object storage may be unavailable — try re-uploading",
-        outcome.uploaded, outcome.expected, outcome.failed
-    )
-}
-
-// Human: Count `.m4s` objects under `{storage_key}/segments/` after upload.
-// Agent: READS storage list API; USED as final gate before marking hls_ready.
-async fn count_stored_hls_segments(
-    storage: &dyn Storage,
-    storage_key: &str,
-) -> anyhow::Result<usize> {
-    let prefix = format!("{storage_key}/segments/");
-    let keys = storage.list_keys_with_prefix(&prefix).await?;
-    Ok(keys
-        .iter()
-        .filter(|key| key.ends_with(&format!(".{HLS_SEGMENT_EXTENSION}")))
-        .count())
 }
 
 // Human: Inputs for parallel HLS segment upload after ffmpeg packaging.
@@ -259,27 +225,14 @@ async fn upload_hls_segments(
     let uploaded = uploaded_count.load(Ordering::Relaxed);
     let failed = failed_count.load(Ordering::Relaxed);
     let bytes = stored_bytes.load(Ordering::Relaxed);
-    let mut outcome = SegmentUploadOutcome {
+    let outcome = SegmentUploadOutcome {
         expected,
         uploaded,
         failed,
         bytes,
     };
 
-    if uploaded != expected {
-        return Err(segment_upload_failure_message(&outcome));
-    }
-
-    let stored_in_bucket = count_stored_hls_segments(storage.as_ref(), storage_key)
-        .await
-        .map_err(|error| format!("verify HLS segments in storage: {error}"))?;
-    if stored_in_bucket != expected {
-        outcome.uploaded = stored_in_bucket;
-        outcome.failed = expected.saturating_sub(stored_in_bucket);
-        return Err(segment_upload_failure_message(&outcome));
-    }
-
-    Ok(outcome)
+    verify_hls_segments_in_storage(storage.as_ref(), storage_key, outcome).await
 }
 
 pub fn spawn_hls_encode_job(
@@ -603,15 +556,4 @@ mod tests {
         assert!(is_deletable_work_dir(&dir));
     }
 
-    #[test]
-    fn segment_upload_failure_message_describes_partial_upload() {
-        let msg = segment_upload_failure_message(&SegmentUploadOutcome {
-            expected: 150,
-            uploaded: 12,
-            failed: 138,
-            bytes: 2_000_111,
-        });
-        assert!(msg.contains("12 of 150"));
-        assert!(msg.contains("138 failed"));
-    }
 }
