@@ -82,6 +82,7 @@ export default function PublicSharePage() {
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const autoOpenedImageRef = useRef(false);
   const [inlineStreamUrl, setInlineStreamUrl] = useState<string | null>(null);
   const [inlineStreamError, setInlineStreamError] = useState("");
   const [inlineStreamLoading, setInlineStreamLoading] = useState(false);
@@ -112,6 +113,10 @@ export default function PublicSharePage() {
     return () => {
       cancelled = true;
     };
+  }, [token]);
+
+  useEffect(() => {
+    autoOpenedImageRef.current = false;
   }, [token]);
 
   // Human: Reload folder contents when browsing inside a folder-type share.
@@ -203,13 +208,18 @@ export default function PublicSharePage() {
     return buildAudioGallery(files, previewAudio);
   }, [files, previewAudio]);
 
-  const singleFileItem = overview?.resource_type === "file" ? overviewAsFileItem(overview) : null;
+  const singleFileItem = useMemo(
+    () => (overview?.resource_type === "file" ? overviewAsFileItem(overview) : null),
+    [overview],
+  );
 
-  // Human: Open the image viewer immediately for single-file image shares (no extra click).
-  // Agent: SETS previewImage once overview loads; SKIPS folder shares and non-images.
+  // Human: Open the image viewer once for single-file image shares (no extra click).
+  // Agent: SETS previewImage when overview.resource_id is known; REF prevents reopen after user closes.
   useEffect(() => {
+    if (autoOpenedImageRef.current) return;
     if (!overview || overview.resource_type !== "file" || !singleFileItem) return;
     if (!isImageMime(overview.mime_type)) return;
+    autoOpenedImageRef.current = true;
     setPreviewImage(singleFileItem);
   }, [overview, singleFileItem]);
 
