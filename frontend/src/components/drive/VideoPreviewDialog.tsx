@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import type { FileItem } from "@/api/client";
-import { fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
+import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
 import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
@@ -23,6 +23,8 @@ type VideoPreviewDialogProps = {
   file: FileItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, stream-url and HLS segments use anonymous public share routes. */
+  shareToken?: string;
 };
 
 function getToken(): string | null {
@@ -37,7 +39,7 @@ function resolveStreamUrl(url: string): string {
   return new URL(path, window.location.origin).href;
 }
 
-export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDialogProps) {
+export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: VideoPreviewDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -58,7 +60,9 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
     setLoadingStream(true);
     setError("");
 
-    void fetchVideoStreamUrl(file.id)
+    void (shareToken
+      ? fetchPublicVideoStreamUrl(shareToken, file.id)
+      : fetchVideoStreamUrl(file.id))
       .then((res) => {
         if (cancelled) return;
         if (!res.url) {
@@ -78,7 +82,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
     return () => {
       cancelled = true;
     };
-  }, [open, file?.id, file?.hls_ready]);
+  }, [open, file?.id, file?.hls_ready, shareToken]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -92,6 +96,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
 
     if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance((xhr) => {
+        if (shareToken) return;
         const token = getToken();
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       });
@@ -124,7 +129,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange }: VideoPreviewDia
       video.removeAttribute("src");
       video.load();
     };
-  }, [streamUrl, open]);
+  }, [streamUrl, open, shareToken]);
 
   const failed = file?.hls_encode_status === "failed";
 

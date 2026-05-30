@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fetchFileBlobForPreview, getErrorMessage } from "@/api/client";
+import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,8 @@ type ImagePreviewDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFileChange: (file: FileItem) => void;
+  /** When set, image bytes load through anonymous public share download. */
+  shareToken?: string;
 };
 
 export function ImagePreviewDialog({
@@ -29,6 +31,7 @@ export function ImagePreviewDialog({
   open,
   onOpenChange,
   onFileChange,
+  shareToken,
 }: ImagePreviewDialogProps) {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -74,6 +77,14 @@ export function ImagePreviewDialog({
     [onOpenChange, revokeAllCachedUrls],
   );
 
+  const fetchPreviewBlob = useCallback(
+    (item: FileItem) =>
+      shareToken
+        ? fetchPublicShareBlobForPreview(shareToken, item.id)
+        : fetchFileBlobForPreview(item),
+    [shareToken],
+  );
+
   // Human: Resolve the active slide — swap instantly when cached, otherwise keep the prior image visible.
   // Agent: READS urlCacheRef; FETCHES on miss; WRITES displayUrl only when fetch matches activeFileIdRef.
   useEffect(() => {
@@ -94,7 +105,7 @@ export function ImagePreviewDialog({
     setLoading(true);
     setError("");
 
-    void fetchFileBlobForPreview(file)
+    void fetchPreviewBlob(file)
       .then((blob) => {
         if (cancelled) return;
         const url = cacheBlobUrl(requestFileId, blob);
@@ -113,7 +124,7 @@ export function ImagePreviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, file, cacheBlobUrl]);
+  }, [open, file, cacheBlobUrl, fetchPreviewBlob]);
 
   // Human: Warm the previous and next slides so arrow navigation feels instant.
   // Agent: FETCHES uncached neighbors; WRITES urlCacheRef only (no displayUrl swap).
@@ -129,7 +140,7 @@ export function ImagePreviewDialog({
       const neighbor = images.find((item) => item.id === neighborId);
       if (!neighbor) continue;
 
-      void fetchFileBlobForPreview(neighbor)
+      void fetchPreviewBlob(neighbor)
         .then((blob) => {
           cacheBlobUrl(neighborId, blob);
         })
@@ -137,7 +148,7 @@ export function ImagePreviewDialog({
           // Human: Preload failures are silent — the active slide loader still handles errors.
         });
     }
-  }, [open, currentIndex, images, cacheBlobUrl]);
+  }, [open, currentIndex, images, cacheBlobUrl, fetchPreviewBlob]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;

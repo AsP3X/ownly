@@ -4,7 +4,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fetchFileStreamUrlForPreview, getErrorMessage } from "@/api/client";
+import {
+  fetchFileStreamUrlForPreview,
+  fetchPublicShareStreamUrlForPreview,
+  getErrorMessage,
+} from "@/api/client";
 import { LightAudioPlayer } from "@/components/drive/audio/LightAudioPlayer";
 import {
   Dialog,
@@ -22,6 +26,8 @@ type AudioPreviewDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFileChange: (file: FileItem) => void;
+  /** When set, audio streams through anonymous public share download URL. */
+  shareToken?: string;
 };
 
 type CachedStream = {
@@ -35,6 +41,7 @@ export function AudioPreviewDialog({
   open,
   onOpenChange,
   onFileChange,
+  shareToken,
 }: AudioPreviewDialogProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -87,6 +94,14 @@ export function AudioPreviewDialog({
     [clearCachedUrls, onOpenChange],
   );
 
+  const resolveStream = useCallback(
+    (item: FileItem) =>
+      shareToken
+        ? Promise.resolve(fetchPublicShareStreamUrlForPreview(shareToken, item.id))
+        : fetchFileStreamUrlForPreview(item),
+    [shareToken],
+  );
+
   // Human: Resolve a stream URL for the active track — ticket URLs stay on the app origin (no localhost:9000).
   // Agent: READS urlCacheRef; CALLS fetchFileStreamUrlForPreview on miss; WRITES audioUrl when id matches.
   useEffect(() => {
@@ -108,7 +123,7 @@ export function AudioPreviewDialog({
     setError("");
     setAudioUrl(null);
 
-    void fetchFileStreamUrlForPreview(file)
+    void resolveStream(file)
       .then((entry) => {
         if (cancelled) return;
         const stored = cacheStream(requestFileId, entry);
@@ -127,7 +142,7 @@ export function AudioPreviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, file, cacheStream]);
+  }, [open, file, cacheStream, resolveStream]);
 
   // Human: Warm neighbor stream URLs so arrow navigation only waits on playback buffer, not API latency.
   // Agent: CALLS fetchFileStreamUrlForPreview for uncached neighbors; WRITES urlCacheRef only.
@@ -143,7 +158,7 @@ export function AudioPreviewDialog({
       const neighbor = tracks.find((item) => item.id === neighborId);
       if (!neighbor) continue;
 
-      void fetchFileStreamUrlForPreview(neighbor)
+      void resolveStream(neighbor)
         .then((entry) => {
           cacheStream(neighborId, entry);
         })
@@ -151,7 +166,7 @@ export function AudioPreviewDialog({
           // Human: Preload failures are silent — the active track loader still surfaces errors.
         });
     }
-  }, [open, currentIndex, tracks, cacheStream]);
+  }, [open, currentIndex, tracks, cacheStream, resolveStream]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;

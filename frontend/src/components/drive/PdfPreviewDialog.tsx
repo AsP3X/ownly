@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Loader2, ZoomIn, ZoomOut } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
-import { fetchFileBlobForPreview, getErrorMessage } from "@/api/client";
+import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import "@/lib/pdf-viewer";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -23,6 +23,8 @@ type PdfPreviewDialogProps = {
   file: FileItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, PDF bytes load through anonymous public share download. */
+  shareToken?: string;
 };
 
 const MIN_ZOOM = 0.5;
@@ -51,7 +53,7 @@ function normalizeWheelDelta(event: WheelEvent): number {
   return event.deltaY;
 }
 
-export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogProps) {
+export function PdfPreviewDialog({ file, open, onOpenChange, shareToken }: PdfPreviewDialogProps) {
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -106,7 +108,9 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     setLoading(true);
     setError("");
 
-    void fetchFileBlobForPreview(file)
+    void (shareToken
+      ? fetchPublicShareBlobForPreview(shareToken, file.id)
+      : fetchFileBlobForPreview(file))
       .then(async (blob) => {
         if (cancelled) return;
         const buffer = await blob.arrayBuffer();
@@ -125,7 +129,7 @@ export function PdfPreviewDialog({ file, open, onOpenChange }: PdfPreviewDialogP
     return () => {
       cancelled = true;
     };
-  }, [open, file]);
+  }, [open, file, shareToken]);
 
   const zoomIn = useCallback(() => {
     setZoom((current) => clampZoom(current + ZOOM_STEP));

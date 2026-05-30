@@ -1,5 +1,5 @@
-// Human: Anonymous viewer page for a public share link — one file or a browsable folder.
-// Agent: READS /public/shares/:token* without auth; SCOPED downloads only; NO drive navigation.
+// Human: Anonymous viewer page for a public share link — single file preview or browsable folder explorer.
+// Agent: READS /public/shares/:token* without auth; RENDERS PublicShareExplorer + preview dialogs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -11,12 +11,12 @@ import {
   isHlsStreamUrl,
 } from "@/lib/hls-player";
 import {
-  ChevronRight,
   Download,
   FileIcon,
   Film,
-  Folder,
+  ImageIcon,
   Loader2,
+  Music,
 } from "lucide-react";
 import {
   downloadPublicShareFile,
@@ -28,12 +28,40 @@ import {
   type FolderItem,
   type PublicShareInfo,
 } from "@/api/client";
+import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
+import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
+import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
+import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
+import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes } from "@/lib/utils-app";
+import {
+  buildAudioGallery,
+  buildImageGallery,
+  formatBytes,
+  isAudioMime,
+  isImageMime,
+  isPdfMime,
+} from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
-import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 
-type Breadcrumb = { id: string; name: string };
+// Human: Build a minimal FileItem from single-file share overview metadata.
+// Agent: MAPS PublicShareInfo → FileItem for preview dialogs on file-type shares.
+function overviewAsFileItem(overview: PublicShareInfo): FileItem {
+  return {
+    id: overview.resource_id,
+    name: overview.name,
+    mime_type: overview.mime_type,
+    size_bytes: overview.size_bytes ?? 0,
+    folder_id: null,
+    created_at: "",
+    updated_at: "",
+    hls_ready: overview.hls_ready ?? false,
+    hls_encode_status: null,
+    hls_encode_error: null,
+    conversion_progress: overview.hls_ready ? 100 : 0,
+    duration_seconds: null,
+  };
+}
 
 export default function PublicSharePage() {
   const { token = "" } = useParams<{ token: string }>();
@@ -42,28 +70,24 @@ export default function PublicSharePage() {
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [rootFolderId, setRootFolderId] = useState<string | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const [breadcrumbs, setBreadcrumbs] = useState<PublicShareBreadcrumb[]>([]);
   const [loading, setLoading] = useState(true);
+  const [contentsLoading, setContentsLoading] = useState(false);
   const [error, setError] = useState("");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [streamError, setStreamError] = useState("");
-  const [streamLoading, setStreamLoading] = useState(false);
 
-  const folderNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const folder of folders) map.set(folder.id, folder.name);
-    if (overview?.resource_type === "folder") {
-      map.set(overview.resource_id, overview.name);
-    }
-    for (const crumb of breadcrumbs) map.set(crumb.id, crumb.name);
-    return map;
-  }, [folders, overview, breadcrumbs]);
+  const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
+  const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
+  const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [inlineStreamUrl, setInlineStreamUrl] = useState<string | null>(null);
+  const [inlineStreamError, setInlineStreamError] = useState("");
+  const [inlineStreamLoading, setInlineStreamLoading] = useState(false);
 
   // Human: Load share metadata on mount or when token changes.
-  // Agent: GET /public/shares/:token; SETS overview; BRANCHES file vs folder UI.
+  // Agent: GET /public/shares/:token; SETS overview; INITIALIZES folder breadcrumbs at share root.
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -91,11 +115,11 @@ export default function PublicSharePage() {
   }, [token]);
 
   // Human: Reload folder contents when browsing inside a folder-type share.
-  // Agent: GET /public/shares/:token/contents?folder_id=.
+  // Agent: GET /public/shares/:token/contents?folder_id=; UPDATES files/folders state.
   const loadFolderContents = useCallback(
     async (folderId: string) => {
       if (!token) return;
-      setLoading(true);
+      setContentsLoading(true);
       setError("");
       try {
         const res = await fetchPublicShareContents(token, folderId);
@@ -106,7 +130,7 @@ export default function PublicSharePage() {
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
-        setLoading(false);
+        setContentsLoading(false);
       }
     },
     [token],
@@ -149,32 +173,60 @@ export default function PublicSharePage() {
     setCurrentFolderId(folderId);
   }
 
-  // Human: Resolve which file id should drive HLS playback on this page.
-  // Agent: FILE share uses resource_id; FOLDER share uses previewFile when modal open.
-  const streamFileId = useMemo(() => {
-    if (overview?.resource_type === "file" && overview.hls_ready) {
-      return overview.resource_id;
-    }
-    if (previewFile?.hls_ready) return previewFile.id;
-    return null;
-  }, [overview, previewFile]);
+  function handlePreviewVideo(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    setPreviewVideo(file);
+  }
 
-  // Human: Load HLS stream for inline video preview on the public page.
-  // Agent: GET public stream-url; USES hls.js without Authorization header.
+  function handlePreviewImage(file: FileItem) {
+    if (isFileProcessing(file) || !isImageMime(file.mime_type)) return;
+    setPreviewImage(file);
+  }
+
+  function handlePreviewPdf(file: FileItem) {
+    if (isFileProcessing(file) || !isPdfMime(file.mime_type)) return;
+    setPreviewPdf(file);
+  }
+
+  function handlePreviewAudio(file: FileItem) {
+    if (isFileProcessing(file) || !isAudioMime(file.mime_type)) return;
+    setPreviewAudio(file);
+  }
+
+  const galleryImages = useMemo(() => {
+    if (!previewImage) return [];
+    return buildImageGallery(files, previewImage);
+  }, [files, previewImage]);
+
+  const galleryAudio = useMemo(() => {
+    if (!previewAudio) return [];
+    return buildAudioGallery(files, previewAudio);
+  }, [files, previewAudio]);
+
+  const singleFileItem = overview?.resource_type === "file" ? overviewAsFileItem(overview) : null;
+
+  // Human: Inline HLS player for single-file video shares (no modal needed on the landing view).
+  // Agent: GET public stream-url when overview is one hls_ready video file.
+  const inlineVideoFileId = useMemo(() => {
+    if (overview?.resource_type !== "file") return null;
+    if (!overview.mime_type?.startsWith("video/") || !overview.hls_ready) return null;
+    return overview.resource_id;
+  }, [overview]);
+
   useEffect(() => {
-    if (!token || !streamFileId) {
-      setStreamUrl(null);
+    if (!token || !inlineVideoFileId) {
+      setInlineStreamUrl(null);
       return;
     }
     let cancelled = false;
-    setStreamLoading(true);
-    setStreamError("");
-    void fetchPublicVideoStreamUrl(token, streamFileId)
+    setInlineStreamLoading(true);
+    setInlineStreamError("");
+    void fetchPublicVideoStreamUrl(token, inlineVideoFileId)
       .then((res) => {
         if (cancelled) return;
         if (!res.url) {
-          setStreamError(res.hls_encode_error ?? "Video is not ready for playback.");
-          setStreamUrl(null);
+          setInlineStreamError(res.hls_encode_error ?? "Video is not ready for playback.");
+          setInlineStreamUrl(null);
           return;
         }
         const normalized = res.url.startsWith("http")
@@ -183,39 +235,39 @@ export default function PublicSharePage() {
               res.url.startsWith("/") ? res.url : `/${res.url}`,
               window.location.origin,
             ).href;
-        setStreamUrl(normalized);
+        setInlineStreamUrl(normalized);
       })
       .catch((e) => {
-        if (!cancelled) setStreamError(getErrorMessage(e));
+        if (!cancelled) setInlineStreamError(getErrorMessage(e));
       })
       .finally(() => {
-        if (!cancelled) setStreamLoading(false);
+        if (!cancelled) setInlineStreamLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [token, streamFileId]);
+  }, [token, inlineVideoFileId]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !streamUrl) return;
+    if (!video || !inlineStreamUrl) return;
     let hls: Hls | null = null;
     let disposed = false;
     let detachSeek: (() => void) | undefined;
     const isActive = () => !disposed;
 
-    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
+    if (isHlsStreamUrl(inlineStreamUrl) && Hls.isSupported()) {
       hls = createHlsInstance();
-      hls.loadSource(streamUrl);
+      hls.loadSource(inlineStreamUrl);
       hls.attachMedia(video);
       attachHlsErrorHandler(hls, video, isActive, (message) => {
-        if (!disposed) setStreamError(message);
+        if (!disposed) setInlineStreamError(message);
       });
       detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrl;
-    } else if (isHlsStreamUrl(streamUrl)) {
-      setStreamError("This browser cannot play HLS video.");
+    } else if (isHlsStreamUrl(inlineStreamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = inlineStreamUrl;
+    } else if (isHlsStreamUrl(inlineStreamUrl)) {
+      setInlineStreamError("This browser cannot play HLS video.");
     }
     return () => {
       disposed = true;
@@ -224,7 +276,7 @@ export default function PublicSharePage() {
       video.removeAttribute("src");
       video.load();
     };
-  }, [streamUrl]);
+  }, [inlineStreamUrl]);
 
   if (!token) {
     return (
@@ -256,28 +308,39 @@ export default function PublicSharePage() {
 
   if (!overview) return null;
 
+  const isSingleFile = overview.resource_type === "file";
+  const singleMime = overview.mime_type ?? "";
+  const singleIsImage = isImageMime(singleMime);
+  const singleIsPdf = isPdfMime(singleMime);
+  const singleIsAudio = isAudioMime(singleMime);
+  const singleIsVideo = singleMime.startsWith("video/");
+
   return (
-    <div className="min-h-screen bg-[#f3f2f1] text-neutral-900">
-      <header className="border-b border-neutral-200 bg-white px-4 py-4 sm:px-6">
+    <div className="flex min-h-screen flex-col bg-[#f3f2f1] text-neutral-900">
+      <header className="border-b border-neutral-200 bg-white px-4 py-3 sm:px-6">
         <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Shared link</p>
-        <h1 className="mt-1 truncate text-xl font-semibold">{overview.name}</h1>
-        {overview.resource_type === "file" && overview.size_bytes != null ? (
-          <p className="mt-1 text-sm text-neutral-600">{formatBytes(overview.size_bytes)}</p>
+        <h1 className="mt-0.5 truncate text-xl font-semibold">{overview.name}</h1>
+        {isSingleFile && overview.size_bytes != null ? (
+          <p className="mt-0.5 text-sm text-neutral-600">{formatBytes(overview.size_bytes)}</p>
         ) : null}
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-3 py-4 sm:px-6 sm:py-6">
         {error ? (
           <p className="mb-4 text-sm text-destructive" role="alert">
             {error}
           </p>
         ) : null}
 
-        {overview.resource_type === "file" ? (
-          <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
+        {isSingleFile && singleFileItem ? (
+          <div className="mx-auto w-full max-w-3xl space-y-4 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
             <div className="flex items-center gap-3">
-              {overview.mime_type?.startsWith("video/") ? (
+              {singleIsVideo ? (
                 <Film className="size-8 text-violet-600" />
+              ) : singleIsImage ? (
+                <ImageIcon className="size-8 text-blue-600" />
+              ) : singleIsAudio ? (
+                <Music className="size-8 text-blue-600" />
               ) : (
                 <FileIcon className="size-8 text-sky-600" />
               )}
@@ -289,38 +352,44 @@ export default function PublicSharePage() {
               </div>
             </div>
 
-            {overview.mime_type?.startsWith("video/") && overview.hls_ready ? (
+            {singleIsVideo && overview.hls_ready ? (
               <div className="space-y-2">
                 <div className="relative aspect-video overflow-hidden rounded-lg bg-black">
                   <video ref={videoRef} className="size-full object-contain" controls playsInline />
-                  {streamLoading ? (
+                  {inlineStreamLoading ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm text-white">
                       Loading stream…
                     </div>
                   ) : null}
                 </div>
-                {streamError ? <p className="text-sm text-destructive">{streamError}</p> : null}
+                {inlineStreamError ? <p className="text-sm text-destructive">{inlineStreamError}</p> : null}
               </div>
+            ) : null}
+
+            {singleIsImage ? (
+              <Button variant="outline" onClick={() => handlePreviewImage(singleFileItem)}>
+                <ImageIcon />
+                View image
+              </Button>
+            ) : null}
+
+            {singleIsPdf ? (
+              <Button variant="outline" onClick={() => handlePreviewPdf(singleFileItem)}>
+                <FileIcon />
+                View PDF
+              </Button>
+            ) : null}
+
+            {singleIsAudio ? (
+              <Button variant="outline" onClick={() => handlePreviewAudio(singleFileItem)}>
+                <Music />
+                Play audio
+              </Button>
             ) : null}
 
             <Button
               disabled={downloadingId === overview.resource_id}
-              onClick={() =>
-                void handleDownload({
-                  id: overview.resource_id,
-                  name: overview.name,
-                  mime_type: overview.mime_type,
-                  size_bytes: overview.size_bytes ?? 0,
-                  folder_id: null,
-                  created_at: "",
-                  updated_at: "",
-                  hls_ready: overview.hls_ready ?? false,
-                  hls_encode_status: null,
-                  hls_encode_error: null,
-                  conversion_progress: 0,
-                  duration_seconds: null,
-                })
-              }
+              onClick={() => void handleDownload(singleFileItem)}
             >
               {downloadingId === overview.resource_id ? (
                 <Loader2 className="animate-spin" />
@@ -331,117 +400,63 @@ export default function PublicSharePage() {
             </Button>
           </div>
         ) : (
-          <div className="rounded-lg border border-neutral-200 bg-white shadow-sm">
-            <nav className="flex flex-wrap items-center gap-1 border-b border-neutral-100 px-4 py-3 text-sm">
-              {breadcrumbs.map((crumb, index) => (
-                <span key={crumb.id} className="flex items-center gap-1">
-                  {index > 0 ? <ChevronRight className="size-4 text-neutral-400" /> : null}
-                  <button
-                    type="button"
-                    className={
-                      index === breadcrumbs.length - 1
-                        ? "font-medium text-neutral-900"
-                        : "text-sky-700 hover:underline"
-                    }
-                    disabled={index === breadcrumbs.length - 1}
-                    onClick={() => navigateToCrumb(crumb.id)}
-                  >
-                    {crumb.name || folderNameById.get(crumb.id) || "Folder"}
-                  </button>
-                </span>
-              ))}
-            </nav>
-
-            {loading ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-                <Loader2 className="size-5 animate-spin" />
-                Loading…
-              </div>
-            ) : (
-              <ul className="divide-y divide-neutral-100">
-                {folders.map((folder) => (
-                  <li key={folder.id}>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50"
-                      onClick={() => openFolder(folder)}
-                    >
-                      <Folder className="size-5 shrink-0 text-amber-500" />
-                      <span className="truncate font-medium">{folder.name}</span>
-                    </button>
-                  </li>
-                ))}
-                {files.map((file) => {
-                  const processing = isFileProcessing(file);
-                  return (
-                    <li
-                      key={file.id}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-50"
-                    >
-                      <FileIcon className="size-5 shrink-0 text-sky-600" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{file.name}</p>
-                        <p className="text-xs text-neutral-500">{formatBytes(file.size_bytes)}</p>
-                      </div>
-                      {processing ? <FileProcessingBadge file={file} /> : null}
-                      {file.mime_type?.startsWith("video/") && file.hls_ready && !processing ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPreviewFile(file)}
-                        >
-                          <Film />
-                          Play
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={processing || downloadingId === file.id}
-                        onClick={() => void handleDownload(file)}
-                      >
-                        {downloadingId === file.id ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <Download />
-                        )}
-                        Download
-                      </Button>
-                    </li>
-                  );
-                })}
-                {folders.length === 0 && files.length === 0 ? (
-                  <li className="px-4 py-12 text-center text-sm text-neutral-500">
-                    This folder is empty.
-                  </li>
-                ) : null}
-              </ul>
-            )}
-          </div>
+          <PublicShareExplorer
+            shareName={overview.name}
+            folders={folders}
+            files={files}
+            breadcrumbs={breadcrumbs}
+            loading={contentsLoading}
+            downloadingId={downloadingId}
+            onOpenFolder={openFolder}
+            onNavigateBreadcrumb={navigateToCrumb}
+            onDownload={(file) => void handleDownload(file)}
+            onPreviewVideo={handlePreviewVideo}
+            onPreviewImage={handlePreviewImage}
+            onPreviewPdf={handlePreviewPdf}
+            onPreviewAudio={handlePreviewAudio}
+          />
         )}
-
-        {previewFile ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="truncate font-semibold">{previewFile.name}</h2>
-                <Button size="sm" variant="outline" onClick={() => setPreviewFile(null)}>
-                  Close
-                </Button>
-              </div>
-              <div className="relative aspect-video overflow-hidden rounded-lg bg-black">
-                <video ref={videoRef} className="size-full object-contain" controls playsInline />
-                {streamLoading ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm text-white">
-                    Loading stream…
-                  </div>
-                ) : null}
-              </div>
-              {streamError ? <p className="mt-2 text-sm text-destructive">{streamError}</p> : null}
-            </div>
-          </div>
-        ) : null}
       </main>
+
+      <VideoPreviewDialog
+        file={previewVideo}
+        open={previewVideo !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewVideo(null);
+        }}
+        shareToken={token}
+      />
+
+      <ImagePreviewDialog
+        images={galleryImages.length > 0 ? galleryImages : previewImage ? [previewImage] : []}
+        file={previewImage}
+        open={previewImage !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewImage(null);
+        }}
+        onFileChange={setPreviewImage}
+        shareToken={token}
+      />
+
+      <PdfPreviewDialog
+        file={previewPdf}
+        open={previewPdf !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewPdf(null);
+        }}
+        shareToken={token}
+      />
+
+      <AudioPreviewDialog
+        tracks={galleryAudio.length > 0 ? galleryAudio : previewAudio ? [previewAudio] : []}
+        file={previewAudio}
+        open={previewAudio !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewAudio(null);
+        }}
+        onFileChange={setPreviewAudio}
+        shareToken={token}
+      />
     </div>
   );
 }

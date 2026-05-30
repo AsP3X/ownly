@@ -1528,23 +1528,51 @@ export async function fetchPublicVideoStreamUrl(token: string, fileId: string) {
   ) as Promise<VideoStreamUrlResponse>;
 }
 
+// Human: Same-origin download URL for one file inside a public share (no JWT).
+// Agent: RETURNS /api/v1/public/shares/:token/files/:id/download; USED for save-as and inline streaming.
+export function publicShareFileDownloadUrl(token: string, fileId: string): string {
+  return `${API_BASE}/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/download`;
+}
+
+// Human: Parse a failed public-share fetch into ApiError for preview and download callers.
+// Agent: READS response text JSON envelope; THROWS ApiError with safe message.
+async function publicShareFetchError(response: Response, code: string): Promise<never> {
+  const text = await response.text();
+  let message = response.statusText;
+  try {
+    const body = JSON.parse(text) as { error?: { message?: string } };
+    message = body.error?.message ?? message;
+  } catch {
+    // keep status text
+  }
+  throw new ApiError(message, code, response.status);
+}
+
+// Human: Load shared file bytes for in-browser preview without triggering save-as.
+// Agent: GET public download; NO auth; RETURNS Blob for object URLs and PDF viewer.
+export async function fetchPublicShareBlobForPreview(token: string, fileId: string): Promise<Blob> {
+  const response = await fetch(publicShareFileDownloadUrl(token, fileId), { cache: "no-store" });
+  if (!response.ok) {
+    return publicShareFetchError(response, "preview_failed");
+  }
+  return response.blob();
+}
+
+// Human: Streamable preview URL for shared audio — same-origin download endpoint streams without JWT.
+// Agent: RETURNS absolute download URL; revokeOnClose false (not a blob URL).
+export function fetchPublicShareStreamUrlForPreview(
+  token: string,
+  fileId: string,
+): { url: string; revokeOnClose: boolean } {
+  return { url: publicShareFileDownloadUrl(token, fileId), revokeOnClose: false };
+}
+
 // Human: Download one file from a public share through the API proxy.
 // Agent: GET /public/shares/:token/files/:id/download; RETURNS Blob for save-as.
 export async function downloadPublicShareFile(token: string, fileId: string, fileName: string) {
-  const res = await fetch(
-    `${API_BASE}/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/download`,
-    { cache: "no-store" },
-  );
+  const res = await fetch(publicShareFileDownloadUrl(token, fileId), { cache: "no-store" });
   if (!res.ok) {
-    const text = await res.text();
-    let message = res.statusText;
-    try {
-      const body = JSON.parse(text) as { error?: { message?: string } };
-      message = body.error?.message ?? message;
-    } catch {
-      // keep status text
-    }
-    throw new ApiError(message, "download_failed", res.status);
+    return publicShareFetchError(res, "download_failed");
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
