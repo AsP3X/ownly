@@ -1234,12 +1234,28 @@ export default function DrivePage() {
         <main
           ref={mainScrollRef}
           className={cn(
-            "min-h-0 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:pb-6 lg:pt-0 lg:px-12",
+            "relative min-h-0 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:pb-6 lg:pt-0 lg:px-12",
             activeNav === "home" || activeNav === "my-files"
               ? "bg-[#F7F8FA] lg:pb-12 lg:pt-12"
               : "bg-[#f3f2f1] lg:bg-transparent",
           )}
         >
+          {/* Human: Temporary desktop logout until profile chrome ships on the overview layout. */}
+          {/* Agent: lg+ only — mobile header already exposes Sign out via profile menu; CALLS handleSignOut. */}
+          {activeNav === "home" || activeNav === "my-files" ? (
+            <div className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block lg:right-12 lg:top-12">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="pointer-events-auto gap-2 border-[#E5E7EB] bg-white text-[#1A1A1A] shadow-sm hover:bg-[#F7F8FA]"
+                onClick={handleSignOut}
+              >
+                <LogOut className="size-4" aria-hidden />
+                Sign out
+              </Button>
+            </div>
+          ) : null}
           <div
             className={cn(
               "flex min-h-full flex-col gap-4 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none",

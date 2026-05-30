@@ -69,9 +69,9 @@ export function VideoPreviewDialog({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  // Human: Safari — CSS orientation media is unreliable in fixed modals; set data-video-layout on viewport.
-  // Agent: WRITES data-video-layout portrait|landscape; ENABLES video-* Tailwind variants on children.
-  useNarrowVideoLayout(viewportRef, open && isNarrow);
+  // Human: Safari — sync data-video-layout on viewport for video-* variants; default portrait until measured.
+  // Agent: WRITES dataset + RETURNS layout; React attribute ensures first paint is portrait band, not full-width.
+  const narrowLayout = useNarrowVideoLayout(viewportRef, open && isNarrow);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
@@ -274,7 +274,7 @@ export function VideoPreviewDialog({
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
-            ? "fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+            ? "!flex fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
         )}
         overlayClassName={cn(
@@ -291,11 +291,12 @@ export function VideoPreviewDialog({
 
         <div
           ref={viewportRef}
+          data-video-layout={isNarrow ? narrowLayout : undefined}
           tabIndex={-1}
           className={cn(
             "flex w-full min-h-0 flex-1 outline-none",
             isNarrow
-              ? "flex-1 flex-col min-h-0 video-landscape:min-h-0 video-landscape:items-stretch video-landscape:justify-stretch video-portrait:items-center video-portrait:justify-center"
+              ? "flex-1 flex-col items-center justify-center min-h-0 video-landscape:items-stretch video-landscape:justify-stretch"
               : "items-center justify-center gap-4 sm:gap-6",
           )}
           aria-label="Video player"
@@ -342,7 +343,12 @@ export function VideoPreviewDialog({
 
         {/* Human: Portrait gallery footer — landscape relies on swipe only (control bar sits at bottom). */}
         {isNarrow && videos.length > 1 ? (
-          <div className="hidden shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 video-portrait:flex">
+          <div
+            className={cn(
+              "shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2",
+              narrowLayout === "portrait" ? "flex" : "hidden",
+            )}
+          >
             <button
               type="button"
               disabled={!hasPrevious}

@@ -78,11 +78,11 @@ export function VideoPlayerSurfaceMobile({
     <div
       ref={shellRef}
       className={cn(
-        "relative w-full touch-manipulation bg-black",
-        // Human: Pencil Mobile Portrait — centered 390×220 band (CSS orientation, works in Safari).
-        "video-portrait:mx-auto video-portrait:aspect-[390/220] video-portrait:max-h-[min(220px,42dvh)] video-portrait:min-h-[180px] video-portrait:max-w-[390px] video-portrait:overflow-hidden",
-        // Human: Pencil Mobile Landscape — full-bleed player filling dialog height.
-        "video-landscape:flex video-landscape:h-full video-landscape:min-h-0 video-landscape:w-full video-landscape:flex-1 video-landscape:flex-col video-landscape:aspect-auto video-landscape:max-h-none video-landscape:max-w-none",
+        "relative w-full shrink-0 touch-manipulation overflow-hidden bg-black",
+        // Human: Pencil Mobile Portrait — default band (always on narrow; centered via parent flex).
+        "mx-auto aspect-[390/220] min-h-[180px] max-h-[min(220px,42dvh)] max-w-[min(100%,390px)]",
+        // Human: Pencil Mobile Landscape — full-bleed overrides when data-video-layout=landscape.
+        "video-landscape:mx-0 video-landscape:flex video-landscape:h-full video-landscape:min-h-0 video-landscape:w-full video-landscape:max-h-none video-landscape:max-w-none video-landscape:flex-1 video-landscape:shrink video-landscape:flex-col video-landscape:aspect-auto",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-1 flex-col",
         isFullscreen && !isImmersive && "max-h-none max-w-none",
       )}
@@ -236,7 +236,7 @@ export function VideoPlayerSurfaceMobile({
             </span>
           </div>
 
-          <div className="video-portrait:block video-landscape:hidden">
+          <div className="block video-landscape:hidden">
             <VideoSeekBar
               variant="mobile-portrait"
               progress={progress}

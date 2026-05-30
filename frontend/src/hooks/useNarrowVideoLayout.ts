@@ -5,14 +5,13 @@ import { useLayoutEffect, useState, type RefObject } from "react";
 
 export type NarrowVideoLayout = "portrait" | "landscape";
 
-// Human: Landscape when viewport is wider than tall (visualViewport first for iOS Safari chrome).
-// Agent: FALLBACK screen.orientation.type; RETURNS portrait when equal or desktop-width (caller gates enabled).
+// Human: Landscape when layout viewport is wider than tall — innerWidth/Height (not visualViewport alone).
+// Agent: visualViewport can skew aspect inside Safari modals; screen.orientation is tie-breaker only.
 export function readNarrowVideoLayout(): NarrowVideoLayout {
   if (typeof window === "undefined") return "portrait";
 
-  const vv = window.visualViewport;
-  const width = Math.round(vv?.width ?? window.innerWidth);
-  const height = Math.round(vv?.height ?? window.innerHeight);
+  const width = window.innerWidth;
+  const height = window.innerHeight;
 
   if (width > height) return "landscape";
   if (height > width) return "portrait";
