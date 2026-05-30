@@ -105,7 +105,7 @@ function formatElapsed(seconds: number) {
 }
 
 // Human: Active upload row — filename, percent, thin bar, and meta line per Pencil item layout.
-// Agent: READS UploadItemSnapshot; CALLS onCancel; SHOWS phase timer during post-upload work.
+// Agent: READS UploadItemSnapshot; CALLS onCancel to abort, delete partial server file, and remove row.
 export function ActiveUploadRow({
   item,
   onCancel,

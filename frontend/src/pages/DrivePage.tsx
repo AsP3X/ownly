@@ -75,6 +75,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   buildAudioGallery,
   buildImageGallery,
+  buildVideoGallery,
   isAudioMime,
   isImageMime,
   isPdfMime,
@@ -759,9 +760,19 @@ export default function DrivePage() {
     return buildAudioGallery(files, previewAudio);
   }, [files, previewAudio]);
 
+  const galleryVideos = useMemo(() => {
+    if (!previewVideo) return [];
+    return buildVideoGallery(files, previewVideo);
+  }, [files, previewVideo]);
+
   function handleGalleryAudioChange(file: FileItem) {
     recordFileAccess(file.id);
     setPreviewAudio(file);
+  }
+
+  function handleGalleryVideoChange(file: FileItem) {
+    recordFileAccess(file.id);
+    setPreviewVideo(file);
   }
 
   // Human: Open the public link dialog for one file.
@@ -976,11 +987,15 @@ export default function DrivePage() {
           }
         />
         <VideoPreviewDialog
+          videos={galleryVideos}
           file={previewVideo}
           open={previewVideo !== null}
           onOpenChange={(open) => {
             if (!open) setPreviewVideo(null);
           }}
+          onFileChange={handleGalleryVideoChange}
+          onDownload={handleDownload}
+          onShare={handleShareFile}
         />
         <ImagePreviewDialog
           images={galleryImages}

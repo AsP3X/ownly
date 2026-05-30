@@ -164,6 +164,10 @@ const fileListeners = new Set<UploadFileListener>();
 
 const resumingItemIds = new Set<string>();
 
+// Human: Rows the user dismissed with X — stops ingest polling even after the item leaves the batch.
+// Agent: READ by waitForFileIngestCompletion isCancelled; SET in cancelUploadItem before removal.
+const abortedUploadItemIds = new Set<string>();
+
 
 
 function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
@@ -440,33 +444,26 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
 
   try {
 
-    const file = await waitForFileIngestCompletion(fileId, (update) => {
-
-      updateItems((items) =>
-
-        items.map((entry) =>
-
-          entry.id === uploadId
-
-            ? {
-
-                ...entry,
-
-                progress: update.percent,
-
-                phase: update.phase,
-
-                indeterminate: update.indeterminate,
-
-              }
-
-            : entry,
-
-        ),
-
-      );
-
-    });
+    const file = await waitForFileIngestCompletion(
+      fileId,
+      (update) => {
+        updateItems((items) =>
+          items.map((entry) =>
+            entry.id === uploadId
+              ? {
+                  ...entry,
+                  progress: update.percent,
+                  phase: update.phase,
+                  indeterminate: update.indeterminate,
+                }
+              : entry,
+          ),
+        );
+      },
+      () =>
+        abortedUploadItemIds.has(uploadId) ||
+        !batch?.items.some((entry) => entry.id === uploadId),
+    );
 
 
 
@@ -549,6 +546,36 @@ async function cancelServerVideoIngest(fileId: string) {
   await deleteFile(fileId).catch(() => {
     // Human: Best-effort delete after ingest cancel frees the processing guard.
   });
+}
+
+// Human: Best-effort removal of a partial server file row after the user cancels an upload.
+// Agent: CALLS cancelVideoIngest+deleteFile for video; CALLS deleteFile for other mime types.
+function voidCleanupPartialServerFile(fileId: string, mimeType: string) {
+  if (mimeType.startsWith("video/")) {
+    void cancelServerVideoIngest(fileId);
+    return;
+  }
+  void deleteFile(fileId).catch(() => {
+    // Human: Ignore races when the API row was never committed or was already deleted.
+  });
+}
+
+// Human: Drop one row from the active batch and re-run the upload pump when slots open.
+// Agent: FILTERS batch.items; CLEARS batch when empty; CALLS emitBatch + pumpUploadQueue.
+function removeItemFromActiveBatch(itemId: string) {
+  if (!batch) return;
+
+  batch.items = batch.items.filter((entry) => entry.id !== itemId);
+  abortedUploadItemIds.delete(itemId);
+
+  if (batch.items.length === 0) {
+    batch = null;
+  } else if (batch.status === "uploading") {
+    maybeCompleteBatch();
+  }
+
+  emitBatch();
+  pumpUploadQueue();
 }
 
 // Human: Fallback when localStorage is empty — rebuild tray rows from active HLS encode jobs.
@@ -1159,7 +1186,7 @@ export function dismissUploadBatch() {
 
 // Human: Drop one failed or cancelled row from the upload panel and delete any partial server file.
 
-// Agent: REMOVES item from batch; CALLS deleteFile when uploadedFileId set; CLEARS batch when empty.
+// Agent: REMOVES item from batch; CALLS voidCleanupPartialServerFile when uploadedFileId set.
 
 export function removeUploadBatchItem(itemId: string) {
 
@@ -1175,33 +1202,13 @@ export function removeUploadBatchItem(itemId: string) {
 
   if (item.uploadedFileId) {
 
-    void deleteFile(item.uploadedFileId).catch(() => {
-
-      // Human: Best-effort cleanup when the user dismisses a failed upload from the tray.
-
-    });
+    voidCleanupPartialServerFile(item.uploadedFileId, item.mimeType);
 
   }
 
 
 
-  batch.items = batch.items.filter((entry) => entry.id !== itemId);
-
-
-
-  if (batch.items.length === 0) {
-
-    batch = null;
-
-  } else if (batch.status === "uploading") {
-
-    maybeCompleteBatch();
-
-  }
-
-
-
-  emitBatch();
+  removeItemFromActiveBatch(itemId);
 
 }
 
@@ -1215,9 +1222,9 @@ export function getUploadBatch(): UploadBatchSnapshot | null {
 
 
 
-// Human: Cancel one queued or in-flight file in the active upload batch.
+// Human: Cancel one queued or in-flight file — abort transfer, delete partial server row, remove from tray.
 
-// Agent: QUEUED → status cancelled; UPLOADING → abortUploadSession(sessionId=item.id).
+// Agent: QUEUED → drop row; UPLOADING → abortUploadSession + voidCleanupPartialServerFile; REMOVES item.
 
 export function cancelUploadItem(itemId: string) {
 
@@ -1227,71 +1234,41 @@ export function cancelUploadItem(itemId: string) {
 
   const item = batch.items.find((entry) => entry.id === itemId);
 
-  if (!item) return;
+  if (!item || item.status === "done") return;
 
 
 
-  if (item.status === "queued") {
-
-    updateItems((items) =>
-
-      items.map((entry) =>
-
-        entry.id === itemId
-
-          ? { ...entry, status: "cancelled" as const, error: "Cancelled" }
-
-          : entry,
-
-      ),
-
-    );
-
-    maybeCompleteBatch();
-
-    pumpUploadQueue();
-
-    return;
-
-  }
+  abortedUploadItemIds.add(itemId);
 
 
 
   if (item.status === "uploading") {
 
-    if (item.uploadedFileId && item.mimeType.startsWith("video/")) {
-
-      void cancelServerVideoIngest(item.uploadedFileId);
-
-    }
-
     if (item.localFile) {
 
-      abortUploadSession(itemId);
+      abortUploadSession(itemId, {
 
-      return;
+        fileId: item.uploadedFileId,
+
+        mimeType: item.mimeType,
+
+      });
+
+    } else if (item.uploadedFileId) {
+
+      voidCleanupPartialServerFile(item.uploadedFileId, item.mimeType);
 
     }
 
+  } else if (item.uploadedFileId) {
 
-
-    updateItems((items) =>
-
-      items.map((entry) =>
-
-        entry.id === itemId
-
-          ? { ...entry, status: "cancelled" as const, error: "Cancelled" }
-
-          : entry,
-
-      ),
-
-    );
-
-    maybeCompleteBatch();
+    voidCleanupPartialServerFile(item.uploadedFileId, item.mimeType);
 
   }
+
+
+
+  removeItemFromActiveBatch(itemId);
 
 }
 

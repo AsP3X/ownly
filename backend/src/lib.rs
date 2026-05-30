@@ -323,6 +323,22 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/public/shares/{token}/files/{file_id}/segments/{segment}",
             get(shares::handlers::public_share_segment),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/all-files",
+            get(shares::handlers::public_share_all_files),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/download-archive",
+            post(shares::handlers::public_share_download_archive),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/download-archive/{job_id}",
+            get(shares::handlers::public_share_download_archive_status),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/download-archive/{job_id}/archive",
+            get(shares::handlers::public_share_download_archive_stream),
         );
 
     let protected_routes = Router::new()
@@ -431,9 +447,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(files::recycle_bin::restore_recycle_bin_items),
         )
         .route("/api/v1/shares", post(shares::handlers::create_share).get(shares::handlers::lookup_share))
+        .route(
+            "/api/v1/shares/save-from-public",
+            post(shares::handlers::save_from_public_share),
+        )
         .route("/api/v1/shares/status", post(shares::handlers::share_status_bulk))
         .route("/api/v1/shares/resource", get(shares::handlers::resource_shares))
-        .route("/api/v1/shares/{id}", delete(shares::handlers::revoke_share))
+        .route("/api/v1/shares/user", post(shares::handlers::create_user_share))
+        .route("/api/v1/shares/user/{id}", delete(shares::handlers::revoke_user_share))
+        .route(
+            "/api/v1/shares/{id}",
+            patch(shares::handlers::update_share).delete(shares::handlers::revoke_share),
+        )
         .route("/api/v1/jobs", get(jobs::handlers::list_jobs))
         .route(
             "/api/v1/jobs/{id}",

@@ -888,3 +888,150 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
         .await
         .ok();
 }
+
+// Human: Protected public shares require X-Share-Password and can block downloads.
+// Agent: GET download without/with password; UPDATE block_download; EXPECT 403 when blocked.
+#[tokio::test]
+async fn public_share_password_and_download_block() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping public_share_password_and_download_block: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping public_share_password_and_download_block: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let share_id = uuid::Uuid::new_v4().to_string();
+    let token = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    let password_hash = mediavault_backend::auth::handlers::hash_password("share-secret")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(format!("share-protect-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'protected.txt', 'storage/protected', 'text/plain', 4)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    sqlx::query(
+        "INSERT INTO public_shares (id, token, user_id, resource_type, resource_id, password_hash, block_download) \
+         VALUES ($1, $2, $3, 'file', $4, $5, false)",
+    )
+    .bind(&share_id)
+    .bind(token)
+    .bind(&user_id)
+    .bind(&file_id)
+    .bind(mediavault_backend::auth::handlers::hash_password("visitor-pass").expect("hash share pass"))
+    .execute(&state.pool)
+    .await
+    .expect("insert share");
+
+    let app = create_router(state.clone());
+
+    let overview = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/public/shares/{token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(overview.status(), StatusCode::OK);
+    let overview_json = response_json(overview).await;
+    assert_eq!(overview_json["share"]["requires_password"], true);
+    assert_eq!(overview_json["share"]["block_download"], false);
+
+    let blocked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/public/shares/{token}/files/{file_id}/download"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+
+    let allowed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/public/shares/{token}/files/{file_id}/download"
+                ))
+                .header("x-share-password", "visitor-pass")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        allowed.status() == StatusCode::OK || allowed.status() == StatusCode::INTERNAL_SERVER_ERROR,
+        "password-protected download should pass auth (storage may fail in harness)"
+    );
+
+    sqlx::query("UPDATE public_shares SET block_download = true WHERE id = $1")
+        .bind(&share_id)
+        .execute(&state.pool)
+        .await
+        .expect("block downloads");
+
+    let download_blocked = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/public/shares/{token}/files/{file_id}/download"
+                ))
+                .header("x-share-password", "visitor-pass")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download_blocked.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("DELETE FROM public_shares WHERE id = $1")
+        .bind(&share_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

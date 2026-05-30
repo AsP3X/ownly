@@ -2,7 +2,7 @@
 // Agent: CALLS login API; setAuth; navigate "/"; READS registration setting for optional sign-up link.
 
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { getErrorMessage, login, registrationSetting } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,7 +18,12 @@ const REMEMBER_EMAIL_KEY = "ownly.auth.rememberEmail";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setAuth, token } = useAuth();
+  const redirectTo =
+    (location.state as { from?: string } | null)?.from ??
+    new URLSearchParams(location.search).get("next") ??
+    "/";
   // Human: Restore remembered email on first paint without a hydration effect.
   const savedEmail = sessionStorage.getItem(REMEMBER_EMAIL_KEY);
   const [email, setEmail] = useState(savedEmail ?? "");
@@ -30,8 +35,8 @@ export default function LoginPage() {
   const [allowRegister, setAllowRegister] = useState(false);
 
   useEffect(() => {
-    if (token) navigate("/", { replace: true });
-  }, [token, navigate]);
+    if (token) navigate(redirectTo, { replace: true });
+  }, [token, navigate, redirectTo]);
 
   useEffect(() => {
     registrationSetting()
@@ -56,7 +61,7 @@ export default function LoginPage() {
         sessionStorage.removeItem(REMEMBER_EMAIL_KEY);
       }
       setAuth(res.token, res.user);
-      navigate("/", { replace: true });
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

@@ -1,10 +1,12 @@
-// Human: In-browser video preview via HLS — files are HLS-ready as soon as upload completes.
-// Agent: READS fetchVideoStreamUrl; USES hls-player helpers; RENDERS Dialog + video.
+// Human: HLS video lightbox — Pencil Ownly Video Player over blurred backdrop with folder gallery.
+// Agent: FETCHES stream URL; ATTACHES hls.js; RENDERS VideoPlayerSurface; NAVIGATES sibling videos.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
+import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
 import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
@@ -18,13 +20,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 type VideoPreviewDialogProps = {
+  videos: FileItem[];
   file: FileItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onFileChange?: (file: FileItem) => void;
   /** When set, stream-url and HLS segments use anonymous public share routes. */
   shareToken?: string;
+  /** Visitor password for protected public shares — sent as X-Share-Password. */
+  sharePassword?: string | null;
+  onDownload?: (file: FileItem) => void;
+  onShare?: (file: FileItem) => void;
 };
 
 function getToken(): string | null {
@@ -39,11 +48,30 @@ function resolveStreamUrl(url: string): string {
   return new URL(path, window.location.origin).href;
 }
 
-export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: VideoPreviewDialogProps) {
+export function VideoPreviewDialog({
+  videos,
+  file,
+  open,
+  onOpenChange,
+  onFileChange,
+  shareToken,
+  sharePassword,
+  onDownload,
+  onShare,
+}: VideoPreviewDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
+
+  const currentIndex = useMemo(
+    () => (file ? videos.findIndex((item) => item.id === file.id) : -1),
+    [file, videos],
+  );
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < videos.length - 1;
+  const positionLabel =
+    currentIndex >= 0 && videos.length > 1 ? `${currentIndex + 1} of ${videos.length}` : null;
 
   useEffect(() => {
     setStreamUrl(null);
@@ -61,7 +89,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: Vid
     setError("");
 
     void (shareToken
-      ? fetchPublicVideoStreamUrl(shareToken, file.id)
+      ? fetchPublicVideoStreamUrl(shareToken, file.id, sharePassword)
       : fetchVideoStreamUrl(file.id))
       .then((res) => {
         if (cancelled) return;
@@ -82,7 +110,7 @@ export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: Vid
     return () => {
       cancelled = true;
     };
-  }, [open, file?.id, file?.hls_ready, shareToken]);
+  }, [open, file?.id, file?.hls_ready, shareToken, sharePassword]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -96,6 +124,10 @@ export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: Vid
 
     if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance((xhr) => {
+        if (shareToken && sharePassword) {
+          xhr.setRequestHeader("X-Share-Password", sharePassword);
+          return;
+        }
         if (shareToken) return;
         const token = getToken();
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -106,8 +138,6 @@ export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: Vid
       attachHlsErrorHandler(hls, video, isActive, (message) => {
         if (!disposed) setError(message);
       });
-      // Human: Surface non-fatal hls.js errors in devtools when playback stalls on init only.
-      // Agent: LOGS fragParsingError / keyLoadError; does not change user-visible error unless fatal.
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) {
           console.warn("[hls]", data.type, data.details, data);
@@ -129,42 +159,135 @@ export function VideoPreviewDialog({ file, open, onOpenChange, shareToken }: Vid
       video.removeAttribute("src");
       video.load();
     };
-  }, [streamUrl, open, shareToken]);
+  }, [streamUrl, open, shareToken, sharePassword]);
 
-  const failed = file?.hls_encode_status === "failed";
+  const goPrevious = useCallback(() => {
+    if (!hasPrevious || !onFileChange) return;
+    onFileChange(videos[currentIndex - 1]!);
+  }, [currentIndex, hasPrevious, onFileChange, videos]);
+
+  const goNext = useCallback(() => {
+    if (!hasNext || !onFileChange) return;
+    onFileChange(videos[currentIndex + 1]!);
+  }, [currentIndex, hasNext, onFileChange, videos]);
+
+  const goPreviousRef = useRef(goPrevious);
+  const goNextRef = useRef(goNext);
+
+  useEffect(() => {
+    goPreviousRef.current = goPrevious;
+    goNextRef.current = goNext;
+  }, [goPrevious, goNext]);
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(() => {
+      viewportRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open, file?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.isComposing) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        event.stopPropagation();
+        goPreviousRef.current();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        event.stopPropagation();
+        goNextRef.current();
+      }
+    }
+
+    document.addEventListener("keydown", handleDocumentKeyDown, true);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown, true);
+  }, [open]);
+
+  const handleContentKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      goPrevious();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      goNext();
+    }
+  };
+
+  const descriptionParts = [
+    file?.name ?? "Video preview",
+    positionLabel,
+    "Encrypted HLS playback.",
+  ].filter(Boolean);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Human: Wide modal so the 16:9 player is roughly twice the default dialog width. */}
-      {/* Agent: sm:max-w-[84rem] doubles prior sm:max-w-2xl (42rem); still capped by viewport gutter. */}
-      <DialogContent className="w-full max-w-[calc(100%-2rem)] gap-4 overflow-hidden sm:max-w-[84rem]">
-        <DialogHeader className="min-w-0 pr-8">
-          <DialogTitle className="truncate">{file?.name ?? "Video preview"}</DialogTitle>
-          <DialogDescription>
-            {failed
-              ? (file.hls_encode_error ?? "Video processing failed.")
-              : "Streamed with encrypted HLS segments."}
-          </DialogDescription>
+      <DialogContent
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[1440px]"
+        overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
+        showCloseButton={false}
+        onKeyDown={handleContentKeyDown}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{file?.name ?? "Video preview"}</DialogTitle>
+          <DialogDescription>{descriptionParts.join(" · ")}</DialogDescription>
         </DialogHeader>
 
-        {error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {error}
-          </p>
-        ) : null}
+        <div
+          ref={viewportRef}
+          tabIndex={-1}
+          className="flex w-full items-center justify-center gap-4 outline-none sm:gap-6"
+          aria-label="Video player"
+        >
+          {videos.length > 1 ? (
+            <button
+              type="button"
+              disabled={!hasPrevious}
+              onClick={goPrevious}
+              aria-label="Previous video"
+              className={cn(
+                "flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30",
+              )}
+            >
+              <ChevronLeft className="size-7" aria-hidden />
+            </button>
+          ) : (
+            <div className="hidden w-[3.75rem] shrink-0 sm:block" aria-hidden />
+          )}
 
-        <div className="relative aspect-video w-full max-w-full min-w-0 overflow-hidden rounded-lg bg-black">
-          <video
-            ref={videoRef}
-            className="size-full max-h-full max-w-full object-contain"
-            controls
-            playsInline
-          />
-          {loadingStream ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white">
-              Loading stream…
-            </div>
+          {file ? (
+            <VideoPlayerSurface
+              key={file.id}
+              file={file}
+              videoRef={videoRef}
+              loading={loadingStream}
+              error={error}
+              onDownload={onDownload}
+              onShare={onShare}
+            />
           ) : null}
+
+          {videos.length > 1 ? (
+            <button
+              type="button"
+              disabled={!hasNext}
+              onClick={goNext}
+              aria-label="Next video"
+              className={cn(
+                "flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30",
+              )}
+            >
+              <ChevronRight className="size-7" aria-hidden />
+            </button>
+          ) : (
+            <div className="hidden w-[3.75rem] shrink-0 sm:block" aria-hidden />
+          )}
         </div>
       </DialogContent>
     </Dialog>

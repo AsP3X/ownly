@@ -161,6 +161,27 @@ export function buildAudioGallery<T extends { id: string; name: string; mime_typ
   );
 }
 
+// Human: HLS-ready videos in the same folder as the opened file — ordered for gallery navigation.
+// Agent: FILTERS video/* + hls_ready + folder_id; SORTS by name like image/audio galleries.
+export function buildVideoGallery<
+  T extends {
+    id: string;
+    name: string;
+    mime_type: string | null;
+    folder_id: string | null;
+    hls_ready: boolean;
+  },
+>(allFiles: T[], anchor: T): T[] {
+  return sortFilesByName(
+    allFiles.filter(
+      (file) =>
+        (file.mime_type?.startsWith("video/") ?? false) &&
+        file.hls_ready &&
+        file.folder_id === anchor.folder_id,
+    ),
+  );
+}
+
 export function fileMatchesTypeFilter(
   mimeType: string | null | undefined,
   filter: FileTypeFilter,

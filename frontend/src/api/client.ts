@@ -561,24 +561,41 @@ const activeUploadSessions = new Map<string, ActiveUploadSession>();
 
 // Human: Abort one in-flight upload — stops XHR, ingest poll, and removes a partial server file when known.
 // Agent: SETS cancelled flag; CALLS xhr.abort; OPTIONAL deleteFile when uploadedFileId set.
-export function abortUploadSession(sessionId: string) {
+export function abortUploadSession(
+  sessionId: string,
+  options?: { fileId?: string | null; mimeType?: string },
+) {
   const session = activeUploadSessions.get(sessionId);
-  if (!session || session.cancelled) return;
+  const fileId = session?.uploadedFileId ?? options?.fileId ?? null;
+  const mimeType = options?.mimeType ?? "";
+
+  const cleanupPartialServerFile = () => {
+    if (!fileId) return;
+    if (mimeType.startsWith("video/")) {
+      void cancelVideoIngest(fileId)
+        .catch(() => {
+          // Human: Best-effort server cancel before deleting the partial file row.
+        })
+        .then(() => deleteFile(fileId))
+        .catch(() => {
+          // Human: Best-effort cleanup after cancel during server-side processing.
+        });
+      return;
+    }
+    void deleteFile(fileId).catch(() => {
+      // Human: Best-effort delete for non-video partial rows after the user dismisses upload.
+    });
+  };
+
+  if (!session || session.cancelled) {
+    cleanupPartialServerFile();
+    return;
+  }
 
   session.cancelled = true;
   session.clearProcessingTimer();
   session.xhr.abort();
-
-  if (session.uploadedFileId) {
-    void cancelVideoIngest(session.uploadedFileId)
-      .catch(() => {
-        // Human: Best-effort server cancel before deleting the partial file row.
-      })
-      .then(() => deleteFile(session.uploadedFileId!))
-      .catch(() => {
-        // Human: Best-effort cleanup after cancel during server-side processing.
-      });
-  }
+  cleanupPartialServerFile();
 
   session.rejectUpload?.(new ApiError("Upload cancelled", "upload_cancelled", 0));
   activeUploadSessions.delete(sessionId);
@@ -1402,6 +1419,25 @@ export type PublicShareInfo = {
   mime_type: string | null;
   size_bytes: number | null;
   hls_ready: boolean | null;
+  requires_password: boolean;
+  block_download: boolean;
+  created_at: string;
+  expires_at: string | null;
+  shared_by_email: string;
+  total_file_count: number;
+  total_folder_count: number;
+  total_bytes: number;
+};
+
+export type PublicShareDownloadArchiveStatus = {
+  job_id: string;
+  status: string;
+  progress: number;
+  ready: boolean;
+  archive_name: string;
+  size_bytes: number | null;
+  error: string | null;
+  single_file_id: string | null;
 };
 
 export type ShareLink = {
@@ -1409,6 +1445,16 @@ export type ShareLink = {
   token: string;
   resource_type: "file" | "folder";
   resource_id: string;
+  created_at: string;
+  requires_password: boolean;
+  expires_at: string | null;
+  block_download: boolean;
+};
+
+export type UserShare = {
+  id: string;
+  grantee_user_id: string;
+  grantee_email: string;
   created_at: string;
 };
 
@@ -1440,7 +1486,7 @@ export function buildShareFlagMaps(
 
 export type ResourceSharesResponse = {
   public_share: ShareLink | null;
-  user_shares: unknown[];
+  user_shares: UserShare[];
 };
 
 // Human: Build the browser URL visitors use to open a public share without signing in.
@@ -1477,6 +1523,49 @@ export async function revokePublicShare(shareId: string) {
   return apiFetch(`/shares/${shareId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
 }
 
+// Human: Persist protection settings on an active public share link.
+// Agent: PATCH /shares/:id; WRITES password, expiration, and download flags.
+export async function updatePublicShare(
+  shareId: string,
+  payload: {
+    requires_password?: boolean;
+    password?: string | null;
+    expires_at?: string | null;
+    block_download?: boolean;
+  },
+) {
+  return apiFetch(`/shares/${shareId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }) as Promise<{ share: ShareLink }>;
+}
+
+// Human: Invite one registered user to a file or folder by email address.
+// Agent: POST /shares/user; RETURNS UserShare row.
+export async function inviteUserShare(payload: {
+  resource_type: "file" | "folder";
+  resource_id: string;
+  email: string;
+}) {
+  return apiFetch("/shares/user", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as Promise<{ user_share: UserShare }>;
+}
+
+// Human: Remove one invited user from a shared resource.
+// Agent: DELETE /shares/user/:id; REQUIRES owner auth.
+export async function revokeUserShare(userShareId: string) {
+  return apiFetch(`/shares/user/${userShareId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Optional visitor password header for protected public share routes.
+// Agent: SETS X-Share-Password when provided; USED by anonymous share fetch helpers.
+function publicShareRequestHeaders(sharePassword?: string | null): HeadersInit | undefined {
+  if (!sharePassword) return undefined;
+  return { "X-Share-Password": sharePassword };
+}
+
 // Human: Bulk check which listed files/folders have active share links (for paperclip indicators).
 // Agent: POST /shares/status; RETURNS maps of ShareFlags keyed by resource id.
 export async function fetchShareStatusBulk(payload: {
@@ -1508,15 +1597,100 @@ export async function fetchPublicShareOverview(token: string) {
   }) as Promise<{ share: PublicShareInfo }>;
 }
 
+// Human: Flat list of every file in a share tree (folder shares) or one file (file shares).
+// Agent: GET /public/shares/:token/all-files; REQUIRES X-Share-Password when link is protected.
+export async function fetchPublicShareAllFiles(token: string, sharePassword?: string | null) {
+  return apiFetch(`/public/shares/${encodeURIComponent(token)}/all-files`, {
+    cache: "no-store",
+    headers: publicShareRequestHeaders(sharePassword),
+  }) as Promise<{ files: FileItem[]; folders: FolderItem[] }>;
+}
+
+// Human: Start a zip job for multiple shared files, or get a single-file shortcut id.
+// Agent: POST /public/shares/:token/download-archive; RETURNS job_id or single_file_id.
+export async function startPublicShareDownloadArchive(
+  token: string,
+  fileIds: string[],
+  sharePassword?: string | null,
+) {
+  return apiFetch(`/public/shares/${encodeURIComponent(token)}/download-archive`, {
+    method: "POST",
+    headers: publicShareRequestHeaders(sharePassword),
+    body: JSON.stringify({
+      file_ids: fileIds.length > 0 ? fileIds : undefined,
+    }),
+  }) as Promise<PublicShareDownloadArchiveStatus>;
+}
+
+// Human: Poll anonymous zip archive progress for a public share download.
+// Agent: GET /public/shares/:token/download-archive/:job_id.
+export async function fetchPublicShareDownloadArchiveStatus(
+  token: string,
+  jobId: string,
+  sharePassword?: string | null,
+) {
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(token)}/download-archive/${encodeURIComponent(jobId)}`,
+    { cache: "no-store", headers: publicShareRequestHeaders(sharePassword) },
+  ) as Promise<PublicShareDownloadArchiveStatus>;
+}
+
+// Human: Same-origin URL for a finished public-share zip archive stream.
+// Agent: RETURNS /api/v1/public/shares/:token/download-archive/:job_id/archive.
+export function publicShareDownloadArchiveUrl(token: string, jobId: string): string {
+  return `${API_BASE}/public/shares/${encodeURIComponent(token)}/download-archive/${encodeURIComponent(jobId)}/archive`;
+}
+
+// Human: Copy shared files into the signed-in visitor's library (Save to My Ownly).
+// Agent: POST /shares/save-from-public; REQUIRES auth + optional X-Share-Password.
+export async function saveFromPublicShare(payload: {
+  token: string;
+  file_ids?: string[];
+  folder_id?: string | null;
+  sharePassword?: string | null;
+}) {
+  return apiFetch("/shares/save-from-public", {
+    method: "POST",
+    headers: publicShareRequestHeaders(payload.sharePassword),
+    body: JSON.stringify({
+      token: payload.token,
+      file_ids: payload.file_ids,
+      folder_id: payload.folder_id ?? undefined,
+    }),
+  }) as Promise<{ saved_count: number; files: FileItem[] }>;
+}
+
+// Human: Verify a visitor password before loading protected share content.
+// Agent: PROBES a scoped public route with X-Share-Password; THROWS ApiError when invalid.
+export async function verifyPublicShareAccess(
+  token: string,
+  resourceType: "file" | "folder",
+  resourceId: string,
+  password: string,
+) {
+  if (resourceType === "folder") {
+    await fetchPublicShareContents(token, resourceId, password);
+    return;
+  }
+  await apiFetch(`/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(resourceId)}`, {
+    cache: "no-store",
+    headers: publicShareRequestHeaders(password),
+  });
+}
+
 // Human: List files and subfolders inside a folder-type public share at one level.
 // Agent: GET /public/shares/:token/contents?folder_id=; SCOPED to shared subtree only.
-export async function fetchPublicShareContents(token: string, folderId?: string | null) {
+export async function fetchPublicShareContents(
+  token: string,
+  folderId?: string | null,
+  sharePassword?: string | null,
+) {
   const search = new URLSearchParams();
   if (folderId) search.set("folder_id", folderId);
   const qs = search.toString();
   return apiFetch(
     `/public/shares/${encodeURIComponent(token)}/contents${qs ? `?${qs}` : ""}`,
-    { cache: "no-store" },
+    { cache: "no-store", headers: publicShareRequestHeaders(sharePassword) },
   ) as Promise<{
     files: FileItem[];
     folders: FolderItem[];
@@ -1529,10 +1703,14 @@ export async function fetchPublicShareContents(token: string, folderId?: string 
 
 // Human: Resolve HLS playlist URL for a video inside a public share.
 // Agent: GET /public/shares/:token/files/:id/stream-url; NO auth.
-export async function fetchPublicVideoStreamUrl(token: string, fileId: string) {
+export async function fetchPublicVideoStreamUrl(
+  token: string,
+  fileId: string,
+  sharePassword?: string | null,
+) {
   return apiFetch(
     `/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/stream-url`,
-    { cache: "no-store" },
+    { cache: "no-store", headers: publicShareRequestHeaders(sharePassword) },
   ) as Promise<VideoStreamUrlResponse>;
 }
 
@@ -1558,8 +1736,15 @@ async function publicShareFetchError(response: Response, code: string): Promise<
 
 // Human: Load shared file bytes for in-browser preview without triggering save-as.
 // Agent: GET public download; NO auth; RETURNS Blob for object URLs and PDF viewer.
-export async function fetchPublicShareBlobForPreview(token: string, fileId: string): Promise<Blob> {
-  const response = await fetch(publicShareFileDownloadUrl(token, fileId), { cache: "no-store" });
+export async function fetchPublicShareBlobForPreview(
+  token: string,
+  fileId: string,
+  sharePassword?: string | null,
+): Promise<Blob> {
+  const response = await fetch(publicShareFileDownloadUrl(token, fileId), {
+    cache: "no-store",
+    headers: publicShareRequestHeaders(sharePassword),
+  });
   if (!response.ok) {
     return publicShareFetchError(response, "preview_failed");
   }
@@ -1571,15 +1756,24 @@ export async function fetchPublicShareBlobForPreview(token: string, fileId: stri
 export async function fetchPublicShareStreamUrlForPreview(
   token: string,
   file: FileItem,
+  sharePassword?: string | null,
 ): Promise<{ url: string; revokeOnClose: boolean }> {
-  const blob = await fetchPublicShareBlobForPreview(token, file.id);
+  const blob = await fetchPublicShareBlobForPreview(token, file.id, sharePassword);
   return { url: URL.createObjectURL(blob), revokeOnClose: true };
 }
 
 // Human: Download one file from a public share through the API proxy.
 // Agent: GET /public/shares/:token/files/:id/download; RETURNS Blob for save-as.
-export async function downloadPublicShareFile(token: string, fileId: string, fileName: string) {
-  const res = await fetch(publicShareFileDownloadUrl(token, fileId), { cache: "no-store" });
+export async function downloadPublicShareFile(
+  token: string,
+  fileId: string,
+  fileName: string,
+  sharePassword?: string | null,
+) {
+  const res = await fetch(publicShareFileDownloadUrl(token, fileId), {
+    cache: "no-store",
+    headers: publicShareRequestHeaders(sharePassword),
+  });
   if (!res.ok) {
     return publicShareFetchError(res, "download_failed");
   }

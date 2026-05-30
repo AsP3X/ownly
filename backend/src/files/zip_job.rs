@@ -52,6 +52,12 @@ impl FolderDownloadRegistry {
         format!("{user_id}:bulk:{job_id}")
     }
 
+    // Human: Registry key for anonymous public-share zip jobs (token-scoped, no user id).
+    // Agent: USED by POST /public/shares/:token/download-archive polling + archive stream.
+    pub fn public_share_job_key(token: &str, job_id: &str) -> String {
+        format!("public-share:{token}:{job_id}")
+    }
+
     pub async fn get(&self, key: &str) -> Option<FolderDownloadJob> {
         self.inner.read().await.get(key).cloned()
     }

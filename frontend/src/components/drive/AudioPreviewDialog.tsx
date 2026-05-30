@@ -25,6 +25,7 @@ type AudioPreviewDialogProps = {
   onFileChange: (file: FileItem) => void;
   /** When set, audio streams through anonymous public share download URL. */
   shareToken?: string;
+  sharePassword?: string | null;
 };
 
 type CachedStream = {
@@ -39,6 +40,7 @@ export function AudioPreviewDialog({
   onOpenChange,
   onFileChange,
   shareToken,
+  sharePassword,
 }: AudioPreviewDialogProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -94,9 +96,9 @@ export function AudioPreviewDialog({
   const resolveStream = useCallback(
     (item: FileItem) =>
       shareToken
-        ? fetchPublicShareStreamUrlForPreview(shareToken, item)
+        ? fetchPublicShareStreamUrlForPreview(shareToken, item, sharePassword)
         : fetchFileStreamUrlForPreview(item),
-    [shareToken],
+    [shareToken, sharePassword],
   );
 
   // Human: Resolve a stream URL for the active track — ticket URLs stay on the app origin (no localhost:9000).

@@ -25,6 +25,7 @@ type PdfPreviewDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** When set, PDF bytes load through anonymous public share download. */
   shareToken?: string;
+  sharePassword?: string | null;
 };
 
 const MIN_ZOOM = 0.5;
@@ -53,7 +54,13 @@ function normalizeWheelDelta(event: WheelEvent): number {
   return event.deltaY;
 }
 
-export function PdfPreviewDialog({ file, open, onOpenChange, shareToken }: PdfPreviewDialogProps) {
+export function PdfPreviewDialog({
+  file,
+  open,
+  onOpenChange,
+  shareToken,
+  sharePassword,
+}: PdfPreviewDialogProps) {
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -109,7 +116,7 @@ export function PdfPreviewDialog({ file, open, onOpenChange, shareToken }: PdfPr
     setError("");
 
     void (shareToken
-      ? fetchPublicShareBlobForPreview(shareToken, file.id)
+      ? fetchPublicShareBlobForPreview(shareToken, file.id, sharePassword)
       : fetchFileBlobForPreview(file))
       .then(async (blob) => {
         if (cancelled) return;
@@ -129,7 +136,7 @@ export function PdfPreviewDialog({ file, open, onOpenChange, shareToken }: PdfPr
     return () => {
       cancelled = true;
     };
-  }, [open, file, shareToken]);
+  }, [open, file, shareToken, sharePassword]);
 
   const zoomIn = useCallback(() => {
     setZoom((current) => clampZoom(current + ZOOM_STEP));

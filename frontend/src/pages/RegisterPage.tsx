@@ -2,7 +2,7 @@
 // Agent: CALLS register API (email + password only); setAuth when enabled; client validates confirm password + terms.
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Mail, User } from "lucide-react";
 import { getErrorMessage, register } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,7 +16,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setAuth } = useAuth();
+  const redirectTo =
+    (location.state as { from?: string } | null)?.from ??
+    new URLSearchParams(location.search).get("next") ??
+    "/";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,7 +66,7 @@ export default function RegisterPage() {
         return;
       }
       setAuth(res.token, res.user);
-      navigate("/", { replace: true });
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

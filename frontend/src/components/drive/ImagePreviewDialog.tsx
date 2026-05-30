@@ -24,6 +24,7 @@ type ImagePreviewDialogProps = {
   onFileChange: (file: FileItem) => void;
   /** When set, image bytes load through anonymous public share download. */
   shareToken?: string;
+  sharePassword?: string | null;
   /** Human: Optional download action — shown in the bottom bar when provided. */
   onDownload?: (file: FileItem) => void;
   /** Human: Optional share action — hidden on anonymous public share views. */
@@ -37,6 +38,7 @@ export function ImagePreviewDialog({
   onOpenChange,
   onFileChange,
   shareToken,
+  sharePassword,
   onDownload,
   onShare,
 }: ImagePreviewDialogProps) {
@@ -87,9 +89,9 @@ export function ImagePreviewDialog({
   const fetchPreviewBlob = useCallback(
     (item: FileItem) =>
       shareToken
-        ? fetchPublicShareBlobForPreview(shareToken, item.id)
+        ? fetchPublicShareBlobForPreview(shareToken, item.id, sharePassword)
         : fetchFileBlobForPreview(item),
-    [shareToken],
+    [shareToken, sharePassword],
   );
 
   // Human: Resolve the active slide — swap instantly when cached, otherwise keep the prior image visible.

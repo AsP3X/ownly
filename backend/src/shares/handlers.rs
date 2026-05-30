@@ -14,20 +14,29 @@ use uuid::Uuid;
 
 use crate::{
     audit,
-    auth::handlers::Claims,
+    auth::handlers::{hash_password, Claims},
     error::AppError,
     files::{
-        folders::FolderDto,
+        file_copy::{copy_storage_artifacts, unique_name_in_folder, CopyFileSourceRow},
+        folders::{ensure_folder_owned, FolderDto},
         handlers::{FileDto, FILE_COLUMNS},
+        processing::ensure_file_not_processing,
+        zip_job::{
+            dedupe_zip_member_names, run_zip_entries_job, zip_status_json, FolderDownloadJob,
+            FolderDownloadRegistry, ZipDownloadStatusResponse, ZipFileEntry,
+        },
     },
     hls::handlers::{
         build_playlist_for_playback, open_hls_segment, resolve_hls_aes_key, HlsPlaybackRow,
     },
     rate_limit,
     shares::store::{
-        ensure_browse_folder_in_share, ensure_file_owned_for_share, ensure_folder_owned_for_share,
-        ensure_shared_file_ready, generate_share_token, list_share_folder_files,
-        load_file_in_share_scope, resolve_active_share, ShareRecord,
+        compute_share_tree_stats, ensure_browse_folder_in_share, ensure_file_ids_in_share,
+        ensure_file_owned_for_share, ensure_folder_owned_for_share, ensure_share_download_allowed,
+        ensure_shared_file_ready, generate_share_token, list_all_files_in_share,
+        list_all_folders_in_share, list_share_folder_files, load_file_in_share_scope,
+        resolve_active_share, sharer_email,
+        verify_share_password, ShareRecord, SHARE_RECORD_COLUMNS,
     },
     AppState,
 };
@@ -53,13 +62,49 @@ fn mp4_download_name(name: &str) -> String {
     }
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct ShareDto {
     pub id: String,
     pub token: String,
     pub resource_type: String,
     pub resource_id: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub requires_password: bool,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub block_download: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateShareRequest {
+    pub requires_password: Option<bool>,
+    pub password: Option<String>,
+    pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub block_download: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateShareResponse {
+    pub share: ShareDto,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct UserShareDto {
+    pub id: String,
+    pub grantee_user_id: String,
+    pub grantee_email: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserShareRequest {
+    pub resource_type: String,
+    pub resource_id: String,
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateUserShareResponse {
+    pub user_share: UserShareDto,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,10 +156,65 @@ pub struct ResourceSharesQuery {
 #[derive(Debug, Serialize)]
 pub struct ResourceSharesResponse {
     pub public_share: Option<ShareDto>,
-    pub user_shares: Vec<serde_json::Value>,
+    pub user_shares: Vec<UserShareDto>,
 }
 
 const MAX_SHARE_STATUS_IDS: usize = 500;
+
+// Human: Map a DB share row to the owner-facing API shape without exposing password hashes.
+// Agent: DERIVES requires_password from password_hash presence; USED by create/lookup/update handlers.
+fn share_dto_from_record(record: ShareRecord) -> ShareDto {
+    ShareDto {
+        id: record.id,
+        token: record.token,
+        resource_type: record.resource_type,
+        resource_id: record.resource_id,
+        created_at: record.created_at,
+        requires_password: record.password_hash.is_some(),
+        expires_at: record.expires_at,
+        block_download: record.block_download,
+    }
+}
+
+// Human: Read the optional visitor password header sent by the public share page.
+// Agent: HEADER x-share-password; RETURNS None when absent.
+fn share_password_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-share-password")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+// Human: Resolve a token and enforce password protection before serving share content.
+// Agent: CALLS resolve_active_share + verify_share_password; USED by public content routes.
+async fn resolve_public_share(
+    pool: &sqlx::PgPool,
+    token: &str,
+    headers: &HeaderMap,
+) -> Result<ShareRecord, AppError> {
+    let share = resolve_active_share(pool, token).await?;
+    verify_share_password(&share, share_password_header(headers).as_deref())?;
+    Ok(share)
+}
+
+// Human: Load one active public share owned by the authenticated user.
+// Agent: READS public_shares by id + user_id; RETURNS NotFound when missing or revoked.
+async fn load_owned_share(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    share_id: &str,
+) -> Result<ShareRecord, AppError> {
+    let share: Option<ShareRecord> = sqlx::query_as(&format!(
+        "SELECT {SHARE_RECORD_COLUMNS} FROM public_shares \
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+    ))
+    .bind(share_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    share.ok_or(AppError::NotFound)
+}
 
 // Human: Return which visible files/folders have active public links (user shares reserved for later).
 // Agent: POST body file_ids/folder_ids; READS public_shares; RETURNS per-id ShareFlags maps.
@@ -193,6 +293,40 @@ pub async fn share_status_bulk(
         }
     }
 
+    if !file_ids.is_empty() {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT resource_id FROM resource_user_shares \
+             WHERE owner_user_id = $1 AND resource_type = 'file' AND resource_id = ANY($2)",
+        )
+        .bind(&claims.sub)
+        .bind(&file_ids)
+        .fetch_all(&state.pool)
+        .await?;
+
+        for (resource_id,) in rows {
+            if let Some(flags) = files.get_mut(&resource_id) {
+                flags.users = true;
+            }
+        }
+    }
+
+    if !folder_ids.is_empty() {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT resource_id FROM resource_user_shares \
+             WHERE owner_user_id = $1 AND resource_type = 'folder' AND resource_id = ANY($2)",
+        )
+        .bind(&claims.sub)
+        .bind(&folder_ids)
+        .fetch_all(&state.pool)
+        .await?;
+
+        for (resource_id,) in rows {
+            if let Some(flags) = folders.get_mut(&resource_id) {
+                flags.users = true;
+            }
+        }
+    }
+
     Ok(Json(ShareStatusResponse { files, folders }))
 }
 
@@ -219,20 +353,33 @@ pub async fn resource_shares(
         ensure_folder_owned_for_share(&state.pool, &claims.sub, resource_id).await?;
     }
 
-    let public_share: Option<ShareDto> = sqlx::query_as(
-        "SELECT id, token, resource_type, resource_id, created_at \
+    let public_share: Option<ShareRecord> = sqlx::query_as(&format!(
+        "SELECT {SHARE_RECORD_COLUMNS} \
          FROM public_shares \
          WHERE user_id = $1 AND resource_type = $2 AND resource_id = $3 AND revoked_at IS NULL",
-    )
+    ))
     .bind(&claims.sub)
     .bind(resource_type)
     .bind(resource_id)
     .fetch_optional(&state.pool)
     .await?;
 
+    let user_shares: Vec<UserShareDto> = sqlx::query_as(
+        "SELECT rus.id, rus.grantee_user_id, u.email AS grantee_email, rus.created_at \
+         FROM resource_user_shares rus \
+         INNER JOIN users u ON u.id = rus.grantee_user_id \
+         WHERE rus.owner_user_id = $1 AND rus.resource_type = $2 AND rus.resource_id = $3 \
+         ORDER BY rus.created_at ASC",
+    )
+    .bind(&claims.sub)
+    .bind(resource_type)
+    .bind(resource_id)
+    .fetch_all(&state.pool)
+    .await?;
+
     Ok(Json(ResourceSharesResponse {
-        public_share,
-        user_shares: Vec::new(),
+        public_share: public_share.map(share_dto_from_record),
+        user_shares,
     }))
 }
 
@@ -244,7 +391,50 @@ pub struct PublicShareOverview {
     pub mime_type: Option<String>,
     pub size_bytes: Option<i64>,
     pub hls_ready: Option<bool>,
+    pub requires_password: bool,
+    pub block_download: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub shared_by_email: String,
+    pub total_file_count: i64,
+    pub total_folder_count: i64,
+    pub total_bytes: i64,
 }
+
+#[derive(Debug, Serialize)]
+pub struct PublicShareAllFilesResponse {
+    pub files: Vec<FileDto>,
+    pub folders: Vec<FolderDto>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PublicShareDownloadArchiveRequest {
+    pub file_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PublicShareDownloadArchiveResponse {
+    pub job_id: String,
+    #[serde(flatten)]
+    pub status: ZipDownloadStatusResponse,
+    pub single_file_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveFromPublicShareRequest {
+    pub token: String,
+    pub file_ids: Option<Vec<String>>,
+    pub folder_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaveFromPublicShareResponse {
+    pub saved_count: usize,
+    pub files: Vec<FileDto>,
+}
+
+const MAX_PUBLIC_SHARE_ZIP_FILES: usize = 500;
+const MAX_PUBLIC_SHARE_SAVE_FILES: usize = 200;
 
 #[derive(Debug, Serialize)]
 pub struct PublicShareOverviewResponse {
@@ -277,11 +467,11 @@ pub async fn create_share(
         ensure_folder_owned_for_share(&state.pool, &claims.sub, &body.resource_id).await?;
     }
 
-    let existing: Option<ShareDto> = sqlx::query_as(
-        "SELECT id, token, resource_type, resource_id, created_at \
+    let existing: Option<ShareRecord> = sqlx::query_as(&format!(
+        "SELECT {SHARE_RECORD_COLUMNS} \
          FROM public_shares \
          WHERE user_id = $1 AND resource_type = $2 AND resource_id = $3 AND revoked_at IS NULL",
-    )
+    ))
     .bind(&claims.sub)
     .bind(&resource_type)
     .bind(&body.resource_id)
@@ -289,19 +479,21 @@ pub async fn create_share(
     .await?;
 
     if let Some(share) = existing {
-        return Ok(Json(CreateShareResponse { share }));
+        return Ok(Json(CreateShareResponse {
+            share: share_dto_from_record(share),
+        }));
     }
 
     let share_id = Uuid::new_v4().to_string();
     let token = generate_share_token();
 
-    let share: ShareDto = match sqlx::query_as(
+    let share: ShareRecord = match sqlx::query_as(&format!(
         "INSERT INTO public_shares (id, token, user_id, resource_type, resource_id) \
          VALUES ($1, $2, $3, $4, $5) \
          ON CONFLICT (user_id, resource_type, resource_id) DO UPDATE \
          SET token = EXCLUDED.token, revoked_at = NULL, created_at = now() \
-         RETURNING id, token, resource_type, resource_id, created_at",
-    )
+         RETURNING {SHARE_RECORD_COLUMNS}",
+    ))
     .bind(&share_id)
     .bind(&token)
     .bind(&claims.sub)
@@ -312,17 +504,19 @@ pub async fn create_share(
     {
         Ok(row) => row,
         Err(sqlx::Error::Database(db_err)) if db_err.code() == Some("23505".into()) => {
-            let share: ShareDto = sqlx::query_as(
-                "SELECT id, token, resource_type, resource_id, created_at \
+            let share: ShareRecord = sqlx::query_as(&format!(
+                "SELECT {SHARE_RECORD_COLUMNS} \
                  FROM public_shares \
                  WHERE user_id = $1 AND resource_type = $2 AND resource_id = $3 AND revoked_at IS NULL",
-            )
+            ))
             .bind(&claims.sub)
             .bind(&resource_type)
             .bind(&body.resource_id)
             .fetch_one(&state.pool)
             .await?;
-            return Ok(Json(CreateShareResponse { share }));
+            return Ok(Json(CreateShareResponse {
+                share: share_dto_from_record(share),
+            }));
         }
         Err(error) => return Err(error.into()),
     };
@@ -339,7 +533,9 @@ pub async fn create_share(
     .await
     .ok();
 
-    Ok(Json(CreateShareResponse { share }))
+    Ok(Json(CreateShareResponse {
+        share: share_dto_from_record(share),
+    }))
 }
 
 // Human: Look up an existing active share for a file or folder owned by the caller.
@@ -359,18 +555,20 @@ pub async fn lookup_share(
         }
     };
 
-    let share: Option<ShareDto> = sqlx::query_as(
-        "SELECT id, token, resource_type, resource_id, created_at \
+    let share: Option<ShareRecord> = sqlx::query_as(&format!(
+        "SELECT {SHARE_RECORD_COLUMNS} \
          FROM public_shares \
          WHERE user_id = $1 AND resource_type = $2 AND resource_id = $3 AND revoked_at IS NULL",
-    )
+    ))
     .bind(&claims.sub)
     .bind(resource_type)
     .bind(resource_id)
     .fetch_optional(&state.pool)
     .await?;
 
-    Ok(Json(ShareLookupResponse { share }))
+    Ok(Json(ShareLookupResponse {
+        share: share.map(share_dto_from_record),
+    }))
 }
 
 // Human: Revoke a public link so the token stops working immediately.
@@ -409,12 +607,384 @@ pub async fn revoke_share(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// Human: Update protection settings on an active public share link owned by the caller.
+// Agent: PATCH password/expiration/download flags; AUDIT shares.update; RETURNS ShareDto.
+pub async fn update_share(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateShareRequest>,
+) -> Result<Json<UpdateShareResponse>, AppError> {
+    let mut share = load_owned_share(&state.pool, &claims.sub, &id).await?;
+
+    if let Some(requires_password) = body.requires_password {
+        if requires_password {
+            if let Some(password) = body.password.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+                if password.len() < 4 {
+                    return Err(AppError::BadRequest(
+                        "share password must be at least 4 characters".into(),
+                    ));
+                }
+                share.password_hash = Some(
+                    hash_password(password).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
+                );
+            } else if share.password_hash.is_none() {
+                return Err(AppError::BadRequest(
+                    "password is required when enabling password protection".into(),
+                ));
+            }
+        } else {
+            share.password_hash = None;
+        }
+    } else if let Some(password) = body.password.as_deref().map(str::trim) {
+        if password.is_empty() {
+            share.password_hash = None;
+        } else if share.password_hash.is_some() {
+            if password.len() < 4 {
+                return Err(AppError::BadRequest(
+                    "share password must be at least 4 characters".into(),
+                ));
+            }
+            share.password_hash = Some(
+                hash_password(password).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
+            );
+        }
+    }
+
+    if let Some(expires_at) = body.expires_at {
+        share.expires_at = expires_at;
+    }
+
+    if let Some(block_download) = body.block_download {
+        share.block_download = block_download;
+    }
+
+    sqlx::query(
+        "UPDATE public_shares \
+         SET password_hash = $1, expires_at = $2, block_download = $3 \
+         WHERE id = $4 AND user_id = $5 AND revoked_at IS NULL",
+    )
+    .bind(&share.password_hash)
+    .bind(share.expires_at)
+    .bind(share.block_download)
+    .bind(&share.id)
+    .bind(&claims.sub)
+    .execute(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "shares.update",
+        Some("share"),
+        Some(&share.id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(UpdateShareResponse {
+        share: share_dto_from_record(share),
+    }))
+}
+
+// Human: Invite one enabled instance user to a file or folder by email address.
+// Agent: INSERT resource_user_shares; AUDIT shares.user_invite; RETURNS UserShareDto.
+pub async fn create_user_share(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Json(body): Json<CreateUserShareRequest>,
+) -> Result<Json<CreateUserShareResponse>, AppError> {
+    let resource_type = body.resource_type.trim().to_lowercase();
+    if resource_type != "file" && resource_type != "folder" {
+        return Err(AppError::BadRequest(
+            "resource_type must be \"file\" or \"folder\"".into(),
+        ));
+    }
+
+    let email = body.email.trim().to_lowercase();
+    if email.is_empty() {
+        return Err(AppError::BadRequest("email is required".into()));
+    }
+
+    if resource_type == "file" {
+        ensure_file_owned_for_share(&state.pool, &claims.sub, &body.resource_id).await?;
+    } else {
+        ensure_folder_owned_for_share(&state.pool, &claims.sub, &body.resource_id).await?;
+    }
+
+    let grantee: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT id, email, enabled FROM users WHERE lower(email) = $1",
+    )
+    .bind(&email)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (grantee_user_id, _grantee_email, enabled) = grantee.ok_or(AppError::NotFound)?;
+
+    if !enabled {
+        return Err(AppError::BadRequest(
+            "that user account is disabled".into(),
+        ));
+    }
+
+    if grantee_user_id == claims.sub {
+        return Err(AppError::BadRequest(
+            "you cannot invite yourself to your own resource".into(),
+        ));
+    }
+
+    let share_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO resource_user_shares (id, owner_user_id, resource_type, resource_id, grantee_user_id) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&share_id)
+    .bind(&claims.sub)
+    .bind(&resource_type)
+    .bind(&body.resource_id)
+    .bind(&grantee_user_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|error| match error {
+        sqlx::Error::Database(db_err) if db_err.code() == Some("23505".into()) => {
+            AppError::Conflict("this user already has access".into())
+        }
+        other => other.into(),
+    })?;
+
+    let user_share: UserShareDto = sqlx::query_as(
+        "SELECT rus.id, rus.grantee_user_id, u.email AS grantee_email, rus.created_at \
+         FROM resource_user_shares rus \
+         INNER JOIN users u ON u.id = rus.grantee_user_id \
+         WHERE rus.id = $1",
+    )
+    .bind(&share_id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "shares.user_invite",
+        Some(&resource_type),
+        Some(&body.resource_id),
+        Some(serde_json::json!({ "grantee_user_id": grantee_user_id })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(CreateUserShareResponse { user_share }))
+}
+
+// Human: Remove one invited user from a shared file or folder.
+// Agent: DELETE resource_user_shares row owned by caller; AUDIT shares.user_revoke.
+pub async fn revoke_user_share(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let deleted: Option<(String, String)> = sqlx::query_as(
+        "DELETE FROM resource_user_shares \
+         WHERE id = $1 AND owner_user_id = $2 \
+         RETURNING resource_type, resource_id",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let Some((resource_type, resource_id)) = deleted else {
+        return Err(AppError::NotFound);
+    };
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "shares.user_revoke",
+        Some(&resource_type),
+        Some(&resource_id),
+        Some(serde_json::json!({ "user_share_id": id })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// Human: Build zip member rows for anonymous share archive jobs.
+// Agent: READS owner files table after ensure_file_ids_in_share; DEDUPES display names.
+async fn collect_zip_entries_for_share(
+    pool: &sqlx::PgPool,
+    share: &ShareRecord,
+    file_ids: &[String],
+) -> Result<Vec<ZipFileEntry>, AppError> {
+    ensure_file_ids_in_share(pool, share, file_ids).await?;
+
+    let mut entries = Vec::with_capacity(file_ids.len());
+    for file_id in file_ids {
+        let row: Option<(
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            bool,
+            Option<i32>,
+        )> = sqlx::query_as(
+            "SELECT id, name, storage_key, mime_type, hls_ready, download_export_ready, segment_count \
+             FROM files WHERE id = $1 AND user_id = $2",
+        )
+        .bind(file_id)
+        .bind(&share.user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let (
+            id,
+            name,
+            storage_key,
+            mime_type,
+            hls_ready,
+            export_ready,
+            segment_count,
+        ) = row.ok_or(AppError::NotFound)?;
+
+        entries.push(ZipFileEntry {
+            zip_path: name.clone(),
+            file_id: id,
+            storage_key,
+            display_name: name,
+            mime_type,
+            hls_ready,
+            export_ready,
+            segment_count: segment_count.unwrap_or(0),
+        });
+    }
+
+    Ok(dedupe_zip_member_names(entries))
+}
+
+// Human: Copy one shared file into the signed-in visitor's library with new storage blobs.
+// Agent: READS owner file row; WRITES grantee files row; AUDIT shares.save_from_public per file.
+async fn copy_share_file_into_library(
+    state: &Arc<AppState>,
+    share: &ShareRecord,
+    file_id: &str,
+    grantee_id: &str,
+    target_folder_id: &Option<String>,
+    headers: &HeaderMap,
+) -> Result<FileDto, AppError> {
+    load_file_in_share_scope(&state.pool, share, file_id).await?;
+
+    let source: Option<CopyFileSourceRow> = sqlx::query_as(
+        "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
+         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds \
+         FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(file_id)
+    .bind(&share.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let source = source.ok_or(AppError::NotFound)?;
+    ensure_file_not_processing(
+        &source.mime_type,
+        source.hls_ready,
+        &source.hls_encode_status,
+    )?;
+
+    let target_folder = target_folder_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(ref folder_id) = target_folder {
+        ensure_folder_owned(&state.pool, grantee_id, folder_id).await?;
+    }
+
+    let new_file_id = Uuid::new_v4().to_string();
+    let new_storage_key = format!("users/{grantee_id}/files/{new_file_id}");
+    let copy_name =
+        unique_name_in_folder(&state.pool, grantee_id, &target_folder, &source.name).await?;
+
+    copy_storage_artifacts(
+        state,
+        &source.storage_key,
+        &new_storage_key,
+        source.segment_count,
+    )
+    .await?;
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+         duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
+         segment_count) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+         RETURNING {FILE_COLUMNS}"
+    ))
+    .bind(&new_file_id)
+    .bind(grantee_id)
+    .bind(&target_folder)
+    .bind(&copy_name)
+    .bind(&new_storage_key)
+    .bind(&source.mime_type)
+    .bind(source.size_bytes)
+    .bind(source.duration_seconds)
+    .bind(source.hls_ready)
+    .bind(&source.hls_encode_status)
+    .bind(&source.hls_encode_error)
+    .bind(source.conversion_progress)
+    .bind(source.segment_count)
+    .fetch_one(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(grantee_id),
+        "shares.save_from_public",
+        Some("file"),
+        Some(&new_file_id),
+        Some(serde_json::json!({
+            "share_token": share.token,
+            "source_file_id": file_id,
+            "name": copy_name,
+        })),
+        headers,
+    )
+    .await
+    .ok();
+
+    Ok(file)
+}
+
+fn public_archive_status_json(
+    job_id: &str,
+    job: &FolderDownloadJob,
+) -> PublicShareDownloadArchiveResponse {
+    PublicShareDownloadArchiveResponse {
+        job_id: job_id.to_string(),
+        status: zip_status_json(job),
+        single_file_id: None,
+    }
+}
+
 // Human: Build the public overview payload for a share token (no auth).
-// Agent: READS share + file/folder metadata; NO user_id in response.
+// Agent: READS share + resource metadata + tree stats + sharer email; NO owner user_id in response.
 async fn public_overview_for_share(
     pool: &sqlx::PgPool,
     share: &ShareRecord,
 ) -> Result<PublicShareOverview, AppError> {
+    let email = sharer_email(pool, &share.user_id).await?;
+    let stats = compute_share_tree_stats(pool, share).await?;
+
     if share.resource_type == "file" {
         let row: Option<(String, Option<String>, i64, bool)> = sqlx::query_as(
             "SELECT name, mime_type, size_bytes, hls_ready FROM files WHERE id = $1 AND user_id = $2",
@@ -432,6 +1002,14 @@ async fn public_overview_for_share(
             mime_type,
             size_bytes: Some(size_bytes),
             hls_ready: Some(hls_ready),
+            requires_password: share.password_hash.is_some(),
+            block_download: share.block_download,
+            created_at: share.created_at,
+            expires_at: share.expires_at,
+            shared_by_email: email,
+            total_file_count: stats.file_count,
+            total_folder_count: stats.folder_count,
+            total_bytes: stats.total_bytes,
         });
     }
 
@@ -451,6 +1029,14 @@ async fn public_overview_for_share(
         mime_type: None,
         size_bytes: None,
         hls_ready: None,
+        requires_password: share.password_hash.is_some(),
+        block_download: share.block_download,
+        created_at: share.created_at,
+        expires_at: share.expires_at,
+        shared_by_email: email,
+        total_file_count: stats.file_count,
+        total_folder_count: stats.folder_count,
+        total_bytes: stats.total_bytes,
     })
 }
 
@@ -469,10 +1055,11 @@ pub async fn public_share_overview(
 // Agent: SCOPES queries to share.user_id + validated folder_id (defaults to shared root).
 pub async fn public_share_contents(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(token): Path<String>,
     Query(query): Query<PublicContentsQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     ensure_browse_folder_in_share(&state.pool, &share, query.folder_id.as_deref()).await?;
 
     let browse_folder_id = query
@@ -509,9 +1096,11 @@ pub async fn public_share_contents(
 // Agent: load_file_in_share_scope; SAME disposition rules as authenticated download.
 pub async fn public_share_download(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    ensure_share_download_allowed(&share)?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
     ensure_shared_file_ready(&row)?;
 
@@ -560,9 +1149,10 @@ pub async fn public_share_download(
 // Agent: PUBLIC path prefix includes share token so segments stay scoped.
 pub async fn public_share_stream_url(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     type StreamUrlRow = (Option<bool>, Option<i32>, Option<String>, Option<String>);
@@ -602,9 +1192,10 @@ pub async fn public_share_stream_url(
 // Agent: load_file_in_share_scope; READS hls_key_store by file id.
 pub async fn public_share_key(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let key = resolve_hls_aes_key(
@@ -629,9 +1220,10 @@ pub async fn public_share_key(
 // Agent: Segment URLs stay under /public/shares/{token}/files/{file_id}/segments/*.
 pub async fn public_share_playlist(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
@@ -680,9 +1272,10 @@ pub async fn public_share_playlist(
 // Agent: RATE LIMIT by token+file; READS storage under {storage_key}/segments/{name}.
 pub async fn public_share_segment(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id, segment_name)): Path<(String, String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     if !row.hls_ready {
@@ -717,9 +1310,10 @@ pub async fn public_share_segment(
 // Agent: READS {storage_key}/init.mp4; RATE LIMIT by token+file like media segments.
 pub async fn public_share_init(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     if !row.hls_ready {
@@ -747,9 +1341,10 @@ pub async fn public_share_init(
 // Agent: load_file_in_share_scope + FileDto SELECT; RETURNS minimal file JSON.
 pub async fn public_share_file(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let file: Option<FileDto> = sqlx::query_as(&format!(
@@ -762,4 +1357,241 @@ pub async fn public_share_file(
 
     let file = file.ok_or(AppError::NotFound)?;
     Ok(Json(serde_json::json!({ "file": file })))
+}
+
+// Human: Flat file list for the entire share tree (folder shares) or one row (file shares).
+// Agent: list_all_files_in_share; USED for search, download-all, and save-to-library selection.
+pub async fn public_share_all_files(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Result<Json<PublicShareAllFilesResponse>, AppError> {
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let files = list_all_files_in_share(&state.pool, &share).await?;
+    let folders = list_all_folders_in_share(&state.pool, &share).await?;
+    Ok(Json(PublicShareAllFilesResponse { files, folders }))
+}
+
+// Human: Start a zip archive for some or all files in a public share.
+// Agent: POST body file_ids; SPAWNS zip job keyed by token; RETURNS single_file_id when only one file.
+pub async fn public_share_download_archive(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+    Json(body): Json<PublicShareDownloadArchiveRequest>,
+) -> Result<Json<PublicShareDownloadArchiveResponse>, AppError> {
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    ensure_share_download_allowed(&share)?;
+
+    let mut file_ids: Vec<String> = body
+        .file_ids
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    if file_ids.is_empty() {
+        let files = list_all_files_in_share(&state.pool, &share).await?;
+        file_ids = files.into_iter().map(|f| f.id).collect();
+    }
+
+    if file_ids.is_empty() {
+        return Err(AppError::BadRequest("no files available to download".into()));
+    }
+
+    if file_ids.len() == 1 {
+        return Ok(Json(PublicShareDownloadArchiveResponse {
+            job_id: String::new(),
+            status: zip_status_json(&FolderDownloadJob {
+                status: "ready".into(),
+                progress: 100,
+                ready: true,
+                error: None,
+                archive_name: String::new(),
+                size_bytes: None,
+                archive_path: None,
+                cancelled: false,
+            }),
+            single_file_id: Some(file_ids[0].clone()),
+        }));
+    }
+
+    if file_ids.len() > MAX_PUBLIC_SHARE_ZIP_FILES {
+        return Err(AppError::BadRequest(format!(
+            "cannot download more than {MAX_PUBLIC_SHARE_ZIP_FILES} files at once"
+        )));
+    }
+
+    let entries = collect_zip_entries_for_share(&state.pool, &share, &file_ids).await?;
+    let job_id = Uuid::new_v4().to_string();
+    let key = FolderDownloadRegistry::public_share_job_key(&token, &job_id);
+    let archive_name = format!("{}-shared.zip", share.resource_id);
+    let job = FolderDownloadJob {
+        status: "queued".to_string(),
+        progress: 0,
+        ready: false,
+        error: None,
+        archive_name: archive_name.clone(),
+        size_bytes: None,
+        archive_path: None,
+        cancelled: false,
+    };
+    state.folder_download_jobs.set(key.clone(), job.clone()).await;
+
+    let work_dir = std::env::temp_dir().join(format!("mv_public_share_zip_{job_id}"));
+    let state_spawn = state.clone();
+    tokio::spawn(async move {
+        run_zip_entries_job(
+            state_spawn,
+            key,
+            work_dir,
+            archive_name,
+            entries,
+            &format!("public-share:{token}"),
+            None,
+        )
+        .await;
+    });
+
+    Ok(Json(public_archive_status_json(&job_id, &job)))
+}
+
+// Human: Poll anonymous zip job progress for a public share download.
+// Agent: READS folder_download_jobs public-share:{token}:{job_id} key.
+pub async fn public_share_download_archive_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, job_id)): Path<(String, String)>,
+) -> Result<Json<PublicShareDownloadArchiveResponse>, AppError> {
+    let _share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let key = FolderDownloadRegistry::public_share_job_key(&token, &job_id);
+    let job = state
+        .folder_download_jobs
+        .get(&key)
+        .await
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(public_archive_status_json(&job_id, &job)))
+}
+
+// Human: Stream a finished public-share zip archive to the visitor.
+// Agent: GET archive bytes; REMOVES registry entry and temp dir after read starts.
+pub async fn public_share_download_archive_stream(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, job_id)): Path<(String, String)>,
+) -> Result<Response, AppError> {
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    ensure_share_download_allowed(&share)?;
+
+    let key = FolderDownloadRegistry::public_share_job_key(&token, &job_id);
+    let job = state
+        .folder_download_jobs
+        .get(&key)
+        .await
+        .ok_or(AppError::NotFound)?;
+
+    if !job.ready {
+        return Err(AppError::Conflict(
+            "archive is not ready — poll download status and retry".into(),
+        ));
+    }
+
+    let archive_path = job
+        .archive_path
+        .clone()
+        .ok_or(AppError::Internal(anyhow::anyhow!("missing archive path")))?;
+    let archive_name = job.archive_name.clone();
+    let work_dir = archive_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+
+    let bytes = tokio::fs::read(&archive_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("read public share archive: {e}")))?;
+
+    state.folder_download_jobs.remove(&key).await;
+    let _ = tokio::fs::remove_dir_all(&work_dir).await;
+
+    let disposition = format!(
+        "attachment; filename=\"{}\"",
+        archive_name.replace('"', "")
+    );
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        Body::from(bytes),
+    )
+        .into_response())
+}
+
+// Human: Copy shared files into the signed-in visitor's drive (save to My Ownly).
+// Agent: POST /shares/save-from-public; REQUIRES JWT + optional X-Share-Password; AUDIT per file.
+pub async fn save_from_public_share(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Json(body): Json<SaveFromPublicShareRequest>,
+) -> Result<Json<SaveFromPublicShareResponse>, AppError> {
+    let token = body.token.trim();
+    if token.is_empty() {
+        return Err(AppError::BadRequest("token is required".into()));
+    }
+
+    let share = resolve_public_share(&state.pool, token, &headers).await?;
+
+    let mut file_ids: Vec<String> = body
+        .file_ids
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    if file_ids.is_empty() {
+        let files = list_all_files_in_share(&state.pool, &share).await?;
+        file_ids = files.into_iter().map(|f| f.id).collect();
+    }
+
+    if file_ids.is_empty() {
+        return Err(AppError::BadRequest("no files available to save".into()));
+    }
+
+    if file_ids.len() > MAX_PUBLIC_SHARE_SAVE_FILES {
+        return Err(AppError::BadRequest(format!(
+            "cannot save more than {MAX_PUBLIC_SHARE_SAVE_FILES} files at once"
+        )));
+    }
+
+    ensure_file_ids_in_share(&state.pool, &share, &file_ids).await?;
+
+    let target_folder = body
+        .folder_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let mut saved = Vec::with_capacity(file_ids.len());
+    for file_id in file_ids {
+        let file = copy_share_file_into_library(
+            &state,
+            &share,
+            &file_id,
+            &claims.sub,
+            &target_folder,
+            &headers,
+        )
+        .await?;
+        saved.push(file);
+    }
+
+    Ok(Json(SaveFromPublicShareResponse {
+        saved_count: saved.len(),
+        files: saved,
+    }))
 }

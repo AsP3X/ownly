@@ -5,6 +5,7 @@ use rand::RngCore;
 use sqlx::PgPool;
 
 use crate::{
+    auth::handlers::verify_password,
     error::AppError,
     files::{folders::ensure_folder_owned, handlers::FileDto, processing::ensure_file_not_processing},
 };
@@ -18,6 +19,9 @@ pub struct ShareRecord {
     pub resource_id: String,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub password_hash: Option<String>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub block_download: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +45,52 @@ type ShareScopedFileRow = (
     Option<String>,
 );
 
-// Human: Generate a high-entropy URL token (256 bits hex) for unguessable public links.
+// Human: Columns loaded for every active share row used by token resolution and owner APIs.
+// Agent: INCLUDES protection fields; password_hash stays server-side only on ShareRecord.
+pub const SHARE_RECORD_COLUMNS: &str = "id, token, user_id, resource_type, resource_id, revoked_at, created_at, \
+    password_hash, expires_at, block_download";
+
+// Human: True when a share row carries an expiration timestamp in the past.
+// Agent: CALLED before serving public content; TREATS expired links like revoked links.
+pub fn share_is_expired(share: &ShareRecord) -> bool {
+    share
+        .expires_at
+        .is_some_and(|expires_at| expires_at <= chrono::Utc::now())
+}
+
+// Human: Validate an optional share password header against the stored hash.
+// Agent: RETURNS Ok when no password is configured; ERRORS Unauthorized when missing or wrong.
+pub fn verify_share_password(
+    share: &ShareRecord,
+    provided_password: Option<&str>,
+) -> Result<(), AppError> {
+    let Some(stored_hash) = share.password_hash.as_deref() else {
+        return Ok(());
+    };
+
+    let Some(password) = provided_password.filter(|value| !value.is_empty()) else {
+        return Err(AppError::Forbidden(
+            "this link requires a password".into(),
+        ));
+    };
+
+    if !verify_password(password, stored_hash).unwrap_or(false) {
+        return Err(AppError::Forbidden("incorrect share password".into()));
+    }
+
+    Ok(())
+}
+
+// Human: Reject download routes when the owner enabled preview-only sharing.
+// Agent: CALLED from public_share_download; ALLOWS stream/preview endpoints to keep working.
+pub fn ensure_share_download_allowed(share: &ShareRecord) -> Result<(), AppError> {
+    if share.block_download {
+        return Err(AppError::Forbidden(
+            "downloads are disabled for this link".into(),
+        ));
+    }
+    Ok(())
+}
 // Agent: USES rand thread_rng; RETURNS 64-char hex string.
 pub fn generate_share_token() -> String {
     let mut bytes = [0u8; 32];
@@ -52,16 +101,20 @@ pub fn generate_share_token() -> String {
 // Human: Load an active share row by token or reject revoked / missing links.
 // Agent: READS public_shares WHERE token AND revoked_at IS NULL; RETURNS NotFound when inactive.
 pub async fn resolve_active_share(pool: &PgPool, token: &str) -> Result<ShareRecord, AppError> {
-    let share: Option<ShareRecord> = sqlx::query_as(
-        "SELECT id, token, user_id, resource_type, resource_id, revoked_at, created_at \
+    let share: Option<ShareRecord> = sqlx::query_as(&format!(
+        "SELECT {SHARE_RECORD_COLUMNS} \
          FROM public_shares \
          WHERE token = $1 AND revoked_at IS NULL",
-    )
+    ))
     .bind(token)
     .fetch_optional(pool)
     .await?;
 
-    share.ok_or(AppError::NotFound)
+    let share = share.ok_or(AppError::NotFound)?;
+    if share_is_expired(&share) {
+        return Err(AppError::NotFound);
+    }
+    Ok(share)
 }
 
 // Human: Walk parent_id chain to confirm a folder lives inside the shared folder subtree.
@@ -230,4 +283,151 @@ pub async fn list_share_folder_files(
 // Agent: WRAPS processing::ensure_file_not_processing for SharedFileRow fields.
 pub fn ensure_shared_file_ready(row: &SharedFileRow) -> Result<(), AppError> {
     ensure_file_not_processing(&row.mime_type, row.hls_ready, &row.hls_encode_status)
+}
+
+#[derive(Debug, Clone)]
+pub struct PublicShareTreeStats {
+    pub file_count: i64,
+    pub folder_count: i64,
+    pub total_bytes: i64,
+}
+
+// Human: Load the share owner's email for the public sidebar (no user id exposed).
+// Agent: READS users.email WHERE id = share.user_id; RETURNS NotFound when owner missing.
+pub async fn sharer_email(pool: &PgPool, owner_user_id: &str) -> Result<String, AppError> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT email FROM users WHERE id = $1")
+        .bind(owner_user_id)
+        .fetch_optional(pool)
+        .await?;
+    row.map(|(email,)| email).ok_or(AppError::NotFound)
+}
+
+// Human: Aggregate file/folder counts and byte sum across an entire folder-type share tree.
+// Agent: RECURSIVE folder CTE + files.size_bytes SUM; FILE shares return a single-file snapshot.
+pub async fn compute_share_tree_stats(
+    pool: &PgPool,
+    share: &ShareRecord,
+) -> Result<PublicShareTreeStats, AppError> {
+    if share.resource_type == "file" {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT size_bytes FROM files WHERE id = $1 AND user_id = $2",
+        )
+        .bind(&share.resource_id)
+        .bind(&share.user_id)
+        .fetch_optional(pool)
+        .await?;
+        let size_bytes = row.ok_or(AppError::NotFound)?.0;
+        return Ok(PublicShareTreeStats {
+            file_count: 1,
+            folder_count: 0,
+            total_bytes: size_bytes,
+        });
+    }
+
+    let stats: Option<(i64, i64, i64)> = sqlx::query_as(
+        "WITH RECURSIVE subtree AS ( \
+            SELECT id FROM folders WHERE id = $1 AND user_id = $2 \
+            UNION ALL \
+            SELECT f.id FROM folders f \
+            INNER JOIN subtree s ON f.parent_id = s.id \
+            WHERE f.user_id = $2 \
+        ) \
+        SELECT \
+            (SELECT COUNT(*)::bigint FROM files WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree)), \
+            (SELECT COUNT(*)::bigint FROM folders WHERE user_id = $2 AND id IN (SELECT id FROM subtree) AND id <> $1), \
+            (SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree))",
+    )
+    .bind(&share.resource_id)
+    .bind(&share.user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let (file_count, folder_count, total_bytes) = stats.ok_or(AppError::NotFound)?;
+    Ok(PublicShareTreeStats {
+        file_count,
+        folder_count,
+        total_bytes,
+    })
+}
+
+// Human: Flat list of every file reachable through a share link (for search, zip, save-to-library).
+// Agent: RECURSIVE subtree for folder shares; SINGLE row for file shares; ORDER BY name ASC.
+pub async fn list_all_files_in_share(
+    pool: &PgPool,
+    share: &ShareRecord,
+) -> Result<Vec<FileDto>, AppError> {
+    const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
+        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds";
+
+    if share.resource_type == "file" {
+        let file: Option<FileDto> = sqlx::query_as(&format!(
+            "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
+        ))
+        .bind(&share.resource_id)
+        .bind(&share.user_id)
+        .fetch_optional(pool)
+        .await?;
+        return Ok(file.into_iter().collect());
+    }
+
+    let files: Vec<FileDto> = sqlx::query_as(&format!(
+        "WITH RECURSIVE subtree AS ( \
+            SELECT id FROM folders WHERE id = $1 AND user_id = $2 \
+            UNION ALL \
+            SELECT f.id FROM folders f \
+            INNER JOIN subtree s ON f.parent_id = s.id \
+            WHERE f.user_id = $2 \
+        ) \
+        SELECT {FILE_COLUMNS} FROM files \
+        WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree) \
+        ORDER BY name ASC"
+    ))
+    .bind(&share.resource_id)
+    .bind(&share.user_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(files)
+}
+
+// Human: Every folder row inside a folder-type share subtree (for save/download selection expansion).
+// Agent: RECURSIVE CTE matching list_all_files_in_share; INCLUDES the shared root folder.
+pub async fn list_all_folders_in_share(
+    pool: &PgPool,
+    share: &ShareRecord,
+) -> Result<Vec<crate::files::folders::FolderDto>, AppError> {
+    if share.resource_type == "file" {
+        return Ok(Vec::new());
+    }
+
+    let folders: Vec<crate::files::folders::FolderDto> = sqlx::query_as(
+        "WITH RECURSIVE subtree AS ( \
+            SELECT id, name, parent_id, created_at, updated_at FROM folders \
+            WHERE id = $1 AND user_id = $2 \
+            UNION ALL \
+            SELECT f.id, f.name, f.parent_id, f.created_at, f.updated_at FROM folders f \
+            INNER JOIN subtree s ON f.parent_id = s.id \
+            WHERE f.user_id = $2 \
+        ) \
+        SELECT id, name, parent_id, created_at, updated_at FROM subtree ORDER BY name ASC",
+    )
+    .bind(&share.resource_id)
+    .bind(&share.user_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(folders)
+}
+
+// Human: Ensure every requested id belongs to this share before zip/save/download-all.
+// Agent: FILE share requires exact id; FOLDER share checks subtree membership per file row.
+pub async fn ensure_file_ids_in_share(
+    pool: &PgPool,
+    share: &ShareRecord,
+    file_ids: &[String],
+) -> Result<(), AppError> {
+    for file_id in file_ids {
+        load_file_in_share_scope(pool, share, file_id).await?;
+    }
+    Ok(())
 }
