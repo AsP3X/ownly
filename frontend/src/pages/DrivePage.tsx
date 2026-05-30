@@ -990,6 +990,8 @@ export default function DrivePage() {
             if (!open) setPreviewImage(null);
           }}
           onFileChange={handleGalleryImageChange}
+          onDownload={handleDownload}
+          onShare={handleShareFile}
         />
         <PdfPreviewDialog
           file={previewPdf}

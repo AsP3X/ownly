@@ -1,22 +1,8 @@
-// Human: Right-click menu for the drive shell — file actions and workspace shortcuts with nested submenus.
-// Agent: modal={false} keeps page visible; SubmenuTrigger inherits Base UI safePolygon prediction cone.
+// Human: Right-click menu for the drive shell — Ownly Pencil explorer context menus (text-first file rows).
+// Agent: modal={false}; SubmenuTrigger inherits Base UI safePolygon; workspace rows use small leading Lucide icons only.
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import {
-  Copy,
-  Download,
-  ExternalLink,
-  FolderInput,
-  FolderPlus,
-  FolderOpen,
-  Info,
-  Link2,
-  RefreshCw,
-  Share2,
-  Star,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Clipboard, FolderPlus, Upload } from "lucide-react";
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -28,7 +14,6 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -150,13 +135,13 @@ export function DriveContextMenu({
     multiSelectedCount >= 2 ? (
       <>
         <ContextMenuSeparator />
-        <ContextMenuLabel className="truncate">{bulkSelectionLabel}</ContextMenuLabel>
+        <ContextMenuLabel className="normal-case tracking-normal">
+          {bulkSelectionLabel}
+        </ContextMenuLabel>
         <ContextMenuItem disabled={!onCopyToFolder} onClick={() => onCopyToFolder?.()}>
-          <Copy />
           Copy to…
         </ContextMenuItem>
         <ContextMenuItem disabled={!onMoveToFolder} onClick={() => onMoveToFolder?.()}>
-          <FolderInput />
           Move to…
         </ContextMenuItem>
         {includeDelete ? (
@@ -165,7 +150,6 @@ export function DriveContextMenu({
             disabled={!onBulkDelete}
             onClick={() => onBulkDelete?.()}
           >
-            <Trash2 />
             Delete {multiSelectedCount} files
           </ContextMenuItem>
         ) : null}
@@ -202,56 +186,55 @@ export function DriveContextMenu({
   return (
     <ContextMenu modal={false} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger className="contents">{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className="w-[180px]">
         {targetFile ? (
           <ContextMenuGroup>
-            <ContextMenuLabel className="truncate">{targetFile.name}</ContextMenuLabel>
             {targetProcessing ? (
-              <p className="px-2 py-1.5 text-xs text-violet-800">Processing — actions unavailable</p>
+              <p className="px-3 py-2 text-[13px] text-[#888888]">
+                Processing — actions unavailable
+              </p>
             ) : null}
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={targetProcessing} onClick={() => onDetailsFile(targetFile)}>
-              <Info />
-              Details
-            </ContextMenuItem>
-            <ContextMenuItem disabled={targetProcessing} onClick={() => onDownload(targetFile)}>
-              <Download />
-              Download
-              <ContextMenuShortcut>⌘D</ContextMenuShortcut>
-            </ContextMenuItem>
+
             <ContextMenuItem
               disabled={targetProcessing}
-              onClick={() => onToggleFavourite(targetFile.id)}
+              onClick={() => onDetailsFile(targetFile)}
             >
-              <Star className={targetFavourited ? "fill-current text-amber-500" : undefined} />
-              {targetFavourited ? "Remove from favourites" : "Add to favourites"}
+              Open
             </ContextMenuItem>
 
-            {/* Agent: SubmenuTrigger uses Base UI safePolygon so diagonal moves keep this branch open. */}
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <Share2 />
-                Share
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger disabled={targetProcessing}>Share…</ContextMenuSubTrigger>
               <ContextMenuSubContent>
                 <ContextMenuItem
                   disabled={targetProcessing}
                   onClick={() => onShareFile(targetFile)}
                 >
-                  <Link2 />
-                  Copy public link
+                  Copy link
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
 
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onDownload(targetFile)}
+            >
+              Download
+            </ContextMenuItem>
+
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onToggleFavourite(targetFile.id)}
+            >
+              {targetFavourited ? "Remove from favourites" : "Add to favourites"}
+            </ContextMenuItem>
+
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <FolderOpen />
-                Open with
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger disabled={targetProcessing}>Open with…</ContextMenuSubTrigger>
               <ContextMenuSubContent>
-                <ContextMenuItem disabled={targetProcessing} onClick={() => onDownload(targetFile)}>
-                  <Download />
+                <ContextMenuItem
+                  disabled={targetProcessing}
+                  onClick={() => onDownload(targetFile)}
+                >
                   Download to device
                 </ContextMenuItem>
                 <ContextMenuItem
@@ -262,7 +245,6 @@ export function DriveContextMenu({
                   }
                   onClick={() => targetFile && onPreviewVideo?.(targetFile)}
                 >
-                  <ExternalLink />
                   Play in browser
                 </ContextMenuItem>
                 <ContextMenuItem
@@ -273,29 +255,22 @@ export function DriveContextMenu({
                   }
                   onClick={() => targetFile && onPreviewImage?.(targetFile)}
                 >
-                  <ExternalLink />
                   View in gallery
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={
-                    targetProcessing ||
-                    !isPdfMime(targetFile.mime_type) ||
-                    !onPreviewPdf
+                    targetProcessing || !isPdfMime(targetFile.mime_type) || !onPreviewPdf
                   }
                   onClick={() => targetFile && onPreviewPdf?.(targetFile)}
                 >
-                  <ExternalLink />
                   View PDF
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={
-                    targetProcessing ||
-                    !isAudioMime(targetFile.mime_type) ||
-                    !onPreviewAudio
+                    targetProcessing || !isAudioMime(targetFile.mime_type) || !onPreviewAudio
                   }
                   onClick={() => targetFile && onPreviewAudio?.(targetFile)}
                 >
-                  <ExternalLink />
                   Play audio
                 </ContextMenuItem>
               </ContextMenuSubContent>
@@ -307,58 +282,57 @@ export function DriveContextMenu({
               disabled={targetProcessing}
               onClick={handleDeleteTargetFile}
             >
-              <Trash2 />
-              {bulkSelectionOnTargetFile ? `Delete ${multiSelectedCount} files` : "Delete"}
+              {bulkSelectionOnTargetFile
+                ? `Delete ${multiSelectedCount} files`
+                : "Delete file"}
             </ContextMenuItem>
             {bulkSelectionOnTargetFile ? bulkSelectionItems(false) : null}
           </ContextMenuGroup>
         ) : targetFolder ? (
           <ContextMenuGroup>
-            <ContextMenuLabel className="truncate">{targetFolder.name}</ContextMenuLabel>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onDetailsFolder(targetFolder)}>
-              <Info />
-              Details
-            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onDetailsFolder(targetFolder)}>Open</ContextMenuItem>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>Share…</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <ContextMenuItem onClick={() => onShareFolder(targetFolder)}>
+                  Copy link
+                </ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+
             <ContextMenuItem onClick={() => onDownloadFolder(targetFolder)}>
-              <Download />
               Download
-              <ContextMenuShortcut>⌘D</ContextMenuShortcut>
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onShareFolder(targetFolder)}>
-              <Link2 />
-              Copy public link
-            </ContextMenuItem>
+
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onClick={() => onDeleteFolder(targetFolder.id)}>
-              <Trash2 />
-              Delete
+            <ContextMenuItem
+              variant="destructive"
+              onClick={() => onDeleteFolder(targetFolder.id)}
+            >
+              Delete folder
             </ContextMenuItem>
           </ContextMenuGroup>
         ) : (
           <ContextMenuGroup>
-            <ContextMenuLabel>MediaVault</ContextMenuLabel>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={onUpload}>
-              <Upload />
-              Upload files
-            </ContextMenuItem>
             <ContextMenuItem onClick={onCreateFolder}>
               <FolderPlus />
               New folder
             </ContextMenuItem>
-            <ContextMenuItem onClick={onRefresh}>
-              <RefreshCw />
-              Refresh
+            <ContextMenuItem variant="primary" onClick={onUpload}>
+              <Upload />
+              Upload files
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onRefresh}>Refresh</ContextMenuItem>
+            <ContextMenuItem disabled>
+              <Clipboard />
+              Paste
             </ContextMenuItem>
 
             {bulkSelectionOnWorkspace ? bulkSelectionItems(true) : null}
 
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <FolderOpen />
-                Go to
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>Go to…</ContextMenuSubTrigger>
               <ContextMenuSubContent>
                 <ContextMenuItem
                   disabled={activeNav === "home"}

@@ -1,19 +1,20 @@
-// Human: Folder-scoped image gallery — click an image to preview and arrow through siblings by filename.
+// Human: Folder-scoped image lightbox — Pencil Ownly Explorer Image Viewer over blurred backdrop.
 // Agent: FETCHES fetchFileBlobForPreview; KEEPS prior slide visible while next loads; PRELOADS neighbors.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatBytes } from "@/lib/utils-app";
 
 type ImagePreviewDialogProps = {
   images: FileItem[];
@@ -23,6 +24,10 @@ type ImagePreviewDialogProps = {
   onFileChange: (file: FileItem) => void;
   /** When set, image bytes load through anonymous public share download. */
   shareToken?: string;
+  /** Human: Optional download action — shown in the bottom bar when provided. */
+  onDownload?: (file: FileItem) => void;
+  /** Human: Optional share action — hidden on anonymous public share views. */
+  onShare?: (file: FileItem) => void;
 };
 
 export function ImagePreviewDialog({
@@ -32,6 +37,8 @@ export function ImagePreviewDialog({
   onOpenChange,
   onFileChange,
   shareToken,
+  onDownload,
+  onShare,
 }: ImagePreviewDialogProps) {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -214,93 +221,148 @@ export function ImagePreviewDialog({
   };
 
   const positionLabel =
-    currentIndex >= 0 && images.length > 0
-      ? `${currentIndex + 1} of ${images.length}`
-      : null;
+    currentIndex >= 0 && images.length > 1 ? `${currentIndex + 1} of ${images.length}` : null;
 
   const showInitialLoader = loading && !displayUrl;
+  const showDownloadAction = Boolean(file && onDownload);
+  const showShareAction = Boolean(file && onShare);
+
+  const photoInfoLabel = file
+    ? `${file.name} • ${formatBytes(file.size_bytes)}`
+    : "Image preview";
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-2rem)] flex-col gap-3 overflow-hidden p-0 sm:max-w-5xl"
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[960px]"
+        overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
+        showCloseButton={false}
         onKeyDown={handleContentKeyDown}
       >
-        <DialogHeader className="gap-1 border-b px-4 py-3 pr-12">
-          <DialogTitle className="truncate">{file?.name ?? "Image preview"}</DialogTitle>
+        {/* Human: Screen-reader title — visible chrome lives inside the lightbox card per Pencil. */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{file?.name ?? "Image preview"}</DialogTitle>
           <DialogDescription>
             {positionLabel
-              ? `${positionLabel} in this folder — use arrow keys or buttons to browse.`
-              : "Browse images in this folder with arrow keys or the navigation buttons."}
+              ? `${photoInfoLabel}. ${positionLabel} in this folder. Use arrow keys or side buttons to browse.`
+              : `${photoInfoLabel}. Browse images in this folder with arrow keys or the navigation buttons.`}
           </DialogDescription>
         </DialogHeader>
 
         <div
           ref={viewportRef}
           tabIndex={-1}
-          className="relative flex min-h-[50vh] items-center justify-center bg-neutral-950 px-14 py-6 outline-none"
+          className="flex w-full items-center justify-center gap-3 outline-none sm:gap-4"
+          aria-label="Image gallery"
         >
-          {error ? (
-            <p className="text-destructive px-4 text-center text-sm" role="alert">
-              {error}
-            </p>
-          ) : null}
-
-          {displayUrl ? (
-            <img
-              src={displayUrl}
-              alt={file?.name ?? "Image preview"}
-              className="max-h-[70vh] max-w-full object-contain"
-              draggable={false}
-            />
-          ) : null}
-
-          {showInitialLoader ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-neutral-950 text-sm text-white">
-              <Loader2 className="size-6 animate-spin" aria-hidden />
-              <span className="sr-only">Loading image…</span>
-            </div>
-          ) : null}
-
-          {loading && displayUrl ? (
-            <div
-              className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white"
-              aria-live="polite"
-            >
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              Loading…
-            </div>
-          ) : null}
-
-          <Button
+          {/* Human: Previous slide — circular glass control flanking the lightbox card. */}
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
             disabled={!hasPrevious}
             onClick={goPrevious}
-            className={cn(
-              "absolute left-2 top-1/2 z-20 size-10 -translate-y-1/2 rounded-full bg-black/50 text-white hover:bg-black/70 hover:text-white",
-              !hasPrevious && "opacity-30",
-            )}
             aria-label="Previous image"
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30 sm:size-[50px]",
+            )}
           >
-            <ChevronLeft className="size-6" />
-          </Button>
+            <ChevronLeft className="size-5 sm:size-6" aria-hidden />
+          </button>
 
-          <Button
+          {/* Human: Lightbox card — dark frame, image fill, close + bottom metadata bar. */}
+          <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[#111118] shadow-[0_16px_48px_rgba(0,0,0,0.4)]">
+            <div className="relative flex min-h-[min(600px,70dvh)] w-full items-center justify-center">
+              {error ? (
+                <p className="px-6 text-center text-sm text-red-400" role="alert">
+                  {error}
+                </p>
+              ) : null}
+
+              {displayUrl ? (
+                <img
+                  src={displayUrl}
+                  alt={file?.name ?? "Image preview"}
+                  className="max-h-[min(600px,70dvh)] w-full object-contain"
+                  draggable={false}
+                />
+              ) : null}
+
+              {showInitialLoader ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#111118]">
+                  <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
+                  <span className="sr-only">Loading image…</span>
+                </div>
+              ) : null}
+
+              {loading && displayUrl ? (
+                <div
+                  className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs text-white"
+                  aria-live="polite"
+                >
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  Loading…
+                </div>
+              ) : null}
+
+              {/* Human: Close control — inset top-right on the image card. */}
+              <DialogClose
+                render={
+                  <button
+                    type="button"
+                    className="absolute right-4 top-4 z-30 flex size-11 items-center justify-center rounded-[22px] border border-white/20 bg-black/60 text-white transition-colors hover:bg-black/80"
+                    aria-label="Close image preview"
+                  />
+                }
+              >
+                <X className="size-[18px]" aria-hidden />
+              </DialogClose>
+
+              {/* Human: Translucent bottom bar — filename, size, and quick actions. */}
+              {file ? (
+                <div className="absolute inset-x-0 bottom-0 z-20 flex h-16 items-center justify-between bg-black/60 px-5">
+                  <p className="min-w-0 truncate text-sm font-bold text-white">{photoInfoLabel}</p>
+
+                  {(showDownloadAction || showShareAction) && (
+                    <div className="flex shrink-0 items-center gap-4">
+                      {showDownloadAction ? (
+                        <button
+                          type="button"
+                          onClick={() => onDownload?.(file)}
+                          className="rounded-md p-1 text-white transition-colors hover:bg-white/10"
+                          aria-label={`Download ${file.name}`}
+                        >
+                          <Download className="size-4" aria-hidden />
+                        </button>
+                      ) : null}
+
+                      {showShareAction ? (
+                        <button
+                          type="button"
+                          onClick={() => onShare?.(file)}
+                          className="rounded-md p-1 text-white transition-colors hover:bg-white/10"
+                          aria-label={`Share ${file.name}`}
+                        >
+                          <Share2 className="size-4" aria-hidden />
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Human: Next slide — circular glass control flanking the lightbox card. */}
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
             disabled={!hasNext}
             onClick={goNext}
-            className={cn(
-              "absolute right-2 top-1/2 z-20 size-10 -translate-y-1/2 rounded-full bg-black/50 text-white hover:bg-black/70 hover:text-white",
-              !hasNext && "opacity-30",
-            )}
             aria-label="Next image"
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30 sm:size-[50px]",
+            )}
           >
-            <ChevronRight className="size-6" />
-          </Button>
+            <ChevronRight className="size-5 sm:size-6" aria-hidden />
+          </button>
         </div>
       </DialogContent>
     </Dialog>

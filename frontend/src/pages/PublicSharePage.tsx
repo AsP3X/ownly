@@ -454,6 +454,7 @@ export default function PublicSharePage() {
         }}
         onFileChange={setPreviewImage}
         shareToken={token}
+        onDownload={(file) => void handleDownload(file)}
       />
 
       <PdfPreviewDialog
