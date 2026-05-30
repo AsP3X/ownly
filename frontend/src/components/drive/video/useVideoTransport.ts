@@ -1,5 +1,5 @@
-// Human: Shared playback state for desktop and mobile video surfaces — progress, mute, chrome hide.
-// Agent: READS videoRef + file id; WRITES isPlaying/progress/duration; EXPOSES transport handlers.
+// Human: Shared playback state for desktop and mobile video surfaces — progress, mute, fullscreen.
+// Agent: READS videoRef; mobile uses video-native fullscreen + CSS immersive fallback when API fails.
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
@@ -7,6 +7,11 @@ import {
   readBufferedSegments,
   type BufferedSegment,
 } from "@/components/drive/audio/audio-buffered";
+import {
+  enterVideoFullscreen,
+  exitVideoFullscreen,
+  isVideoFullscreenActive,
+} from "@/components/drive/video/video-fullscreen";
 
 type UseVideoTransportOptions = {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -14,6 +19,8 @@ type UseVideoTransportOptions = {
   loading?: boolean;
   error?: string;
   fullscreenTargetRef: RefObject<HTMLElement | null>;
+  /** Human: Mobile — try <video> fullscreen first (required on iOS). */
+  preferVideoElementFullscreen?: boolean;
 };
 
 export function useVideoTransport({
@@ -22,18 +29,34 @@ export function useVideoTransport({
   loading = false,
   error = "",
   fullscreenTargetRef,
+  preferVideoElementFullscreen = false,
 }: UseVideoTransportOptions) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bufferedSegments, setBufferedSegments] = useState<BufferedSegment[]>([]);
   const [muted, setMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isImmersive, setIsImmersive] = useState(false);
   const [showChrome, setShowChrome] = useState(true);
   const hideChromeTimerRef = useRef<number | null>(null);
 
+  const isFullscreen = isNativeFullscreen || isImmersive;
+
   const failed = file.hls_encode_status === "failed";
   const transportDisabled = loading || Boolean(error) || failed || !file.hls_ready;
+
+  const getFullscreenTargets = useCallback(
+    () => ({
+      container: fullscreenTargetRef.current,
+      video: videoRef.current,
+    }),
+    [fullscreenTargetRef, videoRef],
+  );
+
+  const syncNativeFullscreen = useCallback(() => {
+    setIsNativeFullscreen(isVideoFullscreenActive(getFullscreenTargets()));
+  }, [getFullscreenTargets]);
 
   const clearHideChromeTimer = useCallback(() => {
     if (hideChromeTimerRef.current !== null) {
@@ -100,27 +123,40 @@ export function useVideoTransport({
     setDuration(0);
     setBufferedSegments([]);
     setShowChrome(true);
+    setIsImmersive(false);
     clearHideChromeTimer();
   }, [file.id, clearHideChromeTimer]);
 
+  // Human: Track native fullscreen — standard events plus iOS webkit video fullscreen.
+  // Agent: LISTENS fullscreenchange on document and webkit* events on the video element.
   useEffect(() => {
-    function onFullscreenChange() {
-      const target = fullscreenTargetRef.current;
-      setIsFullscreen(Boolean(target && document.fullscreenElement === target));
-    }
+    const video = videoRef.current;
+
+    const onFullscreenChange = () => syncNativeFullscreen();
+
     document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, [fullscreenTargetRef]);
+    document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+
+    video?.addEventListener("webkitbeginfullscreen", onFullscreenChange);
+    video?.addEventListener("webkitendfullscreen", onFullscreenChange);
+
+    syncNativeFullscreen();
+
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", onFullscreenChange);
+      video?.removeEventListener("webkitbeginfullscreen", onFullscreenChange);
+      video?.removeEventListener("webkitendfullscreen", onFullscreenChange);
+    };
+  }, [syncNativeFullscreen, videoRef, file.id]);
 
   useEffect(() => {
     return () => {
       clearHideChromeTimer();
-      const target = fullscreenTargetRef.current;
-      if (target && document.fullscreenElement === target) {
-        void document.exitFullscreen().catch(() => undefined);
-      }
+      void exitVideoFullscreen();
+      setIsImmersive(false);
     };
-  }, [clearHideChromeTimer, fullscreenTargetRef]);
+  }, [clearHideChromeTimer]);
 
   useEffect(() => {
     if (isPlaying) scheduleHideChrome();
@@ -157,16 +193,39 @@ export function useVideoTransport({
     revealChrome();
   }, [revealChrome]);
 
+  // Human: Exit native or immersive fullscreen; on mobile fall back to CSS immersive when API fails.
+  // Agent: CALLS enterVideoFullscreen preferring video; SETS isImmersive when enter returns failed.
   const toggleFullscreen = useCallback(() => {
-    const target = fullscreenTargetRef.current;
-    if (!target) return;
     revealChrome();
-    if (document.fullscreenElement === target) {
-      void document.exitFullscreen().catch(() => undefined);
+
+    if (isFullscreen) {
+      void exitVideoFullscreen();
+      setIsImmersive(false);
+      syncNativeFullscreen();
       return;
     }
-    void target.requestFullscreen().catch(() => undefined);
-  }, [fullscreenTargetRef, revealChrome]);
+
+    void (async () => {
+      const result = await enterVideoFullscreen(
+        getFullscreenTargets(),
+        preferVideoElementFullscreen,
+      );
+      if (result === "failed" && preferVideoElementFullscreen) {
+        setIsImmersive(true);
+        return;
+      }
+      syncNativeFullscreen();
+      if (result === "failed") {
+        setIsImmersive(true);
+      }
+    })();
+  }, [
+    getFullscreenTargets,
+    isFullscreen,
+    preferVideoElementFullscreen,
+    revealChrome,
+    syncNativeFullscreen,
+  ]);
 
   const chromeVisible = showChrome || !isPlaying || isFullscreen;
 
@@ -177,6 +236,7 @@ export function useVideoTransport({
     bufferedSegments,
     muted,
     isFullscreen,
+    isImmersive,
     transportDisabled,
     failed,
     chromeVisible,

@@ -1,5 +1,5 @@
 // Human: Pencil mobile video player — portrait immersive band + landscape full-bleed with gradient overlays.
-// Agent: READS layout + videoRef; USES useVideoTransport; RENDERS orientation-specific Tailwind chrome.
+// Agent: READS layout + videoRef; USES useVideoTransport with video-native fullscreen; immersive CSS fallback.
 
 import { useRef, type RefObject } from "react";
 import {
@@ -45,7 +45,7 @@ export function VideoPlayerSurfaceMobile({
   onShare,
 }: VideoPlayerSurfaceMobileProps) {
   const shellRef = useRef<HTMLDivElement>(null);
-  const isPortrait = layout === "mobile-portrait";
+  const isPortraitLayout = layout === "mobile-portrait";
 
   const {
     isPlaying,
@@ -54,6 +54,7 @@ export function VideoPlayerSurfaceMobile({
     bufferedSegments,
     muted,
     isFullscreen,
+    isImmersive,
     transportDisabled,
     failed,
     chromeVisible,
@@ -68,7 +69,12 @@ export function VideoPlayerSurfaceMobile({
     loading,
     error,
     fullscreenTargetRef: shellRef,
+    preferVideoElementFullscreen: true,
   });
+
+  // Human: Landscape wireframe OR immersive fallback — full-bleed chrome with volume + wide seek.
+  // Agent: isImmersive when native fullscreen API fails (common inside modal on mobile WebKit).
+  const useLandscapeChrome = !isPortraitLayout || isImmersive;
 
   const timeLabel = `${formatVideoTime(progress)} / ${formatVideoTime(duration)}`;
   const metaLabel = `${file.name} • ${formatBytes(file.size_bytes)}`;
@@ -76,17 +82,22 @@ export function VideoPlayerSurfaceMobile({
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
 
-  const seekVariant = isPortrait ? "mobile-portrait" : "mobile-landscape";
+  const seekVariant = useLandscapeChrome ? "mobile-landscape" : "mobile-portrait";
 
   return (
     <div
       ref={shellRef}
       className={cn(
         "relative w-full touch-manipulation",
-        isPortrait
-          ? "mx-auto aspect-[390/220] max-h-[min(220px,42dvh)] min-h-[180px] max-w-[390px] overflow-hidden rounded-none bg-black"
-          : "flex min-h-0 flex-1 flex-col bg-black",
-        isFullscreen && "max-h-none max-w-none rounded-none",
+        isImmersive &&
+          "fixed inset-0 z-[60] flex min-h-0 flex-1 flex-col bg-black",
+        !isImmersive &&
+          useLandscapeChrome &&
+          "flex h-full min-h-0 w-full flex-1 flex-col bg-black",
+        !isImmersive &&
+          !useLandscapeChrome &&
+          "mx-auto aspect-[390/220] max-h-[min(220px,42dvh)] min-h-[180px] max-w-[390px] overflow-hidden bg-black",
+        isFullscreen && !isImmersive && "max-h-none max-w-none rounded-none",
       )}
       onPointerMove={revealChrome}
     >
@@ -94,14 +105,13 @@ export function VideoPlayerSurfaceMobile({
         ref={videoRef}
         className={cn(
           "size-full bg-black object-contain",
-          !isPortrait && "min-h-0 flex-1",
+          useLandscapeChrome && "min-h-0 flex-1",
         )}
         playsInline
         onClick={togglePlay}
       />
 
-      {/* Human: Pencil Mobile Landscape — top/bottom gradient scrims for control legibility. */}
-      {!isPortrait ? (
+      {useLandscapeChrome ? (
         <>
           <div
             className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[120px] bg-gradient-to-b from-[#000000B3] to-transparent"
@@ -151,18 +161,17 @@ export function VideoPlayerSurfaceMobile({
         </button>
       ) : null}
 
-      {/* Human: Pencil Video Title Pill — 32px capsule, 11–12px bold label. */}
       <div
         className={cn(
           "absolute left-4 top-4 z-30 flex max-w-[calc(100%-5rem)] items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-white backdrop-blur-sm transition-opacity duration-200",
-          !isPortrait && "left-6 top-6 bg-[#000000B3] px-4 py-2",
+          useLandscapeChrome && "left-6 top-6 bg-[#000000B3] px-4 py-2",
           chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
         <p
           className={cn(
             "min-w-0 truncate font-bold",
-            isPortrait ? "text-[11px]" : "text-xs font-medium",
+            useLandscapeChrome ? "text-xs font-medium" : "text-[11px]",
           )}
         >
           {metaLabel}
@@ -170,7 +179,7 @@ export function VideoPlayerSurfaceMobile({
         {positionLabel ? (
           <span className="shrink-0 text-[10px] text-[#E5E7EB]">{positionLabel}</span>
         ) : null}
-        {(showDownloadAction || showShareAction) && !isPortrait ? (
+        {(showDownloadAction || showShareAction) && useLandscapeChrome ? (
           <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
             {showDownloadAction ? (
               <button
@@ -202,7 +211,7 @@ export function VideoPlayerSurfaceMobile({
             type="button"
             className={cn(
               "absolute right-4 top-4 z-30 flex size-8 items-center justify-center rounded-full border border-[#FFFFFF1A] bg-[#00000099] text-white backdrop-blur-sm transition hover:bg-black/80",
-              !isPortrait && "right-6 top-6 bg-[#000000B3]",
+              useLandscapeChrome && "right-6 top-6 bg-[#000000B3]",
               chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
             )}
             aria-label="Close video preview"
@@ -212,21 +221,19 @@ export function VideoPlayerSurfaceMobile({
         <X className="size-3.5" aria-hidden />
       </DialogClose>
 
-      {/* Human: Portrait control bar — 48px, compact slider + maximize only per Pencil. */}
-      {/* Human: Landscape bar — 56px, wide timeline + volume + fullscreen per Pencil. */}
       <div
         className={cn(
-          "absolute inset-x-4 z-30 transition-opacity duration-200",
-          isPortrait ? "bottom-4" : "bottom-6 left-6 right-6 inset-x-6",
+          "absolute z-30 transition-opacity duration-200",
+          useLandscapeChrome ? "bottom-6 left-6 right-6" : "inset-x-4 bottom-4",
           chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
         <div
           className={cn(
             "flex items-center justify-between border border-[#FFFFFF1A] bg-[#000000B3] backdrop-blur-md",
-            isPortrait
-              ? "h-12 gap-2 rounded-xl px-4"
-              : "h-14 gap-4 rounded-2xl px-4",
+            useLandscapeChrome
+              ? "h-14 gap-4 rounded-2xl px-4"
+              : "h-12 gap-2 rounded-xl px-4",
           )}
         >
           <div className="flex shrink-0 items-center gap-3">
@@ -239,13 +246,13 @@ export function VideoPlayerSurfaceMobile({
             >
               {isPlaying ? (
                 <Pause
-                  className={isPortrait ? "size-3.5" : "size-5"}
+                  className={useLandscapeChrome ? "size-5" : "size-3.5"}
                   fill="currentColor"
                   aria-hidden
                 />
               ) : (
                 <Play
-                  className={isPortrait ? "size-3.5" : "size-5"}
+                  className={useLandscapeChrome ? "size-5" : "size-3.5"}
                   fill="currentColor"
                   aria-hidden
                 />
@@ -254,7 +261,7 @@ export function VideoPlayerSurfaceMobile({
             <span
               className={cn(
                 "shrink-0 tabular-nums",
-                isPortrait ? "text-[11px] text-[#E5E7EB]" : "text-xs text-white",
+                useLandscapeChrome ? "text-xs text-white" : "text-[11px] text-[#E5E7EB]",
               )}
             >
               {timeLabel}
@@ -268,10 +275,11 @@ export function VideoPlayerSurfaceMobile({
             bufferedSegments={bufferedSegments}
             disabled={transportDisabled}
             onSeek={handleSeek}
+            className={useLandscapeChrome ? "min-w-0 flex-1" : undefined}
           />
 
           <div className="flex shrink-0 items-center gap-3">
-            {!isPortrait ? (
+            {useLandscapeChrome ? (
               <button
                 type="button"
                 onClick={toggleMute}
@@ -294,9 +302,9 @@ export function VideoPlayerSurfaceMobile({
               className="text-white disabled:opacity-40"
             >
               {isFullscreen ? (
-                <Minimize className={isPortrait ? "size-3.5" : "size-5"} aria-hidden />
+                <Minimize className={useLandscapeChrome ? "size-5" : "size-3.5"} aria-hidden />
               ) : (
-                <Maximize className={isPortrait ? "size-3.5" : "size-5"} aria-hidden />
+                <Maximize className={useLandscapeChrome ? "size-5" : "size-3.5"} aria-hidden />
               )}
             </button>
           </div>

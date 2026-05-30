@@ -63,7 +63,7 @@ export function VideoPreviewDialog({
   onDownload,
   onShare,
 }: VideoPreviewDialogProps) {
-  const layout = useVideoPlayerLayout();
+  const layout = useVideoPlayerLayout(open);
   const isMobile = layout !== "desktop";
   const isMobileLandscape = layout === "mobile-landscape";
 
@@ -270,10 +270,10 @@ export function VideoPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "flex flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent shadow-none ring-0",
+          "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isMobile
-            ? "fixed inset-0 top-0 left-0 h-dvh max-h-dvh w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0"
-            : "w-full max-w-[calc(100%-1rem)] p-4 sm:max-w-[1440px]",
+            ? "fixed inset-0 top-0 left-0 h-dvh max-h-dvh w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0"
+            : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
         )}
         overlayClassName={cn(
           "bg-[#0A0A10]/80 backdrop-blur-2xl",
@@ -291,11 +291,11 @@ export function VideoPreviewDialog({
           ref={viewportRef}
           tabIndex={-1}
           className={cn(
-            "flex w-full outline-none",
+            "flex w-full min-h-0 flex-1 outline-none",
             isMobileLandscape
-              ? "min-h-0 flex-1 flex-col"
+              ? "flex-col"
               : isMobile
-                ? "flex-1 flex-col items-center justify-center px-0"
+                ? "flex-col items-center justify-center px-0"
                 : "items-center justify-center gap-4 sm:gap-6",
           )}
           aria-label="Video player"
