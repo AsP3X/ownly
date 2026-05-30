@@ -1,54 +1,56 @@
-// Human: Pick desktop vs mobile portrait/landscape chrome for the video preview dialog.
-// Agent: READS viewport size + orientation; LISTENS resize/orientationchange/visualViewport for rotation.
+// Human: Desktop vs narrow viewport for which video player component to mount (only one <video>).
+// Agent: READS min-width 1024px MQ; Safari defers updates after orientationchange so mount matches viewport.
 
 import { useEffect, useState } from "react";
 
-export type VideoPlayerLayout = "desktop" | "mobile-portrait" | "mobile-landscape";
-
 const DESKTOP_MIN_WIDTH_PX = 1024;
 
-// Human: Mobile landscape when width exceeds height — more reliable than orientation MQ alone on rotate.
-// Agent: RETURNS false on desktop breakpoints regardless of orientation media query lag.
-function isMobileLandscapeViewport(): boolean {
-  if (typeof window === "undefined") return false;
-  if (window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH_PX}px)`).matches) return false;
-  if (window.innerWidth > window.innerHeight) return true;
-  return window.matchMedia("(orientation: landscape)").matches;
+function readIsDesktop(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH_PX}px)`).matches;
 }
 
-function resolveLayout(): VideoPlayerLayout {
-  if (typeof window === "undefined") return "desktop";
-  if (window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH_PX}px)`).matches) return "desktop";
-  if (isMobileLandscapeViewport()) return "mobile-landscape";
-  return "mobile-portrait";
-}
-
-export function useVideoPlayerLayout(enabled = true): VideoPlayerLayout {
-  const [layout, setLayout] = useState<VideoPlayerLayout>(resolveLayout);
+// Human: Mount desktop OR mobile player — never both (shared videoRef).
+// Agent: LISTENS matchMedia + resize; Safari gets rAF + timeout after orientationchange.
+export function useIsDesktopPlayer(enabled = true): boolean {
+  const [isDesktop, setIsDesktop] = useState(readIsDesktop);
 
   useEffect(() => {
     if (!enabled) return;
 
-    const update = () => setLayout(resolveLayout());
-
     const desktopMq = window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH_PX}px)`);
-    const landscapeMq = window.matchMedia("(orientation: landscape)");
+    let orientationTimer: number | undefined;
 
-    desktopMq.addEventListener("change", update);
-    landscapeMq.addEventListener("change", update);
-    window.addEventListener("resize", update);
-    window.addEventListener("orientationchange", update);
-    window.visualViewport?.addEventListener("resize", update);
-    update();
+    const apply = () => setIsDesktop(desktopMq.matches);
+
+    // Human: Safari iOS reports stale innerWidth until after orientation animation ends.
+    // Agent: DOUBLE rAF then optional 150ms timeout before re-reading desktop MQ.
+    const applyDeferred = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(apply);
+      });
+      if (orientationTimer !== undefined) {
+        window.clearTimeout(orientationTimer);
+      }
+      orientationTimer = window.setTimeout(apply, 150);
+    };
+
+    desktopMq.addEventListener("change", applyDeferred);
+    window.addEventListener("resize", applyDeferred);
+    window.addEventListener("orientationchange", applyDeferred);
+    window.visualViewport?.addEventListener("resize", applyDeferred);
+    apply();
 
     return () => {
-      desktopMq.removeEventListener("change", update);
-      landscapeMq.removeEventListener("change", update);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("orientationchange", update);
-      window.visualViewport?.removeEventListener("resize", update);
+      desktopMq.removeEventListener("change", applyDeferred);
+      window.removeEventListener("resize", applyDeferred);
+      window.removeEventListener("orientationchange", applyDeferred);
+      window.visualViewport?.removeEventListener("resize", applyDeferred);
+      if (orientationTimer !== undefined) {
+        window.clearTimeout(orientationTimer);
+      }
     };
   }, [enabled]);
 
-  return layout;
+  return isDesktop;
 }

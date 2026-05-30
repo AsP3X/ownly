@@ -5,6 +5,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Human: Mobile video layout — data-video-layout from useNarrowVideoLayout (Safari-safe aspect detection). */
+/* Agent: video-portrait / video-landscape match [data-video-layout] on dialog viewport; children use video-*: utilities. */
+@custom-variant video-portrait (&:where([data-video-layout="portrait"], [data-video-layout="portrait"] *));
+@custom-variant video-landscape (&:where([data-video-layout="landscape"], [data-video-layout="landscape"] *));
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

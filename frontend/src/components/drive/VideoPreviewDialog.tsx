@@ -1,5 +1,5 @@
-// Human: HLS video lightbox — desktop Pencil player + mobile portrait/landscape from login-signup.pencil.
-// Agent: FETCHES stream URL; ATTACHES hls.js; SWITCHES layout via useVideoPlayerLayout; GALLERY swipe on mobile.
+// Human: HLS video lightbox — desktop player + mobile CSS orientation layouts (Safari-safe).
+// Agent: FETCHES stream URL; ATTACHES hls.js; MOUNTS one surface via useIsDesktopPlayer; GALLERY swipe on narrow.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -8,7 +8,8 @@ import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
 import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
 import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
-import { useVideoPlayerLayout } from "@/hooks/useVideoPlayerLayout";
+import { useNarrowVideoLayout } from "@/hooks/useNarrowVideoLayout";
+import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
 import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
@@ -63,11 +64,14 @@ export function VideoPreviewDialog({
   onDownload,
   onShare,
 }: VideoPreviewDialogProps) {
-  const layout = useVideoPlayerLayout(open);
-  const isMobile = layout !== "desktop";
-  const isMobileLandscape = layout === "mobile-landscape";
+  const isDesktop = useIsDesktopPlayer(open);
+  const isNarrow = !isDesktop;
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  // Human: Safari — CSS orientation media is unreliable in fixed modals; set data-video-layout on viewport.
+  // Agent: WRITES data-video-layout portrait|landscape; ENABLES video-* Tailwind variants on children.
+  useNarrowVideoLayout(viewportRef, open && isNarrow);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
@@ -188,8 +192,6 @@ export function VideoPreviewDialog({
     goNextRef.current = goNext;
   }, [goPrevious, goNext]);
 
-  const viewportRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(() => {
@@ -232,13 +234,13 @@ export function VideoPreviewDialog({
   // Human: Mobile gallery — horizontal swipe on the player viewport (no side chevrons on narrow screens).
   // Agent: READS touchstart clientX; on touchend CALLS goPrevious/goNext when delta exceeds threshold.
   const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (!isMobile || videos.length <= 1) return;
+    if (!isNarrow || videos.length <= 1) return;
     swipeStartXRef.current = event.touches[0]?.clientX ?? null;
-  }, [isMobile, videos.length]);
+  }, [isNarrow, videos.length]);
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
-      if (!isMobile || videos.length <= 1 || swipeStartXRef.current === null) return;
+      if (!isNarrow || videos.length <= 1 || swipeStartXRef.current === null) return;
       const endX = event.changedTouches[0]?.clientX;
       if (endX === undefined) return;
       const delta = endX - swipeStartXRef.current;
@@ -247,14 +249,14 @@ export function VideoPreviewDialog({
       if (delta > 0) goPrevious();
       else goNext();
     },
-    [goNext, goPrevious, isMobile, videos.length],
+    [goNext, goPrevious, isNarrow, videos.length],
   );
 
   const descriptionParts = [
     file?.name ?? "Video preview",
     positionLabel,
     "Encrypted HLS playback.",
-    isMobile ? "Swipe left or right to change videos." : null,
+    isNarrow ? "Swipe left or right to change videos." : null,
   ].filter(Boolean);
 
   const playerProps = {
@@ -271,13 +273,13 @@ export function VideoPreviewDialog({
       <DialogContent
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
-          isMobile
-            ? "fixed inset-0 top-0 left-0 h-dvh max-h-dvh w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0"
+          isNarrow
+            ? "fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
         )}
         overlayClassName={cn(
           "bg-[#0A0A10]/80 backdrop-blur-2xl",
-          isMobile && "bg-[#0A0A10]/90 backdrop-blur-3xl",
+          isNarrow && "bg-[#0A0A10]/90 backdrop-blur-3xl",
         )}
         showCloseButton={false}
         onKeyDown={handleContentKeyDown}
@@ -292,18 +294,16 @@ export function VideoPreviewDialog({
           tabIndex={-1}
           className={cn(
             "flex w-full min-h-0 flex-1 outline-none",
-            isMobileLandscape
-              ? "flex-col"
-              : isMobile
-                ? "flex-col items-center justify-center px-0"
-                : "items-center justify-center gap-4 sm:gap-6",
+            isNarrow
+              ? "flex-1 flex-col min-h-0 video-landscape:min-h-0 video-landscape:items-stretch video-landscape:justify-stretch video-portrait:items-center video-portrait:justify-center"
+              : "items-center justify-center gap-4 sm:gap-6",
           )}
           aria-label="Video player"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
           {/* Human: Desktop — flanking chevrons per Pencil Ownly Video Player Normal. */}
-          {!isMobile && videos.length > 1 ? (
+          {isDesktop && videos.length > 1 ? (
             <button
               type="button"
               disabled={!hasPrevious}
@@ -315,20 +315,19 @@ export function VideoPreviewDialog({
             </button>
           ) : null}
 
-          {file && layout === "desktop" ? (
+          {file && isDesktop ? (
             <VideoPlayerSurface key={file.id} {...playerProps} />
           ) : null}
 
-          {file && layout !== "desktop" ? (
+          {file && isNarrow ? (
             <VideoPlayerSurfaceMobile
               key={file.id}
-              layout={layout}
               positionLabel={positionLabel}
               {...playerProps}
             />
           ) : null}
 
-          {!isMobile && videos.length > 1 ? (
+          {isDesktop && videos.length > 1 ? (
             <button
               type="button"
               disabled={!hasNext}
@@ -342,8 +341,8 @@ export function VideoPreviewDialog({
         </div>
 
         {/* Human: Portrait gallery footer — landscape relies on swipe only (control bar sits at bottom). */}
-        {isMobile && !isMobileLandscape && videos.length > 1 ? (
-          <div className="flex shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+        {isNarrow && videos.length > 1 ? (
+          <div className="hidden shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 video-portrait:flex">
             <button
               type="button"
               disabled={!hasPrevious}
