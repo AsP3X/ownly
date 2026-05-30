@@ -97,7 +97,7 @@ export function AudioPreviewDialog({
   const resolveStream = useCallback(
     (item: FileItem) =>
       shareToken
-        ? Promise.resolve(fetchPublicShareStreamUrlForPreview(shareToken, item.id))
+        ? fetchPublicShareStreamUrlForPreview(shareToken, item)
         : fetchFileStreamUrlForPreview(item),
     [shareToken],
   );

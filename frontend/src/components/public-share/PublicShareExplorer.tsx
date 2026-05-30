@@ -218,25 +218,35 @@ export function PublicShareExplorer({
         </div>
       </div>
 
-      {loading ? (
+      {loading && itemCount === 0 ? (
         <div className="flex flex-1 items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
           Loading folder…
         </div>
-      ) : itemCount === 0 ? (
+      ) : itemCount === 0 && !loading ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-center">
           <Folder className="size-10 text-neutral-300" />
           <p className="font-medium text-neutral-700">This folder is empty</p>
           <p className="text-sm text-neutral-500">There are no files or subfolders here.</p>
         </div>
       ) : viewMode === "grid" ? (
-        <div className="flex-1 overflow-auto p-4">
+        <div className="relative flex-1 overflow-auto p-4">
+          {loading ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/60"
+              aria-live="polite"
+            >
+              <Loader2 className="size-6 animate-spin text-neutral-600" />
+              <span className="sr-only">Loading folder…</span>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {sortedFolders.map((folder) => (
               <button
                 key={folder.id}
                 type="button"
                 onClick={() => onOpenFolder(folder)}
+                onDoubleClick={() => onOpenFolder(folder)}
                 className="group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white text-left transition hover:border-amber-200 hover:shadow-sm"
               >
                 <div className="flex aspect-[4/3] items-center justify-center bg-[#f3f2f1]">
@@ -305,7 +315,16 @@ export function PublicShareExplorer({
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
+        <div className="relative flex-1 overflow-auto">
+          {loading ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/60"
+              aria-live="polite"
+            >
+              <Loader2 className="size-6 animate-spin text-neutral-600" />
+              <span className="sr-only">Loading folder…</span>
+            </div>
+          ) : null}
           <table className="w-full min-w-[32rem] border-collapse text-sm">
             <thead className="sticky top-0 z-10 border-b border-neutral-100 bg-neutral-50/95 backdrop-blur-sm">
               <tr className="text-left text-xs font-medium uppercase tracking-wide text-neutral-500">

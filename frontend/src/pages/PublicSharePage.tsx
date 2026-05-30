@@ -174,7 +174,7 @@ export default function PublicSharePage() {
   }
 
   function handlePreviewVideo(file: FileItem) {
-    if (isFileProcessing(file)) return;
+    if (isFileProcessing(file) || !file.hls_ready) return;
     setPreviewVideo(file);
   }
 
@@ -204,6 +204,14 @@ export default function PublicSharePage() {
   }, [files, previewAudio]);
 
   const singleFileItem = overview?.resource_type === "file" ? overviewAsFileItem(overview) : null;
+
+  // Human: Open the image viewer immediately for single-file image shares (no extra click).
+  // Agent: SETS previewImage once overview loads; SKIPS folder shares and non-images.
+  useEffect(() => {
+    if (!overview || overview.resource_type !== "file" || !singleFileItem) return;
+    if (!isImageMime(overview.mime_type)) return;
+    setPreviewImage(singleFileItem);
+  }, [overview, singleFileItem]);
 
   // Human: Inline HLS player for single-file video shares (no modal needed on the landing view).
   // Agent: GET public stream-url when overview is one hls_ready video file.

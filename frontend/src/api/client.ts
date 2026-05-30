@@ -1559,12 +1559,12 @@ export async function fetchPublicShareBlobForPreview(token: string, fileId: stri
 }
 
 // Human: Streamable preview URL for shared audio — same-origin download endpoint streams without JWT.
-// Agent: RETURNS absolute download URL; revokeOnClose false (not a blob URL).
-export function fetchPublicShareStreamUrlForPreview(
+// Agent: RETURNS download URL for <audio> src; MATCHES fetchFileStreamUrlForPreview async shape.
+export async function fetchPublicShareStreamUrlForPreview(
   token: string,
-  fileId: string,
-): { url: string; revokeOnClose: boolean } {
-  return { url: publicShareFileDownloadUrl(token, fileId), revokeOnClose: false };
+  file: FileItem,
+): Promise<{ url: string; revokeOnClose: boolean }> {
+  return { url: publicShareFileDownloadUrl(token, file.id), revokeOnClose: false };
 }
 
 // Human: Download one file from a public share through the API proxy.
