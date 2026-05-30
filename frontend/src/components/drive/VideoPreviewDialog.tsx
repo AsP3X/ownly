@@ -1,5 +1,5 @@
-// Human: HLS video lightbox — Pencil Ownly Video Player over blurred backdrop with folder gallery.
-// Agent: FETCHES stream URL; ATTACHES hls.js; RENDERS VideoPlayerSurface; NAVIGATES sibling videos.
+// Human: HLS video lightbox — desktop Pencil player + mobile portrait/landscape from login-signup.pencil.
+// Agent: FETCHES stream URL; ATTACHES hls.js; SWITCHES layout via useVideoPlayerLayout; GALLERY swipe on mobile.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -7,6 +7,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
 import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
+import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
+import { useVideoPlayerLayout } from "@/hooks/useVideoPlayerLayout";
 import {
   attachHlsErrorHandler,
   attachVodSeekRecovery,
@@ -36,6 +38,8 @@ type VideoPreviewDialogProps = {
   onShare?: (file: FileItem) => void;
 };
 
+const SWIPE_THRESHOLD_PX = 48;
+
 function getToken(): string | null {
   return localStorage.getItem("mediavault_token");
 }
@@ -59,10 +63,15 @@ export function VideoPreviewDialog({
   onDownload,
   onShare,
 }: VideoPreviewDialogProps) {
+  const layout = useVideoPlayerLayout();
+  const isMobile = layout !== "desktop";
+  const isMobileLandscape = layout === "mobile-landscape";
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
+  const swipeStartXRef = useRef<number | null>(null);
 
   const currentIndex = useMemo(
     () => (file ? videos.findIndex((item) => item.id === file.id) : -1),
@@ -220,17 +229,56 @@ export function VideoPreviewDialog({
     }
   };
 
+  // Human: Mobile gallery — horizontal swipe on the player viewport (no side chevrons on narrow screens).
+  // Agent: READS touchstart clientX; on touchend CALLS goPrevious/goNext when delta exceeds threshold.
+  const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobile || videos.length <= 1) return;
+    swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+  }, [isMobile, videos.length]);
+
+  const handleTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!isMobile || videos.length <= 1 || swipeStartXRef.current === null) return;
+      const endX = event.changedTouches[0]?.clientX;
+      if (endX === undefined) return;
+      const delta = endX - swipeStartXRef.current;
+      swipeStartXRef.current = null;
+      if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
+      if (delta > 0) goPrevious();
+      else goNext();
+    },
+    [goNext, goPrevious, isMobile, videos.length],
+  );
+
   const descriptionParts = [
     file?.name ?? "Video preview",
     positionLabel,
     "Encrypted HLS playback.",
+    isMobile ? "Swipe left or right to change videos." : null,
   ].filter(Boolean);
+
+  const playerProps = {
+    file: file!,
+    videoRef,
+    loading: loadingStream,
+    error,
+    onDownload,
+    onShare,
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[1440px]"
-        overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
+        className={cn(
+          "flex flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent shadow-none ring-0",
+          isMobile
+            ? "fixed inset-0 top-0 left-0 h-dvh max-h-dvh w-full max-w-none -translate-x-0 -translate-y-0 rounded-none p-0"
+            : "w-full max-w-[calc(100%-1rem)] p-4 sm:max-w-[1440px]",
+        )}
+        overlayClassName={cn(
+          "bg-[#0A0A10]/80 backdrop-blur-2xl",
+          isMobile && "bg-[#0A0A10]/90 backdrop-blur-3xl",
+        )}
         showCloseButton={false}
         onKeyDown={handleContentKeyDown}
       >
@@ -242,53 +290,83 @@ export function VideoPreviewDialog({
         <div
           ref={viewportRef}
           tabIndex={-1}
-          className="flex w-full items-center justify-center gap-4 outline-none sm:gap-6"
+          className={cn(
+            "flex w-full outline-none",
+            isMobileLandscape
+              ? "min-h-0 flex-1 flex-col"
+              : isMobile
+                ? "flex-1 flex-col items-center justify-center px-0"
+                : "items-center justify-center gap-4 sm:gap-6",
+          )}
           aria-label="Video player"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
-          {videos.length > 1 ? (
+          {/* Human: Desktop — flanking chevrons per Pencil Ownly Video Player Normal. */}
+          {!isMobile && videos.length > 1 ? (
             <button
               type="button"
               disabled={!hasPrevious}
               onClick={goPrevious}
               aria-label="Previous video"
-              className={cn(
-                "flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30",
-              )}
+              className="flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
               <ChevronLeft className="size-7" aria-hidden />
             </button>
-          ) : (
-            <div className="hidden w-[3.75rem] shrink-0 sm:block" aria-hidden />
-          )}
+          ) : null}
 
-          {file ? (
-            <VideoPlayerSurface
+          {file && layout === "desktop" ? (
+            <VideoPlayerSurface key={file.id} {...playerProps} />
+          ) : null}
+
+          {file && layout !== "desktop" ? (
+            <VideoPlayerSurfaceMobile
               key={file.id}
-              file={file}
-              videoRef={videoRef}
-              loading={loadingStream}
-              error={error}
-              onDownload={onDownload}
-              onShare={onShare}
+              layout={layout}
+              positionLabel={positionLabel}
+              {...playerProps}
             />
           ) : null}
 
-          {videos.length > 1 ? (
+          {!isMobile && videos.length > 1 ? (
             <button
               type="button"
               disabled={!hasNext}
               onClick={goNext}
               aria-label="Next video"
-              className={cn(
-                "flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30",
-              )}
+              className="flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
               <ChevronRight className="size-7" aria-hidden />
             </button>
-          ) : (
-            <div className="hidden w-[3.75rem] shrink-0 sm:block" aria-hidden />
-          )}
+          ) : null}
         </div>
+
+        {/* Human: Portrait gallery footer — landscape relies on swipe only (control bar sits at bottom). */}
+        {isMobile && !isMobileLandscape && videos.length > 1 ? (
+          <div className="flex shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+            <button
+              type="button"
+              disabled={!hasPrevious}
+              onClick={goPrevious}
+              aria-label="Previous video"
+              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white disabled:opacity-30"
+            >
+              Previous
+            </button>
+            {positionLabel ? (
+              <span className="text-xs tabular-nums text-[#E5E7EB]">{positionLabel}</span>
+            ) : null}
+            <button
+              type="button"
+              disabled={!hasNext}
+              onClick={goNext}
+              aria-label="Next video"
+              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white disabled:opacity-30"
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

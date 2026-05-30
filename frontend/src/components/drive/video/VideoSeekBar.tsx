@@ -1,10 +1,12 @@
-// Human: Video timeline — Pencil Ownly Video Player seekbar (4px rail, hover dot, tooltip card).
-// Agent: PROPS progress+duration+buffered; EMITS onSeek(seconds); READS pointer on 540px-max rail (1.5×).
+// Human: Video timeline — desktop rail, mobile portrait compact slider, mobile landscape wide track.
+// Agent: PROPS variant + progress/duration; EMITS onSeek(seconds); READS pointer for hover tooltip (desktop).
 
 import { useCallback, useRef, useState } from "react";
 import type { BufferedSegment } from "@/components/drive/audio/audio-buffered";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { cn } from "@/lib/utils";
+
+export type VideoSeekBarVariant = "desktop" | "mobile-portrait" | "mobile-landscape";
 
 type VideoSeekBarProps = {
   progress: number;
@@ -12,6 +14,7 @@ type VideoSeekBarProps = {
   bufferedSegments?: BufferedSegment[];
   disabled?: boolean;
   onSeek: (timeSeconds: number) => void;
+  variant?: VideoSeekBarVariant;
   className?: string;
 };
 
@@ -21,11 +24,12 @@ export function VideoSeekBar({
   bufferedSegments = [],
   disabled = false,
   onSeek,
+  variant = "desktop",
   className = "",
 }: VideoSeekBarProps) {
   const trackRailRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
-  const isHovering = hoverPercent !== null;
+  const isHovering = hoverPercent !== null && variant === "desktop";
 
   const updateHoverFromClientX = useCallback((clientX: number) => {
     const rail = trackRailRef.current;
@@ -39,9 +43,10 @@ export function VideoSeekBar({
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
+      if (variant !== "desktop") return;
       updateHoverFromClientX(event.clientX);
     },
-    [updateHoverFromClientX],
+    [updateHoverFromClientX, variant],
   );
 
   const handlePointerLeave = useCallback(() => {
@@ -56,6 +61,9 @@ export function VideoSeekBar({
   const hoverSeconds =
     isHovering && trackDuration ? (trackDuration * (hoverPercent ?? 0)) / 100 : 0;
   const seekInputDisabled = disabled || trackDuration <= 0;
+
+  const isPortrait = variant === "mobile-portrait";
+  const isLandscape = variant === "mobile-landscape";
 
   const bufferedBars = bufferedSegments
     .map((segment, index) => {
@@ -75,34 +83,54 @@ export function VideoSeekBar({
     onSeek(Number(event.target.value));
   }
 
+  const railHeight = isPortrait ? "h-1" : isLandscape ? "h-1" : "h-1.5";
+  const showThumb = isPortrait || isLandscape;
+
   return (
-    <div className={cn("min-w-0 flex-1 max-w-[540px]", className)}>
-      <div className="relative overflow-visible py-3">
+    <div
+      className={cn(
+        "min-w-0",
+        isPortrait && "w-[110px] shrink-0",
+        isLandscape && "min-w-0 flex-1",
+        variant === "desktop" && "flex-1 max-w-[540px]",
+        className,
+      )}
+    >
+      <div className={cn("relative overflow-visible", variant === "desktop" ? "py-3" : "py-0")}>
         <div
           className={cn(
             "relative w-full overflow-visible",
             disabled ? "opacity-50" : "cursor-pointer",
+            isPortrait && "h-3 flex items-center",
           )}
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
         >
-          <div ref={trackRailRef} className="relative h-1.5 w-full">
-            {/* Human: Pencil Timeline Bg — 6px rail (1.5×) at 20% white on the control bar. */}
-            <div className="relative h-1.5 w-full rounded-sm bg-[#FFFFFF33]">
-              {bufferedBars.map((bar) => (
-                <div
-                  key={bar.key}
-                  className="absolute top-0 h-1.5 rounded-sm bg-[#FFFFFF66]"
-                  style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
-                />
-              ))}
+          <div ref={trackRailRef} className={cn("relative w-full", railHeight)}>
+            <div
+              className={cn(
+                "relative w-full rounded-sm",
+                isLandscape ? "bg-[#FFFFFF40]" : "bg-[#FFFFFF33]",
+                railHeight,
+              )}
+            >
+              {variant === "desktop" &&
+                bufferedBars.map((bar) => (
+                  <div
+                    key={bar.key}
+                    className="absolute top-0 h-1.5 rounded-sm bg-[#FFFFFF66]"
+                    style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
+                  />
+                ))}
               <div
-                className="absolute top-0 left-0 z-[1] h-1.5 rounded-sm bg-[#2563EB] transition-[width] duration-150 ease-linear"
+                className={cn(
+                  "absolute top-0 left-0 z-[1] rounded-sm bg-[#2563EB] transition-[width] duration-150 ease-linear",
+                  railHeight,
+                )}
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
 
-            {/* Human: Pencil Timeline Hover Dot — 15px disc (1.5×), black fill, white stroke. */}
             {isHovering ? (
               <div
                 className="pointer-events-none absolute top-1/2 z-20 size-[15px] -translate-y-1/2 rounded-full border-2 border-white bg-[#1A1A1A]"
@@ -110,7 +138,6 @@ export function VideoSeekBar({
               />
             ) : null}
 
-            {/* Human: Pencil Timeline Tooltip Card — 165×48 dark pill (1.5×) above the hover dot. */}
             {isHovering ? (
               <div
                 className="pointer-events-none absolute bottom-full z-50 mb-3 flex flex-col items-center"
@@ -122,11 +149,15 @@ export function VideoSeekBar({
                 <div className="flex h-12 min-w-[165px] items-center justify-center rounded-md bg-[#000000E0] px-4 text-xs font-bold tabular-nums text-white shadow-lg">
                   {formatVideoTime(hoverSeconds)}
                 </div>
-                <div
-                  className="h-2 w-4 rotate-45 bg-[#000000E0]"
-                  aria-hidden
-                />
+                <div className="h-2 w-4 rotate-45 bg-[#000000E0]" aria-hidden />
               </div>
+            ) : null}
+
+            {showThumb ? (
+              <div
+                className="pointer-events-none absolute top-1/2 z-10 size-3 -translate-y-1/2 rounded-full bg-white shadow-sm"
+                style={{ left: `calc(${progressPercent}% - 6px)` }}
+              />
             ) : null}
           </div>
 

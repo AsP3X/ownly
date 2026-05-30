@@ -1,13 +1,7 @@
-// Human: Pencil Ownly Video Player card — 1200×900 (1.5× wireframe), title pill, control bar, fullscreen.
-// Agent: READS videoRef from parent for HLS attach; SYNC progress from media events; CALLS Fullscreen API.
+// Human: Pencil desktop video player — 1200×900 card, title pill, control bar, fullscreen.
+// Agent: READS videoRef from parent for HLS attach; USES useVideoTransport; hidden below lg breakpoint.
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useRef, type RefObject } from "react";
 import {
   Download,
   Loader2,
@@ -21,11 +15,8 @@ import {
   X,
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import {
-  readBufferedSegments,
-  type BufferedSegment,
-} from "@/components/drive/audio/audio-buffered";
 import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
+import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
 import { formatBytes } from "@/lib/utils-app";
@@ -49,153 +40,33 @@ export function VideoPlayerSurface({
   onShare,
 }: VideoPlayerSurfaceProps) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [bufferedSegments, setBufferedSegments] = useState<BufferedSegment[]>([]);
-  const [muted, setMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showChrome, setShowChrome] = useState(true);
-  const hideChromeTimerRef = useRef<number | null>(null);
 
-  const failed = file.hls_encode_status === "failed";
-  const transportDisabled = loading || Boolean(error) || failed || !file.hls_ready;
-
-  const clearHideChromeTimer = useCallback(() => {
-    if (hideChromeTimerRef.current !== null) {
-      window.clearTimeout(hideChromeTimerRef.current);
-      hideChromeTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleHideChrome = useCallback(() => {
-    clearHideChromeTimer();
-    if (!isPlaying || isFullscreen) return;
-    hideChromeTimerRef.current = window.setTimeout(() => {
-      setShowChrome(false);
-    }, 2800);
-  }, [clearHideChromeTimer, isFullscreen, isPlaying]);
-
-  const revealChrome = useCallback(() => {
-    setShowChrome(true);
-    scheduleHideChrome();
-  }, [scheduleHideChrome]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const syncProgress = () => {
-      setProgress(video.currentTime);
-      setDuration(Number.isFinite(video.duration) ? video.duration : 0);
-      setBufferedSegments(readBufferedSegments(video.buffered));
-    };
-
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    const onEnded = () => setIsPlaying(false);
-
-    video.addEventListener("timeupdate", syncProgress);
-    video.addEventListener("durationchange", syncProgress);
-    video.addEventListener("progress", syncProgress);
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-    video.addEventListener("ended", onEnded);
-
-    syncProgress();
-
-    return () => {
-      video.removeEventListener("timeupdate", syncProgress);
-      video.removeEventListener("durationchange", syncProgress);
-      video.removeEventListener("progress", syncProgress);
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-      video.removeEventListener("ended", onEnded);
-    };
-  }, [videoRef, file.id]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.muted = muted;
-  }, [muted, videoRef]);
-
-  useEffect(() => {
-    setIsPlaying(false);
-    setProgress(0);
-    setDuration(0);
-    setBufferedSegments([]);
-    setShowChrome(true);
-    clearHideChromeTimer();
-  }, [file.id, clearHideChromeTimer]);
-
-  useEffect(() => {
-    function onFullscreenChange() {
-      setIsFullscreen(document.fullscreenElement === cardRef.current);
-    }
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      clearHideChromeTimer();
-      if (document.fullscreenElement === cardRef.current) {
-        void document.exitFullscreen().catch(() => undefined);
-      }
-    };
-  }, [clearHideChromeTimer]);
-
-  useEffect(() => {
-    if (isPlaying) scheduleHideChrome();
-    else {
-      clearHideChromeTimer();
-      setShowChrome(true);
-    }
-  }, [isPlaying, scheduleHideChrome, clearHideChromeTimer]);
-
-  const togglePlay = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || transportDisabled) return;
-    if (video.paused) {
-      void video.play().catch(() => undefined);
-    } else {
-      video.pause();
-    }
-    revealChrome();
-  }, [revealChrome, transportDisabled, videoRef]);
-
-  const handleSeek = useCallback(
-    (timeSeconds: number) => {
-      const video = videoRef.current;
-      if (!video || transportDisabled) return;
-      video.currentTime = timeSeconds;
-      setProgress(timeSeconds);
-      revealChrome();
-    },
-    [revealChrome, transportDisabled, videoRef],
-  );
-
-  const toggleMute = useCallback(() => {
-    setMuted((prev) => !prev);
-    revealChrome();
-  }, [revealChrome]);
-
-  const toggleFullscreen = useCallback(() => {
-    const card = cardRef.current;
-    if (!card) return;
-    revealChrome();
-    if (document.fullscreenElement === card) {
-      void document.exitFullscreen().catch(() => undefined);
-      return;
-    }
-    void card.requestFullscreen().catch(() => undefined);
-  }, [revealChrome]);
+  const {
+    isPlaying,
+    progress,
+    duration,
+    bufferedSegments,
+    muted,
+    isFullscreen,
+    transportDisabled,
+    failed,
+    chromeVisible,
+    revealChrome,
+    togglePlay,
+    handleSeek,
+    toggleMute,
+    toggleFullscreen,
+  } = useVideoTransport({
+    videoRef,
+    file,
+    loading,
+    error,
+    fullscreenTargetRef: cardRef,
+  });
 
   const timeLabel = `${formatVideoTime(progress)} / ${formatVideoTime(duration)}`;
   const metaLabel = `${file.name} • ${formatBytes(file.size_bytes)}`;
   const showCenterPlay = !isPlaying && !loading && !error && file.hls_ready;
-  const chromeVisible = showChrome || !isPlaying || isFullscreen;
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
 
@@ -241,7 +112,6 @@ export function VideoPlayerSurface({
         </div>
       ) : null}
 
-      {/* Human: Pencil Glass Play — large centered play affordance before playback starts. */}
       {showCenterPlay ? (
         <button
           type="button"
@@ -257,7 +127,6 @@ export function VideoPlayerSurface({
         </button>
       ) : null}
 
-      {/* Human: Pencil Video Title Pill — blurred capsule with filename and size. */}
       <div
         className={cn(
           "absolute left-6 top-6 z-30 flex max-w-[calc(100%-10rem)] items-center gap-4 rounded-full bg-[#00000099] px-6 py-3 text-white backdrop-blur-md transition-opacity duration-200",
@@ -291,7 +160,6 @@ export function VideoPlayerSurface({
         )}
       </div>
 
-      {/* Human: Pencil Close Lightbox Button — 44px circular control inset top-right. */}
       <DialogClose
         render={
           <button
@@ -307,7 +175,6 @@ export function VideoPlayerSurface({
         <X className="size-[27px]" aria-hidden />
       </DialogClose>
 
-      {/* Human: Pencil Video Control Bar — 64px translucent bar anchored to card bottom. */}
       <div
         className={cn(
           "absolute inset-x-6 bottom-6 z-30 transition-opacity duration-200",
@@ -333,6 +200,7 @@ export function VideoPlayerSurface({
           </div>
 
           <VideoSeekBar
+            variant="desktop"
             progress={progress}
             duration={duration}
             bufferedSegments={bufferedSegments}

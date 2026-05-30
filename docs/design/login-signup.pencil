@@ -59846,7 +59846,7 @@
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "./images/generated-1780181263181.png",
+                    "url": "images/generated-1780181263181.png",
                     "mode": "fill"
                   },
                   "cornerRadius": "$radius-2xl",
@@ -64078,6 +64078,501 @@
                   ]
                 }
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "XklqS",
+      "x": 18461,
+      "y": -5234,
+      "name": "Ownly Video Player Normal - Mobile Portrait",
+      "clip": true,
+      "width": 390,
+      "height": 844,
+      "fill": "$bg-secondary",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "vm6F5",
+          "x": 0,
+          "y": 0,
+          "name": "Mobile Backdrop Blur",
+          "fill": "#0A0A10E6",
+          "width": 390,
+          "height": 844,
+          "effect": {
+            "type": "background_blur",
+            "radius": 24
+          }
+        },
+        {
+          "type": "frame",
+          "id": "tImlC",
+          "x": 0,
+          "y": 312,
+          "name": "Immersive Video Container",
+          "clip": true,
+          "width": 390,
+          "height": 220,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1715659667684-5a8c9dedddcf?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODAxNzAxMzR8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "layout": "none",
+          "children": [
+            {
+              "type": "frame",
+              "id": "xllkx",
+              "layoutPosition": "absolute",
+              "x": 16,
+              "y": 16,
+              "name": "Video Title Pill",
+              "height": 32,
+              "fill": "#00000099",
+              "cornerRadius": 16,
+              "stroke": "#FFFFFF1A",
+              "strokeWidth": 1,
+              "padding": [
+                0,
+                12
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Qn19e",
+                  "name": "Pill Label",
+                  "fill": "#FFFFFF",
+                  "content": "The Fall Guy.mp4 • 3.7 GB",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 11,
+                  "fontWeight": "Bold"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "lREhl",
+              "layoutPosition": "absolute",
+              "x": 342,
+              "y": 16,
+              "name": "Close Lightbox Button",
+              "width": 32,
+              "height": 32,
+              "fill": "#00000099",
+              "cornerRadius": 16,
+              "stroke": "#FFFFFF1A",
+              "strokeWidth": 1,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "exLkd",
+                  "name": "Close Icon",
+                  "width": 14,
+                  "height": 14,
+                  "icon": "x",
+                  "library": "lucide",
+                  "fill": "#FFFFFF"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Z5UeJ",
+              "layoutPosition": "absolute",
+              "x": 171,
+              "y": 86,
+              "name": "Center Play Circle",
+              "width": 48,
+              "height": 48,
+              "fill": "#FFFFFF20",
+              "cornerRadius": 24,
+              "stroke": "#FFFFFF40",
+              "strokeWidth": 1,
+              "effect": {
+                "type": "background_blur",
+                "radius": 12
+              },
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "hz1KE",
+                  "name": "Play Icon",
+                  "width": 18,
+                  "height": 18,
+                  "icon": "play",
+                  "library": "lucide",
+                  "fill": "#FFFFFF"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "D4787d",
+              "layoutPosition": "absolute",
+              "x": 16,
+              "y": 156,
+              "name": "Video Control Bar",
+              "width": 358,
+              "height": 48,
+              "fill": "#000000B3",
+              "cornerRadius": 12,
+              "stroke": "#FFFFFF1A",
+              "strokeWidth": 1,
+              "padding": [
+                0,
+                16
+              ],
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "D4ygqH",
+                  "name": "Left Controls",
+                  "gap": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "XSyGs",
+                      "name": "Play Icon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "pause",
+                      "library": "lucide",
+                      "fill": "#FFFFFF"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Xva9J",
+                      "name": "Time Tracker",
+                      "fill": "#E5E7EB",
+                      "content": "01:24 / 02:18",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "q7zvzS",
+                  "name": "Progress Slider",
+                  "width": 110,
+                  "height": 12,
+                  "layout": "vertical",
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "D1V71X",
+                      "name": "Slider Track Bg",
+                      "width": "fill_container",
+                      "height": 4,
+                      "fill": "#FFFFFF33",
+                      "cornerRadius": 2,
+                      "layout": "none",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Ieg6m",
+                          "x": 0,
+                          "y": 0,
+                          "name": "Slider Fill",
+                          "width": 44,
+                          "height": 4,
+                          "fill": "$accent-primary",
+                          "cornerRadius": 2,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "z6h2w5",
+                              "layoutPosition": "absolute",
+                              "x": 38,
+                              "y": -4,
+                              "name": "Slider Thumb",
+                              "fill": "#FFFFFF",
+                              "width": 12,
+                              "height": 12
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "icon",
+                  "id": "Oy3jd",
+                  "name": "Maximize Icon",
+                  "width": 14,
+                  "height": 14,
+                  "icon": "maximize",
+                  "library": "lucide",
+                  "fill": "#FFFFFF"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "aLfQG",
+      "x": 18979,
+      "y": -5007,
+      "name": "Ownly Video Player Normal - Mobile Landscape",
+      "clip": true,
+      "width": 844,
+      "height": 390,
+      "fill": {
+        "type": "image",
+        "enabled": true,
+        "url": "https://images.unsplash.com/photo-1715659667684-5a8c9dedddcf?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODAxNzAxMzR8&ixlib=rb-4.1.0&q=80&w=1080",
+        "mode": "fill"
+      },
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "x8kawT",
+          "x": 0,
+          "y": 0,
+          "name": "Video Background",
+          "metadata": {
+            "type": "unsplash",
+            "username": "by_danny_g",
+            "link": "https://unsplash.com/@by_danny_g",
+            "author": "Danny Greenberg"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1758405282247-86deca3ecc87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODAxODQxMjN8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 844,
+          "height": 390
+        },
+        {
+          "type": "rectangle",
+          "id": "hGp7L",
+          "x": 0,
+          "y": 0,
+          "name": "Top Gradient Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#000000B3",
+                "position": 0
+              },
+              {
+                "color": "#00000000",
+                "position": 1
+              }
+            ]
+          },
+          "width": 844,
+          "height": 120
+        },
+        {
+          "type": "rectangle",
+          "id": "fWWik",
+          "x": 0,
+          "y": 240,
+          "name": "Bottom Gradient Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 0,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#000000B3",
+                "position": 0
+              },
+              {
+                "color": "#00000000",
+                "position": 1
+              }
+            ]
+          },
+          "width": 844,
+          "height": 150
+        },
+        {
+          "type": "frame",
+          "id": "E1JnLx",
+          "x": 24,
+          "y": 24,
+          "name": "Title Pill",
+          "height": 32,
+          "fill": "#000000B3",
+          "cornerRadius": "$radius-xl",
+          "padding": [
+            0,
+            16
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "miahl",
+              "name": "Title Text",
+              "fill": "#FFFFFF",
+              "content": "The Fall Guy.mp4 • 3.7 GB",
+              "fontFamily": "$font-sans",
+              "fontSize": 12,
+              "fontWeight": "medium"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "g8vS8G",
+          "x": 788,
+          "y": 24,
+          "name": "Close Button",
+          "width": 32,
+          "height": 32,
+          "fill": "#000000B3",
+          "cornerRadius": 16,
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "f73Rz",
+              "name": "Close Icon",
+              "width": 16,
+              "height": 16,
+              "icon": "x",
+              "library": "lucide",
+              "fill": "#FFFFFF"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "GCSw4",
+          "x": 24,
+          "y": 310,
+          "name": "Bottom Control Bar",
+          "width": 796,
+          "height": 56,
+          "fill": "#000000B3",
+          "cornerRadius": "$radius-2xl",
+          "gap": 16,
+          "padding": [
+            0,
+            16
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "y5haHW",
+              "name": "Play Pause Icon",
+              "width": 20,
+              "height": 20,
+              "icon": "pause",
+              "library": "lucide",
+              "fill": "#FFFFFF"
+            },
+            {
+              "type": "text",
+              "id": "nCnW1",
+              "name": "Time Text",
+              "fill": "#FFFFFF",
+              "content": "01:24 / 02:18",
+              "fontFamily": "$font-sans",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "mEhGW",
+              "name": "Timeline Slider",
+              "width": 560,
+              "height": 20,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "cornerRadius": 2,
+                  "id": "FOMcx",
+                  "x": 0,
+                  "y": 8,
+                  "name": "Track Background",
+                  "fill": "#FFFFFF40",
+                  "width": 560,
+                  "height": 4
+                },
+                {
+                  "type": "rectangle",
+                  "cornerRadius": 2,
+                  "id": "owhY4",
+                  "x": 0,
+                  "y": 8,
+                  "name": "Track Active",
+                  "fill": "$accent-primary",
+                  "width": 280,
+                  "height": 4
+                },
+                {
+                  "type": "ellipse",
+                  "id": "hyuYC",
+                  "x": 274,
+                  "y": 4,
+                  "name": "Slider Thumb",
+                  "fill": "#FFFFFF",
+                  "width": 12,
+                  "height": 12
+                }
+              ]
+            },
+            {
+              "type": "icon",
+              "id": "oq8td",
+              "name": "Volume Icon",
+              "width": 20,
+              "height": 20,
+              "icon": "volume-2",
+              "library": "lucide",
+              "fill": "#FFFFFF"
+            },
+            {
+              "type": "icon",
+              "id": "FWT7G",
+              "name": "Fullscreen Icon",
+              "width": 20,
+              "height": 20,
+              "icon": "maximize",
+              "library": "lucide",
+              "fill": "#FFFFFF"
             }
           ]
         }
