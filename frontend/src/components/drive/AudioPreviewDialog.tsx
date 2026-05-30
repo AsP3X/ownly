@@ -1,8 +1,7 @@
-// Human: Folder-scoped audio preview — streams via same-origin ticket URL (nginx → API → storage).
+// Human: Folder-scoped audio preview — Pencil Audio preview dialog over blurred explorer backdrop.
 // Agent: CALLS fetchFileStreamUrlForPreview; CACHES urls; REVOKES blob fallbacks on dialog close.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
   fetchFileStreamUrlForPreview,
@@ -17,8 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 type AudioPreviewDialogProps = {
   tracks: FileItem[];
@@ -57,7 +54,7 @@ export function AudioPreviewDialog({
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < tracks.length - 1;
   const positionLabel =
-    currentIndex >= 0 && tracks.length > 0
+    currentIndex >= 0 && tracks.length > 1
       ? `${currentIndex + 1} of ${tracks.length}`
       : null;
 
@@ -242,32 +239,36 @@ export function AudioPreviewDialog({
     }
   }, [goNext, hasNext]);
 
+  const subtitleParts = [file?.name ?? "Listen to audio files from your drive."];
+  if (positionLabel) subtitleParts.push(positionLabel);
+
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="sm:max-w-md gap-0 p-0 overflow-hidden"
+        className="gap-5 overflow-visible border border-[#E5E7EB] bg-white p-8 pt-10 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:max-w-[640px] rounded-3xl"
+        overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         onKeyDown={handleContentKeyDown}
       >
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/60">
-          <DialogTitle>Audio preview</DialogTitle>
-          <DialogDescription>
-            {file?.name ?? "Listen to audio files from your drive."}
-            {positionLabel ? ` · ${positionLabel}` : ""}
+        {/* Human: Dialog header — title + filename subtitle per Pencil Audio Preview Dialog card. */}
+        <DialogHeader className="gap-2 text-left">
+          <DialogTitle className="text-xl font-bold leading-tight text-[#1A1A1A]">
+            Audio preview
+          </DialogTitle>
+          <DialogDescription className="text-sm font-normal text-[#666666]">
+            {subtitleParts.join(" · ")}
           </DialogDescription>
         </DialogHeader>
 
         <div
           ref={viewportRef}
           tabIndex={-1}
-          className={cn(
-            "px-5 py-4 outline-none",
-            tracks.length > 1 ? "pb-3" : "pb-5",
-          )}
+          className="outline-none"
           aria-label="Audio player"
           onPointerDown={(event) => event.stopPropagation()}
         >
           <LightAudioPlayer
             key={file?.id}
+            variant="embedded"
             src={audioUrl}
             title={file?.name ?? "Audio"}
             mimeType={file?.mime_type ?? null}
@@ -281,34 +282,6 @@ export function AudioPreviewDialog({
             onEnded={handleTrackEnded}
           />
         </div>
-
-        {tracks.length > 1 ? (
-          <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/30 px-5 py-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={goPrevious}
-              disabled={!hasPrevious}
-              aria-label="Previous track"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            <span className="text-xs text-muted-foreground tabular-nums">{positionLabel}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={goNext}
-              disabled={!hasNext}
-              aria-label="Next track"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : null}
       </DialogContent>
     </Dialog>
   );

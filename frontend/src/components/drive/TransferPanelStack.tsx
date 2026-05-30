@@ -49,7 +49,7 @@ export function TransferPanelStack() {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 flex w-[min(100vw-2rem,22rem)] flex-col gap-3 lg:bottom-4"
+      className="pointer-events-none fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 flex w-[min(100vw-2rem,22.5rem)] flex-col gap-3 lg:bottom-4"
       aria-live="polite"
     >
       {hasUploadBatch ? (
