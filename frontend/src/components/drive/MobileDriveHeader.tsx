@@ -57,13 +57,20 @@ export function MobileDriveHeader({
   const pageTitle = inFolder
     ? (folderStack.at(-1)?.name ?? "My files")
     : activeNav === "home"
-      ? "Home"
+      ? "My Cloud"
       : activeNav === "recycle-bin"
         ? "Recycle bin"
-        : "My files";
+        : "My Cloud";
 
   return (
-    <header className="sticky top-0 z-30 shrink-0 border-b border-neutral-200/80 bg-[#f3f2f1]/95 backdrop-blur-xl lg:hidden">
+    <header
+      className={cn(
+        "sticky top-0 z-30 shrink-0 border-b border-neutral-200/80 backdrop-blur-xl lg:hidden",
+        activeNav === "home" || activeNav === "my-files"
+          ? "bg-[#F7F8FA]/95"
+          : "bg-[#f3f2f1]/95",
+      )}
+    >
       <div className="flex items-center gap-2 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         {inFolder ? (
           <Button
@@ -91,7 +98,7 @@ export function MobileDriveHeader({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium uppercase tracking-wide text-neutral-500">
-            {inFolder ? "Folder" : activeNav === "home" ? "MediaVault" : "Library"}
+            {inFolder ? "Folder" : activeNav === "home" ? "Ownly" : "Library"}
           </p>
           <h1 className="truncate text-lg font-semibold tracking-tight text-neutral-900">
             {pageTitle}
@@ -152,21 +159,23 @@ export function MobileDriveHeader({
         </div>
       </div>
 
-      <div className="px-4 pb-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
-          <Input
-            className={cn(
-              "h-10 rounded-xl border-0 bg-white pl-10 shadow-sm ring-1 ring-neutral-200/80",
-              "placeholder:text-neutral-400 focus-visible:ring-blue-500/40",
-            )}
-            placeholder={activeNav === "my-files" ? "Search in library" : "Search files"}
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            aria-label="Search files"
-          />
+      {activeNav !== "home" && activeNav !== "my-files" ? (
+        <div className="px-4 pb-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
+            <Input
+              className={cn(
+                "h-10 rounded-xl border-0 bg-white pl-10 shadow-sm ring-1 ring-neutral-200/80",
+                "placeholder:text-neutral-400 focus-visible:ring-blue-500/40",
+              )}
+              placeholder="Search files"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              aria-label="Search files"
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
     </header>
   );
 }

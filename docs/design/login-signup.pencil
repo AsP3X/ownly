@@ -12973,7 +12973,7 @@
                               "height": 12,
                               "icon": "refresh-cw",
                               "library": "lucide",
-                              "fill": "#D946EF"
+                              "fill": "#A21CAF"
                             },
                             {
                               "type": "text",
@@ -12991,7 +12991,7 @@
                           "type": "text",
                           "id": "zQAYV",
                           "name": "Percent",
-                          "fill": "#D946EF",
+                          "fill": "#A21CAF",
                           "content": "80%",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
@@ -13016,7 +13016,7 @@
                           "x": 0,
                           "y": 0,
                           "name": "Bar Fill",
-                          "fill": "#D946EF",
+                          "fill": "#A21CAF",
                           "width": 250,
                           "height": 4
                         }
@@ -13026,7 +13026,7 @@
                       "type": "text",
                       "id": "y110A",
                       "name": "Meta",
-                      "fill": "#D946EF",
+                      "fill": "#A21CAF",
                       "content": "5.4 MB • Processing encryption",
                       "fontFamily": "$font-sans",
                       "fontSize": 11,
@@ -13065,7 +13065,7 @@
                               "height": 12,
                               "icon": "refresh-cw",
                               "library": "lucide",
-                              "fill": "#10B981"
+                              "fill": "#059669"
                             },
                             {
                               "type": "text",
@@ -13083,7 +13083,7 @@
                           "type": "text",
                           "id": "oiSWD",
                           "name": "Percent",
-                          "fill": "#10B981",
+                          "fill": "#059669",
                           "content": "95%",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
@@ -13108,7 +13108,7 @@
                           "x": 0,
                           "y": 0,
                           "name": "Bar Fill",
-                          "fill": "#10B981",
+                          "fill": "#059669",
                           "width": 290,
                           "height": 4
                         }
@@ -13118,7 +13118,7 @@
                       "type": "text",
                       "id": "Xr7FE",
                       "name": "Meta",
-                      "fill": "#10B981",
+                      "fill": "#059669",
                       "content": "1.2 MB • Moving to secure storage",
                       "fontFamily": "$font-sans",
                       "fontSize": 11,

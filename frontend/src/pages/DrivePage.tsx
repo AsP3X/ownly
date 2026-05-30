@@ -1,4 +1,4 @@
-// Human: OneDrive-style drive shell — top bar, sidebar, recent files table on a light theme.
+// Human: Drive shell — sidebar, Home overview, and My Cloud explorer per Pencil wireframes.
 // Agent: CALLS listFiles/uploadFile/fetchDashboard; READS auth user for profile chip.
 
 import {
@@ -7,30 +7,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
-  type DragEvent,
-  type RefObject,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  ChevronRight,
-  Download,
-  FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Film,
-  Folder,
-  FolderPlus,
-  ImageIcon,
   LayoutGrid,
   LogOut,
-  Music,
-  Presentation,
   Search,
   Settings,
-  Star,
-  Trash2,
-  Upload,
 } from "lucide-react";
 import {
   batchFiles,
@@ -53,14 +35,15 @@ import {
   type ShareFlags,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
-import { FileListView } from "@/components/drive/FileListView";
 import {
   MobileFileActionsSheet,
   type MobileActionTarget,
 } from "@/components/drive/MobileFileActionsSheet";
 import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
 import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
-import { MobileHomeSection } from "@/components/drive/MobileHomeSection";
+import { DriveCloudExplorer } from "@/components/drive/DriveCloudExplorer";
+import { DriveOverviewPanel } from "@/components/drive/DriveOverviewPanel";
+import { DriveSidebar } from "@/components/drive/DriveSidebar";
 import { MobileSidebarSheet } from "@/components/drive/MobileSidebarSheet";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import {
@@ -78,7 +61,6 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
 import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
@@ -86,7 +68,6 @@ import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
-import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
@@ -94,8 +75,6 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   buildAudioGallery,
   buildImageGallery,
-  formatBytes,
-  formatFileOpened,
   isAudioMime,
   isImageMime,
   isPdfMime,
@@ -106,7 +85,6 @@ import {
 import {
   getFavouriteFileIds,
   getRecentFileIds,
-  pickFavouriteFiles,
   recordFileAccess,
   removeFilePreferences,
   sortFilesByRecentAccess,
@@ -115,7 +93,6 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 
@@ -131,826 +108,6 @@ const TYPE_FILTERS: { id: FileTypeFilter; label: string }[] = [
   { id: "video", label: "Video" },
   { id: "audio", label: "Audio" },
 ];
-
-// Human: Pick a lucide icon from mime type for the file table name column.
-// Agent: READS mime_type string; RETURNS icon component for row rendering.
-function FileTypeIcon({ mimeType }: { mimeType: string | null }) {
-  const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-[18px] shrink-0 text-blue-600";
-  if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
-  if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
-  if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
-  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return <FileSpreadsheet className={className} aria-hidden />;
-  }
-  if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return <Presentation className={className} aria-hidden />;
-  }
-  if (
-    mime.startsWith("text/") ||
-    mime.includes("pdf") ||
-    mime.includes("word") ||
-    mime.includes("document")
-  ) {
-    return <FileText className={className} aria-hidden />;
-  }
-  return <FileIcon className={className} aria-hidden />;
-}
-
-// Human: Sidebar nav row with OneDrive-style active indicator on the left edge.
-// Agent: RENDERS button; HIGHLIGHTS when id matches activeNav.
-function SidebarNavItem({
-  label,
-  active,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  active: boolean;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-3 rounded-md py-2 pl-1 pr-2 text-left text-sm transition-colors",
-        active && "font-semibold text-blue-700",
-        !active && !disabled && "text-neutral-700 hover:bg-neutral-100",
-        disabled && "cursor-not-allowed text-neutral-400",
-      )}
-    >
-      <span
-        className={cn(
-          "h-[18px] w-[3px] shrink-0 rounded-full",
-          active ? "bg-blue-600" : "bg-transparent",
-        )}
-        aria-hidden
-      />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-type FileTableProps = {
-  folders?: FolderItem[];
-  files: FileItem[];
-  ownerLabel: string;
-  favouriteIds: Set<string>;
-  locationLabel?: string;
-  emptyMessage: string;
-  dragEnabled?: boolean;
-  selectable?: boolean;
-  selectedFileIds?: Set<string>;
-  onSelectedFileIdsChange?: (ids: Set<string>) => void;
-  onOpenFolder?: (folder: FolderItem) => void;
-  onDeleteFolder?: (folderId: string) => void;
-  onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
-  onToggleFavourite: (fileId: string) => void;
-  onDelete: (fileId: string) => void;
-  onDownload: (file: FileItem) => void;
-  onPreviewVideo?: (file: FileItem) => void;
-  onPreviewImage?: (file: FileItem) => void;
-  onPreviewPdf?: (file: FileItem) => void;
-  onPreviewAudio?: (file: FileItem) => void;
-  fileShareFlags?: Record<string, ShareFlags>;
-  folderShareFlags?: Record<string, ShareFlags>;
-  hasMoreFiles?: boolean;
-  loadingMoreFiles?: boolean;
-  onLoadMoreFiles?: () => void;
-  hasMoreFolders?: boolean;
-  loadingMoreFolders?: boolean;
-  onLoadMoreFolders?: () => void;
-  /** Main pane scroll element — virtualizer and load-more observe this, not an inner box. */
-  scrollElementRef?: RefObject<HTMLElement | null>;
-};
-
-// Human: MIME payload key for HTML5 drag — keeps drop handler independent of React state timing.
-// Agent: SET on dragstart; READ on drop to resolve which file was moved.
-const FILE_DRAG_MIME = "application/x-mediavault-file-id";
-// Human: Fixed row height estimate for virtualized file rows in the drive table.
-// Agent: USED by @tanstack/react-virtual estimateSize; MATCHES py-3 row padding.
-const FILE_TABLE_ROW_HEIGHT = 56;
-
-// Human: Reusable file rows table for the My files browser, with optional folder rows first.
-// Agent: RENDERS folder navigation + download/delete/favourite actions; SUPPORTS drag files onto folders.
-function FileTable({
-  folders = [],
-  files,
-  ownerLabel,
-  favouriteIds,
-  locationLabel = "My files",
-  emptyMessage,
-  dragEnabled = false,
-  selectable = false,
-  selectedFileIds,
-  onSelectedFileIdsChange,
-  onOpenFolder,
-  onDeleteFolder,
-  onMoveFileToFolder,
-  onToggleFavourite,
-  onDelete,
-  onDownload,
-  onPreviewVideo,
-  onPreviewImage,
-  onPreviewPdf,
-  onPreviewAudio,
-  fileShareFlags = {},
-  folderShareFlags = {},
-  hasMoreFiles = false,
-  loadingMoreFiles = false,
-  onLoadMoreFiles,
-  hasMoreFolders = false,
-  loadingMoreFolders = false,
-  onLoadMoreFolders,
-  scrollElementRef,
-}: FileTableProps) {
-  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
-  const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
-  const dragDepthRef = useRef<Map<string, number>>(new Map());
-  const selectAllRef = useRef<HTMLInputElement>(null);
-  // Human: Ref mirrors dragging id so dragOver handlers see it before React re-renders.
-  // Agent: WRITES in dragstart; READS in folder dragenter/over; CLEARS on dragend.
-  const draggingFileIdRef = useRef<string | null>(null);
-
-  const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
-  const selectionEnabled = selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
-  // Human: Bulk selection skips files still processing on the server.
-  // Agent: FILTERS isFileProcessing; USED by select-all and checkbox disabled state.
-  const selectableFileIds = useMemo(
-    () => files.filter((file) => !isFileProcessing(file)).map((file) => file.id),
-    [files],
-  );
-  const columnCount = selectionEnabled ? 5 : 4;
-
-  // Human: Only mount visible file rows; scroll tracking uses the main pane, not a nested box.
-  // Agent: READS scrollElementRef from DrivePage main; CALLS onLoadMoreFiles via IntersectionObserver.
-  const rowVirtualizer = useVirtualizer({
-    count: files.length,
-    getScrollElement: () => scrollElementRef?.current ?? null,
-    estimateSize: () => FILE_TABLE_ROW_HEIGHT,
-    overscan: 12,
-  });
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
-  const paddingBottom =
-    virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
-      : 0;
-
-  useEffect(() => {
-    const root = scrollElementRef?.current ?? null;
-    const sentinel = loadMoreSentinelRef.current;
-    if (!sentinel || !onLoadMoreFiles || !hasMoreFiles || loadingMoreFiles) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          onLoadMoreFiles();
-        }
-      },
-      { root, rootMargin: "240px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMoreFiles, loadingMoreFiles, onLoadMoreFiles, files.length, scrollElementRef]);
-  const selectedVisibleCount = selectionEnabled
-    ? selectableFileIds.filter((id) => selectedFileIds.has(id)).length
-    : 0;
-  const allVisibleSelected =
-    selectionEnabled &&
-    selectableFileIds.length > 0 &&
-    selectedVisibleCount === selectableFileIds.length;
-  const someVisibleSelected =
-    selectionEnabled &&
-    selectedVisibleCount > 0 &&
-    selectedVisibleCount < selectableFileIds.length;
-
-  // Human: Mirror partial selection on the header checkbox via the native indeterminate flag.
-  // Agent: WRITES selectAllRef.indeterminate when some but not all visible files are checked.
-  useEffect(() => {
-    if (selectAllRef.current) {
-      selectAllRef.current.indeterminate = someVisibleSelected;
-    }
-  }, [someVisibleSelected]);
-
-  // Human: Toggle one file row in the bulk selection set without mutating the parent Set in place.
-  // Agent: CLONES selectedFileIds; ADDS or REMOVES fileId; CALLS onSelectedFileIdsChange.
-  function toggleFileSelected(fileId: string, checked: boolean) {
-    if (!selectionEnabled) return;
-    const next = new Set(selectedFileIds);
-    if (checked) {
-      next.add(fileId);
-    } else {
-      next.delete(fileId);
-    }
-    onSelectedFileIdsChange(next);
-  }
-
-  // Human: Select or clear every file currently visible in the table (respects type/search filters).
-  // Agent: MERGES visible ids into selection or REMOVES them on clear-all.
-  function handleSelectAllVisible(event: ChangeEvent<HTMLInputElement>) {
-    if (!selectionEnabled) return;
-    const next = new Set(selectedFileIds);
-    if (event.target.checked) {
-      for (const fileId of selectableFileIds) {
-        next.add(fileId);
-      }
-    } else {
-      for (const fileId of selectableFileIds) {
-        next.delete(fileId);
-      }
-    }
-    onSelectedFileIdsChange(next);
-  }
-
-  // Human: Clear drag highlights when the pointer leaves the table or the drag ends.
-  // Agent: RESETS dropTargetFolderId and dragDepthRef on dragend.
-  const resetDragState = useCallback(() => {
-    draggingFileIdRef.current = null;
-    setDraggingFileId(null);
-    setDropTargetFolderId(null);
-    dragDepthRef.current.clear();
-  }, []);
-
-  // Human: Start dragging a file row — stash id for styling and for the folder drop handler.
-  // Agent: WRITES dataTransfer custom MIME + text/plain fallback.
-  function handleFileDragStart(event: DragEvent<HTMLTableRowElement>, fileId: string) {
-    if (!dragEnabled) {
-      event.preventDefault();
-      return;
-    }
-    const file = fileById.get(fileId);
-    if (file && isFileProcessing(file)) {
-      event.preventDefault();
-      return;
-    }
-    draggingFileIdRef.current = fileId;
-    setDraggingFileId(fileId);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(FILE_DRAG_MIME, fileId);
-    event.dataTransfer.setData("text/plain", fileId);
-  }
-
-  // Human: Resolve dragged file id from the drop event payload.
-  // Agent: READS FILE_DRAG_MIME first, then text/plain.
-  function readDraggedFileId(event: DragEvent): string | null {
-    const custom = event.dataTransfer.getData(FILE_DRAG_MIME);
-    if (custom) return custom;
-    const plain = event.dataTransfer.getData("text/plain");
-    return plain || draggingFileIdRef.current || draggingFileId;
-  }
-
-  // Human: Highlight a folder row while a file is dragged over it.
-  // Agent: TRACKS enter/leave depth per folder id to avoid flicker on child elements.
-  function handleFolderDragEnter(
-    event: DragEvent<HTMLTableRowElement>,
-    folderId: string,
-    fileId: string | null,
-  ) {
-    if (!dragEnabled || !fileId) return;
-    event.preventDefault();
-    const depth = (dragDepthRef.current.get(folderId) ?? 0) + 1;
-    dragDepthRef.current.set(folderId, depth);
-    setDropTargetFolderId(folderId);
-  }
-
-  function handleFolderDragLeave(folderId: string) {
-    const depth = (dragDepthRef.current.get(folderId) ?? 0) - 1;
-    if (depth <= 0) {
-      dragDepthRef.current.delete(folderId);
-      setDropTargetFolderId((current) => (current === folderId ? null : current));
-      return;
-    }
-    dragDepthRef.current.set(folderId, depth);
-  }
-
-  // Human: Accept file drop onto a folder and notify the parent to persist the move.
-  // Agent: CALLS onMoveFileToFolder when target differs from the file's current folder_id.
-  function handleFolderDrop(
-    event: DragEvent<HTMLTableRowElement>,
-    folder: FolderItem,
-  ) {
-    if (!dragEnabled || !onMoveFileToFolder) return;
-    event.preventDefault();
-    const fileId = readDraggedFileId(event);
-    resetDragState();
-    if (!fileId) return;
-
-    const file = fileById.get(fileId);
-    if (!file || file.folder_id === folder.id) return;
-
-    void onMoveFileToFolder(fileId, folder.id);
-  }
-
-  function canDropOnFolder(folderId: string, fileId: string | null): boolean {
-    if (!fileId) return false;
-    const file = fileById.get(fileId);
-    return Boolean(file && file.folder_id !== folderId);
-  }
-  if (folders.length === 0 && files.length === 0) {
-    return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      {hasMoreFolders && onLoadMoreFolders ? (
-        <div className="mb-2 flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loadingMoreFolders}
-            onClick={() => onLoadMoreFolders()}
-          >
-            {loadingMoreFolders ? "Loading folders…" : "Load more folders"}
-          </Button>
-        </div>
-      ) : null}
-      <table className="w-full min-w-[640px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-neutral-200 text-left text-neutral-500">
-            {selectionEnabled ? (
-              <th className="w-10 pb-3 pr-2 font-medium">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
-                  checked={allVisibleSelected}
-                  onChange={handleSelectAllVisible}
-                  aria-label="Select all files"
-                />
-              </th>
-            ) : null}
-            <th className="pb-3 pr-4 font-medium">Name</th>
-            <th className="pb-3 pr-4 font-medium">Opened</th>
-            <th className="pb-3 pr-4 font-medium">Owner</th>
-            <th className="pb-3 font-medium text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {folders.map((folder) => {
-            const isDropTarget = dropTargetFolderId === folder.id;
-            const dropAllowed = canDropOnFolder(folder.id, draggingFileId);
-            return (
-            <tr
-              key={folder.id}
-              data-folder-id={folder.id}
-              onDoubleClick={() => onOpenFolder?.(folder)}
-              onDragEnter={(event) =>
-                handleFolderDragEnter(event, folder.id, draggingFileIdRef.current)
-              }
-              onDragOver={(event) => {
-                if (!dragEnabled || !canDropOnFolder(folder.id, draggingFileIdRef.current)) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-              }}
-              onDragLeave={() => handleFolderDragLeave(folder.id)}
-              onDrop={(event) => handleFolderDrop(event, folder)}
-              className={cn(
-                "border-b border-neutral-100 transition-colors hover:bg-neutral-50 cursor-pointer",
-                isDropTarget && dropAllowed && "bg-blue-50 ring-2 ring-inset ring-blue-300",
-              )}
-            >
-              {selectionEnabled ? <td className="w-10 py-3 pr-2" aria-hidden /> : null}
-              <td className="py-3 pr-4">
-                <button
-                  type="button"
-                  onClick={() => onOpenFolder?.(folder)}
-                  className="flex min-w-0 items-start gap-3 text-left"
-                >
-                  <Folder className="size-[18px] shrink-0 text-amber-500" aria-hidden />
-                  <div className="min-w-0 flex flex-col gap-0.5">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-neutral-900">{folder.name}</span>
-                      <SharedIndicator flags={folderShareFlags[folder.id]} />
-                    </div>
-                    <span className="text-xs text-neutral-500">{locationLabel} · Folder</span>
-                  </div>
-                </button>
-              </td>
-              <td className="py-3 pr-4 whitespace-nowrap text-neutral-700">
-                {formatFileOpened(folder.updated_at)}
-              </td>
-              <td className="py-3 pr-4 whitespace-nowrap capitalize text-neutral-700">
-                {ownerLabel}
-              </td>
-              <td className="py-3">
-                <div
-                  className="flex items-center justify-end gap-1"
-                  onDoubleClick={(event) => event.stopPropagation()}
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onOpenFolder?.(folder)}
-                    aria-label={`Open ${folder.name}`}
-                  >
-                    <Folder className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onDeleteFolder?.(folder.id)}
-                    aria-label={`Delete ${folder.name}`}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </td>
-            </tr>
-            );
-          })}
-          {paddingTop > 0 ? (
-            <tr aria-hidden>
-              <td colSpan={columnCount} style={{ height: paddingTop, padding: 0, border: "none" }} />
-            </tr>
-          ) : null}
-          {virtualRows.map((virtualRow) => {
-            const file = files[virtualRow.index];
-            if (!file) return null;
-            const favourited = favouriteIds.has(file.id);
-            const isDragging = draggingFileId === file.id;
-            const isSelected = selectionEnabled && selectedFileIds.has(file.id);
-            const isVideo = file.mime_type?.startsWith("video/") ?? false;
-            const isImage = isImageMime(file.mime_type);
-            const isPdf = isPdfMime(file.mime_type);
-            const isAudio = isAudioMime(file.mime_type);
-            const processing = isFileProcessing(file);
-            const canPreviewVideo =
-              isVideo && onPreviewVideo !== undefined && !processing;
-            const canPreviewImage =
-              isImage && onPreviewImage !== undefined && !processing;
-            const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-            const canPreviewAudio =
-              isAudio && onPreviewAudio !== undefined && !processing;
-            const canPreview =
-              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
-            return (
-              <tr
-                key={file.id}
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                data-file-id={file.id}
-                draggable={dragEnabled && !processing}
-                onDragStart={(event) => handleFileDragStart(event, file.id)}
-                onDragEnd={resetDragState}
-                onClick={(event) => {
-                  if (!canPreview) return;
-                  const target = event.target;
-                  if (!(target instanceof Element)) return;
-                  if (target.closest('input[type="checkbox"]') || target.closest("button")) return;
-                  if (canPreviewVideo) onPreviewVideo!(file);
-                  else if (canPreviewImage) onPreviewImage!(file);
-                  else if (canPreviewPdf) onPreviewPdf!(file);
-                  else if (canPreviewAudio) onPreviewAudio!(file);
-                }}
-                className={cn(
-                  "border-b border-neutral-100 transition-colors hover:bg-neutral-50",
-                  dragEnabled && !processing && "cursor-grab active:cursor-grabbing",
-                  canPreview && "cursor-pointer",
-                  processing && "bg-violet-50/40",
-                  isDragging && "opacity-50",
-                  isSelected && "bg-blue-50/60",
-                )}
-              >
-                {selectionEnabled ? (
-                  <td className="w-10 py-3 pr-2">
-                    <input
-                      type="checkbox"
-                      className="size-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-                      checked={isSelected}
-                      disabled={processing}
-                      onChange={(event) => toggleFileSelected(file.id, event.target.checked)}
-                      onClick={(event) => event.stopPropagation()}
-                      aria-label={`Select ${file.name}`}
-                    />
-                  </td>
-                ) : null}
-                <td className="py-3 pr-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <FileTypeIcon mimeType={file.mime_type} />
-                    <div className="min-w-0 flex flex-col gap-0.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate font-medium text-neutral-900">{file.name}</span>
-                        <SharedIndicator flags={fileShareFlags[file.id]} />
-                        {processing ? (
-                          <FileProcessingBadge file={file} className="shrink-0 bg-violet-100 text-violet-900" />
-                        ) : null}
-                      </div>
-                      <span className="text-xs text-neutral-500">
-                        {locationLabel} · {formatBytes(file.size_bytes)}
-                        {file.mime_type ? (
-                          <>
-                            {" "}
-                            ·{" "}
-                            <Badge variant="secondary" className="px-1 py-0 text-[10px]">
-                              {file.mime_type.split("/")[0]}
-                            </Badge>
-                          </>
-                        ) : null}
-                      </span>
-                    </div>
-                  </div>
-                </td>
-                <td className="py-3 pr-4 whitespace-nowrap text-neutral-700">
-                  {formatFileOpened(file.updated_at)}
-                </td>
-                <td className="py-3 pr-4 whitespace-nowrap capitalize text-neutral-700">
-                  {ownerLabel}
-                </td>
-                <td className="py-3">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={processing}
-                      onClick={() => onToggleFavourite(file.id)}
-                      aria-label={favourited ? `Unfavourite ${file.name}` : `Favourite ${file.name}`}
-                      className={cn(
-                        favourited && "text-amber-500 hover:text-amber-600",
-                        processing && "opacity-40",
-                      )}
-                    >
-                      <Star className={cn("size-4", favourited && "fill-current")} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={processing}
-                      onClick={() => onDownload(file)}
-                      aria-label={`Download ${file.name}`}
-                      className={cn(processing && "opacity-40")}
-                    >
-                      <Download />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={processing}
-                      onClick={() => onDelete(file.id)}
-                      aria-label={`Delete ${file.name}`}
-                      className={cn(processing && "opacity-40")}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-          {paddingBottom > 0 ? (
-            <tr aria-hidden>
-              <td colSpan={columnCount} style={{ height: paddingBottom, padding: 0, border: "none" }} />
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
-      <div ref={loadMoreSentinelRef} className="h-1" aria-hidden />
-      {loadingMoreFiles ? (
-        <p className="py-3 text-center text-xs text-neutral-500">Loading more files…</p>
-      ) : null}
-      {hasMoreFiles && !loadingMoreFiles ? (
-        <div className="flex justify-center py-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => onLoadMoreFiles?.()}>
-            Load more files
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type FileGridProps = {
-  files: FileItem[];
-  ownerLabel: string;
-  favouriteIds: Set<string>;
-  locationLabel?: string;
-  emptyMessage: string;
-  onToggleFavourite: (fileId: string) => void;
-  onDelete: (fileId: string) => void;
-  onDownload: (file: FileItem) => void;
-  onPreviewVideo?: (file: FileItem) => void;
-  onPreviewImage?: (file: FileItem) => void;
-  onPreviewPdf?: (file: FileItem) => void;
-  onPreviewAudio?: (file: FileItem) => void;
-  fileShareFlags?: Record<string, ShareFlags>;
-};
-
-// Human: Large mime icon for Home grid tile previews (no thumbnail API yet).
-// Agent: READS mime_type; RETURNS larger lucide icon centered in tile header.
-function FileGridPreview({ mimeType }: { mimeType: string | null }) {
-  const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-10 text-blue-600";
-  if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
-  if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
-  if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
-  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return <FileSpreadsheet className={className} aria-hidden />;
-  }
-  if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return <Presentation className={className} aria-hidden />;
-  }
-  if (
-    mime.startsWith("text/") ||
-    mime.includes("pdf") ||
-    mime.includes("word") ||
-    mime.includes("document")
-  ) {
-    return <FileText className={className} aria-hidden />;
-  }
-  return <FileIcon className={className} aria-hidden />;
-}
-
-// Human: Card grid for Home — recently accessed, favourites, and shared buckets.
-// Agent: RESPONSIVE grid layout; HOVER reveals star/download/delete actions on each tile.
-function FileGrid({
-  files,
-  ownerLabel,
-  favouriteIds,
-  locationLabel = "My files",
-  emptyMessage,
-  onToggleFavourite,
-  onDelete,
-  onDownload,
-  onPreviewVideo,
-  onPreviewImage,
-  onPreviewPdf,
-  onPreviewAudio,
-  fileShareFlags = {},
-}: FileGridProps) {
-  if (files.length === 0) {
-    return <p className="py-6 text-sm text-neutral-500">{emptyMessage}</p>;
-  }
-
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
-      {files.map((file) => {
-        const favourited = favouriteIds.has(file.id);
-        const isVideo = file.mime_type?.startsWith("video/") ?? false;
-        const isImage = isImageMime(file.mime_type);
-        const isPdf = isPdfMime(file.mime_type);
-        const isAudio = isAudioMime(file.mime_type);
-        const processing = isFileProcessing(file);
-        const canPreviewVideo =
-          isVideo && onPreviewVideo !== undefined && !processing;
-        const canPreviewImage =
-          isImage && onPreviewImage !== undefined && !processing;
-        const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-        const canPreviewAudio =
-          isAudio && onPreviewAudio !== undefined && !processing;
-        const canPreview =
-          canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
-        return (
-          <article
-            key={file.id}
-            data-file-id={file.id}
-            onClick={(event) => {
-              if (!canPreview) return;
-              const target = event.target;
-              if (!(target instanceof Element)) return;
-              if (target.closest("button")) return;
-              if (canPreviewVideo) onPreviewVideo!(file);
-              else if (canPreviewImage) onPreviewImage!(file);
-              else if (canPreviewPdf) onPreviewPdf!(file);
-              else if (canPreviewAudio) onPreviewAudio!(file);
-            }}
-            className={cn(
-              "group flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white transition hover:border-blue-200 hover:shadow-sm",
-              canPreview && "cursor-pointer",
-              processing && "border-violet-200 bg-violet-50/30",
-            )}
-          >
-            <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f3f2f1]">
-              <FileGridPreview mimeType={file.mime_type} />
-              {processing ? (
-                <div className="absolute inset-x-2 top-2 flex justify-center">
-                  <FileProcessingBadge file={file} className="bg-violet-100 text-violet-900 shadow-sm" />
-                </div>
-              ) : null}
-              <div className="absolute right-2 top-2 flex gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={processing}
-                  className={cn(
-                    "size-7 bg-white/90 hover:bg-white",
-                    favourited && "text-amber-500 hover:text-amber-600",
-                    processing && "opacity-40",
-                  )}
-                  onClick={() => onToggleFavourite(file.id)}
-                  aria-label={favourited ? `Unfavourite ${file.name}` : `Favourite ${file.name}`}
-                >
-                  <Star className={cn("size-3.5", favourited && "fill-current")} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={processing}
-                  className={cn("size-7 bg-white/90 hover:bg-white", processing && "opacity-40")}
-                  onClick={() => onDownload(file)}
-                  aria-label={`Download ${file.name}`}
-                >
-                  <Download className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={processing}
-                  className={cn("size-7 bg-white/90 hover:bg-white", processing && "opacity-40")}
-                  onClick={() => onDelete(file.id)}
-                  aria-label={`Delete ${file.name}`}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1 px-3 py-2.5">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <p className="truncate text-sm font-medium text-neutral-900" title={file.name}>
-                  {file.name}
-                </p>
-                <SharedIndicator flags={fileShareFlags[file.id]} className="size-3" />
-              </div>
-              <p className="truncate text-xs text-neutral-500">
-                {locationLabel} · {formatFileOpened(file.updated_at)}
-              </p>
-              <p className="truncate text-xs capitalize text-neutral-400">
-                {ownerLabel} · {formatBytes(file.size_bytes)}
-              </p>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-// Human: Home dashboard section wrapper (Recently accessed, Favourites, Shared).
-// Agent: RENDERS section title + FileGrid tiles for one Home bucket.
-function HomeSection({
-  title,
-  description,
-  files,
-  ownerLabel,
-  favouriteIds,
-  locationLabel,
-  emptyMessage,
-  onToggleFavourite,
-  onDelete,
-  onDownload,
-  onPreviewVideo,
-  onPreviewImage,
-  onPreviewPdf,
-  onPreviewAudio,
-  fileShareFlags,
-}: {
-  title: string;
-  description: string;
-  files: FileItem[];
-  ownerLabel: string;
-  favouriteIds: Set<string>;
-  locationLabel: string;
-  emptyMessage: string;
-  onToggleFavourite: (fileId: string) => void;
-  onDelete: (fileId: string) => void;
-  onDownload: (file: FileItem) => void;
-  onPreviewVideo?: (file: FileItem) => void;
-  onPreviewImage?: (file: FileItem) => void;
-  onPreviewPdf?: (file: FileItem) => void;
-  onPreviewAudio?: (file: FileItem) => void;
-  fileShareFlags?: Record<string, ShareFlags>;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="hidden lg:block">
-        <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
-        <p className="text-sm text-neutral-500">{description}</p>
-      </div>
-      <div className="hidden lg:block">
-        <FileGrid
-          files={files}
-          ownerLabel={ownerLabel}
-          favouriteIds={favouriteIds}
-          locationLabel={locationLabel}
-          emptyMessage={emptyMessage}
-          onToggleFavourite={onToggleFavourite}
-          onDelete={onDelete}
-          onDownload={onDownload}
-          onPreviewVideo={onPreviewVideo}
-          onPreviewImage={onPreviewImage}
-          onPreviewPdf={onPreviewPdf}
-          onPreviewAudio={onPreviewAudio}
-          fileShareFlags={fileShareFlags}
-        />
-      </div>
-    </section>
-  );
-}
 
 // Human: Sidebar storage quota bar with explicit fill width so usage is always visible on light theme.
 // Agent: RENDERS neutral track + blue fill; ensures non-zero usage shows at least a sliver.
@@ -1138,20 +295,21 @@ export default function DrivePage() {
           options?.folderId !== undefined ? options.folderId : currentFolderId;
 
         if (nav === "home" && !search) {
-          const homeIds = [
-            ...new Set([...getRecentFileIds(), ...getFavouriteFileIds()]),
-          ].slice(0, FILES_PAGE_SIZE);
-          const { files: homeFiles } = await batchFiles(homeIds, "minimal");
-          setFolders([]);
-          setFiles(homeFiles);
-          setFileCount(homeFiles.length);
+          const recentIds = getRecentFileIds().slice(0, FILES_PAGE_SIZE);
+          const [folderListing, { files: recentBatch }] = await Promise.all([
+            listFolders({ limit: FILES_PAGE_SIZE, offset: 0 }),
+            batchFiles(recentIds, "minimal"),
+          ]);
+          setFolders(folderListing.folders);
+          setFiles(recentBatch);
+          setFileCount(recentBatch.length);
           setHasMoreFiles(false);
-          setFolderCount(0);
-          setHasMoreFolders(false);
-          const flags = buildShareFlagMaps(homeFiles, []);
+          setFolderCount(folderListing.folder_count);
+          setHasMoreFolders(folderListing.has_more);
+          const flags = buildShareFlagMaps(recentBatch, folderListing.folders);
           setFileShareFlags(flags.files);
-          setFolderShareFlags({});
-          pruneFileSelection(homeFiles);
+          setFolderShareFlags(flags.folders);
+          pruneFileSelection(recentBatch);
           return;
         }
 
@@ -1757,9 +915,10 @@ export default function DrivePage() {
     [folders, isSearchingMyFiles],
   );
   const recentFiles = sortFilesByRecentAccess(nameFilteredFiles, 12);
-  const favouriteFiles = pickFavouriteFiles(nameFilteredFiles);
-  const sharedFiles: FileItem[] = [];
-  const ownerLabel = user?.email?.split("@")[0]?.replace(/[._-]/g, " ") ?? "You";
+  const overviewFolders = useMemo(
+    () => (activeNav === "home" ? sortFilesByName(folders) : []),
+    [activeNav, folders],
+  );
   const initials = userInitials(user?.email);
 
   return (
@@ -1943,7 +1102,12 @@ export default function DrivePage() {
         />
       {/* Top bar — desktop only; mobile uses MobileDriveHeader below. */}
       {/* Agent: relative z-20 keeps the profile dropdown above the main grid so Sign out receives clicks. */}
-      <header className="relative z-20 hidden shrink-0 border-b border-neutral-200 bg-white lg:block">
+      <header
+        className={cn(
+          "relative z-20 hidden shrink-0 border-b border-neutral-200 bg-white lg:block",
+          (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
+        )}
+      >
         <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <Button
@@ -2040,182 +1204,50 @@ export default function DrivePage() {
         onBack={() => goToFolderIndex(folderStack.length - 2)}
       />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:grid-rows-1">
-        {/* Left sidebar — pinned from header to viewport bottom; storage block uses mt-auto. */}
-        {/* Agent: lg:h-full + overflow-hidden keeps sidebar fixed while main scrolls independently. */}
-        <aside className="hidden shrink-0 flex-col gap-4 overflow-hidden border-b border-neutral-200 bg-white px-4 py-4 lg:flex lg:h-full lg:border-b-0 lg:border-r">
-          <Button
-            className="w-full justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
-            onClick={() => setUploadDialogOpen(true)}
-          >
-            <Upload data-icon="inline-start" />
-            Create or upload
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-center rounded-md border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50"
-            onClick={() => {
-              setActiveNav("my-files");
-              setCreateFolderDialogOpen(true);
-            }}
-          >
-            <FolderPlus data-icon="inline-start" />
-            New folder
-          </Button>
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
+        <DriveSidebar
+          activeNav={activeNav}
+          usedBytes={usedBytes}
+          quotaBytes={quotaBytes}
+          onNavChange={handleNavChange}
+        />
 
-          <nav className="flex flex-col gap-0.5" aria-label="Drive navigation">
-            <SidebarNavItem
-              label="Home"
-              active={activeNav === "home"}
-              onClick={() => handleNavChange("home")}
-            />
-            <SidebarNavItem
-              label="My files"
-              active={activeNav === "my-files"}
-              onClick={() => handleNavChange("my-files")}
-            />
-            <SidebarNavItem label="Shared" active={false} disabled />
-            <SidebarNavItem
-              label="Recycle bin"
-              active={activeNav === "recycle-bin"}
-              onClick={() => handleNavChange("recycle-bin")}
-            />
-          </nav>
-
-          <Separator className="bg-neutral-200" />
-
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              Browse files by
-            </p>
-            <SidebarNavItem label="People" active={false} disabled />
-          </div>
-
-          <div className="mt-auto flex flex-col gap-3 pt-6">
-            <Button variant="ghost" size="sm" className="justify-start px-0 text-blue-700">
-              Get more storage
-            </Button>
-            <div className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3">
-              <div className="flex items-center justify-between text-xs font-medium text-neutral-700">
-                <span>Storage</span>
-                <span className="tabular-nums">{usagePercent}%</span>
-              </div>
-              <StorageUsageBar usedBytes={usedBytes} quotaBytes={quotaBytes} />
-              <p className="text-xs text-neutral-600">
-                {formatBytes(usedBytes)} of {formatBytes(quotaBytes)} used
-              </p>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main content — Home hub vs My files browser; sole vertical scroll region below header. */}
-        {/* Agent: min-h-0 overflow-y-auto; READS user scroll; sidebar sibling stays viewport-anchored. */}
+        {/* Main content — overview dashboard vs file browser; sole vertical scroll region. */}
+        {/* Agent: min-h-0 overflow-y-auto; home uses #F7F8FA canvas per Pencil Main Overview. */}
         <main
           ref={mainScrollRef}
-          className="min-h-0 overflow-y-auto bg-[#f3f2f1] px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:bg-transparent lg:pb-6 lg:pt-0 lg:px-6"
+          className={cn(
+            "min-h-0 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:pb-6 lg:pt-0 lg:px-12",
+            activeNav === "home" || activeNav === "my-files"
+              ? "bg-[#F7F8FA] lg:pb-12 lg:pt-12"
+              : "bg-[#f3f2f1] lg:bg-transparent",
+          )}
         >
-          <div className="flex min-h-full flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none">
-            <div className="hidden flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
+          <div
+            className={cn(
+              "flex min-h-full flex-col gap-4 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none",
+              activeNav === "home" || activeNav === "my-files"
+                ? "lg:min-h-full"
+                : "rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6",
+            )}
+          >
+            <div
+              className={cn(
+                "hidden flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex",
+                (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
+              )}
+            >
               <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold text-neutral-900">
-                  {activeNav === "home"
-                    ? "Home"
-                    : activeNav === "recycle-bin"
-                      ? "Recycle bin"
-                      : "My files"}
+                  {activeNav === "recycle-bin" ? "Recycle bin" : "Library"}
                 </h1>
                 <p className="text-sm text-neutral-500">
-                  {activeNav === "home"
-                    ? "Recently accessed, favourites, and shared with you"
-                    : activeNav === "recycle-bin"
-                      ? "Restore deleted files and folders, or remove them permanently"
-                      : "Browse everything in your library"}
+                  {activeNav === "recycle-bin"
+                    ? "Restore deleted files and folders, or remove them permanently"
+                    : "Browse everything in your library"}
                 </p>
-                {activeNav === "my-files" && folderStack.length > 0 ? (
-                  <nav
-                    className="flex flex-wrap items-center gap-1 text-sm text-neutral-600"
-                    aria-label="Folder path"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => goToFolderIndex(-1)}
-                      className="rounded px-1 font-medium text-blue-700 hover:bg-blue-50"
-                    >
-                      My files
-                    </button>
-                    {folderStack.map((crumb, index) => (
-                      <span key={crumb.id} className="flex items-center gap-1">
-                        <ChevronRight className="size-3.5 text-neutral-400" aria-hidden />
-                        <button
-                          type="button"
-                          onClick={() => goToFolderIndex(index)}
-                          className={cn(
-                            "rounded px-1 hover:bg-neutral-100",
-                            index === folderStack.length - 1
-                              ? "font-medium text-neutral-900"
-                              : "text-blue-700 hover:bg-blue-50",
-                          )}
-                        >
-                          {crumb.name}
-                        </button>
-                      </span>
-                    ))}
-                  </nav>
-                ) : null}
               </div>
-              {activeNav === "my-files" ? (
-                <div className="relative hidden w-full max-w-xs sm:block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
-                  <Input
-                    className="h-9 pl-9"
-                    placeholder="Filter by name"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    aria-label="Filter files by name"
-                  />
-                </div>
-              ) : null}
             </div>
-
-            {activeNav === "my-files" ? (
-              <div className="hidden flex-wrap gap-2 lg:flex">
-                {TYPE_FILTERS.map(({ id, label }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setTypeFilter(id)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-sm transition-colors",
-                      typeFilter === id
-                        ? "bg-blue-50 font-medium text-blue-700 ring-1 ring-blue-200"
-                        : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {activeNav === "my-files" ? (
-              <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {TYPE_FILTERS.map(({ id, label }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setTypeFilter(id)}
-                    className={cn(
-                      "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
-                      typeFilter === id
-                        ? "bg-blue-600 text-white shadow-sm"
-                        : "bg-white text-neutral-700 ring-1 ring-neutral-200/80",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
 
             {error ? (
               <Alert variant="destructive">
@@ -2223,7 +1255,12 @@ export default function DrivePage() {
               </Alert>
             ) : null}
 
-            <Separator className="hidden bg-neutral-200 lg:block" />
+            <Separator
+              className={cn(
+                "hidden bg-neutral-200 lg:block",
+                (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
+              )}
+            />
 
             {loading ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
@@ -2238,121 +1275,27 @@ export default function DrivePage() {
                 onChanged={() => void refreshDashboard()}
               />
             ) : activeNav === "home" ? (
-              <div className="flex flex-col gap-5 lg:gap-8">
-                <MobileHomeSection
-                  title="Recently accessed"
-                  files={recentFiles}
-                  locationLabel="My files"
-                  emptyMessage="No recent files yet. Open or download something from My files."
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                  onOpenActions={handleOpenMobileActions}
-                />
-                <MobileHomeSection
-                  title="Favourites"
-                  files={favouriteFiles}
-                  locationLabel="My files"
-                  emptyMessage="No favourites yet. Star a file to pin it here."
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                  onOpenActions={handleOpenMobileActions}
-                />
-                <MobileHomeSection
-                  title="Shared with you"
-                  files={sharedFiles}
-                  locationLabel="Shared"
-                  emptyMessage="Nothing shared with you yet."
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                  onOpenActions={handleOpenMobileActions}
-                />
-                <HomeSection
-                  title="Recently accessed"
-                  description="Files you opened or downloaded recently"
-                  files={recentFiles}
-                  ownerLabel={ownerLabel}
-                  favouriteIds={favouriteIds}
-                  locationLabel="My files"
-                  emptyMessage="No recent files yet. Open or download something from My files."
-                  onToggleFavourite={handleToggleFavourite}
-                  onDelete={requestDeleteFile}
-                  onDownload={handleDownload}
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                />
-                <HomeSection
-                  title="Favourites"
-                  description="Files you starred for quick access"
-                  files={favouriteFiles}
-                  ownerLabel={ownerLabel}
-                  favouriteIds={favouriteIds}
-                  locationLabel="My files"
-                  emptyMessage="No favourites yet. Star a file to pin it here."
-                  onToggleFavourite={handleToggleFavourite}
-                  onDelete={requestDeleteFile}
-                  onDownload={handleDownload}
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                />
-                <HomeSection
-                  title="Shared with you"
-                  description="Files other people shared with your account"
-                  files={sharedFiles}
-                  ownerLabel={ownerLabel}
-                  favouriteIds={favouriteIds}
-                  locationLabel="Shared"
-                  emptyMessage="Nothing shared with you yet."
-                  onToggleFavourite={handleToggleFavourite}
-                  onDelete={requestDeleteFile}
-                  onDownload={handleDownload}
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
-                  fileShareFlags={fileShareFlags}
-                />
-              </div>
-            ) : visibleFolders.length === 0 && browserFiles.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-center">
-                <FileIcon className="size-10 text-neutral-400" />
-                <p className="font-medium text-neutral-900">Nothing here yet</p>
-                <p className="text-sm text-neutral-500">
-                  Create a folder, upload a file, or change your search and filters.
-                </p>
-                <div className="mt-2 flex flex-wrap justify-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setCreateFolderDialogOpen(true)}
-                  >
-                    <FolderPlus data-icon="inline-start" />
-                    New folder
-                  </Button>
-                  <Button
-                    className="bg-blue-600 text-white hover:bg-blue-700"
-                    onClick={() => setUploadDialogOpen(true)}
-                  >
-                    <Upload data-icon="inline-start" />
-                    Upload files
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
+              <DriveOverviewPanel
+                folders={overviewFolders}
+                recentFiles={recentFiles}
+                usedBytes={usedBytes}
+                quotaBytes={quotaBytes}
+                fileShareFlags={fileShareFlags}
+                folderShareFlags={folderShareFlags}
+                onOpenFolder={openFolder}
+                onCreateFolder={() => {
+                  setActiveNav("my-files");
+                  setCreateFolderDialogOpen(true);
+                }}
+                onUpload={() => setUploadDialogOpen(true)}
+                onViewAllFiles={() => handleNavChange("my-files")}
+                onPreviewVideo={handlePreviewVideo}
+                onPreviewImage={handlePreviewImage}
+                onPreviewPdf={handlePreviewPdf}
+                onPreviewAudio={handlePreviewAudio}
+              />
+            ) : activeNav === "my-files" ? (
+              <div className="flex flex-col gap-4">
                 <BulkActionsBar
                   selectedCount={selectedFiles.length}
                   favouriteLabel={bulkFavouriteLabel}
@@ -2361,67 +1304,20 @@ export default function DrivePage() {
                   onDelete={handleBulkDeleteRequest}
                   onClearSelection={() => setSelectedFileIds(new Set())}
                 />
-                <div className="hidden lg:block">
-                <FileTable
-                folders={visibleFolders}
-                files={browserFiles}
-                ownerLabel={ownerLabel}
-                favouriteIds={favouriteIds}
-                selectable
-                selectedFileIds={selectedFileIds}
-                onSelectedFileIdsChange={setSelectedFileIds}
-                dragEnabled={!isSearchingMyFiles}
-                locationLabel={
-                  folderStack.length > 0
-                    ? folderStack[folderStack.length - 1]?.name ?? "My files"
-                    : "My files"
-                }
-                emptyMessage="No files in your library."
-                onOpenFolder={openFolder}
-                onDeleteFolder={requestDeleteFolder}
-                onMoveFileToFolder={(fileId, folderId) =>
-                  void handleMoveFileToFolder(fileId, folderId)
-                }
-                onToggleFavourite={handleToggleFavourite}
-                onDelete={requestDeleteFile}
-                onDownload={handleDownload}
-                onPreviewVideo={handlePreviewVideo}
-                onPreviewImage={handlePreviewImage}
-                onPreviewPdf={handlePreviewPdf}
-      onPreviewAudio={handlePreviewAudio}
-                fileShareFlags={fileShareFlags}
-                folderShareFlags={folderShareFlags}
-                hasMoreFiles={hasMoreFiles}
-                loadingMoreFiles={filesLoadingMore}
-                onLoadMoreFiles={() => void loadMoreFiles()}
-                hasMoreFolders={hasMoreFolders}
-                loadingMoreFolders={foldersLoadingMore}
-                onLoadMoreFolders={() => void loadMoreFolders()}
-                scrollElementRef={mainScrollRef}
-              />
-                </div>
-                <FileListView
+                <DriveCloudExplorer
+                  folderStack={folderStack}
                   folders={visibleFolders}
                   files={browserFiles}
-                  ownerLabel={ownerLabel}
-                  favouriteIds={favouriteIds}
+                  query={query}
+                  onQueryChange={setQuery}
+                  typeFilter={typeFilter}
+                  onTypeFilterChange={setTypeFilter}
+                  typeFilterOptions={TYPE_FILTERS}
+                  isSearching={isSearchingMyFiles}
+                  dragEnabled={!isSearchingMyFiles}
                   selectable
                   selectedFileIds={selectedFileIds}
                   onSelectedFileIdsChange={setSelectedFileIds}
-                  locationLabel={
-                    folderStack.length > 0
-                      ? folderStack[folderStack.length - 1]?.name ?? "My files"
-                      : "My files"
-                  }
-                  emptyMessage="No files in your library."
-                  onOpenFolder={openFolder}
-                  onToggleFavourite={handleToggleFavourite}
-                  onDelete={requestDeleteFile}
-                  onDownload={handleDownload}
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewAudio={handlePreviewAudio}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}
@@ -2431,15 +1327,28 @@ export default function DrivePage() {
                   loadingMoreFolders={foldersLoadingMore}
                   onLoadMoreFolders={() => void loadMoreFolders()}
                   scrollElementRef={mainScrollRef}
+                  onNavigateHome={() => handleNavChange("home")}
+                  onNavigateMyCloudRoot={() => goToFolderIndex(-1)}
+                  onGoToFolderIndex={goToFolderIndex}
+                  onOpenFolder={openFolder}
+                  onCreateFolder={() => setCreateFolderDialogOpen(true)}
+                  onUpload={() => setUploadDialogOpen(true)}
+                  onMoveFileToFolder={(fileId, folderId) =>
+                    void handleMoveFileToFolder(fileId, folderId)
+                  }
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
+                  onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
                 />
               </div>
-            )}
+            ) : null}
 
             <p className="mt-auto hidden text-xs text-neutral-500 lg:block">
               {instanceName}
               {activeNav === "home"
-                ? ` · ${recentFiles.length} recent · ${favouriteFiles.length} favourites`
+                ? ` · ${overviewFolders.length} folder${overviewFolders.length === 1 ? "" : "s"} · ${recentFiles.length} recent`
                 : activeNav === "recycle-bin"
                   ? " · Deleted items are kept for 30 days"
                   : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}

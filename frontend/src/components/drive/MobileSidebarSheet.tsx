@@ -141,7 +141,7 @@ export function MobileSidebarSheet({
               onClick={() => handleNav("home")}
             />
             <DrawerNavItem
-              label="My files"
+              label="My Cloud"
               icon={<FolderOpen className="size-4" />}
               active={activeNav === "my-files"}
               onClick={() => handleNav("my-files")}
