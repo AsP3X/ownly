@@ -1,23 +1,31 @@
-// Human: Sign-in page for returning users after setup is complete.
+// Human: Sign-in page for returning users after setup is complete — Ownly wireframe layout.
 // Agent: CALLS login API; setAuth; navigate "/"; READS registration setting for optional sign-up link.
 
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Cloud } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Mail } from "lucide-react";
 import { getErrorMessage, login, registrationSetting } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
+import { AuthFormCard } from "@/components/auth/AuthFormCard";
+import { AuthIconField } from "@/components/auth/AuthIconField";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
+import { AuthPasswordField } from "@/components/auth/AuthPasswordField";
+import { AuthSubmitButton } from "@/components/auth/AuthSubmitButton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+
+const REMEMBER_EMAIL_KEY = "ownly.auth.rememberEmail";
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { setAuth, token } = useAuth();
-  const [email, setEmail] = useState("");
+  // Human: Restore remembered email on first paint without a hydration effect.
+  const savedEmail = sessionStorage.getItem(REMEMBER_EMAIL_KEY);
+  const [email, setEmail] = useState(savedEmail ?? "");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(Boolean(savedEmail));
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
   const [allowRegister, setAllowRegister] = useState(false);
 
@@ -34,12 +42,18 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setInfo("");
     setLoading(true);
     try {
       const res = await login(email.trim(), password);
       if (!res.token) {
         setError("Login did not return a session token.");
         return;
+      }
+      if (rememberMe) {
+        sessionStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+      } else {
+        sessionStorage.removeItem(REMEMBER_EMAIL_KEY);
       }
       setAuth(res.token, res.user);
       navigate("/", { replace: true });
@@ -51,44 +65,79 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-2 size-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-            <Cloud className="size-5" />
+    <AuthPageShell>
+      <AuthFormCard
+        title="Welcome back"
+        subtitle="Enter your details to access your secure files"
+        footer={
+          allowRegister ? (
+            <AuthFooterLink prefix="Don't have an account?" linkLabel="Sign up" to="/register" />
+          ) : undefined
+        }
+      >
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4">
+            <AuthIconField
+              id="email"
+              label="Email Address"
+              icon={Mail}
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+            <AuthPasswordField
+              id="password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              required
+            />
           </div>
-          <CardTitle>Sign in to MediaVault</CardTitle>
-          <CardDescription>Access your files from anywhere.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Signing in…" : "Sign in"}
-            </Button>
-            {allowRegister && (
-              <p className="text-center text-sm text-muted-foreground">
-                No account?{" "}
-                <Link to="/register" className="text-primary hover:underline">
-                  Create one
-                </Link>
-              </p>
-            )}
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+
+          {/* Human: Remember + forgot row from Pencil Remember Forgot Row */}
+          <div className="flex items-center justify-between gap-4">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#666666]">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="size-4 rounded border border-[#E5E7EB] accent-[#2563EB]"
+              />
+              Remember me
+            </label>
+            <button
+              type="button"
+              className="text-sm font-semibold text-[#2563EB] hover:underline"
+              onClick={() => {
+                setInfo("");
+                setError("");
+                setInfo("Contact your administrator to reset your password.");
+              }}
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          {info ? (
+            <Alert>
+              <AlertDescription>{info}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <AuthSubmitButton loading={loading} loadingLabel="Signing in…">
+            Sign In
+          </AuthSubmitButton>
+        </form>
+      </AuthFormCard>
+    </AuthPageShell>
   );
 }

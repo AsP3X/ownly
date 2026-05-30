@@ -35,6 +35,23 @@ type LightAudioPlayerProps = {
   className?: string;
 };
 
+// Human: Map MediaError codes to short user-facing playback messages.
+// Agent: READS HTMLMediaElement.error.code; RETURNS safe text for the player alert.
+function describeMediaError(mediaError: MediaError | null): string {
+  switch (mediaError?.code) {
+    case MediaError.MEDIA_ERR_ABORTED:
+      return "Playback was interrupted.";
+    case MediaError.MEDIA_ERR_NETWORK:
+      return "Could not load this audio file — check your connection.";
+    case MediaError.MEDIA_ERR_DECODE:
+      return "This audio format could not be decoded in the browser.";
+    case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+      return "This audio file is not supported for in-browser playback.";
+    default:
+      return "Could not play this audio file.";
+  }
+}
+
 export function LightAudioPlayer({
   src,
   title,
@@ -56,10 +73,18 @@ export function LightAudioPlayer({
   const [bufferedSegments, setBufferedSegments] = useState<BufferedSegment[]>([]);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
 
   const effectiveVolume = muted ? 0 : volume;
   const formatLabel = audioFormatLabel(mimeType, title);
-  const transportDisabled = loading || !src || Boolean(error);
+  const combinedError = error || playbackError;
+  const transportDisabled = loading || !src || Boolean(combinedError);
+
+  // Human: Clear element-level playback errors when the active src changes or parent clears fetch errors.
+  // Agent: RESETS playbackError on src/error prop changes so a new track starts clean.
+  useEffect(() => {
+    setPlaybackError("");
+  }, [src, error]);
 
   // Human: Honor autoPlay once when a track finishes loading (gallery advance or queue roll).
   // Agent: READS autoPlay+src; CALLS audio.play() on mount/update without resetting other state.
@@ -108,6 +133,12 @@ export function LightAudioPlayer({
     onEnded?.();
   }, [onEnded]);
 
+  const handleMediaError = useCallback(() => {
+    const audio = audioRef.current;
+    setIsPlaying(false);
+    setPlaybackError(describeMediaError(audio?.error ?? null));
+  }, []);
+
   // Human: Toggle play/pause on the underlying media element.
   // Agent: CALLS audio.play() or pause(); UPDATES isPlaying on success/failure.
   const togglePlay = useCallback(() => {
@@ -115,7 +146,16 @@ export function LightAudioPlayer({
     if (!audio || transportDisabled) return;
 
     if (audio.paused) {
-      void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      void audio
+        .play()
+        .then(() => {
+          setIsPlaying(true);
+          setPlaybackError("");
+        })
+        .catch(() => {
+          setIsPlaying(false);
+          setPlaybackError("Playback was blocked or could not start.");
+        });
     } else {
       audio.pause();
       setIsPlaying(false);
@@ -176,9 +216,9 @@ export function LightAudioPlayer({
           </span>
         </div>
 
-        {error ? (
+        {combinedError ? (
           <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
-            {error}
+            {combinedError}
           </p>
         ) : null}
 
@@ -269,21 +309,22 @@ export function LightAudioPlayer({
         </div>
       </div>
 
-      {src ? (
-        <audio
-          ref={audioRef}
-          src={src}
-          onTimeUpdate={handleTimeUpdate}
-          onProgress={handleProgress}
-          onLoadedMetadata={handleLoadedMetadata}
-          onDurationChange={handleLoadedMetadata}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onEnded={handleEnded}
-          preload="metadata"
-          className="sr-only"
-        />
-      ) : null}
+      {/* Human: Keep the media element mounted so transport refs stay valid while src loads. */}
+      {/* Agent: WRITES src only when resolved; LISTENS error for failed decode/network. */}
+      <audio
+        ref={audioRef}
+        src={src ?? undefined}
+        onTimeUpdate={handleTimeUpdate}
+        onProgress={handleProgress}
+        onLoadedMetadata={handleLoadedMetadata}
+        onDurationChange={handleLoadedMetadata}
+        onPlay={handlePlay}
+        onPause={handlePause}
+        onEnded={handleEnded}
+        onError={handleMediaError}
+        preload="metadata"
+        className="sr-only"
+      />
     </div>
   );
 }

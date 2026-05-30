@@ -1165,6 +1165,14 @@ export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
 }
 
+// Human: Resolve a ticket stream or download path against the site origin for <audio> element src.
+// Agent: RETURNS absolute href; CALLS window.location.origin for relative `/api/v1/...` paths.
+function resolveSameOriginStreamUrl(url: string): string {
+  if (url.startsWith("http")) return url;
+  const path = url.startsWith("/") ? url : `/${url}`;
+  return new URL(path, window.location.origin).href;
+}
+
 // Human: Streamable preview URL for audio — same-origin ticket stream works when object storage is not browser-reachable.
 // Agent: GET /files/:id/preview-url first; FALLBACK blob object URL when preview-url fails.
 export async function fetchFileStreamUrlForPreview(
@@ -1172,7 +1180,7 @@ export async function fetchFileStreamUrlForPreview(
 ): Promise<{ url: string; revokeOnClose: boolean }> {
   try {
     const preview = await fetchFilePreviewUrl(file.id);
-    return { url: preview.url, revokeOnClose: false };
+    return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
   } catch {
     const blob = await fetchFileBlobForPreview(file);
     return { url: URL.createObjectURL(blob), revokeOnClose: true };
@@ -1558,13 +1566,14 @@ export async function fetchPublicShareBlobForPreview(token: string, fileId: stri
   return response.blob();
 }
 
-// Human: Streamable preview URL for shared audio — same-origin download endpoint streams without JWT.
-// Agent: RETURNS download URL for <audio> src; MATCHES fetchFileStreamUrlForPreview async shape.
+// Human: Streamable preview URL for shared audio — blob URL avoids attachment download quirks in <audio>.
+// Agent: FETCHES public download bytes; RETURNS object URL with revokeOnClose for dialog cleanup.
 export async function fetchPublicShareStreamUrlForPreview(
   token: string,
   file: FileItem,
 ): Promise<{ url: string; revokeOnClose: boolean }> {
-  return { url: publicShareFileDownloadUrl(token, file.id), revokeOnClose: false };
+  const blob = await fetchPublicShareBlobForPreview(token, file.id);
+  return { url: URL.createObjectURL(blob), revokeOnClose: true };
 }
 
 // Human: Download one file from a public share through the API proxy.

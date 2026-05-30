@@ -264,6 +264,7 @@ export function AudioPreviewDialog({
             tracks.length > 1 ? "pb-3" : "pb-5",
           )}
           aria-label="Audio player"
+          onPointerDown={(event) => event.stopPropagation()}
         >
           <LightAudioPlayer
             key={file?.id}
