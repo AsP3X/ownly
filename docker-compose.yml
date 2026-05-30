@@ -85,7 +85,9 @@ services:
       # Agent: PASS NOS_SIGNING_SECRET into backend; lib.rs prefers this over SIGNING_SECRET for storage.
       NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
-      OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:9000}
+      # Human: Browser-facing base for presigned GETs — use the web origin (port 8080) when nginx proxies /media/.
+      # Agent: DEFAULT localhost:8080 not :9000; OVERRIDE with public host (e.g. http://corespace.de:8089) in production.
+      OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:8080}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-media}
       STORAGE_MODE: ${STORAGE_MODE:-proxy}
       URL_EXPIRY_SECONDS: ${URL_EXPIRY_SECONDS:-3600}

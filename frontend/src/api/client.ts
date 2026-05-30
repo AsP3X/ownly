@@ -1152,18 +1152,27 @@ export async function fetchFileDownloadUrl(id: string) {
   }>;
 }
 
+// Human: Same-origin ticket stream URL for in-browser preview — avoids localhost object-storage presigns.
+// Agent: GET /files/:id/preview-url; RETURNS relative /files/:id/stream?ticket= URL for <audio>/<video> src.
+export async function fetchFilePreviewUrl(id: string) {
+  return apiFetch(`/files/${id}/preview-url`) as Promise<{
+    url: string;
+    expires_in_seconds: number;
+  }>;
+}
+
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
 }
 
-// Human: Streamable preview URL for audio — presigned storage URL enables byte-range buffering in <audio>.
-// Agent: GET /files/:id/download-url; FALLBACK blob object URL when presign fails.
+// Human: Streamable preview URL for audio — same-origin ticket stream works when object storage is not browser-reachable.
+// Agent: GET /files/:id/preview-url first; FALLBACK blob object URL when preview-url fails.
 export async function fetchFileStreamUrlForPreview(
   file: FileItem,
 ): Promise<{ url: string; revokeOnClose: boolean }> {
   try {
-    const presigned = await fetchFileDownloadUrl(file.id);
-    return { url: presigned.url, revokeOnClose: false };
+    const preview = await fetchFilePreviewUrl(file.id);
+    return { url: preview.url, revokeOnClose: false };
   } catch {
     const blob = await fetchFileBlobForPreview(file);
     return { url: URL.createObjectURL(blob), revokeOnClose: true };

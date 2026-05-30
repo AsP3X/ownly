@@ -1,4 +1,4 @@
-// Human: Folder-scoped audio preview — streams via presigned URL for incremental buffer segments.
+// Human: Folder-scoped audio preview — streams via same-origin ticket URL (nginx → API → storage).
 // Agent: CALLS fetchFileStreamUrlForPreview; CACHES urls; REVOKES blob fallbacks on dialog close.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -63,7 +63,7 @@ export function AudioPreviewDialog({
     return entry;
   }, []);
 
-  // Human: Revoke blob fallback URLs when the dialog closes; HTTP presigned URLs need no revoke.
+  // Human: Revoke blob fallback URLs when the dialog closes; ticket stream URLs need no revoke.
   // Agent: REVOKES object URLs in urlCacheRef when revokeOnClose; CLEARS player state.
   const clearCachedUrls = useCallback(() => {
     for (const entry of urlCacheRef.current.values()) {
@@ -87,7 +87,7 @@ export function AudioPreviewDialog({
     [clearCachedUrls, onOpenChange],
   );
 
-  // Human: Resolve a stream URL for the active track — presigned URLs buffer in smaller byte-range chunks.
+  // Human: Resolve a stream URL for the active track — ticket URLs stay on the app origin (no localhost:9000).
   // Agent: READS urlCacheRef; CALLS fetchFileStreamUrlForPreview on miss; WRITES audioUrl when id matches.
   useEffect(() => {
     if (!open || !file?.id) return;

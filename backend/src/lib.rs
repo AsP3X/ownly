@@ -392,6 +392,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/files/{id}/download", get(files::handlers::download_file))
         .route("/api/v1/files/{id}/download-url", get(files::handlers::download_url))
+        .route(
+            "/api/v1/files/{id}/preview-url",
+            get(files::handlers::preview_url),
+        )
         .route("/api/v1/files/{id}/copy", post(files::handlers::copy_file))
         .route(
             "/api/v1/files/{id}",

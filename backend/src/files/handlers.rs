@@ -802,6 +802,38 @@ pub async fn download_url(
     }))
 }
 
+// Human: Return a same-origin stream URL for in-browser preview (audio/images) without presigned object-storage hosts.
+// Agent: GET protected; CALLS stream_ticket::generate_ticket; RETURNS relative /files/{id}/stream?ticket= URL.
+pub async fn preview_url(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> Result<Json<DownloadUrlResponse>, AppError> {
+    type PreviewUrlRow = (Option<String>, bool, Option<String>);
+    let row: Option<PreviewUrlRow> = sqlx::query_as(
+        "SELECT mime_type, hls_ready, hls_encode_status FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, hls_ready, hls_encode_status) = row.ok_or(AppError::NotFound)?;
+    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+
+    let ticket = crate::stream_ticket::generate_ticket(
+        &id,
+        &claims.sub,
+        &state.signing_secret,
+        state.url_expiry_seconds,
+    );
+    let encoded = crate::hls::handlers::encode_query_component(&ticket);
+    Ok(Json(DownloadUrlResponse {
+        url: format!("/api/v1/files/{id}/stream?ticket={encoded}"),
+        expires_in_seconds: state.url_expiry_seconds,
+    }))
+}
+
 // Human: Move a file into another folder or back to the drive root.
 // Agent: PATCH files.folder_id; VALIDATES folder ownership; AUDIT files.move.
 pub async fn move_file(

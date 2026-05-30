@@ -32,6 +32,20 @@ server {
         proxy_buffering off;
     }
 
+    # Human: Expose Nebular presigned downloads on the same origin when OBJECT_STORAGE_PUBLIC_URL matches this host.
+    # Agent: PROXIES /media/* to object-storage; ENABLES presigned GET without publishing port 9000 to clients.
+    location /media/ {
+        proxy_pass http://object-storage:9000/media/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout ${NGINX_PROXY_READ_TIMEOUT};
+        proxy_send_timeout ${NGINX_PROXY_READ_TIMEOUT};
+        proxy_buffering off;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
