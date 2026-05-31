@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/utils-app";
 
-type ImagePreviewDialogProps = {
+export type ImagePreviewDialogProps = {
   images: FileItem[];
   file: FileItem | null;
   open: boolean;

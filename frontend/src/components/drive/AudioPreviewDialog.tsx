@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
 
-type AudioPreviewDialogProps = {
+export type AudioPreviewDialogProps = {
   tracks: FileItem[];
   file: FileItem | null;
   open: boolean;

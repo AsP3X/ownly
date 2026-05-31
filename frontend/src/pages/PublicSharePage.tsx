@@ -27,12 +27,7 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import {
-  LazyAudioPreviewDialog,
-  LazyImagePreviewDialog,
-  LazyPdfPreviewDialog,
-  LazyVideoPreviewDialog,
-} from "@/components/drive/lazy-media-previews";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import {
   LazyPublicShareInlinePdf,
   LazyPublicShareInlineVideo,
@@ -613,75 +608,78 @@ export default function PublicSharePage() {
         ) : null}
       </PublicSharePageLayout>
 
-      {/* Human: Folder-share preview dialogs — lazy-load react-pdf/hls.js on first open. */}
+      {/* Human: Folder-share preview dialogs — load dedicated chunks on first open. */}
       {previewVideo !== null ? (
-        <Suspense fallback={null}>
-          <LazyVideoPreviewDialog
-            videos={
+        <DynamicImportPreview
+          loader={loadVideoPreviewDialog}
+          previewProps={{
+            videos:
               galleryVideos.length > 0
                 ? galleryVideos
                 : previewVideo
                   ? [previewVideo]
-                  : []
-            }
-            file={previewVideo}
-            open
-            onOpenChange={(open) => {
+                  : [],
+            file: previewVideo,
+            open: true,
+            onOpenChange: (open) => {
               if (!open) setPreviewVideo(null);
-            }}
-            onFileChange={setPreviewVideo}
-            shareToken={token}
-            sharePassword={sharePassword}
-            onDownload={overview?.block_download ? undefined : (file) => void handleDownload(file)}
-          />
-        </Suspense>
+            },
+            onFileChange: setPreviewVideo,
+            shareToken: token,
+            sharePassword: sharePassword,
+            onDownload: overview?.block_download ? undefined : (file) => void handleDownload(file),
+          }}
+        />
       ) : null}
 
       {previewImage !== null ? (
-        <Suspense fallback={null}>
-          <LazyImagePreviewDialog
-            images={galleryImages.length > 0 ? galleryImages : previewImage ? [previewImage] : []}
-            file={previewImage}
-            open
-            onOpenChange={(open) => {
+        <DynamicImportPreview
+          loader={loadImagePreviewDialog}
+          previewProps={{
+            images: galleryImages.length > 0 ? galleryImages : previewImage ? [previewImage] : [],
+            file: previewImage,
+            open: true,
+            onOpenChange: (open) => {
               if (!open) setPreviewImage(null);
-            }}
-            onFileChange={setPreviewImage}
-            shareToken={token}
-            sharePassword={sharePassword}
-            onDownload={overview.block_download ? undefined : (file) => void handleDownload(file)}
-          />
-        </Suspense>
+            },
+            onFileChange: setPreviewImage,
+            shareToken: token,
+            sharePassword: sharePassword,
+            onDownload: overview.block_download ? undefined : (file) => void handleDownload(file),
+          }}
+        />
       ) : null}
 
       {previewPdf !== null ? (
-        <Suspense fallback={null}>
-          <LazyPdfPreviewDialog
-            file={previewPdf}
-            open
-            onOpenChange={(open) => {
+        <DynamicImportPreview
+          loader={loadPdfPreviewDialog}
+          previewProps={{
+            file: previewPdf,
+            open: true,
+            onOpenChange: (open) => {
               if (!open) setPreviewPdf(null);
-            }}
-            shareToken={token}
-            sharePassword={sharePassword}
-          />
-        </Suspense>
+            },
+            shareToken: token,
+            sharePassword: sharePassword,
+          }}
+        />
       ) : null}
 
       {previewAudio !== null ? (
-        <Suspense fallback={null}>
-          <LazyAudioPreviewDialog
-            tracks={galleryAudio.length > 0 ? galleryAudio : previewAudio ? [previewAudio] : []}
-            file={previewAudio}
-            open
-            onOpenChange={(open) => {
+        <DynamicImportPreview
+          loader={loadAudioPreviewDialog}
+          previewProps={{
+            tracks: galleryAudio.length > 0 ? galleryAudio : previewAudio ? [previewAudio] : [],
+            file: previewAudio,
+            open: true,
+            onOpenChange: (open) => {
               if (!open) setPreviewAudio(null);
-            }}
-            onFileChange={setPreviewAudio}
-            shareToken={token}
-            sharePassword={sharePassword}
-          />
-        </Suspense>
+            },
+            onFileChange: setPreviewAudio,
+            shareToken: token,
+            sharePassword: sharePassword,
+          }}
+        />
       ) : null}
     </>
   );

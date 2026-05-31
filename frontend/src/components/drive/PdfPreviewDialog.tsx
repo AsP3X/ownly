@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type PdfPreviewDialogProps = {
+export type PdfPreviewDialogProps = {
   file: FileItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;

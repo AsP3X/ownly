@@ -1,7 +1,7 @@
 // Human: Drive shell — sidebar, Home overview, and My Cloud explorer per Pencil wireframes.
 // Agent: CALLS listFiles/uploadFile/fetchDashboard; READS auth user for profile chip.
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutGrid,
   LogOut,
@@ -55,12 +55,7 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import {
-  LazyAudioPreviewDialog,
-  LazyImagePreviewDialog,
-  LazyPdfPreviewDialog,
-  LazyVideoPreviewDialog,
-} from "@/components/drive/lazy-media-previews";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -982,61 +977,65 @@ export default function DrivePage() {
             })
           }
         />
-        {/* Human: Media preview dialogs load react-pdf/hls.js chunks on first open. */}
-        {/* Agent: Suspense + lazy imports; MOUNTS chunk only when preview state is non-null. */}
+        {/* Human: Media preview dialogs load dedicated chunks on first open via dynamic import(). */}
+        {/* Agent: DynamicImportPreview + load*PreviewDialog; MOUNTS only when preview state is non-null. */}
         {previewVideo !== null ? (
-          <Suspense fallback={null}>
-            <LazyVideoPreviewDialog
-              videos={galleryVideos}
-              file={previewVideo}
-              open
-              onOpenChange={(open) => {
+          <DynamicImportPreview
+            loader={loadVideoPreviewDialog}
+            previewProps={{
+              videos: galleryVideos,
+              file: previewVideo,
+              open: true,
+              onOpenChange: (open) => {
                 if (!open) setPreviewVideo(null);
-              }}
-              onFileChange={handleGalleryVideoChange}
-              onDownload={handleDownload}
-              onShare={handleShareFile}
-            />
-          </Suspense>
+              },
+              onFileChange: handleGalleryVideoChange,
+              onDownload: handleDownload,
+              onShare: handleShareFile,
+            }}
+          />
         ) : null}
         {previewImage !== null ? (
-          <Suspense fallback={null}>
-            <LazyImagePreviewDialog
-              images={galleryImages}
-              file={previewImage}
-              open
-              onOpenChange={(open) => {
+          <DynamicImportPreview
+            loader={loadImagePreviewDialog}
+            previewProps={{
+              images: galleryImages,
+              file: previewImage,
+              open: true,
+              onOpenChange: (open) => {
                 if (!open) setPreviewImage(null);
-              }}
-              onFileChange={handleGalleryImageChange}
-              onDownload={handleDownload}
-              onShare={handleShareFile}
-            />
-          </Suspense>
+              },
+              onFileChange: handleGalleryImageChange,
+              onDownload: handleDownload,
+              onShare: handleShareFile,
+            }}
+          />
         ) : null}
         {previewPdf !== null ? (
-          <Suspense fallback={null}>
-            <LazyPdfPreviewDialog
-              file={previewPdf}
-              open
-              onOpenChange={(open) => {
+          <DynamicImportPreview
+            loader={loadPdfPreviewDialog}
+            previewProps={{
+              file: previewPdf,
+              open: true,
+              onOpenChange: (open) => {
                 if (!open) setPreviewPdf(null);
-              }}
-            />
-          </Suspense>
+              },
+            }}
+          />
         ) : null}
         {previewAudio !== null ? (
-          <Suspense fallback={null}>
-            <LazyAudioPreviewDialog
-              tracks={galleryAudio}
-              file={previewAudio}
-              open
-              onOpenChange={(open) => {
+          <DynamicImportPreview
+            loader={loadAudioPreviewDialog}
+            previewProps={{
+              tracks: galleryAudio,
+              file: previewAudio,
+              open: true,
+              onOpenChange: (open) => {
                 if (!open) setPreviewAudio(null);
-              }}
-              onFileChange={handleGalleryAudioChange}
-            />
-          </Suspense>
+              },
+              onFileChange: handleGalleryAudioChange,
+            }}
+          />
         ) : null}
         <ShareDialog
           open={shareDialogOpen}

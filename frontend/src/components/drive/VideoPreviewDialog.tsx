@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type VideoPreviewDialogProps = {
+export type VideoPreviewDialogProps = {
   videos: FileItem[];
   file: FileItem | null;
   open: boolean;
