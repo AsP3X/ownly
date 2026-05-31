@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub enum JobKind {
     HlsEncode,
     HlsExport,
+    AudioWaveform,
     ZipBulk,
     ZipFolder,
 }
@@ -18,6 +19,7 @@ impl JobKind {
         match self {
             Self::HlsEncode => "hls_encode",
             Self::HlsExport => "hls_export",
+            Self::AudioWaveform => "audio_waveform",
             Self::ZipBulk => "zip_bulk",
             Self::ZipFolder => "zip_folder",
         }
@@ -27,6 +29,7 @@ impl JobKind {
         match value {
             "hls_encode" => Some(Self::HlsEncode),
             "hls_export" => Some(Self::HlsExport),
+            "audio_waveform" => Some(Self::AudioWaveform),
             "zip_bulk" => Some(Self::ZipBulk),
             "zip_folder" => Some(Self::ZipFolder),
             _ => None,
@@ -99,6 +102,13 @@ pub struct HlsEncodePayload {
     /// Human: When zero, the worker runs ffprobe on `tmp_video` before ffmpeg starts.
     /// Agent: SET by upload handler after disk spool; UPDATES files.duration_seconds in worker.
     pub duration_seconds: i32,
+}
+
+/// Human: Payload for audio waveform peak extraction after audio upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioWaveformPayload {
+    pub file_id: String,
+    pub storage_key: String,
 }
 
 /// Human: Payload for remuxing HLS segments into a downloadable MP4.

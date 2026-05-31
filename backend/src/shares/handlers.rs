@@ -885,7 +885,8 @@ async fn copy_share_file_into_library(
 
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
-         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds \
+         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+         audio_waveform_ready, audio_encode_status, audio_waveform_key \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(file_id)
@@ -898,6 +899,8 @@ async fn copy_share_file_into_library(
         &source.mime_type,
         source.hls_ready,
         &source.hls_encode_status,
+        source.audio_waveform_ready,
+        &source.audio_encode_status,
     )?;
 
     let target_folder = target_folder_id
@@ -923,11 +926,16 @@ async fn copy_share_file_into_library(
     )
     .await?;
 
+    let new_waveform_key = source
+        .audio_waveform_key
+        .as_ref()
+        .map(|_| crate::audio::waveform_storage_key(&new_storage_key));
+
     let file: FileDto = sqlx::query_as(&format!(
         "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
          duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
-         segment_count) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -943,6 +951,9 @@ async fn copy_share_file_into_library(
     .bind(&source.hls_encode_error)
     .bind(source.conversion_progress)
     .bind(source.segment_count)
+    .bind(source.audio_waveform_ready)
+    .bind(&source.audio_encode_status)
+    .bind(&new_waveform_key)
     .fetch_one(&state.pool)
     .await?;
 
@@ -1186,6 +1197,61 @@ pub async fn public_share_stream_url(
         "hls_encode_status": hls_encode_status,
         "hls_encode_error": hls_encode_error,
     })))
+}
+
+// Human: Return stored waveform peaks for audio inside a public share.
+// Agent: PUBLIC scoped path; READS audio_waveform_key sidecar from Nebular; RETURNS JSON artifact.
+pub async fn public_share_waveform(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, file_id)): Path<(String, String)>,
+) -> Result<Json<crate::audio::waveform::AudioWaveformArtifact>, AppError> {
+    use futures_util::StreamExt;
+
+    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let scoped = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+    ensure_shared_file_ready(&scoped)?;
+
+    if !scoped
+        .mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("audio/"))
+    {
+        return Err(AppError::BadRequest("file is not an audio track".into()));
+    }
+
+    if !scoped.audio_waveform_ready {
+        return Err(AppError::Conflict("waveform is not ready yet".into()));
+    }
+
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT audio_waveform_key FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&file_id)
+    .bind(&share.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let key = row
+        .and_then(|(waveform_key,)| waveform_key)
+        .ok_or(AppError::NotFound)?;
+
+    let (mut stream, _, _) = state
+        .storage
+        .get_stream(&key)
+        .await
+        .map_err(|e| AppError::Storage(e.to_string()))?;
+
+    let mut data = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| AppError::Storage(e.to_string()))?;
+        data.extend_from_slice(&chunk);
+    }
+
+    let artifact: crate::audio::waveform::AudioWaveformArtifact = serde_json::from_slice(&data)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid waveform sidecar: {e}")))?;
+
+    Ok(Json(artifact))
 }
 
 // Human: Serve an AES key for HLS playback on a shared video file.

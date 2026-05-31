@@ -84,7 +84,7 @@ export function PublicShareInlineImage({
               type="button"
               disabled={downloadDisabled}
               onClick={onDownload}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-60"
+              className="hidden items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-60 lg:inline-flex"
             >
               <Download className="size-3.5" />
               Download

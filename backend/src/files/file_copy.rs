@@ -20,6 +20,9 @@ pub struct CopyFileSourceRow {
     pub hls_encode_error: Option<String>,
     pub conversion_progress: i32,
     pub duration_seconds: Option<i32>,
+    pub audio_waveform_ready: bool,
+    pub audio_encode_status: Option<String>,
+    pub audio_waveform_key: Option<String>,
 }
 
 // Human: Copy every storage object associated with a file row into a new key prefix.

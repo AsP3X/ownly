@@ -32,6 +32,8 @@ pub struct SharedFileRow {
     pub hls_ready: bool,
     pub download_export_ready: bool,
     pub hls_encode_status: Option<String>,
+    pub audio_waveform_ready: bool,
+    pub audio_encode_status: Option<String>,
 }
 
 type ShareScopedFileRow = (
@@ -41,6 +43,8 @@ type ShareScopedFileRow = (
     Option<String>,
     Option<String>,
     bool,
+    bool,
+    Option<String>,
     bool,
     Option<String>,
 );
@@ -190,7 +194,8 @@ pub async fn load_file_in_share_scope(
     }
 
     let row: Option<ShareScopedFileRow> = sqlx::query_as(
-        "SELECT id, storage_key, name, mime_type, folder_id, hls_ready, download_export_ready, hls_encode_status \
+        "SELECT id, storage_key, name, mime_type, folder_id, hls_ready, download_export_ready, \
+         hls_encode_status, audio_waveform_ready, audio_encode_status \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(file_id)
@@ -207,6 +212,8 @@ pub async fn load_file_in_share_scope(
         hls_ready,
         download_export_ready,
         hls_encode_status,
+        audio_waveform_ready,
+        audio_encode_status,
     ) = row.ok_or(AppError::NotFound)?;
 
     if share.resource_type == "folder" {
@@ -225,6 +232,8 @@ pub async fn load_file_in_share_scope(
         hls_ready,
         download_export_ready,
         hls_encode_status,
+        audio_waveform_ready,
+        audio_encode_status,
     })
 }
 
@@ -266,7 +275,8 @@ pub async fn list_share_folder_files(
     folder_id: &str,
 ) -> Result<Vec<FileDto>, AppError> {
     const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
-        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds";
+        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+        audio_waveform_ready, audio_encode_status, audio_encode_error";
 
     let files: Vec<FileDto> = sqlx::query_as(&format!(
         "SELECT {FILE_COLUMNS} FROM files WHERE user_id = $1 AND folder_id = $2 ORDER BY name ASC"
@@ -282,7 +292,13 @@ pub async fn list_share_folder_files(
 // Human: Guard download/stream paths against in-progress transcodes on shared files.
 // Agent: WRAPS processing::ensure_file_not_processing for SharedFileRow fields.
 pub fn ensure_shared_file_ready(row: &SharedFileRow) -> Result<(), AppError> {
-    ensure_file_not_processing(&row.mime_type, row.hls_ready, &row.hls_encode_status)
+    ensure_file_not_processing(
+        &row.mime_type,
+        row.hls_ready,
+        &row.hls_encode_status,
+        row.audio_waveform_ready,
+        &row.audio_encode_status,
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -357,7 +373,8 @@ pub async fn list_all_files_in_share(
     share: &ShareRecord,
 ) -> Result<Vec<FileDto>, AppError> {
     const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
-        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds";
+        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+        audio_waveform_ready, audio_encode_status, audio_encode_error";
 
     if share.resource_type == "file" {
         let file: Option<FileDto> = sqlx::query_as(&format!(

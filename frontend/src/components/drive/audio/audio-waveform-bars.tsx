@@ -1,11 +1,11 @@
-// Human: Decorative waveform bars for the mobile audio bottom sheet — Pencil Waveform Container.
-// Agent: READS progressPercent; COLORS bars blue when index is before playback position.
+// Human: Decorative or analyzed waveform bars for the mobile audio bottom sheet.
+// Agent: READS optional bars from API sidecar; FALLS BACK to Pencil static heights when absent.
 
 import { cn } from "@/lib/utils";
 
 // Human: Static bar heights from Pencil Ownly Explorer Audio Player — Mobile Portrait (32 bars).
-// Agent: CONST array; USED by AudioWaveformBars to render fixed decorative amplitudes.
-const WAVEFORM_BAR_HEIGHTS = [
+// Agent: CONST fallback when waveform sidecar is unavailable (legacy uploads or analysis pending).
+const FALLBACK_WAVEFORM_BAR_HEIGHTS = [
   20, 28, 44, 32, 24, 48, 56, 38, 22, 16, 32, 42, 58, 64, 48, 36, 28, 40, 52, 44, 30, 18, 26,
   34, 46, 50, 38, 24, 18, 28, 36, 20,
 ] as const;
@@ -13,11 +13,14 @@ const WAVEFORM_BAR_HEIGHTS = [
 type AudioWaveformBarsProps = {
   /** Human: 0–100 playback position — bars at or before this index use accent fill. */
   progressPercent: number;
+  /** Human: Peak heights from Nebular waveform.json; omit to use decorative fallback. */
+  bars?: number[] | null;
   className?: string;
 };
 
-export function AudioWaveformBars({ progressPercent, className }: AudioWaveformBarsProps) {
-  const playedBarCount = Math.round((progressPercent / 100) * WAVEFORM_BAR_HEIGHTS.length);
+export function AudioWaveformBars({ progressPercent, bars, className }: AudioWaveformBarsProps) {
+  const heights = bars?.length ? bars : FALLBACK_WAVEFORM_BAR_HEIGHTS;
+  const playedBarCount = Math.round((progressPercent / 100) * heights.length);
 
   return (
     <div
@@ -27,7 +30,7 @@ export function AudioWaveformBars({ progressPercent, className }: AudioWaveformB
       )}
       aria-hidden
     >
-      {WAVEFORM_BAR_HEIGHTS.map((height, index) => (
+      {heights.map((height, index) => (
         <div
           key={index}
           className={cn(
@@ -40,3 +43,10 @@ export function AudioWaveformBars({ progressPercent, className }: AudioWaveformB
     </div>
   );
 }
+
+export type AudioWaveformArtifact = {
+  version: number;
+  bar_count: number;
+  max_height: number;
+  bars: number[];
+};

@@ -181,6 +181,9 @@ export type FileItem = {
   hls_encode_error?: string | null;
   conversion_progress: number;
   duration_seconds?: number | null;
+  audio_waveform_ready?: boolean;
+  audio_encode_status?: string | null;
+  audio_encode_error?: string | null;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
 };
@@ -197,6 +200,39 @@ export type VideoStreamUrlResponse = {
 // Agent: GET /files/:id; RETURNS { file: FileItem }.
 export async function fetchFile(id: string) {
   return apiFetch(`/files/${id}`) as Promise<{ file: FileItem }>;
+}
+
+export type AudioWaveformResponse = {
+  version: number;
+  bar_count: number;
+  max_height: number;
+  bars: number[];
+};
+
+// Human: Load analyzed 32-bar waveform peaks for the mobile audio player UI.
+// Agent: GET /files/:id/waveform; RETURNS Nebular sidecar JSON; THROWS when analysis still running.
+export async function fetchFileWaveform(fileId: string) {
+  return apiFetch(`/files/${fileId}/waveform`) as Promise<AudioWaveformResponse>;
+}
+
+// Human: Load waveform peaks for audio inside an anonymous public share link.
+// Agent: GET /public/shares/:token/files/:id/waveform; SENDS X-Share-Password when required.
+export async function fetchPublicShareWaveform(
+  token: string,
+  fileId: string,
+  sharePassword?: string | null,
+) {
+  const res = await fetch(
+    `${API_BASE}/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/waveform`,
+    {
+      cache: "no-store",
+      headers: publicShareRequestHeaders(sharePassword),
+    },
+  );
+  if (!res.ok) {
+    return publicShareFetchError(res, "waveform_failed");
+  }
+  return res.json() as Promise<AudioWaveformResponse>;
 }
 
 // Human: Resolve the HLS playlist URL when the video is ready for in-browser playback.
@@ -624,6 +660,29 @@ function isVideoAwaitingIngest(file: FileItem): boolean {
   return Boolean(file.mime_type?.startsWith("video/") && !file.hls_ready);
 }
 
+function isAudioAwaitingWaveform(file: FileItem): boolean {
+  return Boolean(file.mime_type?.startsWith("audio/") && !file.audio_waveform_ready);
+}
+
+function isMediaAwaitingIngest(file: FileItem): boolean {
+  return isVideoAwaitingIngest(file) || isAudioAwaitingWaveform(file);
+}
+
+// Human: Map audio waveform job progress (0–100) into the upload tray processing bar.
+// Agent: READS conversion_progress + audio_waveform_ready; RETURNS phase processing until ready.
+function mapAudioIngestProgressUpdate(
+  file: Pick<FileItem, "conversion_progress" | "audio_waveform_ready" | "audio_encode_status">,
+): UploadProgressUpdate {
+  if (file.audio_waveform_ready) {
+    return { phase: "processing", percent: 100, indeterminate: false };
+  }
+  if (file.audio_encode_status === "queued") {
+    return { phase: "processing", percent: 0, indeterminate: true };
+  }
+  const percent = Math.min(PROCESSING_DISPLAY_MAX, Math.max(0, file.conversion_progress));
+  return { phase: "processing", percent, indeterminate: false };
+}
+
 // Human: Map server conversion_progress into separate encode vs storage bars for the upload tray.
 // Agent: READS conversion_progress + hls_ready; RETURNS phase processing|storing with 0–100% display percent.
 function mapVideoIngestProgressUpdate(
@@ -683,10 +742,28 @@ export async function waitForFileIngestCompletion(
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
     }
 
-    onProgress?.(mapVideoIngestProgressUpdate(file));
+    if (file.audio_encode_status === "failed") {
+      throw new ApiError(
+        file.audio_encode_error ?? "Audio processing failed",
+        "audio_waveform_failed",
+        500,
+      );
+    }
 
-    if (file.hls_ready) {
-      return file;
+    if (file.audio_encode_status === "cancelled") {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
+
+    if (file.mime_type?.startsWith("audio/")) {
+      onProgress?.(mapAudioIngestProgressUpdate(file));
+      if (file.audio_waveform_ready) {
+        return file;
+      }
+    } else {
+      onProgress?.(mapVideoIngestProgressUpdate(file));
+      if (file.hls_ready) {
+        return file;
+      }
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INGEST_POLL_MS));
@@ -707,6 +784,7 @@ export function uploadFileWithProgress(
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
     const isVideoUpload = file.type.startsWith("video/");
+    const isAudioUpload = file.type.startsWith("audio/");
     const sessionId = options?.sessionId ?? createClientId();
     const xhr = new XMLHttpRequest();
     const form = new FormData();
@@ -801,7 +879,7 @@ export function uploadFileWithProgress(
     });
 
     xhr.upload.addEventListener("load", () => {
-      if (isVideoUpload) {
+      if (isVideoUpload || isAudioUpload) {
         onProgress?.({
           phase: "processing",
           percent: 0,
@@ -834,7 +912,7 @@ export function uploadFileWithProgress(
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);
             }
             let file = payload.file;
-            if (isVideoAwaitingIngest(file)) {
+            if (isMediaAwaitingIngest(file)) {
               file = await waitForFileIngestCompletion(
                 file.id,
                 onProgress,

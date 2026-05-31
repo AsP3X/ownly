@@ -29,7 +29,9 @@ import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInl
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
 import { PublicShareInlinePdf } from "@/components/public-share/PublicShareInlinePdf";
 import { PublicShareInlineVideo } from "@/components/public-share/PublicShareInlineVideo";
+import { PublicShareMobileActionStack } from "@/components/public-share/PublicShareMobileActionStack";
 import { PublicSharePageLayout } from "@/components/public-share/PublicSharePageLayout";
+import { PublicShareSecurityBadge } from "@/components/public-share/PublicShareSecurityBadge";
 import { PublicSharePasswordGate } from "@/components/public-share/PublicSharePasswordGate";
 import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
 import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
@@ -496,9 +498,12 @@ export default function PublicSharePage() {
             onPreviewAudio={(file) => setPreviewAudio(file)}
             allowDownload={!overview.block_download}
             onBulkDownload={(list) => void handleBulkDownload(list)}
+            onDownloadAll={handleHeaderDownload}
+            downloadAllDisabled={overview.block_download}
+            downloadAllLoading={bulkDownloading || treeLoading}
           />
         ) : singleFileItem ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5 lg:gap-4">
             {singleIsVideo && !overview.hls_ready ? (
               <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-8 text-center shadow-[0_12px_32px_#00000014]">
                 <Film className="mx-auto size-10 text-violet-600" aria-hidden />
@@ -553,9 +558,27 @@ export default function PublicSharePage() {
                   <p className="mt-1 text-sm text-[#666666]">{formatBytes(overview.size_bytes)}</p>
                 ) : null}
                 <p className="mt-4 text-sm text-[#666666]">
-                  Preview is not available for this file type. Use the download button above.
+                  Preview is not available for this file type. Use the download button below.
                 </p>
               </div>
+            ) : null}
+            {!singleIsAudio ? (
+              <>
+                <PublicShareMobileActionStack
+                  downloadLabel={downloadHeaderLabel}
+                  onDownload={
+                    overview.block_download ? undefined : () => void handleDownload(singleFileItem)
+                  }
+                  onSave={() => void handleSaveToOwnly()}
+                  downloadDisabled={overview.block_download}
+                  downloadLoading={downloadingId === singleFileItem.id || bulkDownloading}
+                  saveDisabled={overview.block_download}
+                  saveLoading={saveLoading}
+                />
+                <div className="flex justify-center lg:hidden">
+                  <PublicShareSecurityBadge variant="pill" />
+                </div>
+              </>
             ) : null}
             {overview.block_download ? (
               <p className="text-xs text-[#888888]">Downloads are disabled for this link.</p>

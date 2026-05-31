@@ -52,6 +52,7 @@ aes-gcm = "0.10"
 aes = "0.8"
 cbc = "0.1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -30,7 +30,7 @@ use crate::{
         upload_validation::{self, normalize_upload_filename, normalize_upload_size_bytes},
     },
     hls::export::export_cache_is_valid,
-    jobs::{self, model::HlsEncodePayload, JobKind},
+    jobs::{self, model::AudioWaveformPayload, model::HlsEncodePayload, JobKind},
     rate_limit,
     request_tracking,
     AppState,
@@ -39,13 +39,41 @@ use crate::{
 // Human: Shared column list for file rows including HLS transcode metadata.
 // Agent: USED in SELECT/RETURNING for list, get, upload, and move handlers.
 pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
-    hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds";
+    hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+    audio_waveform_ready, audio_encode_status, audio_encode_error";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
-type DownloadFileRow = (String, String, Option<String>, bool, bool, Option<String>, Option<i64>);
-type DownloadUrlRow = (String, Option<String>, bool, bool, Option<String>, Option<i64>);
-type MoveFileCurrentRow = (Option<String>, String, Option<String>, bool, Option<String>);
+type DownloadFileRow = (
+    String,
+    String,
+    Option<String>,
+    bool,
+    bool,
+    Option<String>,
+    Option<i64>,
+    bool,
+    Option<String>,
+);
+type DownloadUrlRow = (
+    String,
+    Option<String>,
+    bool,
+    bool,
+    Option<String>,
+    Option<i64>,
+    bool,
+    Option<String>,
+);
+type MoveFileCurrentRow = (
+    Option<String>,
+    String,
+    Option<String>,
+    bool,
+    Option<String>,
+    bool,
+    Option<String>,
+);
 
 // Human: True when the vault keeps an HLS bundle (no standalone original blob).
 // Agent: USED by download/export handlers to branch away from raw storage_key GET.
@@ -81,6 +109,9 @@ pub struct FileDto {
     pub hls_encode_error: Option<String>,
     pub conversion_progress: i32,
     pub duration_seconds: Option<i32>,
+    pub audio_waveform_ready: bool,
+    pub audio_encode_status: Option<String>,
+    pub audio_encode_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -597,6 +628,7 @@ pub async fn upload_file(
                 ));
             }
             let size_bytes = data.len() as u64;
+            let is_audio = mime.starts_with("audio/");
 
             tracing::info!(
                 request_id = %request_id.0,
@@ -604,6 +636,7 @@ pub async fn upload_file(
                 storage_key = %storage_key,
                 size_bytes,
                 is_video = false,
+                is_audio,
                 "files.upload object storage PUT starting"
             );
 
@@ -634,19 +667,63 @@ pub async fn upload_file(
                 "files.upload object storage PUT complete"
             );
 
-            sqlx::query_as(&format!(
-                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
-            ))
-            .bind(&file_id)
-            .bind(&claims.sub)
-            .bind(&folder_id)
-            .bind(&filename)
-            .bind(&storage_key)
-            .bind(&mime)
-            .bind(size_bytes as i64)
-            .fetch_one(&state.pool)
-            .await?
+            if is_audio {
+                let file: FileDto = sqlx::query_as(&format!(
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                     audio_encode_status, conversion_progress) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', 0) \
+                     RETURNING {FILE_COLUMNS}"
+                ))
+                .bind(&file_id)
+                .bind(&claims.sub)
+                .bind(&folder_id)
+                .bind(&filename)
+                .bind(&storage_key)
+                .bind(&mime)
+                .bind(size_bytes as i64)
+                .fetch_one(&state.pool)
+                .await?;
+
+                tracing::info!(
+                    request_id = %request_id.0,
+                    file_id = %file_id,
+                    "files.upload audio waveform analysis queued"
+                );
+
+                let payload = AudioWaveformPayload {
+                    file_id: file_id.clone(),
+                    storage_key: storage_key.clone(),
+                };
+
+                jobs::enqueue_job(
+                    &state.pool,
+                    &claims.sub,
+                    JobKind::AudioWaveform,
+                    &filename,
+                    Some("file"),
+                    Some(&file_id),
+                    serde_json::to_value(payload).map_err(|e| {
+                        AppError::Internal(anyhow::anyhow!("audio waveform job payload: {e}"))
+                    })?,
+                )
+                .await?;
+
+                file
+            } else {
+                sqlx::query_as(&format!(
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
+                ))
+                .bind(&file_id)
+                .bind(&claims.sub)
+                .bind(&folder_id)
+                .bind(&filename)
+                .bind(&storage_key)
+                .bind(&mime)
+                .bind(size_bytes as i64)
+                .fetch_one(&state.pool)
+                .await?
+            }
         }
     };
     tracing::info!(
@@ -690,7 +767,8 @@ pub async fn download_file(
 ) -> Result<Response, AppError> {
     let row: Option<DownloadFileRow> = sqlx::query_as(
         "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status, \
-         download_export_size_bytes FROM files WHERE id = $1 AND user_id = $2",
+         download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
+         WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
@@ -705,9 +783,17 @@ pub async fn download_file(
         export_ready,
         hls_encode_status,
         export_size,
+        audio_waveform_ready,
+        audio_encode_status,
     ) = row.ok_or(AppError::NotFound)?;
 
-    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+    ensure_file_not_processing(
+        &mime_type,
+        hls_ready,
+        &hls_encode_status,
+        audio_waveform_ready,
+        &audio_encode_status,
+    )?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
         if !export_cache_is_valid(export_ready, export_size) {
@@ -763,7 +849,8 @@ pub async fn download_url(
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
     let row: Option<DownloadUrlRow> = sqlx::query_as(
         "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status, \
-         download_export_size_bytes FROM files WHERE id = $1 AND user_id = $2",
+         download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
+         WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
@@ -776,9 +863,17 @@ pub async fn download_url(
         export_ready,
         hls_encode_status,
         export_size,
+        audio_waveform_ready,
+        audio_encode_status,
     ) = row.ok_or(AppError::NotFound)?;
 
-    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+    ensure_file_not_processing(
+        &mime_type,
+        hls_ready,
+        &hls_encode_status,
+        audio_waveform_ready,
+        &audio_encode_status,
+    )?;
 
     let object_key = if is_hls_stored_video(&mime_type, hls_ready) {
         if !export_cache_is_valid(export_ready, export_size) {
@@ -809,17 +904,25 @@ pub async fn preview_url(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
-    type PreviewUrlRow = (Option<String>, bool, Option<String>);
+    type PreviewUrlRow = (Option<String>, bool, Option<String>, bool, Option<String>);
     let row: Option<PreviewUrlRow> = sqlx::query_as(
-        "SELECT mime_type, hls_ready, hls_encode_status FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT mime_type, hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status \
+         FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (mime_type, hls_ready, hls_encode_status) = row.ok_or(AppError::NotFound)?;
-    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+    let (mime_type, hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status) =
+        row.ok_or(AppError::NotFound)?;
+    ensure_file_not_processing(
+        &mime_type,
+        hls_ready,
+        &hls_encode_status,
+        audio_waveform_ready,
+        &audio_encode_status,
+    )?;
 
     let ticket = crate::stream_ticket::generate_ticket(
         &id,
@@ -844,18 +947,31 @@ pub async fn move_file(
     Json(body): Json<MoveFileRequest>,
 ) -> Result<Json<MoveFileResponse>, AppError> {
     let current: Option<MoveFileCurrentRow> = sqlx::query_as(
-        "SELECT folder_id, name, mime_type, hls_ready, hls_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT folder_id, name, mime_type, hls_ready, hls_encode_status, audio_waveform_ready, \
+         audio_encode_status FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (current_folder_id, name, mime_type, hls_ready, hls_encode_status) =
-        current.ok_or(AppError::NotFound)?;
+    let (
+        current_folder_id,
+        name,
+        mime_type,
+        hls_ready,
+        hls_encode_status,
+        audio_waveform_ready,
+        audio_encode_status,
+    ) = current.ok_or(AppError::NotFound)?;
 
-    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+    ensure_file_not_processing(
+        &mime_type,
+        hls_ready,
+        &hls_encode_status,
+        audio_waveform_ready,
+        &audio_encode_status,
+    )?;
 
     let target_folder_id = body
         .folder_id
@@ -914,7 +1030,8 @@ pub async fn copy_file(
 ) -> Result<Json<CopyFileResponse>, AppError> {
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
-         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds \
+         hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+         audio_waveform_ready, audio_encode_status, audio_waveform_key \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
@@ -928,6 +1045,8 @@ pub async fn copy_file(
         &source.mime_type,
         source.hls_ready,
         &source.hls_encode_status,
+        source.audio_waveform_ready,
+        &source.audio_encode_status,
     )?;
 
     let target_folder_id = body
@@ -954,11 +1073,16 @@ pub async fn copy_file(
     )
     .await?;
 
+    let new_waveform_key = source
+        .audio_waveform_key
+        .as_ref()
+        .map(|_| crate::audio::waveform_storage_key(&new_storage_key));
+
     let file: FileDto = sqlx::query_as(&format!(
         "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
          duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
-         segment_count) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -974,6 +1098,9 @@ pub async fn copy_file(
     .bind(&source.hls_encode_error)
     .bind(source.conversion_progress)
     .bind(source.segment_count)
+    .bind(source.audio_waveform_ready)
+    .bind(&source.audio_encode_status)
+    .bind(&new_waveform_key)
     .fetch_one(&state.pool)
     .await?;
 
@@ -1057,23 +1184,31 @@ pub async fn delete_file(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row: Option<(Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
-        sqlx::query_as(
-            "SELECT mime_type, hls_ready, hls_encode_status, deleted_at \
-             FROM files WHERE id = $1 AND user_id = $2",
+        let row: Option<(Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> =
+            sqlx::query_as(
+            "SELECT mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, \
+             audio_encode_status FROM files WHERE id = $1 AND user_id = $2",
         )
         .bind(&id)
         .bind(&claims.sub)
         .fetch_optional(&state.pool)
         .await?;
 
-    let Some((mime_type, hls_ready, hls_encode_status, deleted_at)) = row else {
+    let Some((mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, audio_encode_status)) =
+        row
+    else {
         // Human: DELETE is idempotent — stale UI rows may reference files already purged.
         // Agent: RETURNS ok without audit when row missing (retry after partial delete).
         return Ok(Json(serde_json::json!({ "ok": true })));
     };
 
-    ensure_file_not_processing(&mime_type, hls_ready, &hls_encode_status)?;
+    ensure_file_not_processing(
+        &mime_type,
+        hls_ready,
+        &hls_encode_status,
+        audio_waveform_ready,
+        &audio_encode_status,
+    )?;
 
     if query.permanent {
         let deleted =

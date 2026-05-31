@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileItem } from "@/api/client";
 import {
   fetchFileStreamUrlForPreview,
+  fetchFileWaveform,
   fetchPublicShareStreamUrlForPreview,
+  fetchPublicShareWaveform,
   getErrorMessage,
 } from "@/api/client";
 import { LightAudioPlayer } from "@/components/drive/audio/LightAudioPlayer";
@@ -49,6 +51,7 @@ export function AudioPreviewDialog({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [autoPlayNext, setAutoPlayNext] = useState(false);
+  const [waveformBars, setWaveformBars] = useState<number[] | null>(null);
   const urlCacheRef = useRef<Map<string, CachedStream>>(new Map());
   const activeFileIdRef = useRef<string | null>(null);
 
@@ -86,6 +89,7 @@ export function AudioPreviewDialog({
     setError("");
     setLoading(false);
     setAutoPlayNext(false);
+    setWaveformBars(null);
   }, []);
 
   const handleDialogOpenChange = useCallback(
@@ -95,6 +99,36 @@ export function AudioPreviewDialog({
     },
     [clearCachedUrls, onOpenChange],
   );
+
+  // Human: Load analyzed waveform peaks for the mobile bottom sheet once the file row is ready.
+  // Agent: CALLS fetchFileWaveform or public share variant; SETS waveformBars for AudioWaveformBars.
+  useEffect(() => {
+    if (!open || !file?.id || isDesktop) {
+      setWaveformBars(null);
+      return;
+    }
+    if (!file.audio_waveform_ready) {
+      setWaveformBars(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadWaveform = shareToken
+      ? fetchPublicShareWaveform(shareToken, file.id, sharePassword)
+      : fetchFileWaveform(file.id);
+
+    void loadWaveform
+      .then((artifact) => {
+        if (!cancelled) setWaveformBars(artifact.bars);
+      })
+      .catch(() => {
+        if (!cancelled) setWaveformBars(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, file?.id, file?.audio_waveform_ready, isDesktop, shareToken, sharePassword]);
 
   const resolveStream = useCallback(
     (item: FileItem) =>
@@ -268,6 +302,7 @@ export function AudioPreviewDialog({
         open={open}
         onOpenChange={handleDialogOpenChange}
         positionLabel={positionLabel}
+        waveformBars={waveformBars}
         {...playerProps}
       />
     );

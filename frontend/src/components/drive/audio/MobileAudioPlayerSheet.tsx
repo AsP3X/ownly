@@ -34,6 +34,8 @@ type MobileAudioPlayerSheetProps = {
   onNext?: () => void;
   onEnded?: () => void;
   positionLabel?: string | null;
+  /** Human: Analyzed peak heights from Nebular waveform.json; omit for decorative fallback. */
+  waveformBars?: number[] | null;
 };
 
 export function MobileAudioPlayerSheet({
@@ -50,6 +52,7 @@ export function MobileAudioPlayerSheet({
   onNext,
   onEnded,
   positionLabel,
+  waveformBars,
 }: MobileAudioPlayerSheetProps) {
   const {
     audioElementProps,
@@ -119,7 +122,7 @@ export function MobileAudioPlayerSheet({
           ) : null}
 
           <div className="mt-4">
-            <AudioWaveformBars progressPercent={progressPercent} />
+            <AudioWaveformBars progressPercent={progressPercent} bars={waveformBars} />
           </div>
 
           <div className="mt-2">

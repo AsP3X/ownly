@@ -15,7 +15,8 @@ use crate::{
 };
 
 use super::model::{
-    BackgroundJob, HlsEncodePayload, HlsExportPayload, JobKind, ZipBulkPayload, ZipFolderPayload,
+    AudioWaveformPayload, BackgroundJob, HlsEncodePayload, HlsExportPayload, JobKind, ZipBulkPayload,
+    ZipFolderPayload,
 };
 use super::store::{
     complete_job, fail_job, finalize_cancelled_running, is_job_cancelled, set_job_progress,
@@ -29,6 +30,7 @@ pub async fn execute_job(state: Arc<AppState>, job: BackgroundJob) -> Result<(),
     match kind {
         JobKind::HlsEncode => run_hls_encode(state, &job).await,
         JobKind::HlsExport => run_hls_export(state, &job).await,
+        JobKind::AudioWaveform => run_audio_waveform(state, &job).await,
         JobKind::ZipBulk => run_zip_bulk(state, &job).await,
         JobKind::ZipFolder => run_zip_folder(state, &job).await,
     }
@@ -113,6 +115,86 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
                 .await
                 .map_err(|e| e.to_string())?;
             tracing::warn!(job_id = %job_id, error = %message, "HLS encode job failed");
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_audio_waveform(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), String> {
+    let payload: AudioWaveformPayload = serde_json::from_value(job.payload.clone())
+        .map_err(|e| format!("invalid audio_waveform payload: {e}"))?;
+
+    if is_job_cancelled(&state.pool, &job.id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        crate::audio::waveform_job::mark_cancelled(&state.pool, &payload.file_id).await;
+        let _ = finalize_cancelled_running(&state.pool, &job.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let pool = state.pool.clone();
+    let job_id = job.id.clone();
+    let file_id = payload.file_id.clone();
+
+    let progress_pool = pool.clone();
+    let progress_job_id = job_id.clone();
+    let progress_file_id = file_id.clone();
+    let progress_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let row: Option<(i32,)> =
+                sqlx::query_as("SELECT conversion_progress FROM files WHERE id = $1")
+                    .bind(&progress_file_id)
+                    .fetch_optional(&progress_pool)
+                    .await
+                    .unwrap_or(None);
+            if let Some((pct,)) = row {
+                let _ = set_job_progress(&progress_pool, &progress_job_id, pct).await;
+            }
+        }
+    });
+
+    let waveform_job = crate::audio::waveform_job::AudioWaveformJob {
+        file_id: payload.file_id,
+        storage_key: payload.storage_key,
+    };
+
+    let result = crate::audio::waveform_job::run_audio_waveform_job(
+        pool,
+        state.storage.clone(),
+        waveform_job,
+    )
+    .await;
+
+    progress_handle.abort();
+
+    if is_job_cancelled(&state.pool, &job_id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        crate::audio::waveform_job::mark_cancelled(&state.pool, &file_id).await;
+        let _ = finalize_cancelled_running(&state.pool, &job_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    match result {
+        Ok(()) => {
+            complete_job(&state.pool, &job_id)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Err(message) => {
+            crate::audio::waveform_job::mark_failed(&state.pool, &file_id, &message).await;
+            fail_job(&state.pool, &job_id, &message)
+                .await
+                .map_err(|e| e.to_string())?;
+            tracing::warn!(job_id = %job_id, error = %message, "audio waveform job failed");
         }
     }
 

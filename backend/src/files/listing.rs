@@ -31,6 +31,11 @@ pub struct FileListItem {
     pub duration_seconds: Option<i32>,
     pub conversion_progress: i32,
     pub share_public: bool,
+    pub audio_waveform_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_encode_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_encode_error: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -114,6 +119,33 @@ const SHARE_PUBLIC_FILE_EXPR: &str = "EXISTS (
       AND ps.revoked_at IS NULL
 ) AS share_public";
 
+// Human: Shared SELECT column list for file list/batch queries including audio waveform status.
+// Agent: READS minimal flag; OMITS heavy error columns when minimal=true.
+fn file_list_select_columns(minimal: bool) -> String {
+    let hls_error_col = if minimal {
+        "NULL::TEXT AS hls_encode_error"
+    } else {
+        "f.hls_encode_error"
+    };
+    let audio_error_col = if minimal {
+        "NULL::TEXT AS audio_encode_error"
+    } else {
+        "f.audio_encode_error"
+    };
+    let duration_col = if minimal {
+        "NULL::INT AS duration_seconds"
+    } else {
+        "f.duration_seconds"
+    };
+
+    format!(
+        "f.id, f.name, f.mime_type, f.size_bytes, f.folder_id, f.created_at, f.updated_at, \
+         f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
+         f.audio_waveform_ready, f.audio_encode_status, {audio_error_col}, \
+         {SHARE_PUBLIC_FILE_EXPR}"
+    )
+}
+
 const SHARE_PUBLIC_FOLDER_EXPR: &str = "EXISTS (
     SELECT 1 FROM public_shares ps
     WHERE ps.user_id = fo.user_id
@@ -146,22 +178,7 @@ pub async fn list_owned_files(
         .as_deref()
         .and_then(mime_type_filter_sql);
 
-    let hls_error_col = if minimal {
-        "NULL::TEXT AS hls_encode_error"
-    } else {
-        "f.hls_encode_error"
-    };
-    let duration_col = if minimal {
-        "NULL::INT AS duration_seconds"
-    } else {
-        "f.duration_seconds"
-    };
-
-    let select_cols = format!(
-        "f.id, f.name, f.mime_type, f.size_bytes, f.folder_id, f.created_at, f.updated_at, \
-         f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
-         {SHARE_PUBLIC_FILE_EXPR}"
-    );
+    let select_cols = file_list_select_columns(minimal);
 
     let (files, file_count, total_bytes) = if search.is_empty() {
         let mut where_parts = vec![
@@ -262,22 +279,7 @@ pub async fn batch_owned_files(
 
     let ids: Vec<String> = ids.into_iter().take(MAX_BATCH_IDS).collect();
 
-    let hls_error_col = if minimal {
-        "NULL::TEXT AS hls_encode_error"
-    } else {
-        "f.hls_encode_error"
-    };
-    let duration_col = if minimal {
-        "NULL::INT AS duration_seconds"
-    } else {
-        "f.duration_seconds"
-    };
-
-    let select_cols = format!(
-        "f.id, f.name, f.mime_type, f.size_bytes, f.folder_id, f.created_at, f.updated_at, \
-         f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
-         {SHARE_PUBLIC_FILE_EXPR}"
-    );
+    let select_cols = file_list_select_columns(minimal);
 
     let list_sql = format!(
         "SELECT {select_cols} FROM files f \

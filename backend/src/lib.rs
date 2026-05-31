@@ -18,6 +18,7 @@ use tracing::{info, Level};
 
 pub mod audit;
 pub mod auth;
+pub mod audio;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -309,6 +310,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(shares::handlers::public_share_stream_url),
         )
         .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/waveform",
+            get(shares::handlers::public_share_waveform),
+        )
+        .route(
             "/api/v1/public/shares/{token}/files/{file_id}/playlist",
             get(shares::handlers::public_share_playlist),
         )
@@ -411,6 +416,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/{id}/preview-url",
             get(files::handlers::preview_url),
+        )
+        .route(
+            "/api/v1/files/{id}/waveform",
+            get(crate::audio::handlers::get_waveform),
         )
         .route("/api/v1/files/{id}/copy", post(files::handlers::copy_file))
         .route(

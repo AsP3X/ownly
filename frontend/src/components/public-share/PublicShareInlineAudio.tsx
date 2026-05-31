@@ -2,7 +2,8 @@
 // Agent: FETCHES stream URL; RENDERS MobileAudioPlayerCard below lg, LightAudioPlayer default on desktop.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FolderInput, Loader2, ShieldCheck } from "lucide-react";
+import { PublicShareMobileActionStack } from "@/components/public-share/PublicShareMobileActionStack";
+import { PublicShareSecurityBadge } from "@/components/public-share/PublicShareSecurityBadge";
 import type { FileItem } from "@/api/client";
 import { fetchPublicShareStreamUrlForPreview, getErrorMessage } from "@/api/client";
 import { LightAudioPlayer } from "@/components/drive/audio/LightAudioPlayer";
@@ -91,46 +92,18 @@ export function PublicShareInlineAudio({
         <MobileAudioPlayerCard specsLabel={specsLabel} {...playerProps} />
 
         {showMobileActions ? (
-          <div className="flex flex-col gap-2.5">
-            {onDownload ? (
-              <button
-                type="button"
-                onClick={onDownload}
-                disabled={downloadDisabled || downloadLoading}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {downloadLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Download className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                {downloadLabel}
-              </button>
-            ) : null}
-            {onSave ? (
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={saveDisabled || saveLoading}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-5 py-3.5 text-sm font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saveLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FolderInput className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                Save to My Ownly
-              </button>
-            ) : null}
-          </div>
+          <PublicShareMobileActionStack
+            downloadLabel={downloadLabel}
+            onDownload={onDownload}
+            onSave={onSave}
+            downloadDisabled={downloadDisabled}
+            downloadLoading={downloadLoading}
+            saveDisabled={saveDisabled}
+            saveLoading={saveLoading}
+          />
         ) : null}
 
-        <div className="flex items-center justify-center gap-1.5 py-2">
-          <ShieldCheck className="h-3.5 w-3.5 text-green-600" aria-hidden />
-          <span className="text-xs font-semibold text-green-600">
-            Zero-Knowledge Verified Encryption
-          </span>
-        </div>
+        <PublicShareSecurityBadge variant="row" />
       </div>
     );
   }
