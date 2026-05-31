@@ -499,6 +499,8 @@ async fn check_upload_names_finds_library_duplicates_globally() {
         email.clone(),
         "user".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .expect("create token");
 
@@ -614,6 +616,8 @@ async fn check_upload_names_finds_exact_recycle_bin_matches() {
         email.clone(),
         "user".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .expect("create token");
 
@@ -707,6 +711,8 @@ async fn check_upload_names_accepts_html_documents() {
         email.clone(),
         "user".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .expect("create token");
 
@@ -797,6 +803,8 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
         email.clone(),
         "user".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .expect("create token");
 
@@ -1025,6 +1033,8 @@ async fn public_share_password_and_download_block() {
         format!("share-protect-{user_id}@example.com"),
         "user".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .expect("create token");
 
@@ -1056,6 +1066,265 @@ async fn public_share_password_and_download_block() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Admin user directory must reject non-admin JWTs and accept administrators.
+// Agent: GET /api/v1/admin/users; EXPECT 403 for user role, 200 + users array for admin.
+#[tokio::test]
+async fn admin_users_list_requires_admin_role() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping admin_users_list_requires_admin_role: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping admin_users_list_requires_admin_role: {error}");
+            return;
+        }
+    };
+
+    let member_id = uuid::Uuid::new_v4().to_string();
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let member_email = format!("member-{member_id}@example.com");
+    let admin_email = format!("admin-{admin_id}@example.com");
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&member_id)
+    .bind(&member_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert member");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(&admin_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    let member_token = mediavault_backend::auth::handlers::create_token(
+        member_id.clone(),
+        member_email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("member token");
+
+    let admin_token = mediavault_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        admin_email.clone(),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/users")
+                .header("authorization", format!("Bearer {member_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let ok = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/users")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    let json = response_json(ok).await;
+    let users = json["users"].as_array().expect("users array");
+    assert!(users.iter().any(|row| row["id"] == member_id));
+    assert!(users.iter().any(|row| row["id"] == admin_id));
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&member_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Revoking a session id must block subsequent API calls using that JWT sid.
+// Agent: POST revoke; GET /me with same token; EXPECT 401 after revoke.
+#[tokio::test]
+async fn admin_revoked_session_invalidates_jwt() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping admin_revoked_session_invalidates_jwt: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping admin_revoked_session_invalidates_jwt: {error}");
+            return;
+        }
+    };
+
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let target_id = uuid::Uuid::new_v4().to_string();
+    let admin_email = format!("admin-revoke-{admin_id}@example.com");
+    let target_email = format!("target-revoke-{target_id}@example.com");
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(&admin_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&target_id)
+    .bind(&target_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert target");
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id) \
+         VALUES ($1, $2, 'auth.login', 'user', $2)",
+    )
+    .bind(&session_id)
+    .bind(&target_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert audit row");
+
+    let target_token = mediavault_backend::auth::handlers::create_token(
+        target_id.clone(),
+        target_email.clone(),
+        "pro".into(),
+        &state.jwt_secret,
+        Some(session_id.clone()),
+        0,
+    )
+    .expect("target token");
+
+    let admin_token = mediavault_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        admin_email.clone(),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+
+    let me_ok = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {target_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me_ok.status(), StatusCode::OK);
+
+    let revoke = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/admin/users/{target_id}/sessions/{session_id}/revoke"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoke.status(), StatusCode::OK);
+
+    let me_blocked = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {target_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me_blocked.status(), StatusCode::UNAUTHORIZED);
+
+    sqlx::query("DELETE FROM audit_logs WHERE user_id = $1")
+        .bind(&target_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM app_settings WHERE key = $1")
+        .bind(format!("admin_revoked_sessions:{target_id}"))
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM app_settings WHERE key = $1")
+        .bind(format!("user_session_epoch:{target_id}"))
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&target_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
         .execute(&state.pool)
         .await
         .ok();

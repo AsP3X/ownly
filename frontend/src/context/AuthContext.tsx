@@ -1,8 +1,9 @@
 // Human: Session state for JWT + user profile persisted in localStorage across reloads.
 // Agent: WRITES mediavault_token + mediavault_user; PROVIDES AuthContext to the app shell.
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { fetchCurrentUser, setUnauthorizedHandler } from "@/api/client";
 import { AuthContext, type User } from "@/context/auth-context";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -31,6 +32,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     navigate("/", { replace: true });
   }, [navigate]);
+
+  // Human: Any API 401 while a token exists should clear local session (revoked JWT, disabled user, etc.).
+  // Agent: REGISTERS logout with apiFetch; RUNS on all pages that mount AuthProvider.
+  useEffect(() => {
+    setUnauthorizedHandler(() => logout());
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
+  // Human: Poll /me so revoked sessions log out even on idle pages without another API call.
+  // Agent: GET /me on interval + focus; 401 CALLS unauthorizedHandler.
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const profile = await fetchCurrentUser();
+        if (cancelled) return;
+        setUser((prev) =>
+          prev &&
+          prev.id === profile.id &&
+          prev.email === profile.email &&
+          prev.role === profile.role &&
+          prev.enabled === profile.enabled
+            ? prev
+            : {
+                id: profile.id,
+                email: profile.email,
+                role: profile.role,
+                enabled: profile.enabled,
+              },
+        );
+      } catch {
+        // Human: apiFetch already invoked logout on 401.
+      }
+    };
+
+    void probe();
+    const intervalId = window.setInterval(() => void probe(), 20_000);
+    const onFocus = () => void probe();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [token]);
 
   const value = useMemo(
     () => ({ token, user, setAuth, logout }),

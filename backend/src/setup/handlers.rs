@@ -281,6 +281,8 @@ pub async fn setup(
         body.email.trim().to_lowercase(),
         "admin".into(),
         &state.jwt_secret,
+        None,
+        0,
     )
     .map_err(AppError::Internal)?;
 

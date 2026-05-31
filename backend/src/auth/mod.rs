@@ -49,6 +49,18 @@ pub async fn auth_middleware(
         ));
     }
 
+    if !crate::user_sessions::is_token_session_valid(
+        &state.pool,
+        &claims.sub,
+        claims.sid.as_deref(),
+        claims.ver,
+        claims.iat,
+    )
+    .await?
+    {
+        return Err(AppError::Unauthorized);
+    }
+
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)
 }

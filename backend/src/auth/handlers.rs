@@ -22,6 +22,12 @@ pub struct Claims {
     pub role: String,
     pub exp: i64,
     pub iat: i64,
+    /// Human: Audit log id from auth.login — used for admin session revoke.
+    #[serde(default)]
+    pub sid: Option<String>,
+    /// Human: Session epoch from app_settings — bumped when the newest login session is revoked.
+    #[serde(default)]
+    pub ver: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +73,14 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, argon2::passw
         .is_ok())
 }
 
-pub fn create_token(user_id: String, email: String, role: String, secret: &str) -> anyhow::Result<String> {
+pub fn create_token(
+    user_id: String,
+    email: String,
+    role: String,
+    secret: &str,
+    session_id: Option<String>,
+    session_version: u64,
+) -> anyhow::Result<String> {
     let now = Utc::now();
     let claims = Claims {
         sub: user_id,
@@ -75,6 +88,8 @@ pub fn create_token(user_id: String, email: String, role: String, secret: &str) 
         role,
         iat: now.timestamp(),
         exp: (now + chrono::Duration::try_hours(24).unwrap()).timestamp(),
+        sid: session_id,
+        ver: session_version,
     };
     Ok(encode(
         &Header::default(),
@@ -151,7 +166,7 @@ pub async fn register(
         _ => AppError::Database(e),
     })?;
 
-    audit::write_audit(
+    let session_id = audit::write_audit(
         &state.pool,
         Some(&user_id),
         "auth.register",
@@ -163,8 +178,19 @@ pub async fn register(
     .await
     .ok();
 
+    let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
     let token = if enabled {
-        Some(create_token(user_id.clone(), email.clone(), "user".into(), &state.jwt_secret).map_err(AppError::Internal)?)
+        Some(
+            create_token(
+                user_id.clone(),
+                email.clone(),
+                "user".into(),
+                &state.jwt_secret,
+                session_id,
+                session_version,
+            )
+            .map_err(AppError::Internal)?,
+        )
     } else {
         None
     };
@@ -208,10 +234,7 @@ pub async fn login(
         ));
     }
 
-    let token = create_token(user_id.clone(), email.clone(), role.clone(), &state.jwt_secret)
-        .map_err(AppError::Internal)?;
-
-    audit::write_audit(
+    let session_id = audit::write_audit(
         &state.pool,
         Some(&user_id),
         "auth.login",
@@ -222,6 +245,17 @@ pub async fn login(
     )
     .await
     .ok();
+
+    let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
+    let token = create_token(
+        user_id.clone(),
+        email.clone(),
+        role.clone(),
+        &state.jwt_secret,
+        session_id,
+        session_version,
+    )
+    .map_err(AppError::Internal)?;
 
     Ok(Json(AuthResponse {
         token: Some(token),

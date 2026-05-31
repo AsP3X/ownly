@@ -14,6 +14,8 @@ export type DriveDesktopTopbarProps = {
   initials: string;
   email?: string | null;
   isAdmin?: boolean;
+  /** Human: Left status line — drive default vs admin console override from Pencil topbar. */
+  statusText?: string;
   onSignOut: () => void;
   className?: string;
 };
@@ -26,6 +28,7 @@ export function DriveDesktopTopbar({
   initials,
   email,
   isAdmin = false,
+  statusText = "Secure Encrypted Session Active",
   onSignOut,
   className,
 }: DriveDesktopTopbarProps) {
@@ -67,9 +70,7 @@ export function DriveDesktopTopbar({
       {/* Human: Left cluster — shield + encrypted session copy per Pencil Left Group */}
       <div className="flex min-w-0 items-center gap-3">
         <ShieldCheck className="size-4 shrink-0 text-[#10B981]" aria-hidden />
-        <p className="truncate text-[13px] font-medium text-[#666666]">
-          Secure Encrypted Session Active
-        </p>
+        <p className="truncate text-[13px] font-medium text-[#666666]">{statusText}</p>
       </div>
 
       {/* Human: Right cluster — profile trigger + dropdown (no inline sign-out per Profile Menu wireframe) */}

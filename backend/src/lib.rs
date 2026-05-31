@@ -16,6 +16,7 @@ use tower_http::{
 };
 use tracing::{info, Level};
 
+pub mod admin;
 pub mod audit;
 pub mod auth;
 pub mod audio;
@@ -34,6 +35,7 @@ pub mod secrets;
 pub mod setup;
 pub mod shares;
 pub mod storage;
+pub mod user_sessions;
 
 use config::Config;
 use sqlx::PgPool;
@@ -472,6 +474,30 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/jobs/{id}",
             get(jobs::handlers::get_job).delete(jobs::handlers::delete_job),
+        )
+        .route(
+            "/api/v1/admin/users/roles",
+            get(admin::handlers::list_roles),
+        )
+        .route(
+            "/api/v1/admin/users",
+            get(admin::handlers::list_users).post(admin::handlers::create_user),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/sessions",
+            get(admin::handlers::list_user_sessions),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/sessions/revoke-others",
+            post(admin::handlers::revoke_other_sessions),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/sessions/{session_id}/revoke",
+            post(admin::handlers::revoke_user_session),
+        )
+        .route(
+            "/api/v1/admin/users/{id}",
+            patch(admin::handlers::update_user).delete(admin::handlers::delete_user),
         )
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware));
 

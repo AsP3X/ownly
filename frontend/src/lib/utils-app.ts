@@ -86,9 +86,66 @@ export function userInitials(email?: string | null): string {
 // Agent: READS role string from auth user; RETURNS label for DriveDesktopTopbar profile row.
 export function userRoleLabel(role?: string | null): string {
   if (!role) return "Pro Member";
-  if (role === "admin") return "Administrator";
+  if (role === "admin") return "Super Administrator";
   if (role === "user" || role === "member") return "Pro Member";
   return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+// Human: Admin directory "Last Active" column — relative time from audit activity timestamps.
+// Agent: READS ISO string|null; RETURNS human phrases (Active now, 2m ago, Never).
+export function formatRelativeActive(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "Never";
+  const diffMs = Date.now() - then;
+  if (diffMs < 60_000) return "Active now";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return formatDate(iso);
+}
+
+// Human: Map API role id to admin console table label.
+// Agent: READS role string; RETURNS display label for pills and role catalog.
+export function adminRoleTableLabel(role: string): string {
+  if (role === "admin") return "Administrator";
+  if (role === "standard") return "Standard User";
+  if (role === "pro" || role === "user") return "Pro User";
+  return userRoleLabel(role);
+}
+
+// Human: Compare stored roles when legacy `user` meant Pro User in the directory.
+// Agent: READS API role; RETURNS canonical role id for change detection.
+export function normalizeAdminUserRole(role: string): string {
+  if (role === "user") return "pro";
+  return role;
+}
+
+// Human: Friendly name for admin edit-user dialog subtitle (Pencil: "Sarah Jenkins • email").
+// Agent: READS email local-part; RETURNS title-cased tokens from . _ - separators.
+export function userDisplayName(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  if (parts.length === 0) return local || email;
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** Human: Map API role to edit-dialog segmented tier (Standard / Pro / Administrator). */
+export type AdminUserRoleTier = "standard" | "pro" | "admin";
+
+export function adminUserRoleTierFromApi(role: string): AdminUserRoleTier {
+  if (role === "admin") return "admin";
+  if (role === "standard") return "standard";
+  return "pro";
+}
+
+export function adminUserRoleTierToApi(tier: AdminUserRoleTier): string {
+  return tier;
 }
 
 export type FileTypeFilter =

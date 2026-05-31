@@ -31,6 +31,22 @@ function getToken(): string | null {
   return localStorage.getItem("mediavault_token");
 }
 
+// Human: Global hook so a 401 from any API call clears the client session (revoked JWT, etc.).
+// Agent: SET by AuthProvider; READ by apiFetch on unauthorized responses.
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+}
+
+function shouldIgnoreUnauthorizedLogout(path: string, method: string | undefined): boolean {
+  const m = (method ?? "GET").toUpperCase();
+  if (path === "/auth/login" || path === "/auth/register") return true;
+  if (path.startsWith("/setup") && m !== "GET") return true;
+  return false;
+}
+
 // Human: Parse Retry-After from throttled API responses so upload backoff can align with the server window.
 // Agent: READS header string; RETURNS integer seconds or undefined when missing/invalid.
 function parseRetryAfterSeconds(headerValue: string | null): number | undefined {
@@ -74,6 +90,13 @@ async function apiFetch(path: string, init: RequestInit = {}) {
         ? body.error
         : errorObject?.message ?? res.statusText;
     const code = errorObject?.code ?? "request_failed";
+    if (
+      res.status === 401 &&
+      token &&
+      !shouldIgnoreUnauthorizedLogout(path, init.method)
+    ) {
+      unauthorizedHandler?.();
+    }
     throw new ApiError(
       message,
       code,
@@ -134,6 +157,17 @@ export async function setup(body: {
   }>;
 }
 
+// Human: Lightweight session probe — fails with 401 when JWT is revoked or expired.
+// Agent: GET /me; TRIGGERS unauthorizedHandler via apiFetch on 401.
+export async function fetchCurrentUser() {
+  return apiFetch("/me", { cache: "no-store" }) as Promise<{
+    id: string;
+    email: string;
+    role: string;
+    enabled: boolean;
+  }>;
+}
+
 export async function login(email: string, password: string) {
   return apiFetch("/auth/login", {
     method: "POST",
@@ -157,6 +191,116 @@ export async function register(email: string, password: string) {
 
 export async function registrationSetting() {
   return apiFetch("/settings/registration") as Promise<{ allow_public_registration: boolean }>;
+}
+
+export type AdminUserRow = {
+  id: string;
+  email: string;
+  role: string;
+  enabled: boolean;
+  storage_bytes: number;
+  file_count: number;
+  last_active_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminUsersListResponse = {
+  users: AdminUserRow[];
+  summary: {
+    total: number;
+    enabled_count: number;
+    admin_count: number;
+    activation_rate_percent: number;
+  };
+  instance: {
+    default_quota_bytes: number;
+  };
+};
+
+export type AdminRoleRow = {
+  id: string;
+  label: string;
+  member_count: number;
+  permissions: string;
+  role_type: string;
+};
+
+// Human: Load the full user directory for the admin console User Management panel.
+// Agent: GET /admin/users; REQUIRES admin JWT; RETURNS users + activation summary.
+export async function fetchAdminUsers() {
+  return apiFetch("/admin/users") as Promise<AdminUsersListResponse>;
+}
+
+// Human: Role catalog with live member counts for the Security Roles tab.
+// Agent: GET /admin/users/roles; REQUIRES admin JWT.
+export async function fetchAdminUserRoles() {
+  return apiFetch("/admin/users/roles") as Promise<{ roles: AdminRoleRow[] }>;
+}
+
+// Human: Invite or create a local account from the admin console.
+// Agent: POST /admin/users; WRITES user row; AUDIT admin.users.create server-side.
+export async function createAdminUser(body: {
+  email: string;
+  password: string;
+  role: string;
+  enabled?: boolean;
+}) {
+  return apiFetch("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<{ id: string; email: string; role: string; enabled: boolean }>;
+}
+
+// Human: Update role, activation, or reset password for a managed account.
+// Agent: PATCH /admin/users/:id; WRITES users; AUDIT admin.users.update server-side.
+export async function updateAdminUser(
+  userId: string,
+  body: { role?: string; enabled?: boolean; password?: string },
+) {
+  return apiFetch(`/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  }) as Promise<{ id: string; email: string; role: string; enabled: boolean }>;
+}
+
+// Human: Permanently remove a user and cascade-owned library content.
+// Agent: DELETE /admin/users/:id; WRITES users DELETE; AUDIT admin.users.delete server-side.
+export async function deleteAdminUser(userId: string) {
+  return apiFetch(`/admin/users/${userId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
+}
+
+export type AdminUserSessionRow = {
+  id: string;
+  device_label: string;
+  location_label: string;
+  created_line: string;
+  activity_line: string;
+  is_current: boolean;
+};
+
+// Human: Active sessions list for Manage Sessions dialog (audit-derived).
+// Agent: GET /admin/users/:id/sessions; REQUIRES admin JWT.
+export async function fetchAdminUserSessions(userId: string) {
+  return apiFetch(`/admin/users/${userId}/sessions`) as Promise<{ sessions: AdminUserSessionRow[] }>;
+}
+
+// Human: Revoke one session card in the admin console.
+// Agent: POST /admin/users/:id/sessions/:sessionId/revoke; AUDIT admin.sessions.revoke server-side.
+export async function revokeAdminUserSession(userId: string, sessionId: string) {
+  return apiFetch(`/admin/users/${userId}/sessions/${sessionId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Revoke all sessions except the current one for a user.
+// Agent: POST /admin/users/:id/sessions/revoke-others; AUDIT admin.sessions.revoke_others server-side.
+export async function revokeOtherAdminUserSessions(userId: string) {
+  return apiFetch(`/admin/users/${userId}/sessions/revoke-others`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }) as Promise<{ ok: boolean }>;
 }
 
 export async function fetchDashboard() {

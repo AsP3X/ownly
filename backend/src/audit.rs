@@ -18,7 +18,7 @@ pub async fn write_audit(
     resource_id: Option<&str>,
     context: Option<Value>,
     headers: &HeaderMap,
-) -> Result<(), sqlx::Error> {
+) -> Result<String, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
     let ip = client_ip_from_headers(headers);
     let user_agent = headers
@@ -42,5 +42,5 @@ pub async fn write_audit(
     .execute(pool)
     .await?;
 
-    Ok(())
+    Ok(id)
 }

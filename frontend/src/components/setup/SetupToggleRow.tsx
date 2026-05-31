@@ -10,6 +10,8 @@ type SetupToggleRowProps = {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
+  /** Human: Optional Switch class override (e.g. green account-status toggle in admin console). */
+  switchClassName?: string;
 };
 
 export function SetupToggleRow({
@@ -18,6 +20,7 @@ export function SetupToggleRow({
   checked,
   onCheckedChange,
   disabled,
+  switchClassName,
 }: SetupToggleRowProps) {
   return (
     <div className={cn("flex items-center justify-between gap-4", disabled && "opacity-50")}>
@@ -30,7 +33,10 @@ export function SetupToggleRow({
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
-        className="h-6 w-10 data-checked:bg-[#1A1A1A] data-unchecked:bg-[#E5E7EB] [&_[data-slot=switch-thumb]]:size-5"
+        className={
+          switchClassName ??
+          "h-6 w-10 data-checked:bg-[#1A1A1A] data-unchecked:bg-[#E5E7EB] [&_[data-slot=switch-thumb]]:size-5"
+        }
       />
     </div>
   );
