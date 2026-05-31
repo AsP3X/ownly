@@ -56,7 +56,7 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -68,10 +68,12 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   buildAudioGallery,
   buildImageGallery,
+  buildTextCodeGallery,
   buildVideoGallery,
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isTextCodePreviewMime,
   sortFilesByName,
   userInitials,
   userRoleLabel,
@@ -184,6 +186,7 @@ export default function DrivePage() {
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewText, setPreviewText] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -775,6 +778,15 @@ export default function DrivePage() {
     setPreviewPdf(file);
   }
 
+  // Human: Open the in-browser text/code editor for editable plain-text and source files.
+  // Agent: SETS previewText; TextCodeEditorDialog FETCHES bytes and RENDERS One Dark editor chrome.
+  function handlePreviewText(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isTextCodePreviewMime(file.mime_type, file.name)) return;
+    recordFileAccess(file.id);
+    setPreviewText(file);
+  }
+
   // Human: Open the Aurora-style audio player for stored audio/* files.
   // Agent: SETS previewAudio; AudioPreviewDialog FETCHES blob URL and RENDERS transport UI.
   function handlePreviewAudio(file: FileItem) {
@@ -804,9 +816,31 @@ export default function DrivePage() {
     return buildVideoGallery(files, previewVideo);
   }, [files, previewVideo]);
 
+  const galleryTextFiles = useMemo(() => {
+    if (!previewText) return [];
+    return buildTextCodeGallery(files, previewText);
+  }, [files, previewText]);
+
+  const textEditorBranchLabel = folderStack.at(-1)?.name ?? "My Cloud";
+
   function handleGalleryAudioChange(file: FileItem) {
     recordFileAccess(file.id);
     setPreviewAudio(file);
+  }
+
+  function handleGalleryTextChange(file: FileItem) {
+    recordFileAccess(file.id);
+    setPreviewText(file);
+  }
+
+  function handleTextFileSaved(previousId: string, savedFile: FileItem) {
+    setFiles((current) =>
+      current.map((item) => (item.id === previousId ? savedFile : item)),
+    );
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      silent: true,
+      nav: activeNav,
+    });
   }
 
   function handleGalleryVideoChange(file: FileItem) {
@@ -1037,6 +1071,7 @@ export default function DrivePage() {
       onPreviewVideo={handlePreviewVideo}
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
+      onPreviewText={handlePreviewText}
       onPreviewAudio={handlePreviewAudio}
       onDelete={requestDeleteFile}
       onDeleteFolder={requestDeleteFolder}
@@ -1123,6 +1158,22 @@ export default function DrivePage() {
                 if (!open) setPreviewPdf(null);
               },
               onDownload: handleDownload,
+            }}
+          />
+        ) : null}
+        {previewText !== null ? (
+          <DynamicImportPreview
+            loader={loadTextCodeEditorDialog}
+            previewProps={{
+              tabs: galleryTextFiles,
+              file: previewText,
+              open: true,
+              branchLabel: textEditorBranchLabel,
+              onOpenChange: (open) => {
+                if (!open) setPreviewText(null);
+              },
+              onFileChange: handleGalleryTextChange,
+              onFileSaved: handleTextFileSaved,
             }}
           />
         ) : null}
@@ -1377,6 +1428,7 @@ export default function DrivePage() {
                 onPreviewVideo={handlePreviewVideo}
                 onPreviewImage={handlePreviewImage}
                 onPreviewPdf={handlePreviewPdf}
+                onPreviewText={handlePreviewText}
                 onPreviewAudio={handlePreviewAudio}
               />
             ) : activeNav === "my-files" ? (
@@ -1427,6 +1479,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+                  onPreviewText={handlePreviewText}
                   onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
                 />

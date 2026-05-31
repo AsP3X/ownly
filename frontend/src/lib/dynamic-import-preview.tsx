@@ -5,6 +5,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import type { AudioPreviewDialogProps } from "@/components/drive/AudioPreviewDialog";
 import type { ImagePreviewDialogProps } from "@/components/drive/ImagePreviewDialog";
 import type { PdfPreviewDialogProps } from "@/components/drive/PdfPreviewDialog";
+import type { TextCodeEditorDialogProps } from "@/components/drive/TextCodeEditorDialog";
 import type { VideoPreviewDialogProps } from "@/components/drive/VideoPreviewDialog";
 
 type DynamicImportPreviewProps<P extends object> = {
@@ -67,6 +68,18 @@ export function loadPdfPreviewDialog(): Promise<ComponentType<PdfPreviewDialogPr
   return import("@/components/drive/PdfPreviewDialog").then((module) => {
     cachedPdfPreviewDialog = module.PdfPreviewDialog;
     return module.PdfPreviewDialog;
+  });
+}
+
+let cachedTextCodeEditorDialog: ComponentType<TextCodeEditorDialogProps> | null = null;
+
+// Human: Load TextCodeEditorDialog on first open — keeps editor chunk off the drive bundle.
+// Agent: dynamic import(); CACHES module singleton for faster reopen.
+export function loadTextCodeEditorDialog(): Promise<ComponentType<TextCodeEditorDialogProps>> {
+  if (cachedTextCodeEditorDialog) return Promise.resolve(cachedTextCodeEditorDialog);
+  return import("@/components/drive/TextCodeEditorDialog").then((module) => {
+    cachedTextCodeEditorDialog = module.TextCodeEditorDialog;
+    return module.TextCodeEditorDialog;
   });
 }
 

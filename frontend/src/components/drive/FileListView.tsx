@@ -19,7 +19,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ type FileListViewProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewText?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
@@ -126,6 +127,7 @@ export function FileListView({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewText,
   onPreviewAudio,
   fileShareFlags = {},
   folderShareFlags = {},
@@ -301,9 +303,13 @@ export function FileListView({
             const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
             const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+            const canPreviewText =
+              isTextCodePreviewMime(file.mime_type, file.name) &&
+              onPreviewText !== undefined &&
+              !processing;
             const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
             const canPreview =
-              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
+              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
 
             return (
               <li
@@ -332,6 +338,7 @@ export function FileListView({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(

@@ -27,6 +27,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isTextCodePreviewMime,
   sortFilesByName,
 } from "@/lib/utils-app";
 import { expandShareSelectionToFiles } from "@/lib/public-share-selection";
@@ -53,6 +54,7 @@ type PublicShareExplorerProps = {
   onPreviewVideo: (file: FileItem) => void;
   onPreviewImage: (file: FileItem) => void;
   onPreviewPdf: (file: FileItem) => void;
+  onPreviewText: (file: FileItem) => void;
   onPreviewAudio: (file: FileItem) => void;
   allowDownload?: boolean;
   onBulkDownload?: (files: FileItem[]) => void;
@@ -110,7 +112,7 @@ function resolvePreviewHandler(
   file: FileItem,
   handlers: Pick<
     PublicShareExplorerProps,
-    "onPreviewVideo" | "onPreviewImage" | "onPreviewPdf" | "onPreviewAudio"
+    "onPreviewVideo" | "onPreviewImage" | "onPreviewPdf" | "onPreviewText" | "onPreviewAudio"
   >,
 ): (() => void) | undefined {
   if (isFileProcessing(file)) return undefined;
@@ -118,6 +120,7 @@ function resolvePreviewHandler(
   if (isVideo && file.hls_ready) return () => handlers.onPreviewVideo(file);
   if (isImageMime(file.mime_type)) return () => handlers.onPreviewImage(file);
   if (isPdfMime(file.mime_type)) return () => handlers.onPreviewPdf(file);
+  if (isTextCodePreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewText(file);
   if (isAudioMime(file.mime_type)) return () => handlers.onPreviewAudio(file);
   return undefined;
 }
@@ -154,6 +157,7 @@ export function PublicShareExplorer({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewText,
   onPreviewAudio,
   allowDownload = true,
   onBulkDownload,
@@ -204,6 +208,7 @@ export function PublicShareExplorer({
     onPreviewVideo,
     onPreviewImage,
     onPreviewPdf,
+    onPreviewText,
     onPreviewAudio,
   };
 

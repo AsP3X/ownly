@@ -178,6 +178,72 @@ export function isAudioMime(mimeType: string | null | undefined): boolean {
   return (mimeType ?? "").toLowerCase().startsWith("audio/");
 }
 
+const TEXT_CODE_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "json",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "css",
+  "scss",
+  "html",
+  "htm",
+  "xml",
+  "yaml",
+  "yml",
+  "csv",
+  "log",
+  "rs",
+  "py",
+  "sh",
+  "sql",
+  "env",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+]);
+
+// Human: True when a stored file should open in the text/code editor dialog.
+// Agent: READS mime_type + filename extension; RETURNS true for text/* and common code types.
+export function isTextCodePreviewMime(
+  mimeType: string | null | undefined,
+  filename?: string | null,
+): boolean {
+  const mime = (mimeType ?? "").toLowerCase();
+  if (
+    mime.startsWith("text/") ||
+    mime.includes("json") ||
+    mime.includes("javascript") ||
+    mime.includes("typescript") ||
+    mime.includes("xml")
+  ) {
+    return true;
+  }
+
+  const extension = (filename ?? "").split(".").pop()?.toLowerCase() ?? "";
+  return TEXT_CODE_EXTENSIONS.has(extension);
+}
+
+// Human: Folder-scoped text/code tabs for the editor dialog — same pattern as image gallery siblings.
+// Agent: FILTERS isTextCodePreviewMime + folder_id; SORTS by filename via sortFilesByName.
+export function buildTextCodeGallery<
+  T extends { id: string; name: string; mime_type: string | null; folder_id: string | null },
+>(allFiles: T[], anchor: T): T[] {
+  return sortFilesByName(
+    allFiles.filter(
+      (item) =>
+        isTextCodePreviewMime(item.mime_type, item.name) &&
+        item.folder_id === anchor.folder_id,
+    ),
+  );
+}
+
 // Human: Derive a short uppercase format label from mime type or file extension for player chips.
 // Agent: READS mime_type + name; RETURNS e.g. MP3, FLAC, or M4A.
 export function audioFormatLabel(mimeType: string | null | undefined, fileName: string): string {

@@ -39,6 +39,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isTextCodePreviewMime,
   type FileTypeFilter,
 } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ type DriveCloudExplorerProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewText?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   /** Human: Opens the mobile action sheet when the row ⋯ control is used. */
   onOpenActions?: (target: MobileActionTarget) => void;
@@ -209,6 +211,7 @@ export function DriveCloudExplorer({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewText,
   onPreviewAudio,
   onOpenActions,
 }: DriveCloudExplorerProps) {
@@ -484,10 +487,14 @@ export function DriveCloudExplorer({
               const canPreviewImage =
                 isImage && onPreviewImage !== undefined && !processing;
               const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+              const canPreviewText =
+                isTextCodePreviewMime(file.mime_type, file.name) &&
+                onPreviewText !== undefined &&
+                !processing;
               const canPreviewAudio =
                 isAudio && onPreviewAudio !== undefined && !processing;
               const canPreview =
-                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
+                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
 
               return (
@@ -565,6 +572,7 @@ export function DriveCloudExplorer({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(

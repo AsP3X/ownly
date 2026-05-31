@@ -29,6 +29,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isTextCodePreviewMime,
 } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ type DriveOverviewPanelProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewText?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
 };
 
@@ -170,6 +172,7 @@ export function DriveOverviewPanel({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewText,
   onPreviewAudio,
 }: DriveOverviewPanelProps) {
   const usagePercent =
@@ -281,10 +284,14 @@ export function DriveOverviewPanel({
               const canPreviewImage =
                 isImage && onPreviewImage !== undefined && !processing;
               const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+              const canPreviewText =
+                isTextCodePreviewMime(file.mime_type, file.name) &&
+                onPreviewText !== undefined &&
+                !processing;
               const canPreviewAudio =
                 isAudio && onPreviewAudio !== undefined && !processing;
               const canPreview =
-                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
+                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
 
               return (
                 <li
@@ -299,6 +306,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     onKeyDown={(event) => {
@@ -306,6 +314,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(

@@ -1737,6 +1737,21 @@ export async function fetchFileBlobForPreview(file: FileItem): Promise<Blob> {
   return response.blob();
 }
 
+// Human: Replace editable text file bytes by permanently removing the old row and uploading new content.
+// Agent: DELETE /files/:id?permanent=true; POST /files/upload same folder_id + filename; RETURNS new FileItem.
+export async function replaceTextFileContent(
+  file: FileItem,
+  content: string,
+): Promise<{ file: FileItem }> {
+  const mime = file.mime_type ?? "text/plain";
+  const blob = new Blob([content], { type: mime });
+  const nextFile = new File([blob], file.name, { type: mime });
+  await deleteFile(file.id, { permanent: true });
+  return uploadFileWithProgress(nextFile, undefined, {
+    folderId: file.folder_id,
+  });
+}
+
 // Human: Trigger browser save via temporary object URL (primary MEGA-style save path).
 // Agent: CREATES object URL; CLICKS hidden anchor; REVOKES URL after delay.
 function saveBlobAsFile(blob: Blob, filename: string) {

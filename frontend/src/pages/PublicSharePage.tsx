@@ -27,7 +27,7 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import {
   LazyPublicShareInlinePdf,
   LazyPublicShareInlineVideo,
@@ -40,6 +40,7 @@ import { isFileProcessing } from "@/lib/file-processing";
 import {
   buildAudioGallery,
   buildImageGallery,
+  buildTextCodeGallery,
   buildVideoGallery,
   formatBytes,
   isAudioMime,
@@ -91,6 +92,7 @@ export default function PublicSharePage() {
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewText, setPreviewText] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
 
   const [inlineStreamUrl, setInlineStreamUrl] = useState<string | null>(null);
@@ -382,6 +384,11 @@ export default function PublicSharePage() {
     return buildVideoGallery(files, previewVideo);
   }, [files, previewVideo]);
 
+  const galleryTextFiles = useMemo(() => {
+    if (!previewText) return [];
+    return buildTextCodeGallery(files, previewText);
+  }, [files, previewText]);
+
   const downloadHeaderLabel = useMemo(() => {
     if (!overview) return "Download";
     if (overview.block_download) return "Downloads disabled";
@@ -494,6 +501,7 @@ export default function PublicSharePage() {
             onPreviewVideo={(file) => setPreviewVideo(file)}
             onPreviewImage={(file) => setPreviewImage(file)}
             onPreviewPdf={(file) => setPreviewPdf(file)}
+            onPreviewText={(file) => setPreviewText(file)}
             onPreviewAudio={(file) => setPreviewAudio(file)}
             allowDownload={!overview.block_download}
             onBulkDownload={(list) => void handleBulkDownload(list)}
@@ -662,6 +670,24 @@ export default function PublicSharePage() {
             shareToken: token,
             sharePassword: sharePassword,
             onDownload: overview.block_download ? undefined : (file) => void handleDownload(file),
+          }}
+        />
+      ) : null}
+
+      {previewText !== null ? (
+        <DynamicImportPreview
+          loader={loadTextCodeEditorDialog}
+          previewProps={{
+            tabs: galleryTextFiles.length > 0 ? galleryTextFiles : previewText ? [previewText] : [],
+            file: previewText,
+            open: true,
+            branchLabel: breadcrumbs.at(-1)?.name ?? "share",
+            onOpenChange: (open) => {
+              if (!open) setPreviewText(null);
+            },
+            onFileChange: setPreviewText,
+            shareToken: token,
+            sharePassword: sharePassword,
           }}
         />
       ) : null}
