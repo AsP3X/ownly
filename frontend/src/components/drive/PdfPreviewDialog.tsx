@@ -54,14 +54,10 @@ export type PdfPreviewDialogProps = {
 };
 
 const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 3;
-const ZOOM_STEP = 0.25;
+const MAX_ZOOM = 5;
+const ZOOM_STEP = 0.05;
 // Human: Default opens at 100% — matches Pencil zoom label in the viewer header.
 const DEFAULT_ZOOM = 1;
-// Human: Fine wheel steps — small notch per scroll tick; scaled slightly by delta magnitude.
-const WHEEL_ZOOM_MIN = 0.012;
-const WHEEL_ZOOM_MAX = 0.055;
-const WHEEL_ZOOM_SCALE = 0.00035;
 const THUMBNAIL_WIDTH = 84;
 // Human: Padding inside the dark document pane (Tailwind p-6) used when fitting a full page.
 const PAGE_AREA_PADDING_PX = 48;
@@ -79,9 +75,22 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
+// Human: Snap zoom to 5% increments so toolbar, keyboard, and wheel stay aligned.
+// Agent: CLAMPS to MIN/MAX; ROUNDS to nearest ZOOM_STEP.
 function clampZoom(value: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(3))));
+  const snapped = Math.round(value / ZOOM_STEP) * ZOOM_STEP;
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(snapped.toFixed(2))));
 }
+
+// Human: Anchor metadata for pointer-centric zoom — scroll is corrected after layout.
+// Agent: STORES content coords + viewport pointer offset + scale ratio for useLayoutEffect.
+type ZoomAnchor = {
+  contentX: number;
+  contentY: number;
+  pointerX: number;
+  pointerY: number;
+  scale: number;
+};
 
 function clampPage(value: number, total: number): number {
   if (total <= 0) return 1;
@@ -102,18 +111,6 @@ function computeFitPageWidth(
   const heightScale = availableHeight / nativeHeight;
   const fitScale = Math.min(widthScale, heightScale);
   return Math.round(nativeWidth * fitScale);
-}
-
-// Human: Scale wheel deltas from line/page modes into pixel-like steps for consistent zoom speed.
-// Agent: READS WheelEvent.deltaMode; RETURNS normalized deltaY for clampZoom step sizing.
-function normalizeWheelDelta(event: WheelEvent): number {
-  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-    return event.deltaY * 16;
-  }
-  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-    return event.deltaY * 800;
-  }
-  return event.deltaY;
 }
 
 export function PdfPreviewDialog({
@@ -145,6 +142,7 @@ export function PdfPreviewDialog({
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const thumbnailRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const zoomAnchorRef = useRef<ZoomAnchor | null>(null);
 
   // Human: Callback ref so resize listeners attach after the dialog portal mounts the document pane.
   // Agent: WRITES documentAreaNode when the dark document-area DOM node appears or unmounts.
@@ -383,24 +381,72 @@ export function PdfPreviewDialog({
     goToPage(parsed);
   }, [currentPage, goToPage, pageInputValue]);
 
+  // Human: Zoom toward a screen point so content under the cursor stays fixed (or viewport center for buttons).
+  // Agent: WRITES zoomAnchorRef; CALLS setZoom with 5% delta; scroll correction runs in useLayoutEffect.
+  const applyZoomDeltaAtPoint = useCallback(
+    (delta: number, clientX: number, clientY: number) => {
+      const container = documentAreaNode;
+      if (!container) {
+        setZoom((current) => clampZoom(current + delta));
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const pointerX = clientX - rect.left;
+      const pointerY = clientY - rect.top;
+      const contentX = container.scrollLeft + pointerX;
+      const contentY = container.scrollTop + pointerY;
+
+      setZoom((current) => {
+        const next = clampZoom(current + delta);
+        if (next === current) return current;
+
+        zoomAnchorRef.current = {
+          contentX,
+          contentY,
+          pointerX,
+          pointerY,
+          scale: next / current,
+        };
+        return next;
+      });
+    },
+    [documentAreaNode],
+  );
+
+  const zoomTowardDocumentCenter = useCallback(
+    (delta: number) => {
+      const container = documentAreaNode;
+      if (!container) {
+        setZoom((current) => clampZoom(current + delta));
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      applyZoomDeltaAtPoint(delta, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    },
+    [applyZoomDeltaAtPoint, documentAreaNode],
+  );
+
   const zoomIn = useCallback(() => {
-    setZoom((current) => clampZoom(current + ZOOM_STEP));
-  }, []);
+    zoomTowardDocumentCenter(ZOOM_STEP);
+  }, [zoomTowardDocumentCenter]);
 
   const zoomOut = useCallback(() => {
-    setZoom((current) => clampZoom(current - ZOOM_STEP));
-  }, []);
+    zoomTowardDocumentCenter(-ZOOM_STEP);
+  }, [zoomTowardDocumentCenter]);
 
-  // Human: Ctrl+wheel zooms inside the document pane; plain wheel scrolls when content overflows.
-  // Agent: LISTENS wheel on documentAreaNode; preventDefault ONLY when event.ctrlKey is set.
-  const applyWheelZoom = useCallback((deltaY: number) => {
-    const direction = deltaY < 0 ? 1 : -1;
-    const step = Math.min(
-      WHEEL_ZOOM_MAX,
-      Math.max(WHEEL_ZOOM_MIN, Math.abs(deltaY) * WHEEL_ZOOM_SCALE),
-    );
-    setZoom((current) => clampZoom(current + direction * step));
-  }, []);
+  // Human: After zoom changes, restore the anchored content point under the same viewport pixel.
+  // Agent: READS zoomAnchorRef; WRITES scrollLeft/scrollTop on documentAreaNode.
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    const container = documentAreaNode;
+    if (!anchor || !container) return;
+
+    zoomAnchorRef.current = null;
+    container.scrollLeft = anchor.contentX * anchor.scale - anchor.pointerX;
+    container.scrollTop = anchor.contentY * anchor.scale - anchor.pointerY;
+  }, [zoom, documentAreaNode]);
 
   const zoomInRef = useRef(zoomIn);
   const zoomOutRef = useRef(zoomOut);
@@ -473,19 +519,57 @@ export function PdfPreviewDialog({
     return () => document.removeEventListener("keydown", handleDocumentKeyDown, true);
   }, [open, searchOpen]);
 
+  const applyZoomDeltaAtPointRef = useRef(applyZoomDeltaAtPoint);
+
+  useEffect(() => {
+    applyZoomDeltaAtPointRef.current = applyZoomDeltaAtPoint;
+  }, [applyZoomDeltaAtPoint]);
+
+  // Human: Ctrl/Cmd+wheel on the document pane — 5% steps anchored to the pointer.
+  // Agent: LISTENS wheel on documentAreaNode; CALLS applyZoomDeltaAtPoint per notch.
   useEffect(() => {
     if (!open || !documentAreaNode) return;
 
-    function handleWheel(event: WheelEvent) {
-      if (!event.ctrlKey) return;
+    function handleDocumentWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       event.stopPropagation();
-      applyWheelZoom(normalizeWheelDelta(event));
+
+      const direction = event.deltaY < 0 ? 1 : -1;
+      applyZoomDeltaAtPointRef.current(direction * ZOOM_STEP, event.clientX, event.clientY);
     }
 
-    documentAreaNode.addEventListener("wheel", handleWheel, { passive: false });
-    return () => documentAreaNode.removeEventListener("wheel", handleWheel);
-  }, [open, documentAreaNode, applyWheelZoom]);
+    documentAreaNode.addEventListener("wheel", handleDocumentWheel, { passive: false });
+    return () => documentAreaNode.removeEventListener("wheel", handleDocumentWheel);
+  }, [open, documentAreaNode]);
+
+  // Human: Block browser page zoom while the viewer is open — PDF zoom replaces it on the document pane.
+  // Agent: CAPTURES wheel/keydown on document; preventDefault on ctrl/meta zoom gestures globally.
+  useEffect(() => {
+    if (!open) return;
+
+    function blockBrowserZoomWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+    }
+
+    function blockBrowserZoomKeys(event: globalThis.KeyboardEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (isEditableTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "0" || key === "+" || key === "-" || key === "=") {
+        event.preventDefault();
+      }
+    }
+
+    document.addEventListener("wheel", blockBrowserZoomWheel, { passive: false, capture: true });
+    document.addEventListener("keydown", blockBrowserZoomKeys, true);
+    return () => {
+      document.removeEventListener("wheel", blockBrowserZoomWheel, true);
+      document.removeEventListener("keydown", blockBrowserZoomKeys, true);
+    };
+  }, [open]);
 
   // Human: Scroll the active thumbnail into view when the current page changes.
   // Agent: READS thumbnailRefs; CALLS scrollIntoView on the matching sidebar button.
@@ -523,7 +607,7 @@ export function PdfPreviewDialog({
           <DialogTitle>{file?.name ?? "PDF preview"}</DialogTitle>
           <DialogDescription>
             {numPages > 0
-              ? `Viewing page ${currentPage} of ${numPages}. Scroll to change pages; Ctrl+scroll to zoom.`
+              ? `Viewing page ${currentPage} of ${numPages}. Scroll to change pages; Ctrl+scroll to zoom in 5% steps.`
               : "View PDF pages in the browser."}
           </DialogDescription>
         </DialogHeader>
@@ -906,16 +990,16 @@ export function PdfPreviewDialog({
                   </div>
                 </aside>
 
-                {/* Human: Document pane — scrollable stack of full pages, fit-to-viewport at 100% zoom. */}
+                {/* Human: Document pane — scrollable stack; pages may exceed viewport when zoomed in. */}
                 <div
                   ref={documentAreaRef}
                   tabIndex={-1}
                   onScroll={handleDocumentScroll}
-                  className="relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-[#374151] p-6 outline-none"
+                  className="relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-[#374151] p-6 outline-none [touch-action:pan-x_pan-y]"
                 >
                   {numPages > 0 && scaledWidth ? (
                     <div
-                      className="mx-auto flex flex-col items-center"
+                      className="mx-auto flex w-max min-w-full flex-col items-center"
                       style={{ gap: PAGE_STACK_GAP_PX }}
                     >
                       {Array.from({ length: numPages }, (_, index) => {

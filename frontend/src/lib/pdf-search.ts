@@ -1,5 +1,5 @@
-// Human: Case-insensitive PDF text search — partial words, digits, and symbols via substring match.
-// Agent: READS PDFDocumentProxy pages via getTextContent; RETURNS match ranges for customTextRenderer highlights.
+// Human: Case-insensitive fuzzy PDF text search — query tokens match in order with gaps between them.
+// Agent: READS PDFDocumentProxy pages via getTextContent; RETURNS contiguous highlight spans per match.
 
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { TextItem } from "react-pdf";
@@ -29,6 +29,143 @@ export function normalizePdfSearchQuery(query: string): string {
   return query.trim();
 }
 
+// Human: Split the query into whitespace-separated tokens for ordered fuzzy matching.
+// Agent: RETURNS lowercased non-empty tokens; "my is" → ["my", "is"].
+function tokenizePdfSearchQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
+type FuzzyTextSpan = {
+  start: number;
+  end: number;
+};
+
+// Human: Max characters allowed between consecutive query tokens — rejects cross-paragraph chains.
+// Agent: USED by findFuzzyQueryMatches; "my name is" gap is ~6 chars; paragraph gaps are hundreds.
+const MAX_INTER_TOKEN_GAP_CHARS = 20;
+
+function isWordCharacter(character: string): boolean {
+  return /[a-z0-9]/i.test(character);
+}
+
+// Human: Match a token as a whole word so "is" does not match inside "this" or "visa".
+// Agent: READS lowerPageText from fromIndex; RETURNS index of next word-bounded occurrence.
+function findWordBoundedToken(
+  lowerPageText: string,
+  token: string,
+  fromIndex: number,
+): number {
+  if (!token) return -1;
+
+  let searchFrom = fromIndex;
+  while (searchFrom <= lowerPageText.length - token.length) {
+    const matchIndex = lowerPageText.indexOf(token, searchFrom);
+    if (matchIndex === -1) return -1;
+
+    const charBefore = matchIndex > 0 ? lowerPageText[matchIndex - 1]! : "";
+    const charAfter =
+      matchIndex + token.length < lowerPageText.length
+        ? lowerPageText[matchIndex + token.length]!
+        : "";
+
+    if (!isWordCharacter(charBefore) && !isWordCharacter(charAfter)) {
+      return matchIndex;
+    }
+
+    searchFrom = matchIndex + 1;
+  }
+
+  return -1;
+}
+
+// Human: Drop spans swallowed by a shorter overlapping match — avoids duplicate yellow bands.
+// Agent: FILTERS spans dominated by a tighter overlapping span.
+function filterOverlappingSpans(spans: FuzzyTextSpan[]): FuzzyTextSpan[] {
+  if (spans.length <= 1) return spans;
+
+  const sorted = [...spans].sort((left, right) => {
+    const leftLength = left.end - left.start;
+    const rightLength = right.end - right.start;
+    if (leftLength !== rightLength) return leftLength - rightLength;
+    return left.start - right.start;
+  });
+
+  const kept: FuzzyTextSpan[] = [];
+  for (const span of sorted) {
+    const swallowedByShorter = kept.some(
+      (other) =>
+        other.start <= span.start &&
+        other.end >= span.end &&
+        (other.end - other.start) < (span.end - span.start),
+    );
+    if (swallowedByShorter) continue;
+
+    for (let index = kept.length - 1; index >= 0; index -= 1) {
+      const other = kept[index]!;
+      if (
+        span.start <= other.start &&
+        span.end >= other.end &&
+        (span.end - span.start) < (other.end - other.start)
+      ) {
+        kept.splice(index, 1);
+      }
+    }
+
+    kept.push(span);
+  }
+
+  return kept.sort((left, right) => {
+    if (left.start !== right.start) return left.start - right.start;
+    return left.end - left.start - (right.end - right.start);
+  });
+}
+
+// Human: Find spans where every token appears in order as whole words with bounded gaps.
+// Agent: READS lowerPageText + tokens; RETURNS start/end e.g. "my is sabine vorberg" → "my name is sabine vorberg".
+function findFuzzyQueryMatches(lowerPageText: string, tokens: string[]): FuzzyTextSpan[] {
+  if (tokens.length === 0) return [];
+
+  const spans: FuzzyTextSpan[] = [];
+  const firstToken = tokens[0]!;
+  let searchStart = 0;
+
+  while (searchStart < lowerPageText.length) {
+    const matchStart = findWordBoundedToken(lowerPageText, firstToken, searchStart);
+    if (matchStart === -1) break;
+
+    let matchEnd = matchStart + firstToken.length;
+    let allTokensMatched = true;
+
+    for (let tokenIndex = 1; tokenIndex < tokens.length; tokenIndex += 1) {
+      const token = tokens[tokenIndex]!;
+      const nextTokenStart = findWordBoundedToken(lowerPageText, token, matchEnd);
+      if (nextTokenStart === -1) {
+        allTokensMatched = false;
+        break;
+      }
+
+      const gapChars = nextTokenStart - matchEnd;
+      if (gapChars > MAX_INTER_TOKEN_GAP_CHARS) {
+        allTokensMatched = false;
+        break;
+      }
+
+      matchEnd = nextTokenStart + token.length;
+    }
+
+    if (allTokensMatched) {
+      spans.push({ start: matchStart, end: matchEnd });
+    }
+
+    searchStart = matchStart + 1;
+  }
+
+  return filterOverlappingSpans(spans);
+}
+
 // Human: Map a character index in concatenated page text back to its source text-item index.
 // Agent: READS itemStarts offsets; RETURNS item index containing charPosition.
 function findItemIndexForCharPosition(itemStarts: number[], charPosition: number): number {
@@ -48,7 +185,7 @@ function escapeHtml(text: string): string {
     .replaceAll('"', "&quot;");
 }
 
-// Human: Scan every page for all case-insensitive substring occurrences of the query.
+// Human: Scan every page for fuzzy token matches — each hit highlights the full spanning text.
 // Agent: CALLS pdf.getPage + getTextContent per page; SUPPORTS AbortSignal for stale searches.
 export async function searchPdfDocument(
   pdf: PDFDocumentProxy,
@@ -58,7 +195,9 @@ export async function searchPdfDocument(
   const query = normalizePdfSearchQuery(rawQuery);
   if (!query) return [];
 
-  const lowerQuery = query.toLowerCase();
+  const tokens = tokenizePdfSearchQuery(query);
+  if (tokens.length === 0) return [];
+
   const matches: PdfSearchMatch[] = [];
   let matchIndex = 0;
 
@@ -78,27 +217,22 @@ export async function searchPdfDocument(
       pageText += item.str;
     }
 
-    const lowerPageText = pageText.toLowerCase();
-    let searchFrom = 0;
-    while (searchFrom < lowerPageText.length) {
-      const matchStart = lowerPageText.indexOf(lowerQuery, searchFrom);
-      if (matchStart === -1) break;
+    const fuzzySpans = findFuzzyQueryMatches(pageText.toLowerCase(), tokens);
 
-      const matchEnd = matchStart + lowerQuery.length;
-      const startItemIndex = findItemIndexForCharPosition(itemStarts, matchStart);
-      const endItemIndex = findItemIndexForCharPosition(itemStarts, matchEnd - 1);
+    for (const span of fuzzySpans) {
+      const startItemIndex = findItemIndexForCharPosition(itemStarts, span.start);
+      const endItemIndex = findItemIndexForCharPosition(itemStarts, span.end - 1);
 
       matches.push({
         matchIndex,
         pageNumber,
         startItemIndex,
-        startOffsetInItem: matchStart - itemStarts[startItemIndex]!,
+        startOffsetInItem: span.start - itemStarts[startItemIndex]!,
         endItemIndex,
-        endOffsetInItem: matchEnd - itemStarts[endItemIndex]!,
+        endOffsetInItem: span.end - itemStarts[endItemIndex]!,
       });
 
       matchIndex += 1;
-      searchFrom = matchStart + 1;
     }
   }
 
