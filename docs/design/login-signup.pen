@@ -2592,8 +2592,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "K0G6Aq",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "m5zwb",
@@ -3952,8 +3964,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 24,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "QxBt0",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "SZwYu",
@@ -5113,8 +5137,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 24,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "eJvHf",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "Y1KPtM",
@@ -6201,8 +6237,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "LfoXy",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "AlzN4",
@@ -6701,685 +6749,6 @@
               ]
             }
           ]
-        },
-        {
-          "type": "frame",
-          "id": "Bc4hx",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "VLW0F",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "IMvHu",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "B4yNz",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "mMMpw",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "H9q2xr",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "tTrUr",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "hno1G",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "BY3MR",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "EARil",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "jNARd",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "P33R2",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "UzTDS",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "PNu0n",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "dIX74",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "PUvYV",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "y0CFoR",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "HxPkl",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "Z0m9P5",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "Pw7Nl",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "i1ynMJ",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "dwfYG",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "a2WdVs",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "eIlWt",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "l6eMAU",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "J7Bgt",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "XfCwe",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "VRhRh",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "UV3bp",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "k9oJHw",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "cIP5f",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "Y5OXS",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "S3Rvj",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "NMxZh",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "zmcbO",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "sGjsI",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "V1bPOt",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "XY4kt",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "Ec1Yw",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "d2BhIK",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "O5HeT",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "O1BHbz",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "pOBqL",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "dcEKF",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "z7WTG",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "VmdOu",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "A8ig53",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "v0TL0",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Rajhg",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "ONoMr",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "H1qJ7X",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "Y9Km2",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Zj1QY",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "FPRMM",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Pa5Qv",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "nD6fn",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "heJiZ",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "DKOqQ",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "nFjv5",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         }
       ]
     },
@@ -7749,8 +7118,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "N13GI",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "URPwd",
@@ -8466,685 +7847,6 @@
               ]
             }
           ]
-        },
-        {
-          "type": "frame",
-          "id": "FO6Je",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "d95dV",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "Bo1bD",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "g36Bk9",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "f2jHtR",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "knSCG",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "ijN5E",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "huQh2",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "VZSuN",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "dBQR2",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "DTGJr",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "PEmy0",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "b9S7Ev",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "K8IUJ",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "EnXxb",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "pSUNW",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "mSAh6",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "cmJfd",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "YhFND",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "zrBc4",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "YsFoU",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "qFQF4",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ujaP1",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "Pi4Ci",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "r77Rh",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "Qq59N",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "ZxzDE",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "e8EU67",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "e1Dmm",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "r3w8W",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "U0SAth",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "MLekw",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "aYTW6",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "pqsIc",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "mk6Jf",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "jtYG0",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "ctBg5",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "Jftbw",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "wdTqs",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "qGbaj",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "fkjqL",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "vebT1",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "OQHMj",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "G14A4v",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Y5iP9",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "VykbF",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "m8Vfp",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "my87V",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Bq1Cq",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "N6O4i8",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "PjxDf",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "CVhOP",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "cHGeV",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "C64Rse",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "xUp4l",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "xyrxL",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "YgSHk",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "ZUoOR",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "wRKm2",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         }
       ]
     },
@@ -9514,8 +8216,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "M0h8Dt",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "Tlisa",
@@ -10452,685 +9166,6 @@
               ]
             }
           ]
-        },
-        {
-          "type": "frame",
-          "id": "Q85HSW",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "V3OoN",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "QtLtX",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "cwqUr",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "UtJJu",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "X1OZp",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "QrNgS",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "CbKcI",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "GpWLW",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "TUTTv",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ljWDg",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "XFWaX",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "JcRbU",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ld81a",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "NbaRB",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "QnBLL",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "Xr7By",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "y4W0R",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "jeAqG",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "vxCF6",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "wRekr",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "g2FE8",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "YDjHF",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "wUkDt",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "BQa4b",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "N9i2JH",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "dN63K",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "j0QQ5",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "zL8un",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "GU6ss",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "j7urQ",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "pH9AB",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "g1AEb",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "NkJHX",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "z7iZzG",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "mASjW",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "R7QuIQ",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "zJL8P",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "D9pIIu",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "iZwz3",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "MHKck",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "nmW8c",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "xUK67",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "LwU6r",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "nFjjn",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "WxJ7w",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "EmVk5",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "lHoKN",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "XwiQE",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Wwye8",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "u6t4r9",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "h7ikzL",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "m150L8",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "RDxaw",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "W1STt0",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "F5BD3",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "y0DdY",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "qwn5D",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Sa6N8",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         }
       ]
     },
@@ -11500,8 +9535,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "z4RiUi",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "u52tlq",
@@ -11992,685 +10039,6 @@
                               "fontWeight": "normal"
                             }
                           ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "PIa0f",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "RQ1FF",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "rWNmQ",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "f9WgFf",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "vzCZW",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "rWCf2",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "LLSpm",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "lIgkL",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "QB2w5",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "htHsd",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "K9U132",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "lEIzx",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "AnQo6",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "hURf5",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "QQKwx",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "CIfQ1",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "oQBag",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "cC2Ew",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "f4uvb1",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "A81tGX",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "rlLtT",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "INIDh",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "VoBdh",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "A6xb1",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "WSMmP",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "lIKAS",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "fdrqG",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "jYv2i",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "QLiSr",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "jEAXV",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "GCnEd",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "n9tOx",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "KtEvG",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "F6Svo",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "Cy3C6",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "BDVl8",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "MxxvL",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "ZEs6y",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "BUGfg",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "NO0JX",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "x8lwvV",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "v18jU",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "olREC",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "evmnO",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "YR08W",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "ncCHJ",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "MXAie",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "aghfd",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "jHwBf",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "GUHIK",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "kqvws",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "kh9W2",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "ii9qP",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "z1EfaK",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "H3fMQ0",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "oLwWF",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "B3SlLi",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "KkXJZ",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "LCNBz",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -13551,8 +10919,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "oDkTV",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "YtzRg",
@@ -15230,8 +12610,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "JdC8a",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "tihS0",
@@ -15722,685 +13114,6 @@
                               "fontWeight": "normal"
                             }
                           ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "V4mHZ",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "xQAJs",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "ppROB",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "iCgqa",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "bHLbd",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "EtdLq",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "YdN5l",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "RfuqN",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "suEsu",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "YjO8z",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "L7Xycf",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "iAhWj",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "t6TT9",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "HepRy",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "oICYQ",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "sFbzP",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "QZEix",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "iW446",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "dhb6t",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ApKFO",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "nfdKR",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "dDmsX",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "J9Xx8",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "ILCGk",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "scil7",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "U26So",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "g0hcr",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "yPiXS",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "JYt0R",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "z7uM1E",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "AlO0Y",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "toKtN",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "I2b9p6",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "t3PAe1",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "KOSke",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "EkX93",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "nup4G",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "f5IPjq",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "DEA9p",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "u2G77U",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "K6BwW",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "M7XBN",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "L9oA7",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "V17Ko",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "yGtoq",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "yxo5e",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "rpwAj",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "FukTs",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "k7YI15",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "X5iJ1",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Azrhj",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "q5MBBh",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Q4Fcq",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "T75MJk",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "JVkTC",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "yLNge",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Dwa2k",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "J39y6q",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "FlWuY",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -16975,8 +13688,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 24,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "Nk8u6",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "pUdc2",
@@ -18268,8 +14993,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 24,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "TpmmM",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "Z9YHS",
@@ -19471,8 +16208,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "RTRmC",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "Nbxx2",
@@ -21561,8 +18310,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "HtE1Z",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "ziy6h",
@@ -24491,8 +21252,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "M9cito",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "w2RDo1",
@@ -27451,8 +24224,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "qyeK6",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "j1r8u",
@@ -29431,8 +26216,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "v9gRrG",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "JrvQ4",
@@ -31384,8 +28181,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "Sobgd",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "QuTOs",
@@ -33610,8 +30419,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "i4FVXj",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "qN2ry",
@@ -36212,8 +33033,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "SN4ay",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "WEhVt",
@@ -39006,8 +35839,20 @@
           "fill": "$bg-secondary",
           "layout": "vertical",
           "gap": 32,
-          "padding": 48,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
           "children": [
+            {
+              "id": "l2V84Y",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
             {
               "type": "frame",
               "id": "Th0ry",
@@ -56256,8 +53101,20 @@
               "fill": "$bg-secondary",
               "layout": "vertical",
               "gap": 24,
-              "padding": 48,
+              "padding": [
+                0,
+                48,
+                48,
+                48
+              ],
               "children": [
+                {
+                  "id": "j0ABq",
+                  "type": "ref",
+                  "ref": "w7t69Z",
+                  "name": "Topbar Instance",
+                  "width": "fill_container"
+                },
                 {
                   "type": "frame",
                   "id": "UqKJG",
@@ -56748,685 +53605,6 @@
                               "fontWeight": "normal"
                             }
                           ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "eMTG3",
-          "name": "Sidebar",
-          "width": 260,
-          "height": "fill_container",
-          "fill": "$bg-primary",
-          "stroke": "$border-color",
-          "strokeWidth": {
-            "right": 1
-          },
-          "strokeAlignment": "inner",
-          "layout": "vertical",
-          "gap": 40,
-          "padding": 32,
-          "children": [
-            {
-              "type": "frame",
-              "id": "wVAY2",
-              "name": "Sidebar Header",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "AuMyt",
-                  "name": "Logo Icon",
-                  "width": 28,
-                  "height": 28,
-                  "icon": "cloud",
-                  "library": "lucide",
-                  "fill": "$accent-primary"
-                },
-                {
-                  "type": "text",
-                  "id": "udm8T",
-                  "name": "Logo Text",
-                  "fill": "$text-primary",
-                  "content": "Ownly",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 22,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "MoB7E",
-              "name": "Navigation Menu",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 8,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "g7aDT",
-                  "name": "Nav Row Home",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "tpXY4",
-                      "name": "Home Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "home",
-                      "library": "Material Symbols Outlined",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "T8vJW",
-                      "name": "Home Label",
-                      "fill": "$text-secondary",
-                      "content": "Home",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "OUUGN",
-                  "name": "Nav Row My Cloud",
-                  "width": "fill_container",
-                  "fill": "$bg-secondary",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "SG1CQ",
-                      "name": "Cloud Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "hard-drive",
-                      "library": "lucide",
-                      "fill": "$accent-primary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ayEoO",
-                      "name": "Cloud Label",
-                      "fill": "$text-primary",
-                      "content": "My Cloud",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Semi-Bold"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "fL5Ua",
-                  "name": "Nav Row Shared Files",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "vQF3y",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "users",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "A3XWe",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Shared Files",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "kkCIL",
-                  "name": "Nav Row Secure Vaults",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "BJ4rw",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "shield",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "c1ts4g",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Secure Vaults",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "TeJCN",
-                  "name": "Nav Row Trash Bin",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "bmzcU",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "trash-2",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "TuqZf",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Trash Bin",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "uBCrH",
-                  "name": "Nav Row Settings",
-                  "width": "fill_container",
-                  "fill": "#00000000",
-                  "cornerRadius": "$radius-lg",
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon",
-                      "id": "I7hLlZ",
-                      "name": "Item Icon",
-                      "width": 18,
-                      "height": 18,
-                      "icon": "settings",
-                      "library": "lucide",
-                      "fill": "$text-secondary"
-                    },
-                    {
-                      "type": "text",
-                      "id": "snc3B",
-                      "name": "Item Label",
-                      "fill": "$text-secondary",
-                      "content": "Settings",
-                      "fontFamily": "$font-sans",
-                      "fontSize": 14,
-                      "fontWeight": "Normal"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "NQYhe",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": "fill_container"
-            },
-            {
-              "type": "frame",
-              "id": "ag7Aa",
-              "name": "Storage Widget",
-              "width": "fill_container",
-              "fill": "$bg-secondary",
-              "cornerRadius": "$radius-xl",
-              "layout": "vertical",
-              "gap": 12,
-              "padding": 16,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "p4xQe9",
-                  "name": "Storage Label",
-                  "fill": "$text-secondary",
-                  "content": "STORAGE USED",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 12,
-                  "fontWeight": "Semi-Bold"
-                },
-                {
-                  "type": "text",
-                  "id": "USGv2",
-                  "name": "Storage Value",
-                  "fill": "$text-primary",
-                  "content": "1.2 TB of 2.0 TB",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 15,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "dMaNJ",
-                  "name": "Progress Bar Bg",
-                  "width": "fill_container",
-                  "height": 6,
-                  "fill": "$border-color",
-                  "cornerRadius": 3,
-                  "layout": "none",
-                  "children": [
-                    {
-                      "type": "rectangle",
-                      "cornerRadius": 3,
-                      "id": "UjwsA",
-                      "x": 0,
-                      "y": 0,
-                      "name": "Progress Bar Fill",
-                      "fill": "$accent-primary",
-                      "width": 110,
-                      "height": 6
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "uk5rC",
-          "name": "Explorer Content",
-          "width": "fill_container",
-          "height": "fill_container",
-          "fill": "$bg-secondary",
-          "layout": "vertical",
-          "gap": 24,
-          "padding": 48,
-          "children": [
-            {
-              "type": "frame",
-              "id": "PPRqh",
-              "name": "Breadcrumbs",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "EyNyc",
-                  "name": "Crumb My Cloud",
-                  "fill": "$text-muted",
-                  "content": "Home",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "xAojB",
-                  "name": "Chevron Icon",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "g6EYx",
-                  "name": "Crumb Folders",
-                  "fill": "$text-muted",
-                  "content": "Folders",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "icon",
-                  "id": "gyWlu",
-                  "name": "Chevron Icon 2",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "chevron-right",
-                  "library": "lucide",
-                  "fill": "$text-muted"
-                },
-                {
-                  "type": "text",
-                  "id": "XPYEQ",
-                  "name": "Crumb Folder Name",
-                  "fill": "$text-primary",
-                  "content": "Financial & Tax",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 14,
-                  "fontWeight": "Bold"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "BiaZW",
-              "name": "Files Grid Container",
-              "width": "fill_container",
-              "layout": "vertical",
-              "gap": 20,
-              "children": [
-                {
-                  "type": "text",
-                  "id": "L1E87",
-                  "name": "Files Label",
-                  "fill": "$text-primary",
-                  "content": "All Files",
-                  "fontFamily": "$font-sans",
-                  "fontSize": 16,
-                  "fontWeight": "Bold"
-                },
-                {
-                  "type": "frame",
-                  "id": "KcpBm",
-                  "name": "Grid Row 1",
-                  "width": "fill_container",
-                  "justifyContent": "space_between",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "USljo",
-                      "name": "File Card tax_return_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "UEPxj",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "L7rodj",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "tax_return_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "VixZg",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "2.4 MB • 2m ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "V2nIUE",
-                      "name": "File Card w2_statement_2025.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "ecE3A",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "uw5Jm",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "w2_statement_2025.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "T7sqvu",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "1.1 MB • 1h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "s5oxsX",
-                      "name": "File Card investment_portfolio.xlsx",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "Euuxe",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "X9M7k",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "investment_portfolio.xlsx",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "j7qMK",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "8.4 MB • 3h ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "I4Jzx",
-                      "name": "File Card charity_donations.jpg",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "erJjO",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Mx2dI",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "charity_donations.jpg",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "Dz8dk",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "450 KB • 1d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "a7uvv",
-                      "name": "File Card mortgage_contract_signed.pdf",
-                      "width": 100,
-                      "height": 100,
-                      "fill": "#00000000",
-                      "layout": "vertical",
-                      "gap": 4,
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon",
-                          "id": "J1CAr",
-                          "name": "File Icon",
-                          "width": 32,
-                          "height": 32,
-                          "icon": "file-text",
-                          "library": "lucide",
-                          "fill": "$accent-primary"
-                        },
-                        {
-                          "type": "text",
-                          "id": "m04gTC",
-                          "name": "File Name",
-                          "fill": "$text-primary",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "mortgage_contract.pdf",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 13,
-                          "fontWeight": "Semi-Bold"
-                        },
-                        {
-                          "type": "text",
-                          "id": "kaFma",
-                          "name": "File Meta",
-                          "fill": "$text-muted",
-                          "content": "14.2 MB • 3d ago",
-                          "textAlign": "center",
-                          "fontFamily": "$font-sans",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -70644,6 +66822,173 @@
                       ]
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "w7t69Z",
+      "x": 0,
+      "y": -5434,
+      "name": "component/Topbar",
+      "reusable": true,
+      "width": 900,
+      "height": 64,
+      "fill": "$bg-primary",
+      "cornerRadius": "$radius-xl",
+      "stroke": "$border-color",
+      "strokeWidth": 1,
+      "padding": [
+        0,
+        24
+      ],
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "fldsQ",
+          "name": "Left Group",
+          "gap": 12,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "uIEC2",
+              "name": "Secure Shield Icon",
+              "width": 16,
+              "height": 16,
+              "icon": "shield-check",
+              "library": "lucide",
+              "fill": "#10B981"
+            },
+            {
+              "type": "text",
+              "id": "NURDT",
+              "name": "Status Text",
+              "fill": "$text-secondary",
+              "content": "Secure Zero-Knowledge Session Active",
+              "fontFamily": "$font-sans",
+              "fontSize": 13,
+              "fontWeight": "Medium"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "iCV6C",
+          "name": "Right Group",
+          "gap": 24,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "Aq46f",
+              "name": "Profile Element",
+              "gap": 10,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "b9BVH",
+                  "name": "Avatar",
+                  "width": 32,
+                  "height": 32,
+                  "fill": "$accent-primary",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "lhfQr",
+                      "name": "Avatar Initials",
+                      "fill": "$text-inverse",
+                      "content": "AM",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 12,
+                      "fontWeight": "Bold"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LLI3a",
+                  "name": "Profile Info",
+                  "layout": "vertical",
+                  "gap": 2,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "OskwH",
+                      "name": "User Name",
+                      "fill": "$text-primary",
+                      "content": "Alex Mercer",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 13,
+                      "fontWeight": "Bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Q2JnnO",
+                      "name": "User Role",
+                      "fill": "$text-secondary",
+                      "content": "Pro Member",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 11,
+                      "fontWeight": "Normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "rectangle",
+              "id": "qvq5Q",
+              "name": "Vertical Divider",
+              "fill": "$border-color",
+              "width": 1,
+              "height": 24
+            },
+            {
+              "type": "frame",
+              "id": "yUDG5",
+              "name": "Sign Out Button",
+              "fill": "$bg-primary",
+              "cornerRadius": "$radius-lg",
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "gap": 6,
+              "padding": [
+                6,
+                12
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "tT5UR",
+                  "name": "Log Out Icon",
+                  "width": 14,
+                  "height": 14,
+                  "icon": "log-out",
+                  "library": "lucide",
+                  "fill": "#EF4444"
+                },
+                {
+                  "type": "text",
+                  "id": "IGHt7",
+                  "name": "Sign Out Label",
+                  "fill": "#EF4444",
+                  "content": "Sign Out",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 12,
+                  "fontWeight": "Semi-Bold"
                 }
               ]
             }
