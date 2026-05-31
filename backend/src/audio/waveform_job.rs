@@ -1,7 +1,6 @@
 // Human: Background audio waveform job — download source, analyze peaks, upload JSON sidecar to Nebular.
 // Agent: MUTATES files.audio_* + conversion_progress; READS storage; CALLS ffmpeg via waveform module.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::StreamExt;
@@ -74,11 +73,11 @@ async fn set_progress(pool: &PgPool, file_id: &str, progress: i32) {
 }
 
 // Human: Stream the source audio object from Nebular into a temp file for ffmpeg analysis.
-// Agent: READS storage.get_stream; WRITES tempfile path; RETURNS PathBuf for probe/decode.
+// Agent: READS storage.get_stream; WRITES NamedTempFile; RETURNS handle so file survives until decode.
 async fn download_source_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
-) -> Result<PathBuf, String> {
+) -> Result<NamedTempFile, String> {
     let (mut stream, _, _) = storage
         .get_stream(storage_key)
         .await
@@ -97,7 +96,11 @@ async fn download_source_to_temp(
             .map_err(|e| format!("temp file write failed: {e}"))?;
     }
 
-    Ok(path)
+    file.sync_all()
+        .await
+        .map_err(|e| format!("temp file flush failed: {e}"))?;
+
+    Ok(temp)
 }
 
 // Human: Run waveform analysis for one queued audio file — main worker entry point.
@@ -114,7 +117,8 @@ pub async fn run_audio_waveform_job(
     mark_processing(&pool, &job.file_id).await;
     set_progress(&pool, &job.file_id, 5).await;
 
-    let tmp_path = download_source_to_temp(storage.clone(), &job.storage_key).await?;
+    let tmp_file = download_source_to_temp(storage.clone(), &job.storage_key).await?;
+    let tmp_path = tmp_file.path();
     set_progress(&pool, &job.file_id, 25).await;
 
     if is_waveform_cancelled(&pool, &job.file_id).await {
