@@ -3,12 +3,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LayoutGrid,
-  LogOut,
-  Search,
-  Settings,
-} from "lucide-react";
-import {
   batchFiles,
   buildShareFlagMaps,
   fetchDashboard,
@@ -34,6 +28,7 @@ import {
   type MobileActionTarget,
 } from "@/components/drive/MobileFileActionsSheet";
 import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
+import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
 import { DriveCloudExplorer } from "@/components/drive/DriveCloudExplorer";
 import { DriveOverviewPanel } from "@/components/drive/DriveOverviewPanel";
@@ -72,8 +67,10 @@ import {
   isPdfMime,
   sortFilesByName,
   userInitials,
+  userRoleLabel,
   type FileTypeFilter,
 } from "@/lib/utils-app";
+import { displayNameFromEmail } from "@/lib/public-share-format";
 import {
   getFavouriteFileIds,
   getRecentFileIds,
@@ -83,8 +80,6 @@ import {
   toggleFavouriteFile,
 } from "@/lib/drive-preferences";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 
@@ -127,11 +122,10 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
-  // Human: Separate refs for desktop and mobile profile menus — a shared ref breaks outside-click detection on lg+.
-  // Agent: desktopProfileRef + mobileProfileRef; WRITTEN by each header; READ by dismiss handler.
-  const desktopProfileRef = useRef<HTMLDivElement>(null);
+  // Human: Mobile profile menu anchor — desktop topbar uses an inline Sign Out button instead.
+  // Agent: mobileProfileRef; WRITTEN by MobileDriveHeader; READ by outside-click dismiss handler.
   const mobileProfileRef = useRef<HTMLDivElement>(null);
-  const mainScrollRef = useRef<HTMLElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -146,6 +140,12 @@ export default function DrivePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+
+  const profileDisplayName = useMemo(
+    () => (user?.email ? displayNameFromEmail(user.email) : "Account"),
+    [user],
+  );
+  const profileRoleLabel = useMemo(() => userRoleLabel(user?.role), [user]);
 
   // Human: End the session from profile menus — mousedown avoids click being swallowed by overlapping layers.
   // Agent: WRITES profileOpen false; CALLS logout; USED by desktop + mobile profile menus.
@@ -498,15 +498,14 @@ export default function DrivePage() {
     setFolderStack((prev) => prev.slice(0, index + 1));
   }
 
-  // Human: Close the profile menu when clicking outside either desktop or mobile avatar cluster.
-  // Agent: LISTENS document mousedown; READS both profile refs; WRITES profileOpen false when outside both.
+  // Human: Close the mobile profile menu when clicking outside the avatar cluster.
+  // Agent: LISTENS document mousedown; READS mobileProfileRef; WRITES profileOpen false when outside.
   useEffect(() => {
     if (!profileOpen) return;
     function onPointerDown(event: MouseEvent) {
       const target = event.target as Node;
-      const insideDesktop = desktopProfileRef.current?.contains(target) ?? false;
       const insideMobile = mobileProfileRef.current?.contains(target) ?? false;
-      if (!insideDesktop && !insideMobile) {
+      if (!insideMobile) {
         setProfileOpen(false);
       }
     }
@@ -1130,90 +1129,6 @@ export default function DrivePage() {
           selectedFileIds={selectedFileIds}
           bulkSelectionCount={selectedFileIds.size}
         />
-      {/* Top bar — desktop only; mobile uses MobileDriveHeader below. */}
-      {/* Agent: relative z-20 keeps the profile dropdown above the main grid so Sign out receives clicks. */}
-      <header
-        className={cn(
-          "relative z-20 hidden shrink-0 border-b border-neutral-200 bg-white lg:block",
-          (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
-        )}
-      >
-        <div className="grid h-[52px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-4">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-neutral-600"
-              aria-label="App menu"
-            >
-              <LayoutGrid />
-            </Button>
-            <div className="flex size-7 items-center justify-center rounded-md bg-blue-600 text-xs font-bold text-white">
-              MV
-            </div>
-            <div className="hidden items-center gap-1 sm:flex">
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-                Files
-              </span>
-            </div>
-          </div>
-
-          <div className="mx-auto w-full max-w-xl">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
-              <Input
-                className="h-9 rounded-full border-neutral-200 bg-[#f3f2f1] pl-9 shadow-none focus-visible:ring-blue-500/30"
-                placeholder="Search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                aria-label="Search files"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="hidden text-neutral-700 md:inline-flex"
-            >
-              Get more storage
-            </Button>
-            <Button variant="ghost" size="icon-sm" className="hidden text-neutral-600 sm:inline-flex" aria-label="Settings">
-              <Settings />
-            </Button>
-            <div ref={desktopProfileRef} className="relative">
-              <button
-                type="button"
-                aria-label="Open profile menu"
-                aria-expanded={profileOpen}
-                onClick={() => setProfileOpen((open) => !open)}
-                className="flex size-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-800 ring-2 ring-transparent transition hover:ring-blue-200"
-              >
-                {initials}
-              </button>
-              {profileOpen ? (
-                <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-neutral-200 bg-white py-1 shadow-md">
-                  <p className="truncate px-3 py-2 text-sm text-neutral-500">{user?.email}</p>
-                  <Separator />
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      handleSignOut();
-                    }}
-                  >
-                    <LogOut className="size-4" />
-                    Sign out
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </header>
-
       <MobileDriveHeader
         activeNav={activeNav}
         folderStack={folderStack}
@@ -1242,33 +1157,33 @@ export default function DrivePage() {
           onNavChange={handleNavChange}
         />
 
-        {/* Main content — overview dashboard vs file browser; sole vertical scroll region. */}
-        {/* Agent: min-h-0 overflow-y-auto; home uses #F7F8FA canvas per Pencil Main Overview. */}
+        {/* Main column — Pencil Main Content Area: desktop topbar + scrollable body on #F7F8FA. */}
+        {/* Agent: flex col on lg; topbar shrink-0; mainScrollRef on inner pane for explorer scroll sync. */}
         <main
-          ref={mainScrollRef}
           className={cn(
-            "relative min-h-0 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:pb-6 lg:pt-0 lg:px-12",
+            "relative flex min-h-0 flex-col overflow-hidden",
             activeNav === "home" || activeNav === "my-files"
-              ? "bg-[#F7F8FA] lg:pb-12 lg:pt-12"
-              : "bg-[#f3f2f1] lg:bg-transparent",
+              ? "bg-[#F7F8FA]"
+              : "bg-[#f3f2f1] lg:bg-[#F7F8FA]",
           )}
         >
-          {/* Human: Temporary desktop logout until profile chrome ships on the overview layout. */}
-          {/* Agent: lg+ only — mobile header already exposes Sign out via profile menu; CALLS handleSignOut. */}
-          {activeNav === "home" || activeNav === "my-files" ? (
-            <div className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block lg:right-12 lg:top-12">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="pointer-events-auto gap-2 border-[#E5E7EB] bg-white text-[#1A1A1A] shadow-sm hover:bg-[#F7F8FA]"
-                onClick={handleSignOut}
-              >
-                <LogOut className="size-4" aria-hidden />
-                Sign out
-              </Button>
-            </div>
-          ) : null}
+          <DriveDesktopTopbar
+            displayName={profileDisplayName}
+            roleLabel={profileRoleLabel}
+            initials={initials}
+            onSignOut={handleSignOut}
+            className={cn(
+              "mx-4 mt-4 max-lg:hidden lg:mx-12 lg:mt-0",
+              activeNav === "home" || activeNav === "my-files" ? "mb-8" : "mb-6",
+            )}
+          />
+
+          <div
+            ref={mainScrollRef}
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
+            )}
+          >
           <div
             className={cn(
               "flex min-h-full flex-col gap-4 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none",
@@ -1399,6 +1314,7 @@ export default function DrivePage() {
                   ? " · Deleted items are kept for 30 days"
                   : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}
             </p>
+          </div>
           </div>
         </main>
       </div>
