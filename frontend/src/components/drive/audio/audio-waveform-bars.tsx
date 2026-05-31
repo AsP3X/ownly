@@ -1,4 +1,4 @@
-// Human: Decorative or analyzed waveform bars for the mobile audio bottom sheet.
+// Human: Decorative or analyzed waveform bars for mobile sheet and desktop audio preview dialog.
 // Agent: READS optional bars from API sidecar; FALLS BACK to Pencil static heights when absent.
 
 import { cn } from "@/lib/utils";

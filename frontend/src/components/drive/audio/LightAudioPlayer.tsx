@@ -12,6 +12,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { AudioSeekBar } from "@/components/drive/audio/AudioSeekBar";
+import { AudioWaveformBars } from "@/components/drive/audio/audio-waveform-bars";
 import { useAudioTransport } from "@/components/drive/audio/useAudioTransport";
 import { formatAudioTime } from "@/components/drive/audio/audio-time";
 import { audioFormatLabel } from "@/lib/utils-app";
@@ -31,8 +32,10 @@ type LightAudioPlayerProps = {
   onPrevious?: () => void;
   onNext?: () => void;
   onEnded?: () => void;
-  /** Human: default = full metadata card; embedded = seek + controls only for Audio preview dialog. */
+  /** Human: default = full metadata card; embedded = waveform + seek + controls for Audio preview dialog. */
   variant?: LightAudioPlayerVariant;
+  /** Human: Analyzed peak heights from Nebular waveform.json; embedded dialog shows decorative fallback when absent. */
+  waveformBars?: number[] | null;
   className?: string;
 };
 
@@ -49,6 +52,7 @@ export function LightAudioPlayer({
   onNext,
   onEnded,
   variant = "default",
+  waveformBars,
   className,
 }: LightAudioPlayerProps) {
   const {
@@ -70,6 +74,8 @@ export function LightAudioPlayer({
   const formatLabel = audioFormatLabel(mimeType, title);
   const playButtonSize = isEmbedded ? "h-11 w-11" : "h-12 w-12";
   const playIconSize = isEmbedded ? "h-4 w-4" : "h-[18px] w-[18px]";
+  const progressPercent =
+    duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
 
   return (
     <div
@@ -127,15 +133,31 @@ export function LightAudioPlayer({
         </p>
       ) : null}
 
-      <AudioSeekBar
-        progress={progress}
-        duration={duration}
-        bufferedSegments={bufferedSegments}
-        disabled={transportDisabled}
-        showTimeLabels
-        variant={isEmbedded ? "minimal" : "default"}
-        onSeek={handleSeek}
-      />
+      {/* Human: Pencil Audio Preview Dialog — waveform row then seek rail + time labels (gap 8). */}
+      {isEmbedded ? (
+        <div className="flex flex-col gap-2">
+          <AudioWaveformBars progressPercent={progressPercent} bars={waveformBars} />
+          <AudioSeekBar
+            progress={progress}
+            duration={duration}
+            bufferedSegments={bufferedSegments}
+            disabled={transportDisabled}
+            showTimeLabels
+            variant="minimal"
+            onSeek={handleSeek}
+          />
+        </div>
+      ) : (
+        <AudioSeekBar
+          progress={progress}
+          duration={duration}
+          bufferedSegments={bufferedSegments}
+          disabled={transportDisabled}
+          showTimeLabels
+          variant="default"
+          onSeek={handleSeek}
+        />
+      )}
 
       {/* Human: Transport row — centered playback cluster with volume rail on the right per Pencil layout. */}
       <div

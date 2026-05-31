@@ -100,10 +100,10 @@ export function AudioPreviewDialog({
     [clearCachedUrls, onOpenChange],
   );
 
-  // Human: Load analyzed waveform peaks for the mobile bottom sheet once the file row is ready.
+  // Human: Load analyzed waveform peaks for mobile sheet and desktop preview dialog when ready.
   // Agent: CALLS fetchFileWaveform or public share variant; SETS waveformBars for AudioWaveformBars.
   useEffect(() => {
-    if (!open || !file?.id || isDesktop) {
+    if (!open || !file?.id) {
       setWaveformBars(null);
       return;
     }
@@ -128,7 +128,7 @@ export function AudioPreviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, file?.id, file?.audio_waveform_ready, isDesktop, shareToken, sharePassword]);
+  }, [open, file?.id, file?.audio_waveform_ready, shareToken, sharePassword]);
 
   const resolveStream = useCallback(
     (item: FileItem) =>
@@ -332,7 +332,12 @@ export function AudioPreviewDialog({
           aria-label="Audio player"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <LightAudioPlayer key={file?.id} variant="embedded" {...playerProps} />
+          <LightAudioPlayer
+            key={file?.id}
+            variant="embedded"
+            waveformBars={waveformBars}
+            {...playerProps}
+          />
         </div>
       </DialogContent>
     </Dialog>
