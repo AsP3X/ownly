@@ -1,7 +1,7 @@
 // Human: Anonymous viewer page for public share links — Pencil variants for folder list and inline previews.
 // Agent: READS /public/shares/:token*; RENDERS layout shell + type-specific panels; OPENS dialogs inside folders.
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Film, Loader2 } from "lucide-react";
 import {
@@ -27,16 +27,20 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import { PublicShareInlinePdf } from "@/components/public-share/PublicShareInlinePdf";
-import { PublicShareInlineVideo } from "@/components/public-share/PublicShareInlineVideo";
+import {
+  LazyAudioPreviewDialog,
+  LazyImagePreviewDialog,
+  LazyPdfPreviewDialog,
+  LazyVideoPreviewDialog,
+} from "@/components/drive/lazy-media-previews";
+import {
+  LazyPublicShareInlinePdf,
+  LazyPublicShareInlineVideo,
+} from "@/components/public-share/lazy-inline-previews";
 import { PublicShareMobileActionStack } from "@/components/public-share/PublicShareMobileActionStack";
 import { PublicSharePageLayout } from "@/components/public-share/PublicSharePageLayout";
 import { PublicShareSecurityBadge } from "@/components/public-share/PublicShareSecurityBadge";
 import { PublicSharePasswordGate } from "@/components/public-share/PublicSharePasswordGate";
-import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
-import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
-import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
-import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
 import { isFileProcessing } from "@/lib/file-processing";
 import {
   buildAudioGallery,
@@ -514,14 +518,23 @@ export default function PublicSharePage() {
               </div>
             ) : null}
             {singleIsVideo && overview.hls_ready ? (
-              <PublicShareInlineVideo
-                file={singleFileItem}
-                streamUrl={inlineStreamUrl}
-                streamLoading={inlineStreamLoading}
-                streamError={inlineStreamError}
-                sharePassword={sharePassword}
-                onStreamError={setInlineStreamError}
-              />
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-[#E5E7EB] bg-black py-24 text-sm text-white/80">
+                    <Loader2 className="size-5 animate-spin" />
+                    Loading video player…
+                  </div>
+                }
+              >
+                <LazyPublicShareInlineVideo
+                  file={singleFileItem}
+                  streamUrl={inlineStreamUrl}
+                  streamLoading={inlineStreamLoading}
+                  streamError={inlineStreamError}
+                  sharePassword={sharePassword}
+                  onStreamError={setInlineStreamError}
+                />
+              </Suspense>
             ) : null}
             {singleIsImage ? (
               <PublicShareInlineImage
@@ -535,7 +548,20 @@ export default function PublicSharePage() {
               />
             ) : null}
             {singleIsPdf ? (
-              <PublicShareInlinePdf token={token} file={singleFileItem} sharePassword={sharePassword} />
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-[#E5E7EB] bg-white py-24 text-sm text-[#666666]">
+                    <Loader2 className="size-5 animate-spin" />
+                    Loading PDF viewer…
+                  </div>
+                }
+              >
+                <LazyPublicShareInlinePdf
+                  token={token}
+                  file={singleFileItem}
+                  sharePassword={sharePassword}
+                />
+              </Suspense>
             ) : null}
             {singleIsAudio ? (
               <PublicShareInlineAudio
@@ -587,59 +613,76 @@ export default function PublicSharePage() {
         ) : null}
       </PublicSharePageLayout>
 
-      <VideoPreviewDialog
-        videos={
-          galleryVideos.length > 0
-            ? galleryVideos
-            : previewVideo
-              ? [previewVideo]
-              : []
-        }
-        file={previewVideo}
-        open={previewVideo !== null}
-        onOpenChange={(open) => {
-          if (!open) setPreviewVideo(null);
-        }}
-        onFileChange={setPreviewVideo}
-        shareToken={token}
-        sharePassword={sharePassword}
-        onDownload={overview?.block_download ? undefined : (file) => void handleDownload(file)}
-      />
+      {/* Human: Folder-share preview dialogs — lazy-load react-pdf/hls.js on first open. */}
+      {previewVideo !== null ? (
+        <Suspense fallback={null}>
+          <LazyVideoPreviewDialog
+            videos={
+              galleryVideos.length > 0
+                ? galleryVideos
+                : previewVideo
+                  ? [previewVideo]
+                  : []
+            }
+            file={previewVideo}
+            open
+            onOpenChange={(open) => {
+              if (!open) setPreviewVideo(null);
+            }}
+            onFileChange={setPreviewVideo}
+            shareToken={token}
+            sharePassword={sharePassword}
+            onDownload={overview?.block_download ? undefined : (file) => void handleDownload(file)}
+          />
+        </Suspense>
+      ) : null}
 
-      <ImagePreviewDialog
-        images={galleryImages.length > 0 ? galleryImages : previewImage ? [previewImage] : []}
-        file={previewImage}
-        open={previewImage !== null}
-        onOpenChange={(open) => {
-          if (!open) setPreviewImage(null);
-        }}
-        onFileChange={setPreviewImage}
-        shareToken={token}
-        sharePassword={sharePassword}
-        onDownload={overview.block_download ? undefined : (file) => void handleDownload(file)}
-      />
+      {previewImage !== null ? (
+        <Suspense fallback={null}>
+          <LazyImagePreviewDialog
+            images={galleryImages.length > 0 ? galleryImages : previewImage ? [previewImage] : []}
+            file={previewImage}
+            open
+            onOpenChange={(open) => {
+              if (!open) setPreviewImage(null);
+            }}
+            onFileChange={setPreviewImage}
+            shareToken={token}
+            sharePassword={sharePassword}
+            onDownload={overview.block_download ? undefined : (file) => void handleDownload(file)}
+          />
+        </Suspense>
+      ) : null}
 
-      <PdfPreviewDialog
-        file={previewPdf}
-        open={previewPdf !== null}
-        onOpenChange={(open) => {
-          if (!open) setPreviewPdf(null);
-        }}
-        shareToken={token}
-        sharePassword={sharePassword}
-      />
+      {previewPdf !== null ? (
+        <Suspense fallback={null}>
+          <LazyPdfPreviewDialog
+            file={previewPdf}
+            open
+            onOpenChange={(open) => {
+              if (!open) setPreviewPdf(null);
+            }}
+            shareToken={token}
+            sharePassword={sharePassword}
+          />
+        </Suspense>
+      ) : null}
 
-      <AudioPreviewDialog
-        tracks={galleryAudio.length > 0 ? galleryAudio : previewAudio ? [previewAudio] : []}
-        file={previewAudio}
-        open={previewAudio !== null}
-        onOpenChange={(open) => {
-          if (!open) setPreviewAudio(null);
-        }}
-        onFileChange={setPreviewAudio}
-        shareToken={token}
-        sharePassword={sharePassword}
-      />
+      {previewAudio !== null ? (
+        <Suspense fallback={null}>
+          <LazyAudioPreviewDialog
+            tracks={galleryAudio.length > 0 ? galleryAudio : previewAudio ? [previewAudio] : []}
+            file={previewAudio}
+            open
+            onOpenChange={(open) => {
+              if (!open) setPreviewAudio(null);
+            }}
+            onFileChange={setPreviewAudio}
+            shareToken={token}
+            sharePassword={sharePassword}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

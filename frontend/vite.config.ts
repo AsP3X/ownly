@@ -36,6 +36,30 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Human: Split heavy vendor libs into cacheable chunks alongside route lazy loading.
+    // Agent: manualChunks groups react-pdf/pdfjs and hls.js away from the app shell.
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/pdfjs-dist") || id.includes("node_modules/react-pdf")) {
+            return "pdf";
+          }
+          if (id.includes("node_modules/hls.js")) {
+            return "hls";
+          }
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router") ||
+            id.includes("node_modules/scheduler/")
+          ) {
+            return "vendor-react";
+          }
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api/v1": {

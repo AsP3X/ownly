@@ -1,24 +1,28 @@
 // Human: Application shell — setup gate, auth routes, and the main drive experience.
-// Agent: WRAPS BrowserRouter+AuthProvider; SetupGuard reads setupStatus; redirects /setup until complete.
+// Agent: WRAPS BrowserRouter+AuthProvider; SetupGuard reads setupStatus; lazy-loads route chunks via Suspense.
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { setupStatus } from "@/api/client";
+import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { useAuth } from "@/hooks/useAuth";
 import SetupPage from "@/pages/SetupPage";
 import LoginPage from "@/pages/LoginPage";
-import LandingPage from "@/pages/LandingPage";
-import FeaturesPage from "@/pages/FeaturesPage";
-import SecurityPage from "@/pages/SecurityPage";
-import PricingPage from "@/pages/PricingPage";
-import FaqPage from "@/pages/FaqPage";
-import NebularOsSpecsPage from "@/pages/NebularOsSpecsPage";
-import StorageSpecsPage from "@/pages/StorageSpecsPage";
-import DrivePage from "@/pages/DrivePage";
-import AdminDashboardWireframePage from "@/pages/AdminDashboardWireframePage";
 import RegisterPage from "@/pages/RegisterPage";
-import PublicSharePage from "@/pages/PublicSharePage";
+
+// Human: Route-level code splitting — heavy pages load only when navigated to.
+// Agent: dynamic import() per page; Suspense fallback is RouteLoadingFallback.
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
+const FeaturesPage = lazy(() => import("@/pages/FeaturesPage"));
+const SecurityPage = lazy(() => import("@/pages/SecurityPage"));
+const PricingPage = lazy(() => import("@/pages/PricingPage"));
+const FaqPage = lazy(() => import("@/pages/FaqPage"));
+const NebularOsSpecsPage = lazy(() => import("@/pages/NebularOsSpecsPage"));
+const StorageSpecsPage = lazy(() => import("@/pages/StorageSpecsPage"));
+const DrivePage = lazy(() => import("@/pages/DrivePage"));
+const AdminDashboardWireframePage = lazy(() => import("@/pages/AdminDashboardWireframePage"));
+const PublicSharePage = lazy(() => import("@/pages/PublicSharePage"));
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
@@ -75,11 +79,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 // Human: Default home — landing page for all guests after setup; drive when authenticated.
-// Agent: READS token from AuthContext; `/` is the guest entry point (logout and unknown routes also resolve here).
+// Agent: READS token from AuthContext; lazy-loads LandingPage or DrivePage on demand.
 function HomeRoute() {
   const { token } = useAuth();
-  if (token) return <DrivePage />;
-  return <LandingPage />;
+  return (
+    <Suspense fallback={<RouteLoadingFallback />}>
+      {token ? <DrivePage /> : <LandingPage />}
+    </Suspense>
+  );
 }
 
 export default function App() {
@@ -87,28 +94,30 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <SetupGuard>
-          <Routes>
-            <Route path="/setup" element={<SetupPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/features" element={<FeaturesPage />} />
-            <Route path="/security" element={<SecurityPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/faq" element={<FaqPage />} />
-            <Route path="/specs/nebular-os" element={<NebularOsSpecsPage />} />
-            <Route path="/specs/storage" element={<StorageSpecsPage />} />
-            <Route path="/s/:token" element={<PublicSharePage />} />
-            <Route path="/" element={<HomeRoute />} />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute>
-                  <AdminDashboardWireframePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Routes>
+              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/features" element={<FeaturesPage />} />
+              <Route path="/security" element={<SecurityPage />} />
+              <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/faq" element={<FaqPage />} />
+              <Route path="/specs/nebular-os" element={<NebularOsSpecsPage />} />
+              <Route path="/specs/storage" element={<StorageSpecsPage />} />
+              <Route path="/s/:token" element={<PublicSharePage />} />
+              <Route path="/" element={<HomeRoute />} />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <AdminDashboardWireframePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </SetupGuard>
       </AuthProvider>
     </BrowserRouter>

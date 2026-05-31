@@ -1,13 +1,7 @@
 // Human: Drive shell — sidebar, Home overview, and My Cloud explorer per Pencil wireframes.
 // Agent: CALLS listFiles/uploadFile/fetchDashboard; READS auth user for profile chip.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutGrid,
   LogOut,
@@ -61,10 +55,12 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { VideoPreviewDialog } from "@/components/drive/VideoPreviewDialog";
-import { ImagePreviewDialog } from "@/components/drive/ImagePreviewDialog";
-import { PdfPreviewDialog } from "@/components/drive/PdfPreviewDialog";
-import { AudioPreviewDialog } from "@/components/drive/AudioPreviewDialog";
+import {
+  LazyAudioPreviewDialog,
+  LazyImagePreviewDialog,
+  LazyPdfPreviewDialog,
+  LazyVideoPreviewDialog,
+} from "@/components/drive/lazy-media-previews";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -986,44 +982,62 @@ export default function DrivePage() {
             })
           }
         />
-        <VideoPreviewDialog
-          videos={galleryVideos}
-          file={previewVideo}
-          open={previewVideo !== null}
-          onOpenChange={(open) => {
-            if (!open) setPreviewVideo(null);
-          }}
-          onFileChange={handleGalleryVideoChange}
-          onDownload={handleDownload}
-          onShare={handleShareFile}
-        />
-        <ImagePreviewDialog
-          images={galleryImages}
-          file={previewImage}
-          open={previewImage !== null}
-          onOpenChange={(open) => {
-            if (!open) setPreviewImage(null);
-          }}
-          onFileChange={handleGalleryImageChange}
-          onDownload={handleDownload}
-          onShare={handleShareFile}
-        />
-        <PdfPreviewDialog
-          file={previewPdf}
-          open={previewPdf !== null}
-          onOpenChange={(open) => {
-            if (!open) setPreviewPdf(null);
-          }}
-        />
-        <AudioPreviewDialog
-          tracks={galleryAudio}
-          file={previewAudio}
-          open={previewAudio !== null}
-          onOpenChange={(open) => {
-            if (!open) setPreviewAudio(null);
-          }}
-          onFileChange={handleGalleryAudioChange}
-        />
+        {/* Human: Media preview dialogs load react-pdf/hls.js chunks on first open. */}
+        {/* Agent: Suspense + lazy imports; MOUNTS chunk only when preview state is non-null. */}
+        {previewVideo !== null ? (
+          <Suspense fallback={null}>
+            <LazyVideoPreviewDialog
+              videos={galleryVideos}
+              file={previewVideo}
+              open
+              onOpenChange={(open) => {
+                if (!open) setPreviewVideo(null);
+              }}
+              onFileChange={handleGalleryVideoChange}
+              onDownload={handleDownload}
+              onShare={handleShareFile}
+            />
+          </Suspense>
+        ) : null}
+        {previewImage !== null ? (
+          <Suspense fallback={null}>
+            <LazyImagePreviewDialog
+              images={galleryImages}
+              file={previewImage}
+              open
+              onOpenChange={(open) => {
+                if (!open) setPreviewImage(null);
+              }}
+              onFileChange={handleGalleryImageChange}
+              onDownload={handleDownload}
+              onShare={handleShareFile}
+            />
+          </Suspense>
+        ) : null}
+        {previewPdf !== null ? (
+          <Suspense fallback={null}>
+            <LazyPdfPreviewDialog
+              file={previewPdf}
+              open
+              onOpenChange={(open) => {
+                if (!open) setPreviewPdf(null);
+              }}
+            />
+          </Suspense>
+        ) : null}
+        {previewAudio !== null ? (
+          <Suspense fallback={null}>
+            <LazyAudioPreviewDialog
+              tracks={galleryAudio}
+              file={previewAudio}
+              open
+              onOpenChange={(open) => {
+                if (!open) setPreviewAudio(null);
+              }}
+              onFileChange={handleGalleryAudioChange}
+            />
+          </Suspense>
+        ) : null}
         <ShareDialog
           open={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
