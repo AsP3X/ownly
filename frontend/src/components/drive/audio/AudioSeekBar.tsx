@@ -7,7 +7,7 @@ import { formatAudioTime } from "@/components/drive/audio/audio-time";
 import { AudioSeekTeardropTooltip } from "@/components/drive/audio/audio-seek-teardrop";
 import { cn } from "@/lib/utils";
 
-type AudioSeekBarVariant = "default" | "minimal";
+type AudioSeekBarVariant = "default" | "minimal" | "mobile-sheet" | "mobile-card";
 
 type AudioSeekBarProps = {
   progress: number;
@@ -33,7 +33,11 @@ export function AudioSeekBar({
   const trackRailRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const isMinimal = variant === "minimal";
-  const isHovering = hoverPercent !== null;
+  const isMobileSheet = variant === "mobile-sheet";
+  const isMobileCard = variant === "mobile-card";
+  const isMobile = isMobileSheet || isMobileCard;
+  const showTeardropHover = !isMobile;
+  const isHovering = showTeardropHover && hoverPercent !== null;
 
   // Human: Map clientX to 0–100% on the visible rail — used by pointer move on input + wrapper.
   // Agent: READS trackRailRef rect; SETS hoverPercent; IGNORES when pointer leaves rail width.
@@ -92,31 +96,39 @@ export function AudioSeekBar({
   return (
     <div className={cn("overflow-visible", className)}>
       {/* Human: Top padding reserves space for the 52px teardrop so it is not clipped by dialog edges. */}
-      <div className="relative overflow-visible pt-[52px]">
+      <div className={cn("relative overflow-visible", showTeardropHover && "pt-[52px]")}>
         {/* Human: Tall hit target (py-3) so hover works reliably; visual rail stays thin inside. */}
         <div
           className={cn(
-            "relative w-full overflow-visible py-3",
+            "relative w-full overflow-visible",
+            isMobile ? "py-0" : "py-3",
             disabled ? "opacity-50" : "cursor-pointer",
           )}
-          onPointerMove={handlePointerMove}
-          onPointerLeave={handlePointerLeave}
+          onPointerMove={showTeardropHover ? handlePointerMove : undefined}
+          onPointerLeave={showTeardropHover ? handlePointerLeave : undefined}
         >
           <div
             ref={trackRailRef}
             className={cn(
               "relative w-full",
-              isMinimal ? "h-1.5" : "h-3",
+              isMobileSheet && "h-4",
+              isMobileCard && "h-1.5",
+              isMinimal && "h-1.5",
+              !isMobile && !isMinimal && "h-3",
             )}
           >
-            {/* Human: Pencil default — 4px accent rail; minimal dialog — 6px dark rail on border track. */}
+            {/* Human: Pencil rails — desktop 4px blue; mobile-sheet 4px blue; mobile-card 6px blue on gray track. */}
             <div
               className={cn(
                 "relative w-full rounded-sm bg-[#E5E7EB]",
-                isMinimal ? "h-1.5" : "h-1 top-1/2 -translate-y-1/2",
+                isMobileSheet && "h-1 top-1/2 -translate-y-1/2",
+                isMobileCard && "h-1.5",
+                isMinimal && "h-1.5",
+                !isMobile && !isMinimal && "h-1 top-1/2 -translate-y-1/2",
               )}
             >
               {!isMinimal &&
+                !isMobile &&
                 bufferedBars.map((bar) => (
                   <div
                     key={bar.key}
@@ -128,21 +140,32 @@ export function AudioSeekBar({
               <div
                 className={cn(
                   "absolute top-0 left-0 rounded-sm transition-[width] duration-300 ease-linear z-[1]",
-                  isMinimal ? "h-1.5 bg-[#1A1A1A]" : "h-1 bg-blue-600",
+                  isMobileSheet && "h-1 bg-blue-600",
+                  isMobileCard && "h-1.5 rounded-[3px] bg-blue-600",
+                  isMinimal && "h-1.5 bg-[#1A1A1A]",
+                  !isMobile && !isMinimal && "h-1 bg-blue-600",
                 )}
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
 
-            {/* Human: Playback thumb — white disc with blue ring; minimal uses solid dark circle. */}
+            {/* Human: Playback thumb — mobile-sheet white disc w/ blue ring; mobile-card solid blue circle. */}
             <div
               className={cn(
                 "absolute top-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10 transition-[left] duration-300 ease-linear",
-                isMinimal
-                  ? "h-3 w-3 bg-[#1A1A1A]"
-                  : "h-3 w-3 bg-white border-2 border-blue-600 shadow-sm",
+                isMobileSheet &&
+                  "h-4 w-4 border-[3px] border-blue-600 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.1)]",
+                isMobileCard && "h-3 w-3 bg-blue-600",
+                isMinimal && "h-3 w-3 bg-[#1A1A1A]",
+                !isMobile && !isMinimal && "h-3 w-3 bg-white border-2 border-blue-600 shadow-sm",
               )}
-              style={{ left: `calc(${progressPercent}% - 6px)` }}
+              style={{
+                left: isMobileSheet
+                  ? `calc(${progressPercent}% - 8px)`
+                  : isMobileCard
+                    ? `calc(${progressPercent}% - 6px)`
+                    : `calc(${progressPercent}% - 6px)`,
+              }}
             />
 
             {/* Human: Pencil Timeline Hover Dot — black fill, white stroke, aligned to teardrop tip. */}
@@ -178,8 +201,8 @@ export function AudioSeekBar({
               if (seekInputDisabled) return;
               handleSeekInput(event);
             }}
-            onPointerMove={handlePointerMove}
-            onPointerLeave={handlePointerLeave}
+            onPointerMove={showTeardropHover ? handlePointerMove : undefined}
+            onPointerLeave={showTeardropHover ? handlePointerLeave : undefined}
             aria-label="Seek"
             aria-disabled={seekInputDisabled}
             className={cn(
@@ -194,7 +217,9 @@ export function AudioSeekBar({
         <div
           className={cn(
             "flex items-center justify-between font-normal tabular-nums",
-            isMinimal ? "mt-2 text-[11px] text-[#888888]" : "mt-1.5 text-[11px] text-[#666666]",
+            isMobile && "mt-2 text-[11px] text-[#666666]",
+            isMinimal && !isMobile && "mt-2 text-[11px] text-[#888888]",
+            !isMobile && !isMinimal && "mt-1.5 text-[11px] text-[#666666]",
           )}
         >
           <span>{formatAudioTime(progress)}</span>

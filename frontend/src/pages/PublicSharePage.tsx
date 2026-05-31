@@ -533,7 +533,18 @@ export default function PublicSharePage() {
               <PublicShareInlinePdf token={token} file={singleFileItem} sharePassword={sharePassword} />
             ) : null}
             {singleIsAudio ? (
-              <PublicShareInlineAudio token={token} file={singleFileItem} sharePassword={sharePassword} />
+              <PublicShareInlineAudio
+                token={token}
+                file={singleFileItem}
+                sharePassword={sharePassword}
+                showMobileActions
+                onDownload={overview.block_download ? undefined : () => void handleDownload(singleFileItem)}
+                onSave={() => void handleSaveToOwnly()}
+                downloadDisabled={overview.block_download}
+                downloadLoading={downloadingId === singleFileItem.id}
+                saveDisabled={overview.block_download}
+                saveLoading={saveLoading}
+              />
             ) : null}
             {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsAudio ? (
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">

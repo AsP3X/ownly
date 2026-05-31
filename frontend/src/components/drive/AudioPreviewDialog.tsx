@@ -1,5 +1,5 @@
-// Human: Folder-scoped audio preview — Pencil Audio preview dialog over blurred explorer backdrop.
-// Agent: CALLS fetchFileStreamUrlForPreview; CACHES urls; REVOKES blob fallbacks on dialog close.
+// Human: Folder-scoped audio preview — desktop dialog or Pencil mobile bottom sheet over blurred explorer.
+// Agent: CALLS fetchFileStreamUrlForPreview; CACHES urls; MOUNTS MobileAudioPlayerSheet below lg breakpoint.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileItem } from "@/api/client";
@@ -9,6 +9,7 @@ import {
   getErrorMessage,
 } from "@/api/client";
 import { LightAudioPlayer } from "@/components/drive/audio/LightAudioPlayer";
+import { MobileAudioPlayerSheet } from "@/components/drive/audio/MobileAudioPlayerSheet";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
 
 type AudioPreviewDialogProps = {
   tracks: FileItem[];
@@ -42,6 +44,7 @@ export function AudioPreviewDialog({
   shareToken,
   sharePassword,
 }: AudioPreviewDialogProps) {
+  const isDesktop = useIsDesktopPlayer(open);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -192,12 +195,12 @@ export function AudioPreviewDialog({
   // Human: Focus the player pane when opened so arrow keys reach gallery navigation first.
   // Agent: FOCUSES viewportRef after paint; RE-FOCUSES when the active track changes.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !isDesktop) return;
     const timer = window.setTimeout(() => {
       viewportRef.current?.focus();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [open, file?.id]);
+  }, [open, file?.id, isDesktop]);
 
   // Human: Arrow keys move between tracks; capture phase runs before the dialog trap swallows them.
   // Agent: LISTENS document keydown capture while open; CALLS goPrevious/goNext via refs.
@@ -244,6 +247,32 @@ export function AudioPreviewDialog({
   const subtitleParts = [file?.name ?? "Listen to audio files from your drive."];
   if (positionLabel) subtitleParts.push(positionLabel);
 
+  const playerProps = {
+    src: audioUrl,
+    title: file?.name ?? "Audio",
+    mimeType: file?.mime_type ?? null,
+    loading,
+    error,
+    autoPlay: autoPlayNext,
+    hasPrevious,
+    hasNext,
+    onPrevious: goPrevious,
+    onNext: goNext,
+    onEnded: handleTrackEnded,
+  };
+
+  if (!isDesktop) {
+    return (
+      <MobileAudioPlayerSheet
+        key={file?.id}
+        open={open}
+        onOpenChange={handleDialogOpenChange}
+        positionLabel={positionLabel}
+        {...playerProps}
+      />
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
@@ -268,21 +297,7 @@ export function AudioPreviewDialog({
           aria-label="Audio player"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <LightAudioPlayer
-            key={file?.id}
-            variant="embedded"
-            src={audioUrl}
-            title={file?.name ?? "Audio"}
-            mimeType={file?.mime_type ?? null}
-            loading={loading}
-            error={error}
-            autoPlay={autoPlayNext}
-            hasPrevious={hasPrevious}
-            hasNext={hasNext}
-            onPrevious={goPrevious}
-            onNext={goNext}
-            onEnded={handleTrackEnded}
-          />
+          <LightAudioPlayer key={file?.id} variant="embedded" {...playerProps} />
         </div>
       </DialogContent>
     </Dialog>
