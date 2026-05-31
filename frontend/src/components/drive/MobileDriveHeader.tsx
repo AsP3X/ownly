@@ -1,18 +1,18 @@
-// Human: Compact sticky header for mobile drive — title, search, profile, and contextual actions.
-// Agent: lg:hidden only; REPLACES cramped desktop header grid below lg breakpoint.
+// Human: Compact sticky header for mobile drive — title, search, profile menu (login-signup.pencil).
+// Agent: lg:hidden only; CALLS DriveProfileMenu; REPLACES cramped desktop header grid below lg breakpoint.
 
 import { type RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   FolderPlus,
-  LogOut,
   Menu,
   Search,
   Upload,
 } from "lucide-react";
+import { DriveProfileMenu } from "@/components/drive/DriveProfileMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 type NavItemId = "home" | "my-files" | "recycle-bin";
@@ -23,8 +23,11 @@ type MobileDriveHeaderProps = {
   folderStack: FolderCrumb[];
   query: string;
   onQueryChange: (value: string) => void;
+  displayName: string;
+  roleLabel: string;
   initials: string;
   email?: string | null;
+  isAdmin?: boolean;
   profileOpen: boolean;
   profileRef: RefObject<HTMLDivElement | null>;
   onProfileToggle: () => void;
@@ -36,14 +39,17 @@ type MobileDriveHeaderProps = {
 };
 
 // Human: Sticky mobile chrome with large title, integrated search, and folder back navigation.
-// Agent: CALLS parent handlers only; hidden on lg+ so desktop header is unchanged.
+// Agent: CALLS parent handlers only; hidden on lg+ so desktop DriveDesktopTopbar is unchanged.
 export function MobileDriveHeader({
   activeNav,
   folderStack,
   query,
   onQueryChange,
+  displayName,
+  roleLabel,
   initials,
   email,
+  isAdmin = false,
   profileOpen,
   profileRef,
   onProfileToggle,
@@ -53,6 +59,15 @@ export function MobileDriveHeader({
   onCreateFolder,
   onBack,
 }: MobileDriveHeaderProps) {
+  const navigate = useNavigate();
+
+  // Human: Close the popover before routing — toggle only when open avoids opening it accidentally.
+  // Agent: WRITES profileOpen via onProfileToggle; NAVIGATE /admin for administrators.
+  function handleAdminConsole() {
+    if (profileOpen) onProfileToggle();
+    navigate("/admin");
+  }
+
   const inFolder = activeNav === "my-files" && folderStack.length > 0;
   const pageTitle = inFolder
     ? (folderStack.at(-1)?.name ?? "My files")
@@ -65,7 +80,7 @@ export function MobileDriveHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 shrink-0 border-b border-neutral-200/80 backdrop-blur-xl lg:hidden",
+        "sticky top-0 z-30 shrink-0 border-b border-[#E5E7EB] backdrop-blur-xl lg:hidden",
         activeNav === "home" || activeNav === "my-files"
           ? "bg-[#F7F8FA]/95"
           : "bg-[#f3f2f1]/95",
@@ -77,7 +92,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 text-neutral-700"
+            className="shrink-0 text-[#666666]"
             aria-label="Go back"
             onClick={onBack}
           >
@@ -88,7 +103,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 text-neutral-700"
+            className="shrink-0 text-[#666666]"
             aria-label="Open menu"
             onClick={onMenuOpen}
           >
@@ -97,10 +112,10 @@ export function MobileDriveHeader({
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <p className="truncate text-xs font-medium uppercase tracking-wide text-[#888888]">
             {inFolder ? "Folder" : activeNav === "home" ? "Ownly" : "Library"}
           </p>
-          <h1 className="truncate text-lg font-semibold tracking-tight text-neutral-900">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-[#1A1A1A]">
             {pageTitle}
           </h1>
         </div>
@@ -111,7 +126,7 @@ export function MobileDriveHeader({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-neutral-700"
+              className="text-[#666666]"
               aria-label="New folder"
               onClick={onCreateFolder}
             >
@@ -122,7 +137,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="text-blue-700"
+            className="text-[#2563EB]"
             aria-label="Upload files"
             onClick={onUpload}
           >
@@ -131,30 +146,27 @@ export function MobileDriveHeader({
           <div ref={profileRef} className="relative">
             <button
               type="button"
-              aria-label="Open profile menu"
+              aria-label="Open account menu"
               aria-expanded={profileOpen}
+              aria-haspopup="menu"
               onClick={onProfileToggle}
-              className="flex size-9 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white shadow-sm"
+              className={cn(
+                "flex size-9 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white shadow-sm outline-none",
+                profileOpen && "ring-2 ring-[#2563EB]/30 ring-offset-2 ring-offset-[#F7F8FA]",
+              )}
             >
               {initials}
             </button>
-            {profileOpen ? (
-              <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-neutral-200 bg-white py-1 shadow-xl">
-                <p className="truncate px-4 py-3 text-sm text-neutral-500">{email}</p>
-                <Separator />
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-4 py-3 text-sm text-neutral-800 active:bg-neutral-50"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    onLogout();
-                  }}
-                >
-                  <LogOut className="size-4" />
-                  Sign out
-                </button>
-              </div>
-            ) : null}
+            <DriveProfileMenu
+              open={profileOpen}
+              displayName={displayName}
+              email={email}
+              initials={initials}
+              roleLabel={roleLabel}
+              isAdmin={isAdmin}
+              onLogout={onLogout}
+              onAdminConsole={isAdmin ? handleAdminConsole : undefined}
+            />
           </div>
         </div>
       </div>
@@ -162,11 +174,11 @@ export function MobileDriveHeader({
       {activeNav !== "home" && activeNav !== "my-files" ? (
         <div className="px-4 pb-3">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#888888]" />
             <Input
               className={cn(
-                "h-10 rounded-xl border-0 bg-white pl-10 shadow-sm ring-1 ring-neutral-200/80",
-                "placeholder:text-neutral-400 focus-visible:ring-blue-500/40",
+                "h-10 rounded-lg border border-[#E5E7EB] bg-white pl-10 shadow-none",
+                "placeholder:text-[#888888] focus-visible:border-[#2563EB] focus-visible:ring-[#2563EB]/25",
               )}
               placeholder="Search files"
               value={query}

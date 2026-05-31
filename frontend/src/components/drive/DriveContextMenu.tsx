@@ -2,7 +2,7 @@
 // Agent: modal={false}; SubmenuTrigger inherits Base UI safePolygon; workspace rows use small leading Lucide icons only.
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Clipboard, FolderPlus, Upload } from "lucide-react";
+import { Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-react";
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -190,7 +190,7 @@ export function DriveContextMenu({
         {targetFile ? (
           <ContextMenuGroup>
             {targetProcessing ? (
-              <p className="px-3 py-2 text-[13px] text-[#888888]">
+              <p className="px-3 py-2 text-[13px] leading-none text-[#888888]">
                 Processing — actions unavailable
               </p>
             ) : null}
@@ -323,7 +323,10 @@ export function DriveContextMenu({
               <Upload />
               Upload files
             </ContextMenuItem>
-            <ContextMenuItem onClick={onRefresh}>Refresh</ContextMenuItem>
+            <ContextMenuItem onClick={onRefresh}>
+              <RefreshCw />
+              Refresh
+            </ContextMenuItem>
             <ContextMenuItem disabled>
               <Clipboard />
               Paste

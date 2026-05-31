@@ -1,8 +1,19 @@
-// Human: In-browser PDF viewer — continuous vertical scroll through all pages with zoom controls.
-// Agent: FETCHES fetchFileBlobForPreview; RENDERS react-pdf Document + stacked Page list; READS pdf-viewer worker.
+// Human: In-browser PDF viewer — Pencil Ownly Explorer PDF Viewer with thumbnails, page nav, and zoom.
+// Agent: FETCHES fetchFileBlobForPreview; RENDERS react-pdf Document + Page; READS pdf-viewer worker.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  Minus,
+  Plus,
+  Search,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
@@ -11,12 +22,12 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type PdfPreviewDialogProps = {
@@ -26,20 +37,28 @@ export type PdfPreviewDialogProps = {
   /** When set, PDF bytes load through anonymous public share download. */
   shareToken?: string;
   sharePassword?: string | null;
+  /** Human: Optional download action — shown in the header when provided. */
+  onDownload?: (file: FileItem) => void;
 };
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.25;
-// Human: Default opens at 75% — full page visible with readable margins in the wide dialog.
-const DEFAULT_ZOOM = 0.75;
+// Human: Default opens at 100% — matches Pencil zoom label in the viewer header.
+const DEFAULT_ZOOM = 1;
 // Human: Fine wheel steps — small notch per scroll tick; scaled slightly by delta magnitude.
 const WHEEL_ZOOM_MIN = 0.012;
 const WHEEL_ZOOM_MAX = 0.055;
 const WHEEL_ZOOM_SCALE = 0.00035;
+const THUMBNAIL_WIDTH = 84;
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(3))));
+}
+
+function clampPage(value: number, total: number): number {
+  if (total <= 0) return 1;
+  return Math.min(total, Math.max(1, value));
 }
 
 // Human: Scale wheel deltas from line/page modes into pixel-like steps for consistent zoom speed.
@@ -60,21 +79,24 @@ export function PdfPreviewDialog({
   onOpenChange,
   shareToken,
   sharePassword,
+  onDownload,
 }: PdfPreviewDialogProps) {
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInputValue, setPageInputValue] = useState("1");
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [pageWidth, setPageWidth] = useState<number | undefined>(undefined);
-  const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
+  const [documentAreaNode, setDocumentAreaNode] = useState<HTMLDivElement | null>(null);
   const activeFileIdRef = useRef<string | null>(null);
+  const thumbnailRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
-  // Human: Callback ref so wheel/resize listeners attach after the dialog portal mounts the pane.
-  // Agent: WRITES viewportNode state when the scroll pane DOM node appears or unmounts.
-  const viewportRef = useCallback((node: HTMLDivElement | null) => {
-    setViewportNode(node);
+  // Human: Callback ref so resize listeners attach after the dialog portal mounts the document pane.
+  // Agent: WRITES documentAreaNode when the dark document-area DOM node appears or unmounts.
+  const documentAreaRef = useCallback((node: HTMLDivElement | null) => {
+    setDocumentAreaNode(node);
   }, []);
 
   // Human: Reset viewer state when switching files or reopening the dialog.
@@ -84,24 +106,31 @@ export function PdfPreviewDialog({
     setError("");
     setNumPages(0);
     setCurrentPage(1);
+    setPageInputValue("1");
     setZoom(DEFAULT_ZOOM);
   }, [file?.id]);
 
-  // Human: Fit pages to the dialog width on resize — zoom multiplier applies on top of fit width.
-  // Agent: READS viewportNode clientWidth via ResizeObserver; WRITES pageWidth for react-pdf Page.
+  // Human: Keep the page input in sync when navigation changes currentPage externally.
+  // Agent: WRITES pageInputValue string from currentPage whenever the active page changes.
+  useEffect(() => {
+    setPageInputValue(String(currentPage));
+  }, [currentPage]);
+
+  // Human: Fit the main page to the document pane width — zoom multiplier applies on top of fit width.
+  // Agent: READS documentAreaNode clientWidth via ResizeObserver; WRITES pageWidth for react-pdf Page.
   useLayoutEffect(() => {
-    if (!open || !viewportNode) return;
+    if (!open || !documentAreaNode) return;
 
     const updateWidth = () => {
-      const nextWidth = Math.max(viewportNode.clientWidth - 32, 320);
+      const nextWidth = Math.max(documentAreaNode.clientWidth - 48, 280);
       setPageWidth(nextWidth);
     };
 
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
-    observer.observe(viewportNode);
+    observer.observe(documentAreaNode);
     return () => observer.disconnect();
-  }, [open, viewportNode]);
+  }, [open, documentAreaNode]);
 
   // Human: Load PDF bytes through the authenticated download path used by image preview.
   // Agent: FETCHES fetchFileBlobForPreview; WRITES ArrayBuffer only when activeFileIdRef still matches.
@@ -138,6 +167,30 @@ export function PdfPreviewDialog({
     };
   }, [open, file, shareToken, sharePassword]);
 
+  const goToPage = useCallback(
+    (page: number) => {
+      setCurrentPage(clampPage(page, numPages));
+    },
+    [numPages],
+  );
+
+  const goPreviousPage = useCallback(() => {
+    goToPage(currentPage - 1);
+  }, [currentPage, goToPage]);
+
+  const goNextPage = useCallback(() => {
+    goToPage(currentPage + 1);
+  }, [currentPage, goToPage]);
+
+  const commitPageInput = useCallback(() => {
+    const parsed = Number.parseInt(pageInputValue, 10);
+    if (Number.isNaN(parsed)) {
+      setPageInputValue(String(currentPage));
+      return;
+    }
+    goToPage(parsed);
+  }, [currentPage, goToPage, pageInputValue]);
+
   const zoomIn = useCallback(() => {
     setZoom((current) => clampZoom(current + ZOOM_STEP));
   }, []);
@@ -146,8 +199,8 @@ export function PdfPreviewDialog({
     setZoom((current) => clampZoom(current - ZOOM_STEP));
   }, []);
 
-  // Human: Ctrl+wheel zooms; plain wheel scrolls through the stacked pages.
-  // Agent: LISTENS wheel on viewportNode; preventDefault ONLY when event.ctrlKey is set.
+  // Human: Ctrl+wheel zooms inside the document pane; plain wheel scrolls when content overflows.
+  // Agent: LISTENS wheel on documentAreaNode; preventDefault ONLY when event.ctrlKey is set.
   const applyWheelZoom = useCallback((deltaY: number) => {
     const direction = deltaY < 0 ? 1 : -1;
     const step = Math.min(
@@ -159,14 +212,18 @@ export function PdfPreviewDialog({
 
   const zoomInRef = useRef(zoomIn);
   const zoomOutRef = useRef(zoomOut);
+  const goPreviousPageRef = useRef(goPreviousPage);
+  const goNextPageRef = useRef(goNextPage);
 
   useEffect(() => {
     zoomInRef.current = zoomIn;
     zoomOutRef.current = zoomOut;
-  }, [zoomIn, zoomOut]);
+    goPreviousPageRef.current = goPreviousPage;
+    goNextPageRef.current = goNextPage;
+  }, [zoomIn, zoomOut, goPreviousPage, goNextPage]);
 
-  // Human: Keyboard shortcuts for zoom while the dialog has focus.
-  // Agent: LISTENS document keydown capture; PREVENTS default for +/− keys.
+  // Human: Keyboard shortcuts for zoom and page navigation while the dialog is open.
+  // Agent: LISTENS document keydown capture; PREVENTS default for +/− and arrow keys.
   useEffect(() => {
     if (!open) return;
 
@@ -178,6 +235,12 @@ export function PdfPreviewDialog({
       } else if (event.key === "-") {
         event.preventDefault();
         zoomOutRef.current();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        goPreviousPageRef.current();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        goNextPageRef.current();
       }
     }
 
@@ -186,7 +249,7 @@ export function PdfPreviewDialog({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !viewportNode) return;
+    if (!open || !documentAreaNode) return;
 
     function handleWheel(event: WheelEvent) {
       if (!event.ctrlKey) return;
@@ -195,195 +258,326 @@ export function PdfPreviewDialog({
       applyWheelZoom(normalizeWheelDelta(event));
     }
 
-    viewportNode.addEventListener("wheel", handleWheel, { passive: false });
-    return () => viewportNode.removeEventListener("wheel", handleWheel);
-  }, [open, viewportNode, applyWheelZoom]);
+    documentAreaNode.addEventListener("wheel", handleWheel, { passive: false });
+    return () => documentAreaNode.removeEventListener("wheel", handleWheel);
+  }, [open, documentAreaNode, applyWheelZoom]);
 
-  // Human: Track which stacked page is in view while scrolling — shown in the bottom-right chip.
-  // Agent: READS data-pdf-page wrappers on scroll/resize; WRITES currentPage from viewport focus line.
+  // Human: Scroll the active thumbnail into view when the current page changes.
+  // Agent: READS thumbnailRefs; CALLS scrollIntoView on the matching sidebar button.
   useEffect(() => {
-    if (!open || !viewportNode || numPages === 0) return;
+    if (!open || numPages === 0) return;
+    const activeThumb = thumbnailRefs.current.get(currentPage);
+    activeThumb?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [open, currentPage, numPages]);
 
-    const updateCurrentPage = () => {
-      const pageElements = viewportNode.querySelectorAll<HTMLElement>("[data-pdf-page]");
-      if (pageElements.length === 0) return;
-
-      const viewportRect = viewportNode.getBoundingClientRect();
-      const focusLine = viewportRect.top + viewportRect.height * 0.35;
-
-      for (const pageElement of pageElements) {
-        const pageNumber = Number(pageElement.dataset.pdfPage);
-        if (!pageNumber) continue;
-
-        const rect = pageElement.getBoundingClientRect();
-        if (focusLine >= rect.top && focusLine <= rect.bottom) {
-          setCurrentPage(pageNumber);
-          return;
-        }
-      }
-
-      let closestPage = 1;
-      let closestDistance = Number.POSITIVE_INFINITY;
-
-      for (const pageElement of pageElements) {
-        const pageNumber = Number(pageElement.dataset.pdfPage);
-        if (!pageNumber) continue;
-
-        const rect = pageElement.getBoundingClientRect();
-        const pageCenter = rect.top + rect.height / 2;
-        const distance = Math.abs(pageCenter - focusLine);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestPage = pageNumber;
-        }
-      }
-
-      setCurrentPage(closestPage);
-    };
-
-    updateCurrentPage();
-    viewportNode.addEventListener("scroll", updateCurrentPage, { passive: true });
-    const resizeObserver = new ResizeObserver(updateCurrentPage);
-    resizeObserver.observe(viewportNode);
-
-    return () => {
-      viewportNode.removeEventListener("scroll", updateCurrentPage);
-      resizeObserver.disconnect();
-    };
-  }, [open, viewportNode, numPages, zoom, pageWidth]);
-
-  const pageCountLabel =
-    numPages === 1 ? "1 page" : numPages > 1 ? `${numPages} pages` : null;
   const scaledWidth = pageWidth ? Math.round(pageWidth * zoom) : undefined;
+  const showDownloadAction = Boolean(file && onDownload);
+  const canGoPrevious = currentPage > 1;
+  const canGoNext = numPages > 0 && currentPage < numPages;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn(
-          "flex w-[min(84rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0",
-          "h-[95vh] max-h-[95vh] sm:max-w-[min(84rem,calc(100vw-2rem))]",
-        )}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          width: "min(84rem, calc(100vw - 2rem))",
-          maxWidth: "min(84rem, calc(100vw - 2rem))",
-          height: "95vh",
-          maxHeight: "95vh",
-        }}
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[75rem]"
+        overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
+        showCloseButton={false}
       >
-        <DialogHeader className="shrink-0 gap-1 border-b px-4 py-3 pr-12">
-          <DialogTitle className="truncate">{file?.name ?? "PDF preview"}</DialogTitle>
+        {/* Human: Screen-reader title — visible chrome lives inside the viewer card per Pencil. */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{file?.name ?? "PDF preview"}</DialogTitle>
           <DialogDescription>
-            {pageCountLabel
-              ? `${pageCountLabel} — scroll to read; Ctrl+scroll zooms.`
-              : "View PDF pages in the browser. Editing will be added in a later release."}
+            {numPages > 0
+              ? `Viewing page ${currentPage} of ${numPages}. Use arrow keys to change pages; Ctrl+scroll to zoom.`
+              : "View PDF pages in the browser."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-          <span className="text-sm text-neutral-600">{pageCountLabel ?? "—"}</span>
+        {/* Human: Viewer card — white shell, header toolbar, thumbnail sidebar, dark document pane. */}
+        <div className="flex h-[min(850px,90dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+          {/* Human: Card header — filename, security badge, page/zoom controls, actions. */}
+          <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <FileText className="size-5 shrink-0 text-red-500" aria-hidden />
+              <p className="truncate text-sm font-bold text-[#1A1A1A]">{file?.name ?? "PDF preview"}</p>
+              <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex">
+                <ShieldCheck className="size-3" aria-hidden />
+                Decrypted Locally
+              </span>
+            </div>
 
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              disabled={zoom <= MIN_ZOOM}
-              onClick={zoomOut}
-              aria-label="Zoom out"
-            >
-              <ZoomOut className="size-4" />
-            </Button>
-            <span className="min-w-[3.5rem] text-center text-sm text-neutral-600">
-              {Math.round(zoom * 1000) / 10}%
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              disabled={zoom >= MAX_ZOOM}
-              onClick={zoomIn}
-              aria-label="Zoom in"
-            >
-              <ZoomIn className="size-4" />
-            </Button>
+            <div className="hidden items-center gap-6 md:flex">
+              {/* Human: Page navigation cluster — prev, editable page input, total, next. */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!canGoPrevious}
+                  onClick={goPreviousPage}
+                  aria-label="Previous page"
+                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <ChevronLeft className="size-3.5" aria-hidden />
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="Current page"
+                    value={pageInputValue}
+                    onChange={(event) => setPageInputValue(event.target.value.replace(/\D/g, ""))}
+                    onBlur={commitPageInput}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitPageInput();
+                      }
+                    }}
+                    className="h-[26px] w-8 rounded border border-[#E5E7EB] bg-white text-center text-xs text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                  />
+                  <span className="text-xs text-[#666666]">of {numPages || "—"}</span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!canGoNext}
+                  onClick={goNextPage}
+                  aria-label="Next page"
+                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <ChevronRight className="size-3.5" aria-hidden />
+                </button>
+              </div>
+
+              <div className="h-5 w-px bg-[#E5E7EB]" aria-hidden />
+
+              {/* Human: Zoom cluster — minus, percentage label, plus. */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={zoom <= MIN_ZOOM}
+                  onClick={zoomOut}
+                  aria-label="Zoom out"
+                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <Minus className="size-3.5" aria-hidden />
+                </button>
+                <span className="min-w-[2.75rem] text-center text-xs font-bold text-[#1A1A1A]">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  disabled={zoom >= MAX_ZOOM}
+                  onClick={zoomIn}
+                  aria-label="Zoom in"
+                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2.5">
+              <button
+                type="button"
+                disabled
+                title="Search in PDF (coming soon)"
+                aria-label="Search in PDF (coming soon)"
+                className="hidden size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#666666] sm:flex"
+              >
+                <Search className="size-4" aria-hidden />
+              </button>
+
+              {showDownloadAction ? (
+                <button
+                  type="button"
+                  onClick={() => onDownload?.(file!)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1d4ed8]"
+                >
+                  <Download className="size-3.5" aria-hidden />
+                  <span className="hidden sm:inline">Download</span>
+                </button>
+              ) : null}
+
+              <DialogClose
+                render={
+                  <button
+                    type="button"
+                    className="flex size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#1A1A1A] transition-colors hover:bg-[#E5E7EB]"
+                    aria-label="Close PDF preview"
+                  />
+                }
+              >
+                <X className="size-4" aria-hidden />
+              </DialogClose>
+            </div>
+          </header>
+
+          {/* Human: Mobile page/zoom strip — mirrors header controls below the sm breakpoint. */}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 py-2 md:hidden">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!canGoPrevious}
+                onClick={goPreviousPage}
+                aria-label="Previous page"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <ChevronLeft className="size-3.5" aria-hidden />
+              </button>
+              <span className="text-xs text-[#666666]">
+                {currentPage} / {numPages || "—"}
+              </span>
+              <button
+                type="button"
+                disabled={!canGoNext}
+                onClick={goNextPage}
+                aria-label="Next page"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <ChevronRight className="size-3.5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={zoom <= MIN_ZOOM}
+                onClick={zoomOut}
+                aria-label="Zoom out"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <Minus className="size-3.5" aria-hidden />
+              </button>
+              <span className="text-xs font-bold text-[#1A1A1A]">{Math.round(zoom * 100)}%</span>
+              <button
+                type="button"
+                disabled={zoom >= MAX_ZOOM}
+                onClick={zoomIn}
+                aria-label="Zoom in"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <Plus className="size-3.5" aria-hidden />
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="relative min-h-0 flex-1">
-          <div
-            ref={viewportRef}
-            tabIndex={-1}
-            className="h-full overflow-auto bg-neutral-100 px-4 py-6 outline-none"
-          >
+          <div className="flex min-h-0 flex-1">
             {error ? (
-              <p className="text-destructive px-4 text-center text-sm" role="alert">
+              <p className="flex flex-1 items-center justify-center px-4 text-center text-sm text-red-300" role="alert">
                 {error}
               </p>
             ) : null}
 
-            {pdfData ? (
-              // Human: Continuous scroll stack — future edit mode can overlay tools per page canvas.
-              // Agent: MAPS 1..numPages to Page components; onLoadSuccess SETS numPages from Document.
-              <div className="mx-auto flex w-fit flex-col items-center gap-4">
-                <Document
-                  file={pdfData}
-                  loading={
-                    <div className="flex items-center gap-2 py-12 text-sm text-neutral-600">
-                      <Loader2 className="size-5 animate-spin" aria-hidden />
-                      Rendering PDF…
-                    </div>
-                  }
-                  onLoadSuccess={({ numPages: loadedPages }) => {
-                    setNumPages(loadedPages);
-                    setCurrentPage(1);
-                  }}
-                  onLoadError={(loadError) => {
-                    setError(loadError.message || "Could not open this PDF.");
-                  }}
-                  className="flex flex-col items-center gap-4"
-                >
-                  {numPages > 0
-                    ? Array.from({ length: numPages }, (_, index) => (
-                        <div key={`page-${index + 1}`} data-pdf-page={index + 1}>
-                          <Page
-                            pageNumber={index + 1}
-                            width={scaledWidth}
-                            renderAnnotationLayer
-                            renderTextLayer
-                            loading={
-                              <div className="flex min-h-[24rem] items-center justify-center">
-                                <Loader2 className="size-6 animate-spin text-neutral-500" aria-hidden />
-                              </div>
-                            }
-                            className={cn("shadow-md", loading && "opacity-70")}
-                          />
-                        </div>
-                      ))
-                    : null}
-                </Document>
-              </div>
-            ) : null}
-
             {loading && !pdfData ? (
-              <div className="flex min-h-[40vh] items-center justify-center text-sm text-neutral-600">
+              <div className="flex flex-1 items-center justify-center text-sm text-[#666666]">
                 <Loader2 className="size-6 animate-spin" aria-hidden />
                 <span className="sr-only">Loading PDF…</span>
               </div>
             ) : null}
-          </div>
 
-          {numPages > 0 ? (
-            // Human: Fixed to the viewer pane corner — stays visible while PDF pages scroll underneath.
-            // Agent: absolute on outer shell (not scroll child); READS currentPage from scroll tracker.
-            <div
-              className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-full bg-neutral-900/80 px-3 py-1.5 text-xs font-medium text-white shadow-md backdrop-blur-sm"
-              aria-live="polite"
-            >
-              Page {currentPage} of {numPages}
-            </div>
-          ) : null}
+            {pdfData && !error ? (
+              // Human: One Document instance feeds both thumbnail sidebar and the active main page.
+              // Agent: PARSES pdfData once; onLoadSuccess SETS numPages; CHILDREN render Page at two widths.
+              <Document
+                file={pdfData}
+                loading={
+                  <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+                    <Loader2 className="size-5 animate-spin" aria-hidden />
+                    Rendering PDF…
+                  </div>
+                }
+                onLoadSuccess={({ numPages: loadedPages }) => {
+                  setNumPages(loadedPages);
+                  setCurrentPage(1);
+                }}
+                onLoadError={(loadError) => {
+                  setError(loadError.message || "Could not open this PDF.");
+                }}
+                className="flex min-h-0 min-w-0 flex-1 flex-row"
+              >
+                {/* Human: Thumbnail sidebar — scrollable page previews with active border state. */}
+                <aside className="hidden w-[180px] shrink-0 flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] sm:flex">
+                  <p className="px-3 pt-4 text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+                    {numPages > 0
+                      ? Array.from({ length: numPages }, (_, index) => {
+                          const pageNumber = index + 1;
+                          const isActive = pageNumber === currentPage;
+
+                          return (
+                            <button
+                              key={`thumb-${pageNumber}`}
+                              type="button"
+                              ref={(node) => {
+                                if (node) thumbnailRefs.current.set(pageNumber, node);
+                                else thumbnailRefs.current.delete(pageNumber);
+                              }}
+                              onClick={() => goToPage(pageNumber)}
+                              aria-label={`Go to page ${pageNumber}`}
+                              aria-current={isActive ? "page" : undefined}
+                              className="mb-3 flex w-full flex-col items-center gap-1 last:mb-0"
+                            >
+                              <div
+                                className={cn(
+                                  "flex w-[100px] items-center justify-center rounded border bg-white p-2 transition-colors",
+                                  isActive
+                                    ? "border-2 border-[#2563EB]"
+                                    : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
+                                )}
+                              >
+                                <Page
+                                  pageNumber={pageNumber}
+                                  width={THUMBNAIL_WIDTH}
+                                  renderAnnotationLayer={false}
+                                  renderTextLayer={false}
+                                  loading={
+                                    <div className="flex h-[110px] w-full items-center justify-center">
+                                      <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
+                                    </div>
+                                  }
+                                />
+                              </div>
+                              <span
+                                className={cn(
+                                  "text-[10px]",
+                                  isActive ? "font-bold text-[#2563EB]" : "text-[#666666]",
+                                )}
+                              >
+                                Page {pageNumber}
+                              </span>
+                            </button>
+                          );
+                        })
+                      : null}
+                  </div>
+                </aside>
+
+                {/* Human: Document pane — dark canvas with centered active page and drop shadow. */}
+                <div
+                  ref={documentAreaRef}
+                  tabIndex={-1}
+                  className="relative flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto bg-[#374151] p-6 outline-none"
+                >
+                  {numPages > 0 ? (
+                    <div className="rounded bg-white shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
+                      <Page
+                        pageNumber={currentPage}
+                        width={scaledWidth}
+                        renderAnnotationLayer
+                        renderTextLayer
+                        loading={
+                          <div className="flex min-h-[24rem] min-w-[16rem] items-center justify-center">
+                            <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                          </div>
+                        }
+                        className={cn(loading && "opacity-70")}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </Document>
+            ) : null}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

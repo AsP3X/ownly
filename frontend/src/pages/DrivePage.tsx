@@ -1019,6 +1019,7 @@ export default function DrivePage() {
               onOpenChange: (open) => {
                 if (!open) setPreviewPdf(null);
               },
+              onDownload: handleDownload,
             }}
           />
         ) : null}
@@ -1134,8 +1135,11 @@ export default function DrivePage() {
         folderStack={folderStack}
         query={query}
         onQueryChange={setQuery}
+        displayName={profileDisplayName}
+        roleLabel={profileRoleLabel}
         initials={initials}
         email={user?.email}
+        isAdmin={user?.role === "admin"}
         profileOpen={profileOpen}
         profileRef={mobileProfileRef}
         onProfileToggle={() => setProfileOpen((open) => !open)}
@@ -1171,6 +1175,8 @@ export default function DrivePage() {
             displayName={profileDisplayName}
             roleLabel={profileRoleLabel}
             initials={initials}
+            email={user?.email}
+            isAdmin={user?.role === "admin"}
             onSignOut={handleSignOut}
             className={cn(
               "mx-4 mt-4 max-lg:hidden lg:mx-12 lg:mt-0",

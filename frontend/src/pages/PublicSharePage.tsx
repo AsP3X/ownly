@@ -661,6 +661,7 @@ export default function PublicSharePage() {
             },
             shareToken: token,
             sharePassword: sharePassword,
+            onDownload: overview.block_download ? undefined : (file) => void handleDownload(file),
           }}
         />
       ) : null}

@@ -85,8 +85,9 @@ export function userInitials(email?: string | null): string {
 // Human: Subtitle under the desktop topbar display name — maps API role to friendly copy.
 // Agent: READS role string from auth user; RETURNS label for DriveDesktopTopbar profile row.
 export function userRoleLabel(role?: string | null): string {
-  if (!role) return "Member";
+  if (!role) return "Pro Member";
   if (role === "admin") return "Administrator";
+  if (role === "user" || role === "member") return "Pro Member";
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
