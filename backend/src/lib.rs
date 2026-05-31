@@ -476,6 +476,26 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(jobs::handlers::get_job).delete(jobs::handlers::delete_job),
         )
         .route(
+            "/api/v1/admin/overview",
+            get(admin::console::overview),
+        )
+        .route(
+            "/api/v1/admin/audit-logs",
+            get(admin::console::list_audit_logs),
+        )
+        .route(
+            "/api/v1/admin/storage",
+            get(admin::console::storage_nodes),
+        )
+        .route(
+            "/api/v1/admin/settings",
+            get(admin::console::get_settings).patch(admin::console::patch_settings),
+        )
+        .route(
+            "/api/v1/admin/security",
+            get(admin::console::security_overview),
+        )
+        .route(
             "/api/v1/admin/users/roles",
             get(admin::handlers::list_roles),
         )

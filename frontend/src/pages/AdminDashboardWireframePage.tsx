@@ -1,7 +1,8 @@
 // Human: Admin console route — 1:1 shell and panels from login-signup.pencil Admin Console frames.
-// Agent: RENDERS AdminSidebar + DriveDesktopTopbar + console panels; route /admin; mock data only.
+// Agent: RENDERS AdminSidebar + panels wired to /api/v1/admin/*; route /admin; redirects non-admins.
 
 import { useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { displayNameFromEmail } from "@/lib/public-share-format";
@@ -30,9 +31,9 @@ const MOBILE_NAV: { id: AdminNavId; label: string }[] = [
 function statusTextForNav(activeNav: AdminNavId): string {
   switch (activeNav) {
     case "overview":
-      return "Admin Control Panel • Node-14 Active";
+      return "Admin Control Panel • Live instance metrics";
     case "storage-nodes":
-      return "Secure Server-Side Session Active • Storage Cluster 4";
+      return "Secure Server-Side Session Active • Object storage health";
     case "audit-logs":
       return "Secure Server-Side Session Active • Audit Logger Active";
     default:
@@ -44,6 +45,12 @@ function statusTextForNav(activeNav: AdminNavId): string {
 export default function AdminDashboardWireframePage() {
   const { user, logout } = useAuth();
   const [activeNav, setActiveNav] = useState<AdminNavId>("overview");
+
+  // Human: Only administrators may access the console — others return to drive.
+  // Agent: READS user.role; NAVIGATE away when role !== admin.
+  if (user && user.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
 
   const initials = userInitials(user?.email);
   const displayName = useMemo(

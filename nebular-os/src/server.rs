@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use axum::{
     middleware,
     routing::{delete, get, post, put},
@@ -14,19 +12,23 @@ use tower_http::{
 };
 
 use crate::auth::{presigned_or_jwt_middleware, JwtSecret};
+use crate::cluster::{auth as cluster_auth, replicate, routes as cluster_routes};
+use crate::cluster::StorageBackend;
 use crate::config::NosConfig;
 use crate::middleware::{
     metrics_auth::metrics_auth_middleware, rate_limit::rate_limit_middleware,
     rate_limit::new_rate_limit_map,
 };
 use crate::observability::NosMetrics;
-use crate::routes::{bucket, health, metrics, multipart, object, AppState};
-use crate::storage::engine::StorageEngine;
+use crate::routes::{bucket, capabilities, health, metrics, multipart, object, AppState};
 
-pub async fn create_app(storage: StorageEngine, cfg: Arc<NosConfig>) -> anyhow::Result<Router> {
-    let metrics = NosMetrics::new();
+pub async fn create_app(
+    backend: StorageBackend,
+    cfg: Arc<NosConfig>,
+    metrics: Arc<NosMetrics>,
+) -> anyhow::Result<Router> {
     let state = Arc::new(AppState {
-        storage,
+        backend,
         config: cfg.clone(),
         jwt_secret: Arc::new(JwtSecret(cfg.jwt_secret.clone())),
         signing_secret: cfg.signing_secret.clone().map(Arc::new),
@@ -64,6 +66,7 @@ pub async fn create_app(storage: StorageEngine, cfg: Arc<NosConfig>) -> anyhow::
         );
 
     let mut protected_routes = Router::new()
+        .route("/_nos/capabilities", get(capabilities::capabilities))
         .merge(multipart_routes)
         .route(
             "/{bucket}/{*key}",
@@ -82,7 +85,34 @@ pub async fn create_app(storage: StorageEngine, cfg: Arc<NosConfig>) -> anyhow::
         ));
     }
 
-    let public_routes = Router::new().route("/health", get(health::health));
+    let mut public_routes = Router::new()
+        .route("/health", get(health::health))
+        .route("/health/ready", get(health::ready));
+
+    // Human: Internal cluster API is mounted only when not standalone.
+    // Agent: IF !cfg.cluster.is_standalone THEN merge /_cluster/* with cluster_token_middleware.
+    if !cfg.cluster.is_standalone() {
+        let cluster_layer =
+            middleware::from_fn_with_state(state.clone(), cluster_auth::cluster_token_middleware);
+        let cluster_router = Router::new()
+            .route("/_cluster/health", get(cluster_routes::cluster_health))
+            .route(
+                "/_cluster/capabilities",
+                get(cluster_routes::cluster_capabilities),
+            )
+            .route("/_cluster/replicate", post(replicate::replicate))
+            .route(
+                "/_cluster/assignment/resolve",
+                post(cluster_routes::assignment_resolve),
+            )
+            .route(
+                "/_cluster/objects/{bucket}/{*key}",
+                axum::routing::get(cluster_routes::cluster_object_get)
+                    .head(cluster_routes::cluster_object_head),
+            )
+            .layer(cluster_layer);
+        public_routes = public_routes.merge(cluster_router);
+    }
 
     let cors = build_cors(&cfg);
 
@@ -91,42 +121,7 @@ pub async fn create_app(storage: StorageEngine, cfg: Arc<NosConfig>) -> anyhow::
         .merge(protected_routes)
         .layer(NormalizePathLayer::trim_trailing_slash())
         .layer(cors)
-        // Human: Log every HTTP request with method, URI, status, and latency for ops visibility.
-        // Agent: TraceLayer EMITS info on response; WARN on server failures.
-        .layer(
-            ServiceBuilder::new().layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(|request: &axum::http::Request<_>| {
-                        tracing::info_span!(
-                            "nos.http",
-                            method = %request.method(),
-                            uri = %request.uri(),
-                        )
-                    })
-                    .on_response(
-                        |response: &axum::http::Response<_>,
-                         latency: Duration,
-                         _span: &tracing::Span| {
-                            tracing::info!(
-                                status = response.status().as_u16(),
-                                latency_ms = latency.as_millis(),
-                                "nos.http response"
-                            );
-                        },
-                    )
-                    .on_failure(
-                        |error: tower_http::classify::ServerErrorsFailureClass,
-                         latency: Duration,
-                         _span: &tracing::Span| {
-                            tracing::warn!(
-                                failure = ?error,
-                                latency_ms = latency.as_millis(),
-                                "nos.http failed"
-                            );
-                        },
-                    ),
-            ),
-        )
+        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(state);
 
     Ok(app)

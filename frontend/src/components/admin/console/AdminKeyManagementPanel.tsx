@@ -1,44 +1,41 @@
 // Human: Admin Console - Key Management / Security Policies (login-signup.pencil frame Blt4j).
-// Agent: RENDERS Global Policies | KMS & Keys tabs, KMS metrics, Shamir shares, rotation history.
+// Agent: CALLS fetchAdminSecurity; RENDERS live policies and audit-derived rotation history.
 
-import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
+import { fetchAdminSecurity, getErrorMessage, type AdminSecurityOverviewResponse } from "@/api/client";
 import {
   AdminConsoleMetricCard,
   AdminConsolePageHeader,
   AdminConsolePanel,
   AdminConsolePrimaryButton,
   AdminConsoleUnderlineTabs,
-  AdminConsoleUserAvatar,
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
 
-const ROTATION_HISTORY = [
-  {
-    title: "Automated Auto-Rotation of KMS Roots",
-    initiator: "Initiator: KMS Daemon Consensus",
-    status: "Consensus Optimal (5/5 nodes synchronized)",
-    date: "May 19, 2026",
-  },
-  {
-    title: "Emergency Recovery Key Resharding",
-    initiator: "Initiator: Sarah Chen (Super Admin)",
-    status: "Consensus Optimal (5/5 nodes synchronized)",
-    date: "Apr 15, 2026",
-  },
-];
-
-const CUSTODIANS = [
-  { initials: "SC", name: "Sarah Chen", role: "Super Admin Key Custodian", shares: "1 Share" },
-  { initials: "AM", name: "Alex Mercer", role: "SecOps Custodian", shares: "1 Share" },
-  { initials: "H1", name: "Hardware HSM-01", role: "Global Vault HSM Node", shares: "1 Share" },
-  { initials: "H2", name: "Hardware HSM-02", role: "Decentralized Escrow HSM", shares: "1 Share" },
-  { initials: "EO", name: "Escrow Offline", role: "Cold Storage Escrow Share", shares: "1 Share" },
-];
-
-/** Human: Security Policies route — key management and global policy tabs. */
+/** Human: Security Policies route — key management and global policy tabs from live API. */
 export function AdminKeyManagementPanel() {
   const [tab, setTab] = useState("kms");
+  const [data, setData] = useState<AdminSecurityOverviewResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await fetchAdminSecurity());
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load security overview on mount
+    void load();
+  }, [load]);
 
   return (
     <div className={adminConsoleContentClassName}>
@@ -46,12 +43,22 @@ export function AdminKeyManagementPanel() {
         title="Key Management"
         description="Rotate decentralized master keys, monitor KMS nodes, and manage Shamir's recovery custodians."
         actions={
-          <AdminConsolePrimaryButton>
-            <RefreshCw className="size-4 shrink-0" aria-hidden />
-            Rotate Cryptographic Keys
+          <AdminConsolePrimaryButton onClick={() => void load()} disabled={loading}>
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="size-4 shrink-0" aria-hidden />
+            )}
+            Refresh Status
           </AdminConsolePrimaryButton>
         }
       />
+
+      {error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <AdminConsoleUnderlineTabs
         tabs={[
@@ -62,49 +69,66 @@ export function AdminKeyManagementPanel() {
         onChange={setTab}
       />
 
-      {tab === "policies" ? (
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Loading security overview…
+        </div>
+      ) : null}
+
+      {!loading && data && tab === "policies" ? (
         <AdminConsolePanel
           title="Global Security Policies"
           subtitle="Platform-wide encryption, session, and access defaults"
         >
           <ul className="flex flex-col gap-3 text-sm text-[#1A1A1A]">
-            <li className="rounded-lg border border-[#E5E7EB] px-4 py-3">
-              Enforce MFA for all administrator accounts
-            </li>
-            <li className="rounded-lg border border-[#E5E7EB] px-4 py-3">
-              Require AES-256-GCM for at-rest object encryption
-            </li>
-            <li className="rounded-lg border border-[#E5E7EB] px-4 py-3">
-              Auto-rotate cluster keys every 30 days
-            </li>
+            {data.policies.map((policy) => (
+              <li
+                key={policy.label}
+                className="flex items-center justify-between rounded-lg border border-[#E5E7EB] px-4 py-3"
+              >
+                <span>{policy.label}</span>
+                <span
+                  className={
+                    policy.enabled
+                      ? "text-xs font-semibold text-[#10B981]"
+                      : "text-xs font-semibold text-[#666666]"
+                  }
+                >
+                  {policy.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </li>
+            ))}
           </ul>
         </AdminConsolePanel>
-      ) : (
+      ) : null}
+
+      {!loading && data && tab === "kms" ? (
         <>
           <div className="grid gap-4 md:grid-cols-3">
             <AdminConsoleMetricCard
               label="Active Encryption Standard"
-              value="AES-GCM-256 / RSA-4096"
-              detail="Enterprise hardware accelerated encryption"
+              value={data.encryption_standard.split(" / ")[0] ?? data.encryption_standard}
+              detail={data.encryption_standard}
               badge={{ label: "Active", tone: "success" }}
               icon={RefreshCw}
               iconBg="bg-[#EFF6FF]"
               iconColor="text-[#2563EB]"
             />
             <AdminConsoleMetricCard
-              label="Distributed KMS Nodes"
-              value="5 / 5 Network Nodes Active"
-              detail="Decentralized consensus health is 100%"
-              badge={{ label: "Syncing", tone: "info" }}
+              label="Storage Nodes"
+              value={`${data.kms_nodes_active} / ${data.kms_nodes_total} Active`}
+              detail={`Storage status: ${data.storage_status}`}
+              badge={{ label: data.storage_status === "healthy" ? "Healthy" : "Review", tone: "info" }}
               icon={RefreshCw}
               iconBg="bg-[#EFF6FF]"
               iconColor="text-[#2563EB]"
             />
             <AdminConsoleMetricCard
-              label="Automatic Key Rotation"
-              value="Rotated 12 Days Ago"
-              detail="Scheduled auto rotation in 18 days"
-              badge={{ label: "Scheduled", tone: "warning" }}
+              label="Audit Trail"
+              value={`${data.rotation_history.length} Events`}
+              detail="Recent admin and setup actions"
+              badge={{ label: "Live", tone: "warning" }}
               icon={RefreshCw}
               iconBg="bg-[#EFF6FF]"
               iconColor="text-[#2563EB]"
@@ -112,48 +136,36 @@ export function AdminKeyManagementPanel() {
           </div>
 
           <AdminConsolePanel
-            title="Master Key Shamir's Recovery Shares (Threshold: 3 of 5)"
-            subtitle="Five system custodians hold cryptographic key shares. Any three can rebuild the master key."
-            headerRight={
-              <span className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-bold text-[#10B981]">
-                Threshold Active
-              </span>
-            }
+            title="Instance Security Posture"
+            subtitle="Encryption and storage health for this deployment"
           >
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {CUSTODIANS.map((c) => (
-                <div
-                  key={c.name}
-                  className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] p-3"
-                >
-                  <AdminConsoleUserAvatar initials={c.initials} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#1A1A1A]">{c.name}</p>
-                    <p className="text-xs text-[#666666]">{c.role}</p>
-                    <p className="mt-1 text-[10px] font-bold uppercase text-[#2563EB]">{c.shares}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-sm text-[#666666]">
+              This instance uses server-side object storage encryption and Argon2id password hashing.
+              Multi-node KMS and Shamir sharding are not enabled on single-node deployments.
+            </p>
           </AdminConsolePanel>
 
-          <AdminConsolePanel title="Cryptographic Key Rotation History">
-            <ul className="flex flex-col gap-4">
-              {ROTATION_HISTORY.map((item) => (
-                <li
-                  key={item.title}
-                  className="flex flex-col gap-1 border-b border-[#E5E7EB] pb-4 last:border-0 last:pb-0"
-                >
-                  <p className="font-semibold text-[#1A1A1A]">{item.title}</p>
-                  <p className="text-xs text-[#666666]">{item.initiator}</p>
-                  <p className="text-xs font-medium text-[#10B981]">{item.status}</p>
-                  <p className="text-xs text-[#888888]">{item.date}</p>
-                </li>
-              ))}
-            </ul>
+          <AdminConsolePanel title="Security & Admin Action History">
+            {data.rotation_history.length === 0 ? (
+              <p className="text-sm text-[#666666]">No admin security events recorded yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-4">
+                {data.rotation_history.map((item) => (
+                  <li
+                    key={`${item.title}-${item.date}`}
+                    className="flex flex-col gap-1 border-b border-[#E5E7EB] pb-4 last:border-0 last:pb-0"
+                  >
+                    <p className="font-semibold text-[#1A1A1A]">{item.title}</p>
+                    <p className="text-xs text-[#666666]">{item.initiator}</p>
+                    <p className="text-xs font-medium text-[#10B981]">{item.status}</p>
+                    <p className="text-xs text-[#888888]">{item.date}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </AdminConsolePanel>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

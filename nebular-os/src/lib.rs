@@ -1,5 +1,7 @@
 pub mod auth;
+pub mod cluster;
 pub mod config;
+pub mod s3_compat;
 pub mod middleware;
 pub mod observability;
 pub mod secrets;

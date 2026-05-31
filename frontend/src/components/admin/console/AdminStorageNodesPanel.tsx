@@ -1,8 +1,9 @@
 // Human: Admin Console - Storage Nodes panel (login-signup.pencil frame AAH5J).
-// Agent: RENDERS metrics, underline tabs, nodes table; mock cluster data.
+// Agent: CALLS fetchAdminStorage; RENDERS live object-storage node health and utilization.
 
-import { useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, Plus, RefreshCw } from "lucide-react";
+import { fetchAdminStorage, getErrorMessage, type AdminStorageResponse } from "@/api/client";
 import {
   AdminConsoleMetricCard,
   AdminConsoleOutlineButton,
@@ -13,16 +14,44 @@ import {
   AdminConsolePill,
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
+import { formatBytes } from "@/lib/utils-app";
 
-const NODES = [
-  ["node-us-east-14", "Virginia, US", "104.28.19.4", "Healthy", "18.2 / 24.0 TB", "12 ms", "420 MB/s"],
-  ["node-eu-west-03", "Frankfurt, DE", "185.12.84.11", "Healthy", "14.1 / 16.0 TB", "24 ms", "380 MB/s"],
-  ["node-ap-south-09", "Mumbai, IN", "13.233.5.74", "Syncing", "6.4 / 12.0 TB", "48 ms", "210 MB/s"],
-];
-
-/** Human: Storage nodes network — rebalance/add actions, metrics, node table. */
+/** Human: Storage nodes network — health metrics and configured backend node table. */
 export function AdminStorageNodesPanel() {
   const [tab, setTab] = useState("all");
+  const [data, setData] = useState<AdminStorageResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (showRefresh: boolean) => {
+    if (showRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      setData(await fetchAdminStorage());
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial storage fetch on mount
+    void load(false);
+  }, [load]);
+
+  const metrics = data?.metrics;
+  const usedLabel =
+    metrics?.capacity_bytes != null
+      ? `${formatBytes(metrics.used_bytes)} / ${formatBytes(metrics.capacity_bytes)}`
+      : formatBytes(metrics?.used_bytes ?? 0);
+  const utilizationPct =
+    metrics?.capacity_bytes && metrics.capacity_bytes > 0
+      ? Math.round((metrics.used_bytes / metrics.capacity_bytes) * 1000) / 10
+      : 0;
 
   return (
     <div className={adminConsoleContentClassName}>
@@ -32,11 +61,15 @@ export function AdminStorageNodesPanel() {
         description="Monitor network health, data replication status, and peer performance across global storage clusters."
         actions={
           <>
-            <AdminConsoleOutlineButton>
-              <RefreshCw className="size-3.5 shrink-0" aria-hidden />
-              Rebalance Clusters
+            <AdminConsoleOutlineButton onClick={() => void load(true)} disabled={loading || refreshing}>
+              {refreshing ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-3.5 shrink-0" aria-hidden />
+              )}
+              Refresh Health
             </AdminConsoleOutlineButton>
-            <AdminConsolePrimaryButton>
+            <AdminConsolePrimaryButton disabled>
               <Plus className="size-3.5 shrink-0" aria-hidden />
               Add Storage Node
             </AdminConsolePrimaryButton>
@@ -44,82 +77,118 @@ export function AdminStorageNodesPanel() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <AdminConsoleMetricCard
-          label="TOTAL STORAGE UTILIZED"
-          value="88.4 TB / 120 TB"
-          detail="73.6% average disk storage utilized across network"
-          badge={{ label: "Optimal", tone: "success" }}
-          icon={RefreshCw}
-          iconBg="bg-[#EFF6FF]"
-          iconColor="text-[#2563EB]"
-        />
-        <AdminConsoleMetricCard
-          label="NODE STATUS SUMMARY"
-          value="34 / 35 Active"
-          detail="1 node currently syncing (node-ap-south-09)"
-          badge={{ label: "Stable", tone: "success" }}
-          icon={RefreshCw}
-          iconBg="bg-[#ECFDF5]"
-          iconColor="text-[#10B981]"
-        />
-        <AdminConsoleMetricCard
-          label="AVG NETWORK LATENCY"
-          value="24.2 ms"
-          detail="99.98% file retrieval success rate (last 24h)"
-          badge={{ label: "Optimal", tone: "success" }}
-          icon={RefreshCw}
-          iconBg="bg-[#EFF6FF]"
-          iconColor="text-[#2563EB]"
-        />
-      </div>
-
-      <AdminConsoleUnderlineTabs
-        tabs={[
-          { id: "all", label: "All Storage Nodes (35)" },
-          { id: "perf", label: "Performance Metrics" },
-          { id: "sync", label: "Replication & Sync" },
-        ]}
-        activeId={tab}
-        onChange={setTab}
-      />
-
-      {tab === "all" ? (
-        <AdminConsoleTable
-          caption="Storage nodes"
-          columns={[
-            "Node ID / Region",
-            "IP Address",
-            "Status",
-            "Storage Capacity",
-            "Latency",
-            "Bandwidth",
-            "Actions",
-          ]}
-          rows={NODES.map((row) => [
-            <div key={row[0]} className="flex flex-col">
-              <span className="font-semibold">{row[0]}</span>
-              <span className="text-xs text-[#666666]">{row[1]}</span>
-            </div>,
-            row[2],
-            <AdminConsolePill key={`st-${row[0]}`} tone={row[3] === "Healthy" ? "success" : "warning"}>
-              {row[3]}
-            </AdminConsolePill>,
-            row[4],
-            row[5],
-            row[6],
-            <button key={`act-${row[0]}`} type="button" className="text-xs font-semibold text-[#2563EB]">
-              Manage
-            </button>,
-          ])}
-        />
-      ) : (
-        <p className="text-sm text-[#666666]">
-          {tab === "perf"
-            ? "Performance metrics charts connect when observability APIs are available."
-            : "Replication and sync status panels connect when cluster APIs are available."}
+      {error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {error}
         </p>
-      )}
+      ) : null}
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Loading storage nodes…
+        </div>
+      ) : null}
+
+      {!loading && metrics ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <AdminConsoleMetricCard
+              label="TOTAL STORAGE UTILIZED"
+              value={usedLabel}
+              detail={`${utilizationPct}% of allocated instance capacity`}
+              badge={{ label: utilizationPct > 85 ? "High" : "Optimal", tone: "success" }}
+              icon={RefreshCw}
+              iconBg="bg-[#EFF6FF]"
+              iconColor="text-[#2563EB]"
+            />
+            <AdminConsoleMetricCard
+              label="NODE STATUS SUMMARY"
+              value={`${metrics.active_nodes} / ${metrics.total_nodes} Active`}
+              detail={
+                metrics.total_nodes === 0
+                  ? "Object storage not configured"
+                  : "Configured Nebular OS backend"
+              }
+              badge={{ label: metrics.active_nodes === metrics.total_nodes ? "Stable" : "Degraded", tone: "success" }}
+              icon={RefreshCw}
+              iconBg="bg-[#ECFDF5]"
+              iconColor="text-[#10B981]"
+            />
+            <AdminConsoleMetricCard
+              label="AVG NETWORK LATENCY"
+              value={metrics.avg_latency_ms != null ? `${metrics.avg_latency_ms} ms` : "—"}
+              detail="Health probe to object storage /health endpoint"
+              badge={{ label: "Live", tone: "success" }}
+              icon={RefreshCw}
+              iconBg="bg-[#EFF6FF]"
+              iconColor="text-[#2563EB]"
+            />
+          </div>
+
+          <AdminConsoleUnderlineTabs
+            tabs={[
+              { id: "all", label: `All Storage Nodes (${data.nodes.length})` },
+              { id: "perf", label: "Performance Metrics" },
+              { id: "sync", label: "Replication & Sync" },
+            ]}
+            activeId={tab}
+            onChange={setTab}
+          />
+
+          {tab === "all" ? (
+            data.nodes.length === 0 ? (
+              <p className="text-sm text-[#666666]">
+                No object storage node is configured. Set object storage environment variables and restart
+                the API.
+              </p>
+            ) : (
+              <AdminConsoleTable
+                caption="Storage nodes"
+                columns={[
+                  "Node ID / Region",
+                  "IP Address",
+                  "Status",
+                  "Storage Capacity",
+                  "Latency",
+                  "Mode",
+                  "Actions",
+                ]}
+                rows={data.nodes.map((row) => [
+                  <div key={row.id} className="flex flex-col">
+                    <span className="font-semibold">{row.id}</span>
+                    <span className="text-xs text-[#666666]">{row.region_label}</span>
+                  </div>,
+                  row.endpoint_host,
+                  <AdminConsolePill
+                    key={`${row.id}-status`}
+                    tone={row.status === "healthy" ? "success" : "warning"}
+                  >
+                    {row.status}
+                  </AdminConsolePill>,
+                  row.capacity_label,
+                  row.latency_ms != null ? `${row.latency_ms} ms` : "—",
+                  row.storage_mode,
+                  <button
+                    key={`${row.id}-act`}
+                    type="button"
+                    className="text-xs font-semibold text-[#2563EB]"
+                    onClick={() => void load(true)}
+                  >
+                    Refresh
+                  </button>,
+                ])}
+              />
+            )
+          ) : (
+            <p className="text-sm text-[#666666]">
+              {tab === "perf"
+                ? `Current utilization: ${utilizationPct}%. Latency: ${metrics.avg_latency_ms ?? "n/a"} ms.`
+                : "This instance uses a single configured object storage backend; replication is managed by your storage provider."}
+            </p>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

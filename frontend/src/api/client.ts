@@ -303,6 +303,171 @@ export async function revokeOtherAdminUserSessions(userId: string) {
   }) as Promise<{ ok: boolean }>;
 }
 
+export type AdminOverviewResponse = {
+  metrics: {
+    total_users: number;
+    enabled_users: number;
+    total_storage_bytes: number;
+    total_files: number;
+    instance_name: string;
+    alert_count: number;
+  };
+  storage_health: {
+    status: string;
+    object_storage_url: string;
+    bucket: string;
+    storage_mode: string;
+  };
+  resource_allocation: { label: string; percent: number }[];
+  workload: { label: string; value: number }[];
+  recent_alerts: {
+    severity: string;
+    source: string;
+    detail: string;
+    timestamp: string;
+  }[];
+};
+
+// Human: Dashboard KPIs and recent alerts for the admin overview panel.
+// Agent: GET /admin/overview; REQUIRES admin JWT.
+export async function fetchAdminOverview() {
+  return apiFetch("/admin/overview") as Promise<AdminOverviewResponse>;
+}
+
+export type AdminAuditLogRow = {
+  id: string;
+  timestamp: string;
+  actor_email: string | null;
+  action: string;
+  description: string;
+  severity: string;
+  ip: string | null;
+  category: string;
+};
+
+export type AdminAuditLogsResponse = {
+  logs: AdminAuditLogRow[];
+  summary: { total: number; critical_count: number; last_30_days: number };
+  counts_by_category: Record<string, number>;
+};
+
+// Human: Filterable audit ledger for the System Audit Logs panel.
+// Agent: GET /admin/audit-logs?category=&limit=&offset=; REQUIRES admin JWT.
+export async function fetchAdminAuditLogs(params?: {
+  category?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const search = new URLSearchParams();
+  if (params?.category) search.set("category", params.category);
+  if (params?.limit != null) search.set("limit", String(params.limit));
+  if (params?.offset != null) search.set("offset", String(params.offset));
+  const qs = search.toString();
+  return apiFetch(`/admin/audit-logs${qs ? `?${qs}` : ""}`) as Promise<AdminAuditLogsResponse>;
+}
+
+export type AdminStorageNodeRow = {
+  id: string;
+  region_label: string;
+  endpoint_host: string;
+  status: string;
+  used_bytes: number;
+  capacity_label: string;
+  latency_ms: number | null;
+  storage_mode: string;
+};
+
+export type AdminStorageResponse = {
+  metrics: {
+    used_bytes: number;
+    capacity_bytes: number | null;
+    active_nodes: number;
+    total_nodes: number;
+    avg_latency_ms: number | null;
+  };
+  nodes: AdminStorageNodeRow[];
+};
+
+// Human: Object storage health and utilization for Storage Nodes panel.
+// Agent: GET /admin/storage; REQUIRES admin JWT.
+export async function fetchAdminStorage() {
+  return apiFetch("/admin/storage") as Promise<AdminStorageResponse>;
+}
+
+export type AdminSettingsResponse = {
+  instance_name: string;
+  console_url: string;
+  allow_public_registration: boolean;
+  require_account_activation: boolean;
+  default_storage_quota_gb: number;
+  maintenance_mode: boolean;
+  default_onboarding_role: string;
+  enforce_mfa_on_admin_login: boolean;
+  smtp: {
+    host: string;
+    port: string;
+    from_address: string;
+    security: string;
+    username: string;
+    password_set: boolean;
+  };
+  notification_rules: {
+    storage_offline: boolean;
+    audit_violations: boolean;
+    quota_alerts: boolean;
+  };
+};
+
+export type AdminSettingsPatch = Partial<{
+  instance_name: string;
+  console_url: string;
+  allow_public_registration: boolean;
+  require_account_activation: boolean;
+  default_storage_quota_gb: number;
+  maintenance_mode: boolean;
+  default_onboarding_role: string;
+  enforce_mfa_on_admin_login: boolean;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_from: string;
+  smtp_security: string;
+  smtp_username: string;
+  smtp_password: string;
+  notification_storage_offline: boolean;
+  notification_audit_violations: boolean;
+  notification_quota_alerts: boolean;
+}>;
+
+// Human: Load instance settings for the admin System Settings panel.
+// Agent: GET /admin/settings; REQUIRES admin JWT.
+export async function fetchAdminSettings() {
+  return apiFetch("/admin/settings") as Promise<AdminSettingsResponse>;
+}
+
+// Human: Persist settings edits from the admin console.
+// Agent: PATCH /admin/settings; AUDIT admin.settings.update server-side.
+export async function updateAdminSettings(body: AdminSettingsPatch) {
+  return apiFetch("/admin/settings", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  }) as Promise<AdminSettingsResponse>;
+}
+
+export type AdminSecurityOverviewResponse = {
+  encryption_standard: string;
+  kms_nodes_active: number;
+  kms_nodes_total: number;
+  storage_status: string;
+  policies: { label: string; enabled: boolean }[];
+  rotation_history: { title: string; initiator: string; status: string; date: string }[];
+};
+
+// Human: Security policies and key rotation history for Key Management panel.
+// Agent: GET /admin/security; REQUIRES admin JWT.
+export async function fetchAdminSecurity() {
+  return apiFetch("/admin/security") as Promise<AdminSecurityOverviewResponse>;
+}
+
 export async function fetchDashboard() {
   return apiFetch("/dashboard") as Promise<{
     instance_name: string;

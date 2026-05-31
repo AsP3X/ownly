@@ -4,6 +4,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use nebular_os::auth::Claims;
+use nebular_os::cluster::{build_backend, ClusterConfig};
+use nebular_os::observability::NosMetrics;
 use nebular_os::config::NosConfig;
 use nebular_os::server::create_app;
 use nebular_os::storage::engine::{EngineOptions, StorageEngine};
@@ -59,7 +61,30 @@ fn test_config(signing_secret: Option<String>, allow_public_read: bool) -> Arc<N
         multipart_part_size: 8 * 1024 * 1024,
         read_pool_size: 2,
         cors_origins: vec![],
+        zstd_level: 3,
+        s3_compat: false,
+        bucket_policy: nebular_os::config::BucketPolicy::default(),
+        s3_access_key: None,
+        s3_secret_key: None,
+        cluster: ClusterConfig::standalone(),
     })
+}
+
+#[tokio::test]
+async fn standalone_ignores_storage_class_header() {
+    let (app, token, _tmp) = setup_app(None, false).await;
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/local.bin")
+        .header("authorization", format!("Bearer {token}"))
+        .header("x-nd-storage-class", "hls-hot")
+        .header("content-type", "video/mp4")
+        .body(Body::from("local"))
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
 }
 
 async fn setup_app(signing_secret: Option<String>, allow_public_read: bool) -> (axum::Router, String, TempDir) {
@@ -85,7 +110,9 @@ async fn setup_app(signing_secret: Option<String>, allow_public_read: bool) -> (
     .unwrap();
 
     let cfg = test_config(signing_secret, allow_public_read);
-    let app = create_app(storage, cfg).await.unwrap();
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, cfg, metrics).await.unwrap();
 
     (app, make_token(), tmp)
 }
@@ -304,6 +331,149 @@ async fn test_health_endpoint() {
 }
 
 #[tokio::test]
+async fn test_health_ready_endpoint() {
+    let (app, _token, _tmp) = setup_app(None, false).await;
+    let req = Request::builder()
+        .method("GET")
+        .uri("/health/ready")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "ready");
+    assert_eq!(json["checks"]["sqlite_write"], true);
+    assert_eq!(json["checks"]["sqlite_read"], true);
+    assert_eq!(json["checks"]["data_dir_writable"], true);
+}
+
+#[tokio::test]
+async fn test_put_if_none_match_create_only() {
+    let (app, token, _tmp) = setup_app(None, false).await;
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/new-only.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-none-match", "*")
+        .body(Body::from("first"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/new-only.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-none-match", "*")
+        .body(Body::from("second"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["error"], "precondition failed");
+}
+
+#[tokio::test]
+async fn test_put_if_match_optimistic_update() {
+    let (app, token, _tmp) = setup_app(None, false).await;
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/versioned.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::from("v1"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/versioned.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-match", "wrong-etag")
+        .body(Body::from("v2"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/versioned.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-match", etag)
+        .body(Body::from("v2"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/music/versioned.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(&body[..], b"v2");
+}
+
+#[tokio::test]
+async fn test_delete_if_match() {
+    let (app, token, _tmp) = setup_app(None, false).await;
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/to-delete.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::from("bye"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/music/to-delete.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-match", "stale")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/music/to-delete.txt")
+        .header("authorization", format!("Bearer {}", token))
+        .header("if-match", etag)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
 async fn test_metrics_endpoint() {
     let (app, _token, _tmp) = setup_app(None, false).await;
     let req = Request::builder()
@@ -493,7 +663,10 @@ async fn test_payload_too_large_returns_413() {
     .unwrap();
     let mut cfg = (*test_config(None, false)).clone();
     cfg.max_body_size = 8;
-    let app = create_app(storage, Arc::new(cfg)).await.unwrap();
+    let cfg = Arc::new(cfg);
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, cfg, metrics).await.unwrap();
     let token = make_token();
 
     let req = Request::builder()
@@ -801,7 +974,10 @@ async fn test_metrics_requires_token_when_configured() {
     .unwrap();
     let mut cfg = (*test_config(None, false)).clone();
     cfg.metrics_token = Some("metrics-secret".into());
-    let app = create_app(storage, Arc::new(cfg)).await.unwrap();
+    let cfg = Arc::new(cfg);
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, cfg, metrics).await.unwrap();
 
     let req = Request::builder()
         .method("GET")
@@ -860,7 +1036,10 @@ async fn test_hard_delete_reclaims_blob_immediately() {
     let path = blob_path(&data_dir.to_string_lossy(), "music", "tmp.bin");
     assert!(path.exists());
 
-    storage.delete_object("music", "tmp.bin").await.unwrap();
+    storage
+        .delete_object("music", "tmp.bin", None)
+        .await
+        .unwrap();
     assert!(!path.exists());
     assert!(!storage.object_exists("music", "tmp.bin").await.unwrap());
 }
@@ -883,7 +1062,10 @@ async fn test_soft_delete_drop_blob_removes_file() {
         .unwrap();
 
     let path = blob_path(&data_dir.to_string_lossy(), "music", "gone.bin");
-    storage.delete_object("music", "gone.bin").await.unwrap();
+    storage
+        .delete_object("music", "gone.bin", None)
+        .await
+        .unwrap();
     assert!(!path.exists());
     assert!(!storage.object_exists("music", "gone.bin").await.unwrap());
 }
@@ -951,7 +1133,7 @@ async fn test_recompress_legacy_raw_blob() {
     match outcome {
         nebular_os::storage::GetObjectOutcome::Content { stream, .. } => {
             let bytes = axum::body::to_bytes(
-                axum::body::Body::from_stream(stream),
+                axum::body::Body::from_stream(stream.stream),
                 usize::MAX,
             )
             .await
@@ -977,7 +1159,7 @@ async fn test_copy_object_shares_storage_via_hard_link() {
         .unwrap();
 
     storage
-        .copy_object("music", "original.bin", "music", "copy.bin")
+        .copy_object("music", "original.bin", "music", "copy.bin", None, None)
         .await
         .unwrap();
 
@@ -985,7 +1167,141 @@ async fn test_copy_object_shares_storage_via_hard_link() {
     let dst = blob_path(&data_dir.to_string_lossy(), "music", "copy.bin");
     assert!(same_inode(&src, &dst));
 
-    storage.delete_object("music", "copy.bin").await.unwrap();
+    storage
+        .delete_object("music", "copy.bin", None)
+        .await
+        .unwrap();
     assert!(src.exists());
     assert!(storage.object_exists("music", "original.bin").await.unwrap());
+}
+
+fn listener_token() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let claims = Claims {
+        sub: "listener-user".into(),
+        email: "listener@example.com".into(),
+        role: "listener".into(),
+        exp: now + 3600,
+        iat: now,
+    };
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_listener_role_cannot_put() {
+    let (app, _token, _tmp) = setup_app(Some(TEST_SECRET.into()), false).await;
+    let listener = listener_token();
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/music/forbidden.bin")
+        .header("authorization", format!("Bearer {listener}"))
+        .body(Body::from("data"))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_s3_list_objects_xml_when_compat_enabled() {
+    let mut cfg = (*test_config(Some(TEST_SECRET.into()), false)).clone();
+    cfg.s3_compat = true;
+    let cfg = Arc::new(cfg);
+    let tmp = TempDir::new().unwrap();
+    let data_dir = tmp.path().join("blobs");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let meta_path_str = format!("file:{}?mode=memory&cache=shared", id);
+    let data_dir_str = data_dir.to_string_lossy().replace('\\', "/");
+    let storage = StorageEngine::with_full_options(
+        &meta_path_str,
+        &data_dir_str,
+        EngineOptions::default(),
+    )
+    .await
+    .unwrap();
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let token = make_token();
+
+    let put = Request::builder()
+        .method("PUT")
+        .uri("/music/s3obj.bin")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from("hello s3"))
+        .unwrap();
+    assert_eq!(app.clone().oneshot(put).await.unwrap().status(), StatusCode::CREATED);
+
+    let list = Request::builder()
+        .method("GET")
+        .uri("/music?list-type=2")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let list_resp = app.oneshot(list).await.unwrap();
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(list_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(text.contains("<ListBucketResult"));
+    assert!(text.contains("<Key>s3obj.bin</Key>"));
+}
+
+#[tokio::test]
+async fn test_bucket_policy_denies_other_bucket() {
+    let mut cfg = (*test_config(Some(TEST_SECRET.into()), false)).clone();
+    cfg.bucket_policy =
+        nebular_os::config::BucketPolicy::from_json(r#"{"user-1":["music"]}"#).unwrap();
+    let cfg = Arc::new(cfg);
+    let tmp = TempDir::new().unwrap();
+    let data_dir = tmp.path().join("blobs");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let meta_path_str = format!("file:{}?mode=memory&cache=shared", id);
+    let data_dir_str = data_dir.to_string_lossy().replace('\\', "/");
+    let storage = StorageEngine::with_full_options(
+        &meta_path_str,
+        &data_dir_str,
+        EngineOptions::default(),
+    )
+    .await
+    .unwrap();
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, cfg, metrics).await.unwrap();
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let claims = Claims {
+        sub: "user-1".into(),
+        email: "u@example.com".into(),
+        role: "admin".into(),
+        exp: now + 3600,
+        iat: now,
+    };
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+    )
+    .unwrap();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/other-bucket")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::FORBIDDEN);
 }

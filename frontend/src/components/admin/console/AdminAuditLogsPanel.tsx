@@ -1,8 +1,14 @@
 // Human: Admin Console - Audit Logs panel (login-signup.pencil frame FzT1n).
-// Agent: RENDERS metrics, event filter tabs, audit table; mock ledger rows.
+// Agent: CALLS fetchAdminAuditLogs; RENDERS metrics, category tabs, live audit table; export CSV client-side.
 
-import { useState } from "react";
-import { Download, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Download, Loader2, Search } from "lucide-react";
+import {
+  fetchAdminAuditLogs,
+  getErrorMessage,
+  type AdminAuditLogRow,
+  type AdminAuditLogsResponse,
+} from "@/api/client";
 import {
   AdminConsoleMetricCard,
   AdminConsoleOutlineButton,
@@ -13,36 +19,56 @@ import {
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
 
-const EVENTS = [
-  [
-    "2026-05-31 14:24:12",
-    "sarah.chen@ownly.io",
-    "KEY_ROTATION",
-    "Rotated RSA-4096 cluster decryption keys",
-    "Success",
-    "192.168.1.104",
-  ],
-  [
-    "2026-05-31 13:10:45",
-    "system-scheduler",
-    "NODE_HEALTH",
-    "Node-ap-south-09 trigger sync (rebuilding shard)",
-    "Info",
-    "13.233.5.74",
-  ],
-  [
-    "2026-05-31 12:02:18",
-    "alex.mercer@ownly.io",
-    "USER_INVITE",
-    "Invited new administrator: Emily Watson",
-    "Success",
-    "104.28.19.4",
-  ],
-];
+type AuditTabId = "all" | "alerts" | "keys" | "nodes";
 
-/** Human: System audit logs — filter tabs, integrity metrics, event table. */
+function severityTone(severity: string): "success" | "primary" | "warning" {
+  if (severity === "Success") return "success";
+  if (severity === "Warning") return "warning";
+  return "primary";
+}
+
+function exportAuditCsv(logs: AdminAuditLogRow[]) {
+  const header = ["Timestamp", "Actor", "Action", "Description", "Severity", "IP"];
+  const lines = logs.map((row) =>
+    [row.timestamp, row.actor_email ?? "system", row.action, row.description, row.severity, row.ip ?? ""]
+      .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+      .join(","),
+  );
+  const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "audit-logs.csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Human: System audit logs — filter tabs, integrity metrics, live event table. */
 export function AdminAuditLogsPanel() {
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState<AuditTabId>("all");
+  const [data, setData] = useState<AdminAuditLogsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (category: AuditTabId) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await fetchAdminAuditLogs({ category, limit: 100 }));
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reload when filter tab changes
+    void load(tab);
+  }, [load, tab]);
+
+  const counts = data?.counts_by_category ?? {};
+  const summary = data?.summary;
 
   return (
     <div className={adminConsoleContentClassName}>
@@ -52,23 +78,36 @@ export function AdminAuditLogsPanel() {
         description="Traceable ledger of all administrative security events, encryption operations, node changes, and file access."
         actions={
           <>
-            <AdminConsoleOutlineButton>
-              <Search className="size-3.5 shrink-0" aria-hidden />
-              Filter System
+            <AdminConsoleOutlineButton onClick={() => void load(tab)} disabled={loading}>
+              {loading ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Search className="size-3.5 shrink-0" aria-hidden />
+              )}
+              Refresh
             </AdminConsoleOutlineButton>
-            <AdminConsoleOutlineButton>
+            <AdminConsoleOutlineButton
+              onClick={() => data && exportAuditCsv(data.logs)}
+              disabled={!data?.logs.length}
+            >
               <Download className="size-3.5 shrink-0" aria-hidden />
-              Export CSV / JSON
+              Export CSV
             </AdminConsoleOutlineButton>
           </>
         }
       />
 
+      {error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3">
         <AdminConsoleMetricCard
           label="TOTAL LOGGED EVENTS"
-          value="12,842 Events"
-          detail="Last 30 days immutable cryptographically signed logs"
+          value={`${(summary?.total ?? 0).toLocaleString()} Events`}
+          detail={`${(summary?.last_30_days ?? 0).toLocaleString()} in the last 30 days`}
           badge={{ label: "Audited", tone: "success" }}
           icon={Search}
           iconBg="bg-[#EFF6FF]"
@@ -76,9 +115,9 @@ export function AdminAuditLogsPanel() {
         />
         <AdminConsoleMetricCard
           label="CRITICAL EVENT SHIELD"
-          value="0 Security Flags"
-          detail="No high-risk policy breaches or brute-force logins"
-          badge={{ label: "Secure", tone: "success" }}
+          value={`${(summary?.critical_count ?? 0).toLocaleString()} Flags`}
+          detail="Delete and revoke actions in the audit ledger"
+          badge={{ label: summary?.critical_count ? "Review" : "Secure", tone: "success" }}
           icon={Search}
           iconBg="bg-[#ECFDF5]"
           iconColor="text-[#10B981]"
@@ -86,7 +125,7 @@ export function AdminAuditLogsPanel() {
         <AdminConsoleMetricCard
           label="LOG INTEGRITY STATUS"
           value="Verified 100%"
-          detail="Signed ledger matches distributed SHA-256 state"
+          detail="Append-only audit rows stored in PostgreSQL"
           badge={{ label: "Immutable", tone: "info" }}
           icon={Search}
           iconBg="bg-[#EFF6FF]"
@@ -96,31 +135,44 @@ export function AdminAuditLogsPanel() {
 
       <AdminConsoleUnderlineTabs
         tabs={[
-          { id: "all", label: "All Events (4,821)" },
-          { id: "alerts", label: "Security Alerts (0)" },
-          { id: "keys", label: "Keys & Security (142)" },
-          { id: "nodes", label: "Storage Nodes (824)" },
+          { id: "all", label: `All Events (${counts.all ?? summary?.total ?? 0})` },
+          { id: "alerts", label: `Security Alerts (${counts.alerts ?? 0})` },
+          { id: "keys", label: `Keys & Security (${counts.keys ?? 0})` },
+          { id: "nodes", label: `Storage Nodes (${counts.nodes ?? 0})` },
         ]}
         activeId={tab}
-        onChange={setTab}
+        onChange={(id) => setTab(id as AuditTabId)}
       />
 
-      <AdminConsoleTable
-        caption="Audit events"
-        columns={["Timestamp", "Actor / ID", "Event / Action", "Description", "Severity", "IP Address"]}
-        rows={EVENTS.map((row) => [
-          row[0],
-          row[1],
-          <span key={`ev-${row[0]}`} className="font-mono text-xs font-semibold text-[#2563EB]">
-            {row[2]}
-          </span>,
-          row[3],
-          <AdminConsolePill key={`sev-${row[0]}`} tone={row[4] === "Success" ? "success" : "primary"}>
-            {row[4]}
-          </AdminConsolePill>,
-          row[5],
-        ])}
-      />
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Loading audit events…
+        </div>
+      ) : null}
+
+      {!loading && data ? (
+        data.logs.length === 0 ? (
+          <p className="text-center text-sm text-[#666666]">No events in this category yet.</p>
+        ) : (
+          <AdminConsoleTable
+            caption="Audit events"
+            columns={["Timestamp", "Actor / ID", "Event / Action", "Description", "Severity", "IP Address"]}
+            rows={data.logs.map((row) => [
+              row.timestamp,
+              row.actor_email ?? "system",
+              <span key={`${row.id}-action`} className="font-mono text-xs font-semibold text-[#2563EB]">
+                {row.action}
+              </span>,
+              row.description,
+              <AdminConsolePill key={`${row.id}-sev`} tone={severityTone(row.severity)}>
+                {row.severity}
+              </AdminConsolePill>,
+              row.ip ?? "—",
+            ])}
+          />
+        )
+      ) : null}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nebular_os::{config, secrets, server, storage};
+use nebular_os::{cluster, config, observability::NosMetrics, secrets, server, storage};
 
 use anyhow::Result;
 use axum::serve;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -12,7 +13,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,nebular_os=info,tower_http=info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,tower_http=debug")),
         )
         .init();
 
@@ -35,6 +36,7 @@ async fn main() -> Result<()> {
             multipart_upload_ttl_secs: cfg.multipart_upload_ttl_secs,
             recompress_batch_size: cfg.recompress_batch_size,
             read_pool_size: cfg.read_pool_size,
+            zstd_level: cfg.zstd_level,
         },
     )
     .await?;
@@ -69,12 +71,20 @@ async fn main() -> Result<()> {
 
     spawn_storage_maintenance(storage.clone(), cfg.clone());
 
-    let app = server::create_app(storage, cfg.clone()).await?;
+    let metrics = NosMetrics::new();
+    let backend = cluster::build_backend(storage, &cfg, metrics.clone())?;
+    let app = server::create_app(backend, cfg.clone(), metrics).await?;
 
     let listener = TcpListener::bind(&cfg.bind_addr).await?;
     tracing::info!("Listening on {}", cfg.bind_addr);
 
-    serve(listener, app).await?;
+    // Human: Expose peer IP to rate-limit middleware via ConnectInfo<SocketAddr>.
+    // Agent: into_make_service_with_connect_info; REQUIRED for per-IP NOS_RATE_LIMIT_RPS.
+    serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

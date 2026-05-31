@@ -12,12 +12,12 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
 use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::routes::errors::{map_storage_error, PayloadTooLarge};
 use crate::routes::helpers::{
-    apply_object_headers, parse_if_modified_since, parse_if_none_match,
+    apply_object_headers, parse_if_match, parse_if_modified_since, parse_if_none_match,
+    write_context_from_headers,
 };
 use crate::routes::AppState;
 use crate::storage::engine::GetObjectOutcome;
@@ -69,7 +69,13 @@ fn extract_custom_meta(headers: &HeaderMap) -> Option<String> {
 }
 
 fn parse_copy_source(headers: &HeaderMap) -> Option<(String, String)> {
-    let raw = headers.get("x-nd-copy-source")?.to_str().ok()?;
+    // Human: Accept Nebular and S3 copy-source headers so compat clients can use CopyObject semantics.
+    // Agent: READS x-nd-copy-source OR x-amz-copy-source; PARSES bucket/key from "bucket/key" value.
+    let raw = headers
+        .get("x-nd-copy-source")
+        .or_else(|| headers.get("x-amz-copy-source"))?
+        .to_str()
+        .ok()?;
     let (bucket, key) = raw.split_once('/')?;
     if bucket.is_empty() || key.is_empty() {
         return None;
@@ -82,61 +88,51 @@ pub async fn put_object(
     Path(params): Path<ObjectParams>,
     req: Request,
 ) -> Response {
-    let put_started = Instant::now();
-    let content_length = req
-        .headers()
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-    tracing::info!(
-        bucket = %params.bucket,
-        key = %params.key,
-        content_length = %content_length,
-        max_body_size = state.max_body_size,
-        "put_object started"
-    );
+    tracing::info!(bucket = %params.bucket, key = %params.key, "put_object started");
     let headers = req.headers().clone();
     let custom_meta = extract_custom_meta(&headers);
+    let write_ctx = write_context_from_headers(&headers, custom_meta.as_deref());
+    let if_match = parse_if_match(&headers);
+    let if_none_match = parse_if_none_match(&headers);
+
+    if let Err(e) = state
+        .backend
+        .ensure_write_preconditions(
+            &params.bucket,
+            &params.key,
+            if_match.as_deref(),
+            if_none_match.as_deref(),
+            Some(&write_ctx),
+        )
+        .await
+    {
+        state.metrics.inc_errors();
+        return map_storage_error(e).into_response();
+    }
 
     if let Some((src_bucket, src_key)) = parse_copy_source(&headers) {
-        tracing::info!(
-            src_bucket = %src_bucket,
-            src_key = %src_key,
-            dst_bucket = %params.bucket,
-            dst_key = %params.key,
-            "put_object server-side copy started"
-        );
         match state
-            .storage
-            .copy_object(&src_bucket, &src_key, &params.bucket, &params.key)
+            .backend
+            .copy_object(
+                &src_bucket,
+                &src_key,
+                &params.bucket,
+                &params.key,
+                if_match.as_deref(),
+                if_none_match.as_deref(),
+                Some(&write_ctx),
+            )
             .await
         {
             Ok(meta) => {
                 state.metrics.add_uploaded(meta.size as u64);
-                tracing::info!(
-                    dst_bucket = %params.bucket,
-                    dst_key = %params.key,
-                    logical_size_bytes = meta.size,
-                    elapsed_ms = put_started.elapsed().as_millis() as u64,
-                    "put_object server-side copy complete"
-                );
                 return (
                     StatusCode::CREATED,
                     Json(json!({ "etag": meta.etag })),
                 )
                     .into_response();
             }
-            Err(e) => {
-                state.metrics.inc_errors();
-                tracing::error!(
-                    dst_bucket = %params.bucket,
-                    dst_key = %params.key,
-                    elapsed_ms = put_started.elapsed().as_millis() as u64,
-                    error = %e,
-                    "put_object server-side copy failed"
-                );
-                return map_storage_error(e).into_response();
-            }
+            Err(e) => return map_storage_error(e).into_response(),
         }
     }
 
@@ -157,25 +153,19 @@ pub async fn put_object(
     };
 
     match state
-        .storage
+        .backend
         .put_object(
             &params.bucket,
             &params.key,
             content_type.as_deref(),
             custom_meta.as_deref(),
             body_reader,
+            Some(&write_ctx),
         )
         .await
     {
         Ok(meta) => {
             state.metrics.add_uploaded(meta.size as u64);
-            tracing::info!(
-                bucket = %params.bucket,
-                key = %params.key,
-                logical_size_bytes = meta.size,
-                elapsed_ms = put_started.elapsed().as_millis() as u64,
-                "put_object complete"
-            );
             let mut resp = (StatusCode::CREATED, Json(json!({ "etag": meta.etag }))).into_response();
             if let Some(etag) = meta.etag
                 && let Ok(etag_header) = etag.parse() {
@@ -185,23 +175,10 @@ pub async fn put_object(
         }
         Err(e @ StorageError::PayloadTooLarge) => {
             state.metrics.inc_errors();
-            tracing::warn!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = put_started.elapsed().as_millis() as u64,
-                "put_object rejected: payload too large"
-            );
             map_storage_error(e).into_response()
         }
         Err(e) => {
             state.metrics.inc_errors();
-            tracing::error!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = put_started.elapsed().as_millis() as u64,
-                error = %e,
-                "put_object failed"
-            );
             map_storage_error(e).into_response()
         }
     }
@@ -212,21 +189,13 @@ pub async fn get_object(
     Path(params): Path<ObjectParams>,
     req: Request,
 ) -> Response {
-    let get_started = Instant::now();
     let headers = req.headers();
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
     let if_none_match = parse_if_none_match(headers);
     let if_modified_since = parse_if_modified_since(headers);
 
-    tracing::info!(
-        bucket = %params.bucket,
-        key = %params.key,
-        has_range = range_header.is_some(),
-        "get_object started"
-    );
-
     match state
-        .storage
+        .backend
         .get_object(
             &params.bucket,
             &params.key,
@@ -237,12 +206,6 @@ pub async fn get_object(
         .await
     {
         Ok(GetObjectOutcome::NotModified(meta)) => {
-            tracing::info!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = get_started.elapsed().as_millis() as u64,
-                "get_object not modified"
-            );
             let mut resp = Response::new(Body::empty());
             *resp.status_mut() = StatusCode::NOT_MODIFIED;
             apply_object_headers(resp.headers_mut(), &meta);
@@ -255,15 +218,6 @@ pub async fn get_object(
             meta,
         }) => {
             state.metrics.add_downloaded(content_length);
-            tracing::info!(
-                bucket = %params.bucket,
-                key = %params.key,
-                content_length,
-                total_size,
-                partial = range_header.is_some(),
-                elapsed_ms = get_started.elapsed().as_millis() as u64,
-                "get_object complete"
-            );
             let body = Body::from_stream(stream);
             let mut resp = Response::new(body);
             apply_object_headers(resp.headers_mut(), &meta);
@@ -285,13 +239,6 @@ pub async fn get_object(
         }
         Err(e) => {
             state.metrics.inc_errors();
-            tracing::error!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = get_started.elapsed().as_millis() as u64,
-                error = %e,
-                "get_object failed"
-            );
             map_storage_error(e).into_response()
         }
     }
@@ -302,19 +249,12 @@ pub async fn head_object(
     Path(params): Path<ObjectParams>,
     req: Request,
 ) -> Response {
-    let head_started = Instant::now();
     let headers = req.headers();
     let if_none_match = parse_if_none_match(headers);
     let if_modified_since = parse_if_modified_since(headers);
 
-    tracing::debug!(
-        bucket = %params.bucket,
-        key = %params.key,
-        "head_object started"
-    );
-
     match state
-        .storage
+        .backend
         .head_object(
             &params.bucket,
             &params.key,
@@ -324,37 +264,17 @@ pub async fn head_object(
         .await
     {
         Ok(None) => {
-            tracing::debug!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = head_started.elapsed().as_millis() as u64,
-                "head_object not modified"
-            );
             let mut resp = Response::new(Body::empty());
             *resp.status_mut() = StatusCode::NOT_MODIFIED;
             resp
         }
         Ok(Some(meta)) => {
-            tracing::debug!(
-                bucket = %params.bucket,
-                key = %params.key,
-                logical_size_bytes = meta.size,
-                elapsed_ms = head_started.elapsed().as_millis() as u64,
-                "head_object complete"
-            );
             let mut resp = Response::new(Body::empty());
             apply_object_headers(resp.headers_mut(), &meta);
             resp
         }
         Err(e) => {
             state.metrics.inc_errors();
-            tracing::warn!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = head_started.elapsed().as_millis() as u64,
-                error = %e,
-                "head_object failed"
-            );
             map_storage_error(e).into_response()
         }
     }
@@ -363,32 +283,23 @@ pub async fn head_object(
 pub async fn delete_object(
     State(state): State<Arc<AppState>>,
     Path(params): Path<ObjectParams>,
+    req: Request,
 ) -> Response {
-    tracing::info!(
-        bucket = %params.bucket,
-        key = %params.key,
-        "delete_object started"
-    );
-    let delete_started = Instant::now();
-    match state.storage.delete_object(&params.bucket, &params.key).await {
-        Ok(()) => {
-            tracing::info!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = delete_started.elapsed().as_millis() as u64,
-                "delete_object complete"
-            );
-            StatusCode::NO_CONTENT.into_response()
-        }
+    let if_match = parse_if_match(req.headers());
+    let write_ctx = write_context_from_headers(req.headers(), None);
+    match state
+        .backend
+        .delete_object(
+            &params.bucket,
+            &params.key,
+            if_match.as_deref(),
+            Some(&write_ctx),
+        )
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             state.metrics.inc_errors();
-            tracing::error!(
-                bucket = %params.bucket,
-                key = %params.key,
-                elapsed_ms = delete_started.elapsed().as_millis() as u64,
-                error = %e,
-                "delete_object failed"
-            );
             map_storage_error(e).into_response()
         }
     }

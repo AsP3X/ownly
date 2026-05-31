@@ -285,16 +285,33 @@ export function AdminConsoleField({
   label,
   value,
   suffix,
+  onChange,
+  type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   suffix?: string;
+  onChange?: (value: string) => void;
+  type?: "text" | "password" | "number";
+  placeholder?: string;
 }) {
+  const editable = typeof onChange === "function";
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-semibold text-[#666666]">{label}</label>
       <div className="flex h-11 items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
-        <span className="min-w-0 flex-1 truncate text-sm text-[#1A1A1A]">{value}</span>
+        {editable ? (
+          <input
+            type={type}
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none"
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm text-[#1A1A1A]">{value}</span>
+        )}
         {suffix ? <span className="shrink-0 text-sm font-medium text-[#666666]">{suffix}</span> : null}
       </div>
     </div>

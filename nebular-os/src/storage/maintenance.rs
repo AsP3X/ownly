@@ -42,13 +42,6 @@ impl StorageEngine {
                 .map_err(internal)?;
             purged += 1;
         }
-        if purged > 0 {
-            tracing::info!(
-                purged,
-                ttl_secs = self.soft_delete_ttl_secs(),
-                "storage::purge_soft_deleted completed"
-            );
-        }
         Ok(purged)
     }
 
@@ -82,7 +75,7 @@ impl StorageEngine {
                 report.skipped += 1;
                 continue;
             }
-            let encoded = encode_blob_for_storage(&blob)?;
+            let encoded = encode_blob_for_storage(&blob, self.zstd_level())?;
             if encoded.len() >= blob.len() {
                 report.skipped += 1;
                 continue;

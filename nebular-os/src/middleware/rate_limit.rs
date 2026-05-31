@@ -41,7 +41,7 @@ pub async fn rate_limit_middleware(
 
     let mut entry = state
         .rate_limiters
-        .entry(ip.clone())
+        .entry(ip)
         .or_insert(ClientBucket {
             tokens: burst,
             last_refill: now,
@@ -53,7 +53,6 @@ pub async fn rate_limit_middleware(
 
     if entry.tokens < 1.0 {
         state.metrics.inc_errors();
-        tracing::warn!(client_ip = %ip, rps, "rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(json!({ "error": "rate limit exceeded" })),

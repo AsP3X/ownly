@@ -1182,6 +1182,115 @@ async fn admin_users_list_requires_admin_role() {
         .ok();
 }
 
+// Human: Admin console overview endpoint must require admin role and return metrics JSON.
+// Agent: GET /api/v1/admin/overview; EXPECT 403 for member, 200 + metrics for admin.
+#[tokio::test]
+async fn admin_overview_requires_admin_role() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping admin_overview_requires_admin_role: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping admin_overview_requires_admin_role: {error}");
+            return;
+        }
+    };
+
+    let member_id = uuid::Uuid::new_v4().to_string();
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&member_id)
+    .bind(format!("member-overview-{member_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert member");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(format!("admin-overview-{admin_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    let member_token = mediavault_backend::auth::handlers::create_token(
+        member_id.clone(),
+        format!("member-overview-{member_id}@example.com"),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("member token");
+
+    let admin_token = mediavault_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        format!("admin-overview-{admin_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/overview")
+                .header("authorization", format!("Bearer {member_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let ok = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/overview")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    let json = response_json(ok).await;
+    assert!(json["metrics"]["total_users"].as_i64().is_some());
+    let workload = json["workload"].as_array().expect("workload array");
+    assert_eq!(workload.len(), 8, "diagnostics chart expects eight 15-minute buckets");
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&member_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Revoking a session id must block subsequent API calls using that JWT sid.
 // Agent: POST revoke; GET /me with same token; EXPECT 401 after revoke.
 #[tokio::test]

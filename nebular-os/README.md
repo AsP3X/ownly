@@ -47,8 +47,43 @@ Server listens on `NOS_BIND_ADDR` (default `0.0.0.0:9000`).
 | `NOS_LIST_SCAN_CAP` | Max keys scanned per delimiter listing page (default `4096`) |
 | `NOS_MULTIPART_PART_SIZE` | Max bytes per multipart part (default `8388608`) |
 | `NOS_READ_POOL_SIZE` | SQLite read pool connections (default `4`) |
+| `NOS_ZSTD_LEVEL` | zstd compression level 1–22 for blob writes (default `22`; lower = faster uploads) |
+| `NOS_S3_COMPAT` | Enable S3-style XML list/errors and `x-amz-copy-source` (default `false`) |
+| `NOS_BUCKET_POLICY` | JSON map of `sub` → allowed bucket names; empty = no extra restriction |
+| `NOS_S3_ACCESS_KEY` / `NOS_S3_SECRET_KEY` | Optional access-key auth via `Authorization: NOS <key>:<sig>` |
 | `NOS_CORS_ORIGINS` | Comma-separated allowed origins; empty = permissive |
 | `RUST_LOG` | Tracing filter (default `info`) |
+
+### Cluster modes (optional)
+
+Unset `NOS_CLUSTER_MODE` for standalone (default). See [docs/plans/cluster-modes.md](docs/plans/cluster-modes.md).
+
+| Variable | Description |
+|----------|-------------|
+| `NOS_CLUSTER_MODE` | `standalone` (default), `replicated`, `assigned`, or `replicated+assigned` |
+| `NOS_NODE_ID` | Stable node identity |
+| `NOS_CLUSTER_TOKEN` | Bearer token for `/_cluster/*` routes |
+| `NOS_CLUSTER_PEERS` | `node-b=http://host:9000;class-a,class-b` (optional `;classes` per peer) |
+| `NOS_STORAGE_CLASSES` | Comma-separated classes this node accepts |
+| `NOS_REPLICATION_FACTOR` | Target copies including self (`1` = no peer copies) |
+| `NOS_ASSIGNMENT_RULES` | JSON rules file path or inline JSON |
+| `NOS_DEFAULT_STORAGE_CLASS` | Default class when no rule matches |
+| `NOS_ASSIGNMENT_FORWARD` | When `true`, proxy PUT/copy/multipart writes to the assigned peer instead of `409` |
+| `NOS_REPLICATION_ASYNC` | Must be `true` (default); `false` is rejected at startup (quorum deferred) |
+| `NOS_REPLICATION_READ_REPAIR` | When `true`, fetch missing blobs from peers on GET |
+| `x-nd-storage-class` | Optional client header (ignored in standalone) |
+
+Multi-node local dev: `docker compose --profile cluster up --build` (hot on port 9001, cold on 9002; default single-node service unchanged on 9000).
+
+Peer list format: `node-b=http://host:9000;class-a,class-b;group=replication-group` (classes and group are optional).
+
+### Replication lag and consistency
+
+Replication is **asynchronous** (`NOS_REPLICATION_ASYNC=true` by default). A successful PUT on the origin node does not guarantee immediate visibility on peers; monitor `replication_lag_events` on `GET /health` or `replication_pending_events` on `GET /metrics`. Failed pushes retry with exponential backoff (see `replication_log.next_retry_at`).
+
+### Split-brain and dual writes
+
+There is no distributed lock. Two clients writing the same `bucket/key` on different nodes can diverge; last writer wins per node metadata. Use **assigned** mode plus client routing (e.g. Ownly) to steer writes, or **readonly** replicas for read scaling. Symmetric `NOS_CLUSTER_PEERS` lists are recommended; the server logs a warning if `NOS_NODE_ID` is missing from the local peer list.
 
 ## HTTP API
 
@@ -56,17 +91,21 @@ See [docs/openapi.yaml](docs/openapi.yaml) for the full contract.
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `PUT` | `/:bucket/*key` | Bearer JWT | Stream upload; `x-nd-copy-source` for server-side copy |
+| `PUT` | `/:bucket/*key` | Bearer JWT | Stream upload; `If-Match` / `If-None-Match`; `x-nd-copy-source` for server-side copy |
 | `GET` | `/:bucket/*key` | Bearer JWT or presigned query | Download (`Range`, `If-None-Match`, suffix ranges) |
 | `HEAD` | `/:bucket/*key` | Bearer JWT | Metadata + `x-nd-custom-meta-*` headers |
-| `DELETE` | `/:bucket/*key` | Bearer JWT | Soft delete (or hard delete when TTL is `0`) |
+| `DELETE` | `/:bucket/*key` | Bearer JWT | Soft delete (or hard delete when TTL is `0`); optional `If-Match` |
 | `GET` | `/:bucket` | Bearer JWT | List objects with pagination + delimiter prefixes |
 | `POST` | `/:bucket/_multipart?key=...` | Bearer JWT | Init multipart upload |
 | `PUT` | `/:bucket/_multipart/{upload_id}/parts/{n}` | Bearer JWT | Upload part |
 | `POST` | `/:bucket/_multipart/{upload_id}/complete` | Bearer JWT | Complete multipart upload |
 | `DELETE` | `/:bucket/_multipart/{upload_id}` | Bearer JWT | Abort multipart upload |
-| `GET` | `/health` | None | Health check |
+| `GET` | `/health` | None | Liveness check (process up) |
+| `GET` | `/health/ready` | None | Readiness check (SQLite + `NOS_DATA_DIR` writable) |
+| `GET` | `/_nos/capabilities` | Bearer JWT | Node limits and cluster mode (when enabled) |
 | `GET` | `/metrics` | Optional Bearer (`NOS_METRICS_TOKEN`) | JSON or Prometheus (`Accept: text/plain`) |
+
+Cluster-only routes (require `NOS_CLUSTER_TOKEN`): `GET /_cluster/health`, `POST /_cluster/replicate`, `POST /_cluster/assignment/resolve`, etc.
 
 ## Use as a Rust dependency
 
@@ -87,10 +126,25 @@ nebular-os = { path = "../nebular-os" }
 The library crate name is `nebular_os`:
 
 ```rust
+use std::sync::Arc;
+
 use nebular_os::config::NosConfig;
+use nebular_os::cluster::build_backend;
+use nebular_os::observability::NosMetrics;
 use nebular_os::server::create_app;
 use nebular_os::storage::engine::StorageEngine;
+
+// Embedders must share one NosMetrics instance between build_backend and create_app:
+let cfg = Arc::new(NosConfig::from_env()?);
+let storage = StorageEngine::new(&cfg.meta_path, &cfg.data_dir).await?;
+let metrics = NosMetrics::new();
+let backend = build_backend(storage, &cfg, metrics.clone())?;
+let app = create_app(backend, cfg, metrics).await?;
 ```
+
+**Breaking change (cluster branch):** `build_backend` and `create_app` require `Arc<NosMetrics>` so replication counters and Prometheus/JSON metrics stay in sync.
+
+Object **list** JSON and **GET** response headers may include `storage_class` and `origin_node` when set in metadata (`x-nd-storage-class`, `x-nd-origin-node` on GET).
 
 ## Development
 

@@ -1,27 +1,25 @@
 use std::collections::BTreeSet;
-use std::io::Cursor;
 use std::path::PathBuf;
-use std::time::Instant;
 
+use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::io::ReaderStream;
-use xxhash_rust::xxh3::Xxh3;
 
 use super::blob_ops::link_or_copy_blob;
-use super::compression::{
-    decompress_blob, materialize_blob_from_raw_file, zstd_level_for_bytes,
-};
-use super::error::{internal, map_io_error, StorageError};
+use super::compression::{self, DEFAULT_ZSTD_LEVEL};
+use super::error::{internal, StorageError};
 use super::range::parse_content_range;
+use super::streaming::{
+    finalize_temp_to_blob, open_object_body_stream, stream_body_to_temp, GuardedObjectBodyStream,
+};
+use super::precondition::{check_write_preconditions, etag_matches};
 use super::types::{ListItem, ListResult, ObjectMetadata};
 use super::{blob_path, sanitize_bucket, sanitize_key};
 
 pub(crate) const DEFAULT_UPLOAD_BUFFER: usize = 256 * 1024;
 const DEFAULT_LIST_SCAN_CAP: i64 = 4096;
 
-const META_SELECT: &str = "bucket, key, size, mime_type, etag, created_at, updated_at, custom_meta, deleted_at";
+const META_SELECT: &str = "bucket, key, size, mime_type, etag, created_at, updated_at, custom_meta, deleted_at, storage_class, origin_node";
 const ACTIVE_WHERE: &str = "deleted_at IS NULL";
 
 fn escape_like_pattern(s: &str) -> String {
@@ -31,10 +29,24 @@ fn escape_like_pattern(s: &str) -> String {
 }
 
 /// Outcome of GET after conditional header checks against stored metadata.
+/// Per-check results for `GET /health/ready`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReadinessChecks {
+    pub sqlite_write: bool,
+    pub sqlite_read: bool,
+    pub data_dir_writable: bool,
+}
+
+impl ReadinessChecks {
+    pub fn ready(&self) -> bool {
+        self.sqlite_write && self.sqlite_read && self.data_dir_writable
+    }
+}
+
 pub enum GetObjectOutcome {
     NotModified(ObjectMetadata),
     Content {
-        stream: ReaderStream<Cursor<Vec<u8>>>,
+        stream: GuardedObjectBodyStream,
         content_length: u64,
         total_size: u64,
         meta: ObjectMetadata,
@@ -50,6 +62,7 @@ pub struct EngineOptions {
     pub multipart_upload_ttl_secs: i64,
     pub recompress_batch_size: usize,
     pub read_pool_size: u32,
+    pub zstd_level: i32,
 }
 
 impl Default for EngineOptions {
@@ -63,6 +76,7 @@ impl Default for EngineOptions {
             multipart_upload_ttl_secs: 86_400,
             recompress_batch_size: 100,
             read_pool_size: 4,
+            zstd_level: DEFAULT_ZSTD_LEVEL,
         }
     }
 }
@@ -79,6 +93,7 @@ pub struct StorageEngine {
     soft_delete_drop_blob: bool,
     multipart_upload_ttl_secs: i64,
     recompress_batch_size: usize,
+    zstd_level: i32,
 }
 
 pub(crate) struct TempFileGuard {
@@ -121,7 +136,14 @@ impl StorageEngine {
     ) -> Result<Self, StorageError> {
         let conn_str = Self::resolve_conn_str(meta_path).await?;
         let write_pool = SqlitePool::connect(&conn_str).await.map_err(internal)?;
-        let read_pool = SqlitePool::connect(&conn_str).await.map_err(internal)?;
+        // Human: Size the read pool from NOS_READ_POOL_SIZE so list/GET metadata queries do not share one connection.
+        // Agent: READS opts.read_pool_size; SqlitePoolOptions::max_connections; separate pool from write_pool.
+        let read_pool_size = opts.read_pool_size.max(1);
+        let read_pool = SqlitePoolOptions::new()
+            .max_connections(read_pool_size)
+            .connect(&conn_str)
+            .await
+            .map_err(internal)?;
 
         Self::init_schema(&write_pool).await?;
 
@@ -132,17 +154,6 @@ impl StorageEngine {
         fs::create_dir_all(format!("{}/.multipart", data_dir))
             .await
             .map_err(internal)?;
-
-        let _ = opts.read_pool_size;
-
-        tracing::info!(
-            meta_path = %meta_path,
-            data_dir = %data_dir,
-            upload_buffer_size = opts.upload_buffer_size,
-            multipart_part_size = opts.multipart_part_size,
-            soft_delete_ttl_secs = opts.soft_delete_ttl_secs,
-            "storage engine initialized"
-        );
 
         Ok(Self {
             write_pool,
@@ -155,6 +166,7 @@ impl StorageEngine {
             soft_delete_drop_blob: opts.soft_delete_drop_blob,
             multipart_upload_ttl_secs: opts.multipart_upload_ttl_secs.max(0),
             recompress_batch_size: opts.recompress_batch_size.max(1),
+            zstd_level: compression::clamp_zstd_level(opts.zstd_level),
         })
     }
 
@@ -236,6 +248,57 @@ impl StorageEngine {
             .execute(pool)
             .await;
 
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS replication_log (
+                event_id     TEXT PRIMARY KEY,
+                origin_node  TEXT NOT NULL,
+                op           TEXT NOT NULL,
+                bucket       TEXT NOT NULL,
+                key          TEXT NOT NULL,
+                etag         TEXT,
+                size         INTEGER,
+                payload_path TEXT,
+                created_at   INTEGER NOT NULL,
+                applied_at   INTEGER,
+                status       TEXT NOT NULL DEFAULT 'pending'
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(internal)?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_repl_status ON replication_log(status, created_at)",
+        )
+        .execute(pool)
+        .await
+        .map_err(internal)?;
+
+        let _ = sqlx::query("ALTER TABLE objects ADD COLUMN storage_class TEXT DEFAULT 'default'")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE objects ADD COLUMN origin_node TEXT")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query(
+            "ALTER TABLE replication_log ADD COLUMN storage_class TEXT DEFAULT 'default'",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query(
+            "ALTER TABLE replication_log ADD COLUMN replication_group TEXT DEFAULT 'default'",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query(
+            "ALTER TABLE replication_log ADD COLUMN attempts INTEGER DEFAULT 0",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query("ALTER TABLE replication_log ADD COLUMN next_retry_at INTEGER")
+            .execute(pool)
+            .await;
+
         sqlx::query("PRAGMA foreign_keys = ON")
             .execute(pool)
             .await
@@ -283,6 +346,43 @@ impl StorageEngine {
         self.recompress_batch_size
     }
 
+    pub fn zstd_level(&self) -> i32 {
+        self.zstd_level
+    }
+
+    /// Human: Loads active object metadata when present, without treating a miss as an error.
+    /// Agent: SELECT objects WHERE deleted_at IS NULL; RETURNS Option (None = no live row).
+    pub async fn try_fetch_active_metadata(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<ObjectMetadata>, StorageError> {
+        let bucket = sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?;
+        let safe_key = sanitize_key(key).map_err(|_| StorageError::InvalidKey)?;
+        let q = format!(
+            "SELECT {META_SELECT} FROM objects WHERE bucket = ? AND key = ? AND {ACTIVE_WHERE}"
+        );
+        sqlx::query_as(&q)
+            .bind(&bucket)
+            .bind(&safe_key)
+            .fetch_optional(&self.read_pool)
+            .await
+            .map_err(internal)
+    }
+
+    /// Human: Validates If-Match / If-None-Match against the current object before a write or delete.
+    /// Agent: READS try_fetch_active_metadata; CALLS precondition::check_write_preconditions.
+    pub async fn ensure_write_preconditions(
+        &self,
+        bucket: &str,
+        key: &str,
+        if_match: Option<&str>,
+        if_none_match: Option<&str>,
+    ) -> Result<(), StorageError> {
+        let existing = self.try_fetch_active_metadata(bucket, key).await?;
+        check_write_preconditions(existing.as_ref(), if_match, if_none_match)
+    }
+
     pub async fn put_object(
         &self,
         bucket: &str,
@@ -306,24 +406,22 @@ impl StorageEngine {
         src_key: &str,
         dst_bucket: &str,
         dst_key: &str,
+        if_match: Option<&str>,
+        if_none_match: Option<&str>,
     ) -> Result<ObjectMetadata, StorageError> {
         let src_bucket = sanitize_bucket(src_bucket).map_err(|_| StorageError::InvalidBucket)?;
         let src_key = sanitize_key(src_key).map_err(|_| StorageError::InvalidKey)?;
         let dst_bucket = sanitize_bucket(dst_bucket).map_err(|_| StorageError::InvalidBucket)?;
         let dst_key = sanitize_key(dst_key).map_err(|_| StorageError::InvalidKey)?;
 
+        if if_match.is_some() || if_none_match.is_some() {
+            self.ensure_write_preconditions(&dst_bucket, &dst_key, if_match, if_none_match)
+                .await?;
+        }
+
         let src_meta = self.fetch_active_metadata(&src_bucket, &src_key).await?;
         let src_path = blob_path(&self.data_dir, &src_bucket, &src_key);
         let dst_path = blob_path(&self.data_dir, &dst_bucket, &dst_key);
-
-        tracing::info!(
-            src_bucket = %src_bucket,
-            src_key = %src_key,
-            dst_bucket = %dst_bucket,
-            dst_key = %dst_key,
-            logical_size_bytes = src_meta.size,
-            "copy_object started"
-        );
 
         // Human: Hard-link the on-disk blob when possible so copies share storage on the same volume.
         // Agent: CALLS link_or_copy_blob(src,dst); fallback fs::copy on EXDEV; metadata row for dst only.
@@ -354,15 +452,6 @@ impl StorageEngine {
         .await
         .map_err(internal)?;
 
-        tracing::info!(
-            src_bucket = %src_bucket,
-            src_key = %src_key,
-            dst_bucket = %dst_bucket,
-            dst_key = %dst_key,
-            logical_size_bytes = src_meta.size,
-            "copy_object complete"
-        );
-
         Ok(ObjectMetadata {
             bucket: dst_bucket,
             key: dst_key,
@@ -373,6 +462,8 @@ impl StorageEngine {
             updated_at: now,
             custom_meta: src_meta.custom_meta,
             deleted_at: None,
+            storage_class: src_meta.storage_class,
+            origin_node: src_meta.origin_node,
         })
     }
 
@@ -384,97 +475,25 @@ impl StorageEngine {
         custom_meta: Option<&str>,
         body: &mut (impl tokio::io::AsyncRead + Unpin),
     ) -> Result<(ObjectMetadata, String), StorageError> {
-        let write_started = Instant::now();
-        let tmp_id = uuid::Uuid::new_v4();
-        let raw_tmp = format!("{}/.tmp/{}.raw", self.data_dir, tmp_id);
-        let blob_tmp = format!("{}/.tmp/{}.blob", self.data_dir, tmp_id);
+        let tmp_path = format!("{}/.tmp/{}.tmp", self.data_dir, uuid::Uuid::new_v4());
         let final_path = blob_path(&self.data_dir, bucket, safe_key);
-        if let Some(parent) = final_path.parent() {
-            fs::create_dir_all(parent).await.map_err(internal)?;
-        }
-
-        let _raw_guard = TempFileGuard {
-            path: PathBuf::from(&raw_tmp),
-        };
-        let _blob_guard = TempFileGuard {
-            path: PathBuf::from(&blob_tmp),
+        let _tmp_guard = TempFileGuard {
+            path: PathBuf::from(&tmp_path),
         };
 
-        let mut raw_file = fs::File::create(&raw_tmp).await.map_err(internal)?;
-        let mut hasher = Xxh3::new();
-        let mut buf = vec![0u8; self.upload_buffer_size];
-        let stream_read_started = Instant::now();
+        // Human: Stream upload to a temp file, hash on the fly, then compress to the final blob without buffering the whole object in RAM.
+        // Agent: CALLS stream_body_to_temp; finalize_temp_to_blob(zstd_level); metadata size=logical bytes; TempFileGuard cleans tmp.
+        let (size, etag) =
+            stream_body_to_temp(body, PathBuf::from(&tmp_path).as_path(), self.upload_buffer_size)
+                .await?;
 
-        // Human: Spool upload stream to a temp file while hashing — avoids multi-GB RAM buffers.
-        // Agent: READS body in chunks; WRITES raw_tmp; XXH3 digest for etag.
-        loop {
-            let n = body.read(&mut buf).await.map_err(map_io_error)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-            raw_file.write_all(&buf[..n]).await.map_err(internal)?;
-        }
-        raw_file.flush().await.map_err(internal)?;
-        drop(raw_file);
-
-        let size = fs::metadata(&raw_tmp).await.map_err(internal)?.len();
-        let stream_read_ms = stream_read_started.elapsed().as_millis() as u64;
-        tracing::info!(
-            bucket = %bucket,
-            key = %safe_key,
-            logical_size_bytes = size,
-            stream_read_ms,
-            zstd_level = zstd_level_for_bytes(size as usize),
-            "write_object_stream body spooled to disk"
-        );
-
-        let compress_started = Instant::now();
-        let raw_tmp_path = PathBuf::from(&raw_tmp);
-        let blob_tmp_path = PathBuf::from(&blob_tmp);
-        let logical_size = size;
-        let (stored_blob_bytes, used_compression) = tokio::task::spawn_blocking(move || {
-            materialize_blob_from_raw_file(&raw_tmp_path, logical_size, &blob_tmp_path)
-        })
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("compression task join failed: {e}")))??;
-        let compress_ms = compress_started.elapsed().as_millis() as u64;
-        tracing::info!(
-            bucket = %bucket,
-            key = %safe_key,
-            logical_size_bytes = size,
-            stored_blob_bytes,
-            used_compression,
-            compress_ms,
-            "write_object_stream compression complete"
-        );
-        if compress_ms > 30_000 {
-            tracing::warn!(
-                bucket = %bucket,
-                key = %safe_key,
-                logical_size_bytes = size,
-                compress_ms,
-                "write_object_stream compression was slow — check CPU load and zstd level"
-            );
-        }
-
-        let disk_started = Instant::now();
-        let etag = format!("{:016x}", hasher.digest());
-        if final_path.exists() {
-            fs::remove_file(&final_path).await.map_err(internal)?;
-        }
-        fs::rename(&blob_tmp, &final_path)
-            .await
-            .map_err(internal)?;
-        let _ = fs::remove_file(&raw_tmp).await;
-        let disk_ms = disk_started.elapsed().as_millis() as u64;
-        tracing::info!(
-            bucket = %bucket,
-            key = %safe_key,
-            stored_blob_bytes,
-            disk_ms,
-            "write_object_stream blob persisted to disk"
-        );
+        finalize_temp_to_blob(
+            PathBuf::from(&tmp_path).as_path(),
+            &final_path,
+            size,
+            self.zstd_level(),
+        )
+        .await?;
 
         let now = chrono::Utc::now();
         let unix_now = now.timestamp();
@@ -504,17 +523,6 @@ impl StorageEngine {
             return Err(StorageError::Internal(e.into()));
         }
 
-        tracing::info!(
-            bucket = %bucket,
-            key = %safe_key,
-            logical_size_bytes = size,
-            total_ms = write_started.elapsed().as_millis() as u64,
-            stream_read_ms,
-            compress_ms,
-            disk_ms,
-            "write_object_stream complete"
-        );
-
         let meta = ObjectMetadata {
             bucket: bucket.to_string(),
             key: safe_key.to_string(),
@@ -525,6 +533,8 @@ impl StorageEngine {
             updated_at: now,
             custom_meta: custom_meta.map(|s| s.to_string()),
             deleted_at: None,
+            storage_class: None,
+            origin_node: None,
         };
         Ok((meta, etag))
     }
@@ -537,7 +547,6 @@ impl StorageEngine {
         if_none_match: Option<&str>,
         if_modified_since: Option<i64>,
     ) -> Result<GetObjectOutcome, StorageError> {
-        let read_started = Instant::now();
         let meta = self
             .fetch_active_metadata(
                 &sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?,
@@ -546,12 +555,6 @@ impl StorageEngine {
             .await?;
 
         if self.is_not_modified(&meta, if_none_match, if_modified_since) {
-            tracing::debug!(
-                bucket = %meta.bucket,
-                key = %meta.key,
-                elapsed_ms = read_started.elapsed().as_millis() as u64,
-                "get_object not modified (conditional headers)"
-            );
             return Ok(GetObjectOutcome::NotModified(meta));
         }
 
@@ -559,54 +562,23 @@ impl StorageEngine {
         let range = range_header.and_then(|h| parse_content_range(h, total_size));
 
         let path = blob_path(&self.data_dir, &meta.bucket, &meta.key);
-        let blob_read_started = Instant::now();
-        let blob = fs::read(&path).await.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                StorageError::NotFound
-            } else {
-                StorageError::Internal(e.into())
-            }
-        })?;
-        let blob_read_ms = blob_read_started.elapsed().as_millis() as u64;
+        let (start, _end, content_length) = Self::resolve_range(range, total_size)?;
 
-        // Human: Decompress (or pass through legacy raw blobs) so range requests apply to logical object bytes.
-        // Agent: CALLS decompress_blob(blob, meta.size); slice Vec; streams via ReaderStream<Cursor>.
-        let decompress_started = Instant::now();
-        let logical = decompress_blob(&blob, total_size)?;
-        let decompress_ms = decompress_started.elapsed().as_millis() as u64;
-        let (start, _end, content_length) = Self::resolve_range(range, logical.len() as u64)?;
-
-        let start_usize = start as usize;
-        let end_usize = start_usize + content_length as usize;
-        let slice = logical[start_usize..end_usize].to_vec();
-        let stream = ReaderStream::new(Cursor::new(slice));
-
-        tracing::info!(
-            bucket = %meta.bucket,
-            key = %meta.key,
-            logical_size_bytes = total_size,
-            stored_blob_bytes = blob.len(),
+        // Human: Stream object bytes from disk, decompressing via spill file or channel when the blob is zstd-wrapped.
+        // Agent: CALLS open_object_body_stream(path, logical_size, range_start, content_length, data_dir); no full-blob RAM buffer.
+        let stream = open_object_body_stream(
+            path.as_path(),
+            total_size,
+            start,
             content_length,
-            blob_read_ms,
-            decompress_ms,
-            elapsed_ms = read_started.elapsed().as_millis() as u64,
-            compressed = super::compression::is_compressed_blob(&blob),
-            "get_object blob read and decompressed"
-        );
-        if decompress_ms > 30_000 {
-            tracing::warn!(
-                bucket = %meta.bucket,
-                key = %meta.key,
-                logical_size_bytes = total_size,
-                decompress_ms,
-                "get_object decompression was slow — check CPU load"
-            );
-        }
+            &self.data_dir,
+        )
+        .await?;
 
         Ok(GetObjectOutcome::Content {
             stream,
             content_length,
-            total_size: logical.len() as u64,
+            total_size,
             meta,
         })
     }
@@ -640,12 +612,10 @@ impl StorageEngine {
             if etag == "*" {
                 return true;
             }
-            if let Some(stored) = &meta.etag {
-                let candidate = etag.trim().trim_matches('"');
-                if stored == candidate || stored == etag.trim() {
+            if let Some(stored) = &meta.etag
+                && etag_matches(stored, etag) {
                     return true;
                 }
-            }
         }
         if let Some(since) = if_modified_since
             && meta.updated_at.timestamp() <= since {
@@ -654,9 +624,19 @@ impl StorageEngine {
         false
     }
 
-    pub async fn delete_object(&self, bucket: &str, key: &str) -> Result<(), StorageError> {
+    pub async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        if_match: Option<&str>,
+    ) -> Result<(), StorageError> {
         let bucket = sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?;
         let safe_key = sanitize_key(key).map_err(|_| StorageError::InvalidKey)?;
+
+        if if_match.is_some() {
+            self.ensure_write_preconditions(&bucket, &safe_key, if_match, None)
+                .await?;
+        }
 
         let exists: i64 = sqlx::query_scalar(&format!(
             "SELECT COUNT(*) FROM objects WHERE bucket = ? AND key = ? AND {ACTIVE_WHERE}"
@@ -668,7 +648,6 @@ impl StorageEngine {
         .map_err(internal)?;
 
         if exists == 0 {
-            tracing::debug!(bucket = %bucket, key = %safe_key, "delete_object skipped: not found");
             return Ok(());
         }
 
@@ -684,12 +663,6 @@ impl StorageEngine {
                 .execute(&self.write_pool)
                 .await
                 .map_err(internal)?;
-            tracing::info!(
-                bucket = %bucket,
-                key = %safe_key,
-                mode = "hard",
-                "delete_object complete"
-            );
             return Ok(());
         }
 
@@ -708,16 +681,37 @@ impl StorageEngine {
         .await
         .map_err(internal)?;
 
-        tracing::info!(
-            bucket = %bucket,
-            key = %safe_key,
-            mode = "soft",
-            drop_blob = self.soft_delete_drop_blob,
-            ttl_secs = self.soft_delete_ttl_secs,
-            "delete_object complete"
-        );
-
         Ok(())
+    }
+
+    /// Human: Probes SQLite pools and blob directory writability for orchestrator readiness checks.
+    /// Agent: SELECT 1 on write+read pools; WRITE+DELETE probe file under NOS_DATA_DIR/.nos-ready-probe.
+    pub async fn probe_readiness(&self) -> ReadinessChecks {
+        let sqlite_write = sqlx::query("SELECT 1")
+            .fetch_one(&self.write_pool)
+            .await
+            .is_ok();
+        let sqlite_read = sqlx::query("SELECT 1")
+            .fetch_one(&self.read_pool)
+            .await
+            .is_ok();
+        let data_dir_writable = Self::probe_data_dir_writable(&self.data_dir).await;
+        ReadinessChecks {
+            sqlite_write,
+            sqlite_read,
+            data_dir_writable,
+        }
+    }
+
+    async fn probe_data_dir_writable(data_dir: &str) -> bool {
+        let probe = PathBuf::from(data_dir).join(".nos-ready-probe");
+        if fs::create_dir_all(data_dir).await.is_err() {
+            return false;
+        }
+        if fs::write(&probe, b"1").await.is_err() {
+            return false;
+        }
+        fs::remove_file(&probe).await.is_ok()
     }
 
     async fn fetch_active_metadata(
@@ -810,6 +804,8 @@ impl StorageEngine {
                     mime_type: r.mime_type,
                     etag: r.etag,
                     last_modified: r.updated_at,
+                    storage_class: r.storage_class.clone(),
+                    origin_node: r.origin_node.clone(),
                 })
                 .collect();
             return Ok(ListResult {
@@ -856,6 +852,8 @@ impl StorageEngine {
                 mime_type: row.mime_type,
                 etag: row.etag,
                 last_modified: row.updated_at,
+                storage_class: row.storage_class.clone(),
+                origin_node: row.origin_node.clone(),
             });
         }
 
@@ -919,5 +917,63 @@ impl StorageEngine {
             .await
             .map_err(internal)?;
         Ok(total)
+    }
+
+    /// Human: Records which storage class and node own an object after assignment accepts a write.
+    /// Agent: UPDATE objects SET storage_class, origin_node for active row matching bucket/key.
+    pub async fn set_object_placement(
+        &self,
+        bucket: &str,
+        key: &str,
+        storage_class: &str,
+        origin_node: &str,
+    ) -> Result<(), StorageError> {
+        let bucket = sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?;
+        let safe_key = sanitize_key(key).map_err(|_| StorageError::InvalidKey)?;
+        sqlx::query(
+            "UPDATE objects SET storage_class = ?, origin_node = ? WHERE bucket = ? AND key = ? AND deleted_at IS NULL",
+        )
+        .bind(storage_class)
+        .bind(origin_node)
+        .bind(&bucket)
+        .bind(&safe_key)
+        .execute(&self.write_pool)
+        .await
+        .map_err(internal)?;
+        Ok(())
+    }
+
+    /// Human: Lookup storage class before delete replication enqueue.
+    /// Agent: SELECT storage_class FROM objects WHERE active row; None if missing.
+    pub async fn active_storage_class(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<String>, StorageError> {
+        let bucket = sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?;
+        let safe_key = sanitize_key(key).map_err(|_| StorageError::InvalidKey)?;
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT COALESCE(storage_class, 'default') FROM objects WHERE bucket = ? AND key = ? AND deleted_at IS NULL",
+        )
+        .bind(&bucket)
+        .bind(&safe_key)
+        .fetch_optional(&self.read_pool)
+        .await
+        .map_err(internal)?;
+        Ok(row.map(|(c,)| c))
+    }
+
+    /// Human: Per-class object counts for Prometheus metrics.
+    /// Agent: GROUP BY storage_class on active objects.
+    pub async fn objects_by_storage_class(
+        &self,
+    ) -> Result<Vec<(String, i64)>, StorageError> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT COALESCE(storage_class, 'default'), COUNT(*) FROM objects WHERE deleted_at IS NULL GROUP BY storage_class",
+        )
+        .fetch_all(&self.read_pool)
+        .await
+        .map_err(internal)?;
+        Ok(rows)
     }
 }

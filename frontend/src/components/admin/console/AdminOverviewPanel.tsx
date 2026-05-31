@@ -1,18 +1,20 @@
 // Human: Admin Console - Dashboard Overview panel (login-signup.pencil frame Kb6HJ).
-// Agent: RENDERS mock KPIs, workload chart, resource bars, critical alerts table; no API.
+// Agent: CALLS fetchAdminOverview; RENDERS live KPIs, workload chart, resource bars, recent audit alerts.
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
   Database,
   Download,
   Info,
+  Loader2,
   RotateCw,
   Server,
   ShieldAlert,
-  TrendingUp,
   Users,
 } from "lucide-react";
+import { fetchAdminOverview, getErrorMessage, type AdminOverviewResponse } from "@/api/client";
 import {
   AdminConsoleMetricCard,
   AdminConsoleOutlineButton,
@@ -24,21 +26,56 @@ import {
   AdminConsolePill,
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
+import { formatBytes } from "@/lib/utils-app";
 
-const CHART_BARS = [
-  { h: 40, color: "#10B981" },
-  { h: 55, color: "#2563EB" },
-  { h: 48, color: "#2563EB" },
-  { h: 72, color: "#2563EB" },
-  { h: 65, color: "#10B981" },
-  { h: 80, color: "#2563EB" },
-  { h: 58, color: "#2563EB" },
-  { h: 45, color: "#10B981" },
-];
-const CHART_LABELS = ["10:00 AM", "10:15 AM", "10:30 AM", "10:45 AM", "11:00 AM", "11:15 AM", "11:30 AM", "11:45 AM"];
+// Human: Bar area height in px — bars use explicit pixels, not % (broken inside flex items-end).
+const WORKLOAD_CHART_BAR_AREA_PX = 120;
 
-/** Human: Dashboard overview — metrics, diagnostics chart, resource allocation, critical logs. */
+function severityTone(severity: string): "danger" | "warning" | "primary" {
+  if (severity === "Critical" || severity === "Warning") return "warning";
+  if (severity === "danger") return "danger";
+  return "primary";
+}
+
+/** Human: Dashboard overview — live metrics, workload, resource allocation, critical logs. */
 export function AdminOverviewPanel() {
+  const [data, setData] = useState<AdminOverviewResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (showRefresh: boolean) => {
+    if (showRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      setData(await fetchAdminOverview());
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial overview fetch on mount
+    void load(false);
+  }, [load]);
+
+  const workloadMax = useMemo(() => {
+    const values = data?.workload.map((b) => b.value) ?? [];
+    return Math.max(1, ...values);
+  }, [data?.workload]);
+
+  const metrics = data?.metrics;
+  const storageLabel =
+    data?.storage_health.status === "healthy"
+      ? "Online"
+      : data?.storage_health.status === "degraded"
+        ? "Degraded"
+        : "Not configured";
+
   return (
     <div className={adminConsoleContentClassName}>
       <AdminConsolePageHeader
@@ -46,11 +83,30 @@ export function AdminOverviewPanel() {
         description="Monitor network load, active node volumes, storage utilization, and security events."
         actions={
           <>
-            <AdminConsoleOutlineButton>
-              <RotateCw className="size-3.5 shrink-0" aria-hidden />
+            <AdminConsoleOutlineButton
+              onClick={() => void load(true)}
+              disabled={loading || refreshing}
+            >
+              {refreshing ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RotateCw className="size-3.5 shrink-0" aria-hidden />
+              )}
               Refresh Logs
             </AdminConsoleOutlineButton>
-            <AdminConsolePrimaryButton>
+            <AdminConsolePrimaryButton
+              onClick={() => {
+                if (!data) return;
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = "admin-overview-report.json";
+                anchor.click();
+                URL.revokeObjectURL(url);
+              }}
+              disabled={!data}
+            >
               <Download className="size-3.5 shrink-0" aria-hidden />
               Export Report
             </AdminConsolePrimaryButton>
@@ -58,148 +114,162 @@ export function AdminOverviewPanel() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <AdminConsoleMetricCard
-          label="Active Console Users"
-          value="14,842"
-          detail={
-            <span className="inline-flex items-center gap-1 text-[#10B981]">
-              <TrendingUp className="size-3.5" aria-hidden />
-              +12.4% vs last week
-            </span>
-          }
-          icon={Users}
-          iconBg="bg-[#EFF6FF]"
-          iconColor="text-[#2563EB]"
-        />
-        <AdminConsoleMetricCard
-          label="Total Storage Pool"
-          value="45.2 TB / 120 TB"
-          detail="37.6% Global Capacity"
-          icon={Database}
-          iconBg="bg-[#FAF5FF]"
-          iconColor="text-[#8B5CF6]"
-        />
-        <AdminConsoleMetricCard
-          label="System Node Health"
-          value="99.98% Online"
-          detail={
-            <span className="inline-flex items-center gap-1 text-[#10B981]">
-              <Check className="size-3.5" aria-hidden />
-              24/24 Nodes Active
-            </span>
-          }
-          icon={Server}
-          iconBg="bg-[#ECFDF5]"
-          iconColor="text-[#10B981]"
-        />
-        <AdminConsoleMetricCard
-          label="Active System Alerts"
-          value="3 Alerts Active"
-          detail={
-            <span className="inline-flex items-center gap-1 text-[#EF4444]">
-              <Info className="size-3.5" aria-hidden />
-              Action required immediately
-            </span>
-          }
-          icon={ShieldAlert}
-          iconBg="bg-[#FEF2F2]"
-          iconColor="text-[#EF4444]"
-        />
-      </div>
+      {error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <AdminConsolePanel
-          title="System Workload Diagnostics"
-          subtitle="Real-time virtualization cluster processor overhead"
-          headerRight={
-            <div className="flex flex-wrap gap-3 text-[11px] text-[#666666]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-[#2563EB]" aria-hidden />
-                CPU Load
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-[#10B981]" aria-hidden />
-                Network I/O
-              </span>
-            </div>
-          }
-        >
-          <div className="flex h-36 items-end justify-between gap-1" aria-hidden>
-            {CHART_BARS.map((bar, index) => (
-              <div key={CHART_LABELS[index]} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                <div
-                  className="w-full max-w-5 rounded-t"
-                  style={{ height: `${bar.h}%`, backgroundColor: bar.color }}
-                />
-                <span className="truncate text-[10px] text-[#888888]">{CHART_LABELS[index]}</span>
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Loading dashboard…
+        </div>
+      ) : null}
+
+      {!loading && metrics ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <AdminConsoleMetricCard
+              label="Active Console Users"
+              value={metrics.enabled_users.toLocaleString()}
+              detail={`${metrics.total_users} total accounts`}
+              icon={Users}
+              iconBg="bg-[#EFF6FF]"
+              iconColor="text-[#2563EB]"
+            />
+            <AdminConsoleMetricCard
+              label="Total Storage Pool"
+              value={formatBytes(metrics.total_storage_bytes)}
+              detail={`${metrics.total_files.toLocaleString()} files indexed`}
+              icon={Database}
+              iconBg="bg-[#FAF5FF]"
+              iconColor="text-[#8B5CF6]"
+            />
+            <AdminConsoleMetricCard
+              label="System Node Health"
+              value={`${storageLabel}`}
+              detail={
+                <span className="inline-flex items-center gap-1 text-[#10B981]">
+                  <Check className="size-3.5" aria-hidden />
+                  {data.storage_health.storage_mode} • {data.storage_health.bucket}
+                </span>
+              }
+              icon={Server}
+              iconBg="bg-[#ECFDF5]"
+              iconColor="text-[#10B981]"
+            />
+            <AdminConsoleMetricCard
+              label="Active System Alerts"
+              value={`${metrics.alert_count} Events`}
+              detail={
+                <span className="inline-flex items-center gap-1 text-[#EF4444]">
+                  <Info className="size-3.5" aria-hidden />
+                  Security and admin actions in audit log
+                </span>
+              }
+              icon={ShieldAlert}
+              iconBg="bg-[#FEF2F2]"
+              iconColor="text-[#EF4444]"
+            />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <AdminConsolePanel
+              title="System Workload Diagnostics"
+              subtitle="Recent API and audit activity (last 2 hours)"
+              headerRight={
+                <div className="flex flex-wrap gap-3 text-[11px] text-[#666666]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-[#2563EB]" aria-hidden />
+                    Event volume
+                  </span>
+                </div>
+              }
+            >
+              <div
+                className="flex justify-between gap-1.5"
+                style={{ height: WORKLOAD_CHART_BAR_AREA_PX + 28 }}
+                role="img"
+                aria-label="Audit event volume per fifteen minute interval over the last two hours"
+              >
+                {data.workload.map((bar) => {
+                  const barHeightPx = Math.max(
+                    bar.value > 0 ? 6 : 2,
+                    Math.round((bar.value / workloadMax) * WORKLOAD_CHART_BAR_AREA_PX),
+                  );
+                  return (
+                    <div
+                      key={`${bar.label}-${bar.value}`}
+                      className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2"
+                      title={`${bar.value} events at ${bar.label}`}
+                    >
+                      <div
+                        className="w-full min-w-[6px] max-w-6 rounded-t bg-[#2563EB] transition-[height]"
+                        style={{ height: barHeightPx }}
+                      />
+                      <span className="truncate text-[10px] text-[#888888]">{bar.label}</span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </AdminConsolePanel>
+              {data.workload.every((bar) => bar.value === 0) ? (
+                <p className="text-xs text-[#888888]">
+                  No audit events in the last two hours — bars will rise as users and admins act on the
+                  instance.
+                </p>
+              ) : null}
+            </AdminConsolePanel>
 
-        <AdminConsolePanel title="Resource Allocation" subtitle="Node cluster utilization limits">
-          <div className="flex flex-col gap-4">
-            <AdminConsoleResourceRow label="CPU Load (24 Cores)" percent={64} />
-            <AdminConsoleResourceRow label="Cluster Memory (DDR5)" percent={78} />
-            <AdminConsoleResourceRow label="Active Pool NVMe Storage" percent={52} />
-            <AdminConsoleResourceRow label="Network Bandwidth Usage" percent={29} />
+            <AdminConsolePanel title="Resource Allocation" subtitle="Instance utilization limits">
+              <div className="flex flex-col gap-4">
+                {data.resource_allocation.map((row) => (
+                  <AdminConsoleResourceRow key={row.label} label={row.label} percent={row.percent} />
+                ))}
+              </div>
+            </AdminConsolePanel>
           </div>
-        </AdminConsolePanel>
-      </div>
 
-      <AdminConsolePanel
-        title="Recent Critical Alerts & Logs"
-        subtitle="Live security audit and virtualization cluster failure diagnostics"
-        headerRight={
-          <div className="flex flex-wrap items-center gap-3">
-            <AdminConsolePill tone="danger">4 Critical Logs Active</AdminConsolePill>
-            <AdminConsoleOutlineButton>Open Log File</AdminConsoleOutlineButton>
-          </div>
-        }
-      >
-        <AdminConsoleTable
-          caption="Critical alerts"
-          columns={["Severity", "Source", "Event Details", "Timestamp"]}
-          rows={[
-            [
-              <AdminConsolePill key="s1" tone="danger">
-                Critical
-              </AdminConsolePill>,
-              "node-eu-west-03",
-              "NVMe pool latency exceeded 120ms threshold",
-              "2026-05-31 14:18:02",
-            ],
-            [
-              <AdminConsolePill key="s2" tone="warning">
-                Warning
-              </AdminConsolePill>,
-              "kms-consensus",
-              "Shard resync delayed on node-ap-south-09",
-              "2026-05-31 13:44:11",
-            ],
-            [
-              <AdminConsolePill key="s3" tone="primary">
-                Info
-              </AdminConsolePill>,
-              "auth-service",
-              "MFA enforcement policy updated for administrators",
-              "2026-05-31 12:02:18",
-            ],
-            [
-              <AdminConsolePill key="s4" tone="danger">
-                Critical
-              </AdminConsolePill>,
-              "hypervisor-02",
-              <span className="inline-flex items-center gap-1">
-                <AlertTriangle className="size-3.5 text-[#EF4444]" aria-hidden />
-                VM migration failed — manual intervention required
-              </span>,
-              "2026-05-31 11:30:55",
-            ],
-          ]}
-        />
-      </AdminConsolePanel>
+          <AdminConsolePanel
+            title="Recent Critical Alerts & Logs"
+            subtitle="Latest entries from the immutable audit ledger"
+            headerRight={
+              <div className="flex flex-wrap items-center gap-3">
+                <AdminConsolePill tone="danger">
+                  {data.recent_alerts.length} Recent Events
+                </AdminConsolePill>
+                <AdminConsoleOutlineButton onClick={() => void load(true)}>
+                  Refresh
+                </AdminConsoleOutlineButton>
+              </div>
+            }
+          >
+            {data.recent_alerts.length === 0 ? (
+              <p className="text-sm text-[#666666]">No audit events recorded yet.</p>
+            ) : (
+              <AdminConsoleTable
+                caption="Critical alerts"
+                columns={["Severity", "Source", "Event Details", "Timestamp"]}
+                rows={data.recent_alerts.map((row) => [
+                  <AdminConsolePill key={`${row.timestamp}-sev`} tone={severityTone(row.severity)}>
+                    {row.severity}
+                  </AdminConsolePill>,
+                  row.source,
+                  row.detail.includes("failed") ? (
+                    <span key={`${row.timestamp}-det`} className="inline-flex items-center gap-1">
+                      <AlertTriangle className="size-3.5 text-[#EF4444]" aria-hidden />
+                      {row.detail}
+                    </span>
+                  ) : (
+                    row.detail
+                  ),
+                  row.timestamp,
+                ])}
+              />
+            )}
+          </AdminConsolePanel>
+        </>
+      ) : null}
     </div>
   );
 }
