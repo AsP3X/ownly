@@ -1,6 +1,7 @@
 // Human: Floating find/replace panel — Pencil Search State overlay inside the editor pane.
 // Agent: CONTROLLED query/replace inputs; EMITS navigation and replace actions to parent.
 
+import { useEffect, useRef, type RefObject } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -27,6 +28,8 @@ export type EditorSearchPanelProps = {
   onClose: () => void;
   onReplaceOne: () => void;
   onReplaceAll: () => void;
+  /** Human: Optional ref so the parent can focus find on Ctrl/Cmd+F when search is already open. */
+  findInputRef?: RefObject<HTMLInputElement | null>;
 };
 
 export function EditorSearchPanel({
@@ -46,7 +49,22 @@ export function EditorSearchPanel({
   onClose,
   onReplaceOne,
   onReplaceAll,
+  findInputRef,
 }: EditorSearchPanelProps) {
+  const localFindInputRef = useRef<HTMLInputElement>(null);
+  const queryInputRef = findInputRef ?? localFindInputRef;
+
+  // Human: Focus find field whenever the panel opens — toolbar button or keyboard shortcut.
+  // Agent: READS open; FOCUSES query input on next frame after mount/open transition.
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      queryInputRef.current?.focus();
+      queryInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, queryInputRef]);
+
   if (!open) return null;
 
   const counterLabel =
@@ -71,6 +89,7 @@ export function EditorSearchPanel({
 
           <div className="flex h-7 min-w-0 flex-1 items-center justify-between rounded border border-[#2563EB] bg-[#11111B] px-2">
             <input
+              ref={queryInputRef}
               type="text"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}

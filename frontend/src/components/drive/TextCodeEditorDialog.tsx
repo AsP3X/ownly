@@ -88,6 +88,7 @@ export function TextCodeEditorDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const activeFileIdRef = useRef<string | null>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -341,6 +342,10 @@ export function TextCodeEditorDialog({
         event.preventDefault();
         setSearchOpen(true);
         setSettingsOpen(false);
+        window.requestAnimationFrame(() => {
+          findInputRef.current?.focus();
+          findInputRef.current?.select();
+        });
       }
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
@@ -413,6 +418,7 @@ export function TextCodeEditorDialog({
               <>
                 <EditorSearchPanel
                   open={searchOpen}
+                  findInputRef={findInputRef}
                   query={searchQuery}
                   replaceValue={replaceValue}
                   caseSensitive={caseSensitive}
