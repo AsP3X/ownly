@@ -1,7 +1,7 @@
 // Human: In-browser PDF viewer — Pencil Ownly Explorer PDF Viewer with thumbnails, page nav, and zoom.
 // Agent: FETCHES fetchFileBlobForPreview; RENDERS react-pdf Document + Page; READS pdf-viewer worker.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type UIEvent } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Document, Page } from "react-pdf";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import "@/lib/pdf-viewer";
@@ -51,6 +52,10 @@ const WHEEL_ZOOM_MIN = 0.012;
 const WHEEL_ZOOM_MAX = 0.055;
 const WHEEL_ZOOM_SCALE = 0.00035;
 const THUMBNAIL_WIDTH = 84;
+// Human: Padding inside the dark document pane (Tailwind p-6) used when fitting a full page.
+const PAGE_AREA_PADDING_PX = 48;
+// Human: Vertical gap between stacked pages in the scrollable document pane.
+const PAGE_STACK_GAP_PX = 24;
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(3))));
@@ -59,6 +64,22 @@ function clampZoom(value: number): number {
 function clampPage(value: number, total: number): number {
   if (total <= 0) return 1;
   return Math.min(total, Math.max(1, value));
+}
+
+// Human: Scale PDF page dimensions so the entire page fits inside the document pane (contain).
+// Agent: READS native page size + container clientWidth/clientHeight; RETURNS fit width in px.
+function computeFitPageWidth(
+  nativeWidth: number,
+  nativeHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): number {
+  const availableWidth = Math.max(containerWidth - PAGE_AREA_PADDING_PX, 200);
+  const availableHeight = Math.max(containerHeight - PAGE_AREA_PADDING_PX, 200);
+  const widthScale = availableWidth / nativeWidth;
+  const heightScale = availableHeight / nativeHeight;
+  const fitScale = Math.min(widthScale, heightScale);
+  return Math.round(nativeWidth * fitScale);
 }
 
 // Human: Scale wheel deltas from line/page modes into pixel-like steps for consistent zoom speed.
@@ -88,10 +109,12 @@ export function PdfPreviewDialog({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInputValue, setPageInputValue] = useState("1");
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
-  const [pageWidth, setPageWidth] = useState<number | undefined>(undefined);
+  const [fitPageWidth, setFitPageWidth] = useState<number | undefined>(undefined);
+  const [pageNativeSize, setPageNativeSize] = useState<{ width: number; height: number } | null>(null);
   const [documentAreaNode, setDocumentAreaNode] = useState<HTMLDivElement | null>(null);
   const activeFileIdRef = useRef<string | null>(null);
   const thumbnailRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Human: Callback ref so resize listeners attach after the dialog portal mounts the document pane.
   // Agent: WRITES documentAreaNode when the dark document-area DOM node appears or unmounts.
@@ -108,6 +131,8 @@ export function PdfPreviewDialog({
     setCurrentPage(1);
     setPageInputValue("1");
     setZoom(DEFAULT_ZOOM);
+    setFitPageWidth(undefined);
+    setPageNativeSize(null);
   }, [file?.id]);
 
   // Human: Keep the page input in sync when navigation changes currentPage externally.
@@ -116,21 +141,27 @@ export function PdfPreviewDialog({
     setPageInputValue(String(currentPage));
   }, [currentPage]);
 
-  // Human: Fit the main page to the document pane width — zoom multiplier applies on top of fit width.
-  // Agent: READS documentAreaNode clientWidth via ResizeObserver; WRITES pageWidth for react-pdf Page.
+  // Human: Fit each page to the document pane so one full page is visible at 100% zoom.
+  // Agent: READS pageNativeSize + documentAreaNode via ResizeObserver; WRITES fitPageWidth.
   useLayoutEffect(() => {
-    if (!open || !documentAreaNode) return;
+    if (!open || !documentAreaNode || !pageNativeSize) return;
 
-    const updateWidth = () => {
-      const nextWidth = Math.max(documentAreaNode.clientWidth - 48, 280);
-      setPageWidth(nextWidth);
+    const updateFitWidth = () => {
+      setFitPageWidth(
+        computeFitPageWidth(
+          pageNativeSize.width,
+          pageNativeSize.height,
+          documentAreaNode.clientWidth,
+          documentAreaNode.clientHeight,
+        ),
+      );
     };
 
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
+    updateFitWidth();
+    const observer = new ResizeObserver(updateFitWidth);
     observer.observe(documentAreaNode);
     return () => observer.disconnect();
-  }, [open, documentAreaNode]);
+  }, [open, documentAreaNode, pageNativeSize]);
 
   // Human: Load PDF bytes through the authenticated download path used by image preview.
   // Agent: FETCHES fetchFileBlobForPreview; WRITES ArrayBuffer only when activeFileIdRef still matches.
@@ -169,10 +200,40 @@ export function PdfPreviewDialog({
 
   const goToPage = useCallback(
     (page: number) => {
-      setCurrentPage(clampPage(page, numPages));
+      const clamped = clampPage(page, numPages);
+      setCurrentPage(clamped);
+      pageRefs.current.get(clamped)?.scrollIntoView({ block: "start", behavior: "smooth" });
     },
     [numPages],
   );
+
+  // Human: Track the page nearest the viewport center while the user scrolls the document pane.
+  // Agent: READS [data-pdf-page] offsets; WRITES currentPage from scroll position.
+  const handleDocumentScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const pages = container.querySelectorAll("[data-pdf-page]");
+    const mid = container.scrollTop + container.clientHeight / 2;
+
+    for (let index = 0; index < pages.length; index++) {
+      const page = pages[index] as HTMLElement;
+      if (page.offsetTop <= mid && page.offsetTop + page.offsetHeight > mid) {
+        setCurrentPage(index + 1);
+        break;
+      }
+    }
+  }, []);
+
+  // Human: Load native page dimensions from the PDF so fit-to-page width can be computed.
+  // Agent: CALLS pdf.getPage(1) on Document load; WRITES pageNativeSize from viewport at scale 1.
+  const handleDocumentLoadSuccess = useCallback((pdf: PDFDocumentProxy) => {
+    setNumPages(pdf.numPages);
+    setCurrentPage(1);
+
+    void pdf.getPage(1).then((page) => {
+      const viewport = page.getViewport({ scale: 1 });
+      setPageNativeSize({ width: viewport.width, height: viewport.height });
+    });
+  }, []);
 
   const goPreviousPage = useCallback(() => {
     goToPage(currentPage - 1);
@@ -270,7 +331,7 @@ export function PdfPreviewDialog({
     activeThumb?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [open, currentPage, numPages]);
 
-  const scaledWidth = pageWidth ? Math.round(pageWidth * zoom) : undefined;
+  const scaledWidth = fitPageWidth ? Math.round(fitPageWidth * zoom) : undefined;
   const showDownloadAction = Boolean(file && onDownload);
   const canGoPrevious = currentPage > 1;
   const canGoNext = numPages > 0 && currentPage < numPages;
@@ -287,7 +348,7 @@ export function PdfPreviewDialog({
           <DialogTitle>{file?.name ?? "PDF preview"}</DialogTitle>
           <DialogDescription>
             {numPages > 0
-              ? `Viewing page ${currentPage} of ${numPages}. Use arrow keys to change pages; Ctrl+scroll to zoom.`
+              ? `Viewing page ${currentPage} of ${numPages}. Scroll to change pages; Ctrl+scroll to zoom.`
               : "View PDF pages in the browser."}
           </DialogDescription>
         </DialogHeader>
@@ -476,8 +537,8 @@ export function PdfPreviewDialog({
             ) : null}
 
             {pdfData && !error ? (
-              // Human: One Document instance feeds both thumbnail sidebar and the active main page.
-              // Agent: PARSES pdfData once; onLoadSuccess SETS numPages; CHILDREN render Page at two widths.
+              // Human: One Document instance feeds thumbnail sidebar and the scrollable page stack.
+              // Agent: PARSES pdfData once; onLoadSuccess SETS numPages + pageNativeSize for fit width.
               <Document
                 file={pdfData}
                 loading={
@@ -486,10 +547,7 @@ export function PdfPreviewDialog({
                     Rendering PDF…
                   </div>
                 }
-                onLoadSuccess={({ numPages: loadedPages }) => {
-                  setNumPages(loadedPages);
-                  setCurrentPage(1);
-                }}
+                onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={(loadError) => {
                   setError(loadError.message || "Could not open this PDF.");
                 }}
@@ -552,26 +610,51 @@ export function PdfPreviewDialog({
                   </div>
                 </aside>
 
-                {/* Human: Document pane — dark canvas with centered active page and drop shadow. */}
+                {/* Human: Document pane — scrollable stack of full pages, fit-to-viewport at 100% zoom. */}
                 <div
                   ref={documentAreaRef}
                   tabIndex={-1}
-                  className="relative flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto bg-[#374151] p-6 outline-none"
+                  onScroll={handleDocumentScroll}
+                  className="relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-[#374151] p-6 outline-none"
                 >
-                  {numPages > 0 ? (
-                    <div className="rounded bg-white shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
-                      <Page
-                        pageNumber={currentPage}
-                        width={scaledWidth}
-                        renderAnnotationLayer
-                        renderTextLayer
-                        loading={
-                          <div className="flex min-h-[24rem] min-w-[16rem] items-center justify-center">
-                            <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                  {numPages > 0 && scaledWidth ? (
+                    <div
+                      className="mx-auto flex flex-col items-center"
+                      style={{ gap: PAGE_STACK_GAP_PX }}
+                    >
+                      {Array.from({ length: numPages }, (_, index) => {
+                        const pageNumber = index + 1;
+
+                        return (
+                          <div
+                            key={`page-${pageNumber}`}
+                            data-pdf-page
+                            ref={(node) => {
+                              if (node) pageRefs.current.set(pageNumber, node);
+                              else pageRefs.current.delete(pageNumber);
+                            }}
+                            className="rounded bg-white shadow-[0_8px_24px_rgba(0,0,0,0.25)]"
+                          >
+                            <Page
+                              pageNumber={pageNumber}
+                              width={scaledWidth}
+                              renderAnnotationLayer
+                              renderTextLayer
+                              loading={
+                                <div className="flex min-h-[24rem] min-w-[16rem] items-center justify-center">
+                                  <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                                </div>
+                              }
+                              className={cn(loading && "opacity-70")}
+                            />
                           </div>
-                        }
-                        className={cn(loading && "opacity-70")}
-                      />
+                        );
+                      })}
+                    </div>
+                  ) : numPages > 0 ? (
+                    <div className="flex flex-1 items-center justify-center py-12">
+                      <Loader2 className="size-6 animate-spin text-white/70" aria-hidden />
+                      <span className="sr-only">Sizing PDF pages…</span>
                     </div>
                   ) : null}
                 </div>
