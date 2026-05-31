@@ -11,7 +11,9 @@ import {
   testSetupDatabase,
   getErrorMessage,
 } from "@/api/client";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
+import { DEFAULT_INSTANCE_NAME } from "@/lib/instance-name";
 import { SetupActionsRow } from "@/components/setup/SetupActionsRow";
 import { SetupConnectionUrlBox } from "@/components/setup/SetupConnectionUrlBox";
 import { SetupDbStatusBanner } from "@/components/setup/SetupDbStatusBanner";
@@ -24,7 +26,6 @@ import { SetupPageShell } from "@/components/setup/SetupPageShell";
 import {
   SetupStorageNodeDialog,
   validateSetupStorageNodeDraft,
-  type SetupNodeArchitecture,
   type SetupStorageNodeDraft,
 } from "@/components/setup/SetupStorageNodeDialog";
 import { SetupToggleRow } from "@/components/setup/SetupToggleRow";
@@ -43,17 +44,10 @@ type ConnectionTestResult = {
   message: string;
 };
 
-/** Human: Map env storage_mode to registry architecture default for the setup form. */
-function defaultArchitectureFromStorageMode(mode: string): SetupNodeArchitecture {
-  if (mode === "replicated" || mode === "assigned") return mode;
-  return "single";
-}
-
 const DEFAULT_NODE_DRAFT: SetupStorageNodeDraft = {
   nodeId: "node-primary",
-  regionLabel: "My Ownly Storage",
+  regionLabel: DEFAULT_INSTANCE_NAME,
   baseUrl: "",
-  architecture: "single",
   capacityValue: "512",
   capacityUnit: "GB",
 };
@@ -61,13 +55,14 @@ const DEFAULT_NODE_DRAFT: SetupStorageNodeDraft = {
 export default function SetupPage() {
   const navigate = useNavigate();
   const { setAuth } = useAuth();
+  const { setInstanceName: applyInstanceName } = useInstanceName();
 
   const [step, setStep] = useState<Step>(1);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [instanceName, setInstanceName] = useState("My Ownly Storage");
+  const [instanceName, setInstanceName] = useState(DEFAULT_INSTANCE_NAME);
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const [requireAccountActivation, setRequireAccountActivation] = useState(false);
   const [storageBucket, setStorageBucket] = useState("media");
@@ -83,6 +78,14 @@ export default function SetupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Human: Keep the first storage node's region label aligned with the instance name field.
+  // Agent: WRITES instanceName + storageNode.regionLabel together on each keystroke.
+  function handleInstanceNameChange(value: string) {
+    setInstanceName(value);
+    const trimmed = value.trim() || DEFAULT_INSTANCE_NAME;
+    setStorageNode((prev) => ({ ...prev, regionLabel: trimmed }));
+  }
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([setupDatabaseInfo(), setupStorageInfo()])
@@ -95,7 +98,6 @@ export default function SetupPage() {
         setStorageNode((prev) => ({
           ...prev,
           baseUrl: storageInfo.object_storage_url,
-          architecture: defaultArchitectureFromStorageMode(storageInfo.storage_mode),
         }));
       })
       .catch(() => undefined);
@@ -192,7 +194,6 @@ export default function SetupPage() {
         storage_node_id: storageNode.nodeId.trim(),
         storage_node_region_label: storageNode.regionLabel.trim(),
         storage_node_base_url: storageNode.baseUrl.trim(),
-        storage_node_architecture: storageNode.architecture,
         storage_node_target_capacity_value: capacity,
         storage_node_target_capacity_unit: storageNode.capacityUnit,
       });
@@ -214,6 +215,7 @@ export default function SetupPage() {
         setError("Setup did not return a session token.");
         return;
       }
+      applyInstanceName(instanceName.trim());
       setAuth(res.token, res.user);
       navigate("/", { replace: true });
     } catch (e) {
@@ -236,9 +238,7 @@ export default function SetupPage() {
     setError("");
   }
 
-  const architectureLabel =
-    ARCHITECTURE_LABELS[storageNode.architecture] ?? storageNode.architecture;
-
+  const nodeSummary = `${storageNode.capacityValue} ${storageNode.capacityUnit}`;
   const useCompactHeader = step >= 3;
 
   return (
@@ -308,9 +308,9 @@ export default function SetupPage() {
             <>
               <SetupField
                 label="Instance Name"
-                placeholder="My Ownly Storage"
+                placeholder={DEFAULT_INSTANCE_NAME}
                 value={instanceName}
-                onChange={(e) => setInstanceName(e.target.value)}
+                onChange={(e) => handleInstanceNameChange(e.target.value)}
               />
               <SetupToggleRow
                 title="Enable Public Registration"
@@ -358,9 +358,7 @@ export default function SetupPage() {
                       <span className="font-normal text-[#666666]">· {storageNode.regionLabel}</span>
                     </p>
                     <p className="mt-1 truncate text-[#666666]">{storageNode.baseUrl}</p>
-                    <p className="mt-1 text-xs text-[#888888]">
-                      {architectureLabel} · {storageNode.capacityValue} {storageNode.capacityUnit}
-                    </p>
+                    <p className="mt-1 text-xs text-[#888888]">{nodeSummary}</p>
                   </div>
                 ) : (
                   <p className="text-sm text-[#666666]">
@@ -439,8 +437,3 @@ export default function SetupPage() {
   );
 }
 
-const ARCHITECTURE_LABELS: Record<SetupNodeArchitecture, string> = {
-  replicated: "Replicated",
-  single: "Single",
-  assigned: "Assigned",
-};

@@ -3,6 +3,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Save } from "lucide-react";
+import { useInstanceName } from "@/hooks/useInstanceName";
+import {
+  ENCRYPTION_SUMMARY,
+  KEY_EXCHANGE,
+  PASSWORD_KDF,
+  QUANTUM_POSTURE,
+  QUANTUM_READINESS_CHECKLIST,
+  SYMMETRIC_CIPHER,
+} from "@/lib/encryption-standards";
 import {
   fetchAdminSettings,
   getErrorMessage,
@@ -22,6 +31,7 @@ import {
 
 /** Human: System settings with three underline tabs — loads and saves via admin settings API. */
 export function AdminSystemSettingsPanel() {
+  const { setInstanceName } = useInstanceName();
   const [tab, setTab] = useState("general");
   const [form, setForm] = useState<AdminSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +88,7 @@ export function AdminSystemSettingsPanel() {
     try {
       const updated = await updateAdminSettings(body);
       setForm(updated);
+      setInstanceName(updated.instance_name);
       setSmtpPasswordDraft("");
       setSavedMessage("Settings saved successfully.");
     } catch (err) {
@@ -241,18 +252,34 @@ export function AdminSystemSettingsPanel() {
                   </p>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow
-                  title="Zero-Knowledge Encryption"
-                  description="Cryptographic primitives applied to stored objects and credentials."
+                  title="Quantum-Resistant Encryption"
+                  description="Symmetric AES-256-GCM protects stored data; hybrid post-quantum TLS protects keys in transit."
                 >
                   <div className="flex flex-col gap-4">
                     <AdminConsoleField
-                      label="Standard Encryption Cipher"
-                      value="AES-256-GCM (object storage at rest)"
+                      label="Symmetric cipher (data at rest)"
+                      value={SYMMETRIC_CIPHER}
                     />
                     <AdminConsoleField
-                      label="Key Derivation Function (KDF)"
-                      value="Argon2id (password hashing)"
+                      label="Key exchange (hybrid PQC at edge)"
+                      value={KEY_EXCHANGE}
                     />
+                    <AdminConsoleField label="Password KDF" value={PASSWORD_KDF} />
+                    <AdminConsoleField label="Posture summary" value={QUANTUM_POSTURE} />
+                    <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">
+                        Deployment checklist
+                      </p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-[#666666]">
+                        {QUANTUM_READINESS_CHECKLIST.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <p className="text-xs text-[#888888]">
+                      Active standard: {ENCRYPTION_SUMMARY}. HLS streaming segments remain AES-128-CBC
+                      for player compatibility; segment keys are wrapped with {SYMMETRIC_CIPHER}.
+                    </p>
                   </div>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow

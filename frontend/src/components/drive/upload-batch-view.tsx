@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 /** Human: Max height for the scrollable file list inside the expanded transfer panel. */
 export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "17.5rem";
 
-// Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / green).
-// Agent: MAPS upload | processing | storing to Tailwind text and bar fill classes.
+// Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / amber / green).
+// Agent: MAPS uploading | processing | encrypting | storing to Tailwind text and bar fill classes.
 function phaseStyles(phase: UploadPhase) {
   if (phase === "storing") {
     return {
@@ -20,7 +20,14 @@ function phaseStyles(phase: UploadPhase) {
       percent: "text-emerald-600",
       bar: "bg-emerald-600",
       meta: "text-emerald-600",
-      status: "Moving to secure storage",
+    };
+  }
+  if (phase === "encrypting") {
+    return {
+      icon: "text-amber-600",
+      percent: "text-amber-600",
+      bar: "bg-amber-500",
+      meta: "text-amber-600",
     };
   }
   if (phase === "processing") {
@@ -29,7 +36,6 @@ function phaseStyles(phase: UploadPhase) {
       percent: "text-fuchsia-700",
       bar: "bg-fuchsia-700",
       meta: "text-fuchsia-700",
-      status: "Processing encryption",
     };
   }
   return {
@@ -37,26 +43,63 @@ function phaseStyles(phase: UploadPhase) {
     percent: "text-[#2563EB]",
     bar: "bg-[#2563EB]",
     meta: "text-[#888888]",
-    status: "Uploading",
   };
 }
 
-// Human: Thin progress track — 4px bar with phase-colored fill or violet shimmer when indeterminate.
-// Agent: RENDERS one bar at a time from phase; processing uses upload-shimmer when indeterminate.
+// Human: Status line for the active upload bar — four-step tray flow after bytes reach the server.
+// Agent: READS phase; RETURNS Uploading → Processing file → Encrypting → Moving to storage.
+function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
+  if (item.phase === "storing") {
+    return "Moving to storage";
+  }
+  if (item.phase === "encrypting") {
+    return "Encrypting (AES-256-GCM)";
+  }
+  if (item.phase === "processing") {
+    return "Processing file";
+  }
+  return "Uploading";
+}
+
+// Human: Shimmer track tint and fill for indeterminate post-upload bars.
+// Agent: MAPS processing|encrypting|storing to Tailwind classes for UploadProgressBar.
+function indeterminateBarStyles(phase: UploadPhase) {
+  if (phase === "storing") {
+    return { shimmer: "bg-emerald-600", track: "bg-emerald-200/50" };
+  }
+  if (phase === "encrypting") {
+    return { shimmer: "bg-amber-500", track: "bg-amber-200/50" };
+  }
+  return { shimmer: "bg-fuchsia-700", track: "bg-fuchsia-200/50" };
+}
+
+// Human: Thin progress track — 4px bar with phase-colored fill or shimmer when indeterminate.
+// Agent: RENDERS one bar at a time from phase; post-upload phases use upload-shimmer when indeterminate.
 export function UploadProgressBar({
   value,
   phase,
   indeterminate,
+  statusLabel,
   className,
 }: {
   value: number;
   phase: UploadPhase;
   indeterminate?: boolean;
+  statusLabel?: string;
   className?: string;
 }) {
   const styles = phaseStyles(phase);
+  const ariaLabel =
+    phase === "uploading"
+      ? "Uploading to server"
+      : (statusLabel ?? getUploadPhaseStatus({ phase }));
 
-  if (phase === "processing" && indeterminate) {
+  const isPostUploadPhase =
+    phase === "processing" || phase === "encrypting" || phase === "storing";
+
+  if (indeterminate && isPostUploadPhase) {
+    const shimmer = indeterminateBarStyles(phase);
+
     return (
       <div
         className={cn("relative h-1 w-full overflow-hidden rounded-sm bg-[#E5E7EB]", className)}
@@ -64,21 +107,20 @@ export function UploadProgressBar({
         aria-busy="true"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label="Processing video"
+        aria-label={ariaLabel}
       >
-        <div className="absolute inset-y-0 left-0 w-full bg-fuchsia-200/50" />
-        <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-sm bg-fuchsia-700" />
+        <div className={cn("absolute inset-y-0 left-0 w-full", shimmer.track)} />
+        <div
+          className={cn(
+            "absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-sm",
+            shimmer.shimmer,
+          )}
+        />
       </div>
     );
   }
 
   const clamped = Math.min(100, Math.max(0, value));
-  const ariaLabel =
-    phase === "storing"
-      ? "Moving to storage"
-      : phase === "processing"
-        ? "Processing video"
-        : "Uploading to server";
 
   return (
     <div
@@ -113,9 +155,10 @@ export function ActiveUploadRow({
   item: UploadItemSnapshot;
   onCancel?: (itemId: string) => void;
 }) {
-  const isPostUpload = item.phase === "processing" || item.phase === "storing";
-  const isVideo = item.mimeType.startsWith("video/");
+  const isPostUpload =
+    item.phase === "processing" || item.phase === "encrypting" || item.phase === "storing";
   const styles = phaseStyles(item.phase);
+  const phaseStatus = getUploadPhaseStatus(item);
   const [phaseElapsedSec, setPhaseElapsedSec] = useState(0);
 
   useEffect(() => {
@@ -129,10 +172,6 @@ export function ActiveUploadRow({
 
   const percentLabel =
     isPostUpload && item.indeterminate ? "Working…" : `${item.progress}%`;
-  const elapsedDetail =
-    item.phase === "processing" && isVideo && !item.indeterminate
-      ? `Encoding ${formatElapsed(phaseElapsedSec)}`
-      : formatElapsed(phaseElapsedSec);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -165,15 +204,16 @@ export function ActiveUploadRow({
         value={item.progress}
         phase={item.phase}
         indeterminate={item.indeterminate}
+        statusLabel={phaseStatus}
       />
       <p className="truncate text-[11px] leading-tight">
         <span className="text-[#888888]">{formatBytes(item.fileSize)}</span>
         <span className="text-[#888888]"> · </span>
-        <span className={styles.meta}>{styles.status}</span>
+        <span className={styles.meta}>{phaseStatus}</span>
         {isPostUpload ? (
           <>
             <span className="text-[#888888]"> · </span>
-            <span className={styles.meta}>{elapsedDetail}</span>
+            <span className={styles.meta}>{formatElapsed(phaseElapsedSec)}</span>
           </>
         ) : null}
       </p>

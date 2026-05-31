@@ -10,6 +10,7 @@ import {
   Search,
   Upload,
 } from "lucide-react";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { DriveProfileMenu } from "@/components/drive/DriveProfileMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,7 @@ export function MobileDriveHeader({
   onBack,
 }: MobileDriveHeaderProps) {
   const navigate = useNavigate();
+  const { instanceName } = useInstanceName();
 
   // Human: Close the popover before routing — toggle only when open avoids opening it accidentally.
   // Agent: WRITES profileOpen via onProfileToggle; NAVIGATE /admin for administrators.
@@ -113,7 +115,7 @@ export function MobileDriveHeader({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium uppercase tracking-wide text-[#888888]">
-            {inFolder ? "Folder" : activeNav === "home" ? "Ownly" : "Library"}
+            {inFolder ? "Folder" : activeNav === "home" ? instanceName : "Library"}
           </p>
           <h1 className="truncate text-lg font-semibold tracking-tight text-[#1A1A1A]">
             {pageTitle}

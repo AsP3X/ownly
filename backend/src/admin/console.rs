@@ -17,6 +17,7 @@ use crate::{
     admin::handlers::require_admin,
     audit,
     auth::handlers::Claims,
+    crypto,
     error::AppError,
     AppState,
 };
@@ -529,10 +530,12 @@ pub async fn list_audit_logs(
 pub struct AdminStorageNodeRow {
     pub id: String,
     pub region_label: String,
+    pub base_url: String,
     pub endpoint_host: String,
     pub status: String,
     pub used_bytes: i64,
     pub capacity_label: String,
+    pub target_capacity_bytes: Option<i64>,
     pub latency_ms: Option<u128>,
     pub storage_mode: String,
 }
@@ -703,7 +706,20 @@ pub async fn patch_settings(
         if trimmed.is_empty() {
             return Err(AppError::BadRequest("instance name cannot be empty".into()));
         }
+        let previous = read_setting(&state.pool, "instance_name").await;
         upsert_setting(&state.pool, "instance_name", trimmed).await?;
+        // Human: Storage nodes seeded at setup use the instance name as their region label.
+        // Agent: WRITES storage_nodes.region_label when the old label matched the previous instance name.
+        if let Some(old) = previous {
+            let old_trimmed = old.trim();
+            if !old_trimmed.is_empty() && old_trimmed != trimmed {
+                sqlx::query("UPDATE storage_nodes SET region_label = $1 WHERE region_label = $2")
+                    .bind(trimmed)
+                    .bind(old_trimmed)
+                    .execute(&state.pool)
+                    .await?;
+            }
+        }
     }
     if let Some(url) = body.console_url.as_ref() {
         upsert_setting(&state.pool, "object_storage_public_url", url.trim()).await?;
@@ -814,8 +830,19 @@ pub struct AdminKeyRotationRow {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AdminEncryptionProfile {
+    pub symmetric_cipher: String,
+    pub key_wrapping: String,
+    pub key_exchange: String,
+    pub streaming_segment_cipher: String,
+    pub password_kdf: String,
+    pub quantum_posture: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct AdminSecurityOverviewResponse {
     pub encryption_standard: String,
+    pub encryption: AdminEncryptionProfile,
     pub kms_nodes_active: i64,
     pub kms_nodes_total: i64,
     pub storage_status: String,
@@ -856,7 +883,15 @@ pub async fn security_overview(
         .collect();
 
     Ok(Json(AdminSecurityOverviewResponse {
-        encryption_standard: "AES-256-GCM at rest (object storage) / Argon2id passwords".into(),
+        encryption_standard: crypto::ENCRYPTION_SUMMARY.into(),
+        encryption: AdminEncryptionProfile {
+            symmetric_cipher: crypto::SYMMETRIC_CIPHER.into(),
+            key_wrapping: crypto::KEY_WRAPPING.into(),
+            key_exchange: crypto::KEY_EXCHANGE.into(),
+            streaming_segment_cipher: crypto::STREAMING_SEGMENT_CIPHER.into(),
+            password_kdf: crypto::PASSWORD_KDF.into(),
+            quantum_posture: crypto::QUANTUM_POSTURE.into(),
+        },
         kms_nodes_active: if state.storage_configured && healthy {
             1
         } else {

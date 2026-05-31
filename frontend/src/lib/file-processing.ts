@@ -30,14 +30,28 @@ export function isFileProcessing(file: FileItem): boolean {
 export function fileProcessingLabel(file: FileItem): string {
   if (isAudioProcessing(file)) {
     if (file.audio_encode_status === "queued") {
-      return "Processing";
+      return "Processing file";
+    }
+    if (file.conversion_progress >= 75) {
+      const storagePercent = Math.min(
+        99,
+        Math.round(((file.conversion_progress - 75) / 25) * 100),
+      );
+      return storagePercent > 0 ? `Moving to storage ${storagePercent}%` : "Moving to storage";
+    }
+    if (file.conversion_progress >= 45) {
+      const encryptPercent = Math.min(
+        99,
+        Math.round(((file.conversion_progress - 45) / 30) * 100),
+      );
+      return encryptPercent > 0 ? `Encrypting (AES-256) ${encryptPercent}%` : "Encrypting (AES-256)";
     }
     const percent = Math.min(99, Math.max(0, file.conversion_progress));
-    return percent > 0 ? `Processing ${percent}%` : "Processing";
+    return percent > 0 ? `Processing file ${percent}%` : "Processing file";
   }
 
   if (file.hls_encode_status === "queued") {
-    return "Processing";
+    return "Processing file";
   }
   if (file.conversion_progress >= 50) {
     const storagePercent = Math.min(
@@ -46,11 +60,37 @@ export function fileProcessingLabel(file: FileItem): string {
     );
     return storagePercent > 0 ? `Moving to storage ${storagePercent}%` : "Moving to storage";
   }
-  if (file.conversion_progress > 0) {
-    const encodePercent = Math.min(99, Math.round((file.conversion_progress / 50) * 100));
-    return `Processing ${encodePercent}%`;
+  if (file.conversion_progress >= 40) {
+    const encryptPercent = Math.min(
+      99,
+      Math.round(((file.conversion_progress - 40) / 10) * 100),
+    );
+    return encryptPercent > 0 ? `Encrypting (AES-256) ${encryptPercent}%` : "Encrypting (AES-256)";
   }
-  return "Processing";
+  if (file.conversion_progress > 0) {
+    const encodePercent = Math.min(99, Math.round((file.conversion_progress / 40) * 100));
+    return encodePercent > 0 ? `Processing file ${encodePercent}%` : "Processing file";
+  }
+  return "Processing file";
+}
+
+// Human: Shorter badge copy for narrow grid tiles so labels do not bleed into neighbors.
+// Agent: READS fileProcessingLabel; RETURNS abbreviated phase text with percent when present.
+export function fileProcessingCompactLabel(file: FileItem): string {
+  const label = fileProcessingLabel(file);
+  if (label.startsWith("Moving to storage")) {
+    const percent = label.match(/(\d+)%/)?.[1];
+    return percent ? `Storage ${percent}%` : "Storage";
+  }
+  if (label.startsWith("Encrypting")) {
+    const percent = label.match(/(\d+)%/)?.[1];
+    return percent ? `Encrypting ${percent}%` : "Encrypting";
+  }
+  if (label.startsWith("Processing file")) {
+    const percent = label.match(/(\d+)%/)?.[1];
+    return percent ? `Processing ${percent}%` : "Processing";
+  }
+  return label;
 }
 
 // Human: True when server progress is in the Nebular upload half of HLS ingest.

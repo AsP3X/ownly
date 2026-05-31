@@ -398,11 +398,11 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
             mimeType: file.mime_type ?? item.mimeType,
 
-            phase: isVideoAwaitingIngest(file) ? ("processing" as const) : item.phase,
+            phase: isMediaAwaitingIngest(file) ? ("processing" as const) : item.phase,
 
             // Human: Switch to the processing bar at 0% once bytes are on the server.
-            // Agent: RESET progress when video ingest begins so upload bar is not carried over.
-            progress: isVideoAwaitingIngest(file) ? 0 : item.progress,
+            // Agent: RESET progress when media ingest begins so upload bar is not carried over.
+            progress: isMediaAwaitingIngest(file) ? 0 : item.progress,
 
           }
 
@@ -416,10 +416,11 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
 
 
-function isVideoAwaitingIngest(file: FileItem): boolean {
-
-  return Boolean(file.mime_type?.startsWith("video/") && !file.hls_ready);
-
+function isMediaAwaitingIngest(file: FileItem): boolean {
+  return Boolean(
+    (file.mime_type?.startsWith("video/") && !file.hls_ready) ||
+      (file.mime_type?.startsWith("audio/") && !file.audio_waveform_ready),
+  );
 }
 
 
@@ -481,7 +482,7 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
 
               progress: 100,
 
-              phase: "processing" as const,
+              phase: "storing" as const,
 
               indeterminate: false,
 
@@ -925,7 +926,7 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
               ...item,
               status: "done" as const,
               progress: 100,
-              phase: "processing" as const,
+              phase: "storing" as const,
               indeterminate: false,
               uploadedFileId,
             }

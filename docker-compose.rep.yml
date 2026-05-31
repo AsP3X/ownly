@@ -1,61 +1,52 @@
-# Human: Two-node Nebular OS replication override — merge with docker-compose.yml.
-# Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build`;
-#        nodes start standalone; Ownly applies replicated topology via PUT /_cluster/config at setup.
-#        Uses Nebular runtime cluster config (see nebular-os README).
-#
-# Ports: node-a 9000 (backend OBJECT_STORAGE_URL), node-b 9001 (direct peer / cluster smoke).
-# Register node-b in Admin Console → Storage Nodes Network → Add Storage Node after setup,
-# or complete setup with the first node then add the replica via the admin dialog.
-# Optional .env: NOS_CLUSTER_BOOTSTRAP_TOKEN (>=32 chars); shared across API and both Nebular containers.
-
-# Human: Shared Nebular env — mirrors docker-compose.yml object-storage (keeps JWT/signing aligned with backend).
-x-nebular-storage-env: &nebular-storage-env
-  NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
-  NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
-  NOS_BIND_ADDR: 0.0.0.0:9000
-  NOS_DATA_DIR: /data/blobs
-  NOS_META_PATH: /data/meta/metadata.db
-  NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
-  NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
-  NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
-  NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
-  NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
-  NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
-  NOS_CLUSTER_BOOTSTRAP_TOKEN: ${NOS_CLUSTER_BOOTSTRAP_TOKEN:-ownly-compose-local-dev-nos-cluster-bootstrap-token-not-for-production}
-  RUST_LOG: info
-
-# Human: Build + health probe shared by the peer node service.
-x-nebular-storage-service: &nebular-storage-service
-  build:
-    context: ./nebular-os
-    dockerfile: Dockerfile
-  healthcheck:
-    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
-    interval: 5s
-    timeout: 5s
-    retries: 12
-    start_period: 60s
-
-services:
-  # Human: Primary write node — keeps service name `object-storage` so backend OBJECT_STORAGE_URL is unchanged.
-  object-storage:
-    container_name: mediavault-object-storage-a
-    environment:
-      <<: *nebular-storage-env
-
-  # Human: Replica peer — host port 9001 for GET /health and GET /_cluster/health smoke tests.
-  object-storage-b:
-    <<: *nebular-storage-service
-    container_name: mediavault-object-storage-b
-    environment:
-      <<: *nebular-storage-env
-    ports:
-      - "9001:9000"
-    volumes:
-      - nebular_rep_b_data:/data
-    depends_on:
-      object-storage:
-        condition: service_healthy
-
-volumes:
-  nebular_rep_b_data:
+# Human: Optional second standalone Nebular node — merge with docker-compose.yml for local multi-node admin testing.
+# Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build`;
+#        both nodes are independent (no replication); register node-b in Admin → Add Storage Node
+#        with URL http://object-storage-b:9000 after setup. Primary uploads still use object-storage:9000.
+#
+# Host port: node-b 9001 (curl http://localhost:9001/health from the host).
+
+x-nebular-storage-env: &nebular-storage-env
+  NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
+  NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
+  NOS_BIND_ADDR: 0.0.0.0:9000
+  NOS_DATA_DIR: /data/blobs
+  NOS_META_PATH: /data/meta/metadata.db
+  NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
+  NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
+  NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
+  NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
+  NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
+  NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
+  RUST_LOG: info
+
+x-nebular-storage-service: &nebular-storage-service
+  build:
+    context: ./nebular-os
+    dockerfile: Dockerfile
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 60s
+
+services:
+  object-storage:
+    environment:
+      <<: *nebular-storage-env
+
+  object-storage-b:
+    <<: *nebular-storage-service
+    container_name: mediavault-object-storage-b
+    environment:
+      <<: *nebular-storage-env
+    ports:
+      - "9001:9000"
+    volumes:
+      - nebular_extra_b_data:/data
+    depends_on:
+      object-storage:
+        condition: service_healthy
+
+volumes:
+  nebular_extra_b_data:

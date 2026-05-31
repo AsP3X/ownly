@@ -12,6 +12,7 @@ import {
   Shield,
   Users,
 } from "lucide-react";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { cn } from "@/lib/utils";
 
 export type AdminNavId =
@@ -117,13 +118,14 @@ const ADMIN_NAV: { id: AdminNavId; label: string; icon: ReactNode }[] = [
 
 /** Human: Left rail for /admin — matches Pencil Admin Sidebar on every console frame. */
 export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
+  const { instanceName } = useInstanceName();
   const capacity = capacityForNav(activeNav);
 
   return (
     <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
       <Link to="/" className="flex items-center justify-center gap-2 outline-none">
         <Cloud className="size-7 text-[#2563EB]" aria-hidden />
-        <span className="text-[22px] font-bold text-[#1A1A1A]">Ownly</span>
+        <span className="text-[22px] font-bold text-[#1A1A1A]">{instanceName}</span>
       </Link>
 
       <nav className="flex flex-col gap-2" aria-label="Admin navigation">

@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, Info } from "lucide-react";
 import { MarketingCtaSection } from "@/components/marketing/MarketingCtaSection";
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import { ENCRYPTION_SUMMARY } from "@/lib/encryption-standards";
 import { cn } from "@/lib/utils";
 
 type FaqItem = {
@@ -18,13 +19,13 @@ const faqItems: FaqItem[] = [
   {
     question: "How does Nebular-OS high-performance storage secure my files?",
     answer:
-      "Files uploaded to Ownly are converted into binary blobs, heavily compressed for maximum efficiency, and then encrypted according to robust Nebular-OS standards. This combines ultra-fast cloud performance with enterprise-grade protection for all your data.",
+      "Files are compressed into Nebular OS blobs and protected with AES-256-GCM envelope encryption. Per-file content keys are wrapped in Postgres and never stored in plaintext on object storage.",
     defaultOpen: true,
   },
   {
     question: "How are enterprise encryption keys and file security managed?",
     answer:
-      "Nebular-OS secures your compressed binary blobs with robust enterprise-grade encryption. Key management is handled seamlessly and securely behind the scenes, allowing you to easily recover your account access using our standard, verified verification processes while ensuring your files remain fully encrypted and secure on our servers.",
+      `Ownly uses a hybrid quantum-resistant model: ${ENCRYPTION_SUMMARY}. Symmetric AES-256-GCM secures data at rest (Grover's algorithm still leaves 2^128 work factor). TLS at your reverse proxy should combine classical handshakes with NIST post-quantum algorithms such as ML-KEM to protect keys during transit against harvest-now, decrypt-later attacks. Passwords are hashed with Argon2id.`,
     defaultOpen: true,
   },
   {

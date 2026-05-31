@@ -48,6 +48,7 @@ export function VideoPlayerSurface({
     bufferedSegments,
     muted,
     isFullscreen,
+    isImmersive,
     transportDisabled,
     failed,
     chromeVisible,
@@ -75,20 +76,33 @@ export function VideoPlayerSurface({
       ref={cardRef}
       className={cn(
         "relative w-full max-w-[1200px] overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
+        "fullscreen:overflow-visible",
+        isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none" : "aspect-[4/3]",
       )}
-      onPointerMove={revealChrome}
       onFocus={revealChrome}
     >
       <video
         ref={videoRef}
         className={cn(
-          "size-full bg-black object-contain",
+          "relative z-0 size-full bg-black object-contain",
           isFullscreen ? "min-h-0 flex-1" : "",
         )}
         playsInline
-        onClick={togglePlay}
+        onClick={isFullscreen ? undefined : togglePlay}
+        onPointerMove={revealChrome}
+        onMouseMove={revealChrome}
       />
+
+      {isFullscreen ? (
+        <div
+          className="absolute inset-0 z-[25]"
+          aria-hidden
+          onPointerMove={revealChrome}
+          onMouseMove={revealChrome}
+          onClick={togglePlay}
+        />
+      ) : null}
 
       {error ? (
         <p

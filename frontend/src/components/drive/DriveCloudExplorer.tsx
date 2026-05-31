@@ -12,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  Check,
   ChevronRight,
   FileIcon,
   FileSpreadsheet,
@@ -222,6 +223,10 @@ export function DriveCloudExplorer({
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const selectionEnabled =
     selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
+  // Human: When any file is selected, keep checkmarks visible on all tiles for easier multi-select.
+  // Agent: READS selectedFileIds.size; USED by explorer file card checkbox opacity classes.
+  const hasActiveSelection =
+    selectionEnabled && selectedFileIds !== undefined && selectedFileIds.size > 0;
   const activeFilterLabel =
     typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
 
@@ -436,7 +441,7 @@ export function DriveCloudExplorer({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-4 sm:gap-5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 sm:gap-4">
             {!isSearching
               ? folders.map((folder) => (
                   <button
@@ -454,9 +459,9 @@ export function DriveCloudExplorer({
                     onDragLeave={() => handleFolderDragLeave(folder.id)}
                     onDrop={(event) => handleFolderDrop(event, folder.id)}
                     className={cn(
-                      "flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-center transition-colors hover:bg-white/60",
+                      "flex min-h-[108px] flex-col items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-3.5 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
                       dropTargetFolderId === folder.id &&
-                        "bg-[#2563EB]/10 ring-2 ring-[#2563EB]/40",
+                        "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
                     )}
                   >
                     <Folder className="size-8 text-[#2563EB]" aria-hidden />
@@ -486,9 +491,27 @@ export function DriveCloudExplorer({
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
 
               return (
-                <div key={file.id} className="relative" data-file-id={file.id}>
+                <div
+                  key={file.id}
+                  data-file-id={file.id}
+                  className={cn(
+                    "group relative rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+                    isSelected
+                      ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
+                      : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
+                    processing && "opacity-80",
+                    draggingFileId === file.id && "opacity-50",
+                  )}
+                >
                   {selectionEnabled ? (
-                    <label className="absolute right-1 top-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md bg-white/90 shadow-sm ring-1 ring-[#E5E7EB]">
+                    <label
+                      className={cn(
+                        "absolute right-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity",
+                        isSelected || hasActiveSelection
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+                      )}
+                    >
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -496,10 +519,22 @@ export function DriveCloudExplorer({
                         onChange={(event: ChangeEvent<HTMLInputElement>) =>
                           toggleFileSelected(file.id, event.target.checked)
                         }
-                        className="size-3.5 accent-[#2563EB]"
+                        className="peer sr-only"
                         aria-label={`Select ${file.name}`}
                         onClick={(event) => event.stopPropagation()}
                       />
+                      <span
+                        className={cn(
+                          "flex size-5 items-center justify-center rounded-md border transition-colors",
+                          "peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-1",
+                          isSelected
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-[#D1D5DB] bg-white text-transparent shadow-sm",
+                        )}
+                        aria-hidden
+                      >
+                        <Check className="size-3.5 stroke-[2.5]" />
+                      </span>
                     </label>
                   ) : null}
                   {onOpenActions ? (
@@ -507,7 +542,10 @@ export function DriveCloudExplorer({
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      className="absolute left-1 top-1 z-10 size-7 text-[#888888] lg:hidden"
+                      className={cn(
+                        "absolute left-1.5 top-1.5 z-10 size-7 text-[#888888] lg:hidden",
+                        isSelected && "bg-white/80",
+                      )}
                       aria-label={`Actions for ${file.name}`}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -530,24 +568,33 @@ export function DriveCloudExplorer({
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(
-                      "flex min-h-[100px] w-full flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-center transition-colors",
-                      canPreview && "hover:bg-white/60",
-                      processing && "opacity-70",
-                      isSelected && "bg-white ring-2 ring-[#2563EB]/50",
-                      draggingFileId === file.id && "opacity-50",
+                      "flex min-h-[108px] w-full flex-col items-center justify-center gap-1.5 rounded-[11px] px-2.5 py-3.5 text-center transition-colors",
+                      canPreview && !isSelected && "hover:bg-[#F7F8FA]",
+                      canPreview && isSelected && "hover:bg-blue-100/50",
                     )}
                   >
                     <ExplorerFileIcon mimeType={file.mime_type} />
-                    <span className="line-clamp-2 w-full text-[13px] font-semibold leading-tight text-[#1A1A1A]">
+                    <span
+                      className={cn(
+                        "line-clamp-2 w-full text-[13px] font-semibold leading-snug",
+                        isSelected ? "text-blue-950" : "text-[#1A1A1A]",
+                      )}
+                    >
                       {file.name}
                     </span>
-                    <span className="text-[11px] text-[#888888]">
+                    <span
+                      className={cn(
+                        "text-[11px]",
+                        isSelected ? "text-blue-700/80" : "text-[#888888]",
+                      )}
+                    >
                       {formatBytes(file.size_bytes)} · {formatFileOpened(file.updated_at)}
                     </span>
                     {processing ? (
-                      <div className="mt-1">
+                      <div className="mt-1 flex w-full max-w-full justify-center overflow-hidden px-0.5">
                         <FileProcessingBadge
                           file={file}
+                          compact
                           className="bg-violet-100 text-violet-900"
                         />
                       </div>

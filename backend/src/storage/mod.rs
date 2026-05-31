@@ -19,4 +19,3 @@ pub trait Storage: Send + Sync {
 
 pub mod memory;
 pub mod nebula;
-pub mod nebular_cluster;

@@ -18,6 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +92,8 @@ export function MobileSidebarSheet({
   onCreateFolder,
   storageBar,
 }: MobileSidebarSheetProps) {
+  const { instanceName } = useInstanceName();
+
   function handleNav(nav: NavItemId) {
     onNavChange(nav);
     onOpenChange(false);
@@ -110,7 +113,7 @@ export function MobileSidebarSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[min(100vw-1rem,22rem)] gap-0 p-0">
         <SheetHeader className="border-b border-neutral-100 bg-white px-5 py-5 text-left">
-          <SheetTitle className="text-xl font-semibold tracking-tight">MediaVault</SheetTitle>
+          <SheetTitle className="text-xl font-semibold tracking-tight">{instanceName}</SheetTitle>
           <SheetDescription>Your personal file library</SheetDescription>
         </SheetHeader>
 

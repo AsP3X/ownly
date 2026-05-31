@@ -162,7 +162,6 @@ export async function setup(body: {
   storage_node_id?: string;
   storage_node_region_label?: string;
   storage_node_base_url?: string;
-  storage_node_architecture?: "replicated" | "single" | "assigned";
   storage_node_target_capacity_value?: number;
   storage_node_target_capacity_unit?: "MB" | "GB" | "TB";
 }) {
@@ -390,10 +389,12 @@ export async function fetchAdminAuditLogs(params?: {
 export type AdminStorageNodeRow = {
   id: string;
   region_label: string;
+  base_url: string;
   endpoint_host: string;
   status: string;
   used_bytes: number;
   capacity_label: string;
+  target_capacity_bytes: number | null;
   latency_ms: number | null;
   storage_mode: string;
 };
@@ -421,7 +422,6 @@ export type CreateStorageNodeRequest = {
   id: string;
   region_label: string;
   base_url: string;
-  architecture: "replicated" | "single" | "assigned";
   target_capacity_value?: number;
   target_capacity_unit?: StorageCapacityUnit;
 };
@@ -431,6 +431,22 @@ export type CreateStorageNodeRequest = {
 export async function createAdminStorageNode(body: CreateStorageNodeRequest) {
   return apiFetch("/admin/storage/nodes", {
     method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<{ node: AdminStorageNodeRow }>;
+}
+
+export type UpdateStorageNodeRequest = {
+  region_label?: string;
+  base_url?: string;
+  target_capacity_value?: number;
+  target_capacity_unit?: StorageCapacityUnit;
+};
+
+// Human: Update an existing Nebular node in the Storage Nodes Network registry.
+// Agent: PATCH /admin/storage/nodes/{id}; REQUIRES admin JWT; AUDIT storage_nodes.update.
+export async function updateAdminStorageNode(id: string, body: UpdateStorageNodeRequest) {
+  return apiFetch(`/admin/storage/nodes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
     body: JSON.stringify(body),
   }) as Promise<{ node: AdminStorageNodeRow }>;
 }
@@ -496,6 +512,14 @@ export async function updateAdminSettings(body: AdminSettingsPatch) {
 
 export type AdminSecurityOverviewResponse = {
   encryption_standard: string;
+  encryption: {
+    symmetric_cipher: string;
+    key_wrapping: string;
+    key_exchange: string;
+    streaming_segment_cipher: string;
+    password_kdf: string;
+    quantum_posture: string;
+  };
   kms_nodes_active: number;
   kms_nodes_total: number;
   storage_status: string;
@@ -915,23 +939,54 @@ export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
 
-// Human: Progress snapshot for the upload dialog — network transfer vs server-side video ingest steps.
-// Agent: uploading = browser→API bytes; processing = ffmpeg HLS encode; storing = Nebular PUT of segments.
+// Human: Progress snapshot for the upload dialog — four visible server-side steps after bytes land.
+// Agent: uploading → processing → encrypting → storing; each phase owns its own 0–100% bar.
 export type UploadProgressUpdate = {
-  phase: "uploading" | "processing" | "storing";
+  phase: "uploading" | "processing" | "encrypting" | "storing";
   percent: number;
   /** True when server work is ongoing but byte-level progress is unknown (avoids a frozen %). */
   indeterminate?: boolean;
 };
 
-// Human: Upload, encode, and storage each use their own 0–100% bar; each phase replaces the prior bar.
-// Agent: uploading = XHR bytes; processing = conversion_progress 0–50; storing = conversion_progress 50–100.
+// Human: Upload, encode, encrypt, and storage each use their own 0–100% bar; each phase replaces the prior bar.
+// Agent: uploading = XHR bytes; processing/encrypting/storing = conversion_progress bands from ingest jobs.
 const PROCESSING_ASYMPTOTE = 99.4;
 const PROCESSING_DISPLAY_MAX = 99;
 const PROCESSING_INDETERMINATE_MS = 2500;
 const VIDEO_INGEST_POLL_MS = 1500;
-/** Human: Backend writes ffmpeg progress into conversion_progress 5–50, then Nebular uploads 50–100. */
+/** Human: Backend ffmpeg progress maps into conversion_progress ~5–50 before Nebular upload begins. */
+const HLS_ENCRYPT_PROGRESS_START = 40;
 const HLS_STORAGE_PROGRESS_START = 50;
+/** Human: Audio waveform jobs use 0–45 analyze, 45–75 extract, 75–100 Nebular PUT. */
+const AUDIO_ENCRYPT_PROGRESS_START = 45;
+const AUDIO_STORAGE_PROGRESS_START = 75;
+
+function sleepMs(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+// Human: Brief encrypting + storing beats for uploads that finish in one HTTP round-trip (non-media files).
+// Agent: CALLED after processing timer clears; SKIPS when session.cancelled is true.
+async function emitPostUploadFinishingPhases(
+  onProgress: ((update: UploadProgressUpdate) => void) | undefined,
+  isCancelled: () => boolean,
+) {
+  if (!onProgress || isCancelled()) return;
+
+  onProgress({ phase: "encrypting", percent: 0, indeterminate: true });
+  await sleepMs(350);
+  if (isCancelled()) return;
+  onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
+
+  await sleepMs(200);
+  if (isCancelled()) return;
+  onProgress({ phase: "storing", percent: 0, indeterminate: true });
+  await sleepMs(350);
+  if (isCancelled()) return;
+  onProgress({ phase: "storing", percent: 100, indeterminate: false });
+}
 
 // Human: Track in-flight uploads so the transfer panel can abort XHR and video ingest polling.
 // Agent: MAP sessionId → ActiveUploadSession; CALL abortUploadSession from upload-manager cancel.
@@ -1018,23 +1073,46 @@ function isMediaAwaitingIngest(file: FileItem): boolean {
   return isVideoAwaitingIngest(file) || isAudioAwaitingWaveform(file);
 }
 
-// Human: Map audio waveform job progress (0–100) into the upload tray processing bar.
-// Agent: READS conversion_progress + audio_waveform_ready; RETURNS phase processing until ready.
+// Human: Map audio waveform job progress (0–100) into the four-phase upload tray flow.
+// Agent: READS conversion_progress + audio_waveform_ready; RETURNS processing → encrypting → storing.
 function mapAudioIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "audio_waveform_ready" | "audio_encode_status">,
 ): UploadProgressUpdate {
   if (file.audio_waveform_ready) {
-    return { phase: "processing", percent: 100, indeterminate: false };
+    return { phase: "storing", percent: 100, indeterminate: false };
   }
   if (file.audio_encode_status === "queued") {
     return { phase: "processing", percent: 0, indeterminate: true };
   }
-  const percent = Math.min(PROCESSING_DISPLAY_MAX, Math.max(0, file.conversion_progress));
+
+  const raw = file.conversion_progress;
+  if (raw >= AUDIO_STORAGE_PROGRESS_START) {
+    const percent = Math.min(
+      PROCESSING_DISPLAY_MAX,
+      Math.round(
+        ((raw - AUDIO_STORAGE_PROGRESS_START) / (100 - AUDIO_STORAGE_PROGRESS_START)) * 100,
+      ),
+    );
+    return { phase: "storing", percent, indeterminate: false };
+  }
+  if (raw >= AUDIO_ENCRYPT_PROGRESS_START) {
+    const span = AUDIO_STORAGE_PROGRESS_START - AUDIO_ENCRYPT_PROGRESS_START;
+    const percent = Math.min(
+      PROCESSING_DISPLAY_MAX,
+      Math.round(((raw - AUDIO_ENCRYPT_PROGRESS_START) / span) * 100),
+    );
+    return { phase: "encrypting", percent, indeterminate: false };
+  }
+
+  const percent = Math.min(
+    PROCESSING_DISPLAY_MAX,
+    Math.round((raw / AUDIO_ENCRYPT_PROGRESS_START) * 100),
+  );
   return { phase: "processing", percent, indeterminate: false };
 }
 
-// Human: Map server conversion_progress into separate encode vs storage bars for the upload tray.
-// Agent: READS conversion_progress + hls_ready; RETURNS phase processing|storing with 0–100% display percent.
+// Human: Map server conversion_progress into processing, encrypting, and storage bars for the upload tray.
+// Agent: READS conversion_progress + hls_ready; RETURNS phase processing|encrypting|storing with 0–100% percent.
 function mapVideoIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "hls_ready" | "hls_encode_status">,
 ): UploadProgressUpdate {
@@ -1054,10 +1132,18 @@ function mapVideoIngestProgressUpdate(
     );
     return { phase: "storing", percent, indeterminate: false };
   }
+  if (raw >= HLS_ENCRYPT_PROGRESS_START) {
+    const span = HLS_STORAGE_PROGRESS_START - HLS_ENCRYPT_PROGRESS_START;
+    const percent = Math.min(
+      PROCESSING_DISPLAY_MAX,
+      Math.round(((raw - HLS_ENCRYPT_PROGRESS_START) / span) * 100),
+    );
+    return { phase: "encrypting", percent, indeterminate: false };
+  }
 
   const percent = Math.min(
     PROCESSING_DISPLAY_MAX,
-    Math.round((raw / HLS_STORAGE_PROGRESS_START) * 100),
+    Math.round((raw / HLS_ENCRYPT_PROGRESS_START) * 100),
   );
   return { phase: "processing", percent, indeterminate: false };
 }
@@ -1269,7 +1355,8 @@ export function uploadFileWithProgress(
                 () => session.cancelled,
               );
             } else {
-              onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+              clearProcessingTimer();
+              await emitPostUploadFinishingPhases(onProgress, () => session.cancelled);
             }
             if (session.cancelled) {
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);

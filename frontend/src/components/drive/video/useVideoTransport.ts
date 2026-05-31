@@ -40,6 +40,7 @@ export function useVideoTransport({
   const [isImmersive, setIsImmersive] = useState(false);
   const [showChrome, setShowChrome] = useState(true);
   const hideChromeTimerRef = useRef<number | null>(null);
+  const wasNativeFullscreenRef = useRef(false);
 
   const isFullscreen = isNativeFullscreen || isImmersive;
 
@@ -67,16 +68,57 @@ export function useVideoTransport({
 
   const scheduleHideChrome = useCallback(() => {
     clearHideChromeTimer();
-    if (!isPlaying || isFullscreen) return;
+    if (!isPlaying) return;
     hideChromeTimerRef.current = window.setTimeout(() => {
       setShowChrome(false);
     }, 2800);
-  }, [clearHideChromeTimer, isFullscreen, isPlaying]);
+  }, [clearHideChromeTimer, isPlaying]);
 
   const revealChrome = useCallback(() => {
     setShowChrome(true);
     scheduleHideChrome();
   }, [scheduleHideChrome]);
+
+  // Human: Reveal chrome on pointer activity over the player shell (including the <video> child).
+  // Agent: BINDS capture-phase pointer/mouse listeners on fullscreenTargetRef.
+  useEffect(() => {
+    const shell = fullscreenTargetRef.current;
+    if (!shell) return;
+
+    const onPointerActivity = () => {
+      revealChrome();
+    };
+
+    shell.addEventListener("pointermove", onPointerActivity, true);
+    shell.addEventListener("pointerenter", onPointerActivity, true);
+    shell.addEventListener("mousemove", onPointerActivity, true);
+    shell.addEventListener("mouseenter", onPointerActivity, true);
+
+    return () => {
+      shell.removeEventListener("pointermove", onPointerActivity, true);
+      shell.removeEventListener("pointerenter", onPointerActivity, true);
+      shell.removeEventListener("mousemove", onPointerActivity, true);
+      shell.removeEventListener("mouseenter", onPointerActivity, true);
+    };
+  }, [file.id, fullscreenTargetRef, revealChrome]);
+
+  // Human: Native/CSS fullscreen — document-level moves (dialog transforms break shell bubbling).
+  // Agent: WHEN isFullscreen LISTENS document pointermove/mousemove; CALLS revealChrome.
+  useEffect(() => {
+    if (!isFullscreen) return;
+
+    const onDocumentPointerActivity = () => {
+      revealChrome();
+    };
+
+    document.addEventListener("pointermove", onDocumentPointerActivity);
+    document.addEventListener("mousemove", onDocumentPointerActivity);
+
+    return () => {
+      document.removeEventListener("pointermove", onDocumentPointerActivity);
+      document.removeEventListener("mousemove", onDocumentPointerActivity);
+    };
+  }, [isFullscreen, revealChrome]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -132,7 +174,15 @@ export function useVideoTransport({
   useEffect(() => {
     const video = videoRef.current;
 
-    const onFullscreenChange = () => syncNativeFullscreen();
+    const onFullscreenChange = () => {
+      const wasNative = wasNativeFullscreenRef.current;
+      syncNativeFullscreen();
+      const nowNative = isVideoFullscreenActive(getFullscreenTargets());
+      wasNativeFullscreenRef.current = nowNative;
+      if (nowNative && !wasNative) {
+        revealChrome();
+      }
+    };
 
     document.addEventListener("fullscreenchange", onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -140,6 +190,7 @@ export function useVideoTransport({
     video?.addEventListener("webkitbeginfullscreen", onFullscreenChange);
     video?.addEventListener("webkitendfullscreen", onFullscreenChange);
 
+    wasNativeFullscreenRef.current = isVideoFullscreenActive(getFullscreenTargets());
     syncNativeFullscreen();
 
     return () => {
@@ -148,7 +199,7 @@ export function useVideoTransport({
       video?.removeEventListener("webkitbeginfullscreen", onFullscreenChange);
       video?.removeEventListener("webkitendfullscreen", onFullscreenChange);
     };
-  }, [syncNativeFullscreen, videoRef, file.id]);
+  }, [syncNativeFullscreen, videoRef, file.id, revealChrome, getFullscreenTargets]);
 
   useEffect(() => {
     return () => {
@@ -164,7 +215,7 @@ export function useVideoTransport({
       clearHideChromeTimer();
       setShowChrome(true);
     }
-  }, [isPlaying, scheduleHideChrome, clearHideChromeTimer]);
+  }, [isPlaying, isFullscreen, scheduleHideChrome, clearHideChromeTimer]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -212,12 +263,16 @@ export function useVideoTransport({
       );
       if (result === "failed" && preferVideoElementFullscreen) {
         setIsImmersive(true);
+        revealChrome();
         return;
       }
       syncNativeFullscreen();
       if (result === "failed") {
         setIsImmersive(true);
+        revealChrome();
+        return;
       }
+      revealChrome();
     })();
   }, [
     getFullscreenTargets,
@@ -227,7 +282,7 @@ export function useVideoTransport({
     syncNativeFullscreen,
   ]);
 
-  const chromeVisible = showChrome || !isPlaying || isFullscreen;
+  const chromeVisible = showChrome || !isPlaying;
 
   return {
     isPlaying,

@@ -1,5 +1,5 @@
-// Human: Persist per-file AES-128 HLS keys encrypted with the signing secret so segments stay confidential at rest.
-// Agent: WRITES file_encryption_keys; USES AES-256-GCM; READS PgPool; RETURNS 16-byte key for ffmpeg.
+// Human: Persist per-file content keys using AES-256-GCM envelope encryption (quantum-hardened symmetric layer).
+// Agent: WRITES file_encryption_keys; USES AES-256-GCM; READS PgPool; RETURNS 16-byte HLS content key when needed.
 
 use anyhow::Context;
 use rand::RngCore;

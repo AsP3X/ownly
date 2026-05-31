@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 
 type BulkActionsBarProps = {
   selectedCount: number;
+  /** Human: Files in the current folder listing that can be bulk-selected. */
+  selectableCount: number;
+  allSelected: boolean;
+  onSelectAll: () => void;
   favouriteLabel: string;
   onDownload: () => void;
   onToggleFavourite: () => void;
@@ -18,6 +22,9 @@ type BulkActionsBarProps = {
 // Agent: DISABLES actions when selectedCount is 0; favouriteLabel reflects add vs remove intent.
 export function BulkActionsBar({
   selectedCount,
+  selectableCount,
+  allSelected,
+  onSelectAll,
   favouriteLabel,
   onDownload,
   onToggleFavourite,
@@ -25,6 +32,8 @@ export function BulkActionsBar({
   onClearSelection,
 }: BulkActionsBarProps) {
   if (selectedCount === 0) return null;
+
+  const showSelectAll = selectableCount > 0 && !allSelected;
 
   return (
     <div
@@ -36,9 +45,22 @@ export function BulkActionsBar({
       role="toolbar"
       aria-label="Bulk file actions"
     >
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold lg:font-medium">
-        {selectedCount} selected
-      </span>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="truncate text-sm font-semibold lg:font-medium">
+          {selectedCount} selected
+        </span>
+        {showSelectAll ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-bold text-white/95 underline-offset-2 hover:bg-white/15 hover:underline lg:text-[13px] lg:text-blue-800 lg:hover:bg-blue-100 lg:hover:text-blue-900"
+            onClick={onSelectAll}
+            aria-label={`Select all ${selectableCount} files in this folder`}
+            title="Select all (Ctrl+A)"
+          >
+            Select all
+          </button>
+        ) : null}
+      </div>
       <div className="flex shrink-0 items-center gap-0.5 lg:gap-1">
         <Button
           type="button"

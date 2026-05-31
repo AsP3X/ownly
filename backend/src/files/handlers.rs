@@ -1276,7 +1276,7 @@ pub async fn dashboard_summary(
         .saturating_mul(1024 * 1024 * 1024);
 
     Ok(Json(serde_json::json!({
-        "instance_name": instance_name.map(|(n,)| n).unwrap_or_else(|| "MediaVault".into()),
+        "instance_name": instance_name.map(|(n,)| n).unwrap_or_else(|| "Ownly".into()),
         "file_count": stats.0,
         "used_bytes": stats.1,
         "quota_bytes": quota_bytes,

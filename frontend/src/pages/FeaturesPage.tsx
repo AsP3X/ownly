@@ -21,6 +21,7 @@ import type { LucideIcon } from "lucide-react";
 import { MarketingCtaSection } from "@/components/marketing/MarketingCtaSection";
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import { ENCRYPTION_SUMMARY, SYMMETRIC_CIPHER } from "@/lib/encryption-standards";
 
 type FeatureCard = {
   title: string;
@@ -31,9 +32,9 @@ type FeatureCard = {
 
 const featureCards: FeatureCard[] = [
   {
-    title: "Local Client-Side Encryption",
+    title: "AES-256 envelope encryption",
     description:
-      "Your data is encrypted locally in your browser before it ever touches our servers. Zero-knowledge cryptography ensures absolute privacy.",
+      "Per-file content keys are wrapped with AES-256-GCM before blobs reach Nebular OS. Plaintext keys never persist on disk — Grover's algorithm still leaves a 2^128 work factor.",
     icon: ShieldCheck,
     visual: (
       <div className="flex flex-col items-center gap-4">
@@ -45,20 +46,37 @@ const featureCards: FeatureCard[] = [
           <ArrowRight className="size-4 text-[#888888]" aria-hidden />
           <div className="flex items-center gap-2 rounded-lg border border-[#27272A] bg-[#0A0A0A] px-3 py-2 text-xs font-semibold text-white">
             <Lock className="size-3.5" aria-hidden />
-            Encrypted File
+            Wrapped Key + Blob
           </div>
         </div>
         <div className="flex items-center gap-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] px-2.5 py-1">
           <span className="size-1.5 rounded-full bg-[#10B981]" />
-          <span className="text-[11px] font-bold text-[#065F46]">AES-GCM 256-bit Encrypted on Client</span>
+          <span className="text-[11px] font-bold text-[#065F46]">{SYMMETRIC_CIPHER} envelope</span>
         </div>
       </div>
     ),
   },
   {
-    title: "Decentralized Storage",
+    title: "Hybrid post-quantum TLS",
     description:
-      "Files are split into encrypted fragments and distributed across a peer-to-peer network. Redundancy guarantees 99.99% durability without central servers.",
+      "Protect AES keys in transit by terminating HTTPS with hybrid key exchange (ML-KEM + classical ECDHE/RSA) at your edge proxy — defending against harvest-now, decrypt-later attacks.",
+    icon: Shield,
+    visual: (
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex items-center gap-3 text-[11px] font-semibold text-[#1A1A1A]">
+          <Key className="size-4 text-[#2563EB]" aria-hidden />
+          ML-KEM + ECDHE
+        </div>
+        <p className="text-center text-[11px] font-medium text-[#666666]">
+          {ENCRYPTION_SUMMARY}
+        </p>
+      </div>
+    ),
+  },
+  {
+    title: "Distributed storage nodes",
+    description:
+      "Compressed blobs are routed to Nebular OS storage nodes with capacity-aware placement. Metadata stays in Postgres for fast queries and audit trails.",
     icon: Globe,
     visual: (
       <div className="flex flex-col items-center gap-4">
@@ -74,7 +92,7 @@ const featureCards: FeatureCard[] = [
           ))}
         </div>
         <p className="text-[11px] font-medium text-[#666666]">
-          Distributed peer-to-peer redundancy active (3/3 nodes synced)
+          Storage nodes synced with capacity-aware routing
         </p>
       </div>
     ),
@@ -180,7 +198,7 @@ const processingSteps = [
     icon: Database,
     title: "3. Encrypted Nebular Storage",
     description:
-      "The compressed blobs are written directly into nebular-os, where they are automatically encrypted at rest using secure AES-256 keys.",
+      "Compressed blobs are written to Nebular OS while content keys remain wrapped with AES-256-GCM in Postgres. Terminate TLS with hybrid PQC at your edge for quantum-ready key exchange.",
     visual: (
       <>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#1A1A1A]">
@@ -203,7 +221,7 @@ export default function FeaturesPage() {
         badgeIcon={Sparkles}
         badgeLabel="POWERFUL PRIVACY ENGINE"
         title="High-performance blob storage built for modern speeds"
-        subtitle="Discover how Ownly leverages nebular-os to convert your files into secure blobs, heavily compress them, and store them with enterprise-grade encryption at rest."
+        subtitle="Discover how Ownly converts files into compressed Nebular OS blobs, wraps keys with AES-256-GCM, and supports hybrid post-quantum TLS at your edge."
       />
 
       {/* Human: 2×2 feature showcase grid from Pencil Features Showcase Grid Container */}

@@ -11,6 +11,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -97,11 +98,13 @@ function StorageWidget({ usedBytes, quotaBytes }: { usedBytes: number; quotaByte
 
 /** Human: Left rail for authenticated drive — matches Pencil Ownly Main Overview sidebar. */
 export function DriveSidebar({ activeNav, usedBytes, quotaBytes, onNavChange }: DriveSidebarProps) {
+  const { instanceName } = useInstanceName();
+
   return (
     <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
       <div className="flex items-center justify-center gap-2">
         <Cloud className="size-7 text-[#2563EB]" aria-hidden />
-        <span className="text-[22px] font-bold text-[#1A1A1A]">Ownly</span>
+        <span className="text-[22px] font-bold text-[#1A1A1A]">{instanceName}</span>
       </div>
 
       <nav className="flex flex-col gap-2" aria-label="Drive navigation">

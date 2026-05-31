@@ -37,14 +37,23 @@ export function isVideoFullscreenActive(targets: VideoFullscreenTargets): boolea
   return false;
 }
 
-// Human: Prefer native video fullscreen on mobile — iOS only allows webkitEnterFullscreen on <video>.
-// Agent: RETURNS which path succeeded; 'failed' lets caller enable CSS immersive fallback.
+// Human: Enter fullscreen — container first so custom controls stay in the fullscreen subtree.
+// Agent: Tries container.requestFullscreen before video; iOS webkit video path only when preferVideo and container failed.
 export async function enterVideoFullscreen(
   targets: VideoFullscreenTargets,
   preferVideo: boolean,
 ): Promise<"video" | "container" | "failed"> {
   const { container, video } = targets;
   const webkitVideo = video as WebkitVideoElement | null;
+
+  if (container) {
+    try {
+      await container.requestFullscreen();
+      return "container";
+    } catch {
+      // Fall through — dialog transforms and older browsers may reject container fullscreen.
+    }
+  }
 
   if (preferVideo && video) {
     if (typeof webkitVideo?.webkitEnterFullscreen === "function") {
@@ -59,16 +68,7 @@ export async function enterVideoFullscreen(
       await video.requestFullscreen();
       return "video";
     } catch {
-      // Fall through to container attempt.
-    }
-  }
-
-  if (container) {
-    try {
-      await container.requestFullscreen();
-      return "container";
-    } catch {
-      return "failed";
+      // Fall through to last-resort video attempt when preferVideo is false.
     }
   }
 

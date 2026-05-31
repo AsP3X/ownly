@@ -32,7 +32,6 @@ fn test_config(database_url: &str) -> Config {
         job_recovery_poll_seconds: 60,
         hls_hardware_encode: "off".into(),
         hls_vaapi_device: "/dev/dri/renderD128".into(),
-        nos_cluster_bootstrap_token: String::new(),
     }
 }
 
@@ -1366,7 +1365,6 @@ async fn admin_storage_nodes_registry_lists_created_node() {
                         "id": "node-test-replica",
                         "region_label": "Frankfurt, DE",
                         "base_url": "http://127.0.0.1:59999",
-                        "architecture": "replicated",
                         "target_capacity_value": 512.0,
                         "target_capacity_unit": "GB"
                     })
@@ -1415,6 +1413,37 @@ async fn admin_storage_nodes_registry_lists_created_node() {
         Some("Frankfurt, DE"),
         "registry region must not be replaced by probe metadata"
     );
+    assert_eq!(
+        listed["base_url"].as_str(),
+        Some("http://127.0.0.1:59999"),
+        "registry must expose base_url for edit dialog"
+    );
+
+    let patch_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/admin/storage/nodes/node-test-replica")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "region_label": "Berlin, DE",
+                        "base_url": "http://127.0.0.1:59999",
+                        "target_capacity_value": 256.0,
+                        "target_capacity_unit": "GB"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("update storage node");
+
+    assert_eq!(patch_resp.status(), StatusCode::OK);
+    let patched = response_json(patch_resp).await;
+    assert_eq!(patched["node"]["region_label"].as_str(), Some("Berlin, DE"));
 
     sqlx::query("DELETE FROM storage_nodes WHERE id = 'node-test-replica'")
         .execute(&state.pool)

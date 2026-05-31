@@ -237,7 +237,7 @@ function AdminStorageNodeTerminalSession({
     if (lower === "help") {
       appendLine("Available commands:", "#9CA3AF");
       appendLine("  ownly-admin-agent status  — show storage daemon status", "#D1D5DB");
-      appendLine("  tail -f /var/log/ownly/sync.log — stream replication log", "#D1D5DB");
+      appendLine("  tail -f /var/log/ownly/storage.log — stream storage daemon log", "#D1D5DB");
       appendLine("  clear                     — clear terminal output", "#D1D5DB");
       appendLine("  exit                      — close terminal session", "#D1D5DB");
       return;
@@ -248,11 +248,11 @@ function AdminStorageNodeTerminalSession({
       return;
     }
 
-    if (lower === "tail -f /var/log/ownly/sync.log") {
+    if (lower === "tail -f /var/log/ownly/storage.log" || lower === "tail -f /var/log/ownly/sync.log") {
       stopTail();
-      appendLine("[sync] tailing /var/log/ownly/sync.log (Ctrl+C to stop — type clear)", "#9CA3AF");
+      appendLine("[storage] tailing /var/log/ownly/storage.log (Ctrl+C to stop — type clear)", "#9CA3AF");
       const samples = [
-        `[${new Date().toISOString()}] INFO  replication peer=${node.region_label} lag=0 events`,
+        `[${new Date().toISOString()}] INFO  health ok region=${node.region_label}`,
         `[${new Date().toISOString()}] INFO  checksum verified object shard node=${node.id}`,
         `[${new Date().toISOString()}] INFO  heartbeat ok latency=${node.latency_ms ?? "n/a"}ms`,
       ];

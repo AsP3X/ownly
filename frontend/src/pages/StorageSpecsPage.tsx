@@ -6,6 +6,14 @@ import type { LucideIcon } from "lucide-react";
 import { MarketingCtaSection } from "@/components/marketing/MarketingCtaSection";
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import {
+  KEY_EXCHANGE,
+  KEY_WRAPPING,
+  QUANTUM_READINESS_CHECKLIST,
+  QUANTUM_RESISTANCE_PILLARS,
+  STREAMING_SEGMENT_CIPHER,
+  SYMMETRIC_CIPHER,
+} from "@/lib/encryption-standards";
 
 type StorageCard = {
   title: string;
@@ -48,23 +56,27 @@ const cryptoSteps = [
   {
     step: "STEP 1",
     icon: Cpu,
-    title: "HLS Transcoding & Keygen",
+    title: "Processing & key generation",
     description:
-      "Video uploads trigger ffmpeg jobs, dividing the content into streams (.m3u8), segments (.m4s), and generating a random 16-byte AES-128 key in memory.",
+      "Uploads are processed server-side. Video jobs package fMP4 segments and derive per-file content keys with a CSPRNG before any bytes reach Nebular OS.",
   },
   {
     step: "STEP 2",
-    icon: Key,
-    title: "Envelope Key Wrapping",
-    description:
-      "The 16-byte HLS key is wrapped using AES-256-GCM with a Master KeySecret. This cipher text is stored securely in Postgres file_encryption_keys.",
+    icon: ShieldCheck,
+    title: "AES-256 envelope encryption",
+    description: KEY_WRAPPING,
   },
   {
     step: "STEP 3",
-    icon: ShieldCheck,
-    title: "AES-128 Segment Slicing",
-    description:
-      "Segments are encrypted with AES-128-CBC prior to Nebular OS upload. Playout uses short-lived stream tickets bypassing the need for JWT tokens.",
+    icon: Key,
+    title: "Segment encryption (HLS)",
+    description: STREAMING_SEGMENT_CIPHER,
+  },
+  {
+    step: "STEP 4",
+    icon: Cloud,
+    title: "Hybrid PQC key exchange",
+    description: KEY_EXCHANGE,
   },
 ];
 
@@ -82,7 +94,7 @@ export default function StorageSpecsPage() {
       <MarketingHeroSection
         badgeLabel="MEDIAVAULT STORAGE CORE"
         title="Ownly Cryptographic & Storage Architecture"
-        subtitle="Technical specification of how file metadata, encrypted HLS streaming segments, per-file keys, and binary blobs are securely managed and transparently optimized across Postgres and Nebular OS."
+        subtitle="Technical specification of how file metadata, AES-256-GCM envelope keys, hybrid post-quantum TLS, and binary blobs are managed across Postgres and Nebular OS."
       />
 
       {/* Human: Two-column hybrid storage from Pencil Two-Layer Storage Section */}
@@ -91,7 +103,8 @@ export default function StorageSpecsPage() {
           <h2 className="text-3xl font-bold text-[#1A1A1A]">Two-Layer Hybrid Storage Slices</h2>
           <p className="max-w-2xl text-base text-[#666666]">
             MediaVault separates structured relational metadata from raw binary file bytes, achieving fast queries and
-            massive scalability.
+            massive scalability. Symmetric protection uses {SYMMETRIC_CIPHER}; keys in transit should use hybrid PQC TLS
+            at your edge.
           </p>
         </div>
 
@@ -127,17 +140,17 @@ export default function StorageSpecsPage() {
         </div>
       </section>
 
-      {/* Human: Three-step crypto flow from Pencil Cryptographic Flow Section */}
+      {/* Human: Four-step ingest + hybrid PQC posture from cryptographic specs */}
       <section className="flex w-full flex-col gap-10">
         <div className="flex flex-col items-center gap-2 text-center">
-          <h2 className="text-3xl font-bold text-[#1A1A1A]">Cryptographic Key Wrapping &amp; Segment Encryption</h2>
+          <h2 className="text-3xl font-bold text-[#1A1A1A]">Upload Pipeline &amp; Quantum-Ready Encryption</h2>
           <p className="max-w-2xl text-base text-[#666666]">
-            Video streams are heavily protected with nested key encryption. Plaintext keys never reside persistently on
-            disk.
+            Plaintext content keys never persist on disk. AES-256-GCM wraps keys at rest; hybrid ML-KEM TLS protects key
+            exchange in transit.
           </p>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {cryptoSteps.map((step) => {
             const StepIcon = step.icon;
             return (
@@ -157,6 +170,31 @@ export default function StorageSpecsPage() {
             );
           })}
         </div>
+      </section>
+
+      <section className="flex w-full flex-col gap-8 rounded-2xl border border-[#E5E7EB] bg-[#F7F8FA] px-6 py-10 sm:px-10">
+        <div className="flex flex-col gap-2 text-center">
+          <h2 className="text-2xl font-bold text-[#1A1A1A]">Two pillars of quantum-resistant encryption</h2>
+          <p className="mx-auto max-w-2xl text-sm text-[#666666]">
+            True quantum-safe protection requires both strong symmetric ciphers and post-quantum key exchange.
+          </p>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {QUANTUM_RESISTANCE_PILLARS.map((pillar) => (
+            <article key={pillar.title} className="rounded-xl border border-[#E5E7EB] bg-white p-6">
+              <h3 className="text-lg font-semibold text-[#1A1A1A]">{pillar.title}</h3>
+              <p className="mt-3 text-sm leading-relaxed text-[#666666]">{pillar.body}</p>
+            </article>
+          ))}
+        </div>
+        <ul className="mx-auto flex max-w-2xl flex-col gap-2 text-sm text-[#666666]">
+          {QUANTUM_READINESS_CHECKLIST.map((item) => (
+            <li key={item} className="flex gap-2">
+              <Check className="mt-0.5 size-4 shrink-0 text-[#2563EB]" aria-hidden />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* Human: Auth gates + compression table from Pencil Auth & Compression Section */}

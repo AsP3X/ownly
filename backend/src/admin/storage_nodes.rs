@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::HeaderMap,
     Extension, Json,
 };
@@ -17,11 +17,12 @@ use crate::{
     audit,
     auth::Claims,
     error::AppError,
-    storage::nebular_cluster,
     AppState,
 };
 
 use super::console::{read_setting, AdminStorageMetrics, AdminStorageNodeRow, AdminStorageResponse};
+
+const STORAGE_NODE_ARCHITECTURE: &str = "single";
 
 #[derive(Debug, sqlx::FromRow)]
 struct StorageNodeRecord {
@@ -37,11 +38,7 @@ struct NosHealthBody {
     status: String,
     #[serde(default)]
     node_id: String,
-    #[serde(default)]
-    cluster_mode: String,
     region_label: Option<String>,
-    #[serde(default)]
-    replication_lag_events: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,18 +53,6 @@ struct NodeProbe {
     latency_ms: Option<u128>,
     health: Option<NosHealthBody>,
     logical_bytes: i64,
-}
-
-const ALLOWED_ARCHITECTURES: &[&str] = &["replicated", "single", "assigned"];
-
-// Human: Map legacy storage_mode env values to a registry architecture label.
-fn architecture_from_storage_mode(mode: &str) -> &'static str {
-    match mode.trim().to_lowercase().as_str() {
-        "replicated" => "replicated",
-        "assigned" => "assigned",
-        "single" => "single",
-        _ => "single",
-    }
 }
 
 // Human: Normalize and validate node id from setup wizard and Add Storage Node form.
@@ -152,17 +137,10 @@ pub async fn register_setup_storage_node(
     id: &str,
     region_label: &str,
     base_url: &str,
-    architecture: &str,
     target_capacity_bytes: Option<i64>,
 ) -> Result<(), AppError> {
     let id = normalize_node_id(id)?;
     let base_url = normalize_base_url(base_url)?;
-    let architecture = architecture.trim().to_lowercase();
-    if !ALLOWED_ARCHITECTURES.contains(&architecture.as_str()) {
-        return Err(AppError::BadRequest(
-            "architecture must be replicated, single, or assigned".into(),
-        ));
-    }
 
     sqlx::query(
         "INSERT INTO storage_nodes (id, region_label, base_url, architecture, target_capacity_bytes) \
@@ -171,25 +149,12 @@ pub async fn register_setup_storage_node(
     .bind(&id)
     .bind(region_label.trim())
     .bind(&base_url)
-    .bind(&architecture)
+    .bind(STORAGE_NODE_ARCHITECTURE)
     .bind(target_capacity_bytes)
     .execute(pool)
     .await?;
 
     Ok(())
-}
-
-// Human: After registry changes, push topology to every Nebular node via PUT /_cluster/config.
-// Agent: CALLS nebular_cluster::sync_storage_cluster; SKIPPED in integration tests (relax_sync).
-pub async fn sync_cluster_after_registry_change(
-    state: &AppState,
-) -> Result<(), AppError> {
-    nebular_cluster::sync_storage_cluster(
-        &state.pool,
-        state.nos_cluster_bootstrap_token.as_deref(),
-        state.setup_relaxes_storage_probe,
-    )
-    .await
 }
 
 // Human: Probe Nebular /health and JSON /metrics for one registered node.
@@ -235,7 +200,7 @@ async fn probe_storage_node(base_url: &str) -> NodeProbe {
     }
 }
 
-// Human: Map probe results to Pencil status labels (healthy / syncing / degraded).
+// Human: Map probe results to Pencil status labels (healthy / degraded).
 fn node_status(probe: &NodeProbe) -> String {
     if !probe.reachable {
         return "degraded".into();
@@ -245,9 +210,6 @@ fn node_status(probe: &NodeProbe) -> String {
     };
     if health.status != "ok" {
         return "degraded".into();
-    }
-    if health.replication_lag_events > 0 {
-        return "syncing".into();
     }
     "healthy".into()
 }
@@ -303,7 +265,6 @@ pub async fn bootstrap_primary_if_empty(
     pool: &PgPool,
     base_url: &str,
     region_label: &str,
-    architecture: &str,
 ) -> Result<(), AppError> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM storage_nodes")
         .fetch_one(pool)
@@ -320,7 +281,7 @@ pub async fn bootstrap_primary_if_empty(
     .bind("node-primary")
     .bind(region_label)
     .bind(base_url.trim_end_matches('/'))
-    .bind(architecture_from_storage_mode(architecture))
+    .bind(STORAGE_NODE_ARCHITECTURE)
     .execute(pool)
     .await?;
 
@@ -333,13 +294,7 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
         let region = read_setting(&state.pool, "instance_name")
             .await
             .unwrap_or_else(|| "Primary".into());
-        bootstrap_primary_if_empty(
-            &state.pool,
-            &state.object_storage_url,
-            &region,
-            &state.storage_mode,
-        )
-        .await?;
+        bootstrap_primary_if_empty(&state.pool, &state.object_storage_url, &region).await?;
     }
 
     let records: Vec<StorageNodeRecord> = sqlx::query_as(
@@ -378,7 +333,7 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
     for record in records {
         let probe = probe_storage_node(&record.base_url).await;
         let status = node_status(&probe);
-        if status == "healthy" || status == "syncing" {
+        if status == "healthy" {
             active_nodes += 1;
         }
         if let Some(ms) = probe.latency_ms {
@@ -387,29 +342,17 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
         }
         probed_used_bytes += probe.logical_bytes;
 
-        // Human: Registry id/region come from setup or Add Storage Node — not Nebular env defaults.
-        // Agent: Probe READS /health for status/latency/bytes only; WRITES nothing; no id/region override.
-        let storage_mode = probe
-            .health
-            .as_ref()
-            .map(|h| {
-                if h.cluster_mode.is_empty() {
-                    record.architecture.clone()
-                } else {
-                    h.cluster_mode.clone()
-                }
-            })
-            .unwrap_or_else(|| record.architecture.clone());
-
         nodes.push(AdminStorageNodeRow {
             id: record.id.clone(),
             region_label: record.region_label.clone(),
+            base_url: record.base_url.clone(),
             endpoint_host: endpoint_host_from_url(&record.base_url),
             status,
             used_bytes: probe.logical_bytes,
             capacity_label: capacity_label(probe.logical_bytes, record.target_capacity_bytes),
+            target_capacity_bytes: record.target_capacity_bytes,
             latency_ms: probe.latency_ms,
-            storage_mode,
+            storage_mode: record.architecture.clone(),
         });
     }
 
@@ -449,7 +392,6 @@ pub struct CreateStorageNodeRequest {
     pub id: String,
     pub region_label: String,
     pub base_url: String,
-    pub architecture: String,
     pub target_capacity_value: Option<f64>,
     pub target_capacity_unit: Option<String>,
 }
@@ -459,7 +401,7 @@ pub struct CreateStorageNodeResponse {
     pub node: AdminStorageNodeRow,
 }
 
-// Human: POST /admin/storage/nodes — register a node for the Storage Nodes Network panel.
+// Human: POST /admin/storage/nodes — register an additional standalone Nebular endpoint.
 pub async fn create_storage_node(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -470,12 +412,6 @@ pub async fn create_storage_node(
 
     let id = normalize_node_id(&body.id)?;
     let base_url = normalize_base_url(&body.base_url)?;
-    let architecture = body.architecture.trim().to_lowercase();
-    if !ALLOWED_ARCHITECTURES.contains(&architecture.as_str()) {
-        return Err(AppError::BadRequest(
-            "architecture must be replicated, single, or assigned".into(),
-        ));
-    }
 
     let target_capacity_bytes = match (body.target_capacity_value, body.target_capacity_unit.as_deref()) {
         (Some(value), Some(unit)) => Some(parse_target_capacity_bytes(value, unit)?),
@@ -513,7 +449,7 @@ pub async fn create_storage_node(
     .bind(&id)
     .bind(body.region_label.trim())
     .bind(&base_url)
-    .bind(&architecture)
+    .bind(STORAGE_NODE_ARCHITECTURE)
     .bind(target_capacity_bytes)
     .execute(&state.pool)
     .await?;
@@ -527,7 +463,7 @@ pub async fn create_storage_node(
         Some(serde_json::json!({
             "region_label": body.region_label.trim(),
             "base_url": base_url,
-            "architecture": architecture,
+            "architecture": STORAGE_NODE_ARCHITECTURE,
             "target_capacity_value": body.target_capacity_value,
             "target_capacity_unit": body.target_capacity_unit,
         })),
@@ -536,14 +472,123 @@ pub async fn create_storage_node(
     .await
     .ok();
 
-    sync_cluster_after_registry_change(&state).await?;
-
     let response = build_storage_response(&state).await?;
     let node = response
         .nodes
         .into_iter()
         .find(|row| row.id == id || row.endpoint_host == endpoint_host_from_url(&base_url))
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("created storage node not found")))?;
+
+    Ok(Json(CreateStorageNodeResponse { node }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateStorageNodeRequest {
+    pub region_label: Option<String>,
+    pub base_url: Option<String>,
+    pub target_capacity_value: Option<f64>,
+    pub target_capacity_unit: Option<String>,
+}
+
+// Human: PATCH /admin/storage/nodes/{id} — update region, endpoint, or target capacity.
+// Agent: WRITES storage_nodes row; AUDIT storage_nodes.update; RETURNS refreshed node row.
+pub async fn update_storage_node(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(node_id): Path<String>,
+    Json(body): Json<UpdateStorageNodeRequest>,
+) -> Result<Json<CreateStorageNodeResponse>, AppError> {
+    require_admin(&claims)?;
+
+    let id = normalize_node_id(&node_id)?;
+
+    let existing: Option<StorageNodeRecord> = sqlx::query_as(
+        "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
+         FROM storage_nodes \
+         WHERE id = $1 AND enabled = true",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let Some(existing) = existing else {
+        return Err(AppError::NotFound);
+    };
+
+    let region_label = body
+        .region_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or(existing.region_label.clone());
+
+    let base_url = match body.base_url.as_deref() {
+        Some(raw) => normalize_base_url(raw)?,
+        None => existing.base_url.clone(),
+    };
+
+    if base_url != existing.base_url {
+        let url_taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM storage_nodes WHERE base_url = $1 AND id <> $2)",
+        )
+        .bind(&base_url)
+        .bind(&id)
+        .fetch_one(&state.pool)
+        .await?;
+        if url_taken {
+            return Err(AppError::Conflict(
+                "a storage node with this endpoint URL already exists".into(),
+            ));
+        }
+    }
+
+    let target_capacity_bytes = match (body.target_capacity_value, body.target_capacity_unit.as_deref()) {
+        (Some(value), Some(unit)) => Some(parse_target_capacity_bytes(value, unit)?),
+        (None, None) => existing.target_capacity_bytes,
+        _ => {
+            return Err(AppError::BadRequest(
+                "target capacity requires both value and unit (MB, GB, or TB)".into(),
+            ));
+        }
+    };
+
+    sqlx::query(
+        "UPDATE storage_nodes \
+         SET region_label = $1, base_url = $2, target_capacity_bytes = $3, updated_at = NOW() \
+         WHERE id = $4",
+    )
+    .bind(&region_label)
+    .bind(&base_url)
+    .bind(target_capacity_bytes)
+    .bind(&id)
+    .execute(&state.pool)
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "storage_nodes.update",
+        Some("storage_node"),
+        Some(&id),
+        Some(serde_json::json!({
+            "region_label": region_label,
+            "base_url": base_url,
+            "target_capacity_value": body.target_capacity_value,
+            "target_capacity_unit": body.target_capacity_unit,
+        })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    let response = build_storage_response(&state).await?;
+    let node = response
+        .nodes
+        .into_iter()
+        .find(|row| row.id == id)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("updated storage node not found")))?;
 
     Ok(Json(CreateStorageNodeResponse { node }))
 }

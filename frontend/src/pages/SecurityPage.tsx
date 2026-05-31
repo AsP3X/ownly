@@ -6,6 +6,7 @@ import type { LucideIcon } from "lucide-react";
 import { MarketingCtaSection } from "@/components/marketing/MarketingCtaSection";
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import { SYMMETRIC_CIPHER } from "@/lib/encryption-standards";
 
 type SecurityPillar = {
   title: string;
@@ -17,47 +18,47 @@ type SecurityPillar = {
 
 const securityPillars: SecurityPillar[] = [
   {
-    title: "End-to-End Encryption",
-    subtitle: "Zero server-side visibility",
+    title: "AES-256-GCM at rest",
+    subtitle: "Quantum-hardened symmetric encryption",
     description:
-      "All user data is encrypted client-side before it ever leaves your device. Only you hold the decryption keys.",
+      "Content keys and sensitive metadata are protected with AES-256-GCM envelope encryption. Grover's algorithm only reduces AES-256 to roughly 2^128 operations — still infeasible to break.",
     icon: ShieldCheck,
     specs: [
-      { label: "Local cipher", value: "AES-GCM-256" },
-      { label: "Sharing protocol", value: "RSA-4096" },
+      { label: "Symmetric cipher", value: SYMMETRIC_CIPHER },
+      { label: "Key wrapping", value: "Per-file envelope" },
     ],
   },
   {
-    title: "Zero-Knowledge Cryptography",
-    subtitle: "Master keys never stored",
+    title: "Hybrid post-quantum TLS",
+    subtitle: "Protect keys in transit",
     description:
-      "Your master password never reaches our servers. All keys are derived locally using state-of-the-art derivation algorithms.",
+      "Classical RSA/ECC alone is vulnerable to Shor's algorithm. Terminate HTTPS with hybrid key exchange that pairs ML-KEM (NIST PQC) with classical ECDHE/RSA at your edge proxy.",
     icon: Key,
     specs: [
-      { label: "Key derivation", value: "Argon2id" },
-      { label: "Server knowledge", value: "Zero / No keys" },
+      { label: "Recommended", value: "ML-KEM + ECDHE" },
+      { label: "Threat model", value: "Harvest-now, decrypt-later" },
     ],
   },
   {
-    title: "Fragmented Storage Slices",
-    subtitle: "Decentralized redundancy",
+    title: "Credential hardening",
+    subtitle: "Passwords never stored raw",
     description:
-      "Files are sliced into encrypted fragments and distributed across decentralized nodes, protecting against single-point failures.",
+      "User passwords are hashed with Argon2id. Session JWTs gate API access; stream tickets gate time-limited media segment delivery without exposing long-lived secrets.",
     icon: Database,
     specs: [
-      { label: "Distribution", value: "Decentralized" },
-      { label: "Redundancy", value: "Reed-Solomon Erasure" },
+      { label: "Password KDF", value: "Argon2id" },
+      { label: "Sessions", value: "HS256 JWT" },
     ],
   },
   {
-    title: "Verified Open Cryptography",
-    subtitle: "Fully auditable code",
+    title: "Auditable cryptography",
+    subtitle: "Transparent architecture",
     description:
-      "Our entire cryptographic implementation is fully open-source and regularly audited by independent cybersecurity firms.",
+      "Encryption standards are documented in the admin console and public specs. HLS streaming uses AES-128-CBC segments for player compatibility while segment keys remain wrapped with AES-256-GCM.",
     icon: Code,
     specs: [
-      { label: "Audit standard", value: "SOC2 Type II Compliant" },
-      { label: "Source code", value: "Publicly Auditable" },
+      { label: "Edge key exchange", value: "Hybrid PQC TLS" },
+      { label: "Password KDF", value: "Argon2id" },
     ],
   },
 ];
@@ -72,9 +73,9 @@ const ownlyComparison = [
     description: "All data is zstd compressed prior to storage, reducing payload size by up to 70%.",
   },
   {
-    title: "Integrated Encryption",
+    title: "AES-256 envelope encryption",
     description:
-      "Compressed blobs are automatically encrypted at rest using enterprise keys managed by nebular-os.",
+      "Content keys are wrapped with AES-256-GCM before blobs reach Nebular OS; plaintext keys never persist on disk.",
   },
   {
     title: "Multi-Zone Redundancy",

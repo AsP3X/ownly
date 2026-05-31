@@ -20,6 +20,7 @@ import {
   type AdminStorageResponse,
 } from "@/api/client";
 import { AdminAddStorageNodeDialog } from "@/components/admin/console/AdminAddStorageNodeDialog";
+import { AdminEditStorageNodeDialog } from "@/components/admin/console/AdminEditStorageNodeDialog";
 import { AdminStorageNodeTerminalDialog } from "@/components/admin/console/AdminStorageNodeTerminalDialog";
 import {
   AdminConsoleOutlineButton,
@@ -30,7 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/utils-app";
 
-type StorageTabId = "all" | "perf" | "sync";
+type StorageTabId = "all" | "perf";
 
 type MetricBadgeTone = "success" | "info" | "warning";
 
@@ -131,8 +132,7 @@ type NodeVisualStatus = "healthy" | "syncing" | "warning";
 /** Human: Map backend status strings to Pencil badge + icon chip variants. */
 function resolveNodeVisualStatus(status: string): NodeVisualStatus {
   if (status === "healthy") return "healthy";
-  if (status === "degraded" || status === "not_configured") return "warning";
-  return "syncing";
+  return "warning";
 }
 
 const NODE_STATUS_STYLES: Record<
@@ -234,10 +234,10 @@ function StorageCapacityCell({ capacityLabel }: { capacityLabel: string }) {
 
 /** Human: Row action icons — terminal, settings, power per Pencil Oyrpb frame. */
 function NodeRowActions({
-  onRefresh,
+  onEdit,
   onOpenTerminal,
 }: {
-  onRefresh: () => void;
+  onEdit: () => void;
   onOpenTerminal: () => void;
 }) {
   return (
@@ -252,9 +252,9 @@ function NodeRowActions({
       </button>
       <button
         type="button"
-        onClick={onRefresh}
+        onClick={onEdit}
         className="text-[#666666] transition-colors hover:text-[#1A1A1A]"
-        aria-label="Node settings"
+        aria-label="Edit storage node"
       >
         <Settings className="size-4" aria-hidden />
       </button>
@@ -272,11 +272,11 @@ function NodeRowActions({
 /** Human: Storage nodes table — custom layout matching Pencil Oz264 container. */
 function StorageNodesTable({
   nodes,
-  onRefresh,
+  onEditNode,
   onOpenTerminal,
 }: {
   nodes: AdminStorageNodeRow[];
-  onRefresh: () => void;
+  onEditNode: (node: AdminStorageNodeRow) => void;
   onOpenTerminal: (node: AdminStorageNodeRow) => void;
 }) {
   return (
@@ -324,7 +324,7 @@ function StorageNodesTable({
               <td className="px-5 py-0 align-middle text-[13px]">—</td>
               <td className="px-5 py-0 align-middle">
                 <NodeRowActions
-                  onRefresh={onRefresh}
+                  onEdit={() => onEditNode(row)}
                   onOpenTerminal={() => onOpenTerminal(row)}
                 />
               </td>
@@ -344,6 +344,8 @@ export function AdminStorageNodesPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addNodeOpen, setAddNodeOpen] = useState(false);
+  const [editNodeOpen, setEditNodeOpen] = useState(false);
+  const [editNode, setEditNode] = useState<AdminStorageNodeRow | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalNode, setTerminalNode] = useState<AdminStorageNodeRow | null>(null);
   const [terminalSessionKey, setTerminalSessionKey] = useState(0);
@@ -392,7 +394,7 @@ export function AdminStorageNodesPanel() {
       <AdminConsolePageHeader
         titleSize="md"
         title="Storage Nodes Network"
-        description="Monitor network health, data replication status, and peer performance across global storage clusters."
+        description="Monitor registered Nebular endpoints, capacity, and health probes."
         actions={
           <>
             <AdminConsoleOutlineButton onClick={() => void load(true)} disabled={loading || refreshing}>
@@ -401,7 +403,7 @@ export function AdminStorageNodesPanel() {
               ) : (
                 <RefreshCw className="size-4 shrink-0" aria-hidden />
               )}
-              Rebalance Clusters
+              Refresh
             </AdminConsoleOutlineButton>
             <AdminConsolePrimaryButton onClick={() => setAddNodeOpen(true)}>
               <Plus className="size-4 shrink-0" aria-hidden />
@@ -430,7 +432,6 @@ export function AdminStorageNodesPanel() {
             tabs={[
               { id: "all", label: `All Storage Nodes (${data.nodes.length})` },
               { id: "perf", label: "Performance Metrics" },
-              { id: "sync", label: "Replication & Sync" },
             ]}
             activeId={tab}
             onChange={(id) => setTab(id as StorageTabId)}
@@ -475,7 +476,10 @@ export function AdminStorageNodesPanel() {
             ) : (
               <StorageNodesTable
                 nodes={data.nodes}
-                onRefresh={() => void load(true)}
+                onEditNode={(node) => {
+                  setEditNode(node);
+                  setEditNodeOpen(true);
+                }}
                 onOpenTerminal={(node) => {
                   setTerminalNode(node);
                   setTerminalSessionKey((key) => key + 1);
@@ -485,9 +489,7 @@ export function AdminStorageNodesPanel() {
             )
           ) : (
             <p className="text-sm text-[#666666]">
-              {tab === "perf"
-                ? `Current utilization: ${utilizationPct}%. Latency: ${metrics.avg_latency_ms ?? "n/a"} ms.`
-                : "This instance uses a single configured object storage backend; replication is managed by your storage provider."}
+              {`Current utilization: ${utilizationPct}%. Latency: ${metrics.avg_latency_ms ?? "n/a"} ms.`}
             </p>
           )}
         </>
@@ -497,6 +499,17 @@ export function AdminStorageNodesPanel() {
         open={addNodeOpen}
         onOpenChange={setAddNodeOpen}
         onCreated={() => void load(true)}
+      />
+
+      <AdminEditStorageNodeDialog
+        key={editNode?.id ?? "edit-node-closed"}
+        open={editNodeOpen}
+        onOpenChange={(open) => {
+          setEditNodeOpen(open);
+          if (!open) setEditNode(null);
+        }}
+        node={editNode}
+        onUpdated={() => void load(true)}
       />
 
       <AdminStorageNodeTerminalDialog

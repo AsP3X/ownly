@@ -21,6 +21,7 @@ pub mod audit;
 pub mod auth;
 pub mod audio;
 pub mod config;
+pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod files;
@@ -71,9 +72,6 @@ pub struct AppState {
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
     pub hls_hardware: hls::hardware::HlsHardwareEncode,
-    /// Human: Shared operator secret for first Nebular PUT /_cluster/config before cluster_token exists.
-    /// Agent: READS NOS_CLUSTER_BOOTSTRAP_TOKEN env; OPTIONAL for standalone-only deployments.
-    pub nos_cluster_bootstrap_token: Option<String>,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -170,14 +168,6 @@ async fn build_app_state(
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
         hls_hardware,
-        nos_cluster_bootstrap_token: {
-            let token = config.nos_cluster_bootstrap_token.trim();
-            if token.is_empty() {
-                None
-            } else {
-                Some(token.to_string())
-            }
-        },
     }))
 }
 
@@ -513,6 +503,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/admin/storage/nodes",
             post(admin::storage_nodes::create_storage_node),
+        )
+        .route(
+            "/api/v1/admin/storage/nodes/{id}",
+            patch(admin::storage_nodes::update_storage_node),
         )
         .route(
             "/api/v1/admin/settings",

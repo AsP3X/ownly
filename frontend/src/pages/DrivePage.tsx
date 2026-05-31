@@ -57,6 +57,7 @@ import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
 import {
   buildAudioGallery,
@@ -122,6 +123,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
+  const { instanceName, setInstanceName } = useInstanceName();
   // Human: Mobile profile menu anchor — desktop topbar uses an inline Sign Out button instead.
   // Agent: mobileProfileRef; WRITTEN by MobileDriveHeader; READ by outside-click dismiss handler.
   const mobileProfileRef = useRef<HTMLDivElement>(null);
@@ -134,7 +136,6 @@ export default function DrivePage() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
-  const [instanceName, setInstanceName] = useState("MediaVault");
   const [usedBytes, setUsedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -203,7 +204,7 @@ export default function DrivePage() {
   const dashboardLoadedRef = useRef(false);
 
   // Human: Storage summary for the sidebar — fetched once per page session, not every folder open.
-  // Agent: GET /dashboard; WRITES instanceName, usedBytes, quotaBytes; CALLS again after mutations.
+  // Agent: GET /dashboard; WRITES instanceName (context), usedBytes, quotaBytes; CALLS again after mutations.
   const refreshDashboard = useCallback(async () => {
     try {
       const dashboard = await fetchDashboard();
@@ -214,7 +215,7 @@ export default function DrivePage() {
     } catch {
       // Human: Dashboard stats are non-critical — a failed fetch must not block browsing.
     }
-  }, []);
+  }, [setInstanceName]);
 
   // Human: Refresh paperclip indicators after share dialog changes (list rows may be stale).
   // Agent: POST /shares/status; WRITES fileShareFlags + folderShareFlags maps.
@@ -911,6 +912,28 @@ export default function DrivePage() {
   // Human: Default browser order — A–Z with numeric segments (1, 2, 10 not 1, 10, 2).
   // Agent: MATCHES backend natural_sort_key; RE-SORTS loaded pages for consistent display.
   const browserFiles = useMemo(() => sortFilesByName(nameFilteredFiles), [nameFilteredFiles]);
+  // Human: File ids in the current explorer listing that accept bulk selection (skips processing).
+  // Agent: READS browserFiles; USED by Select all control and Ctrl+A on My files.
+  const selectableBrowserFileIds = useMemo(
+    () => browserFiles.filter((file) => !isFileProcessing(file)).map((file) => file.id),
+    [browserFiles],
+  );
+  const allBrowserFilesSelected =
+    selectableBrowserFileIds.length > 0 &&
+    selectableBrowserFileIds.every((fileId) => selectedFileIds.has(fileId));
+
+  // Human: Add every visible, selectable file to the current bulk selection.
+  // Agent: MERGES selectableBrowserFileIds into selectedFileIds Set.
+  const handleSelectAllBrowserFiles = useCallback(() => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      for (const fileId of selectableBrowserFileIds) {
+        next.add(fileId);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [selectableBrowserFileIds]);
+
   const visibleFolders = useMemo(
     () => (isSearchingMyFiles ? [] : sortFilesByName(folders)),
     [folders, isSearchingMyFiles],
@@ -921,6 +944,35 @@ export default function DrivePage() {
     [activeNav, folders],
   );
   const initials = userInitials(user?.email);
+
+  // Human: Ctrl+A (Cmd+A on macOS) selects all files in the current folder listing.
+  // Agent: LISTENS document keydown on my-files; SKIPS inputs and contenteditable targets.
+  useEffect(() => {
+    if (activeNav !== "my-files" || selectableBrowserFileIds.length === 0) {
+      return;
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "a") {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+          return;
+        }
+        if (target.isContentEditable) {
+          return;
+        }
+      }
+      event.preventDefault();
+      handleSelectAllBrowserFiles();
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [activeNav, handleSelectAllBrowserFiles, selectableBrowserFileIds.length]);
 
   return (
     <DriveContextMenu
@@ -1265,6 +1317,9 @@ export default function DrivePage() {
               <div className="flex flex-col gap-4">
                 <BulkActionsBar
                   selectedCount={selectedFiles.length}
+                  selectableCount={selectableBrowserFileIds.length}
+                  allSelected={allBrowserFilesSelected}
+                  onSelectAll={handleSelectAllBrowserFiles}
                   favouriteLabel={bulkFavouriteLabel}
                   onDownload={handleBulkDownload}
                   onToggleFavourite={handleBulkToggleFavourite}

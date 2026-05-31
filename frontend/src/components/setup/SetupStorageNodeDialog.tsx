@@ -9,36 +9,14 @@ import { SetupField } from "@/components/setup/SetupField";
 import { SetupNoticeBox } from "@/components/setup/SetupNoticeBox";
 import { SetupOutlineButton } from "@/components/setup/SetupOutlineButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-
-export type SetupNodeArchitecture = "replicated" | "single" | "assigned";
 
 export type SetupStorageNodeDraft = {
   nodeId: string;
   regionLabel: string;
   baseUrl: string;
-  architecture: SetupNodeArchitecture;
   capacityValue: string;
   capacityUnit: StorageCapacityUnit;
 };
-
-const ARCHITECTURE_OPTIONS: { id: SetupNodeArchitecture; label: string; description: string }[] = [
-  {
-    id: "replicated",
-    label: "Replicated",
-    description: "Clustered storage with automatic multi-node replication.",
-  },
-  {
-    id: "single",
-    label: "Single",
-    description: "Standalone Nebular OS node on your network.",
-  },
-  {
-    id: "assigned",
-    label: "Assigned",
-    description: "Dedicated storage for specific workloads.",
-  },
-];
 
 const CAPACITY_UNITS: StorageCapacityUnit[] = ["MB", "GB", "TB"];
 
@@ -129,7 +107,6 @@ export function SetupStorageNodeDialog({
       nodeId: draft.nodeId.trim(),
       regionLabel: draft.regionLabel.trim(),
       baseUrl: draft.baseUrl.trim(),
-      architecture: draft.architecture,
       capacityValue: draft.capacityValue.trim(),
       capacityUnit: draft.capacityUnit,
     });
@@ -169,9 +146,8 @@ export function SetupStorageNodeDialog({
 
         <SetupNoticeBox>
           In Docker Compose use{" "}
-          <span className="font-medium text-[#1A1A1A]">http://object-storage:9000</span> (or{" "}
-          <span className="font-medium text-[#1A1A1A]">http://object-storage-b:9000</span> with
-          replication).
+          <span className="font-medium text-[#1A1A1A]">http://object-storage:9000</span>. Each
+          additional node is a separate standalone Nebular endpoint registered in the admin console.
         </SetupNoticeBox>
 
         {testBanner ? (
@@ -196,31 +172,6 @@ export function SetupStorageNodeDialog({
           value={draft.baseUrl}
           onChange={(e) => updateDraft({ baseUrl: e.target.value })}
         />
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-[#666666]">Architecture</span>
-          <div className="grid gap-2">
-            {ARCHITECTURE_OPTIONS.map((option) => {
-              const selected = draft.architecture === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => updateDraft({ architecture: option.id })}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
-                    selected
-                      ? "border-2 border-[#2563EB] bg-[#EFF6FF]"
-                      : "border border-[#E5E7EB] bg-white hover:border-[#D1D5DB]",
-                  )}
-                >
-                  <p className="text-[13px] font-semibold text-[#1A1A1A]">{option.label}</p>
-                  <p className="text-[11px] text-[#666666]">{option.description}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
         <div className="grid grid-cols-[1fr_auto] gap-3">
           <SetupField

@@ -212,7 +212,7 @@ fn urls_equivalent(a: &str, b: &str) -> bool {
 fn resolve_setup_storage_node(
     body: &SetupRequest,
     state: &AppState,
-) -> Result<(String, String, String, String, Option<i64>), AppError> {
+) -> Result<(String, String, String, Option<i64>), AppError> {
     let base_url = if let Some(raw) = body
         .storage_node_base_url
         .as_deref()
@@ -243,14 +243,6 @@ fn resolve_setup_storage_node(
         .unwrap_or(body.instance_name.trim())
         .to_string();
 
-    let architecture = body
-        .storage_node_architecture
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_lowercase)
-        .unwrap_or_else(|| state.storage_mode.clone());
-
     let target_capacity_bytes = match (
         body.storage_node_target_capacity_value,
         body.storage_node_target_capacity_unit.as_deref(),
@@ -264,7 +256,7 @@ fn resolve_setup_storage_node(
         }
     };
 
-    Ok((id, region_label, base_url, architecture, target_capacity_bytes))
+    Ok((id, region_label, base_url, target_capacity_bytes))
 }
 
 // Human: Atomic first admin + settings seed — only succeeds while the users table is empty.
@@ -289,7 +281,6 @@ pub async fn setup(
         storage_node_id,
         storage_node_region,
         storage_base_url,
-        storage_architecture,
         storage_capacity_bytes,
     ) = resolve_setup_storage_node(&body, &state)?;
 
@@ -371,7 +362,7 @@ pub async fn setup(
         ("database_url", target_url),
         ("object_storage_bucket", bucket),
         ("default_storage_quota_gb", &quota_gb.to_string()),
-        ("storage_mode", storage_architecture.as_str()),
+        ("storage_mode", state.storage_mode.as_str()),
         ("object_storage_url", storage_base_url.as_str()),
         (
             "object_storage_public_url",
@@ -396,14 +387,9 @@ pub async fn setup(
         &storage_node_id,
         &storage_node_region,
         &storage_base_url,
-        &storage_architecture,
         storage_capacity_bytes,
     )
     .await?;
-
-    // Human: Apply Nebular runtime cluster config from the registry row we just saved.
-    // Agent: HTTP PUT /_cluster/config; SKIPPED when setup_relaxes_storage_probe (tests).
-    storage_nodes::sync_cluster_after_registry_change(&state).await?;
 
     audit::write_audit(
         &setup_pool,
@@ -417,7 +403,6 @@ pub async fn setup(
             "default_storage_quota_gb": quota_gb,
             "storage_node_id": storage_node_id,
             "storage_node_base_url": storage_base_url,
-            "storage_node_architecture": storage_architecture,
         })),
         &headers,
     )

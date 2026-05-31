@@ -6,6 +6,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { setupStatus } from "@/api/client";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
+import { InstanceNameProvider } from "@/context/InstanceNameContext";
 import { useAuth } from "@/hooks/useAuth";
 import SetupPage from "@/pages/SetupPage";
 import LoginPage from "@/pages/LoginPage";
@@ -93,6 +94,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <InstanceNameProvider>
         <SetupGuard>
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
@@ -119,6 +121,7 @@ export default function App() {
             </Routes>
           </Suspense>
         </SetupGuard>
+        </InstanceNameProvider>
       </AuthProvider>
     </BrowserRouter>
   );
