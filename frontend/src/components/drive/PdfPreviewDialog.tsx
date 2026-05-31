@@ -3,8 +3,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type UIEvent } from "react";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Download,
   FileText,
   Loader2,
@@ -16,9 +18,18 @@ import {
 } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { TextItem } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import "@/lib/pdf-viewer";
+import "@/lib/pdf-search.css";
+import {
+  normalizePdfSearchQuery,
+  renderPdfSearchTextItem,
+  scrollToPdfSearchMatch,
+  searchPdfDocument,
+  type PdfSearchMatch,
+} from "@/lib/pdf-search";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import {
@@ -56,6 +67,17 @@ const THUMBNAIL_WIDTH = 84;
 const PAGE_AREA_PADDING_PX = 48;
 // Human: Vertical gap between stacked pages in the scrollable document pane.
 const PAGE_STACK_GAP_PX = 24;
+// Human: Debounce in-document search while typing so large PDFs stay responsive.
+const SEARCH_DEBOUNCE_MS = 300;
+
+// Human: Skip global viewer shortcuts when focus is in an editable field (search input, page input).
+// Agent: READS event.target tagName and isContentEditable; RETURNS true for INPUT/TEXTAREA/SELECT/contenteditable.
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(3))));
@@ -112,7 +134,15 @@ export function PdfPreviewDialog({
   const [fitPageWidth, setFitPageWidth] = useState<number | undefined>(undefined);
   const [pageNativeSize, setPageNativeSize] = useState<{ width: number; height: number } | null>(null);
   const [documentAreaNode, setDocumentAreaNode] = useState<HTMLDivElement | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatches, setSearchMatches] = useState<PdfSearchMatch[]>([]);
+  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(0);
+  const [searching, setSearching] = useState(false);
   const activeFileIdRef = useRef<string | null>(null);
+  const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const thumbnailRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -133,6 +163,12 @@ export function PdfPreviewDialog({
     setZoom(DEFAULT_ZOOM);
     setFitPageWidth(undefined);
     setPageNativeSize(null);
+    pdfDocumentRef.current = null;
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatches([]);
+    setActiveSearchMatchIndex(0);
+    setSearching(false);
   }, [file?.id]);
 
   // Human: Keep the page input in sync when navigation changes currentPage externally.
@@ -226,6 +262,7 @@ export function PdfPreviewDialog({
   // Human: Load native page dimensions from the PDF so fit-to-page width can be computed.
   // Agent: CALLS pdf.getPage(1) on Document load; WRITES pageNativeSize from viewport at scale 1.
   const handleDocumentLoadSuccess = useCallback((pdf: PDFDocumentProxy) => {
+    pdfDocumentRef.current = pdf;
     setNumPages(pdf.numPages);
     setCurrentPage(1);
 
@@ -234,6 +271,100 @@ export function PdfPreviewDialog({
       setPageNativeSize({ width: viewport.width, height: viewport.height });
     });
   }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatches([]);
+    setActiveSearchMatchIndex(0);
+    setSearching(false);
+  }, []);
+
+  const goToSearchMatch = useCallback(
+    (matchIndex: number) => {
+      if (searchMatches.length === 0) return;
+
+      const wrappedIndex =
+        ((matchIndex % searchMatches.length) + searchMatches.length) % searchMatches.length;
+      const match = searchMatches[wrappedIndex];
+      if (!match) return;
+
+      setActiveSearchMatchIndex(wrappedIndex);
+      setCurrentPage(match.pageNumber);
+      requestAnimationFrame(() => {
+        scrollToPdfSearchMatch(pageRefs.current, match);
+      });
+    },
+    [searchMatches],
+  );
+
+  const goToNextSearchMatch = useCallback(() => {
+    goToSearchMatch(activeSearchMatchIndex + 1);
+  }, [activeSearchMatchIndex, goToSearchMatch]);
+
+  const goToPreviousSearchMatch = useCallback(() => {
+    goToSearchMatch(activeSearchMatchIndex - 1);
+  }, [activeSearchMatchIndex, goToSearchMatch]);
+
+  // Human: Debounced case-insensitive search across all pages when the query changes.
+  // Agent: CALLS searchPdfDocument; CANCELS stale runs via AbortController.
+  useEffect(() => {
+    const normalizedQuery = normalizePdfSearchQuery(searchQuery);
+    if (!open || !normalizedQuery) {
+      setSearchMatches([]);
+      setActiveSearchMatchIndex(0);
+      setSearching(false);
+      return;
+    }
+
+    const pdf = pdfDocumentRef.current;
+    if (!pdf) return;
+
+    const controller = new AbortController();
+    setSearching(true);
+
+    const timeoutId = window.setTimeout(() => {
+      void searchPdfDocument(pdf, normalizedQuery, controller.signal)
+        .then((matches) => {
+          if (controller.signal.aborted) return;
+          setSearchMatches(matches);
+          setActiveSearchMatchIndex(0);
+          if (matches.length > 0) {
+            setCurrentPage(matches[0]!.pageNumber);
+            requestAnimationFrame(() => {
+              scrollToPdfSearchMatch(pageRefs.current, matches[0]);
+            });
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [open, searchQuery, numPages]);
+
+  // Human: Re-scroll to the active match after zoom or text-layer re-render changes layout.
+  // Agent: READS activeSearchMatchIndex + searchMatches; CALLS scrollToPdfSearchMatch.
+  useEffect(() => {
+    if (!open || searchMatches.length === 0) return;
+    const match = searchMatches[activeSearchMatchIndex];
+    if (!match) return;
+
+    const frameId = requestAnimationFrame(() => {
+      scrollToPdfSearchMatch(pageRefs.current, match);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [open, activeSearchMatchIndex, searchMatches, fitPageWidth, zoom]);
+
+  const customTextRenderer = useCallback(
+    ({ str, pageNumber, itemIndex }: TextItem & { pageNumber: number; itemIndex: number }) =>
+      renderPdfSearchTextItem(str, pageNumber, itemIndex, searchMatches, activeSearchMatchIndex),
+    [searchMatches, activeSearchMatchIndex],
+  );
 
   const goPreviousPage = useCallback(() => {
     goToPage(currentPage - 1);
@@ -275,21 +406,54 @@ export function PdfPreviewDialog({
   const zoomOutRef = useRef(zoomOut);
   const goPreviousPageRef = useRef(goPreviousPage);
   const goNextPageRef = useRef(goNextPage);
+  const goToNextSearchMatchRef = useRef(goToNextSearchMatch);
+  const goToPreviousSearchMatchRef = useRef(goToPreviousSearchMatch);
+  const closeSearchRef = useRef(closeSearch);
 
   useEffect(() => {
     zoomInRef.current = zoomIn;
     zoomOutRef.current = zoomOut;
     goPreviousPageRef.current = goPreviousPage;
     goNextPageRef.current = goNextPage;
-  }, [zoomIn, zoomOut, goPreviousPage, goNextPage]);
+    goToNextSearchMatchRef.current = goToNextSearchMatch;
+    goToPreviousSearchMatchRef.current = goToPreviousSearchMatch;
+    closeSearchRef.current = closeSearch;
+  }, [zoomIn, zoomOut, goPreviousPage, goNextPage, goToNextSearchMatch, goToPreviousSearchMatch, closeSearch]);
 
-  // Human: Keyboard shortcuts for zoom and page navigation while the dialog is open.
-  // Agent: LISTENS document keydown capture; PREVENTS default for +/− and arrow keys.
+  // Human: Focus the search field when the panel opens (toolbar button or Ctrl/Cmd+F).
+  // Agent: CALLS searchInputRef.focus after searchOpen becomes true.
+  useEffect(() => {
+    if (!open || !searchOpen) return;
+    const frameId = requestAnimationFrame(() => {
+      const input = searchInputRef.current ?? mobileSearchInputRef.current;
+      input?.focus();
+      input?.select();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [open, searchOpen]);
+
+  // Human: Keyboard shortcuts for zoom, page navigation, and in-document search.
+  // Agent: LISTENS document keydown capture; SKIPS editable targets; Ctrl/Cmd+F opens search.
   useEffect(() => {
     if (!open) return;
 
     function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
       if (event.isComposing) return;
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+
+      if (event.key === "Escape" && searchOpen) {
+        event.preventDefault();
+        closeSearchRef.current();
+        return;
+      }
+
+      if (isEditableTarget(event.target)) return;
+
       if (event.key === "+" || event.key === "=") {
         event.preventDefault();
         zoomInRef.current();
@@ -307,7 +471,7 @@ export function PdfPreviewDialog({
 
     document.addEventListener("keydown", handleDocumentKeyDown, true);
     return () => document.removeEventListener("keydown", handleDocumentKeyDown, true);
-  }, [open]);
+  }, [open, searchOpen]);
 
   useEffect(() => {
     if (!open || !documentAreaNode) return;
@@ -335,6 +499,17 @@ export function PdfPreviewDialog({
   const showDownloadAction = Boolean(file && onDownload);
   const canGoPrevious = currentPage > 1;
   const canGoNext = numPages > 0 && currentPage < numPages;
+  const normalizedSearchQuery = normalizePdfSearchQuery(searchQuery);
+  const hasSearchQuery = normalizedSearchQuery.length > 0;
+  const searchResultLabel =
+    !hasSearchQuery
+      ? ""
+      : searching
+        ? "Searching…"
+        : searchMatches.length === 0
+          ? "No results"
+          : `${activeSearchMatchIndex + 1} of ${searchMatches.length}`;
+  const canNavigateSearchMatches = searchMatches.length > 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -438,15 +613,69 @@ export function PdfPreviewDialog({
             </div>
 
             <div className="flex shrink-0 items-center gap-2.5">
-              <button
-                type="button"
-                disabled
-                title="Search in PDF (coming soon)"
-                aria-label="Search in PDF (coming soon)"
-                className="hidden size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#666666] sm:flex"
-              >
-                <Search className="size-4" aria-hidden />
-              </button>
+              {searchOpen ? (
+                <div className="hidden items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-2 py-1 sm:flex">
+                  <Search className="size-3.5 shrink-0 text-[#666666]" aria-hidden />
+                  <input
+                    ref={searchInputRef}
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        if (event.shiftKey) goToPreviousSearchMatch();
+                        else goToNextSearchMatch();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeSearch();
+                      }
+                    }}
+                    placeholder="Search in document"
+                    aria-label="Search in PDF"
+                    className="h-7 w-[min(12rem,28vw)] bg-transparent text-xs text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+                  />
+                  <span className="min-w-[4.5rem] text-center text-[10px] text-[#666666]" aria-live="polite">
+                    {searchResultLabel}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={!canNavigateSearchMatches}
+                    onClick={goToPreviousSearchMatch}
+                    aria-label="Previous search result"
+                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronUp className="size-3.5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canNavigateSearchMatches}
+                    onClick={goToNextSearchMatch}
+                    aria-label="Next search result"
+                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronDown className="size-3.5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeSearch}
+                    aria-label="Close search"
+                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white"
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  title="Search in PDF (Ctrl+F)"
+                  aria-label="Search in PDF"
+                  onClick={() => setSearchOpen(true)}
+                  className="hidden size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#666666] transition-colors hover:bg-[#E5E7EB] hover:text-[#1A1A1A] sm:flex"
+                >
+                  <Search className="size-4" aria-hidden />
+                </button>
+              )}
 
               {showDownloadAction ? (
                 <button
@@ -472,6 +701,73 @@ export function PdfPreviewDialog({
               </DialogClose>
             </div>
           </header>
+
+          {/* Human: Mobile search strip — case-insensitive in-document search below the sm breakpoint. */}
+          {searchOpen ? (
+            <div className="flex shrink-0 items-center gap-2 border-b border-[#E5E7EB] px-4 py-2 md:hidden">
+              <Search className="size-3.5 shrink-0 text-[#666666]" aria-hidden />
+              <input
+                ref={mobileSearchInputRef}
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (event.shiftKey) goToPreviousSearchMatch();
+                    else goToNextSearchMatch();
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeSearch();
+                  }
+                }}
+                placeholder="Search in document"
+                aria-label="Search in PDF"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-[#E5E7EB] bg-white px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+              />
+              <span className="shrink-0 text-[10px] text-[#666666]" aria-live="polite">
+                {searchResultLabel}
+              </span>
+              <button
+                type="button"
+                disabled={!canNavigateSearchMatches}
+                onClick={goToPreviousSearchMatch}
+                aria-label="Previous search result"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <ChevronUp className="size-3.5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                disabled={!canNavigateSearchMatches}
+                onClick={goToNextSearchMatch}
+                aria-label="Next search result"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white disabled:opacity-40"
+              >
+                <ChevronDown className="size-3.5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={closeSearch}
+                aria-label="Close search"
+                className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            </div>
+          ) : (
+            <div className="flex shrink-0 justify-end border-b border-[#E5E7EB] px-4 py-2 md:hidden">
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                aria-label="Search in PDF"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-xs text-[#666666]"
+              >
+                <Search className="size-3.5" aria-hidden />
+                Search
+              </button>
+            </div>
+          )}
 
           {/* Human: Mobile page/zoom strip — mirrors header controls below the sm breakpoint. */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 py-2 md:hidden">
@@ -640,6 +936,9 @@ export function PdfPreviewDialog({
                               width={scaledWidth}
                               renderAnnotationLayer
                               renderTextLayer
+                              customTextRenderer={
+                                hasSearchQuery && searchMatches.length > 0 ? customTextRenderer : undefined
+                              }
                               loading={
                                 <div className="flex min-h-[24rem] min-w-[16rem] items-center justify-center">
                                   <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />

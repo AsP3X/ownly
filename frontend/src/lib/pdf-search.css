@@ -1,0 +1,16 @@
+/* Human: PDF in-document search highlights rendered via react-pdf customTextRenderer <mark> tags. */
+/* Agent: Styles .textLayer mark classes from pdf-search.ts; active match uses stronger orange fill. */
+
+.textLayer mark.pdf-search-highlight {
+  background-color: rgba(255, 235, 59, 0.55);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+}
+
+.textLayer mark.pdf-search-highlight-active {
+  background-color: rgba(255, 152, 0, 0.78);
+  outline: 1px solid rgb(245, 124, 0);
+  border-radius: 2px;
+  padding: 0;
+}
