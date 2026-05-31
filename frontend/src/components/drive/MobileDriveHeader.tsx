@@ -16,7 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files" | "recycle-bin";
+import type { DriveNavId } from "@/components/drive/DriveSidebar";
+
+type NavItemId = DriveNavId;
 type FolderCrumb = { id: string; name: string };
 
 type MobileDriveHeaderProps = {
@@ -75,6 +77,8 @@ export function MobileDriveHeader({
     ? (folderStack.at(-1)?.name ?? "My files")
     : activeNav === "home"
       ? "My Cloud"
+      : activeNav === "shared-files"
+        ? "Shared Files"
       : activeNav === "recycle-bin"
         ? "Recycle bin"
         : "My Cloud";
@@ -85,6 +89,8 @@ export function MobileDriveHeader({
         "sticky top-0 z-30 shrink-0 border-b border-[#E5E7EB] backdrop-blur-xl lg:hidden",
         activeNav === "home" || activeNav === "my-files"
           ? "bg-[#F7F8FA]/95"
+          : activeNav === "shared-files"
+            ? "bg-[#F7F8FA]/95"
           : "bg-[#f3f2f1]/95",
       )}
     >

@@ -22,7 +22,9 @@ import { useInstanceName } from "@/hooks/useInstanceName";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files" | "recycle-bin";
+import type { DriveNavId } from "@/components/drive/DriveSidebar";
+
+type NavItemId = DriveNavId;
 
 type MobileSidebarSheetProps = {
   open: boolean;
@@ -149,7 +151,12 @@ export function MobileSidebarSheet({
               active={activeNav === "my-files"}
               onClick={() => handleNav("my-files")}
             />
-            <DrawerNavItem label="Shared" icon={<Users className="size-4" />} active={false} disabled />
+            <DrawerNavItem
+              label="Shared Files"
+              icon={<Users className="size-4" />}
+              active={activeNav === "shared-files"}
+              onClick={() => handleNav("shared-files")}
+            />
             <DrawerNavItem
               label="Recycle bin"
               icon={<Trash2 className="size-4" />}

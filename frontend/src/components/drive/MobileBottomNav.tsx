@@ -4,7 +4,9 @@
 import { FolderOpen, Home, Menu, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type NavItemId = "home" | "my-files" | "recycle-bin";
+import type { DriveNavId } from "@/components/drive/DriveSidebar";
+
+type NavItemId = DriveNavId;
 
 type MobileBottomNavProps = {
   activeNav: NavItemId;

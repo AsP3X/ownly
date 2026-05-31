@@ -1973,6 +1973,46 @@ export type UserShare = {
   created_at: string;
 };
 
+export type SharedWithMeItem = {
+  id: string;
+  resource_type: "file" | "folder";
+  resource_id: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  shared_at: string;
+  owner_email: string;
+  permission: "view" | "edit";
+};
+
+export type SharedByMeGrantee = {
+  id: string;
+  email: string;
+};
+
+export type SharedByMeItem = {
+  resource_type: "file" | "folder";
+  resource_id: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  shared_at: string;
+  public_share: ShareLink | null;
+  grantees: SharedByMeGrantee[];
+  view_count: number;
+};
+
+export type SharedByMeMetrics = {
+  active_links: number;
+  collaborators: number;
+  total_views: number;
+};
+
+export type SharedByMeResponse = {
+  metrics: SharedByMeMetrics;
+  items: SharedByMeItem[];
+};
+
 export type ShareFlags = {
   public: boolean;
   users: boolean;
@@ -2072,6 +2112,56 @@ export async function inviteUserShare(payload: {
 // Agent: DELETE /shares/user/:id; REQUIRES owner auth.
 export async function revokeUserShare(userShareId: string) {
   return apiFetch(`/shares/user/${userShareId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
+}
+
+// Human: List files and folders other users shared with the signed-in account.
+// Agent: GET /shares/with-me; RETURNS SharedWithMeItem rows.
+export async function fetchSharedWithMe() {
+  return apiFetch("/shares/with-me") as Promise<{ items: SharedWithMeItem[] }>;
+}
+
+// Human: List resources the signed-in user has shared plus summary metrics.
+// Agent: GET /shares/by-me; RETURNS metrics + SharedByMeItem rows.
+export async function fetchSharedByMe() {
+  return apiFetch("/shares/by-me") as Promise<SharedByMeResponse>;
+}
+
+// Human: Grantee removes their own access to one shared-with-me row.
+// Agent: DELETE /shares/with-me/:id; REQUIRES auth.
+export async function leaveSharedWithMe(userShareId: string) {
+  return apiFetch(`/shares/with-me/${encodeURIComponent(userShareId)}`, {
+    method: "DELETE",
+  }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Download URL for a file shared with the signed-in user via user invite.
+// Agent: RETURNS same-origin /api/v1/shares/granted/files/:id/download path.
+export function grantedFileDownloadUrl(fileId: string): string {
+  return `${API_BASE}/shares/granted/files/${encodeURIComponent(fileId)}/download`;
+}
+
+// Human: Save one grantee-accessible file through the authenticated download route.
+// Agent: GET /shares/granted/files/:id/download; CALLS saveBlobAsFile with Content-Disposition name.
+export async function downloadGrantedFile(fileId: string, filename: string): Promise<void> {
+  const path = `/shares/granted/files/${encodeURIComponent(fileId)}/download`;
+  const token = getToken();
+  const headers: HeadersInit = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const body = JSON.parse(text) as { error?: { message?: string } };
+      message = body.error?.message ?? message;
+    } catch {
+      // Human: Non-JSON error bodies fall back to status text.
+    }
+    throw new ApiError(message, "download_failed", response.status);
+  }
+  const blob = await response.blob();
+  saveBlobAsFile(blob, filename);
 }
 
 // Human: Optional visitor password header for protected public share routes.

@@ -10,6 +10,8 @@ import {
   fetchFolderDeletionPreview,
   fetchRecycleBin,
   fetchShareStatusBulk,
+  fetchSharedByMe,
+  fetchSharedWithMe,
   FILES_PAGE_SIZE,
   getErrorMessage,
   copyFile,
@@ -21,6 +23,9 @@ import {
   type FolderItem,
   type RecycleBinResponse,
   type ShareFlags,
+  type SharedByMeItem,
+  type SharedByMeMetrics,
+  type SharedWithMeItem,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
 import {
@@ -32,7 +37,8 @@ import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
 import { DriveCloudExplorer } from "@/components/drive/DriveCloudExplorer";
 import { DriveOverviewPanel } from "@/components/drive/DriveOverviewPanel";
-import { DriveSidebar } from "@/components/drive/DriveSidebar";
+import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
+import { SharedFilesPanel } from "@/components/drive/SharedFilesPanel";
 import { MobileSidebarSheet } from "@/components/drive/MobileSidebarSheet";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import {
@@ -84,7 +90,7 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 
-type NavItemId = "home" | "my-files" | "recycle-bin";
+type NavItemId = DriveNavId;
 type FolderCrumb = { id: string; name: string };
 
 const TYPE_FILTERS: { id: FileTypeFilter; label: string }[] = [
@@ -197,6 +203,11 @@ export default function DrivePage() {
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
   const [recycleBinData, setRecycleBinData] = useState<RecycleBinResponse | null>(null);
   const [recycleBinError, setRecycleBinError] = useState("");
+  const [sharedWithMeItems, setSharedWithMeItems] = useState<SharedWithMeItem[]>([]);
+  const [sharedByMeItems, setSharedByMeItems] = useState<SharedByMeItem[]>([]);
+  const [sharedByMeMetrics, setSharedByMeMetrics] = useState<SharedByMeMetrics | null>(null);
+  const [sharedFilesLoading, setSharedFilesLoading] = useState(false);
+  const [sharedFilesError, setSharedFilesError] = useState("");
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
@@ -284,6 +295,21 @@ export default function DrivePage() {
           return;
         }
 
+        if (nav === "shared-files") {
+          setFolders([]);
+          setFiles([]);
+          setFileCount(0);
+          setHasMoreFiles(false);
+          setFolderCount(0);
+          setHasMoreFolders(false);
+          setFileShareFlags({});
+          setFolderShareFlags({});
+          setSelectedFileIds(new Set());
+          setRecycleBinData(null);
+          setRecycleBinError("");
+          return;
+        }
+
         const targetFolderId =
           options?.folderId !== undefined ? options.folderId : currentFolderId;
 
@@ -361,6 +387,28 @@ export default function DrivePage() {
     },
     [activeNav, currentFolderId, refreshDashboard, serverTypeFilter],
   );
+
+  // Human: Load Shared Files tab data when the sidebar nav selects that view.
+  // Agent: GET /shares/with-me + /shares/by-me; WRITES shared* state for SharedFilesPanel.
+  const refreshSharedFiles = useCallback(async () => {
+    setSharedFilesLoading(true);
+    setSharedFilesError("");
+    try {
+      const [withMe, byMe] = await Promise.all([fetchSharedWithMe(), fetchSharedByMe()]);
+      setSharedWithMeItems(withMe.items);
+      setSharedByMeItems(byMe.items);
+      setSharedByMeMetrics(byMe.metrics);
+    } catch (err) {
+      setSharedFilesError(getErrorMessage(err));
+    } finally {
+      setSharedFilesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeNav !== "shared-files") return;
+    void refreshSharedFiles();
+  }, [activeNav, refreshSharedFiles]);
 
   // Human: Append the next page of files for the open folder or active search.
   // Agent: GET /files with offset=files.length; MERGES rows + share_public flags.
@@ -788,6 +836,9 @@ export default function DrivePage() {
       files.map((file) => file.id),
       folders.map((folder) => folder.id),
     );
+    if (activeNav === "shared-files") {
+      void refreshSharedFiles();
+    }
   }
 
   // Human: Open the details dialog on the metadata or sharing tab.
@@ -890,7 +941,7 @@ export default function DrivePage() {
   function handleNavChange(nav: NavItemId) {
     setActiveNav(nav);
     setSelectedFileIds(new Set());
-    if (nav === "home" || nav === "recycle-bin") {
+    if (nav === "home" || nav === "recycle-bin" || nav === "shared-files") {
       setQuery("");
       setTypeFilter("all");
       setFolderStack([]);
@@ -1218,7 +1269,7 @@ export default function DrivePage() {
         <main
           className={cn(
             "relative flex min-h-0 flex-col overflow-hidden",
-            activeNav === "home" || activeNav === "my-files"
+            activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files"
               ? "bg-[#F7F8FA]"
               : "bg-[#f3f2f1] lg:bg-[#F7F8FA]",
           )}
@@ -1232,7 +1283,7 @@ export default function DrivePage() {
             onSignOut={handleSignOut}
             className={cn(
               "mx-4 mt-4 max-lg:hidden lg:mx-12 lg:mt-0",
-              activeNav === "home" || activeNav === "my-files" ? "mb-8" : "mb-6",
+              activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files" ? "mb-8" : "mb-6",
             )}
           />
 
@@ -1245,7 +1296,7 @@ export default function DrivePage() {
           <div
             className={cn(
               "flex min-h-full flex-col gap-4 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none",
-              activeNav === "home" || activeNav === "my-files"
+              activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files"
                 ? "lg:min-h-full"
                 : "rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6",
             )}
@@ -1253,7 +1304,7 @@ export default function DrivePage() {
             <div
               className={cn(
                 "hidden flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex",
-                (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
+                (activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files") && "lg:hidden",
               )}
             >
               <div className="flex flex-col gap-2">
@@ -1277,11 +1328,11 @@ export default function DrivePage() {
             <Separator
               className={cn(
                 "hidden bg-neutral-200 lg:block",
-                (activeNav === "home" || activeNav === "my-files") && "lg:hidden",
+                (activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files") && "lg:hidden",
               )}
             />
 
-            {loading ? (
+            {loading && activeNav !== "shared-files" ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
             ) : activeNav === "recycle-bin" ? (
               <RecycleBinPanel
@@ -1292,6 +1343,21 @@ export default function DrivePage() {
                   void refresh(undefined, { nav: "recycle-bin", silent: true })
                 }
                 onChanged={() => void refreshDashboard()}
+              />
+            ) : activeNav === "shared-files" ? (
+              <SharedFilesPanel
+                withMeItems={sharedWithMeItems}
+                byMeItems={sharedByMeItems}
+                byMeMetrics={sharedByMeMetrics}
+                loadingWithMe={sharedFilesLoading}
+                loadingByMe={sharedFilesLoading}
+                error={sharedFilesError}
+                onShareNavigate={() => handleNavChange("my-files")}
+                onManageShare={(target) => {
+                  setShareTarget(target);
+                  setShareDialogOpen(true);
+                }}
+                onRefreshWithMe={() => void refreshSharedFiles()}
               />
             ) : activeNav === "home" ? (
               <DriveOverviewPanel
@@ -1371,6 +1437,8 @@ export default function DrivePage() {
               {instanceName}
               {activeNav === "home"
                 ? ` · ${overviewFolders.length} folder${overviewFolders.length === 1 ? "" : "s"} · ${recentFiles.length} recent`
+                : activeNav === "shared-files"
+                  ? " · Files shared with you and by you"
                 : activeNav === "recycle-bin"
                   ? " · Deleted items are kept for 30 days"
                   : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}

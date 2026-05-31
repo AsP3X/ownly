@@ -1662,3 +1662,305 @@ pub async fn save_from_public_share(
         files: saved,
     }))
 }
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct SharedWithMeItemDto {
+    pub id: String,
+    pub resource_type: String,
+    pub resource_id: String,
+    pub name: String,
+    pub mime_type: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub shared_at: chrono::DateTime<chrono::Utc>,
+    pub owner_email: String,
+    pub permission: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedWithMeResponse {
+    pub items: Vec<SharedWithMeItemDto>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct SharedByMeResourceRow {
+    resource_type: String,
+    resource_id: String,
+    first_shared_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedByMeGranteeDto {
+    pub id: String,
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedByMeItemDto {
+    pub resource_type: String,
+    pub resource_id: String,
+    pub name: String,
+    pub mime_type: Option<String>,
+    pub size_bytes: i64,
+    pub shared_at: chrono::DateTime<chrono::Utc>,
+    pub public_share: Option<ShareDto>,
+    pub grantees: Vec<SharedByMeGranteeDto>,
+    pub view_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedByMeMetricsDto {
+    pub active_links: i64,
+    pub collaborators: i64,
+    pub total_views: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedByMeResponse {
+    pub metrics: SharedByMeMetricsDto,
+    pub items: Vec<SharedByMeItemDto>,
+}
+
+// Human: List files and folders another user invited the signed-in account to access.
+// Agent: GET /shares/with-me; READS resource_user_shares for grantee; SKIPS deleted resources.
+pub async fn list_shared_with_me(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<SharedWithMeResponse>, AppError> {
+    let items: Vec<SharedWithMeItemDto> = sqlx::query_as(
+        "SELECT rus.id, rus.resource_type, rus.resource_id, rus.created_at AS shared_at, \
+         owner.email AS owner_email, \
+         COALESCE(f.name, fo.name) AS name, f.mime_type, f.size_bytes, \
+         'view' AS permission \
+         FROM resource_user_shares rus \
+         INNER JOIN users owner ON owner.id = rus.owner_user_id \
+         LEFT JOIN files f ON rus.resource_type = 'file' AND f.id = rus.resource_id AND f.deleted_at IS NULL \
+         LEFT JOIN folders fo ON rus.resource_type = 'folder' AND fo.id = rus.resource_id AND fo.deleted_at IS NULL \
+         WHERE rus.grantee_user_id = $1 AND (f.id IS NOT NULL OR fo.id IS NOT NULL) \
+         ORDER BY rus.created_at DESC",
+    )
+    .bind(&claims.sub)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(SharedWithMeResponse { items }))
+}
+
+// Human: Aggregate every resource the caller has shared via public links or user invites.
+// Agent: GET /shares/by-me; MERGES public_shares + resource_user_shares per resource id.
+pub async fn list_shared_by_me(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<SharedByMeResponse>, AppError> {
+    let active_links: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM public_shares WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await?;
+
+    let collaborators: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT grantee_user_id) FROM resource_user_shares WHERE owner_user_id = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await?;
+
+    let resources: Vec<SharedByMeResourceRow> = sqlx::query_as(
+        "SELECT resource_type, resource_id, MIN(shared_at) AS first_shared_at \
+         FROM ( \
+           SELECT resource_type, resource_id, created_at AS shared_at \
+           FROM public_shares WHERE user_id = $1 AND revoked_at IS NULL \
+           UNION ALL \
+           SELECT resource_type, resource_id, created_at AS shared_at \
+           FROM resource_user_shares WHERE owner_user_id = $1 \
+         ) shared \
+         GROUP BY resource_type, resource_id \
+         ORDER BY first_shared_at DESC",
+    )
+    .bind(&claims.sub)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut items = Vec::with_capacity(resources.len());
+    for resource in resources {
+        let (name, mime_type, size_bytes) = if resource.resource_type == "file" {
+            type FileMeta = (String, Option<String>, i64);
+            let row: Option<FileMeta> = sqlx::query_as(
+                "SELECT name, mime_type, size_bytes FROM files \
+                 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+            )
+            .bind(&resource.resource_id)
+            .bind(&claims.sub)
+            .fetch_optional(&state.pool)
+            .await?;
+            row.map(|(name, mime, size)| (name, mime, size))
+                .unwrap_or((resource.resource_id.clone(), None, 0))
+        } else {
+            type FolderMeta = (String,);
+            let row: Option<FolderMeta> = sqlx::query_as(
+                "SELECT name FROM folders \
+                 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+            )
+            .bind(&resource.resource_id)
+            .bind(&claims.sub)
+            .fetch_optional(&state.pool)
+            .await?;
+            row.map(|(name,)| (name, None, 0))
+                .unwrap_or((resource.resource_id.clone(), None, 0))
+        };
+
+        let public_share: Option<ShareRecord> = sqlx::query_as(&format!(
+            "SELECT {SHARE_RECORD_COLUMNS} \
+             FROM public_shares \
+             WHERE user_id = $1 AND resource_type = $2 AND resource_id = $3 AND revoked_at IS NULL",
+        ))
+        .bind(&claims.sub)
+        .bind(&resource.resource_type)
+        .bind(&resource.resource_id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+        let grantee_rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT rus.id, u.email \
+             FROM resource_user_shares rus \
+             INNER JOIN users u ON u.id = rus.grantee_user_id \
+             WHERE rus.owner_user_id = $1 AND rus.resource_type = $2 AND rus.resource_id = $3 \
+             ORDER BY rus.created_at ASC",
+        )
+        .bind(&claims.sub)
+        .bind(&resource.resource_type)
+        .bind(&resource.resource_id)
+        .fetch_all(&state.pool)
+        .await?;
+
+        items.push(SharedByMeItemDto {
+            resource_type: resource.resource_type,
+            resource_id: resource.resource_id,
+            name,
+            mime_type,
+            size_bytes,
+            shared_at: resource.first_shared_at,
+            public_share: public_share.map(share_dto_from_record),
+            grantees: grantee_rows
+                .into_iter()
+                .map(|(id, email)| SharedByMeGranteeDto { id, email })
+                .collect(),
+            view_count: 0,
+        });
+    }
+
+    Ok(Json(SharedByMeResponse {
+        metrics: SharedByMeMetricsDto {
+            active_links,
+            collaborators,
+            total_views: 0,
+        },
+        items,
+    }))
+}
+
+// Human: Grantee removes their own access to a file or folder shared with them.
+// Agent: DELETE /shares/with-me/:id; AUDIT shares.leave; REQUIRES matching grantee_user_id.
+pub async fn leave_shared_with_me(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM resource_user_shares WHERE id = $1 AND grantee_user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "shares.leave",
+        Some("user_share"),
+        Some(&id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct GrantedDownloadRow {
+    storage_key: String,
+    name: String,
+    mime_type: Option<String>,
+    hls_ready: bool,
+    download_export_ready: bool,
+}
+
+// Human: Download one file that was shared with the signed-in user via user invite.
+// Agent: GET /shares/granted/files/:id/download; VERIFIES resource_user_shares grantee row.
+pub async fn download_granted_file(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(file_id): Path<String>,
+) -> Result<Response, AppError> {
+    let row: Option<GrantedDownloadRow> = sqlx::query_as(
+        "SELECT f.storage_key, f.name, f.mime_type, f.hls_ready, f.download_export_ready \
+         FROM files f \
+         INNER JOIN resource_user_shares rus \
+           ON rus.resource_type = 'file' AND rus.resource_id = f.id \
+         WHERE f.id = $1 AND f.deleted_at IS NULL AND rus.grantee_user_id = $2",
+    )
+    .bind(&file_id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let row = row.ok_or(AppError::NotFound)?;
+
+    let object_key = if is_hls_stored_video(&row.mime_type, row.hls_ready) {
+        if !row.download_export_ready {
+            return Err(AppError::Conflict(
+                "video export is not ready yet — try again shortly".into(),
+            ));
+        }
+        format!("{}/{EXPORT_OBJECT_SUFFIX}", row.storage_key)
+    } else {
+        row.storage_key.clone()
+    };
+
+    let (stream, _len, content_type) = state
+        .storage
+        .get_stream(&object_key)
+        .await
+        .map_err(|e| AppError::Storage(e.to_string()))?;
+
+    let body = Body::from_stream(stream);
+    let download_name = if is_hls_stored_video(&row.mime_type, row.hls_ready) {
+        mp4_download_name(&row.name)
+    } else {
+        row.name.clone()
+    };
+    let disposition = format!("attachment; filename=\"{}\"", download_name.replace('"', ""));
+
+    let resolved_type = if is_hls_stored_video(&row.mime_type, row.hls_ready) {
+        "video/mp4".to_string()
+    } else {
+        row.mime_type.unwrap_or(content_type)
+    };
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, resolved_type),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        body,
+    )
+        .into_response())
+}

@@ -15,7 +15,7 @@ import { useInstanceName } from "@/hooks/useInstanceName";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
-export type DriveNavId = "home" | "my-files" | "recycle-bin";
+export type DriveNavId = "home" | "my-files" | "shared-files" | "recycle-bin";
 
 type DriveSidebarProps = {
   activeNav: DriveNavId;
@@ -123,8 +123,8 @@ export function DriveSidebar({ activeNav, usedBytes, quotaBytes, onNavChange }: 
         <SidebarNavRow
           label="Shared Files"
           icon={<Users className="size-[18px]" strokeWidth={2} />}
-          active={false}
-          disabled
+          active={activeNav === "shared-files"}
+          onClick={() => onNavChange("shared-files")}
         />
         <SidebarNavRow
           label="Secure Vaults"

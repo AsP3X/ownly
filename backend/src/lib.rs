@@ -477,6 +477,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/shares/status", post(shares::handlers::share_status_bulk))
         .route("/api/v1/shares/resource", get(shares::handlers::resource_shares))
+        .route("/api/v1/shares/with-me", get(shares::handlers::list_shared_with_me))
+        .route(
+            "/api/v1/shares/with-me/{id}",
+            delete(shares::handlers::leave_shared_with_me),
+        )
+        .route("/api/v1/shares/by-me", get(shares::handlers::list_shared_by_me))
+        .route(
+            "/api/v1/shares/granted/files/{id}/download",
+            get(shares::handlers::download_granted_file),
+        )
         .route("/api/v1/shares/user", post(shares::handlers::create_user_share))
         .route("/api/v1/shares/user/{id}", delete(shares::handlers::revoke_user_share))
         .route(
