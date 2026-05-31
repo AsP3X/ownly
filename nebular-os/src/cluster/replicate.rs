@@ -57,7 +57,9 @@ pub async fn replicate(
     match result {
         Ok(()) => StatusCode::OK.into_response(),
         Err(e) => {
-            tracing::error!(error = %e, "replicate apply failed");
+            // Human: Client JSON stays generic; logs retain the underlying I/O or SQL cause.
+            // Agent: {:?} on StorageError surfaces Internal(anyhow) chain for ops debugging.
+            tracing::error!(error = ?e, "replicate apply failed");
             let status = match &e {
                 StorageError::NotFound => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,

@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     middleware,
     routing::{delete, get, post, put},
     Router,
@@ -94,6 +95,8 @@ pub async fn create_app(
     if !cfg.cluster.is_standalone() {
         let cluster_layer =
             middleware::from_fn_with_state(state.clone(), cluster_auth::cluster_token_middleware);
+        // Human: Axum defaults to a 2MB body cap; peer PUT replication sends multipart blobs up to NOS_MAX_BODY_SIZE.
+        // Agent: DefaultBodyLimit on /_cluster/replicate stack; MUST match cfg.max_body_size or large objects fail apply.
         let cluster_router = Router::new()
             .route("/_cluster/health", get(cluster_routes::cluster_health))
             .route(
@@ -110,6 +113,7 @@ pub async fn create_app(
                 axum::routing::get(cluster_routes::cluster_object_get)
                     .head(cluster_routes::cluster_object_head),
             )
+            .layer(DefaultBodyLimit::max(cfg.max_body_size))
             .layer(cluster_layer);
         public_routes = public_routes.merge(cluster_router);
     }

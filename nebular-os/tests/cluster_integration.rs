@@ -305,6 +305,73 @@ async fn cluster_replicate_eventually() {
 }
 
 #[tokio::test]
+async fn cluster_replicate_multipart_accepts_large_blob() {
+    // Human: Regression for Axum's default 2MB Multipart cap — real uploads exceed that limit.
+    // Agent: POST /_cluster/replicate with 3MB blob; expects 200 when DefaultBodyLimit uses max_body_size.
+    let tmp = TempDir::new().unwrap();
+    let cfg = cluster_test_config("node-b", "node-a=http://127.0.0.1:1", "member", 2);
+    let (backend, _) = engine_and_backend(&cfg, &tmp).await;
+    let app = app_with_metrics(backend.clone(), cfg).await;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service())
+            .await
+            .unwrap();
+    });
+
+    let payload = vec![0xABu8; 3 * 1024 * 1024];
+    let event = ReplicationEvent {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        origin_node: "node-a".into(),
+        op: ReplicationOp::Put,
+        bucket: "media".into(),
+        key: "users/large.bin".into(),
+        etag: Some("large".into()),
+        size: Some(payload.len() as i64),
+        payload_path: None,
+        storage_class: "default".into(),
+        replication_group: "default".into(),
+        created_at: 1,
+    };
+    let event_json = serde_json::to_string(&event).unwrap();
+    let part_event = reqwest::multipart::Part::text(event_json)
+        .mime_str("application/json")
+        .unwrap();
+    let part_blob = reqwest::multipart::Part::bytes(payload.clone())
+        .mime_str("application/octet-stream")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .part("event", part_event)
+        .part("blob", part_blob);
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://{addr}/_cluster/replicate"))
+        .bearer_auth(CLUSTER_TOKEN)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "large multipart replicate failed: {}",
+        resp.status()
+    );
+
+    let get_resp = client
+        .get(format!("http://{addr}/media/users/large.bin"))
+        .header("authorization", format!("Bearer {}", make_token()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let body = get_resp.bytes().await.unwrap();
+    assert_eq!(body.as_ref(), payload.as_slice());
+}
+
+#[tokio::test]
 async fn assigned_routes_video_to_hot() {
     let tmp_hot = TempDir::new().unwrap();
     let tmp_cold = TempDir::new().unwrap();
