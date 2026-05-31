@@ -39,7 +39,7 @@ fn default_audit_limit() -> i64 {
     50
 }
 
-async fn read_setting(pool: &PgPool, key: &str) -> Option<String> {
+pub(crate) async fn read_setting(pool: &PgPool, key: &str) -> Option<String> {
     let row: Option<(String,)> =
         sqlx::query_as("SELECT value FROM app_settings WHERE key = $1")
             .bind(key)
@@ -550,83 +550,6 @@ pub struct AdminStorageMetrics {
 pub struct AdminStorageResponse {
     pub metrics: AdminStorageMetrics,
     pub nodes: Vec<AdminStorageNodeRow>,
-}
-
-// Human: Object storage node health for the Storage Nodes panel (single configured backend).
-// Agent: GET /api/v1/admin/storage; READS files aggregate + health probe; AUDIT exempt.
-pub async fn storage_nodes(
-    State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<AdminStorageResponse>, AppError> {
-    require_admin(&claims)?;
-
-    let used_bytes: (i64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE deleted_at IS NULL",
-    )
-    .fetch_one(&state.pool)
-    .await?;
-
-    let quota_gb = read_setting(&state.pool, "default_storage_quota_gb")
-        .await
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(50)
-        .max(1);
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*)::BIGINT FROM users")
-        .fetch_one(&state.pool)
-        .await?;
-    let capacity_bytes = quota_gb
-        .saturating_mul(user_count.0.max(1))
-        .saturating_mul(1024 * 1024 * 1024);
-
-    let (healthy, latency_ms) = object_storage_healthy(&state).await;
-    let status = if !state.storage_configured {
-        "not_configured"
-    } else if healthy {
-        "healthy"
-    } else {
-        "degraded"
-    };
-
-    let endpoint_host = state
-        .object_storage_url
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .split('/')
-        .next()
-        .unwrap_or("storage")
-        .to_string();
-
-    let used_tb = used_bytes.0 as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
-    let cap_tb = capacity_bytes as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
-    let capacity_label = format!("{used_tb:.1} / {cap_tb:.1} TB");
-
-    let node = AdminStorageNodeRow {
-        id: format!("node-{}", state.storage_mode),
-        region_label: format!("{} ({})", state.environment, state.storage_mode),
-        endpoint_host: endpoint_host.clone(),
-        status: status.into(),
-        used_bytes: used_bytes.0,
-        capacity_label,
-        latency_ms,
-        storage_mode: state.storage_mode.clone(),
-    };
-
-    Ok(Json(AdminStorageResponse {
-        metrics: AdminStorageMetrics {
-            used_bytes: used_bytes.0,
-            capacity_bytes: Some(capacity_bytes),
-            active_nodes: if state.storage_configured && healthy {
-                1
-            } else if state.storage_configured {
-                0
-            } else {
-                0
-            },
-            total_nodes: if state.storage_configured { 1 } else { 0 },
-            avg_latency_ms: latency_ms,
-        },
-        nodes: vec![node],
-    }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

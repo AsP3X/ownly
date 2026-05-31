@@ -136,6 +136,20 @@ export async function testSetupDatabase(database_url: string) {
   }) as Promise<{ ok: boolean; driver: string }>;
 }
 
+// Human: Probe Nebular /health during setup before registering the first storage node.
+// Agent: POST /setup/storage/test; PUBLIC route; NO auth.
+export async function testSetupStorage(base_url: string) {
+  return apiFetch("/setup/storage/test", {
+    method: "POST",
+    body: JSON.stringify({ base_url }),
+  }) as Promise<{
+    ok: boolean;
+    latency_ms: number | null;
+    node_id: string | null;
+    status: string | null;
+  }>;
+}
+
 export async function setup(body: {
   email: string;
   password: string;
@@ -145,6 +159,12 @@ export async function setup(body: {
   object_storage_bucket?: string;
   default_storage_quota_gb?: number;
   database_url?: string;
+  storage_node_id?: string;
+  storage_node_region_label?: string;
+  storage_node_base_url?: string;
+  storage_node_architecture?: "replicated" | "single" | "assigned";
+  storage_node_target_capacity_value?: number;
+  storage_node_target_capacity_unit?: "MB" | "GB" | "TB";
 }) {
   return apiFetch("/setup", {
     method: "POST",
@@ -154,6 +174,7 @@ export async function setup(body: {
     user: { id: string; email: string; role: string; enabled: boolean };
     restart_required?: boolean;
     configured_database_url?: string;
+    configured_object_storage_url?: string;
   }>;
 }
 
@@ -392,6 +413,26 @@ export type AdminStorageResponse = {
 // Agent: GET /admin/storage; REQUIRES admin JWT.
 export async function fetchAdminStorage() {
   return apiFetch("/admin/storage") as Promise<AdminStorageResponse>;
+}
+
+export type StorageCapacityUnit = "MB" | "GB" | "TB";
+
+export type CreateStorageNodeRequest = {
+  id: string;
+  region_label: string;
+  base_url: string;
+  architecture: "replicated" | "single" | "assigned";
+  target_capacity_value?: number;
+  target_capacity_unit?: StorageCapacityUnit;
+};
+
+// Human: Register a Nebular node in the Storage Nodes Network registry.
+// Agent: POST /admin/storage/nodes; REQUIRES admin JWT; AUDIT storage_nodes.create.
+export async function createAdminStorageNode(body: CreateStorageNodeRequest) {
+  return apiFetch("/admin/storage/nodes", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<{ node: AdminStorageNodeRow }>;
 }
 
 export type AdminSettingsResponse = {

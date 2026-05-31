@@ -43,6 +43,8 @@ pub async fn list_objects(
 
     match state
         .backend
+        .read()
+        .await
         .list_objects(
             &bucket,
             query.prefix.as_deref(),

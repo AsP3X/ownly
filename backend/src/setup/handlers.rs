@@ -1,5 +1,5 @@
-// Human: First-run setup endpoints — admin account, instance settings, storage bucket, database test.
-// Agent: READS users COUNT for gating; WRITES users + app_settings in TX; RETURNS AuthResponse on success once.
+// Human: First-run setup endpoints — admin account, instance settings, storage node, database test.
+// Agent: READS users COUNT for gating; WRITES users + app_settings + storage_nodes in TX; RETURNS AuthResponse on success once.
 
 use axum::{extract::State, http::HeaderMap, Json};
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
+    admin::storage_nodes,
     audit,
     auth::handlers::{create_token, hash_password, AuthResponse, UserDto},
     db,
@@ -37,10 +38,23 @@ pub struct DatabaseUrlBody {
     pub database_url: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct StorageEndpointBody {
+    pub base_url: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DatabaseTestResponse {
     pub ok: bool,
     pub driver: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StorageTestResponse {
+    pub ok: bool,
+    pub latency_ms: Option<u128>,
+    pub node_id: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +76,12 @@ pub struct SetupRequest {
     pub object_storage_bucket: Option<String>,
     pub default_storage_quota_gb: Option<u32>,
     pub database_url: Option<String>,
+    pub storage_node_id: Option<String>,
+    pub storage_node_region_label: Option<String>,
+    pub storage_node_base_url: Option<String>,
+    pub storage_node_architecture: Option<String>,
+    pub storage_node_target_capacity_value: Option<f64>,
+    pub storage_node_target_capacity_unit: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,6 +92,8 @@ pub struct SetupResponse {
     pub restart_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub configured_database_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_object_storage_url: Option<String>,
 }
 
 // Human: Expose build metadata for the about screen and health dashboards.
@@ -142,6 +164,36 @@ pub async fn test_setup_database(
     Ok(Json(DatabaseTestResponse { ok: true, driver }))
 }
 
+// Human: Verify Nebular /health before the wizard registers the first storage node.
+// Agent: POST /setup/storage/test; READS base_url; NO DB writes.
+pub async fn test_setup_storage(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<StorageEndpointBody>,
+) -> Result<Json<StorageTestResponse>, AppError> {
+    ensure_not_complete(&state).await?;
+    let base_url = storage_nodes::normalize_base_url(&body.base_url)?;
+    if state.setup_relaxes_storage_probe {
+        return Ok(Json(StorageTestResponse {
+            ok: true,
+            latency_ms: None,
+            node_id: None,
+            status: Some("skipped".into()),
+        }));
+    }
+    let probe = storage_nodes::probe_storage_endpoint(&base_url).await;
+    if !probe.reachable {
+        return Err(AppError::BadRequest(
+            "could not reach object storage; check the endpoint URL and network".into(),
+        ));
+    }
+    Ok(Json(StorageTestResponse {
+        ok: true,
+        latency_ms: probe.latency_ms,
+        node_id: probe.node_id,
+        status: probe.status,
+    }))
+}
+
 async fn ensure_not_complete(state: &AppState) -> Result<(), AppError> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(&state.pool)
@@ -153,7 +205,66 @@ async fn ensure_not_complete(state: &AppState) -> Result<(), AppError> {
 }
 
 fn urls_equivalent(a: &str, b: &str) -> bool {
-    a.trim() == b.trim()
+    a.trim().trim_end_matches('/') == b.trim().trim_end_matches('/')
+}
+
+// Human: Resolve setup storage node fields — wizard values override env defaults.
+fn resolve_setup_storage_node(
+    body: &SetupRequest,
+    state: &AppState,
+) -> Result<(String, String, String, String, Option<i64>), AppError> {
+    let base_url = if let Some(raw) = body
+        .storage_node_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        storage_nodes::normalize_base_url(raw)?
+    } else {
+        storage_nodes::normalize_base_url(&state.object_storage_url)?
+    };
+
+    let id = if let Some(raw) = body
+        .storage_node_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        storage_nodes::normalize_node_id(raw)?
+    } else {
+        "node-primary".to_string()
+    };
+
+    let region_label = body
+        .storage_node_region_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(body.instance_name.trim())
+        .to_string();
+
+    let architecture = body
+        .storage_node_architecture
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_lowercase)
+        .unwrap_or_else(|| state.storage_mode.clone());
+
+    let target_capacity_bytes = match (
+        body.storage_node_target_capacity_value,
+        body.storage_node_target_capacity_unit.as_deref(),
+    ) {
+        (Some(value), Some(unit)) => Some(storage_nodes::parse_target_capacity_bytes(value, unit)?),
+        (None, None) => None,
+        _ => {
+            return Err(AppError::BadRequest(
+                "target capacity requires both value and unit (MB, GB, or TB)".into(),
+            ));
+        }
+    };
+
+    Ok((id, region_label, base_url, architecture, target_capacity_bytes))
 }
 
 // Human: Atomic first admin + settings seed — only succeeds while the users table is empty.
@@ -174,6 +285,14 @@ pub async fn setup(
         return Err(AppError::BadRequest("unsupported database_url scheme".into()));
     }
 
+    let (
+        storage_node_id,
+        storage_node_region,
+        storage_base_url,
+        storage_architecture,
+        storage_capacity_bytes,
+    ) = resolve_setup_storage_node(&body, &state)?;
+
     let use_startup_pool = urls_equivalent(target_url, &state.database_url);
     let setup_pool = if use_startup_pool {
         state.pool.clone()
@@ -193,6 +312,15 @@ pub async fn setup(
         ));
     }
 
+    if !state.setup_relaxes_storage_probe {
+        let storage_probe = storage_nodes::probe_storage_endpoint(&storage_base_url).await;
+        if !storage_probe.reachable {
+            return Err(AppError::BadRequest(
+                "object storage endpoint is unreachable; test the connection before completing setup".into(),
+            ));
+        }
+    }
+
     let password_hash =
         hash_password(&body.password).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     let user_id = Uuid::new_v4().to_string();
@@ -203,6 +331,7 @@ pub async fn setup(
         .filter(|s| !s.is_empty())
         .unwrap_or(state.object_storage_bucket.as_str());
     let quota_gb = body.default_storage_quota_gb.unwrap_or(50).max(1);
+    let storage_matches_startup = urls_equivalent(&storage_base_url, &state.object_storage_url);
 
     let mut tx = setup_pool.begin().await?;
 
@@ -242,8 +371,8 @@ pub async fn setup(
         ("database_url", target_url),
         ("object_storage_bucket", bucket),
         ("default_storage_quota_gb", &quota_gb.to_string()),
-        ("storage_mode", state.storage_mode.as_str()),
-        ("object_storage_url", state.object_storage_url.as_str()),
+        ("storage_mode", storage_architecture.as_str()),
+        ("object_storage_url", storage_base_url.as_str()),
         (
             "object_storage_public_url",
             state.object_storage_public_url.as_str(),
@@ -260,6 +389,22 @@ pub async fn setup(
 
     tx.commit().await?;
 
+    // Human: Persist the first storage node in the registry — replaces env-only bootstrap.
+    // Agent: WRITES storage_nodes row; CALLED once after setup TX commits.
+    storage_nodes::register_setup_storage_node(
+        &setup_pool,
+        &storage_node_id,
+        &storage_node_region,
+        &storage_base_url,
+        &storage_architecture,
+        storage_capacity_bytes,
+    )
+    .await?;
+
+    // Human: Apply Nebular runtime cluster config from the registry row we just saved.
+    // Agent: HTTP PUT /_cluster/config; SKIPPED when setup_relaxes_storage_probe (tests).
+    storage_nodes::sync_cluster_after_registry_change(&state).await?;
+
     audit::write_audit(
         &setup_pool,
         Some(&user_id),
@@ -270,6 +415,9 @@ pub async fn setup(
             "instance_name": body.instance_name.trim(),
             "object_storage_bucket": bucket,
             "default_storage_quota_gb": quota_gb,
+            "storage_node_id": storage_node_id,
+            "storage_node_base_url": storage_base_url,
+            "storage_node_architecture": storage_architecture,
         })),
         &headers,
     )
@@ -286,6 +434,8 @@ pub async fn setup(
     )
     .map_err(AppError::Internal)?;
 
+    let restart_required = !use_startup_pool || !storage_matches_startup;
+
     Ok(Json(SetupResponse {
         auth: AuthResponse {
             token: Some(token),
@@ -297,11 +447,16 @@ pub async fn setup(
                 enabled: true,
             },
         },
-        restart_required: !use_startup_pool,
+        restart_required,
         configured_database_url: if use_startup_pool {
             None
         } else {
             Some(target_url.to_string())
+        },
+        configured_object_storage_url: if storage_matches_startup {
+            None
+        } else {
+            Some(storage_base_url)
         },
     }))
 }

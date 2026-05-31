@@ -53,6 +53,10 @@ pub struct Config {
     pub hls_hardware_encode: String,
     #[serde(default = "default_hls_vaapi_device")]
     pub hls_vaapi_device: String,
+    /// Human: Operator token for first-time PUT /_cluster/config on Nebular nodes.
+    /// Agent: READS NOS_CLUSTER_BOOTSTRAP_TOKEN; MUST match object-storage env when set.
+    #[serde(default)]
+    pub nos_cluster_bootstrap_token: String,
 }
 
 impl Config {

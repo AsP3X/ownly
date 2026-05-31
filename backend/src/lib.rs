@@ -58,6 +58,9 @@ pub struct AppState {
     pub object_storage_bucket: String,
     pub storage_mode: String,
     pub storage_configured: bool,
+    /// Human: Integration tests use MemoryStorage — setup must not require live Nebular /health.
+    /// Agent: TRUE in create_test_app_state; setup/test_setup_storage skip probe when set.
+    pub setup_relaxes_storage_probe: bool,
     pub auth_login_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub auth_register_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub upload_rl: Arc<rate_limit::PerKeyRateLimiter>,
@@ -68,6 +71,9 @@ pub struct AppState {
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
     pub hls_hardware: hls::hardware::HlsHardwareEncode,
+    /// Human: Shared operator secret for first Nebular PUT /_cluster/config before cluster_token exists.
+    /// Agent: READS NOS_CLUSTER_BOOTSTRAP_TOKEN env; OPTIONAL for standalone-only deployments.
+    pub nos_cluster_bootstrap_token: Option<String>,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -105,7 +111,11 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
 
 // Human: Build rate limiters and AppState once storage and database pool are ready.
 // Agent: READS Config; WRITES AppState; USES supplied Storage implementation (Nebular or memory).
-async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::Result<Arc<AppState>> {
+async fn build_app_state(
+    config: &Config,
+    storage: Arc<dyn Storage>,
+    setup_relaxes_storage_probe: bool,
+) -> anyhow::Result<Arc<AppState>> {
     secrets::validate_startup_secrets(config)?;
     let pool = db::init_pool(&config.database_url).await?;
     info!("Database connected and migrations applied");
@@ -137,6 +147,7 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
         object_storage_bucket: config.object_storage_bucket.clone(),
         storage_mode: config.storage_mode.clone(),
         storage_configured,
+        setup_relaxes_storage_probe,
         auth_login_rl: Arc::new(rate_limit::PerKeyRateLimiter::new(
             config.auth_login_rpm.max(1) as usize,
             window,
@@ -159,6 +170,14 @@ async fn build_app_state(config: &Config, storage: Arc<dyn Storage>) -> anyhow::
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
         hls_hardware,
+        nos_cluster_bootstrap_token: {
+            let token = config.nos_cluster_bootstrap_token.trim();
+            if token.is_empty() {
+                None
+            } else {
+                Some(token.to_string())
+            }
+        },
     }))
 }
 
@@ -222,13 +241,13 @@ pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> 
         anyhow::bail!("only proxy storage mode is supported in this release");
     };
 
-    build_app_state(config, storage).await
+    build_app_state(config, storage, false).await
 }
 
 // Human: Test harness entry — same AppState as production but with in-memory storage (no Nebular dependency).
 // Agent: USES MemoryStorage; CALLED from integration tests; SKIPS object storage health probe.
 pub async fn create_test_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
-    build_app_state(config, Arc::new(MemoryStorage::new())).await
+    build_app_state(config, Arc::new(MemoryStorage::new()), true).await
 }
 
 // Human: Structured tracing span per HTTP request using x-request-id for log correlation.
@@ -263,6 +282,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/setup/database/test",
             post(setup::handlers::test_setup_database),
+        )
+        .route(
+            "/api/v1/setup/storage/test",
+            post(setup::handlers::test_setup_storage),
         )
         .route("/api/v1/setup", post(setup::handlers::setup))
         .route("/api/v1/auth/register", post(auth::handlers::register))
@@ -485,7 +508,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/admin/storage",
-            get(admin::console::storage_nodes),
+            get(admin::storage_nodes::list_storage_nodes),
+        )
+        .route(
+            "/api/v1/admin/storage/nodes",
+            post(admin::storage_nodes::create_storage_node),
         )
         .route(
             "/api/v1/admin/settings",

@@ -1,7 +1,8 @@
-// Human: First-run wizard — admin account, instance policy, storage bucket, database connectivity.
-// Agent: MULTI-STEP state; CALLS setup/testSetupDatabase/setupStorageInfo; setAuth; navigate "/" on success.
+// Human: First-run wizard — admin, instance, storage + first node dialog, database (4 steps).
+// Agent: MULTI-STEP state; CALLS setup; storage node fields edited in SetupStorageNodeDialog.
 
 import { useEffect, useState } from "react";
+import { Server } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   setup,
@@ -18,9 +19,14 @@ import { SetupErrorBanner } from "@/components/setup/SetupErrorBanner";
 import { SetupField } from "@/components/setup/SetupField";
 import { SetupFormCard } from "@/components/setup/SetupFormCard";
 import { SetupHeader } from "@/components/setup/SetupHeader";
-import { SetupNoticeBox } from "@/components/setup/SetupNoticeBox";
 import { SetupOutlineButton } from "@/components/setup/SetupOutlineButton";
 import { SetupPageShell } from "@/components/setup/SetupPageShell";
+import {
+  SetupStorageNodeDialog,
+  validateSetupStorageNodeDraft,
+  type SetupNodeArchitecture,
+  type SetupStorageNodeDraft,
+} from "@/components/setup/SetupStorageNodeDialog";
 import { SetupToggleRow } from "@/components/setup/SetupToggleRow";
 import {
   buildPostgresUrl,
@@ -32,9 +38,24 @@ import {
 
 type Step = 1 | 2 | 3 | 4;
 
-type DbTestResult = {
+type ConnectionTestResult = {
   ok: boolean;
   message: string;
+};
+
+/** Human: Map env storage_mode to registry architecture default for the setup form. */
+function defaultArchitectureFromStorageMode(mode: string): SetupNodeArchitecture {
+  if (mode === "replicated" || mode === "assigned") return mode;
+  return "single";
+}
+
+const DEFAULT_NODE_DRAFT: SetupStorageNodeDraft = {
+  nodeId: "node-primary",
+  regionLabel: "My Ownly Storage",
+  baseUrl: "",
+  architecture: "single",
+  capacityValue: "512",
+  capacityUnit: "GB",
 };
 
 export default function SetupPage() {
@@ -42,7 +63,6 @@ export default function SetupPage() {
   const { setAuth } = useAuth();
 
   const [step, setStep] = useState<Step>(1);
-  // Agent: fullName is UI-only until setup API accepts a display name (matches RegisterPage pattern).
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,11 +72,14 @@ export default function SetupPage() {
   const [requireAccountActivation, setRequireAccountActivation] = useState(false);
   const [storageBucket, setStorageBucket] = useState("media");
   const [quotaGb, setQuotaGb] = useState("50");
-  const [storageUrl, setStorageUrl] = useState("");
+  const [storageNode, setStorageNode] = useState<SetupStorageNodeDraft>(DEFAULT_NODE_DRAFT);
+  const [storageNodeSaved, setStorageNodeSaved] = useState(false);
+  const [storageNodeDialogOpen, setStorageNodeDialogOpen] = useState(false);
   const [databaseUrl, setDatabaseUrl] = useState(DEFAULT_POSTGRES_URL);
   const [postgresFields, setPostgresFields] = useState<PostgresConnectionFields>(DOCKER_POSTGRES_DEFAULTS);
   const [dbTesting, setDbTesting] = useState(false);
-  const [dbTestResult, setDbTestResult] = useState<DbTestResult | null>(null);
+  const [dbTestResult, setDbTestResult] = useState<ConnectionTestResult | null>(null);
+  const [storageTestResult, setStorageTestResult] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -69,7 +92,11 @@ export default function SetupPage() {
         const parsed = parsePostgresUrl(dbInfo.database_url);
         if (parsed) setPostgresFields(parsed);
         setStorageBucket(storageInfo.object_storage_bucket);
-        setStorageUrl(storageInfo.object_storage_url);
+        setStorageNode((prev) => ({
+          ...prev,
+          baseUrl: storageInfo.object_storage_url,
+          architecture: defaultArchitectureFromStorageMode(storageInfo.storage_mode),
+        }));
       })
       .catch(() => undefined);
     return () => {
@@ -95,7 +122,8 @@ export default function SetupPage() {
     if (!storageBucket.trim()) return "Storage bucket name is required";
     const quota = Number(quotaGb);
     if (!Number.isFinite(quota) || quota < 1) return "Default quota must be at least 1 GB";
-    return null;
+    if (!storageNodeSaved) return "Configure your first storage node before continuing";
+    return validateSetupStorageNodeDraft(storageNode);
   }
 
   function validateStep4() {
@@ -135,6 +163,9 @@ export default function SetupPage() {
       setError(err);
       return;
     }
+    if (step === 2) {
+      setStorageNode((prev) => ({ ...prev, regionLabel: instanceName.trim() }));
+    }
     if (step < 4) setStep((step + 1) as Step);
   }
 
@@ -148,6 +179,7 @@ export default function SetupPage() {
 
     setLoading(true);
     try {
+      const capacity = Number.parseFloat(storageNode.capacityValue);
       const res = await setup({
         email: email.trim(),
         password,
@@ -157,10 +189,24 @@ export default function SetupPage() {
         object_storage_bucket: storageBucket.trim(),
         default_storage_quota_gb: Number(quotaGb),
         database_url: databaseUrl.trim(),
+        storage_node_id: storageNode.nodeId.trim(),
+        storage_node_region_label: storageNode.regionLabel.trim(),
+        storage_node_base_url: storageNode.baseUrl.trim(),
+        storage_node_architecture: storageNode.architecture,
+        storage_node_target_capacity_value: capacity,
+        storage_node_target_capacity_unit: storageNode.capacityUnit,
       });
       if (res.restart_required) {
+        const parts = [
+          res.configured_database_url
+            ? `DATABASE_URL=${res.configured_database_url}`
+            : null,
+          res.configured_object_storage_url
+            ? `OBJECT_STORAGE_URL=${res.configured_object_storage_url}`
+            : null,
+        ].filter(Boolean);
         setError(
-          `Database configured. Restart the API with DATABASE_URL=${res.configured_database_url ?? databaseUrl}, then sign in.`,
+          `Configuration saved. Restart the API with ${parts.join(" and ")}, then sign in.`,
         );
         return;
       }
@@ -184,6 +230,15 @@ export default function SetupPage() {
     setDbTestResult(null);
   }
 
+  function handleStorageNodeSave(draft: SetupStorageNodeDraft) {
+    setStorageNode(draft);
+    setStorageNodeSaved(true);
+    setError("");
+  }
+
+  const architectureLabel =
+    ARCHITECTURE_LABELS[storageNode.architecture] ?? storageNode.architecture;
+
   const useCompactHeader = step >= 3;
 
   return (
@@ -192,7 +247,7 @@ export default function SetupPage() {
         <SetupHeader currentStep={step} compact={useCompactHeader} />
 
         <SetupFormCard
-          gap={step === 3 ? "lg" : "md"}
+          gap={step >= 3 ? "lg" : "md"}
           stepTitle={step === 3 ? "Storage" : step === 4 ? "Database" : undefined}
           stepSubtitle={
             step === 3
@@ -202,7 +257,12 @@ export default function SetupPage() {
                 : undefined
           }
           statusBanner={
-            step === 4 && dbTestResult ? (
+            step === 3 && storageTestResult ? (
+              <SetupDbStatusBanner
+                variant={storageTestResult.ok ? "success" : "error"}
+                message={storageTestResult.message}
+              />
+            ) : step === 4 && dbTestResult ? (
               <SetupDbStatusBanner
                 variant={dbTestResult.ok ? "success" : "error"}
                 message={dbTestResult.message}
@@ -273,13 +333,6 @@ export default function SetupPage() {
 
           {step === 3 && (
             <>
-              <SetupNoticeBox>
-                Files are stored in Nebular OS at{" "}
-                <span className="font-medium text-[#1A1A1A]">
-                  {storageUrl || "http://object-storage:9000"}
-                </span>
-                .
-              </SetupNoticeBox>
               <SetupField
                 label="Storage bucket"
                 value={storageBucket}
@@ -292,6 +345,33 @@ export default function SetupPage() {
                 value={quotaGb}
                 onChange={(e) => setQuotaGb(e.target.value)}
               />
+
+              <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+
+              {/* Human: Compact node summary + dialog trigger per setup storage step design. */}
+              <div className="flex flex-col gap-3">
+                <p className="text-[13px] font-semibold text-[#1A1A1A]">First storage node</p>
+                {storageNodeSaved ? (
+                  <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3 text-sm">
+                    <p className="font-semibold text-[#1A1A1A]">
+                      {storageNode.nodeId}{" "}
+                      <span className="font-normal text-[#666666]">· {storageNode.regionLabel}</span>
+                    </p>
+                    <p className="mt-1 truncate text-[#666666]">{storageNode.baseUrl}</p>
+                    <p className="mt-1 text-xs text-[#888888]">
+                      {architectureLabel} · {storageNode.capacityValue} {storageNode.capacityUnit}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#666666]">
+                    Register your Nebular OS endpoint before continuing setup.
+                  </p>
+                )}
+                <SetupOutlineButton onClick={() => setStorageNodeDialogOpen(true)}>
+                  <Server className="size-4" aria-hidden />
+                  {storageNodeSaved ? "Edit storage node" : "Configure storage node"}
+                </SetupOutlineButton>
+              </div>
             </>
           )}
 
@@ -326,7 +406,7 @@ export default function SetupPage() {
                 onChange={(e) => handlePostgresFieldChange("database", e.target.value)}
               />
               <SetupConnectionUrlBox url={databaseUrl} />
-              <SetupOutlineButton onClick={handleTestDatabase} disabled={dbTesting}>
+              <SetupOutlineButton onClick={() => void handleTestDatabase()} disabled={dbTesting}>
                 {dbTesting ? "Testing…" : "Test connection"}
               </SetupOutlineButton>
             </>
@@ -347,6 +427,20 @@ export default function SetupPage() {
           />
         </SetupFormCard>
       </div>
+
+      <SetupStorageNodeDialog
+        open={storageNodeDialogOpen}
+        onOpenChange={setStorageNodeDialogOpen}
+        value={storageNode}
+        onSave={handleStorageNodeSave}
+        onTestSuccess={(message) => setStorageTestResult({ ok: true, message })}
+      />
     </SetupPageShell>
   );
 }
+
+const ARCHITECTURE_LABELS: Record<SetupNodeArchitecture, string> = {
+  replicated: "Replicated",
+  single: "Single",
+  assigned: "Assigned",
+};

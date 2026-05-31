@@ -3,5 +3,6 @@
 
 pub mod console;
 pub mod handlers;
+pub mod storage_nodes;
 
 pub use handlers::require_admin;

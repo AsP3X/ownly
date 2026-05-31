@@ -52,6 +52,9 @@ services:
       # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
+      # Human: Operator token for Ownly to apply runtime cluster config via PUT /_cluster/config.
+      # Agent: MUST match backend NOS_CLUSTER_BOOTSTRAP_TOKEN; ≥32 chars.
+      NOS_CLUSTER_BOOTSTRAP_TOKEN: ${NOS_CLUSTER_BOOTSTRAP_TOKEN:-ownly-compose-local-dev-nos-cluster-bootstrap-token-not-for-production}
       RUST_LOG: info
     ports:
       - "9000:9000"
@@ -99,6 +102,9 @@ services:
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
       UPLOAD_RPM: ${UPLOAD_RPM:-600}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
+      # Human: Shared with Nebular NOS_CLUSTER_BOOTSTRAP_TOKEN for runtime cluster configuration.
+      # Agent: READ by nebular_cluster::sync_storage_cluster on setup and Add Storage Node.
+      NOS_CLUSTER_BOOTSTRAP_TOKEN: ${NOS_CLUSTER_BOOTSTRAP_TOKEN:-ownly-compose-local-dev-nos-cluster-bootstrap-token-not-for-production}
       # Human: Optional GPU HLS ingest — auto|off|nvenc|vaapi|qsv (defaults to auto; CPU when no GPU).
       # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}

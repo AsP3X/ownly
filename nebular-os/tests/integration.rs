@@ -66,6 +66,7 @@ fn test_config(signing_secret: Option<String>, allow_public_read: bool) -> Arc<N
         bucket_policy: nebular_os::config::BucketPolicy::default(),
         s3_access_key: None,
         s3_secret_key: None,
+        cluster_bootstrap_token: None,
         cluster: ClusterConfig::standalone(),
     })
 }
@@ -111,10 +112,85 @@ async fn setup_app(signing_secret: Option<String>, allow_public_read: bool) -> (
 
     let cfg = test_config(signing_secret, allow_public_read);
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
-    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
 
     (app, make_token(), tmp)
+}
+
+const BOOTSTRAP_TOKEN: &str = "bootstrap-test-token-at-least-thirty-two-characters";
+const RUNTIME_CLUSTER_TOKEN: &str = "cluster-test-token-at-least-thirty-two-characters-long";
+
+// Human: Ownly applies cluster topology via PUT /_cluster/config using the bootstrap operator token.
+// Agent: standalone start; PUT replicated config; GET /health reports replicated mode.
+#[tokio::test]
+async fn runtime_cluster_config_apply_via_bootstrap() {
+    let tmp = TempDir::new().unwrap();
+    let data_dir = tmp.path().join("blobs");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let meta_path_str = format!("file:{}?mode=memory&cache=shared", id);
+    let data_dir_str = data_dir.to_string_lossy().replace('\\', "/");
+    let storage = StorageEngine::with_full_options(
+        &meta_path_str,
+        &data_dir_str,
+        EngineOptions {
+            upload_buffer_size: 64 * 1024,
+            read_pool_size: 2,
+            ..EngineOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut cfg = (*test_config(None, false)).clone();
+    cfg.cluster_bootstrap_token = Some(BOOTSTRAP_TOKEN.into());
+    let cfg = Arc::new(cfg);
+    let metrics = NosMetrics::new();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
+
+    let put = Request::builder()
+        .method("PUT")
+        .uri("/_cluster/config")
+        .header("authorization", format!("Bearer {BOOTSTRAP_TOKEN}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "mode": "replicated",
+                "node_id": "node-a",
+                "region_label": "Test Region",
+                "cluster_token": RUNTIME_CLUSTER_TOKEN,
+                "peers": [{"id": "node-b", "url": "http://127.0.0.1:9001", "group": "default"}],
+                "storage_classes": ["default"],
+                "replication_factor": 2
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(put).await.unwrap().status(),
+        StatusCode::OK
+    );
+
+    let health = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(health.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["cluster_mode"], "replicated");
+    assert_eq!(body["node_id"], "node-a");
 }
 
 #[tokio::test]
@@ -665,8 +741,8 @@ async fn test_payload_too_large_returns_413() {
     cfg.max_body_size = 8;
     let cfg = Arc::new(cfg);
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
-    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
     let token = make_token();
 
     let req = Request::builder()
@@ -976,8 +1052,8 @@ async fn test_metrics_requires_token_when_configured() {
     cfg.metrics_token = Some("metrics-secret".into());
     let cfg = Arc::new(cfg);
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
-    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
 
     let req = Request::builder()
         .method("GET")
@@ -1228,8 +1304,8 @@ async fn test_s3_list_objects_xml_when_compat_enabled() {
     .await
     .unwrap();
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
-    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
     let token = make_token();
 
     let put = Request::builder()
@@ -1276,8 +1352,8 @@ async fn test_bucket_policy_denies_other_bucket() {
     .await
     .unwrap();
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, &cfg, metrics.clone()).unwrap();
-    let app = create_app(backend, cfg, metrics).await.unwrap();
+    let backend = build_backend(storage.clone(), &cfg, metrics.clone()).unwrap();
+    let app = create_app(backend, storage, cfg, metrics).await.unwrap();
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

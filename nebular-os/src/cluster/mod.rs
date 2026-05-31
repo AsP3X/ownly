@@ -9,6 +9,7 @@ pub mod read_repair;
 pub mod replicate;
 pub mod replicated;
 pub mod routes;
+pub mod runtime_config;
 pub mod standalone;
 
 pub use assignment::WriteContext;

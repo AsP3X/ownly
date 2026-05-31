@@ -72,8 +72,12 @@ async fn main() -> Result<()> {
     spawn_storage_maintenance(storage.clone(), cfg.clone());
 
     let metrics = NosMetrics::new();
-    let backend = cluster::build_backend(storage, &cfg, metrics.clone())?;
-    let app = server::create_app(backend, cfg.clone(), metrics).await?;
+    let mut cfg_for_backend = (*cfg).clone();
+    if let Some(runtime_cluster) = cluster::runtime_config::cluster_config_from_storage(&storage).await? {
+        cfg_for_backend.cluster = runtime_cluster;
+    }
+    let backend = cluster::build_backend(storage.clone(), &cfg_for_backend, metrics.clone())?;
+    let app = server::create_app(backend, storage, Arc::new(cfg_for_backend), metrics).await?;
 
     let listener = TcpListener::bind(&cfg.bind_addr).await?;
     tracing::info!("Listening on {}", cfg.bind_addr);

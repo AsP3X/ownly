@@ -77,6 +77,7 @@ fn cluster_test_config(
         bucket_policy: nebular_os::config::BucketPolicy::default(),
         s3_access_key: None,
         s3_secret_key: None,
+        cluster_bootstrap_token: None,
         cluster: ClusterConfig {
             mode: ClusterMode::Replicated,
             node_id: node_id.into(),
@@ -126,7 +127,7 @@ fn assigned_test_config(
 async fn engine_and_backend(
     cfg: &Arc<NosConfig>,
     tmp: &TempDir,
-) -> (nebular_os::cluster::StorageBackend, String) {
+) -> (nebular_os::cluster::StorageBackend, StorageEngine, String) {
     let data_dir = tmp.path().join("blobs");
     std::fs::create_dir_all(&data_dir).unwrap();
     let id = uuid::Uuid::new_v4().to_string();
@@ -144,23 +145,24 @@ async fn engine_and_backend(
     .await
     .unwrap();
     let metrics = NosMetrics::new();
-    let backend = build_backend(storage, cfg, metrics).unwrap();
-    (backend, data_dir_str)
+    let backend = build_backend(storage.clone(), cfg, metrics).unwrap();
+    (backend, storage, data_dir_str)
 }
 
 async fn app_with_metrics(
     backend: nebular_os::cluster::StorageBackend,
+    engine: StorageEngine,
     cfg: Arc<NosConfig>,
 ) -> axum::Router {
     let metrics = NosMetrics::new();
-    create_app(backend, cfg, metrics).await.unwrap()
+    create_app(backend, engine, cfg, metrics).await.unwrap()
 }
 
 #[tokio::test]
 async fn cluster_idempotent_replay() {
     let tmp = TempDir::new().unwrap();
     let cfg = cluster_test_config("node-a", "node-b=http://127.0.0.1:1", "member", 2);
-    let (backend, _) = engine_and_backend(&cfg, &tmp).await;
+    let (backend, engine, _) = engine_and_backend(&cfg, &tmp).await;
     let engine = backend.engine().clone();
     let log = match &backend {
         nebular_os::cluster::StorageBackend::Replicated(r) => r.replication_log(),
@@ -207,8 +209,8 @@ async fn cluster_idempotent_replay() {
 async fn readonly_replica_rejects_put() {
     let tmp = TempDir::new().unwrap();
     let cfg = cluster_test_config("node-ro", "node-b=http://127.0.0.1:1", "readonly", 2);
-    let (backend, _) = engine_and_backend(&cfg, &tmp).await;
-    let app = app_with_metrics(backend, cfg).await;
+    let (backend, engine, _) = engine_and_backend(&cfg, &tmp).await;
+    let app = app_with_metrics(backend, engine, cfg).await;
     let token = make_token();
 
     let req = Request::builder()
@@ -241,8 +243,8 @@ async fn cluster_replicate_eventually() {
         "member",
         2,
     );
-    let (backend_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
-    let app_b = app_with_metrics(backend_b, cfg_b.clone()).await;
+    let (backend_b, engine_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
+    let app_b = app_with_metrics(backend_b, engine_b, cfg_b.clone()).await;
     let app_b_client = app_b.clone();
     tokio::spawn(async move {
         axum::serve(listener_b, app_b.into_make_service())
@@ -252,8 +254,8 @@ async fn cluster_replicate_eventually() {
 
     let peers = format!("node-b=http://{}", addr_b);
     let cfg_a = cluster_test_config("node-a", &peers, "member", 2);
-    let (backend_a, _) = engine_and_backend(&cfg_a, &tmp_a).await;
-    let app_a = app_with_metrics(backend_a.clone(), cfg_a.clone()).await;
+    let (backend_a, engine_a, _) = engine_and_backend(&cfg_a, &tmp_a).await;
+    let app_a = app_with_metrics(backend_a.clone(), engine_a.clone(), cfg_a.clone()).await;
     let token = make_token();
 
     let put = Request::builder()
@@ -310,8 +312,8 @@ async fn cluster_replicate_multipart_accepts_large_blob() {
     // Agent: POST /_cluster/replicate with 3MB blob; expects 200 when DefaultBodyLimit uses max_body_size.
     let tmp = TempDir::new().unwrap();
     let cfg = cluster_test_config("node-b", "node-a=http://127.0.0.1:1", "member", 2);
-    let (backend, _) = engine_and_backend(&cfg, &tmp).await;
-    let app = app_with_metrics(backend.clone(), cfg).await;
+    let (backend, engine, _) = engine_and_backend(&cfg, &tmp).await;
+    let app = app_with_metrics(backend.clone(), engine.clone(), cfg).await;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -378,8 +380,8 @@ async fn assigned_routes_video_to_hot() {
     let peers = "node-hot=http://127.0.0.1:1,node-cold=http://127.0.0.1:2";
 
     let cfg_hot = assigned_test_config("node-hot", &["hls-hot", "default"], peers);
-    let (backend_hot, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
-    let app_hot = app_with_metrics(backend_hot, cfg_hot).await;
+    let (backend_hot, engine, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
+    let app_hot = app_with_metrics(backend_hot, engine, cfg_hot).await;
     let token = make_token();
 
     let put_hot = Request::builder()
@@ -395,8 +397,8 @@ async fn assigned_routes_video_to_hot() {
     );
 
     let cfg_cold = assigned_test_config("node-cold", &["cold"], peers);
-    let (backend_cold, _) = engine_and_backend(&cfg_cold, &tmp_cold).await;
-    let app_cold = app_with_metrics(backend_cold, cfg_cold).await;
+    let (backend_cold, engine, _) = engine_and_backend(&cfg_cold, &tmp_cold).await;
+    let app_cold = app_with_metrics(backend_cold, engine, cfg_cold).await;
 
     let put_cold = Request::builder()
         .method("PUT")
@@ -457,8 +459,8 @@ async fn replicated_assigned_replicates_class_to_peer() {
 
     let peers_hot = format!("node-rep=http://{};hls-hot;group=default", addr_rep);
     let cfg_rep = combined_rep_config(&format!("node-hot=http://127.0.0.1:1;group=default"));
-    let (backend_rep, _) = engine_and_backend(&cfg_rep, &tmp_rep).await;
-    let app_rep = app_with_metrics(backend_rep, cfg_rep.clone()).await;
+    let (backend_rep, engine, _) = engine_and_backend(&cfg_rep, &tmp_rep).await;
+    let app_rep = app_with_metrics(backend_rep, engine, cfg_rep.clone()).await;
     let app_rep_client = app_rep.clone();
     tokio::spawn(async move {
         axum::serve(listener_rep, app_rep.into_make_service())
@@ -467,14 +469,14 @@ async fn replicated_assigned_replicates_class_to_peer() {
     });
 
     let cfg_hot = combined_hot_config(&peers_hot);
-    let (backend_hot, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
+    let (backend_hot, engine, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
     let log = match &backend_hot {
         nebular_os::cluster::StorageBackend::Assigned(b) => {
             b.replication_log().expect("replicated inner").clone()
         }
         _ => panic!("expected assigned backend"),
     };
-    let app_hot = app_with_metrics(backend_hot, cfg_hot.clone()).await;
+    let app_hot = app_with_metrics(backend_hot, engine, cfg_hot.clone()).await;
     let token = make_token();
 
     let put = Request::builder()
@@ -531,8 +533,8 @@ async fn read_repair_fetches_from_peer() {
     let addr_a = listener_a.local_addr().unwrap();
 
     let cfg_a = cluster_test_config("node-a", "node-b=http://127.0.0.1:1", "member", 1);
-    let (backend_a, _) = engine_and_backend(&cfg_a, &tmp_a).await;
-    let app_a = app_with_metrics(backend_a, cfg_a).await;
+    let (backend_a, engine, _) = engine_and_backend(&cfg_a, &tmp_a).await;
+    let app_a = app_with_metrics(backend_a, engine, cfg_a).await;
     tokio::spawn(async move {
         axum::serve(listener_a, app_a.into_make_service())
             .await
@@ -548,8 +550,8 @@ async fn read_repair_fetches_from_peer() {
         },
         ..(*base_b).clone()
     });
-    let (backend_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
-    let app_b = app_with_metrics(backend_b, cfg_b.clone()).await;
+    let (backend_b, engine_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
+    let app_b = app_with_metrics(backend_b, engine_b, cfg_b.clone()).await;
     let token = make_token();
 
     let client = reqwest::Client::new();
@@ -597,8 +599,8 @@ async fn assignment_forward_proxies_put_to_hot() {
 
     let peers = format!("node-hot=http://{addr_hot}");
     let cfg_hot = assigned_test_config("node-hot", &["hls-hot", "default"], &peers);
-    let (backend_hot, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
-    let app_hot = app_with_metrics(backend_hot, cfg_hot).await;
+    let (backend_hot, engine, _) = engine_and_backend(&cfg_hot, &tmp_hot).await;
+    let app_hot = app_with_metrics(backend_hot, engine, cfg_hot).await;
     let app_hot_client = app_hot.clone();
     tokio::spawn(async move {
         axum::serve(listener_hot, app_hot.into_make_service())
@@ -607,8 +609,8 @@ async fn assignment_forward_proxies_put_to_hot() {
     });
 
     let cfg_cold = assigned_forward_config("node-cold", &peers);
-    let (backend_cold, _) = engine_and_backend(&cfg_cold, &tmp_cold).await;
-    let app_cold = app_with_metrics(backend_cold, cfg_cold).await;
+    let (backend_cold, engine, _) = engine_and_backend(&cfg_cold, &tmp_cold).await;
+    let app_cold = app_with_metrics(backend_cold, engine, cfg_cold).await;
     let token = make_token();
 
     let put = Request::builder()
@@ -642,8 +644,8 @@ async fn replication_retry_after_failed_push() {
     let addr_b = listener_b.local_addr().unwrap();
 
     let cfg_b = cluster_test_config("node-b", "node-a=http://127.0.0.1:1", "member", 2);
-    let (backend_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
-    let app_b = app_with_metrics(backend_b, cfg_b.clone()).await;
+    let (backend_b, engine_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
+    let app_b = app_with_metrics(backend_b, engine_b, cfg_b.clone()).await;
     let app_b_client = app_b.clone();
     tokio::spawn(async move {
         axum::serve(listener_b, app_b.into_make_service())
@@ -653,13 +655,13 @@ async fn replication_retry_after_failed_push() {
 
     let peers = format!("node-b=http://{addr_b};group=default");
     let cfg_a = cluster_test_config("node-a", &peers, "member", 2);
-    let (backend_a, _) = engine_and_backend(&cfg_a, &tmp_a).await;
+    let (backend_a, engine, _) = engine_and_backend(&cfg_a, &tmp_a).await;
     let replicated = match &backend_a {
         nebular_os::cluster::StorageBackend::Replicated(r) => r.clone(),
         _ => panic!("expected replicated"),
     };
     let token = make_token();
-    let app_a = app_with_metrics(backend_a, cfg_a.clone()).await;
+    let app_a = app_with_metrics(backend_a, engine, cfg_a.clone()).await;
     let put = Request::builder()
         .method("PUT")
         .uri("/music/retry.bin")
@@ -742,8 +744,8 @@ async fn replication_group_mismatch_skips_peer() {
     let addr_b = listener_b.local_addr().unwrap();
 
     let cfg_b = cluster_test_config("node-b", "node-a=http://127.0.0.1:1", "member", 2);
-    let (backend_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
-    let app_b = app_with_metrics(backend_b, cfg_b).await;
+    let (backend_b, engine_b, _) = engine_and_backend(&cfg_b, &tmp_b).await;
+    let app_b = app_with_metrics(backend_b, engine_b, cfg_b).await;
     tokio::spawn(async move {
         axum::serve(listener_b, app_b.into_make_service())
             .await
@@ -752,13 +754,13 @@ async fn replication_group_mismatch_skips_peer() {
 
     let peers = format!("node-b=http://{addr_b};group=other");
     let cfg_a = cluster_test_config("node-a", &peers, "member", 2);
-    let (backend_a, _) = engine_and_backend(&cfg_a, &tmp_a).await;
+    let (backend_a, engine, _) = engine_and_backend(&cfg_a, &tmp_a).await;
     let replicated = match &backend_a {
         nebular_os::cluster::StorageBackend::Replicated(r) => r.clone(),
         _ => panic!("expected replicated"),
     };
     let token = make_token();
-    let app_a = app_with_metrics(backend_a, cfg_a.clone()).await;
+    let app_a = app_with_metrics(backend_a, engine, cfg_a.clone()).await;
     let put = Request::builder()
         .method("PUT")
         .uri("/music/group.bin")

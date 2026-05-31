@@ -76,8 +76,9 @@ pub async fn replicate(
 async fn apply_json(state: &AppState, body: Bytes) -> Result<(), StorageError> {
     let event: ReplicationEvent =
         serde_json::from_slice(&body).map_err(internal)?;
-    let log = replication_log(state)?;
-    let engine = state.backend.engine();
+    let backend = state.backend.read().await;
+    let log = replication_log_from_backend(&backend)?;
+    let engine = backend.engine();
     apply_replication_event_bytes(engine, log, &event, None).await
 }
 
@@ -107,13 +108,16 @@ async fn apply_multipart(
     let event_raw = event_json.ok_or(StorageError::NotFound)?;
     let event: ReplicationEvent =
         serde_json::from_str(&event_raw).map_err(internal)?;
-    let log = replication_log(state)?;
-    let engine = state.backend.engine();
+    let backend = state.backend.read().await;
+    let log = replication_log_from_backend(&backend)?;
+    let engine = backend.engine();
     apply_replication_event_bytes(engine, log, &event, blob).await
 }
 
-fn replication_log(state: &AppState) -> Result<&crate::cluster::replicated::ReplicationLog, StorageError> {
-    match &state.backend {
+fn replication_log_from_backend(
+    backend: &StorageBackend,
+) -> Result<&crate::cluster::replicated::ReplicationLog, StorageError> {
+    match backend {
         StorageBackend::Replicated(r) => Ok(r.replication_log()),
         StorageBackend::Assigned(b) => b
             .replication_log()

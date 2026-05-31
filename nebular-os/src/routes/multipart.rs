@@ -52,6 +52,8 @@ pub async fn init_multipart(
 
     match state
         .backend
+        .read()
+        .await
         .init_multipart(
             &params.bucket,
             &query.key,
@@ -72,6 +74,8 @@ pub async fn upload_part(
 ) -> Response {
     let key = match state
         .backend
+        .read()
+        .await
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
@@ -80,7 +84,7 @@ pub async fn upload_part(
     };
 
     let write_ctx = write_context_from_headers(req.headers(), None);
-    let max_part = state.backend.multipart_part_size();
+    let max_part = state.backend.read().await.multipart_part_size();
     let body_stream = req.into_body().into_data_stream();
     let body_reader = tokio_util::io::StreamReader::new(
         body_stream.map(|result| {
@@ -94,6 +98,8 @@ pub async fn upload_part(
 
     match state
         .backend
+        .read()
+        .await
         .upload_part(
             &params.bucket,
             &key,
@@ -116,6 +122,8 @@ pub async fn complete_multipart(
 ) -> Response {
     let key = match state
         .backend
+        .read()
+        .await
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
@@ -140,6 +148,8 @@ pub async fn complete_multipart(
 
     match state
         .backend
+        .read()
+        .await
         .complete_multipart(
             &params.bucket,
             &key,
@@ -160,6 +170,8 @@ pub async fn abort_multipart(
 ) -> Response {
     let key = match state
         .backend
+        .read()
+        .await
         .multipart_key_for_upload(&params.upload_id)
         .await
     {
@@ -169,6 +181,8 @@ pub async fn abort_multipart(
 
     match state
         .backend
+        .read()
+        .await
         .abort_multipart(&params.bucket, &key, &params.upload_id)
         .await
     {

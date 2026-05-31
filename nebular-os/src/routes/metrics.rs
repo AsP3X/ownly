@@ -32,6 +32,8 @@ pub async fn metrics(
 
     let total_objects = state
         .backend
+        .read()
+        .await
         .object_count()
         .await
         .map_err(|e| {
@@ -41,6 +43,8 @@ pub async fn metrics(
         })?;
     let total_bytes = state
         .backend
+        .read()
+        .await
         .total_bytes()
         .await
         .map_err(|e| {
@@ -50,11 +54,15 @@ pub async fn metrics(
         })?;
     let replication_pending_events = state
         .backend
+        .read()
+        .await
         .pending_replication_events()
         .await
         .unwrap_or(0);
     let storage_class_counts = state
         .backend
+        .read()
+        .await
         .engine()
         .objects_by_storage_class()
         .await

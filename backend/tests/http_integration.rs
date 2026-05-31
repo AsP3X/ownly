@@ -32,6 +32,7 @@ fn test_config(database_url: &str) -> Config {
         job_recovery_poll_seconds: 60,
         hls_hardware_encode: "off".into(),
         hls_vaapi_device: "/dev/dri/renderD128".into(),
+        nos_cluster_bootstrap_token: String::new(),
     }
 }
 
@@ -196,7 +197,13 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
         "instance_name": "Test Vault",
         "allow_public_registration": false,
         "object_storage_bucket": "media",
-        "default_storage_quota_gb": 25
+        "default_storage_quota_gb": 25,
+        "storage_node_id": "node-test-setup",
+        "storage_node_region_label": "Test Region",
+        "storage_node_base_url": "http://localhost:9000",
+        "storage_node_architecture": "single",
+        "storage_node_target_capacity_value": 512.0,
+        "storage_node_target_capacity_unit": "GB"
     });
 
     let response = app
@@ -214,6 +221,14 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = response_json(response).await;
     assert!(json["token"].is_string());
+
+    let node_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM storage_nodes WHERE id = 'node-test-setup'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .expect("storage node count");
+    assert_eq!(node_count, 1);
 
     let audit_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_logs WHERE action = 'setup.complete'",
@@ -1281,6 +1296,127 @@ async fn admin_overview_requires_admin_role() {
 
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&member_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Storage Nodes Network registry — admin can register nodes and list them.
+// Agent: POST /admin/storage/nodes; GET /admin/storage; EXPECT listed node id in JSON.
+#[tokio::test]
+async fn admin_storage_nodes_registry_lists_created_node() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping admin_storage_nodes_registry_lists_created_node: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping admin_storage_nodes_registry_lists_created_node: {error}");
+            return;
+        }
+    };
+
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(format!("admin-storage-{admin_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    let admin_token = mediavault_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        format!("admin-storage-{admin_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/storage/nodes")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "id": "node-test-replica",
+                        "region_label": "Frankfurt, DE",
+                        "base_url": "http://127.0.0.1:59999",
+                        "architecture": "replicated",
+                        "target_capacity_value": 512.0,
+                        "target_capacity_unit": "GB"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("create storage node");
+
+    assert_eq!(create_resp.status(), StatusCode::OK);
+
+    let list_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/storage")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("list storage nodes");
+
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let body = response_json(list_resp).await;
+    let node_ids: Vec<String> = body["nodes"]
+        .as_array()
+        .expect("nodes array")
+        .iter()
+        .filter_map(|row| row["id"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        node_ids.iter().any(|id| id == "node-test-replica"),
+        "expected created node in list, got {node_ids:?}"
+    );
+
+    let listed = body["nodes"]
+        .as_array()
+        .expect("nodes array")
+        .iter()
+        .find(|row| row["id"].as_str() == Some("node-test-replica"))
+        .expect("node-test-replica row");
+    assert_eq!(
+        listed["region_label"].as_str(),
+        Some("Frankfurt, DE"),
+        "registry region must not be replaced by probe metadata"
+    );
+
+    sqlx::query("DELETE FROM storage_nodes WHERE id = 'node-test-replica'")
         .execute(&state.pool)
         .await
         .ok();

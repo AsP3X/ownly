@@ -97,6 +97,8 @@ pub async fn put_object(
 
     if let Err(e) = state
         .backend
+        .read()
+        .await
         .ensure_write_preconditions(
             &params.bucket,
             &params.key,
@@ -113,6 +115,8 @@ pub async fn put_object(
     if let Some((src_bucket, src_key)) = parse_copy_source(&headers) {
         match state
             .backend
+        .read()
+        .await
             .copy_object(
                 &src_bucket,
                 &src_key,
@@ -154,6 +158,8 @@ pub async fn put_object(
 
     match state
         .backend
+        .read()
+        .await
         .put_object(
             &params.bucket,
             &params.key,
@@ -196,6 +202,8 @@ pub async fn get_object(
 
     match state
         .backend
+        .read()
+        .await
         .get_object(
             &params.bucket,
             &params.key,
@@ -255,6 +263,8 @@ pub async fn head_object(
 
     match state
         .backend
+        .read()
+        .await
         .head_object(
             &params.bucket,
             &params.key,
@@ -289,6 +299,8 @@ pub async fn delete_object(
     let write_ctx = write_context_from_headers(req.headers(), None);
     match state
         .backend
+        .read()
+        .await
         .delete_object(
             &params.bucket,
             &params.key,
