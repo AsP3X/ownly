@@ -14,6 +14,7 @@ type PublicSharePageLayoutProps = {
   onSave: () => void;
   downloadDisabled?: boolean;
   downloadLoading?: boolean;
+  saveDisabled?: boolean;
   saveLoading?: boolean;
 };
 
@@ -25,6 +26,7 @@ export function PublicSharePageLayout({
   onSave,
   downloadDisabled,
   downloadLoading,
+  saveDisabled,
   saveLoading,
 }: PublicSharePageLayoutProps) {
   return (
@@ -35,6 +37,7 @@ export function PublicSharePageLayout({
         onSave={onSave}
         downloadDisabled={downloadDisabled}
         downloadLoading={downloadLoading}
+        saveDisabled={saveDisabled}
         saveLoading={saveLoading}
       />
 

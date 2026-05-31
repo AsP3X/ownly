@@ -1543,6 +1543,7 @@ pub async fn save_from_public_share(
     }
 
     let share = resolve_public_share(&state.pool, token, &headers).await?;
+    ensure_share_download_allowed(&share)?;
 
     let mut file_ids: Vec<String> = body
         .file_ids

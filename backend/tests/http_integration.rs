@@ -1006,6 +1006,7 @@ async fn public_share_password_and_download_block() {
         .expect("block downloads");
 
     let download_blocked = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(format!(
@@ -1018,6 +1019,30 @@ async fn public_share_password_and_download_block() {
         .await
         .unwrap();
     assert_eq!(download_blocked.status(), StatusCode::FORBIDDEN);
+
+    let visitor_token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        format!("share-protect-{user_id}@example.com"),
+        "user".into(),
+        &state.jwt_secret,
+    )
+    .expect("create token");
+
+    let save_body = json!({ "token": token, "file_ids": [file_id] });
+    let save_blocked = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/shares/save-from-public")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {visitor_token}"))
+                .header("x-share-password", "visitor-pass")
+                .body(Body::from(save_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(save_blocked.status(), StatusCode::FORBIDDEN);
 
     sqlx::query("DELETE FROM public_shares WHERE id = $1")
         .bind(&share_id)

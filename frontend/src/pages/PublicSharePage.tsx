@@ -247,7 +247,7 @@ export default function PublicSharePage() {
   }
 
   async function handleSaveToOwnly(fileIds?: string[]) {
-    if (!token || !overview) return;
+    if (!token || !overview || overview.block_download) return;
     if (!authToken) {
       navigate("/login", { state: { from: location.pathname } });
       return;
@@ -463,6 +463,7 @@ export default function PublicSharePage() {
         onSave={() => void handleSaveToOwnly()}
         downloadDisabled={overview.block_download}
         downloadLoading={Boolean(downloadingId) || bulkDownloading || treeLoading}
+        saveDisabled={overview.block_download}
         saveLoading={saveLoading}
       >
         {error ? (

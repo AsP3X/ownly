@@ -1,5 +1,5 @@
 // Human: Top bar for anonymous share pages — brand, badge, save-to-library, and download actions.
-// Agent: RENDERS actions from parent callbacks; KEEPS download visible when block_download (disabled).
+// Agent: RENDERS actions from parent callbacks; KEEPS download/save visible when block_download (disabled).
 
 import { Cloud, Download, FolderInput, Link2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ type PublicShareHeaderProps = {
   onSave: () => void;
   downloadDisabled?: boolean;
   downloadLoading?: boolean;
+  saveDisabled?: boolean;
   saveLoading?: boolean;
   className?: string;
 };
@@ -20,6 +21,7 @@ export function PublicShareHeader({
   onSave,
   downloadDisabled,
   downloadLoading,
+  saveDisabled,
   saveLoading,
   className,
 }: PublicShareHeaderProps) {
@@ -46,8 +48,8 @@ export function PublicShareHeader({
         <button
           type="button"
           onClick={onSave}
-          disabled={saveLoading}
-          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+          disabled={saveDisabled || saveLoading}
+          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saveLoading ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
