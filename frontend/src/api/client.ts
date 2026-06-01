@@ -451,6 +451,55 @@ export async function updateAdminStorageNode(id: string, body: UpdateStorageNode
   }) as Promise<{ node: AdminStorageNodeRow }>;
 }
 
+export type MediaCategoryStat = {
+  category: string;
+  label: string;
+  file_count: number;
+  total_bytes: number;
+};
+
+export type NodeBrowseEntry = {
+  name: string;
+  kind: "folder" | "file";
+  key: string;
+  size_bytes: number | null;
+  mime_type: string | null;
+};
+
+export type NodeBrowsePage = {
+  prefix: string;
+  parent_prefix: string | null;
+  entries: NodeBrowseEntry[];
+  is_truncated: boolean;
+  next_start_after: string | null;
+};
+
+export type AdminStorageNodeDetailResponse = {
+  node: AdminStorageNodeRow;
+  media_breakdown: MediaCategoryStat[];
+  indexed_files_total: number;
+  browse: NodeBrowsePage | null;
+  browse_unavailable: string | null;
+};
+
+// Human: Storage node detail — health row, indexed media mix, and object-store browse page.
+// Agent: GET /admin/storage/nodes/{id}/detail; REQUIRES admin JWT; READ-ONLY.
+export async function fetchAdminStorageNodeDetail(
+  id: string,
+  params?: { prefix?: string; start_after?: string },
+) {
+  const search = new URLSearchParams();
+  if (params?.prefix != null && params.prefix !== "") {
+    search.set("prefix", params.prefix);
+  }
+  if (params?.start_after) {
+    search.set("start_after", params.start_after);
+  }
+  const query = search.toString();
+  const path = `/admin/storage/nodes/${encodeURIComponent(id)}/detail${query ? `?${query}` : ""}`;
+  return apiFetch(path) as Promise<AdminStorageNodeDetailResponse>;
+}
+
 export type AdminSettingsResponse = {
   instance_name: string;
   console_url: string;

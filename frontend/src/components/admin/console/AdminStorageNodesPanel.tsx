@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Server,
   Settings,
-  Terminal,
+  PanelRightOpen,
 } from "lucide-react";
 import {
   fetchAdminStorage,
@@ -21,7 +21,7 @@ import {
 } from "@/api/client";
 import { AdminAddStorageNodeDialog } from "@/components/admin/console/AdminAddStorageNodeDialog";
 import { AdminEditStorageNodeDialog } from "@/components/admin/console/AdminEditStorageNodeDialog";
-import { AdminStorageNodeTerminalDialog } from "@/components/admin/console/AdminStorageNodeTerminalDialog";
+import { AdminStorageNodeDetailDialog } from "@/components/admin/console/AdminStorageNodeDetailDialog";
 import {
   AdminConsoleOutlineButton,
   AdminConsolePageHeader,
@@ -118,11 +118,10 @@ function storageUtilPercent(capacityLabel: string): number {
   return Math.min(100, Math.round((used / cap) * 1000) / 10);
 }
 
-/** Human: Format bytes as TB pair when capacity is known — matches Pencil "88.4 TB / 120 TB". */
-function formatStorageTbPair(usedBytes: number, capacityBytes: number | null): string {
+/** Human: Used / total capacity with per-value units (KB, MB, GB, TB) from byte counts. */
+function formatStorageUtilizationPair(usedBytes: number, capacityBytes: number | null): string {
   if (capacityBytes != null && capacityBytes > 0) {
-    const tb = 1024 ** 4;
-    return `${(usedBytes / tb).toFixed(1)} TB / ${(capacityBytes / tb).toFixed(1)} TB`;
+    return `${formatBytes(usedBytes)} / ${formatBytes(capacityBytes)}`;
   }
   return formatBytes(usedBytes);
 }
@@ -232,23 +231,23 @@ function StorageCapacityCell({ capacityLabel }: { capacityLabel: string }) {
   );
 }
 
-/** Human: Row action icons — terminal, settings, power per Pencil Oyrpb frame. */
+/** Human: Row action icons — detail panel, settings, power per Pencil Oyrpb frame. */
 function NodeRowActions({
   onEdit,
-  onOpenTerminal,
+  onOpenDetail,
 }: {
   onEdit: () => void;
-  onOpenTerminal: () => void;
+  onOpenDetail: () => void;
 }) {
   return (
     <div className="flex items-center gap-4">
       <button
         type="button"
-        onClick={onOpenTerminal}
+        onClick={onOpenDetail}
         className="text-[#666666] transition-colors hover:text-[#1A1A1A]"
-        aria-label="Open node terminal"
+        aria-label="Open node details"
       >
-        <Terminal className="size-4" aria-hidden />
+        <PanelRightOpen className="size-4" aria-hidden />
       </button>
       <button
         type="button"
@@ -273,11 +272,11 @@ function NodeRowActions({
 function StorageNodesTable({
   nodes,
   onEditNode,
-  onOpenTerminal,
+  onOpenDetail,
 }: {
   nodes: AdminStorageNodeRow[];
   onEditNode: (node: AdminStorageNodeRow) => void;
-  onOpenTerminal: (node: AdminStorageNodeRow) => void;
+  onOpenDetail: (node: AdminStorageNodeRow) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white">
@@ -325,7 +324,7 @@ function StorageNodesTable({
               <td className="px-5 py-0 align-middle">
                 <NodeRowActions
                   onEdit={() => onEditNode(row)}
-                  onOpenTerminal={() => onOpenTerminal(row)}
+                  onOpenDetail={() => onOpenDetail(row)}
                 />
               </td>
             </tr>
@@ -346,9 +345,8 @@ export function AdminStorageNodesPanel() {
   const [addNodeOpen, setAddNodeOpen] = useState(false);
   const [editNodeOpen, setEditNodeOpen] = useState(false);
   const [editNode, setEditNode] = useState<AdminStorageNodeRow | null>(null);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [terminalNode, setTerminalNode] = useState<AdminStorageNodeRow | null>(null);
-  const [terminalSessionKey, setTerminalSessionKey] = useState(0);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailNode, setDetailNode] = useState<AdminStorageNodeRow | null>(null);
 
   const load = useCallback(async (showRefresh: boolean) => {
     if (showRefresh) setRefreshing(true);
@@ -375,7 +373,7 @@ export function AdminStorageNodesPanel() {
       ? Math.round((metrics.used_bytes / metrics.capacity_bytes) * 1000) / 10
       : 0;
   const usedLabel = metrics
-    ? formatStorageTbPair(metrics.used_bytes, metrics.capacity_bytes)
+    ? formatStorageUtilizationPair(metrics.used_bytes, metrics.capacity_bytes)
     : "—";
 
   const inactiveNodes = metrics ? metrics.total_nodes - metrics.active_nodes : 0;
@@ -480,10 +478,9 @@ export function AdminStorageNodesPanel() {
                   setEditNode(node);
                   setEditNodeOpen(true);
                 }}
-                onOpenTerminal={(node) => {
-                  setTerminalNode(node);
-                  setTerminalSessionKey((key) => key + 1);
-                  setTerminalOpen(true);
+                onOpenDetail={(node) => {
+                  setDetailNode(node);
+                  setDetailOpen(true);
                 }}
               />
             )
@@ -512,11 +509,10 @@ export function AdminStorageNodesPanel() {
         onUpdated={() => void load(true)}
       />
 
-      <AdminStorageNodeTerminalDialog
-        open={terminalOpen}
-        onOpenChange={setTerminalOpen}
-        node={terminalNode}
-        sessionKey={terminalSessionKey}
+      <AdminStorageNodeDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        node={detailNode}
       />
     </div>
   );

@@ -9,9 +9,26 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::storage::{Storage, StorageStream};
 
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct ObjectListItem {
+    pub key: String,
+    pub size: i64,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct ObjectListPage {
+    pub items: Vec<ObjectListItem>,
+    pub common_prefixes: Vec<String>,
+    pub is_truncated: bool,
+    pub next_start_after: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ListApiResult {
     items: Vec<ListApiItem>,
+    #[serde(default)]
+    common_prefixes: Vec<String>,
     is_truncated: bool,
     next_start_after: Option<String>,
 }
@@ -19,6 +36,9 @@ struct ListApiResult {
 #[derive(Debug, Deserialize)]
 struct ListApiItem {
     key: String,
+    #[serde(default)]
+    size: i64,
+    mime_type: Option<String>,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -72,6 +92,52 @@ impl NebulaStorage {
     fn auth_header(&self) -> reqwest::header::HeaderValue {
         reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.jwt_token))
             .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static(""))
+    }
+
+    // Human: Paginated bucket listing with optional delimiter for admin storage explorer UI.
+    // Agent: GET /{bucket}; READS prefix, delimiter, limit, start_after; RETURNS ObjectListPage.
+    pub async fn list_objects_page(
+        &self,
+        prefix: &str,
+        delimiter: Option<&str>,
+        limit: u64,
+        start_after: Option<&str>,
+    ) -> anyhow::Result<ObjectListPage> {
+        let list_url = format!("{}/{}", self.base_url, self.bucket);
+        let limit_param = limit.to_string();
+        let mut request = self
+            .client
+            .get(&list_url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .query(&[("prefix", prefix), ("limit", limit_param.as_str())]);
+
+        if let Some(delim) = delimiter {
+            request = request.query(&[("delimiter", delim)]);
+        }
+        if let Some(after) = start_after {
+            request = request.query(&[("start_after", after)]);
+        }
+
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            anyhow::bail!("object storage LIST failed: {}", response.status());
+        }
+
+        let page: ListApiResult = response.json().await?;
+        Ok(ObjectListPage {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| ObjectListItem {
+                    key: item.key,
+                    size: item.size,
+                    mime_type: item.mime_type,
+                })
+                .collect(),
+            common_prefixes: page.common_prefixes,
+            is_truncated: page.is_truncated,
+            next_start_after: page.next_start_after,
+        })
     }
 }
 

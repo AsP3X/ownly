@@ -1,5 +1,5 @@
 // Human: Admin sidebar — login-signup.pencil L5DyOw instance with admin nav overrides.
-// Agent: RENDERS 260px Ownly rail; CALLS onNavChange; WRITES global capacity label from active route.
+// Agent: RENDERS 260px Ownly rail; CALLS onNavChange; READS live storage metrics for capacity footer.
 
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -12,7 +12,9 @@ import {
   Shield,
   Users,
 } from "lucide-react";
+import { useAdminStorageMetrics } from "@/hooks/useAdminStorageMetrics";
 import { useInstanceName } from "@/hooks/useInstanceName";
+import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
 export type AdminNavId =
@@ -27,15 +29,6 @@ type AdminSidebarProps = {
   activeNav: AdminNavId;
   onNavChange: (nav: AdminNavId) => void;
 };
-
-// Human: Capacity footer copy shifts on storage/audit screens per Pencil sidebar descendants.
-// Agent: READS activeNav; RETURNS {used,total} TB strings for progress widget.
-function capacityForNav(activeNav: AdminNavId): { used: number; total: number } {
-  if (activeNav === "storage-nodes" || activeNav === "audit-logs") {
-    return { used: 88.4, total: 120 };
-  }
-  return { used: 45.2, total: 120 };
-}
 
 function AdminNavRow({
   label,
@@ -72,16 +65,32 @@ function AdminNavRow({
   );
 }
 
-function GlobalCapacityWidget({ usedTb, totalTb }: { usedTb: number; totalTb: number }) {
-  const percent = Math.round((usedTb / totalTb) * 100);
-  const fillWidth = Math.max(percent, 2);
+// Human: Network-wide storage footer — same byte scaling as drive sidebar StorageWidget.
+// Agent: READS usedBytes/capacityBytes; COMPUTES percent; RENDERS formatBytes labels + progress bar.
+function GlobalCapacityWidget({
+  usedBytes,
+  capacityBytes,
+  loading,
+}: {
+  usedBytes: number;
+  capacityBytes: number | null;
+  loading: boolean;
+}) {
+  const ratio = capacityBytes != null && capacityBytes > 0 ? usedBytes / capacityBytes : 0;
+  const percent = Math.min(100, Math.round(ratio * 100));
+  const fillWidth = usedBytes > 0 && capacityBytes != null && capacityBytes > 0 ? Math.max(percent, 2) : 0;
+
+  const label =
+    loading
+      ? "—"
+      : capacityBytes != null && capacityBytes > 0
+        ? `${formatBytes(usedBytes)} of ${formatBytes(capacityBytes)}`
+        : formatBytes(usedBytes);
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-[#F7F8FA] p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Global capacity</p>
-      <p className="text-[15px] font-bold text-[#1A1A1A]">
-        {usedTb} TB of {totalTb} TB
-      </p>
+      <p className="text-[15px] font-bold text-[#1A1A1A]">{label}</p>
       <div
         className="h-1.5 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
         role="progressbar"
@@ -119,7 +128,7 @@ const ADMIN_NAV: { id: AdminNavId; label: string; icon: ReactNode }[] = [
 /** Human: Left rail for /admin — matches Pencil Admin Sidebar on every console frame. */
 export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
   const { instanceName } = useInstanceName();
-  const capacity = capacityForNav(activeNav);
+  const { usedBytes, capacityBytes, loading } = useAdminStorageMetrics();
 
   return (
     <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
@@ -141,7 +150,11 @@ export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
       </nav>
 
       <div className="mt-auto">
-        <GlobalCapacityWidget usedTb={capacity.used} totalTb={capacity.total} />
+        <GlobalCapacityWidget
+          usedBytes={usedBytes}
+          capacityBytes={capacityBytes}
+          loading={loading}
+        />
       </div>
     </aside>
   );

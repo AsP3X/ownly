@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     Extension, Json,
 };
@@ -17,6 +17,7 @@ use crate::{
     audit,
     auth::Claims,
     error::AppError,
+    storage::nebula::NebulaStorage,
     AppState,
 };
 
@@ -229,6 +230,24 @@ fn format_capacity_amount(bytes: i64) -> String {
     }
 }
 
+// Human: Map one registry row + live probe into the admin API node shape.
+// Agent: READS StorageNodeRecord + NodeProbe; RETURNS AdminStorageNodeRow for list/detail responses.
+fn build_node_row(record: &StorageNodeRecord, probe: &NodeProbe) -> AdminStorageNodeRow {
+    let status = node_status(probe);
+    AdminStorageNodeRow {
+        id: record.id.clone(),
+        region_label: record.region_label.clone(),
+        base_url: record.base_url.clone(),
+        endpoint_host: endpoint_host_from_url(&record.base_url),
+        status,
+        used_bytes: probe.logical_bytes,
+        capacity_label: capacity_label(probe.logical_bytes, record.target_capacity_bytes),
+        target_capacity_bytes: record.target_capacity_bytes,
+        latency_ms: probe.latency_ms,
+        storage_mode: record.architecture.clone(),
+    }
+}
+
 fn capacity_label(used_bytes: i64, target_capacity_bytes: Option<i64>) -> String {
     match target_capacity_bytes {
         Some(cap) if cap > 0 => format!(
@@ -312,17 +331,12 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
     .fetch_one(&state.pool)
     .await?;
 
-    let quota_gb = read_setting(&state.pool, "default_storage_quota_gb")
-        .await
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(50)
-        .max(1);
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*)::BIGINT FROM users")
-        .fetch_one(&state.pool)
-        .await?;
-    let network_capacity_bytes = quota_gb
-        .saturating_mul(user_count.0.max(1))
-        .saturating_mul(1024 * 1024 * 1024);
+    // Human: Network-wide capacity is the sum of each node's configured target capacity.
+    // Agent: READS storage_nodes.target_capacity_bytes; SUM for metrics.capacity_bytes.
+    let node_capacity_bytes: i64 = records
+        .iter()
+        .filter_map(|record| record.target_capacity_bytes)
+        .sum();
 
     let mut nodes = Vec::with_capacity(records.len());
     let mut active_nodes = 0_i64;
@@ -332,8 +346,7 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
 
     for record in records {
         let probe = probe_storage_node(&record.base_url).await;
-        let status = node_status(&probe);
-        if status == "healthy" {
+        if node_status(&probe) == "healthy" {
             active_nodes += 1;
         }
         if let Some(ms) = probe.latency_ms {
@@ -341,19 +354,7 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
             latency_count += 1;
         }
         probed_used_bytes += probe.logical_bytes;
-
-        nodes.push(AdminStorageNodeRow {
-            id: record.id.clone(),
-            region_label: record.region_label.clone(),
-            base_url: record.base_url.clone(),
-            endpoint_host: endpoint_host_from_url(&record.base_url),
-            status,
-            used_bytes: probe.logical_bytes,
-            capacity_label: capacity_label(probe.logical_bytes, record.target_capacity_bytes),
-            target_capacity_bytes: record.target_capacity_bytes,
-            latency_ms: probe.latency_ms,
-            storage_mode: record.architecture.clone(),
-        });
+        nodes.push(build_node_row(&record, &probe));
     }
 
     let avg_latency_ms = if latency_count > 0 {
@@ -369,7 +370,11 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
             } else {
                 used_bytes.0
             },
-            capacity_bytes: Some(network_capacity_bytes),
+            capacity_bytes: if node_capacity_bytes > 0 {
+                Some(node_capacity_bytes)
+            } else {
+                None
+            },
             active_nodes,
             total_nodes: nodes.len() as i64,
             avg_latency_ms,
@@ -385,6 +390,278 @@ pub async fn list_storage_nodes(
 ) -> Result<Json<AdminStorageResponse>, AppError> {
     require_admin(&claims)?;
     Ok(Json(build_storage_response(&state).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StorageNodeDetailQuery {
+    pub prefix: Option<String>,
+    pub start_after: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaCategoryStat {
+    pub category: String,
+    pub label: String,
+    pub file_count: i64,
+    pub total_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NodeBrowseEntry {
+    pub name: String,
+    pub kind: String,
+    pub key: String,
+    pub size_bytes: Option<i64>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NodeBrowsePage {
+    pub prefix: String,
+    pub parent_prefix: Option<String>,
+    pub entries: Vec<NodeBrowseEntry>,
+    pub is_truncated: bool,
+    pub next_start_after: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminStorageNodeDetailResponse {
+    pub node: AdminStorageNodeRow,
+    pub media_breakdown: Vec<MediaCategoryStat>,
+    pub indexed_files_total: i64,
+    pub browse: Option<NodeBrowsePage>,
+    pub browse_unavailable: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct MediaAggRow {
+    category: String,
+    file_count: i64,
+    total_bytes: i64,
+}
+
+fn media_category_label(category: &str) -> &'static str {
+    match category {
+        "images" => "Images",
+        "videos" => "Videos",
+        "audio" => "Audio",
+        "documents" => "Documents",
+        "archives" => "Archives",
+        _ => "Other",
+    }
+}
+
+// Human: Aggregate Ownly-indexed files by coarse media type for the node detail panel.
+// Agent: READS files.mime_type; GROUP BY category; RETURNS counts and byte totals.
+async fn fetch_media_breakdown(pool: &PgPool) -> Result<(Vec<MediaCategoryStat>, i64), AppError> {
+    let rows: Vec<MediaAggRow> = sqlx::query_as(
+        "SELECT \
+            CASE \
+                WHEN mime_type ILIKE 'image/%' THEN 'images' \
+                WHEN mime_type ILIKE 'video/%' THEN 'videos' \
+                WHEN mime_type ILIKE 'audio/%' THEN 'audio' \
+                WHEN mime_type ILIKE 'application/pdf' OR mime_type ILIKE '%/pdf' THEN 'documents' \
+                WHEN mime_type ILIKE '%zip%' OR mime_type ILIKE '%compressed%' OR mime_type ILIKE '%archive%' THEN 'archives' \
+                ELSE 'other' \
+            END AS category, \
+            COUNT(*)::BIGINT AS file_count, \
+            COALESCE(SUM(size_bytes), 0)::BIGINT AS total_bytes \
+         FROM files \
+         WHERE deleted_at IS NULL \
+         GROUP BY 1 \
+         ORDER BY total_bytes DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let indexed_files_total = rows.iter().map(|row| row.file_count).sum();
+    let media_breakdown = rows
+        .into_iter()
+        .map(|row| MediaCategoryStat {
+            label: media_category_label(&row.category).to_string(),
+            category: row.category,
+            file_count: row.file_count,
+            total_bytes: row.total_bytes,
+        })
+        .collect();
+
+    Ok((media_breakdown, indexed_files_total))
+}
+
+fn normalize_list_prefix(raw: Option<String>) -> String {
+    let trimmed = raw.unwrap_or_default().trim().to_string();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.ends_with('/') {
+        trimmed
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
+fn parent_list_prefix(prefix: &str) -> Option<String> {
+    let trimmed = prefix.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parent = trimmed
+        .rsplit_once('/')
+        .map(|(head, _)| head)
+        .unwrap_or("");
+    if parent.is_empty() {
+        Some(String::new())
+    } else {
+        Some(format!("{parent}/"))
+    }
+}
+
+fn browse_entry_name(key: &str, prefix: &str) -> String {
+    let rest = key.strip_prefix(prefix).unwrap_or(key);
+    let segment = rest.split('/').next().unwrap_or(rest);
+    segment.trim_end_matches('/').to_string()
+}
+
+// Human: Build explorer rows from one Nebular list page (folders via delimiter prefixes).
+// Agent: READS ObjectListPage; RETURNS NodeBrowseEntry folder + file rows sorted by name.
+fn build_browse_page(
+    prefix: String,
+    page: crate::storage::nebula::ObjectListPage,
+) -> NodeBrowsePage {
+    let mut entries = Vec::new();
+
+    for folder_prefix in page.common_prefixes {
+        let name = browse_entry_name(&folder_prefix, &prefix);
+        if name.is_empty() {
+            continue;
+        }
+        entries.push(NodeBrowseEntry {
+            name: name.clone(),
+            kind: "folder".into(),
+            key: folder_prefix,
+            size_bytes: None,
+            mime_type: None,
+        });
+    }
+
+    for item in page.items {
+        if item.key.ends_with('/') {
+            continue;
+        }
+        let name = browse_entry_name(&item.key, &prefix);
+        if name.is_empty() {
+            continue;
+        }
+        entries.push(NodeBrowseEntry {
+            name,
+            kind: "file".into(),
+            key: item.key,
+            size_bytes: Some(item.size.max(0)),
+            mime_type: item.mime_type,
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        let rank = |kind: &str| if kind == "folder" { 0 } else { 1 };
+        rank(&a.kind)
+            .cmp(&rank(&b.kind))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    NodeBrowsePage {
+        parent_prefix: parent_list_prefix(&prefix),
+        prefix: prefix.clone(),
+        entries,
+        is_truncated: page.is_truncated,
+        next_start_after: page.next_start_after,
+    }
+}
+
+// Human: GET /admin/storage/nodes/{id}/detail — node health, media mix, and object browser page.
+// Agent: READS storage_nodes + files aggregates; CALLS Nebular list on node base_url; REQUIRES admin.
+pub async fn get_storage_node_detail(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(node_id): Path<String>,
+    Query(query): Query<StorageNodeDetailQuery>,
+) -> Result<Json<AdminStorageNodeDetailResponse>, AppError> {
+    require_admin(&claims)?;
+
+    let id = normalize_node_id(&node_id)?;
+    let record: StorageNodeRecord = sqlx::query_as(
+        "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
+         FROM storage_nodes \
+         WHERE enabled = true AND id = $1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let probe = probe_storage_node(&record.base_url).await;
+    let node = build_node_row(&record, &probe);
+    let (media_breakdown, indexed_files_total) = fetch_media_breakdown(&state.pool).await?;
+
+    let list_prefix = normalize_list_prefix(query.prefix);
+    let (browse, browse_unavailable) = if !state.storage_configured {
+        (
+            None,
+            Some("Object storage is not configured for this instance.".into()),
+        )
+    } else if node.status != "healthy" {
+        (None, Some("Node is offline or degraded — storage browse is unavailable.".into()))
+    } else {
+        let bucket = read_setting(&state.pool, "object_storage_bucket")
+            .await
+            .unwrap_or_else(|| state.object_storage_bucket.clone());
+        let object_storage_jwt = std::env::var("OBJECT_STORAGE_JWT_SECRET")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!("OBJECT_STORAGE_JWT_SECRET is not set"))
+            })?;
+        let signing_secret = std::env::var("NOS_SIGNING_SECRET")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| state.signing_secret.clone());
+        let storage = NebulaStorage::new(
+            record.base_url.clone(),
+            state.object_storage_public_url.clone(),
+            bucket,
+            &object_storage_jwt,
+            &signing_secret,
+        )?;
+        match storage
+            .list_objects_page(
+                &list_prefix,
+                Some("/"),
+                200,
+                query.start_after.as_deref(),
+            )
+            .await
+        {
+            Ok(page) => (Some(build_browse_page(list_prefix, page)), None),
+            Err(error) => {
+                tracing::warn!(
+                    node_id = %id,
+                    error = %error,
+                    "storage node object browse failed"
+                );
+                (
+                    None,
+                    Some("Could not list objects on this node. Check the endpoint URL and credentials.".into()),
+                )
+            }
+        }
+    };
+
+    Ok(Json(AdminStorageNodeDetailResponse {
+        node,
+        media_breakdown,
+        indexed_files_total,
+        browse,
+        browse_unavailable,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

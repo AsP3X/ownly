@@ -519,6 +519,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             patch(admin::storage_nodes::update_storage_node),
         )
         .route(
+            "/api/v1/admin/storage/nodes/{id}/detail",
+            get(admin::storage_nodes::get_storage_node_detail),
+        )
+        .route(
             "/api/v1/admin/settings",
             get(admin::console::get_settings).patch(admin::console::patch_settings),
         )
