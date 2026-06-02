@@ -381,7 +381,9 @@ pub async fn restore_recycle_bin_items(
         }
 
         if let Some(parent_id) = &folder_id {
-            let parent_active: Option<(i64,)> = sqlx::query_as(
+            // Human: Postgres literal SELECT 1 is INT4 — use i32 so sqlx decode matches.
+            // Agent: READS active parent folder; RETURNS Conflict when parent is trashed.
+            let parent_active: Option<(i32,)> = sqlx::query_as(
                 "SELECT 1 FROM folders WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
             )
             .bind(parent_id)
@@ -435,7 +437,7 @@ pub async fn restore_recycle_bin_items(
         }
 
         if let Some(parent) = &parent_id {
-            let parent_active: Option<(i64,)> = sqlx::query_as(
+            let parent_active: Option<(i32,)> = sqlx::query_as(
                 "SELECT 1 FROM folders WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
             )
             .bind(parent)
@@ -448,7 +450,7 @@ pub async fn restore_recycle_bin_items(
                 ));
             }
 
-            let name_conflict: Option<(i64,)> = sqlx::query_as(
+            let name_conflict: Option<(i32,)> = sqlx::query_as(
                 "SELECT 1 FROM folders WHERE user_id = $1 AND parent_id = $2 AND name = \
                  (SELECT name FROM folders WHERE id = $3) AND deleted_at IS NULL LIMIT 1",
             )

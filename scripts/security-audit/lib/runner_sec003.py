@@ -23,7 +23,7 @@ from .constants_sec003 import (
     ROUTE_SETUP_STATUS,
 )
 from .evidence_sec003 import build_public_leak_evidence
-from .heuristics import json_get
+from .heuristics import api_error_detail, json_get
 from .heuristics_sec003 import (
     extract_login_token,
     public_access_denied,
@@ -407,10 +407,15 @@ def test_probe_file_restored(cfg: Sec003Config, cache: dict[str, Any]) -> CaseRe
             detail="probe file restored from recycle bin",
             severity="pass",
         )
+    extra = api_error_detail(res)
+    detail = f"restore -> HTTP {res.status}"
+    if extra:
+        detail += f" — {extra}"
+    detail += " (cleanup only; SEC-003 verdict unchanged — restore manually or use --no-restore)"
     return CaseResult(
         name="probe_file_restored",
         passed=False,
-        detail=f"restore -> HTTP {res.status}",
+        detail=detail,
         severity="error",
     )
 

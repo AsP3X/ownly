@@ -38,6 +38,26 @@ def json_get(obj: Any, key: str) -> Any | None:
     return None
 
 
+def api_error_detail(res: Any) -> str:
+    # Human: Pull safe client message from AppError JSON for audit diagnostics.
+    # Agent: READS error.message/code; RETURNS snippet for CaseResult.detail.
+    body_json = getattr(res, "body_json", None)
+    body_text = getattr(res, "body_text", "") or ""
+    if isinstance(body_json, dict):
+        err = body_json.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message")
+            code = err.get("code")
+            if isinstance(msg, str) and msg.strip():
+                if isinstance(code, str) and code.strip():
+                    return f"{msg.strip()} [{code}]"
+                return msg.strip()
+    snippet = body_text.strip()
+    if snippet:
+        return snippet[:240]
+    return ""
+
+
 def body_contains_credential_material(text: str, *, strict: bool = False) -> list[str]:
     findings: list[str] = []
     if not text:
