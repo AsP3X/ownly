@@ -176,3 +176,34 @@ Environment: `SEC003_*` (loaded from repo `.env` when present). Use `export` or 
 make -C scripts/security-audit sec003
 make -C scripts/security-audit test
 ```
+
+## SEC-004 — authenticated download of recycle-bin files
+
+Probes owner JWT access to `GET /files/{id}/download`, `/download-url`, and `/preview-url` after soft-delete.
+
+```bash
+python3 scripts/security-audit/sec004_authenticated_trash_download.py --prompt
+```
+
+```bash
+export SEC004_OWNER_EMAIL='owner@example.com'
+export SEC004_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec004_authenticated_trash_download.py
+```
+
+| Flag | Description |
+|------|-------------|
+| `--owner-email` / `--owner-password` | Drive owner |
+| `--file-id` | Skip bootstrap when set |
+| `--no-bootstrap` | Require `--file-id` |
+| `--no-restore` | Leave probe in recycle bin |
+| `--prompt` | Interactive credentials |
+
+Environment: `SEC004_*` (also loaded from repo `.env`). Use `export` or one-line env prefix.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec004
+make -C scripts/security-audit test
+```

@@ -318,6 +318,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category** | Data extraction |
 | **Impacted files** | `backend/src/files/handlers.rs` (`download_file`, `download_url`, `preview_url`), `backend/src/hls/handlers.rs` (`ensure_file_owned`, stream/HLS paths) |
 | **Routes** | `GET /api/v1/files/{id}/download`, `/download-url`, `/preview-url`, HLS/stream routes |
+| **Audit script** | [`scripts/security-audit/sec004_authenticated_trash_download.py`](scripts/security-audit/sec004_authenticated_trash_download.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 **Description**
 
@@ -337,10 +338,42 @@ Weak deletion guarantees; compromised session can extract recycle-bin content at
 1. Add `AND deleted_at IS NULL` to all authenticated file retrieval queries used for download, preview, presigned URL, and HLS ownership checks.
 2. Reuse shared constants: `ACTIVE_FILES_SQL` from `backend/src/files/recycle_bin.rs`.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec004_authenticated_trash_download.py`](scripts/security-audit/sec004_authenticated_trash_download.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-004).
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Owner | One account that can upload, delete, and download files |
+
+The script logs in, prepares a probe file (bootstrap upload or `SEC004_FILE_ID`), confirms `download`, `download-url`, and `preview-url` work **before** trash, soft-deletes the file, then re-probes with the **same owner JWT**. Exit **1** if any route still grants access after trash.
+
+```bash
+python3 scripts/security-audit/sec004_authenticated_trash_download.py --prompt
+```
+
+```bash
+export SEC004_OWNER_EMAIL='owner@example.com'
+export SEC004_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec004_authenticated_trash_download.py
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Not vulnerable — trashed file blocked on all three routes |
+| **1** | Vulnerable — download and/or URL endpoints still work after trash |
+| **2** | Inconclusive — credentials, API, or bootstrap failure |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - [ ] `GET /files/{id}/download` on trashed file → 404.
 - [ ] `preview-url` and `download-url` behave consistently.
+- [ ] `python3 scripts/security-audit/sec004_authenticated_trash_download.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 

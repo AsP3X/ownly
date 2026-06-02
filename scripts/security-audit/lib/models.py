@@ -60,6 +60,18 @@ class Sec003Config:
 
 
 @dataclass
+class Sec004Config:
+    # Human: SEC-004 authenticated download/preview after soft-delete probe options.
+    # Agent: READS env/CLI; WRITES runner_sec004.
+    http: Config
+    owner_email: str
+    owner_password: str
+    file_id: str
+    bootstrap_fixtures: bool
+    restore_after_probe: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]
