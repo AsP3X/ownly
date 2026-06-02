@@ -3,7 +3,7 @@
 
 BASE_URL ?= http://127.0.0.1:8080
 
-.PHONY: sec001 sec002 sec003 sec004 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json
+.PHONY: sec001 sec002 sec003 sec004 sec005 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json
 
 sec001:
 	python3 sec001_setup_info_disclosure.py --base-url $(BASE_URL)
@@ -37,6 +37,12 @@ sec004:
 
 sec004-json:
 	python3 sec004_authenticated_trash_download.py --base-url $(BASE_URL) --json
+
+sec005:
+	python3 sec005_setup_bootstrap_race.py --base-url $(BASE_URL)
+
+sec005-json:
+	python3 sec005_setup_bootstrap_race.py --base-url $(BASE_URL) --json
 
 test:
 	python3 -m unittest discover -s tests -v

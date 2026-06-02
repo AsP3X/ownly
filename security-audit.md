@@ -387,6 +387,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category** | Unauthorized action (account takeover) |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`setup`, `ensure_not_complete_pool`), `backend/src/lib.rs` |
 | **Routes** | `POST /api/v1/setup` |
+| **Audit script** | [`scripts/security-audit/sec005_setup_bootstrap_race.py`](scripts/security-audit/sec005_setup_bootstrap_race.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 **Description**
 
@@ -407,10 +408,35 @@ Full instance takeover on mis-exposed or slow-to-configure deployments.
 3. Use an atomic setup lock (advisory lock or dedicated `setup_state` row with compare-and-set).
 4. Document deployment checklist: firewall setup before exposing port 443.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec005_setup_bootstrap_race.py`](scripts/security-audit/sec005_setup_bootstrap_race.py). Uses an intentionally invalid setup body (password too short) so it does **not** create an admin on initialized instances.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Credentials | None — unauthenticated probe |
+
+```bash
+python3 scripts/security-audit/sec005_setup_bootstrap_race.py
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Bootstrap secret enforced (401/403 without valid token) |
+| **1** | Vulnerable — POST /setup processed without bootstrap auth |
+| **2** | Inconclusive — API unreachable or unexpected errors |
+| **3** | `--compare-baseline` mismatch |
+
+On **pre-setup** instances (`setup_complete=false`), exit **1** confirms public setup mutation. On **post-setup** instances, exit **1** indicates missing bootstrap-token gate (409 without token check). Concurrent race requires manual testing on a fresh database.
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - [ ] Setup without valid bootstrap token → 401/403.
 - [ ] Concurrent setup attempts: only one succeeds.
+- [ ] `python3 scripts/security-audit/sec005_setup_bootstrap_race.py` exits **0** after remediation (**1** = vulnerable).
 
 ---
 

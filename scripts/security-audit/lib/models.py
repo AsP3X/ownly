@@ -72,6 +72,14 @@ class Sec004Config:
 
 
 @dataclass
+class Sec005Config:
+    # Human: SEC-005 unauthenticated setup bootstrap probe options.
+    # Agent: READS env/CLI; WRITES runner_sec005; uses safe invalid POST body only.
+    http: Config
+    bootstrap_header: str
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

@@ -207,3 +207,30 @@ Environment: `SEC004_*` (also loaded from repo `.env`). Use `export` or one-line
 make -C scripts/security-audit sec004
 make -C scripts/security-audit test
 ```
+
+## SEC-005 — unauthenticated setup bootstrap race
+
+Probes `POST /api/v1/setup` without credentials using a **safe invalid body** (short password → 400). Detects missing bootstrap-token enforcement; does not complete setup on initialized instances (expects 409).
+
+```bash
+python3 scripts/security-audit/sec005_setup_bootstrap_race.py
+python3 scripts/security-audit/sec005_setup_bootstrap_race.py --base-url http://127.0.0.1:8080
+```
+
+| Flag | Description |
+|------|-------------|
+| `--base-url` | API origin |
+| `--bootstrap-header` | Header name to probe (default `X-Setup-Token`) |
+| `--require-setup-complete` | Inconclusive when `setup_complete=false` |
+| `--json` / `--sarif` | Machine-readable output |
+
+Environment: `SEC005_*` (optional `.env`). No credentials required.
+
+On a **fixed** deployment with `SETUP_TOKEN`, exit **0**. On current code (post-setup), exit **1** — POST returns 409 without checking a bootstrap secret.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec005
+make -C scripts/security-audit test
+```
