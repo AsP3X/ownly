@@ -80,6 +80,16 @@ class Sec005Config:
 
 
 @dataclass
+class Sec006Config:
+    # Human: SEC-006 rate-limit header spoofing probe options.
+    # Agent: READS env/CLI; WRITES runner_sec006; bursts login/register with spoofed IPs.
+    http: Config
+    login_rpm: int
+    register_rpm: int
+    probe_register: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

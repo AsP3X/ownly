@@ -234,3 +234,29 @@ On a **fixed** deployment with `SETUP_TOKEN`, exit **0**. On current code (post-
 make -C scripts/security-audit sec005
 make -C scripts/security-audit test
 ```
+
+## SEC-006 — login/register rate limit and spoofed forwarding headers
+
+Sends `login_rpm + 1` failed login attempts with a **fixed** `X-Forwarded-For`, then the same count with a **unique** IP per request. **Vulnerable** when the fixed burst is throttled (429) but the rotated burst is not.
+
+```bash
+python3 scripts/security-audit/sec006_rate_limit_forwarded_headers.py
+python3 scripts/security-audit/sec006_rate_limit_forwarded_headers.py --base-url http://127.0.0.1:8080
+```
+
+| Flag | Description |
+|------|-------------|
+| `--base-url` | API origin |
+| `--login-rpm` | Expected login cap per minute (default 15, match `AUTH_LOGIN_RPM`) |
+| `--register-rpm` | Expected register cap (default 5) |
+| `--skip-register` | Only probe `POST /auth/login` |
+| `--json` / `--sarif` | Machine-readable output |
+
+No credentials. Uses wrong passwords / invalid register email so no accounts are created. Takes ~32+ HTTP requests (two login bursts + optional register bursts).
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec006
+make -C scripts/security-audit test
+```

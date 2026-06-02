@@ -479,6 +479,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Brute force / account enumeration                                                                            |
 | **Impacted files** | `backend/src/rate_limit.rs` (`client_ip_from_headers`), `backend/src/auth/handlers.rs` (`login`, `register`) |
 | **Routes**         | `POST /api/v1/auth/login`, `POST /api/v1/auth/register`                                                      |
+| **Audit script**   | [`scripts/security-audit/sec006_rate_limit_forwarded_headers.py`](scripts/security-audit/sec006_rate_limit_forwarded_headers.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -500,10 +501,36 @@ Weakened protection against credential stuffing and registration abuse.
 3. Add secondary limits: per-email/account lockout or exponential backoff after N failures.
 4. Document required nginx/traefik `real_ip` configuration.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec006_rate_limit_forwarded_headers.py`](scripts/security-audit/sec006_rate_limit_forwarded_headers.py). Bursts failed `POST /auth/login` (and optionally `POST /auth/register`) with fixed vs rotated `X-Forwarded-For` / `X-Real-IP`.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Credentials | None |
+
+```bash
+python3 scripts/security-audit/sec006_rate_limit_forwarded_headers.py
+```
+
+If your deployment overrides `AUTH_LOGIN_RPM` / `AUTH_REGISTER_RPM`, pass matching values: `--login-rpm 15 --register-rpm 5`.
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Rotation does not bypass throttling (fixed and rotated bursts both hit 429) |
+| **1** | Vulnerable — header rotation avoids rate limits that apply to a fixed spoofed IP |
+| **2** | Inconclusive — API unreachable or fixed-IP burst never throttled |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Direct requests cannot set arbitrary IP for rate limit via headers (when proxy not configured).
 - Brute-force test shows throttling holds under header rotation.
+- `python3 scripts/security-audit/sec006_rate_limit_forwarded_headers.py` exits **0** after remediation (**1** = vulnerable).
 
 ---
 
