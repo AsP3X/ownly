@@ -32,6 +32,7 @@ Use the checkboxes below to track remediation as you work through each item.
 | **Category** | Data extraction / information disclosure |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`setup_database_info`, `setup_storage_info`), `backend/src/lib.rs` (public route wiring) |
 | **Routes** | `GET /api/v1/setup/database`, `GET /api/v1/setup/storage` |
+| **Audit script** | [`scripts/security-audit/sec001_setup_info_disclosure.py`](scripts/security-audit/sec001_setup_info_disclosure.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 **Description**
 
@@ -65,6 +66,7 @@ Credential theft, infrastructure mapping, possible full database compromise if t
 
 - [ ] Unauthenticated `GET /setup/database` returns 404/401 after setup (or redacted body only).
 - [ ] No password material appears in JSON responses or audit logs.
+- [ ] `python3 scripts/security-audit/sec001_setup_info_disclosure.py` exits **0** against a post-fix deployment (exit **1** = vulnerable; **2** = inconclusive).
 
 ---
 
