@@ -388,6 +388,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn base_key_strips_hls_segment_suffix_for_placement_lookup() {
+        let segment_key = "users/u/files/f1/segments/0019.m4s";
+        assert_eq!(
+            base_file_storage_key(segment_key).as_deref(),
+            Some("users/u/files/f1")
+        );
+    }
+
+    #[test]
     fn plan_single_node_when_capacity_fits() {
         let nodes = vec![NodeSnapshot {
             id: "a".into(),

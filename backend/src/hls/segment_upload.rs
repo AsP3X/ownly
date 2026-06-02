@@ -318,6 +318,8 @@ fn is_likely_storage_pressure(error: &anyhow::Error) -> bool {
         || msg.contains("timed out")
         || msg.contains("broken pipe")
         || msg.contains("connection reset")
+        || msg.contains("500 internal server error")
+        || msg.contains("storage error")
 }
 
 #[cfg(test)]
@@ -357,6 +359,12 @@ mod tests {
     #[test]
     fn storage_pressure_detection_matches_transport_errors() {
         let err = anyhow::anyhow!("error sending request for url (http://object-storage:9000/x)");
+        assert!(is_likely_storage_pressure(&err));
+    }
+
+    #[test]
+    fn storage_pressure_detection_matches_object_storage_500() {
+        let err = anyhow::anyhow!("object storage PUT failed: 500 Internal Server Error");
         assert!(is_likely_storage_pressure(&err));
     }
 

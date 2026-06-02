@@ -120,9 +120,11 @@ impl RouterStorage {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         match &plan {
-            UploadPlacementPlan::Single { node_id, object_key } => {
+            UploadPlacementPlan::Single { node_id, object_key: _ } => {
+                // Human: Placement plans use the base file key; HLS artifacts keep distinct suffix paths.
+                // Agent: PUT must use caller `key` (e.g. …/segments/0001.m4s); plan object_key is base-only.
                 let client = self.client_for_node_id(node_id).await?;
-                client.put(object_key, content_type, data).await?;
+                client.put(key, content_type, data).await?;
             }
             UploadPlacementPlan::Striped { parts, .. } => {
                 let mut offset: usize = 0;
