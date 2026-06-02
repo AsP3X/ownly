@@ -1289,10 +1289,27 @@ pub async fn dashboard_summary(
         .unwrap_or(50)
         .saturating_mul(1024 * 1024 * 1024);
 
+    // Human: Network-wide free space for upload preflight — same probe as RouterStorage placement.
+    // Agent: READS storage_nodes + Nebular metrics; SUM remaining; MIN with user quota for effective_remaining_bytes.
+    let nodes = crate::storage::placement::load_node_snapshots(&state.pool).await?;
+    let network_remaining_bytes =
+        crate::storage::placement::aggregate_network_remaining_bytes(&nodes);
+    let effective_remaining_bytes = crate::storage::placement::effective_remaining_bytes(
+        stats.1,
+        quota_bytes,
+        network_remaining_bytes,
+    );
+
     Ok(Json(serde_json::json!({
         "instance_name": instance_name.map(|(n,)| n).unwrap_or_else(|| "Ownly".into()),
         "file_count": stats.0,
         "used_bytes": stats.1,
         "quota_bytes": quota_bytes,
+        "network_remaining_bytes": network_remaining_bytes,
+        "effective_remaining_bytes": if effective_remaining_bytes == i64::MAX {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::from(effective_remaining_bytes)
+        },
     })))
 }

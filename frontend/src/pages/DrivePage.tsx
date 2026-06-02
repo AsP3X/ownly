@@ -59,6 +59,7 @@ import {
 import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
+import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -146,6 +147,9 @@ export default function DrivePage() {
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
   const [usedBytes, setUsedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
+  const [effectiveRemainingBytes, setEffectiveRemainingBytes] = useState(
+    Number.POSITIVE_INFINITY,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -217,17 +221,21 @@ export default function DrivePage() {
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
   const dashboardLoadedRef = useRef(false);
 
-  // Human: Storage summary for the sidebar — fetched once per page session, not every folder open.
-  // Agent: GET /dashboard; WRITES instanceName (context), usedBytes, quotaBytes; CALLS again after mutations.
-  const refreshDashboard = useCallback(async () => {
+  // Human: Storage summary for the sidebar and upload preflight — includes network node headroom.
+  // Agent: GET /dashboard; WRITES used/quota/effective remaining; RETURNS effective bytes for upload dialog.
+  const refreshDashboard = useCallback(async (): Promise<number> => {
     try {
       const dashboard = await fetchDashboard();
       setInstanceName(dashboard.instance_name);
       setUsedBytes(dashboard.used_bytes);
       setQuotaBytes(dashboard.quota_bytes || 1);
+      const effective = effectiveRemainingFromDashboard(dashboard);
+      setEffectiveRemainingBytes(effective);
       dashboardLoadedRef.current = true;
+      return effective;
     } catch {
       // Human: Dashboard stats are non-critical — a failed fetch must not block browsing.
+      return Number.POSITIVE_INFINITY;
     }
   }, [setInstanceName]);
 
@@ -1097,8 +1105,8 @@ export default function DrivePage() {
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
           folderId={activeNav === "my-files" ? currentFolderId : null}
-          usedBytes={usedBytes}
-          quotaBytes={quotaBytes}
+          effectiveRemainingBytes={effectiveRemainingBytes}
+          onRefreshStorageLimits={refreshDashboard}
           onLibraryChanged={() =>
             void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
               silent: true,

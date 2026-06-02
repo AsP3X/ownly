@@ -37,9 +37,10 @@ type UploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   folderId?: string | null;
-  /** Human: Library usage from GET /dashboard — drives per-file storage warnings in the picker. */
-  usedBytes?: number;
-  quotaBytes?: number;
+  /** Human: Remaining upload bytes from GET /dashboard (quota ∩ network). */
+  effectiveRemainingBytes?: number;
+  /** Human: Refresh storage snapshot when the dialog opens or Upload is pressed. */
+  onRefreshStorageLimits?: () => Promise<number>;
   /** Human: Refresh drive listings after recycle-bin restores from the upload preflight. */
   onLibraryChanged?: () => void;
 };
@@ -104,8 +105,8 @@ export function UploadDialog({
   open,
   onOpenChange,
   folderId = null,
-  usedBytes = 0,
-  quotaBytes = 0,
+  effectiveRemainingBytes = Number.POSITIVE_INFINITY,
+  onRefreshStorageLimits,
   onLibraryChanged,
 }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -136,8 +137,8 @@ export function UploadDialog({
     return plan.restoreCount === 0 && plan.uploadCount === 0;
   }, [pendingFiles, duplicateMatches, recycleMatches]);
 
-  const uploadDisabled =
-    uploadablePendingCount === 0 || checkingConflicts;
+  // Human: Allow Upload when every row is warned — pressing it re-checks capacity and shows an error.
+  const uploadDisabled = pendingFiles.length === 0 || checkingConflicts;
 
   // Human: Hint when reopening the picker while the corner panel still has work in flight.
   // Agent: SUBSCRIBES upload-manager while open; WRITES activeUploadBatch from batch status.
@@ -151,20 +152,27 @@ export function UploadDialog({
   // Human: Recompute quota warnings for every pending row when usage or the file list changes.
   // Agent: CALLS applyStorageWarningsInOrder; PRESERVES ids and File references.
   const withStorageWarnings = useCallback(
-    (rows: PendingFile[]): PendingFile[] =>
+    (rows: PendingFile[], remainingBytes: number): PendingFile[] =>
       applyStorageWarningsInOrder(
         rows.map((row) => ({ ...row, fileSize: row.file.size })),
-        usedBytes,
-        quotaBytes,
+        remainingBytes,
       ),
-    [usedBytes, quotaBytes],
+    [],
   );
 
-  // Human: Refresh warnings when dashboard usage changes while the picker stays open.
+  // Human: Refresh warnings when remaining storage changes while the picker stays open.
   useEffect(() => {
     if (!open) return;
-    setPendingFiles((prev) => (prev.length === 0 ? prev : withStorageWarnings(prev)));
-  }, [open, usedBytes, quotaBytes, withStorageWarnings]);
+    setPendingFiles((prev) =>
+      prev.length === 0 ? prev : withStorageWarnings(prev, effectiveRemainingBytes),
+    );
+  }, [open, effectiveRemainingBytes, withStorageWarnings]);
+
+  // Human: Load latest network + quota headroom when the upload dialog opens.
+  useEffect(() => {
+    if (!open || !onRefreshStorageLimits) return;
+    void onRefreshStorageLimits();
+  }, [open, onRefreshStorageLimits]);
 
   const addPendingFiles = useCallback(
     (selected: FileList | null) => {
@@ -175,16 +183,21 @@ export function UploadDialog({
           id: createClientId(),
           file,
         }));
-        return withStorageWarnings([...prev, ...incoming]);
+        return withStorageWarnings([...prev, ...incoming], effectiveRemainingBytes);
       });
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [withStorageWarnings],
+    [withStorageWarnings, effectiveRemainingBytes],
   );
 
   function removePendingFile(id: string) {
     setStorageSkipNotice("");
-    setPendingFiles((prev) => withStorageWarnings(prev.filter((item) => item.id !== id)));
+    setPendingFiles((prev) =>
+      withStorageWarnings(
+        prev.filter((item) => item.id !== id),
+        effectiveRemainingBytes,
+      ),
+    );
   }
 
   function openFilePicker() {
@@ -254,18 +267,37 @@ export function UploadDialog({
   // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
   // Agent: POST checkUploadNameDuplicates; OPENS UploadConflictDialog when any matches exist.
   async function handleStartUpload() {
-    if (uploadablePendingCount === 0 || checkingConflicts) return;
-
-    const uploadable = pendingFiles.filter((item) => !item.storageWarning);
-    if (oversizedPendingCount > 0) {
-      setStorageSkipNotice(
-        `${oversizedPendingCount} file${oversizedPendingCount === 1 ? "" : "s"} skipped — not enough storage. Remove them or free space, then try again.`,
-      );
-    }
+    if (checkingConflicts) return;
 
     setConflictCheckError("");
+    setStorageSkipNotice("");
     setCheckingConflicts(true);
     try {
+      // Human: Re-check against live network node capacity before starting uploads.
+      // Agent: CALLS onRefreshStorageLimits; RE-RUNS applyStorageWarningsInOrder on pending rows.
+      const remaining =
+        (await onRefreshStorageLimits?.()) ?? effectiveRemainingBytes;
+      const reassessed = withStorageWarnings(pendingFiles, remaining);
+      setPendingFiles(reassessed);
+
+      const uploadable = reassessed.filter((item) => !item.storageWarning);
+      const blockedCount = reassessed.length - uploadable.length;
+
+      if (uploadable.length === 0) {
+        setConflictCheckError(
+          blockedCount > 0
+            ? "None of the selected files fit in the remaining storage. Remove files or free space, then try again."
+            : "Add at least one file to upload.",
+        );
+        return;
+      }
+
+      if (blockedCount > 0) {
+        setStorageSkipNotice(
+          `${blockedCount} file${blockedCount === 1 ? "" : "s"} will not be uploaded — not enough storage.`,
+        );
+      }
+
       const files = uploadable.map((item) => ({
         name: item.file.name,
         // Human: Force an integer byte size so JSON always includes size_bytes for the API contract.

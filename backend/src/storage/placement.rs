@@ -74,11 +74,58 @@ pub fn file_id_from_storage_key(key: &str) -> Option<String> {
     }
 }
 
-fn remaining_bytes(node: &NodeSnapshot) -> i64 {
+pub(crate) fn remaining_bytes(node: &NodeSnapshot) -> i64 {
     match node.target_capacity_bytes {
         Some(cap) if cap > 0 => (cap - node.used_bytes).max(0),
         _ => i64::MAX,
     }
+}
+
+// Human: Sum free space across capped storage nodes — matches upload striping preflight.
+// Agent: RETURNS None when every node is uncapped (unlimited network for UI); Some(sum) when any cap set.
+pub fn aggregate_network_remaining_bytes(nodes: &[NodeSnapshot]) -> Option<i64> {
+    if nodes.is_empty() {
+        return None;
+    }
+    let mut total: i64 = 0;
+    let mut any_capped = false;
+    for node in nodes {
+        if let Some(cap) = node.target_capacity_bytes {
+            if cap > 0 {
+                any_capped = true;
+                let free = remaining_bytes(node);
+                if free < i64::MAX {
+                    total = total.saturating_add(free);
+                }
+            }
+        }
+    }
+    if any_capped {
+        Some(total)
+    } else {
+        None
+    }
+}
+
+// Human: Bytes the user can still store — minimum of library quota and network aggregate.
+// Agent: READS user used/quota + optional network sum; USED by GET /dashboard for upload warnings.
+pub fn effective_remaining_bytes(
+    user_used_bytes: i64,
+    user_quota_bytes: i64,
+    network_remaining_bytes: Option<i64>,
+) -> i64 {
+    let user_remaining = if user_quota_bytes > 0 {
+        (user_quota_bytes - user_used_bytes.max(0)).max(0)
+    } else {
+        i64::MAX
+    };
+    let Some(network) = network_remaining_bytes else {
+        return user_remaining;
+    };
+    if user_remaining == i64::MAX {
+        return network.max(0);
+    }
+    user_remaining.min(network.max(0))
 }
 
 // Human: Load enabled nodes with fresh logical_bytes from each Nebular /metrics endpoint.
@@ -356,6 +403,36 @@ mod tests {
                 ..
             } if node_id == "a"
         ));
+    }
+
+    #[test]
+    fn aggregate_network_remaining_sums_capped_nodes() {
+        let nodes = vec![
+            NodeSnapshot {
+                id: "a".into(),
+                base_url: "http://a".into(),
+                target_capacity_bytes: Some(100),
+                used_bytes: 80,
+            },
+            NodeSnapshot {
+                id: "b".into(),
+                base_url: "http://b".into(),
+                target_capacity_bytes: Some(100),
+                used_bytes: 50,
+            },
+        ];
+        assert_eq!(aggregate_network_remaining_bytes(&nodes), Some(70));
+    }
+
+    #[test]
+    fn effective_remaining_respects_network_cap() {
+        let network = aggregate_network_remaining_bytes(&[NodeSnapshot {
+            id: "a".into(),
+            base_url: "http://a".into(),
+            target_capacity_bytes: Some(100),
+            used_bytes: 90,
+        }]);
+        assert_eq!(effective_remaining_bytes(0, 1_000, network), 10);
     }
 
     #[test]

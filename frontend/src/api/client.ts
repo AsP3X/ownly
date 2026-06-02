@@ -55,9 +55,20 @@ function parseRetryAfterSeconds(headerValue: string | null): number | undefined 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+// Human: User-facing text for storage placement failures from the upload API.
+// Agent: MAPS backend aggregate-capacity errors; USED by getErrorMessage and upload tray.
+export function normalizeStorageErrorMessage(message: string): string {
+  if (/aggregate capacity|sufficient capacity/i.test(message)) {
+    return "Not enough storage space is available for this upload. Free space or add storage nodes, then try again.";
+  }
+  return message;
+}
+
 export function getErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
+  if (err instanceof ApiError) {
+    return normalizeStorageErrorMessage(err.message);
+  }
+  if (err instanceof Error) return normalizeStorageErrorMessage(err.message);
   return "Something went wrong";
 }
 
@@ -584,13 +595,19 @@ export async function fetchAdminSecurity() {
   return apiFetch("/admin/security") as Promise<AdminSecurityOverviewResponse>;
 }
 
+export type DashboardResponse = {
+  instance_name: string;
+  file_count: number;
+  used_bytes: number;
+  quota_bytes: number;
+  /** Sum of free space on capped storage nodes; omitted when network is uncapped. */
+  network_remaining_bytes?: number | null;
+  /** min(user quota remaining, network remaining); null when unlimited. */
+  effective_remaining_bytes?: number | null;
+};
+
 export async function fetchDashboard() {
-  return apiFetch("/dashboard") as Promise<{
-    instance_name: string;
-    file_count: number;
-    used_bytes: number;
-    quota_bytes: number;
-  }>;
+  return apiFetch("/dashboard") as Promise<DashboardResponse>;
 }
 
 export type FileItem = {
