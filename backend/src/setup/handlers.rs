@@ -371,12 +371,17 @@ pub async fn setup(
         ("storage_metadata_mode", state.storage_metadata_mode.as_str()),
     ];
 
+    // Human: Upsert settings — migration 015 may seed storage_metadata_mode before first setup completes.
+    // Agent: ON CONFLICT DO UPDATE; AVOIDS duplicate key on app_settings_pkey during POST /setup.
     for (key, value) in settings {
-        sqlx::query("INSERT INTO app_settings (key, value) VALUES ($1, $2)")
-            .bind(key)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES ($1, $2) \
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
