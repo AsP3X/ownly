@@ -12,11 +12,11 @@ Use the checkboxes below to track remediation as you work through each item.
 
 | Severity | Count | Open |
 |----------|-------|------|
-| High     | 3     | 3    |
-| Medium   | 3     | 3    |
+| High     | 4     | 4    |
+| Medium   | 5     | 5    |
 | Low      | 0     | 0    |
 
-**Recommended fix order:** SEC-001 → SEC-002 → SEC-003 → SEC-004 → SEC-005 → SEC-006
+**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-003 → SEC-008 → SEC-004 → SEC-005 → SEC-006 → SEC-009
 
 ---
 
@@ -275,6 +275,154 @@ Weakened protection against credential stuffing and registration abuse.
 
 - [ ] Direct requests cannot set arbitrary IP for rate limit via headers (when proxy not configured).
 - [ ] Brute-force test shows throttling holds under header rotation.
+
+---
+
+### SEC-007 — Password-protected share overview bypass exposes metadata without password
+
+- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+| Field | Detail |
+|-------|--------|
+| **Severity** | High |
+| **Category** | Data extraction / unauthorized access |
+| **Impacted files** | `backend/src/shares/handlers.rs` (`public_share_overview`, `resolve_public_share`) |
+| **Routes** | `GET /api/v1/public/shares/{token}` |
+
+**Description**
+
+`public_share_overview` resolves active share tokens but does not enforce share-password verification. Other public share endpoints call `resolve_public_share`, which validates `x-share-password`, but the overview route bypasses that path.
+
+**Evidence**
+
+```rust
+// public_share_overview — no password verification
+let share = resolve_active_share(&state.pool, &token).await?;
+
+// resolve_public_share — does verify password
+verify_share_password(&share, share_password_header(headers).as_deref())?;
+```
+
+**Exploit scenario**
+
+1. Owner creates a password-protected public share.
+2. Attacker obtains the token (logs, referrer leak, screenshot, clipboard history, etc.).
+3. Attacker calls overview endpoint and retrieves resource metadata (including `shared_by_email`, names, sizes, counts) without the password.
+
+**Impact**
+
+Intended protection boundary is broken for share metadata; unauthenticated parties can extract user/content details that should require the share password.
+
+**Remediation**
+
+1. Route `public_share_overview` through `resolve_public_share` (with headers), or perform equivalent password check.
+2. Add integration tests for password-protected shares covering **all** public endpoints, including overview.
+3. Consider minimizing overview payload sensitivity (e.g., hide owner email) when password-protected.
+
+**Verification**
+
+- [ ] `GET /public/shares/{token}` on password-protected share returns 403 without correct `x-share-password`.
+- [ ] With correct password header, overview response remains functional.
+
+---
+
+### SEC-008 — Setup storage probe allows unauthenticated SSRF/internal network reconnaissance
+
+- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+| Field | Detail |
+|-------|--------|
+| **Severity** | Medium |
+| **Category** | Data extraction / infrastructure reconnaissance |
+| **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_storage`), `backend/src/admin/storage_nodes.rs` (`normalize_base_url`, `probe_storage_node`) |
+| **Routes** | `POST /api/v1/setup/storage/test` |
+
+**Description**
+
+Before setup completes, unauthenticated callers can submit arbitrary `base_url` values. The API then performs outbound requests to `{base_url}/health` and `{base_url}/metrics`. URL validation only checks scheme (`http`/`https`), so internal targets (RFC1918, localhost, link-local, metadata services) are not blocked.
+
+**Evidence**
+
+```rust
+let base_url = storage_nodes::normalize_base_url(&body.base_url)?;
+let probe = storage_nodes::probe_storage_endpoint(&base_url).await;
+```
+
+```rust
+if !url.starts_with("http://") && !url.starts_with("https://") { ... }
+```
+
+```rust
+let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
+```
+
+**Exploit scenario**
+
+During bootstrap window, an external attacker repeatedly calls setup storage test with internal hostnames/IPs to map reachable services and infer network topology via timing/status behavior.
+
+**Impact**
+
+SSRF-style network probing from trusted server context, which can expose internal infrastructure and aid follow-on attacks.
+
+**Remediation**
+
+1. Require bootstrap secret/auth for setup test endpoints.
+2. Add outbound target validation: block localhost, private/link-local ranges, and cloud metadata endpoints by default.
+3. Optional: enforce allowlist of approved storage hostnames/CIDRs during setup.
+4. Add strict request timeout and response size caps (if not already enforced globally).
+
+**Verification**
+
+- [ ] Requests targeting `127.0.0.1`, `169.254.169.254`, and private RFC1918 ranges are rejected.
+- [ ] Legitimate storage endpoints still pass probe checks.
+
+---
+
+### SEC-009 — Public share password checks lack brute-force throttling
+
+- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+| Field | Detail |
+|-------|--------|
+| **Severity** | Medium |
+| **Category** | Unauthorized access / brute force |
+| **Impacted files** | `backend/src/shares/store.rs` (`verify_share_password`), `backend/src/shares/handlers.rs` (public share routes using password gate) |
+| **Routes** | `/api/v1/public/shares/{token}*` on password-protected links |
+
+**Description**
+
+Share password verification exists, but there is no dedicated per-token/IP attempt throttling, lockout, or exponential backoff for failed password attempts on public share routes.
+
+**Evidence**
+
+```rust
+if !verify_password(password, stored_hash).unwrap_or(false) {
+    return Err(AppError::Forbidden("incorrect share password".into()));
+}
+```
+
+No adjacent rate-limit call is applied in this password check flow.
+
+**Exploit scenario**
+
+If a share token leaks, attacker scripts repeated requests with guessed `x-share-password` values until one succeeds.
+
+**Impact**
+
+Password-protected shares are vulnerable to online guessing, potentially enabling unauthorized viewing/downloading of shared user content.
+
+**Remediation**
+
+1. Add rate limiting keyed by `{share_token, source_ip}` for failed password attempts.
+2. Consider temporary lockout/backoff after N failures.
+3. Log and audit repeated failures for detection.
+4. Consider configurable minimum/complexity policy for share passwords.
+
+**Verification**
+
+- [ ] Repeated wrong-password attempts trigger 429 and/or lockout behavior.
+- [ ] Correct password succeeds after cooldown/within configured policy.
 
 ---
 
