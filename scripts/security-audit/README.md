@@ -137,3 +137,42 @@ Environment mirrors flags: `SEC002_BASE_URL`, `SEC002_SUBJECT_EMAIL`, `SEC002_DE
 make -C scripts/security-audit sec002
 make -C scripts/security-audit test
 ```
+
+## SEC-003 — public share exposes recycle-bin files
+
+Probes **folder** public shares: after the owner soft-deletes a file inside the shared folder, anonymous `GET /public/shares/{token}/all-files` and `/download` must not expose it.
+
+Credentials are **required** (`SEC003_OWNER_*`). Bootstrap (default) finds or creates a folder, uploads a tiny probe file if needed, and creates the share.
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py --prompt
+```
+
+```bash
+export SEC003_OWNER_EMAIL='owner@example.com'
+export SEC003_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec003_public_share_soft_delete.py
+```
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py --json --quiet \
+  --owner-email "$SEC003_OWNER_EMAIL" --owner-password "$SEC003_OWNER_PASSWORD"
+```
+
+| Flag | Description |
+|------|-------------|
+| `--owner-email` / `--owner-password` | Drive owner |
+| `--share-password` | Optional `x-share-password` header |
+| `--folder-id` / `--file-id` / `--share-token` | Skip bootstrap when pre-provisioned |
+| `--no-bootstrap` | Require explicit ids + token |
+| `--no-restore` | Leave probe file in recycle bin |
+| `--prompt` | Interactive owner credentials |
+
+Environment: `SEC003_*` (loaded from repo `.env` when present). Use `export` or one-line env prefix before `python3`.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec003
+make -C scripts/security-audit test
+```

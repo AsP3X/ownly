@@ -45,6 +45,21 @@ class Sec002Config:
 
 
 @dataclass
+class Sec003Config:
+    # Human: SEC-003 public share + recycle bin probe options on shared HTTP config.
+    # Agent: READS env/CLI; WRITES runner_sec003; optional bootstrap uploads a probe file.
+    http: Config
+    owner_email: str
+    owner_password: str
+    share_password: str
+    folder_id: str
+    file_id: str
+    share_token: str
+    bootstrap_fixtures: bool
+    restore_after_probe: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

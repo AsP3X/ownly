@@ -1,5 +1,5 @@
-# Human: Optional .env loader for SEC-002 credentials (stdlib only, no dotenv dep).
-# Agent: READS KEY=VALUE lines; SETS os.environ only for allowed SEC002_* keys when unset.
+# Human: Optional .env loader for SEC audit credentials (stdlib only, no dotenv dep).
+# Agent: READS KEY=VALUE lines; SETS os.environ only for allowed SEC00N_* keys when unset.
 
 from __future__ import annotations
 
@@ -27,6 +27,26 @@ SEC002_KEYS = frozenset(
     }
 )
 
+SEC003_KEYS = frozenset(
+    {
+        "SEC003_BASE_URL",
+        "SEC003_API_PREFIX",
+        "SEC003_OWNER_EMAIL",
+        "SEC003_OWNER_PASSWORD",
+        "SEC003_SHARE_PASSWORD",
+        "SEC003_FOLDER_ID",
+        "SEC003_FILE_ID",
+        "SEC003_SHARE_TOKEN",
+        "SEC003_REQUIRE_SETUP",
+        "SEC003_NO_RESTORE",
+        "SEC003_BOOTSTRAP_FIXTURES",
+        "SEC003_RETRIES",
+        "SEC003_QUIET",
+        "SEC003_OUTPUT",
+        "SEC003_PROMPT",
+    }
+)
+
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 
@@ -36,9 +56,9 @@ def _strip_quotes(value: str) -> str:
     return value
 
 
-def parse_env_file(path: Path) -> dict[str, str]:
+def parse_env_file(path: Path, *, keys: frozenset[str] = SEC002_KEYS) -> dict[str, str]:
     # Human: Parse a simple .env file into a dict (no variable expansion).
-    # Agent: RETURNS only SEC002_* entries present in the file.
+    # Agent: RETURNS only allowed SEC00N_* entries present in the file.
     out: dict[str, str] = {}
     if not path.is_file():
         return out
@@ -50,16 +70,21 @@ def parse_env_file(path: Path) -> dict[str, str]:
         if not match:
             continue
         key, value = match.group(1), _strip_quotes(match.group(2).strip())
-        if key in SEC002_KEYS:
+        if key in keys:
             out[key] = value
     return out
 
 
-def apply_env_file(path: Path, *, overwrite: bool = False) -> int:
-    # Human: Load SEC002_* from path into os.environ for the current process.
+def apply_env_file(
+    path: Path,
+    *,
+    keys: frozenset[str] = SEC002_KEYS,
+    overwrite: bool = False,
+) -> int:
+    # Human: Load SEC00N_* from path into os.environ for the current process.
     # Agent: RETURNS count of keys applied; skips existing env unless overwrite.
     applied = 0
-    for key, value in parse_env_file(path).items():
+    for key, value in parse_env_file(path, keys=keys).items():
         if not overwrite and os.environ.get(key, "").strip():
             continue
         os.environ[key] = value
@@ -91,24 +116,40 @@ def discover_env_file(explicit: str | None) -> Path | None:
     return None
 
 
-def load_sec002_env_file(explicit: str | None = None) -> Path | None:
-    # Human: Best-effort load of SEC002_* from discovered .env before config load.
-    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+def _load_env_file_for_keys(
+    explicit: str | None,
+    keys: frozenset[str],
+) -> Path | None:
     path = discover_env_file(explicit)
     if path is None:
         return None
-    if apply_env_file(path):
+    if apply_env_file(path, keys=keys):
         return path
-    # File exists but had no SEC002_* keys (or all already set).
-    if parse_env_file(path):
+    if parse_env_file(path, keys=keys):
         return path
     return None
 
 
-def inspect_env_file(explicit: str | None = None) -> tuple[Path | None, dict[str, str]]:
-    # Human: Locate .env and return parsed SEC002_* keys (without applying).
+def load_sec002_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC002_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC002_KEYS)
+
+
+def load_sec003_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC003_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC003_KEYS)
+
+
+def inspect_env_file(
+    explicit: str | None = None,
+    *,
+    keys: frozenset[str] = SEC002_KEYS,
+) -> tuple[Path | None, dict[str, str]]:
+    # Human: Locate .env and return parsed SEC00N_* keys (without applying).
     # Agent: USED for credential setup diagnostics when the audit cannot run.
     path = discover_env_file(explicit)
     if path is None:
         return None, {}
-    return path, parse_env_file(path)
+    return path, parse_env_file(path, keys=keys)

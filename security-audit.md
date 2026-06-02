@@ -207,6 +207,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category** | Data extraction / unauthorized access |
 | **Impacted files** | `backend/src/shares/store.rs` (`load_file_in_share_scope`, `list_share_folder_files`, `list_all_files_in_share`, `compute_share_tree_stats`, `folder_is_under_root`), `backend/src/shares/handlers.rs` (public share download/list/archive handlers) |
 | **Routes** | `/api/v1/public/shares/{token}/*` |
+| **Audit script** | [`scripts/security-audit/sec003_public_share_soft_delete.py`](scripts/security-audit/sec003_public_share_soft_delete.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 **Description**
 
@@ -240,11 +241,70 @@ Data retention bypass; users believe deleted content is inaccessible but it rema
 2. If shared root file/folder is deleted, return `404` for share overview and downloads; consider auto-revoking the share.
 3. Align `ensure_file_owned_for_share` with active-row checks when creating new shares.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec003_public_share_soft_delete.py`](scripts/security-audit/sec003_public_share_soft_delete.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-003).
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Owner | One drive account with permission to create folders, upload, share, and delete files |
+| Scenario | **Folder** public share (nested file deleted; share link stays active) |
+
+The script logs in as the **owner**, prepares a folder share and probe file (bootstrap: find folder with file, or create `sec003-audit-*` folder + upload `sec003-probe.txt`), confirms the file appears on `GET /api/v1/public/shares/{token}/all-files`, soft-deletes the file, then probes **without** the owner JWT:
+
+- `GET /public/shares/{token}/all-files` — must not list the trashed `file_id` (exit **1** if still listed).
+- `GET /public/shares/{token}/files/{file_id}/download` — must not return file bytes (exit **1** if HTTP 200 attachment).
+
+By default the probe file is **restored** from the recycle bin after the run (`--no-restore` to skip).
+
+**Usage**
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py --prompt
+```
+
+```bash
+export SEC003_OWNER_EMAIL='owner@example.com'
+export SEC003_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec003_public_share_soft_delete.py
+```
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py \
+  --owner-email 'owner@example.com' --owner-password '...'
+```
+
+Password-protected share links:
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py \
+  --share-password 'link-password' --owner-email '...' --owner-password '...'
+```
+
+CI / automation:
+
+```bash
+python3 scripts/security-audit/sec003_public_share_soft_delete.py --json --quiet \
+  --owner-email "$SEC003_OWNER_EMAIL" --owner-password "$SEC003_OWNER_PASSWORD"
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Not vulnerable — trashed file absent from all-files and download denied |
+| **1** | Vulnerable — trashed file still listed and/or downloadable |
+| **2** | Inconclusive — missing credentials, API/storage error, or bootstrap failed |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - [ ] Soft-deleted file returns 404 on `public_share_download`.
 - [ ] `public_share_all_files` excludes trashed items.
 - [ ] Regression test for share + recycle bin interaction.
+- [ ] `python3 scripts/security-audit/sec003_public_share_soft_delete.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
