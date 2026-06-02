@@ -26,6 +26,15 @@ REDACTION_MARKERS = re.compile(
     r"(?i)(\[redacted\]|\*\*\*|••••|<redacted>|__REDACTED__|REDACTED)",
 )
 
+BEARER_HEADER = re.compile(
+    r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+",
+    re.IGNORECASE,
+)
+
+JWT_LIKE = re.compile(
+    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+)
+
 
 def _redact_url_authority(match: re.Match[str]) -> str:
     prefix = match.group(1)
@@ -47,6 +56,8 @@ def redact_sensitive_text(text: str) -> str:
     out = SENSITIVE_QUERY_PARAMS.sub(r"\1***", out)
     out = PASSWORD_QUERY_PARAM.sub("password=***", out)
     out = SECRET_JSON_KV.sub(r'\1: "***"', out)
+    out = BEARER_HEADER.sub(r"\1***", out)
+    out = JWT_LIKE.sub("eyJ***.***.***", out)
     return out
 
 

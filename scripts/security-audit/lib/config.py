@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 
-from .constants import DEFAULT_API_PREFIX, DEFAULT_BASE_URL
+from .constants import AUDIT_ID, DEFAULT_API_PREFIX, DEFAULT_BASE_URL
 from .models import Config
 
 
@@ -120,6 +120,7 @@ def load_config(cli: argparse.Namespace | None = None) -> Config:
     if fmt not in ("human", "json", "sarif"):
         fmt = "human"
     return Config(
+        audit_id=AUDIT_ID,
         base_url=base,
         api_prefix=prefix,
         timeout_sec=timeout,

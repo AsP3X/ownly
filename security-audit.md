@@ -80,6 +80,7 @@ Credential theft, infrastructure mapping, possible full database compromise if t
 | **Category** | Unauthorized action / privilege escalation |
 | **Impacted files** | `backend/src/auth/mod.rs` (`auth_middleware`), `backend/src/admin/handlers.rs` (`require_admin`, `update_user`) |
 | **Routes** | All `/api/v1/admin/*` protected routes |
+| **Audit script** | [`scripts/security-audit/sec002_stale_jwt_admin_role.py`](scripts/security-audit/sec002_stale_jwt_admin_role.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 **Description**
 
@@ -112,10 +113,87 @@ Unauthorized admin operations, user lifecycle changes, settings changes, and sto
 3. On password reset via admin, revoke sessions (if not already).
 4. Optionally shorten access-token lifetime for admin roles.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec002_stale_jwt_admin_role.py`](scripts/security-audit/sec002_stale_jwt_admin_role.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-002).
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` (`GET /api/v1/setup/status`) |
+| Admins | **One** admin with `--bootstrap-subject`, or **two** distinct admins (subject + demoter) |
+
+The script logs in the **subject**, confirms admin access, has the **demoter** `PATCH` the subject to a non-admin role (default `pro`), then reuses the **pre-demotion JWT** on `GET /api/v1/admin/users`. Exit **1** if the stale token still returns the admin user list (HTTP 200); exit **0** if access is denied (401/403).
+
+**Usage (pick one)**
+
+One admin — creates a temporary `sec002-audit-*@audit.local` subject, then deletes it:
+
+```bash
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject --prompt
+```
+
+Two admins — interactive:
+
+```bash
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --prompt
+```
+
+CLI flags (no `.env`):
+
+```bash
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject \
+  --demoter-email 'admin@example.com' --demoter-password '...'
+```
+
+Gitignored repo `.env` (script loads `SEC002_*` only — see commented block in [`.env.example`](.env.example)):
+
+```bash
+SEC002_BOOTSTRAP_SUBJECT=1
+SEC002_DEMOTER_EMAIL=your-admin@example.com
+SEC002_DEMOTER_PASSWORD=...
+SEC002_BASE_URL=http://127.0.0.1:8080
+```
+
+Shell variables must be **`export`ed** or placed on the **same line** as `python3` (otherwise the child process does not see them):
+
+```bash
+export SEC002_BOOTSTRAP_SUBJECT=1
+export SEC002_DEMOTER_EMAIL='admin@example.com'
+export SEC002_DEMOTER_PASSWORD='...'
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject
+```
+
+CI / automation:
+
+```bash
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py \
+  --base-url http://127.0.0.1:8080 --bootstrap-subject \
+  --demoter-email "$SEC002_DEMOTER_EMAIL" --demoter-password "$SEC002_DEMOTER_PASSWORD" \
+  --json --quiet
+```
+
+Regression baseline after fix:
+
+```bash
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --save-baseline /tmp/sec002-ok.json
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --compare-baseline /tmp/sec002-ok.json
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Not vulnerable — stale JWT denied on admin route after demotion |
+| **1** | Vulnerable — stale JWT still grants admin API access |
+| **2** | Inconclusive — missing credentials, API unreachable, or probe error |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - [ ] After demotion, existing JWT receives 403 on `/api/v1/admin/*` immediately.
 - [ ] Integration test: demote admin → prior token fails admin routes.
+- [ ] `python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject` (or two-admin mode) exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 

@@ -9,6 +9,7 @@ from typing import Any
 
 @dataclass
 class Config:
+    audit_id: str
     base_url: str
     api_prefix: str
     timeout_sec: float
@@ -26,6 +27,21 @@ class Config:
     output_file: str | None
     compare_baseline: str | None
     save_baseline: str | None
+
+
+@dataclass
+class Sec002Config:
+    # Human: SEC-002 credentials and demotion probe options layered on shared HTTP config.
+    # Agent: READS env/CLI; WRITES runner_sec002; no secrets in saved baselines.
+    http: Config
+    subject_email: str
+    subject_password: str
+    demoter_email: str
+    demoter_password: str
+    demote_role: str
+    admin_probe_route: str
+    restore_admin_role: bool
+    bootstrap_subject: bool
 
 
 @dataclass

@@ -11,7 +11,6 @@ import urllib.request
 from typing import Any
 from urllib.parse import urljoin
 
-from .constants import AUDIT_ID
 from .models import Config, HttpResult
 
 
@@ -36,7 +35,7 @@ def _request(
 
     headers = {
         "Accept": "application/json",
-        "User-Agent": f"ownly-security-audit/{AUDIT_ID}",
+        "User-Agent": f"ownly-security-audit/{cfg.audit_id}",
     }
     if extra_headers:
         headers.update(extra_headers)
@@ -135,3 +134,41 @@ def http_post_json(
     extra_headers: dict[str, str] | None = None,
 ) -> HttpResult:
     return _request(cfg, url, method="POST", body=body, extra_headers=extra_headers)
+
+
+def http_patch_json(
+    cfg: Config,
+    url: str,
+    body: dict[str, Any],
+    *,
+    extra_headers: dict[str, str] | None = None,
+) -> HttpResult:
+    # Human: PATCH helper for admin user demotion/restore in SEC-002.
+    # Agent: CALLS _request with method PATCH; RETURNS HttpResult.
+    return _request(cfg, url, method="PATCH", body=body, extra_headers=extra_headers)
+
+
+def http_delete(
+    cfg: Config,
+    url: str,
+    *,
+    extra_headers: dict[str, str] | None = None,
+) -> HttpResult:
+    # Human: DELETE helper for bootstrap subject cleanup in SEC-002.
+    # Agent: CALLS _request with method DELETE; RETURNS HttpResult.
+    return _request(cfg, url, method="DELETE", extra_headers=extra_headers)
+
+
+def http_post_json_with_retries(
+    cfg: Config,
+    url: str,
+    body: dict[str, Any],
+    *,
+    extra_headers: dict[str, str] | None = None,
+) -> HttpResult:
+    last = http_post_json(cfg, url, body, extra_headers=extra_headers)
+    for _ in range(cfg.retries):
+        if not last.error and last.status != 0:
+            return last
+        last = http_post_json(cfg, url, body, extra_headers=extra_headers)
+    return last

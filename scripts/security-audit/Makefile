@@ -3,16 +3,26 @@
 
 BASE_URL ?= http://127.0.0.1:8080
 
-.PHONY: sec001 test sec001-json sec001-quiet
+.PHONY: sec001 sec002 test sec001-json sec001-quiet sec002-json sec002-quiet
 
 sec001:
 	python3 sec001_setup_info_disclosure.py --base-url $(BASE_URL)
+
+sec002:
+	@echo "SEC002 requires SEC002_SUBJECT_* and SEC002_DEMOTER_* credentials"
+	python3 sec002_stale_jwt_admin_role.py --base-url $(BASE_URL)
 
 sec001-json:
 	python3 sec001_setup_info_disclosure.py --base-url $(BASE_URL) --json
 
 sec001-quiet:
 	python3 sec001_setup_info_disclosure.py --base-url $(BASE_URL) --quiet
+
+sec002-json:
+	python3 sec002_stale_jwt_admin_role.py --base-url $(BASE_URL) --json
+
+sec002-quiet:
+	python3 sec002_stale_jwt_admin_role.py --base-url $(BASE_URL) --quiet
 
 test:
 	python3 -m unittest discover -s tests -v
