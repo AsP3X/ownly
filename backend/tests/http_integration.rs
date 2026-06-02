@@ -32,6 +32,7 @@ fn test_config(database_url: &str) -> Config {
         job_recovery_poll_seconds: 60,
         hls_hardware_encode: "off".into(),
         hls_vaapi_device: "/dev/dri/renderD128".into(),
+        storage_metadata_mode: "nebular".into(),
     }
 }
 

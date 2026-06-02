@@ -53,6 +53,10 @@ pub struct Config {
     pub hls_hardware_encode: String,
     #[serde(default = "default_hls_vaapi_device")]
     pub hls_vaapi_device: String,
+    /// Human: `nebular` (default) or `ownly` — whether blob index lives in Nebular or Ownly Postgres.
+    /// Agent: WRITTEN to app_settings on setup; READ by placement::read_metadata_mode.
+    #[serde(default = "default_storage_metadata_mode")]
+    pub storage_metadata_mode: String,
 }
 
 impl Config {
@@ -156,4 +160,8 @@ fn default_hls_hardware_encode() -> String {
 
 fn default_hls_vaapi_device() -> String {
     "/dev/dri/renderD128".into()
+}
+
+fn default_storage_metadata_mode() -> String {
+    "nebular".into()
 }

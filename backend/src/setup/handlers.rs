@@ -368,6 +368,7 @@ pub async fn setup(
             "object_storage_public_url",
             state.object_storage_public_url.as_str(),
         ),
+        ("storage_metadata_mode", state.storage_metadata_mode.as_str()),
     ];
 
     for (key, value) in settings {

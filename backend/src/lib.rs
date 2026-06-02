@@ -40,7 +40,11 @@ pub mod user_sessions;
 
 use config::Config;
 use sqlx::PgPool;
-use storage::{memory::MemoryStorage, nebula::NebulaStorage, Storage};
+use storage::{
+    memory::MemoryStorage,
+    router::{RouterConfig, RouterStorage},
+    Storage,
+};
 
 // Human: Shared dependencies injected into every handler — database, storage, secrets, and rate limiters.
 // Agent: CLONED into Axum State; READ by handlers via State<Arc<AppState>>.
@@ -72,6 +76,8 @@ pub struct AppState {
     pub cors_allowed_origins: String,
     pub max_upload_bytes: u64,
     pub hls_hardware: hls::hardware::HlsHardwareEncode,
+    /// Human: `nebular` or `ownly` — where object index metadata is authoritative.
+    pub storage_metadata_mode: String,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -111,12 +117,32 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
 // Agent: READS Config; WRITES AppState; USES supplied Storage implementation (Nebular or memory).
 async fn build_app_state(
     config: &Config,
-    storage: Arc<dyn Storage>,
+    storage_override: Option<Arc<dyn Storage>>,
     setup_relaxes_storage_probe: bool,
 ) -> anyhow::Result<Arc<AppState>> {
     secrets::validate_startup_secrets(config)?;
     let pool = db::init_pool(&config.database_url).await?;
     info!("Database connected and migrations applied");
+
+    let storage: Arc<dyn Storage> = if let Some(storage) = storage_override {
+        storage
+    } else {
+        let object_storage_signing = std::env::var("NOS_SIGNING_SECRET")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| config.signing_secret.clone());
+        let router = RouterStorage::new(
+            pool.clone(),
+            RouterConfig {
+                primary_base_url: config.object_storage_url.clone(),
+                public_base_url: config.object_storage_public_url.clone(),
+                bucket: config.object_storage_bucket.clone(),
+                jwt_secret: config.object_storage_jwt_secret.clone(),
+                signing_secret: object_storage_signing,
+            },
+        )?;
+        Arc::new(router)
+    };
 
     let storage_configured = config.storage_mode == "proxy";
     let environment = config.mediavault_environment.clone();
@@ -168,6 +194,7 @@ async fn build_app_state(
         cors_allowed_origins: config.cors_allowed_origins.clone(),
         max_upload_bytes: config.max_upload_bytes,
         hls_hardware,
+        storage_metadata_mode: config.storage_metadata_mode.clone(),
     }))
 }
 
@@ -211,33 +238,17 @@ async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
 // Human: Production startup path — connect Postgres, verify Nebular OS, then assemble AppState.
 // Agent: CALLS wait_for_nebular_health; BAILS if proxy mode storage unreachable.
 pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
-    let storage: Arc<dyn Storage> = if config.storage_mode == "proxy" {
-        // Human: Presigned object URLs must be signed with the same secret Nebular OS verifies (NOS_SIGNING_SECRET).
-        // Agent: PREFERS NOS_SIGNING_SECRET env; FALLBACK signing_secret for local dev without Compose.
-        let object_storage_signing = std::env::var("NOS_SIGNING_SECRET")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| config.signing_secret.clone());
-        let nebula = NebulaStorage::new(
-            config.object_storage_url.clone(),
-            config.object_storage_public_url.clone(),
-            config.object_storage_bucket.clone(),
-            &config.object_storage_jwt_secret,
-            &object_storage_signing,
-        )?;
-        wait_for_nebular_health(&config.object_storage_url).await?;
-        Arc::new(nebula)
-    } else {
+    if config.storage_mode != "proxy" {
         anyhow::bail!("only proxy storage mode is supported in this release");
-    };
-
-    build_app_state(config, storage, false).await
+    }
+    wait_for_nebular_health(&config.object_storage_url).await?;
+    build_app_state(config, None, false).await
 }
 
 // Human: Test harness entry — same AppState as production but with in-memory storage (no Nebular dependency).
 // Agent: USES MemoryStorage; CALLED from integration tests; SKIPS object storage health probe.
 pub async fn create_test_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
-    build_app_state(config, Arc::new(MemoryStorage::new()), true).await
+    build_app_state(config, Some(Arc::new(MemoryStorage::new())), true).await
 }
 
 // Human: Structured tracing span per HTTP request using x-request-id for log correlation.

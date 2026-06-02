@@ -26,12 +26,12 @@ use super::console::{read_setting, AdminStorageMetrics, AdminStorageNodeRow, Adm
 const STORAGE_NODE_ARCHITECTURE: &str = "single";
 
 #[derive(Debug, sqlx::FromRow)]
-struct StorageNodeRecord {
-    id: String,
-    region_label: String,
-    base_url: String,
-    architecture: String,
-    target_capacity_bytes: Option<i64>,
+pub(crate) struct StorageNodeRecord {
+    pub id: String,
+    pub region_label: String,
+    pub base_url: String,
+    pub architecture: String,
+    pub target_capacity_bytes: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +158,29 @@ pub async fn register_setup_storage_node(
     Ok(())
 }
 
+// Human: Fetch logical_bytes from Nebular /metrics — used for capacity-aware placement.
+// Agent: READS GET /metrics JSON; RETURNS 0 when unreachable.
+pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
+    match client
+        .get(&metrics_url)
+        .header("accept", "application/json")
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => resp
+            .json::<NosMetricsBody>()
+            .await
+            .map(|m| m.logical_bytes.max(0))
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
 // Human: Probe Nebular /health and JSON /metrics for one registered node.
 async fn probe_storage_node(base_url: &str) -> NodeProbe {
     let client = reqwest::Client::builder()
@@ -178,20 +201,7 @@ async fn probe_storage_node(base_url: &str) -> NodeProbe {
         _ => (false, None),
     };
 
-    let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
-    let logical_bytes = match client
-        .get(&metrics_url)
-        .header("accept", "application/json")
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => resp
-            .json::<NosMetricsBody>()
-            .await
-            .map(|m| m.logical_bytes.max(0))
-            .unwrap_or(0),
-        _ => 0,
-    };
+    let logical_bytes = probe_logical_bytes(base_url).await;
 
     NodeProbe {
         reachable,
@@ -363,7 +373,10 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
         None
     };
 
+    let metadata_mode = crate::storage::placement::read_metadata_mode(&state.pool).await;
+
     Ok(AdminStorageResponse {
+        metadata_mode,
         metrics: AdminStorageMetrics {
             used_bytes: if probed_used_bytes > 0 {
                 probed_used_bytes

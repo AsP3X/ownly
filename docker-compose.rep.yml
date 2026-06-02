@@ -1,7 +1,8 @@
 # Human: Optional second standalone Nebular node — merge with docker-compose.yml for local multi-node admin testing.
 # Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build`;
-#        both nodes are independent (no replication); register node-b in Admin → Add Storage Node
-#        with URL http://object-storage-b:9000 after setup. Primary uploads still use object-storage:9000.
+#        register node-b in Admin → Add Storage Node with URL http://object-storage-b:9000 and a target capacity.
+#        Ownly routes uploads by remaining capacity and can stripe overflow across nodes (see docs/nebular-os-storage-metadata-prompt.md).
+#        Optional per-node cap in Nebular: NOS_MAX_LOGICAL_BYTES (implement in nebular-os repo).
 #
 # Host port: node-b 9001 (curl http://localhost:9001/health from the host).
 

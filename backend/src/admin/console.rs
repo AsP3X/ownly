@@ -551,6 +551,8 @@ pub struct AdminStorageMetrics {
 
 #[derive(Debug, Serialize)]
 pub struct AdminStorageResponse {
+    /// Human: `nebular` (index in Nebular) or `ownly` (index in Postgres, blobs only in Nebular).
+    pub metadata_mode: String,
     pub metrics: AdminStorageMetrics,
     pub nodes: Vec<AdminStorageNodeRow>,
 }

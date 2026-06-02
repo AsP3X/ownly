@@ -569,10 +569,19 @@ pub async fn upload_file(
                 "files.upload persisting video metadata"
             );
 
+            // Human: Reserve a node with enough capacity before HLS worker writes segments.
+            // Agent: CALLS placement::reserve_node_for_upload; WRITES files.storage_node_id.
+            let storage_node_id = crate::storage::placement::reserve_node_for_upload(
+                &state.pool,
+                &storage_key,
+                size_bytes,
+            )
+            .await?;
+
             let _: FileDto = sqlx::query_as(&format!(
                 "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
-                 duration_seconds, hls_encode_status, conversion_progress) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, 'queued', 0) \
+                 storage_node_id, duration_seconds, hls_encode_status, conversion_progress) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'queued', 0) \
                  RETURNING {FILE_COLUMNS}"
             ))
             .bind(&file_id)
@@ -582,6 +591,7 @@ pub async fn upload_file(
             .bind(&storage_key)
             .bind(&mime)
             .bind(size_bytes as i64)
+            .bind(&storage_node_id)
             .fetch_one(&state.pool)
             .await?;
 
@@ -732,6 +742,10 @@ pub async fn upload_file(
         db_insert_ms = db_started.elapsed().as_millis() as u64,
         "files.upload database insert complete"
     );
+
+    // Human: Attach PUT-time placement cache to the new files row (non-video uploads).
+    // Agent: READS storage_blob_placements; UPDATES files.storage_node_id when still NULL.
+    crate::storage::placement::link_file_to_placement(&state.pool, &file_id, &storage_key).await?;
 
     audit::write_audit(
         &state.pool,
