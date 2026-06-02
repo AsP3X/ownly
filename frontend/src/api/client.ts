@@ -400,6 +400,8 @@ export type AdminStorageNodeRow = {
 };
 
 export type AdminStorageResponse = {
+  /** `nebular` (default) or `ownly` (Postgres index, Nebular blobs only). */
+  metadata_mode: string;
   metrics: {
     used_bytes: number;
     capacity_bytes: number | null;
@@ -988,8 +990,8 @@ export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
 
-// Human: Progress snapshot for the upload dialog — four visible server-side steps after bytes land.
-// Agent: uploading → processing → encrypting → storing; each phase owns its own 0–100% bar.
+// Human: Progress snapshot for the upload tray — upload then processing → encrypting → storing (generic sim; media from ingest).
+// Agent: each phase owns a 0–100% bar; video/audio skip generic sim and use conversion_progress bands.
 export type UploadProgressUpdate = {
   phase: "uploading" | "processing" | "encrypting" | "storing";
   percent: number;
@@ -999,9 +1001,13 @@ export type UploadProgressUpdate = {
 
 // Human: Upload, encode, encrypt, and storage each use their own 0–100% bar; each phase replaces the prior bar.
 // Agent: uploading = XHR bytes; processing/encrypting/storing = conversion_progress bands from ingest jobs.
-const PROCESSING_ASYMPTOTE = 99.4;
 const PROCESSING_DISPLAY_MAX = 99;
-const PROCESSING_INDETERMINATE_MS = 2500;
+const POST_UPLOAD_PROGRESS_ASYMPTOTE = 99.4;
+const POST_UPLOAD_PROGRESS_INTERVAL_MS = 380;
+/** Human: Minimum time each tray phase stays visible so fast uploads do not skip encrypting. */
+const MIN_UPLOAD_PHASE_DISPLAY_MS = 1000;
+const POST_UPLOAD_STORE_INDWELL_MS = 900;
+const POST_UPLOAD_STORE_COMPLETE_DWELL_MS = 400;
 const VIDEO_INGEST_POLL_MS = 1500;
 /** Human: Backend ffmpeg progress maps into conversion_progress ~5–50 before Nebular upload begins. */
 const HLS_ENCRYPT_PROGRESS_START = 40;
@@ -1016,25 +1022,147 @@ function sleepMs(ms: number) {
   });
 }
 
-// Human: Brief encrypting + storing beats for uploads that finish in one HTTP round-trip (non-media files).
-// Agent: CALLED after processing timer clears; SKIPS when session.cancelled is true.
-async function emitPostUploadFinishingPhases(
+// Human: Match backend upload routing — extension-based MIME, not only browser file.type.
+// Agent: READS File name + type; RETURNS video | audio | generic for post-upload progress phases.
+export function resolveUploadMediaKind(file: File): "video" | "audio" | "generic" {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  if (/\.(mp4|m4v|mov|webm|mkv|avi|mpeg|mpg|wmv|flv|3gp)$/i.test(name)) return "video";
+  if (/\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|weba)$/i.test(name)) return "audio";
+  if (/\.(exe|msi|msix|dmg|pkg|deb|rpm|zip|7z|rar|tar|gz|bz2|iso)$/i.test(name)) return "generic";
+  return "generic";
+}
+
+// Human: Map a server file row to tray progress — used for immediate ingest poll after upload returns.
+// Agent: READS FileItem; DELEGATES to audio or video ingest mappers.
+export function mapFileToUploadProgressUpdate(
+  file: FileItem,
+  pollIndex = 0,
+): UploadProgressUpdate {
+  if (file.mime_type?.startsWith("audio/")) {
+    return mapAudioIngestProgressUpdate(file, pollIndex);
+  }
+  return mapVideoIngestProgressUpdate(file, pollIndex);
+}
+
+// Human: Ease post-upload percent toward 99% while the server works — avoids a frozen indeterminate bar.
+// Agent: INTERVAL emits determinate phase updates; CALL stop on XHR completion or cancel.
+function startSimulatedPhaseProgress(
+  phase: UploadProgressUpdate["phase"],
+  onProgress: ((update: UploadProgressUpdate) => void) | undefined,
+  isCancelled: () => boolean,
+): () => void {
+  let value = 0;
+  const tick = () => {
+    if (isCancelled()) return;
+    value += (POST_UPLOAD_PROGRESS_ASYMPTOTE - value) * 0.14;
+    const percent = Math.min(
+      PROCESSING_DISPLAY_MAX,
+      Math.max(1, Math.floor(value)),
+    );
+    onProgress?.({ phase, percent, indeterminate: false });
+  };
+  tick();
+  const timer = window.setInterval(tick, POST_UPLOAD_PROGRESS_INTERVAL_MS);
+  return () => window.clearInterval(timer);
+}
+
+// Human: Visible percent while ingest jobs sit in queued before conversion_progress moves.
+function queuedIngestDisplayPercent(pollIndex: number): number {
+  return Math.min(12, 2 + pollIndex * 2);
+}
+
+// Human: Let React paint between phase updates so the tray does not batch-skip encrypting.
+// Agent: double rAF; AWAITS next frame before the following phase emit.
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+// Human: Enforce minimum visible time per ingest phase; inserts encrypting when polls jump past it.
+// Agent: READS onProgress; WRITES phase updates with dwell + processing→storing bridge.
+function createUploadProgressEmitter(
+  onProgress: ((update: UploadProgressUpdate) => void) | undefined,
+) {
+  let lastPhase: UploadProgressUpdate["phase"] | null = null;
+  let lastEmitAt = 0;
+
+  const emit = async (update: UploadProgressUpdate) => {
+    if (!onProgress) return;
+    const now = Date.now();
+    if (
+      lastPhase &&
+      lastPhase !== update.phase &&
+      now - lastEmitAt < MIN_UPLOAD_PHASE_DISPLAY_MS
+    ) {
+      await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS - (now - lastEmitAt));
+    }
+    if (lastPhase === "processing" && update.phase === "storing") {
+      onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
+      await waitForNextPaint();
+      await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
+    }
+    onProgress(update);
+    await waitForNextPaint();
+    lastPhase = update.phase;
+    lastEmitAt = Date.now();
+  };
+
+  return { emit };
+}
+
+// Human: Generic uploads — processing then encrypting while the HTTP request stays open (no ingest jobs).
+// Agent: STEPS 2–3 of tray flow; AWAITS hasServerResponded before storing phase in xhr load handler.
+async function runGenericPreResponsePhases(
+  onProgress: ((update: UploadProgressUpdate) => void) | undefined,
+  isCancelled: () => boolean,
+  hasServerResponded: () => boolean,
+) {
+  if (!onProgress || isCancelled()) return;
+
+  const stopProcessing = startSimulatedPhaseProgress("processing", onProgress, isCancelled);
+  const processingUntil = Date.now() + MIN_UPLOAD_PHASE_DISPLAY_MS;
+  while (!isCancelled() && Date.now() < processingUntil && !hasServerResponded()) {
+    await sleepMs(50);
+  }
+  stopProcessing();
+  if (isCancelled()) return;
+  onProgress({ phase: "processing", percent: 100, indeterminate: false });
+  await waitForNextPaint();
+  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
+  if (isCancelled()) return;
+
+  const stopEncrypting = startSimulatedPhaseProgress("encrypting", onProgress, isCancelled);
+  while (!isCancelled() && !hasServerResponded()) {
+    await sleepMs(50);
+  }
+  stopEncrypting();
+  if (isCancelled()) return;
+  onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
+  await waitForNextPaint();
+  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
+}
+
+// Human: Step 4 — moving to storage after generic file upload HTTP response returns.
+// Agent: CALLED for non-media uploads after runGenericPreResponsePhases; SKIPS when cancelled.
+async function emitPostUploadStoringPhases(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
   isCancelled: () => boolean,
 ) {
   if (!onProgress || isCancelled()) return;
 
-  onProgress({ phase: "encrypting", percent: 0, indeterminate: true });
-  await sleepMs(350);
-  if (isCancelled()) return;
-  onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
-
-  await sleepMs(200);
-  if (isCancelled()) return;
-  onProgress({ phase: "storing", percent: 0, indeterminate: true });
-  await sleepMs(350);
+  const stopSimulated = startSimulatedPhaseProgress("storing", onProgress, isCancelled);
+  await sleepMs(POST_UPLOAD_STORE_INDWELL_MS);
+  stopSimulated();
   if (isCancelled()) return;
   onProgress({ phase: "storing", percent: 100, indeterminate: false });
+  await waitForNextPaint();
+  await sleepMs(POST_UPLOAD_STORE_COMPLETE_DWELL_MS);
 }
 
 // Human: Track in-flight uploads so the transfer panel can abort XHR and video ingest polling.
@@ -1043,7 +1171,6 @@ type ActiveUploadSession = {
   xhr: XMLHttpRequest;
   cancelled: boolean;
   uploadedFileId: string | null;
-  clearProcessingTimer: () => void;
   rejectUpload: ((error: ApiError) => void) | null;
 };
 
@@ -1083,7 +1210,6 @@ export function abortUploadSession(
   }
 
   session.cancelled = true;
-  session.clearProcessingTimer();
   session.xhr.abort();
   cleanupPartialServerFile();
 
@@ -1126,12 +1252,17 @@ function isMediaAwaitingIngest(file: FileItem): boolean {
 // Agent: READS conversion_progress + audio_waveform_ready; RETURNS processing → encrypting → storing.
 function mapAudioIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "audio_waveform_ready" | "audio_encode_status">,
+  pollIndex = 0,
 ): UploadProgressUpdate {
   if (file.audio_waveform_ready) {
     return { phase: "storing", percent: 100, indeterminate: false };
   }
-  if (file.audio_encode_status === "queued") {
-    return { phase: "processing", percent: 0, indeterminate: true };
+  if (file.audio_encode_status === "queued" && file.conversion_progress <= 0) {
+    return {
+      phase: "processing",
+      percent: queuedIngestDisplayPercent(pollIndex),
+      indeterminate: false,
+    };
   }
 
   const raw = file.conversion_progress;
@@ -1164,13 +1295,18 @@ function mapAudioIngestProgressUpdate(
 // Agent: READS conversion_progress + hls_ready; RETURNS phase processing|encrypting|storing with 0–100% percent.
 function mapVideoIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "hls_ready" | "hls_encode_status">,
+  pollIndex = 0,
 ): UploadProgressUpdate {
   if (file.hls_ready) {
     return { phase: "storing", percent: 100, indeterminate: false };
   }
 
-  if (file.hls_encode_status === "queued") {
-    return { phase: "processing", percent: 0, indeterminate: true };
+  if (file.hls_encode_status === "queued" && file.conversion_progress <= 0) {
+    return {
+      phase: "processing",
+      percent: queuedIngestDisplayPercent(pollIndex),
+      indeterminate: false,
+    };
   }
 
   const raw = file.conversion_progress;
@@ -1204,12 +1340,16 @@ export async function waitForFileIngestCompletion(
   onProgress?: (update: UploadProgressUpdate) => void,
   isCancelled?: () => boolean,
 ): Promise<FileItem> {
+  const progress = createUploadProgressEmitter(onProgress);
+  let pollIndex = 0;
+
   for (;;) {
     if (isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
     }
 
     const { file } = await fetchFile(fileId);
+    pollIndex += 1;
 
     if (isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
@@ -1240,12 +1380,12 @@ export async function waitForFileIngestCompletion(
     }
 
     if (file.mime_type?.startsWith("audio/")) {
-      onProgress?.(mapAudioIngestProgressUpdate(file));
+      await progress.emit(mapAudioIngestProgressUpdate(file, pollIndex));
       if (file.audio_waveform_ready) {
         return file;
       }
     } else {
-      onProgress?.(mapVideoIngestProgressUpdate(file));
+      await progress.emit(mapVideoIngestProgressUpdate(file, pollIndex));
       if (file.hls_ready) {
         return file;
       }
@@ -1268,9 +1408,18 @@ export function uploadFileWithProgress(
   },
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
-    const isVideoUpload = file.type.startsWith("video/");
-    const isAudioUpload = file.type.startsWith("audio/");
+    const mediaKind = resolveUploadMediaKind(file);
+    const isVideoUpload = mediaKind === "video";
+    const isAudioUpload = mediaKind === "audio";
     const sessionId = options?.sessionId ?? createClientId();
+    const isGenericUpload = !isVideoUpload && !isAudioUpload;
+    let stopSimulatedProgress: (() => void) | null = null;
+    let genericPreResponsePromise: Promise<void> | null = null;
+    let serverResponded = false;
+    const clearSimulatedProgress = () => {
+      stopSimulatedProgress?.();
+      stopSimulatedProgress = null;
+    };
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append("file", file);
@@ -1280,22 +1429,10 @@ export function uploadFileWithProgress(
     const url = `${API_BASE}/files/upload`;
     const token = getToken();
 
-    let processingTimer: ReturnType<typeof setInterval> | null = null;
-    let processingPercent = 0;
-    let processingStartedAt = 0;
-
-    const clearProcessingTimer = () => {
-      if (processingTimer) {
-        clearInterval(processingTimer);
-        processingTimer = null;
-      }
-    };
-
     const session: ActiveUploadSession = {
       xhr,
       cancelled: false,
       uploadedFileId: null,
-      clearProcessingTimer,
       rejectUpload: null,
     };
     activeUploadSessions.set(sessionId, session);
@@ -1308,35 +1445,30 @@ export function uploadFileWithProgress(
     const fail = (error: ApiError) => {
       if (settled) return;
       settled = true;
-      clearProcessingTimer();
+      clearSimulatedProgress();
       finishSession();
       reject(error);
     };
     session.rejectUpload = fail;
 
-    const emitProcessing = () => {
-      const elapsed = processingStartedAt > 0 ? Date.now() - processingStartedAt : 0;
-      const display = Math.min(
-        PROCESSING_DISPLAY_MAX,
-        Math.max(0, Math.floor(processingPercent)),
+    // Human: After bytes land — generic runs processing→encrypting; media runs processing until ingest polls.
+    // Agent: genericPreResponsePromise once per upload; media uses simulated processing until API returns.
+    const emitPostUploadWaitPhase = () => {
+      if (isGenericUpload) {
+        if (genericPreResponsePromise) return;
+        genericPreResponsePromise = runGenericPreResponsePhases(
+          onProgress,
+          () => session.cancelled,
+          () => serverResponded,
+        );
+        return;
+      }
+      clearSimulatedProgress();
+      stopSimulatedProgress = startSimulatedPhaseProgress(
+        "processing",
+        onProgress,
+        () => session.cancelled,
       );
-      const indeterminate =
-        elapsed >= PROCESSING_INDETERMINATE_MS || display >= PROCESSING_DISPLAY_MAX;
-      onProgress?.({ phase: "processing", percent: display, indeterminate });
-    };
-
-    // Human: After upload hits 100%, a fresh processing bar eases toward ~99% while the API stores the blob.
-    // Agent: INTERVAL uses asymptotic steps from 0%; indeterminate after delay so the bar never looks frozen.
-    const startProcessingPhase = () => {
-      if (processingTimer) return;
-      processingPercent = 0;
-      processingStartedAt = Date.now();
-      emitProcessing();
-      processingTimer = setInterval(() => {
-        processingPercent +=
-          (PROCESSING_ASYMPTOTE - processingPercent) * 0.14;
-        emitProcessing();
-      }, 380);
     };
 
     onProgress?.({ phase: "uploading", percent: 0 });
@@ -1348,15 +1480,7 @@ export function uploadFileWithProgress(
         const percent = Math.min(100, Math.round(ratio * 100));
         onProgress({ phase: "uploading", percent });
         if (ratio >= 1) {
-          if (isVideoUpload) {
-            onProgress({
-              phase: "processing",
-              percent: 0,
-              indeterminate: false,
-            });
-          } else {
-            startProcessingPhase();
-          }
+          emitPostUploadWaitPhase();
         }
       } else if (event.loaded > 0) {
         onProgress({ phase: "uploading", percent: 50 });
@@ -1364,19 +1488,10 @@ export function uploadFileWithProgress(
     });
 
     xhr.upload.addEventListener("load", () => {
-      if (isVideoUpload || isAudioUpload) {
-        onProgress?.({
-          phase: "processing",
-          percent: 0,
-          indeterminate: false,
-        });
-      } else {
-        startProcessingPhase();
-      }
+      emitPostUploadWaitPhase();
     });
 
     xhr.addEventListener("load", () => {
-      clearProcessingTimer();
       const text = xhr.responseText;
       let data: unknown = null;
       if (text) {
@@ -1397,20 +1512,24 @@ export function uploadFileWithProgress(
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);
             }
             let file = payload.file;
+            serverResponded = true;
+            clearSimulatedProgress();
             if (isMediaAwaitingIngest(file)) {
+              onProgress?.(mapFileToUploadProgressUpdate(file, 0));
               file = await waitForFileIngestCompletion(
                 file.id,
                 onProgress,
                 () => session.cancelled,
               );
             } else {
-              clearProcessingTimer();
-              await emitPostUploadFinishingPhases(onProgress, () => session.cancelled);
+              if (genericPreResponsePromise) {
+                await genericPreResponsePromise;
+              }
+              await emitPostUploadStoringPhases(onProgress, () => session.cancelled);
             }
             if (session.cancelled) {
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);
             }
-            clearProcessingTimer();
             finishSession();
             resolve({ file });
           } catch (error) {

@@ -46,7 +46,7 @@ function phaseStyles(phase: UploadPhase) {
   };
 }
 
-// Human: Status line for the active upload bar — four-step tray flow after bytes reach the server.
+// Human: Status line for the active upload bar — unified steps for generic files; media uses ingest bands.
 // Agent: READS phase; RETURNS Uploading → Processing file → Encrypting → Moving to storage.
 function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
   if (item.phase === "storing") {
@@ -90,9 +90,7 @@ export function UploadProgressBar({
 }) {
   const styles = phaseStyles(phase);
   const ariaLabel =
-    phase === "uploading"
-      ? "Uploading to server"
-      : (statusLabel ?? getUploadPhaseStatus({ phase }));
+    phase === "uploading" ? "Uploading to server" : (statusLabel ?? "Upload in progress");
 
   const isPostUploadPhase =
     phase === "processing" || phase === "encrypting" || phase === "storing";
@@ -170,8 +168,9 @@ export function ActiveUploadRow({
     return () => window.clearInterval(timerId);
   }, [isPostUpload, item.phase]);
 
-  const percentLabel =
-    isPostUpload && item.indeterminate ? "Working…" : `${item.progress}%`;
+  const showIndeterminateLabel =
+    isPostUpload && Boolean(item.indeterminate) && item.progress <= 0;
+  const percentLabel = showIndeterminateLabel ? "Working…" : `${item.progress}%`;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -203,7 +202,7 @@ export function ActiveUploadRow({
       <UploadProgressBar
         value={item.progress}
         phase={item.phase}
-        indeterminate={item.indeterminate}
+        indeterminate={showIndeterminateLabel}
         statusLabel={phaseStatus}
       />
       <p className="truncate text-[11px] leading-tight">
@@ -230,7 +229,7 @@ export function CompletedUploadRow({ item }: { item: UploadItemSnapshot }) {
         <p className="min-w-0 truncate text-[13px] text-[#888888]">{item.fileName}</p>
       </div>
       <span className="shrink-0 text-[11px] text-[#888888]">
-        {formatBytes(item.fileSize)} · Completed
+        {formatBytes(item.fileSize)} · Done!
       </span>
     </div>
   );

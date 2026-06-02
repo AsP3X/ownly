@@ -18,6 +18,10 @@ import {
 
   listBackgroundJobs,
 
+  fetchFile,
+
+  mapFileToUploadProgressUpdate,
+
   uploadFileWithProgress,
 
   waitForFileIngestCompletion,
@@ -296,6 +300,20 @@ function updateItems(updater: (items: InternalUploadItem[]) => InternalUploadIte
 
 
 
+// Human: Merge API progress into a tray row — omitted indeterminate must not leave a stale shimmer.
+// Agent: WRITES percent/phase; SETS indeterminate only when explicitly true.
+function applyUploadProgressUpdate(
+  update: UploadProgressUpdate,
+): Pick<InternalUploadItem, "progress" | "phase" | "indeterminate"> {
+  return {
+    progress: update.percent,
+    phase: update.phase,
+    indeterminate: update.indeterminate === true,
+  };
+}
+
+
+
 function internalFromPersisted(item: PersistedUploadItem): InternalUploadItem {
 
   return {
@@ -378,6 +396,8 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
   if (!batch) return;
 
+  const awaitingIngest = isMediaAwaitingIngest(file);
+
 
 
   updateItems((items) =>
@@ -398,11 +418,12 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
             mimeType: file.mime_type ?? item.mimeType,
 
-            phase: isMediaAwaitingIngest(file) ? ("processing" as const) : item.phase,
+            phase: awaitingIngest ? ("processing" as const) : item.phase,
 
-            // Human: Switch to the processing bar at 0% once bytes are on the server.
-            // Agent: RESET progress when media ingest begins so upload bar is not carried over.
-            progress: isMediaAwaitingIngest(file) ? 0 : item.progress,
+            // Human: Keep eased post-upload percent until ingest polls replace it — do not zero the bar.
+            progress: item.progress,
+
+            indeterminate: false,
 
           }
 
@@ -411,6 +432,40 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
     ),
 
   );
+
+
+
+  if (!awaitingIngest) return;
+
+
+
+  // Human: Paint real ingest percent immediately instead of waiting for the first poll interval.
+  // Agent: GET /files/:id once; MERGES mapFileToUploadProgressUpdate into the tray row.
+  void fetchFile(file.id)
+
+    .then(({ file: latest }) => {
+
+      if (!batch) return;
+
+      const update = mapFileToUploadProgressUpdate(latest, 0);
+
+      updateItems((items) =>
+
+        items.map((entry) =>
+
+          entry.id === sessionId ? { ...entry, ...applyUploadProgressUpdate(update) } : entry,
+
+        ),
+
+      );
+
+    })
+
+    .catch(() => {
+
+      // Human: Poll loop will pick up progress if this eager fetch fails.
+
+    });
 
 }
 
@@ -451,12 +506,7 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
         updateItems((items) =>
           items.map((entry) =>
             entry.id === uploadId
-              ? {
-                  ...entry,
-                  progress: update.percent,
-                  phase: update.phase,
-                  indeterminate: update.indeterminate,
-                }
+              ? { ...entry, ...applyUploadProgressUpdate(update) }
               : entry,
           ),
         );
@@ -625,13 +675,13 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
       status: "uploading" as const,
 
-      progress: Math.min(100, Math.max(0, job.progress)),
+      progress: Math.min(99, Math.max(1, job.progress)),
 
       phase: "processing" as const,
 
       uploadedFileId: job.resource_id ?? undefined,
 
-      indeterminate: job.progress <= 0,
+      indeterminate: false,
 
     })),
 
@@ -897,12 +947,7 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
         updateItems((items) =>
           items.map((item) =>
             item.id === uploadId
-              ? {
-                  ...item,
-                  progress: update.percent,
-                  phase: update.phase,
-                  indeterminate: update.indeterminate,
-                }
+              ? { ...item, ...applyUploadProgressUpdate(update) }
               : item,
           ),
         );
