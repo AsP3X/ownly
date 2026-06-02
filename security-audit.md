@@ -10,11 +10,13 @@ Use the checkboxes below to track remediation as you work through each item.
 
 ## Executive summary
 
+
 | Severity | Count | Open |
-|----------|-------|------|
+| -------- | ----- | ---- |
 | High     | 4     | 4    |
 | Medium   | 7     | 7    |
 | Low      | 0     | 0    |
+
 
 **Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
 
@@ -24,15 +26,17 @@ Use the checkboxes below to track remediation as you work through each item.
 
 ### SEC-001 — Public setup endpoints leak database credentials and infrastructure metadata
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | High |
-| **Category** | Data extraction / information disclosure |
-| **Impacted files** | `backend/src/setup/handlers.rs` (`setup_database_info`, `setup_storage_info`), `backend/src/lib.rs` (public route wiring) |
-| **Routes** | `GET /api/v1/setup/database`, `GET /api/v1/setup/storage` |
-| **Audit script** | [`scripts/security-audit/sec001_setup_info_disclosure.py`](scripts/security-audit/sec001_setup_info_disclosure.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+
+| Field              | Detail                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                                                                                            |
+| **Category**       | Data extraction / information disclosure                                                                                                                                                        |
+| **Impacted files** | `backend/src/setup/handlers.rs` (`setup_database_info`, `setup_storage_info`), `backend/src/lib.rs` (public route wiring)                                                                       |
+| **Routes**         | `GET /api/v1/setup/database`, `GET /api/v1/setup/storage`                                                                                                                                       |
+| **Audit script**   | `[scripts/security-audit/sec001_setup_info_disclosure.py](scripts/security-audit/sec001_setup_info_disclosure.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+
 
 **Description**
 
@@ -64,23 +68,25 @@ Credential theft, infrastructure mapping, possible full database compromise if t
 
 **Verification**
 
-- [ ] Unauthenticated `GET /setup/database` returns 404/401 after setup (or redacted body only).
-- [ ] No password material appears in JSON responses or audit logs.
-- [ ] `python3 scripts/security-audit/sec001_setup_info_disclosure.py` exits **0** against a post-fix deployment (exit **1** = vulnerable; **2** = inconclusive).
+- Unauthenticated `GET /setup/database` returns 404/401 after setup (or redacted body only).
+- No password material appears in JSON responses or audit logs.
+- `python3 scripts/security-audit/sec001_setup_info_disclosure.py` exits **0** against a post-fix deployment (exit **1** = vulnerable; **2** = inconclusive).
 
 ---
 
 ### SEC-002 — Stale JWT role allows admin access after demotion
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | High |
-| **Category** | Unauthorized action / privilege escalation |
-| **Impacted files** | `backend/src/auth/mod.rs` (`auth_middleware`), `backend/src/admin/handlers.rs` (`require_admin`, `update_user`) |
-| **Routes** | All `/api/v1/admin/*` protected routes |
-| **Audit script** | [`scripts/security-audit/sec002_stale_jwt_admin_role.py`](scripts/security-audit/sec002_stale_jwt_admin_role.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+
+| Field              | Detail                                                                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                                                                                          |
+| **Category**       | Unauthorized action / privilege escalation                                                                                                                                                    |
+| **Impacted files** | `backend/src/auth/mod.rs` (`auth_middleware`), `backend/src/admin/handlers.rs` (`require_admin`, `update_user`)                                                                               |
+| **Routes**         | All `/api/v1/admin/`* protected routes                                                                                                                                                        |
+| **Audit script**   | `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+
 
 **Description**
 
@@ -115,13 +121,15 @@ Unauthorized admin operations, user lifecycle changes, settings changes, and sto
 
 **Automated test**
 
-Standalone probe: [`scripts/security-audit/sec002_stale_jwt_admin_role.py`](scripts/security-audit/sec002_stale_jwt_admin_role.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-002).
+Standalone probe: `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-002).
 
-| Prerequisite | Detail |
-|--------------|--------|
-| API | Running Ownly API (default `http://127.0.0.1:8080`) |
-| Setup | `setup_complete=true` (`GET /api/v1/setup/status`) |
-| Admins | **One** admin with `--bootstrap-subject`, or **two** distinct admins (subject + demoter) |
+
+| Prerequisite | Detail                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| API          | Running Ownly API (default `http://127.0.0.1:8080`)                                      |
+| Setup        | `setup_complete=true` (`GET /api/v1/setup/status`)                                       |
+| Admins       | **One** admin with `--bootstrap-subject`, or **two** distinct admins (subject + demoter) |
+
 
 The script logs in the **subject**, confirms admin access, has the **demoter** `PATCH` the subject to a non-admin role (default `pro`), then reuses the **pre-demotion JWT** on `GET /api/v1/admin/users`. Exit **1** if the stale token still returns the admin user list (HTTP 200); exit **0** if access is denied (401/403).
 
@@ -146,7 +154,7 @@ python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subjec
   --demoter-email 'admin@example.com' --demoter-password '...'
 ```
 
-Gitignored repo `.env` (script loads `SEC002_*` only — see commented block in [`.env.example`](.env.example)):
+Gitignored repo `.env` (script loads `SEC002_*` only — see commented block in `[.env.example](.env.example)`):
 
 ```bash
 SEC002_BOOTSTRAP_SUBJECT=1
@@ -155,7 +163,7 @@ SEC002_DEMOTER_PASSWORD=...
 SEC002_BASE_URL=http://127.0.0.1:8080
 ```
 
-Shell variables must be **`export`ed** or placed on the **same line** as `python3` (otherwise the child process does not see them):
+Shell variables must be `**export`ed** or placed on the **same line** as `python3` (otherwise the child process does not see them):
 
 ```bash
 export SEC002_BOOTSTRAP_SUBJECT=1
@@ -180,34 +188,38 @@ python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --save-baseline /t
 python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --compare-baseline /tmp/sec002-ok.json
 ```
 
-| Exit code | Meaning |
-|-----------|---------|
-| **0** | Not vulnerable — stale JWT denied on admin route after demotion |
-| **1** | Vulnerable — stale JWT still grants admin API access |
-| **2** | Inconclusive — missing credentials, API unreachable, or probe error |
-| **3** | `--compare-baseline` mismatch |
+
+| Exit code | Meaning                                                             |
+| --------- | ------------------------------------------------------------------- |
+| **0**     | Not vulnerable — stale JWT denied on admin route after demotion     |
+| **1**     | Vulnerable — stale JWT still grants admin API access                |
+| **2**     | Inconclusive — missing credentials, API unreachable, or probe error |
+| **3**     | `--compare-baseline` mismatch                                       |
+
 
 Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
 
 **Verification**
 
-- [ ] After demotion, existing JWT receives 403 on `/api/v1/admin/*` immediately.
-- [ ] Integration test: demote admin → prior token fails admin routes.
-- [ ] `python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject` (or two-admin mode) exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
+- After demotion, existing JWT receives 403 on `/api/v1/admin/`* immediately.
+- Integration test: demote admin → prior token fails admin routes.
+- `python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject` (or two-admin mode) exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
 ### SEC-003 — Soft-deleted files remain accessible via public share links
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | High |
-| **Category** | Data extraction / unauthorized access |
+
+| Field              | Detail                                                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                                                                                                                                                 |
+| **Category**       | Data extraction / unauthorized access                                                                                                                                                                                                                |
 | **Impacted files** | `backend/src/shares/store.rs` (`load_file_in_share_scope`, `list_share_folder_files`, `list_all_files_in_share`, `compute_share_tree_stats`, `folder_is_under_root`), `backend/src/shares/handlers.rs` (public share download/list/archive handlers) |
-| **Routes** | `/api/v1/public/shares/{token}/*` |
-| **Audit script** | [`scripts/security-audit/sec003_public_share_soft_delete.py`](scripts/security-audit/sec003_public_share_soft_delete.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+| **Routes**         | `/api/v1/public/shares/{token}/`*                                                                                                                                                                                                                    |
+| **Audit script**   | `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)`                                                |
+
 
 **Description**
 
@@ -243,16 +255,18 @@ Data retention bypass; users believe deleted content is inaccessible but it rema
 
 **Automated test**
 
-Standalone probe: [`scripts/security-audit/sec003_public_share_soft_delete.py`](scripts/security-audit/sec003_public_share_soft_delete.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-003).
+Standalone probe: `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-003).
 
-| Prerequisite | Detail |
-|--------------|--------|
-| API | Running Ownly API (default `http://127.0.0.1:8080`) |
-| Setup | `setup_complete=true` |
-| Owner | One drive account with permission to create folders, upload, share, and delete files |
-| Scenario | **Folder** public share (nested file deleted; share link stays active) |
 
-The script logs in as the **owner**, prepares a folder share and probe file (bootstrap: find folder with file, or create `sec003-audit-*` folder + upload `sec003-probe.txt`), confirms the file appears on `GET /api/v1/public/shares/{token}/all-files`, soft-deletes the file, then probes **without** the owner JWT:
+| Prerequisite | Detail                                                                               |
+| ------------ | ------------------------------------------------------------------------------------ |
+| API          | Running Ownly API (default `http://127.0.0.1:8080`)                                  |
+| Setup        | `setup_complete=true`                                                                |
+| Owner        | One drive account with permission to create folders, upload, share, and delete files |
+| Scenario     | **Folder** public share (nested file deleted; share link stays active)               |
+
+
+The script logs in as the **owner**, prepares a folder share and probe file (bootstrap: find folder with file, or create `sec003-audit-`* folder + upload `sec003-probe.txt`), confirms the file appears on `GET /api/v1/public/shares/{token}/all-files`, soft-deletes the file, then probes **without** the owner JWT:
 
 - `GET /public/shares/{token}/all-files` — must not list the trashed `file_id` (exit **1** if still listed).
 - `GET /public/shares/{token}/files/{file_id}/download` — must not return file bytes (exit **1** if HTTP 200 attachment).
@@ -290,35 +304,39 @@ python3 scripts/security-audit/sec003_public_share_soft_delete.py --json --quiet
   --owner-email "$SEC003_OWNER_EMAIL" --owner-password "$SEC003_OWNER_PASSWORD"
 ```
 
-| Exit code | Meaning |
-|-----------|---------|
-| **0** | Not vulnerable — trashed file absent from all-files and download denied |
-| **1** | Vulnerable — trashed file still listed and/or downloadable |
-| **2** | Inconclusive — missing credentials, API/storage error, or bootstrap failed |
-| **3** | `--compare-baseline` mismatch |
+
+| Exit code | Meaning                                                                    |
+| --------- | -------------------------------------------------------------------------- |
+| **0**     | Not vulnerable — trashed file absent from all-files and download denied    |
+| **1**     | Vulnerable — trashed file still listed and/or downloadable                 |
+| **2**     | Inconclusive — missing credentials, API/storage error, or bootstrap failed |
+| **3**     | `--compare-baseline` mismatch                                              |
+
 
 Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
 
 **Verification**
 
-- [ ] Soft-deleted file returns 404 on `public_share_download`.
-- [ ] `public_share_all_files` excludes trashed items.
-- [ ] Regression test for share + recycle bin interaction.
-- [ ] `python3 scripts/security-audit/sec003_public_share_soft_delete.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
+- Soft-deleted file returns 404 on `public_share_download`.
+- `public_share_all_files` excludes trashed items.
+- Regression test for share + recycle bin interaction.
+- `python3 scripts/security-audit/sec003_public_share_soft_delete.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
 ### SEC-004 — Authenticated download/preview ignores soft-delete state
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Data extraction |
-| **Impacted files** | `backend/src/files/handlers.rs` (`download_file`, `download_url`, `preview_url`), `backend/src/hls/handlers.rs` (`ensure_file_owned`, stream/HLS paths) |
-| **Routes** | `GET /api/v1/files/{id}/download`, `/download-url`, `/preview-url`, HLS/stream routes |
-| **Audit script** | [`scripts/security-audit/sec004_authenticated_trash_download.py`](scripts/security-audit/sec004_authenticated_trash_download.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+
+| Field              | Detail                                                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                                                                                                                        |
+| **Category**       | Data extraction                                                                                                                                                                                               |
+| **Impacted files** | `backend/src/files/handlers.rs` (`download_file`, `download_url`, `preview_url`), `backend/src/hls/handlers.rs` (`ensure_file_owned`, stream/HLS paths)                                                       |
+| **Routes**         | `GET /api/v1/files/{id}/download`, `/download-url`, `/preview-url`, HLS/stream routes                                                                                                                         |
+| **Audit script**   | `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+
 
 **Description**
 
@@ -340,13 +358,15 @@ Weak deletion guarantees; compromised session can extract recycle-bin content at
 
 **Automated test**
 
-Standalone probe: [`scripts/security-audit/sec004_authenticated_trash_download.py`](scripts/security-audit/sec004_authenticated_trash_download.py). Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-004).
+Standalone probe: `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-004).
 
-| Prerequisite | Detail |
-|--------------|--------|
-| API | Running Ownly API (default `http://127.0.0.1:8080`) |
-| Setup | `setup_complete=true` |
-| Owner | One account that can upload, delete, and download files |
+
+| Prerequisite | Detail                                                  |
+| ------------ | ------------------------------------------------------- |
+| API          | Running Ownly API (default `http://127.0.0.1:8080`)     |
+| Setup        | `setup_complete=true`                                   |
+| Owner        | One account that can upload, delete, and download files |
+
 
 The script logs in, prepares a probe file (bootstrap upload or `SEC004_FILE_ID`), confirms `download`, `download-url`, and `preview-url` work **before** trash, soft-deletes the file, then re-probes with the **same owner JWT**. Exit **1** if any route still grants access after trash.
 
@@ -360,34 +380,38 @@ export SEC004_OWNER_PASSWORD='...'
 python3 scripts/security-audit/sec004_authenticated_trash_download.py
 ```
 
-| Exit code | Meaning |
-|-----------|---------|
-| **0** | Not vulnerable — trashed file blocked on all three routes |
-| **1** | Vulnerable — download and/or URL endpoints still work after trash |
-| **2** | Inconclusive — credentials, API, or bootstrap failure |
-| **3** | `--compare-baseline` mismatch |
+
+| Exit code | Meaning                                                           |
+| --------- | ----------------------------------------------------------------- |
+| **0**     | Not vulnerable — trashed file blocked on all three routes         |
+| **1**     | Vulnerable — download and/or URL endpoints still work after trash |
+| **2**     | Inconclusive — credentials, API, or bootstrap failure             |
+| **3**     | `--compare-baseline` mismatch                                     |
+
 
 Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
 
 **Verification**
 
-- [ ] `GET /files/{id}/download` on trashed file → 404.
-- [ ] `preview-url` and `download-url` behave consistently.
-- [ ] `python3 scripts/security-audit/sec004_authenticated_trash_download.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
+- `GET /files/{id}/download` on trashed file → 404.
+- `preview-url` and `download-url` behave consistently.
+- `python3 scripts/security-audit/sec004_authenticated_trash_download.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
 ### SEC-005 — Unauthenticated setup bootstrap race on fresh deployments
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Unauthorized action (account takeover) |
-| **Impacted files** | `backend/src/setup/handlers.rs` (`setup`, `ensure_not_complete_pool`), `backend/src/lib.rs` |
-| **Routes** | `POST /api/v1/setup` |
-| **Audit script** | [`scripts/security-audit/sec005_setup_bootstrap_race.py`](scripts/security-audit/sec005_setup_bootstrap_race.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+
+| Field              | Detail                                                                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                                                                                                        |
+| **Category**       | Unauthorized action (account takeover)                                                                                                                                                        |
+| **Impacted files** | `backend/src/setup/handlers.rs` (`setup`, `ensure_not_complete_pool`), `backend/src/lib.rs`                                                                                                   |
+| **Routes**         | `POST /api/v1/setup`                                                                                                                                                                          |
+| **Audit script**   | `[scripts/security-audit/sec005_setup_bootstrap_race.py](scripts/security-audit/sec005_setup_bootstrap_race.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+
 
 **Description**
 
@@ -410,23 +434,27 @@ Full instance takeover on mis-exposed or slow-to-configure deployments.
 
 **Automated test**
 
-Standalone probe: [`scripts/security-audit/sec005_setup_bootstrap_race.py`](scripts/security-audit/sec005_setup_bootstrap_race.py). Uses an intentionally invalid setup body (password too short) so it does **not** create an admin on initialized instances.
+Standalone probe: `[scripts/security-audit/sec005_setup_bootstrap_race.py](scripts/security-audit/sec005_setup_bootstrap_race.py)`. Uses an intentionally invalid setup body (password too short) so it does **not** create an admin on initialized instances.
 
-| Prerequisite | Detail |
-|--------------|--------|
-| API | Running Ownly API (default `http://127.0.0.1:8080`) |
-| Credentials | None — unauthenticated probe |
+
+| Prerequisite | Detail                                              |
+| ------------ | --------------------------------------------------- |
+| API          | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Credentials  | None — unauthenticated probe                        |
+
 
 ```bash
 python3 scripts/security-audit/sec005_setup_bootstrap_race.py
 ```
 
-| Exit code | Meaning |
-|-----------|---------|
-| **0** | Bootstrap secret enforced (401/403 without valid token) |
-| **1** | Vulnerable — POST /setup processed without bootstrap auth |
-| **2** | Inconclusive — API unreachable or unexpected errors |
-| **3** | `--compare-baseline` mismatch |
+
+| Exit code | Meaning                                                   |
+| --------- | --------------------------------------------------------- |
+| **0**     | Bootstrap secret enforced (401/403 without valid token)   |
+| **1**     | Vulnerable — POST /setup processed without bootstrap auth |
+| **2**     | Inconclusive — API unreachable or unexpected errors       |
+| **3**     | `--compare-baseline` mismatch                             |
+
 
 On **pre-setup** instances (`setup_complete=false`), exit **1** confirms public setup mutation. On **post-setup** instances, exit **1** indicates missing bootstrap-token gate (409 without token check). Concurrent race requires manual testing on a fresh database.
 
@@ -434,22 +462,24 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 **Verification**
 
-- [ ] Setup without valid bootstrap token → 401/403.
-- [ ] Concurrent setup attempts: only one succeeds.
-- [ ] `python3 scripts/security-audit/sec005_setup_bootstrap_race.py` exits **0** after remediation (**1** = vulnerable).
+- Setup without valid bootstrap token → 401/403.
+- Concurrent setup attempts: only one succeeds.
+- `python3 scripts/security-audit/sec005_setup_bootstrap_race.py` exits **0** after remediation (**1** = vulnerable).
 
 ---
 
 ### SEC-006 — Login/register rate limit trusts spoofable forwarding headers
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Brute force / account enumeration |
+
+| Field              | Detail                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| **Severity**       | Medium                                                                                                       |
+| **Category**       | Brute force / account enumeration                                                                            |
 | **Impacted files** | `backend/src/rate_limit.rs` (`client_ip_from_headers`), `backend/src/auth/handlers.rs` (`login`, `register`) |
-| **Routes** | `POST /api/v1/auth/login`, `POST /api/v1/auth/register` |
+| **Routes**         | `POST /api/v1/auth/login`, `POST /api/v1/auth/register`                                                      |
+
 
 **Description**
 
@@ -472,21 +502,23 @@ Weakened protection against credential stuffing and registration abuse.
 
 **Verification**
 
-- [ ] Direct requests cannot set arbitrary IP for rate limit via headers (when proxy not configured).
-- [ ] Brute-force test shows throttling holds under header rotation.
+- Direct requests cannot set arbitrary IP for rate limit via headers (when proxy not configured).
+- Brute-force test shows throttling holds under header rotation.
 
 ---
 
 ### SEC-007 — Password-protected share overview bypass exposes metadata without password
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | High |
-| **Category** | Data extraction / unauthorized access |
+
+| Field              | Detail                                                                             |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                               |
+| **Category**       | Data extraction / unauthorized access                                              |
 | **Impacted files** | `backend/src/shares/handlers.rs` (`public_share_overview`, `resolve_public_share`) |
-| **Routes** | `GET /api/v1/public/shares/{token}` |
+| **Routes**         | `GET /api/v1/public/shares/{token}`                                                |
+
 
 **Description**
 
@@ -520,21 +552,23 @@ Intended protection boundary is broken for share metadata; unauthenticated parti
 
 **Verification**
 
-- [ ] `GET /public/shares/{token}` on password-protected share returns 403 without correct `x-share-password`.
-- [ ] With correct password header, overview response remains functional.
+- `GET /public/shares/{token}` on password-protected share returns 403 without correct `x-share-password`.
+- With correct password header, overview response remains functional.
 
 ---
 
 ### SEC-008 — Setup storage probe allows unauthenticated SSRF/internal network reconnaissance
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Data extraction / infrastructure reconnaissance |
+
+| Field              | Detail                                                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                                                    |
+| **Category**       | Data extraction / infrastructure reconnaissance                                                                                           |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_storage`), `backend/src/admin/storage_nodes.rs` (`normalize_base_url`, `probe_storage_node`) |
-| **Routes** | `POST /api/v1/setup/storage/test` |
+| **Routes**         | `POST /api/v1/setup/storage/test`                                                                                                         |
+
 
 **Description**
 
@@ -573,21 +607,23 @@ SSRF-style network probing from trusted server context, which can expose interna
 
 **Verification**
 
-- [ ] Requests targeting `127.0.0.1`, `169.254.169.254`, and private RFC1918 ranges are rejected.
-- [ ] Legitimate storage endpoints still pass probe checks.
+- Requests targeting `127.0.0.1`, `169.254.169.254`, and private RFC1918 ranges are rejected.
+- Legitimate storage endpoints still pass probe checks.
 
 ---
 
 ### SEC-009 — Public share password checks lack brute-force throttling
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Unauthorized access / brute force |
+
+| Field              | Detail                                                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                                              |
+| **Category**       | Unauthorized access / brute force                                                                                                   |
 | **Impacted files** | `backend/src/shares/store.rs` (`verify_share_password`), `backend/src/shares/handlers.rs` (public share routes using password gate) |
-| **Routes** | `/api/v1/public/shares/{token}*` on password-protected links |
+| **Routes**         | `/api/v1/public/shares/{token}`* on password-protected links                                                                        |
+
 
 **Description**
 
@@ -620,21 +656,23 @@ Password-protected shares are vulnerable to online guessing, potentially enablin
 
 **Verification**
 
-- [ ] Repeated wrong-password attempts trigger 429 and/or lockout behavior.
-- [ ] Correct password succeeds after cooldown/within configured policy.
+- Repeated wrong-password attempts trigger 429 and/or lockout behavior.
+- Correct password succeeds after cooldown/within configured policy.
 
 ---
 
 ### SEC-010 — Setup database test allows unauthenticated internal Postgres probing
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Data extraction / infrastructure reconnaissance |
+
+| Field              | Detail                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                        |
+| **Category**       | Data extraction / infrastructure reconnaissance                                                               |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_database`), `backend/src/db.rs` (`test_connection`, `init_pool`) |
-| **Routes** | `POST /api/v1/setup/database/test` |
+| **Routes**         | `POST /api/v1/setup/database/test`                                                                            |
+
 
 **Description**
 
@@ -668,21 +706,23 @@ SSRF-style database probing from the API host; may aid credential stuffing again
 
 **Verification**
 
-- [ ] Unauthenticated setup DB test without valid bootstrap token → 401/403 (when token enforced).
-- [ ] URLs targeting `127.0.0.1` and private ranges are rejected before outbound connect.
+- Unauthenticated setup DB test without valid bootstrap token → 401/403 (when token enforced).
+- URLs targeting `127.0.0.1` and private ranges are rejected before outbound connect.
 
 ---
 
 ### SEC-011 — Folder and bulk zip archives include soft-deleted (recycle-bin) files
 
-- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | Medium |
-| **Category** | Data extraction |
+
+| Field              | Detail                                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                                                                         |
+| **Category**       | Data extraction                                                                                                                                |
 | **Impacted files** | `backend/src/files/folder_download.rs` (`collect_zip_entries_for_folder`), `backend/src/files/zip_job.rs` (`collect_zip_entries_for_file_ids`) |
-| **Routes** | `POST /api/v1/folders/{id}/download`, `POST /api/v1/files/download` |
+| **Routes**         | `POST /api/v1/folders/{id}/download`, `POST /api/v1/files/download`                                                                            |
+
 
 **Description**
 
@@ -717,25 +757,27 @@ Weak deletion guarantees on archive paths; overlaps SEC-004 theme but affects mu
 
 **Verification**
 
-- [ ] Folder zip of a tree with trashed files excludes trashed members.
-- [ ] Bulk download with a trashed `file_id` → 400/404.
-- [ ] Regression test aligned with SEC-003/SEC-004 recycle-bin behavior.
+- Folder zip of a tree with trashed files excludes trashed members.
+- Bulk download with a trashed `file_id` → 400/404.
+- Regression test aligned with SEC-003/SEC-004 recycle-bin behavior.
 
 ---
 
 ## Areas reviewed — no critical issues found
 
-| Area | Result |
-|------|--------|
-| Admin mutations (`create_user`, `update_user`, `delete_user`, settings, storage nodes) | `require_admin` called on handlers; routes under auth middleware |
-| Protected route gating | `/api/v1` admin and user routes wrapped with `auth_middleware` in `lib.rs` |
-| JWT validation | Signature + expiry checked; session revocation checked via `user_sessions` |
-| Error responses | `AppError` envelope avoids leaking stack traces/SQL in client JSON |
-| File list/search IDOR (active library) | Listing scoped by `user_id` and `deleted_at IS NULL` in normal browse paths |
-| Bulk/folder download jobs | User-bound job registry and ownership checks before archive access (see SEC-011 for deleted_at gap in zip source queries) |
-| Storage adapter path traversal | Object keys appear DB-derived; no direct filesystem path from user input |
-| CSRF on admin mutations | Bearer token in `Authorization` header (not cookie session); classic CSRF less applicable |
-| Frontend API bypass | `frontend/src/api/client.ts` attaches JWT; does not weaken server checks |
+
+| Area                                                                                   | Result                                                                                                                    |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Admin mutations (`create_user`, `update_user`, `delete_user`, settings, storage nodes) | `require_admin` called on handlers; routes under auth middleware                                                          |
+| Protected route gating                                                                 | `/api/v1` admin and user routes wrapped with `auth_middleware` in `lib.rs`                                                |
+| JWT validation                                                                         | Signature + expiry checked; session revocation checked via `user_sessions`                                                |
+| Error responses                                                                        | `AppError` envelope avoids leaking stack traces/SQL in client JSON                                                        |
+| File list/search IDOR (active library)                                                 | Listing scoped by `user_id` and `deleted_at IS NULL` in normal browse paths                                               |
+| Bulk/folder download jobs                                                              | User-bound job registry and ownership checks before archive access (see SEC-011 for deleted_at gap in zip source queries) |
+| Storage adapter path traversal                                                         | Object keys appear DB-derived; no direct filesystem path from user input                                                  |
+| CSRF on admin mutations                                                                | Bearer token in `Authorization` header (not cookie session); classic CSRF less applicable                                 |
+| Frontend API bypass                                                                    | `frontend/src/api/client.ts` attaches JWT; does not weaken server checks                                                  |
+
 
 ---
 
@@ -772,8 +814,11 @@ Add or extend integration tests in `backend/tests/` for:
 
 ## Changelog
 
-| Date | Author | Notes |
-|------|--------|-------|
+
+| Date       | Author                  | Notes                       |
+| ---------- | ----------------------- | --------------------------- |
 | 2026-06-02 | Security audit (static) | Initial findings documented |
-| 2026-06-02 | Follow-up static review | SEC-007–SEC-009 added |
-| 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added |
+| 2026-06-02 | Follow-up static review | SEC-007–SEC-009 added       |
+| 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added       |
+
+
