@@ -9,7 +9,11 @@ Self-hosted personal cloud storage for documents, images, videos, audio, and mor
 - **Database:** PostgreSQL
 - **Object storage:** [Nebular OS](https://github.com/AsP3X/nebular-os) — **git submodule** at `nebular-os/` (read-only in Ownly; bump the pinned commit to upgrade)
 
-## Clone
+## Project setup
+
+### 1. Clone the repository
+
+Prefer a recursive clone so the Nebular OS submodule is populated immediately:
 
 ```bash
 git clone --recurse-submodules <repository-url>
@@ -21,6 +25,31 @@ If you already cloned without submodules:
 ```bash
 git submodule update --init --recursive
 ```
+
+### 2. Initialize the `nebular-os` submodule (required)
+
+Docker builds **`object-storage`** (and optional **`object-storage-b`**) from `./nebular-os/Dockerfile`. That directory is a **git submodule**, not copied into Ownly — an empty `nebular-os/` folder will break Compose with:
+
+```text
+failed to read dockerfile: open Dockerfile: no such file or directory
+```
+
+After `git submodule update --init --recursive`, confirm the checkout:
+
+```bash
+# Unix / Git Bash
+test -f nebular-os/Dockerfile && wc -c < nebular-os/Dockerfile
+git submodule status
+```
+
+```powershell
+# Windows PowerShell
+Test-Path .\nebular-os\Dockerfile
+(Get-Item .\nebular-os\Dockerfile).Length   # expect ~1300 bytes, not 0–2
+git submodule status
+```
+
+You should see `nebular-os/Dockerfile` on disk and `git submodule status` showing a commit hash (no leading `-` on the `nebular-os` line).
 
 Install Git hooks (blocks accidental commits under `nebular-os/`):
 
@@ -34,12 +63,21 @@ Pinned submodule commit (update with `git add nebular-os` after checkout): see `
 
 ## Quick start (Docker)
 
-Start the full stack (no `.env` or secret setup required for local Compose):
+Start the full stack (no `.env` or secret setup required for local Compose). Run submodule init first if you skipped it during clone:
 
 ```bash
-git submodule update --init --recursive   # if nebular-os/ is empty
+git submodule update --init --recursive
 docker compose up --build
 ```
+
+**Optional second storage node** (local admin testing with two Nebular instances):
+
+```bash
+git submodule update --init --recursive   # same requirement — both nodes build from nebular-os/
+docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build
+```
+
+Node B is exposed on **http://localhost:9001**; register it in Admin → Add Storage Node with `http://object-storage-b:9000` inside the Compose network. See comments in `docker-compose.rep.yml`.
 
 For non-Docker development or production-like random secrets, run `init-env.sh` once (or `docker compose --profile init run --rm init-env`) to generate `.env` files from the examples.
 

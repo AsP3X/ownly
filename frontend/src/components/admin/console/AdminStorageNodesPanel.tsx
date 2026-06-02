@@ -108,14 +108,11 @@ function StorageNodesTabs({
   );
 }
 
-/** Human: Parse "used / capacity" label into utilization percent for progress bar width. */
-function storageUtilPercent(capacityLabel: string): number {
-  const match = capacityLabel.match(/([\d.]+)\s*\/\s*([\d.]+)/);
-  if (!match) return 0;
-  const used = Number.parseFloat(match[1] ?? "0");
-  const cap = Number.parseFloat(match[2] ?? "0");
-  if (cap <= 0) return 0;
-  return Math.min(100, Math.round((used / cap) * 1000) / 10);
+/** Human: Utilization percent from byte counts — labels include units and must not be parsed. */
+function storageUtilPercentFromBytes(usedBytes: number, capacityBytes: number | null): number {
+  if (capacityBytes == null || capacityBytes <= 0) return 0;
+  const ratio = usedBytes / capacityBytes;
+  return Math.min(100, Math.round(ratio * 100));
 }
 
 /** Human: Used / total capacity with per-value units (KB, MB, GB, TB) from byte counts. */
@@ -215,16 +212,33 @@ function NodeInfoCell({ row }: { row: AdminStorageNodeRow }) {
 }
 
 /** Human: Storage capacity cell — label + 4px progress bar per Pencil lciNf frame. */
-function StorageCapacityCell({ capacityLabel }: { capacityLabel: string }) {
-  const percent = storageUtilPercent(capacityLabel);
+function StorageCapacityCell({
+  capacityLabel,
+  usedBytes,
+  capacityBytes,
+}: {
+  capacityLabel: string;
+  usedBytes: number;
+  capacityBytes: number | null;
+}) {
+  const percent = storageUtilPercentFromBytes(usedBytes, capacityBytes);
+  const fillWidth =
+    usedBytes > 0 && capacityBytes != null && capacityBytes > 0 ? Math.max(percent, 2) : 0;
 
   return (
     <div className="flex w-full min-w-[120px] flex-col gap-1">
       <span className="text-[13px] font-medium text-[#1A1A1A]">{capacityLabel}</span>
-      <div className="h-1 overflow-hidden rounded-sm bg-[#E5E7EB]">
+      <div
+        className="h-1 overflow-hidden rounded-sm bg-[#E5E7EB]"
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Storage used: ${capacityLabel}`}
+      >
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width]"
-          style={{ width: `${percent}%` }}
+          className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
+          style={{ width: `${fillWidth}%` }}
         />
       </div>
     </div>
@@ -315,7 +329,11 @@ function StorageNodesTable({
                 <NodeStatusBadge status={row.status} />
               </td>
               <td className="px-5 py-0 align-middle">
-                <StorageCapacityCell capacityLabel={row.capacity_label} />
+                <StorageCapacityCell
+                  capacityLabel={row.capacity_label}
+                  usedBytes={row.used_bytes}
+                  capacityBytes={row.target_capacity_bytes}
+                />
               </td>
               <td className="px-5 py-0 align-middle text-[13px]">
                 {row.latency_ms != null ? `${row.latency_ms} ms` : "—"}
