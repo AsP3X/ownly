@@ -13,10 +13,10 @@ Use the checkboxes below to track remediation as you work through each item.
 | Severity | Count | Open |
 |----------|-------|------|
 | High     | 4     | 4    |
-| Medium   | 5     | 5    |
+| Medium   | 7     | 7    |
 | Low      | 0     | 0    |
 
-**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-003 → SEC-008 → SEC-004 → SEC-005 → SEC-006 → SEC-009
+**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
 
 ---
 
@@ -426,6 +426,104 @@ Password-protected shares are vulnerable to online guessing, potentially enablin
 
 ---
 
+### SEC-010 — Setup database test allows unauthenticated internal Postgres probing
+
+- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+| Field | Detail |
+|-------|--------|
+| **Severity** | Medium |
+| **Category** | Data extraction / infrastructure reconnaissance |
+| **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_database`), `backend/src/db.rs` (`test_connection`, `init_pool`) |
+| **Routes** | `POST /api/v1/setup/database/test` |
+
+**Description**
+
+Before setup completes, unauthenticated callers can submit arbitrary `database_url` values. The API attempts a real Postgres connection (and may create the database and run migrations via `init_pool`). There is no bootstrap secret and no blocklist for internal/private host targets.
+
+**Evidence**
+
+```rust
+// test_setup_database — public pre-setup
+db::test_connection(url).await
+
+// test_connection — opens pool against caller-supplied URL
+let pool = init_pool(database_url).await?;
+sqlx::query("SELECT 1").execute(&pool).await?;
+```
+
+**Exploit scenario**
+
+During the bootstrap window, an attacker probes `postgres://user:pass@127.0.0.1:5432/...`, RFC1918 hosts, or cloud metadata-adjacent services to map reachable databases and infer network layout from success/failure timing.
+
+**Impact**
+
+SSRF-style database probing from the API host; may aid credential stuffing against misconfigured internal Postgres or lateral movement planning.
+
+**Remediation**
+
+1. Require bootstrap secret/auth on all setup test routes (same as SEC-005 recommendation).
+2. Reject connection targets that resolve to localhost, link-local, or private IP ranges unless explicitly allowed for dev.
+3. Prefer a lightweight TCP/TLS handshake check over full `init_pool` + migrations for wizard “test connection” UX.
+4. Rate-limit setup test endpoints per source IP.
+
+**Verification**
+
+- [ ] Unauthenticated setup DB test without valid bootstrap token → 401/403 (when token enforced).
+- [ ] URLs targeting `127.0.0.1` and private ranges are rejected before outbound connect.
+
+---
+
+### SEC-011 — Folder and bulk zip archives include soft-deleted (recycle-bin) files
+
+- [ ] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+| Field | Detail |
+|-------|--------|
+| **Severity** | Medium |
+| **Category** | Data extraction |
+| **Impacted files** | `backend/src/files/folder_download.rs` (`collect_zip_entries_for_folder`), `backend/src/files/zip_job.rs` (`collect_zip_entries_for_file_ids`) |
+| **Routes** | `POST /api/v1/folders/{id}/download`, `POST /api/v1/files/download` |
+
+**Description**
+
+Zip archive builders query files by `user_id` (and folder membership or explicit ids) but omit `deleted_at IS NULL`. Trashed files remain packable into folder and bulk download archives for the owning user.
+
+**Evidence**
+
+```sql
+-- collect_zip_entries_for_folder
+FROM files WHERE user_id = $1 AND folder_id = $2
+
+-- collect_zip_entries_for_file_ids
+FROM files WHERE id = $1 AND user_id = $2
+-- (no deleted_at IS NULL in either)
+```
+
+**Exploit scenario**
+
+1. User soft-deletes sensitive files to recycle bin believing they are inaccessible for normal download.
+2. Same user (or attacker with stolen session) starts folder zip or bulk download including those file ids or parent folder.
+3. Archive completes with trashed content still extractable.
+
+**Impact**
+
+Weak deletion guarantees on archive paths; overlaps SEC-004 theme but affects multi-file zip flows not covered by single-file download handlers alone.
+
+**Remediation**
+
+1. Add `AND deleted_at IS NULL` (or `ACTIVE_FILES_SQL` from `files/recycle_bin.rs`) to all zip entry collection queries.
+2. Reject bulk download requests where any `file_id` refers to a trashed row.
+3. When walking folder trees for zip, skip trashed subfolders/files consistently with browse listing.
+
+**Verification**
+
+- [ ] Folder zip of a tree with trashed files excludes trashed members.
+- [ ] Bulk download with a trashed `file_id` → 400/404.
+- [ ] Regression test aligned with SEC-003/SEC-004 recycle-bin behavior.
+
+---
+
 ## Areas reviewed — no critical issues found
 
 | Area | Result |
@@ -435,7 +533,7 @@ Password-protected shares are vulnerable to online guessing, potentially enablin
 | JWT validation | Signature + expiry checked; session revocation checked via `user_sessions` |
 | Error responses | `AppError` envelope avoids leaking stack traces/SQL in client JSON |
 | File list/search IDOR (active library) | Listing scoped by `user_id` and `deleted_at IS NULL` in normal browse paths |
-| Bulk/folder download jobs | User-bound job registry and ownership checks before archive access |
+| Bulk/folder download jobs | User-bound job registry and ownership checks before archive access (see SEC-011 for deleted_at gap in zip source queries) |
 | Storage adapter path traversal | Object keys appear DB-derived; no direct filesystem path from user input |
 | CSRF on admin mutations | Bearer token in `Authorization` header (not cookie session); classic CSRF less applicable |
 | Frontend API bypass | `frontend/src/api/client.ts` attaches JWT; does not weaken server checks |
@@ -467,7 +565,9 @@ Add or extend integration tests in `backend/tests/` for:
 
 - Admin demotion invalidates prior token (SEC-002)
 - Trashed file blocked on download and public share (SEC-003, SEC-004)
+- Trashed file excluded from folder/bulk zip archives (SEC-011)
 - Setup endpoints blocked or redacted post-setup (SEC-001)
+- Setup DB/storage test probes restricted (SEC-008, SEC-010)
 
 ---
 
@@ -476,3 +576,5 @@ Add or extend integration tests in `backend/tests/` for:
 | Date | Author | Notes |
 |------|--------|-------|
 | 2026-06-02 | Security audit (static) | Initial findings documented |
+| 2026-06-02 | Follow-up static review | SEC-007–SEC-009 added |
+| 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added |
