@@ -117,6 +117,19 @@ SEC007_KEYS = frozenset(
     }
 )
 
+SEC008_KEYS = frozenset(
+    {
+        "SEC008_BASE_URL",
+        "SEC008_API_PREFIX",
+        "SEC008_REQUIRE_PRE_SETUP",
+        "SEC008_RETRIES",
+        "SEC008_QUIET",
+        "SEC008_OUTPUT",
+        "SEC008_NO_REDACTION",
+        "SEC008_I_KNOW",
+    }
+)
+
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 
@@ -234,6 +247,12 @@ def load_sec007_env_file(explicit: str | None = None) -> Path | None:
     # Human: Best-effort load of SEC007_* from discovered .env before config load.
     # Agent: RETURNS path loaded or None; does not override already-exported vars.
     return _load_env_file_for_keys(explicit, SEC007_KEYS)
+
+
+def load_sec008_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC008_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC008_KEYS)
 
 
 def inspect_env_file(

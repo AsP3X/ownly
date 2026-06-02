@@ -626,6 +626,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / infrastructure reconnaissance                                                                                           |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_storage`), `backend/src/admin/storage_nodes.rs` (`normalize_base_url`, `probe_storage_node`) |
 | **Routes**         | `POST /api/v1/setup/storage/test`                                                                                                         |
+| **Audit script**   | [`scripts/security-audit/sec008_setup_storage_ssrf.py`](scripts/security-audit/sec008_setup_storage_ssrf.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -663,10 +664,36 @@ SSRF-style network probing from trusted server context, which can expose interna
 3. Optional: enforce allowlist of approved storage hostnames/CIDRs during setup.
 4. Add strict request timeout and response size caps (if not already enforced globally).
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec008_setup_storage_ssrf.py`](scripts/security-audit/sec008_setup_storage_ssrf.py). Posts internal `base_url` values to `POST /setup/storage/test` without credentials.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Pre-setup | **Full SSRF check** needs `setup_complete=false` (fresh DB or uninitialized instance) |
+| Credentials | None |
+
+```bash
+python3 scripts/security-audit/sec008_setup_storage_ssrf.py
+```
+
+On initialized instances the script still checks post-setup gating (expects **409**). Use `--require-pre-setup` to require a fresh instance.
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Internal targets rejected or endpoint auth-gated |
+| **1** | Vulnerable — unauthenticated probe accepts internal URLs |
+| **2** | Inconclusive — API unreachable or `--require-pre-setup` on completed setup |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Requests targeting `127.0.0.1`, `169.254.169.254`, and private RFC1918 ranges are rejected.
 - Legitimate storage endpoints still pass probe checks.
+- `python3 scripts/security-audit/sec008_setup_storage_ssrf.py` exits **0** after remediation on a **pre-setup** deployment (**1** = vulnerable).
 
 ---
 

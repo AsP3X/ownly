@@ -291,3 +291,28 @@ Environment: `SEC007_*` (also loaded from repo `.env`). Use `export` or one-line
 make -C scripts/security-audit sec007
 make -C scripts/security-audit test
 ```
+
+## SEC-008 — setup storage test SSRF / internal recon
+
+Sends unauthenticated `POST /setup/storage/test` with internal URLs (`127.0.0.1`, `169.254.169.254`, `10.0.0.1`). **Vulnerable** when targets are not rejected before an outbound health probe (400 “could not reach” still counts).
+
+```bash
+python3 scripts/security-audit/sec008_setup_storage_ssrf.py
+```
+
+On **initialized** instances (`setup_complete=true`), SSRF probes are skipped; the script still verifies the endpoint returns **409** after setup. Use a **fresh/pre-setup** stack for full SSRF detection, or pass `--require-pre-setup` to fail when setup is already complete.
+
+| Flag | Description |
+|------|-------------|
+| `--base-url` | API origin |
+| `--require-pre-setup` | Exit inconclusive if `setup_complete=true` |
+| `--json` / `--sarif` | Machine-readable output |
+
+No credentials required.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec008
+make -C scripts/security-audit test
+```

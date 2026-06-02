@@ -106,6 +106,15 @@ class Sec007Config:
 
 
 @dataclass
+class Sec008Config:
+    # Human: SEC-008 setup storage test SSRF probe options.
+    # Agent: READS env/CLI; WRITES runner_sec008; probes internal URLs without auth.
+    http: Config
+    require_pre_setup: bool
+    probe_targets: tuple[tuple[str, str], ...]
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]
