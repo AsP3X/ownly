@@ -1004,9 +1004,8 @@ export type UploadProgressUpdate = {
 const PROCESSING_DISPLAY_MAX = 99;
 const POST_UPLOAD_PROGRESS_ASYMPTOTE = 99.4;
 const POST_UPLOAD_PROGRESS_INTERVAL_MS = 380;
-/** Human: Minimum time each tray phase stays visible so fast uploads do not skip encrypting. */
+/** Human: Minimum time each tray phase stays visible so fast uploads do not skip steps. */
 const MIN_UPLOAD_PHASE_DISPLAY_MS = 1000;
-const POST_UPLOAD_STORE_INDWELL_MS = 900;
 const POST_UPLOAD_STORE_COMPLETE_DWELL_MS = 400;
 const VIDEO_INGEST_POLL_MS = 1500;
 /** Human: Backend ffmpeg progress maps into conversion_progress ~5–50 before Nebular upload begins. */
@@ -1116,20 +1115,17 @@ function createUploadProgressEmitter(
   return { emit };
 }
 
-// Human: Generic uploads — processing then encrypting while the HTTP request stays open (no ingest jobs).
-// Agent: STEPS 2–3 of tray flow; AWAITS hasServerResponded before storing phase in xhr load handler.
-async function runGenericPreResponsePhases(
+// Human: Generic uploads — processing → encrypting (fixed beats), then storing until the API responds.
+// Agent: storing phase COVERS server Nebular PUT / multi-node striping; AWAITS serverResponsePromise.
+async function runGenericPostUploadPhases(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
   isCancelled: () => boolean,
-  hasServerResponded: () => boolean,
+  serverResponsePromise: Promise<void>,
 ) {
   if (!onProgress || isCancelled()) return;
 
   const stopProcessing = startSimulatedPhaseProgress("processing", onProgress, isCancelled);
-  const processingUntil = Date.now() + MIN_UPLOAD_PHASE_DISPLAY_MS;
-  while (!isCancelled() && Date.now() < processingUntil && !hasServerResponded()) {
-    await sleepMs(50);
-  }
+  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   stopProcessing();
   if (isCancelled()) return;
   onProgress({ phase: "processing", percent: 100, indeterminate: false });
@@ -1138,27 +1134,18 @@ async function runGenericPreResponsePhases(
   if (isCancelled()) return;
 
   const stopEncrypting = startSimulatedPhaseProgress("encrypting", onProgress, isCancelled);
-  while (!isCancelled() && !hasServerResponded()) {
-    await sleepMs(50);
-  }
+  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   stopEncrypting();
   if (isCancelled()) return;
   onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
   await waitForNextPaint();
   await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
-}
+  if (isCancelled()) return;
 
-// Human: Step 4 — moving to storage after generic file upload HTTP response returns.
-// Agent: CALLED for non-media uploads after runGenericPreResponsePhases; SKIPS when cancelled.
-async function emitPostUploadStoringPhases(
-  onProgress: ((update: UploadProgressUpdate) => void) | undefined,
-  isCancelled: () => boolean,
-) {
-  if (!onProgress || isCancelled()) return;
-
-  const stopSimulated = startSimulatedPhaseProgress("storing", onProgress, isCancelled);
-  await sleepMs(POST_UPLOAD_STORE_INDWELL_MS);
-  stopSimulated();
+  const stopStoring = startSimulatedPhaseProgress("storing", onProgress, isCancelled);
+  onProgress({ phase: "storing", percent: 1, indeterminate: false });
+  await serverResponsePromise;
+  stopStoring();
   if (isCancelled()) return;
   onProgress({ phase: "storing", percent: 100, indeterminate: false });
   await waitForNextPaint();
@@ -1414,8 +1401,15 @@ export function uploadFileWithProgress(
     const sessionId = options?.sessionId ?? createClientId();
     const isGenericUpload = !isVideoUpload && !isAudioUpload;
     let stopSimulatedProgress: (() => void) | null = null;
-    let genericPreResponsePromise: Promise<void> | null = null;
-    let serverResponded = false;
+    let genericPostUploadPromise: Promise<void> | null = null;
+    let releaseServerResponseGate: (() => void) | null = null;
+    const serverResponseGate = new Promise<void>((resolve) => {
+      releaseServerResponseGate = resolve;
+    });
+    const openServerResponseGate = () => {
+      releaseServerResponseGate?.();
+      releaseServerResponseGate = null;
+    };
     const clearSimulatedProgress = () => {
       stopSimulatedProgress?.();
       stopSimulatedProgress = null;
@@ -1445,6 +1439,7 @@ export function uploadFileWithProgress(
     const fail = (error: ApiError) => {
       if (settled) return;
       settled = true;
+      openServerResponseGate();
       clearSimulatedProgress();
       finishSession();
       reject(error);
@@ -1455,11 +1450,11 @@ export function uploadFileWithProgress(
     // Agent: genericPreResponsePromise once per upload; media uses simulated processing until API returns.
     const emitPostUploadWaitPhase = () => {
       if (isGenericUpload) {
-        if (genericPreResponsePromise) return;
-        genericPreResponsePromise = runGenericPreResponsePhases(
+        if (genericPostUploadPromise) return;
+        genericPostUploadPromise = runGenericPostUploadPhases(
           onProgress,
           () => session.cancelled,
-          () => serverResponded,
+          serverResponseGate,
         );
         return;
       }
@@ -1512,7 +1507,7 @@ export function uploadFileWithProgress(
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);
             }
             let file = payload.file;
-            serverResponded = true;
+            openServerResponseGate();
             clearSimulatedProgress();
             if (isMediaAwaitingIngest(file)) {
               onProgress?.(mapFileToUploadProgressUpdate(file, 0));
@@ -1521,11 +1516,8 @@ export function uploadFileWithProgress(
                 onProgress,
                 () => session.cancelled,
               );
-            } else {
-              if (genericPreResponsePromise) {
-                await genericPreResponsePromise;
-              }
-              await emitPostUploadStoringPhases(onProgress, () => session.cancelled);
+            } else if (genericPostUploadPromise) {
+              await genericPostUploadPromise;
             }
             if (session.cancelled) {
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);

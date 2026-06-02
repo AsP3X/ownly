@@ -1097,6 +1097,8 @@ export default function DrivePage() {
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
           folderId={activeNav === "my-files" ? currentFolderId : null}
+          usedBytes={usedBytes}
+          quotaBytes={quotaBytes}
           onLibraryChanged={() =>
             void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
               silent: true,

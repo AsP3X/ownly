@@ -47,7 +47,7 @@ function phaseStyles(phase: UploadPhase) {
 }
 
 // Human: Status line for the active upload bar — unified steps for generic files; media uses ingest bands.
-// Agent: READS phase; RETURNS Uploading → Processing file → Encrypting → Moving to storage.
+// Agent: READS phase; RETURNS Uploading → Processing → Encrypting → Moving to storage (Nebular blobs).
 function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
   if (item.phase === "storing") {
     return "Moving to storage";

@@ -16,6 +16,7 @@ import {
   buildUploadConflictPlan,
 } from "@/lib/upload-conflicts";
 import { startUploadBatch, subscribeUploadBatch } from "@/lib/upload-manager";
+import { applyStorageWarningsInOrder } from "@/lib/upload-storage-capacity";
 import { createClientId, formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import {
@@ -28,12 +29,17 @@ import {
 type PendingFile = {
   id: string;
   file: File;
+  /** Human: Set when the file exceeds remaining library quota — row stays selectable with a warning. */
+  storageWarning?: string | null;
 };
 
 type UploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   folderId?: string | null;
+  /** Human: Library usage from GET /dashboard — drives per-file storage warnings in the picker. */
+  usedBytes?: number;
+  quotaBytes?: number;
   /** Human: Refresh drive listings after recycle-bin restores from the upload preflight. */
   onLibraryChanged?: () => void;
 };
@@ -43,25 +49,38 @@ type UploadDialogProps = {
 function PendingFileRow({
   name,
   sizeBytes,
+  storageWarning,
   onRemove,
 }: {
   name: string;
   sizeBytes: number;
+  storageWarning?: string | null;
   onRemove: () => void;
 }) {
   return (
-    <li className="flex min-w-0 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-3 py-2.5">
-      <FileText className="size-3.5 shrink-0 text-[#2563EB]" aria-hidden />
-      <p
-        className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#1A1A1A]"
-        title={name}
-      >
-        {name}
-      </p>
-      <span className="shrink-0 whitespace-nowrap text-right text-[11px] tabular-nums text-[#666666]">
-        {formatBytes(sizeBytes)}
-      </span>
-      <button
+    <li
+      className={cn(
+        "flex min-w-0 flex-col gap-1 rounded-lg border px-3 py-2.5",
+        storageWarning
+          ? "border-amber-200 bg-amber-50/80"
+          : "border-[#E5E7EB] bg-[#F7F8FA]",
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <FileText
+          className={cn("size-3.5 shrink-0", storageWarning ? "text-amber-700" : "text-[#2563EB]")}
+          aria-hidden
+        />
+        <p
+          className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#1A1A1A]"
+          title={name}
+        >
+          {name}
+        </p>
+        <span className="shrink-0 whitespace-nowrap text-right text-[11px] tabular-nums text-[#666666]">
+          {formatBytes(sizeBytes)}
+        </span>
+        <button
         type="button"
         className="shrink-0 rounded-md p-1 text-[#888888] transition hover:bg-[#E5E7EB]/60 hover:text-[#1A1A1A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
         aria-label={`Remove ${name}`}
@@ -69,6 +88,12 @@ function PendingFileRow({
       >
         <X className="size-3.5" aria-hidden />
       </button>
+      </div>
+      {storageWarning ? (
+        <p className="text-[11px] leading-snug text-amber-800" role="status">
+          {storageWarning}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -79,6 +104,8 @@ export function UploadDialog({
   open,
   onOpenChange,
   folderId = null,
+  usedBytes = 0,
+  quotaBytes = 0,
   onLibraryChanged,
 }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,22 +116,28 @@ export function UploadDialog({
   const [duplicateMatches, setDuplicateMatches] = useState<UploadNameDuplicate[]>([]);
   const [recycleMatches, setRecycleMatches] = useState<UploadRecycleMatch[]>([]);
   const [conflictCheckError, setConflictCheckError] = useState("");
+  const [storageSkipNotice, setStorageSkipNotice] = useState("");
   const [resolvingConflicts, setResolvingConflicts] = useState(false);
 
-  const continueLabel = useMemo(
-    () => buildSmartContinueLabel(pendingFiles, duplicateMatches, recycleMatches),
-    [pendingFiles, duplicateMatches, recycleMatches],
-  );
+  const uploadablePendingCount = pendingFiles.filter((item) => !item.storageWarning).length;
+  const oversizedPendingCount = pendingFiles.length - uploadablePendingCount;
+
+  const continueLabel = useMemo(() => {
+    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
+    return buildSmartContinueLabel(uploadablePending, duplicateMatches, recycleMatches);
+  }, [pendingFiles, duplicateMatches, recycleMatches]);
 
   const continueDisabled = useMemo(() => {
-    const plan = buildUploadConflictPlan(pendingFiles, duplicateMatches, recycleMatches, {
+    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
+    const plan = buildUploadConflictPlan(uploadablePending, duplicateMatches, recycleMatches, {
       skipDuplicates: true,
       restoreRecycle: true,
     });
     return plan.restoreCount === 0 && plan.uploadCount === 0;
   }, [pendingFiles, duplicateMatches, recycleMatches]);
 
-  const uploadDisabled = pendingFiles.length === 0 || checkingConflicts;
+  const uploadDisabled =
+    uploadablePendingCount === 0 || checkingConflicts;
 
   // Human: Hint when reopening the picker while the corner panel still has work in flight.
   // Agent: SUBSCRIBES upload-manager while open; WRITES activeUploadBatch from batch status.
@@ -115,20 +148,43 @@ export function UploadDialog({
     });
   }, [open]);
 
-  const addPendingFiles = useCallback((selected: FileList | null) => {
-    if (!selected?.length) return;
-    setPendingFiles((prev) => {
-      const incoming = Array.from(selected).map((file) => ({
-        id: createClientId(),
-        file,
-      }));
-      return [...prev, ...incoming];
-    });
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }, []);
+  // Human: Recompute quota warnings for every pending row when usage or the file list changes.
+  // Agent: CALLS applyStorageWarningsInOrder; PRESERVES ids and File references.
+  const withStorageWarnings = useCallback(
+    (rows: PendingFile[]): PendingFile[] =>
+      applyStorageWarningsInOrder(
+        rows.map((row) => ({ ...row, fileSize: row.file.size })),
+        usedBytes,
+        quotaBytes,
+      ),
+    [usedBytes, quotaBytes],
+  );
+
+  // Human: Refresh warnings when dashboard usage changes while the picker stays open.
+  useEffect(() => {
+    if (!open) return;
+    setPendingFiles((prev) => (prev.length === 0 ? prev : withStorageWarnings(prev)));
+  }, [open, usedBytes, quotaBytes, withStorageWarnings]);
+
+  const addPendingFiles = useCallback(
+    (selected: FileList | null) => {
+      if (!selected?.length) return;
+      setStorageSkipNotice("");
+      setPendingFiles((prev) => {
+        const incoming = Array.from(selected).map((file) => ({
+          id: createClientId(),
+          file,
+        }));
+        return withStorageWarnings([...prev, ...incoming]);
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [withStorageWarnings],
+  );
 
   function removePendingFile(id: string) {
-    setPendingFiles((prev) => prev.filter((item) => item.id !== id));
+    setStorageSkipNotice("");
+    setPendingFiles((prev) => withStorageWarnings(prev.filter((item) => item.id !== id)));
   }
 
   function openFilePicker() {
@@ -137,6 +193,7 @@ export function UploadDialog({
 
   function resetConflictState() {
     setConflictCheckError("");
+    setStorageSkipNotice("");
     setDuplicateMatches([]);
     setRecycleMatches([]);
     setConflictDialogOpen(false);
@@ -167,8 +224,9 @@ export function UploadDialog({
     skipDuplicates: boolean;
     restoreRecycle: boolean;
   }) {
+    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
     const plan = buildUploadConflictPlan(
-      pendingFiles,
+      uploadablePending,
       duplicateMatches,
       recycleMatches,
       options,
@@ -196,12 +254,19 @@ export function UploadDialog({
   // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
   // Agent: POST checkUploadNameDuplicates; OPENS UploadConflictDialog when any matches exist.
   async function handleStartUpload() {
-    if (pendingFiles.length === 0 || checkingConflicts) return;
+    if (uploadablePendingCount === 0 || checkingConflicts) return;
+
+    const uploadable = pendingFiles.filter((item) => !item.storageWarning);
+    if (oversizedPendingCount > 0) {
+      setStorageSkipNotice(
+        `${oversizedPendingCount} file${oversizedPendingCount === 1 ? "" : "s"} skipped — not enough storage. Remove them or free space, then try again.`,
+      );
+    }
 
     setConflictCheckError("");
     setCheckingConflicts(true);
     try {
-      const files = pendingFiles.map((item) => ({
+      const files = uploadable.map((item) => ({
         name: item.file.name,
         // Human: Force an integer byte size so JSON always includes size_bytes for the API contract.
         // Agent: AVOIDS omitted/NaN sizes that trigger Axum JSON 422 on check-upload-names.
@@ -214,7 +279,7 @@ export function UploadDialog({
         setConflictDialogOpen(true);
         return;
       }
-      beginUpload(pendingFiles.map((item) => item.file));
+      beginUpload(uploadable.map((item) => item.file));
     } catch (error) {
       setConflictCheckError(getErrorMessage(error));
     } finally {
@@ -238,9 +303,13 @@ export function UploadDialog({
   const uploadButtonLabel =
     checkingConflicts
       ? "Checking…"
-      : pendingFiles.length > 0
-        ? `Upload (${pendingFiles.length})`
-        : "Upload";
+      : uploadablePendingCount > 0
+        ? oversizedPendingCount > 0
+          ? `Upload (${uploadablePendingCount})`
+          : `Upload (${uploadablePendingCount})`
+        : pendingFiles.length > 0
+          ? "No room to upload"
+          : "Upload";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -278,6 +347,20 @@ export function UploadDialog({
             <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]">
               Uploads are running in the panel at the bottom-right. Files you add here join the
               same queue.
+            </p>
+          ) : null}
+
+          {storageSkipNotice ? (
+            <p className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {storageSkipNotice}
+            </p>
+          ) : null}
+
+          {oversizedPendingCount > 0 ? (
+            <p className="shrink-0 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm text-amber-900">
+              {oversizedPendingCount} selected file{oversizedPendingCount === 1 ? "" : "s"} exceed
+              your remaining storage and will not upload. You can still add them here to review;
+              remove them or free space before uploading.
             </p>
           ) : null}
 
@@ -326,6 +409,7 @@ export function UploadDialog({
                     key={item.id}
                     name={item.file.name}
                     sizeBytes={item.file.size}
+                    storageWarning={item.storageWarning}
                     onRemove={() => removePendingFile(item.id)}
                   />
                 ))}
