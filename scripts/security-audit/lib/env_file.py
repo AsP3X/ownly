@@ -94,6 +94,29 @@ SEC006_KEYS = frozenset(
     }
 )
 
+SEC007_KEYS = frozenset(
+    {
+        "SEC007_BASE_URL",
+        "SEC007_API_PREFIX",
+        "SEC007_OWNER_EMAIL",
+        "SEC007_OWNER_PASSWORD",
+        "SEC007_SHARE_PASSWORD",
+        "SEC007_FOLDER_ID",
+        "SEC007_FILE_ID",
+        "SEC007_SHARE_ID",
+        "SEC007_SHARE_TOKEN",
+        "SEC007_NO_BOOTSTRAP",
+        "SEC007_NO_REVOKE",
+        "SEC007_REQUIRE_SETUP",
+        "SEC007_RETRIES",
+        "SEC007_QUIET",
+        "SEC007_OUTPUT",
+        "SEC007_PROMPT",
+        "SEC007_NO_REDACTION",
+        "SEC007_I_KNOW",
+    }
+)
+
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 
@@ -205,6 +228,12 @@ def load_sec006_env_file(explicit: str | None = None) -> Path | None:
     # Human: Best-effort load of SEC006_* from discovered .env before config load.
     # Agent: RETURNS path loaded or None; does not override already-exported vars.
     return _load_env_file_for_keys(explicit, SEC006_KEYS)
+
+
+def load_sec007_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC007_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC007_KEYS)
 
 
 def inspect_env_file(

@@ -3,7 +3,7 @@
 
 BASE_URL ?= http://127.0.0.1:8080
 
-.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json
+.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 sec007 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json sec007-json
 
 sec001:
 	python3 sec001_setup_info_disclosure.py --base-url $(BASE_URL)
@@ -49,6 +49,13 @@ sec006:
 
 sec006-json:
 	python3 sec006_rate_limit_forwarded_headers.py --base-url $(BASE_URL) --json
+
+sec007:
+	@echo "SEC007 requires SEC007_OWNER_EMAIL and SEC007_OWNER_PASSWORD"
+	python3 sec007_share_overview_password_bypass.py --base-url $(BASE_URL)
+
+sec007-json:
+	python3 sec007_share_overview_password_bypass.py --base-url $(BASE_URL) --json
 
 test:
 	python3 -m unittest discover -s tests -v

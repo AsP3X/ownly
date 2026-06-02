@@ -545,6 +545,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / unauthorized access                                              |
 | **Impacted files** | `backend/src/shares/handlers.rs` (`public_share_overview`, `resolve_public_share`) |
 | **Routes**         | `GET /api/v1/public/shares/{token}`                                                |
+| **Audit script**   | [`scripts/security-audit/sec007_share_overview_password_bypass.py`](scripts/security-audit/sec007_share_overview_password_bypass.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -577,10 +578,40 @@ Intended protection boundary is broken for share metadata; unauthenticated parti
 2. Add integration tests for password-protected shares covering **all** public endpoints, including overview.
 3. Consider minimizing overview payload sensitivity (e.g., hide owner email) when password-protected.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec007_share_overview_password_bypass.py`](scripts/security-audit/sec007_share_overview_password_bypass.py). Bootstraps a password-protected folder share (or uses `SEC007_SHARE_*`), then probes overview without `x-share-password`.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Owner | Account that can create shares and set a share password |
+
+```bash
+python3 scripts/security-audit/sec007_share_overview_password_bypass.py --prompt
+```
+
+```bash
+export SEC007_OWNER_EMAIL='owner@example.com'
+export SEC007_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec007_share_overview_password_bypass.py
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Not vulnerable — overview denied without password |
+| **1** | Vulnerable — overview exposes metadata without `x-share-password` |
+| **2** | Inconclusive — credentials, API, or bootstrap failure |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - `GET /public/shares/{token}` on password-protected share returns 403 without correct `x-share-password`.
 - With correct password header, overview response remains functional.
+- `python3 scripts/security-audit/sec007_share_overview_password_bypass.py` exits **0** after remediation (**1** = vulnerable).
 
 ---
 

@@ -260,3 +260,34 @@ No credentials. Uses wrong passwords / invalid register email so no accounts are
 make -C scripts/security-audit sec006
 make -C scripts/security-audit test
 ```
+
+## SEC-007 — password-protected share overview bypass
+
+Creates a **password-protected** folder public share, then calls `GET /public/shares/{token}` **without** `x-share-password`. **Vulnerable** when overview JSON still includes metadata (e.g. `shared_by_email`). Compares with `GET .../contents` (should stay 403) and overview with correct password (should 200).
+
+```bash
+python3 scripts/security-audit/sec007_share_overview_password_bypass.py --prompt
+```
+
+```bash
+export SEC007_OWNER_EMAIL='owner@example.com'
+export SEC007_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec007_share_overview_password_bypass.py
+```
+
+| Flag | Description |
+|------|-------------|
+| `--owner-email` / `--owner-password` | Drive owner |
+| `--share-password` | Visitor password (default `sec007-audit-pass`) |
+| `--share-token` / `--share-id` | Skip bootstrap when set |
+| `--no-bootstrap` | Require share ids + token |
+| `--no-revoke` | Leave probe share active |
+
+Environment: `SEC007_*` (also loaded from repo `.env`). Use `export` or one-line env prefix.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec007
+make -C scripts/security-audit test
+```

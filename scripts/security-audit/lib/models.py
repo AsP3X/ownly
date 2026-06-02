@@ -90,6 +90,22 @@ class Sec006Config:
 
 
 @dataclass
+class Sec007Config:
+    # Human: SEC-007 password-protected share overview bypass probe options.
+    # Agent: READS env/CLI; WRITES runner_sec007; bootstraps folder share + password PATCH.
+    http: Config
+    owner_email: str
+    owner_password: str
+    share_password: str
+    folder_id: str
+    file_id: str
+    share_id: str
+    share_token: str
+    bootstrap_fixtures: bool
+    revoke_after_probe: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]
