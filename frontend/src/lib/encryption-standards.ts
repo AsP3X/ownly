@@ -12,6 +12,10 @@ export const KEY_EXCHANGE =
 export const STREAMING_SEGMENT_CIPHER =
   "AES-128-CBC for HLS media segments (EXT-X-KEY player requirement; keys wrapped with AES-256-GCM)";
 
+/** Human: Drive uploads vs HLS — blobs are not pre-encrypted before Nebular zstd. */
+export const BLOB_STORAGE_PLAINTEXT_TO_NEBULAR =
+  "Normal drive uploads are stored as plaintext bytes in Nebular OS so zstd compression stays effective; only HLS segments are encrypted before PUT.";
+
 export const PASSWORD_KDF = "Argon2id (password hashing)";
 
 export const QUANTUM_POSTURE =

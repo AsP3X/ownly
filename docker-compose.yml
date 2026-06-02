@@ -49,6 +49,12 @@ services:
       NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
       NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
       NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
+      # Human: zstd upload vs maintenance levels — fast PUT then background upgrade (see docs/storage-disk-tuning.md).
+      # Agent: NOS_ZSTD_LEVEL_UPLOAD default 3; NOS_ZSTD_LEVEL default 22; optional dict/dedup off by default.
+      NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
+      NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-22}
+      NOS_ZSTD_DICT_ENABLED: ${NOS_ZSTD_DICT_ENABLED:-false}
+      NOS_DEDUP_ENABLED: ${NOS_DEDUP_ENABLED:-false}
       # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
@@ -104,6 +110,12 @@ services:
       # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}
       HLS_VAAPI_DEVICE: ${HLS_VAAPI_DEVICE:-/dev/dri/renderD128}
+      # Human: Raise CRF/CQ to shrink HLS segments on disk (lower quality). See docs/storage-disk-tuning.md.
+      HLS_VIDEO_CRF: ${HLS_VIDEO_CRF:-20}
+      HLS_VIDEO_QUALITY: ${HLS_VIDEO_QUALITY:-22}
+      HLS_FULL_TRANSCODE_QUALITY: ${HLS_FULL_TRANSCODE_QUALITY:-26}
+      HLS_LARGE_MAXRATE: ${HLS_LARGE_MAXRATE:-5M}
+      HLS_LARGE_BUFSIZE: ${HLS_LARGE_BUFSIZE:-10M}
     ports:
       - "3000:3000"
     depends_on:

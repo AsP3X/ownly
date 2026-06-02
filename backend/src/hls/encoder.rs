@@ -39,6 +39,11 @@ struct FfmpegSessionParams<'a> {
     segment_target_secs: f64,
     video_encoder: ResolvedHardwareEncoder,
     vaapi_device: &'a str,
+    video_crf: u8,
+    video_quality: u8,
+    full_transcode_quality: u8,
+    large_maxrate: &'a str,
+    large_bufsize: &'a str,
     progress_tx: Option<tokio::sync::watch::Sender<i32>>,
 }
 
@@ -145,6 +150,11 @@ impl HlsEncoder {
                 segment_target_secs,
                 video_encoder: hardware.resolved,
                 vaapi_device: &hardware.vaapi_device,
+                video_crf: hardware.video_crf,
+                video_quality: hardware.video_quality,
+                full_transcode_quality: hardware.full_transcode_quality,
+                large_maxrate: &hardware.large_maxrate,
+                large_bufsize: &hardware.large_bufsize,
                 progress_tx: progress_tx.clone(),
             })
             .await
@@ -169,6 +179,11 @@ impl HlsEncoder {
             segment_target_secs,
             video_encoder: ResolvedHardwareEncoder::Cpu,
             vaapi_device: &hardware.vaapi_device,
+            video_crf: hardware.video_crf,
+            video_quality: hardware.video_quality,
+            full_transcode_quality: hardware.full_transcode_quality,
+            large_maxrate: &hardware.large_maxrate,
+            large_bufsize: &hardware.large_bufsize,
             progress_tx: progress_tx.clone(),
         })
         .await
@@ -193,6 +208,11 @@ impl HlsEncoder {
                     segment_target_secs,
                     video_encoder: ResolvedHardwareEncoder::Cpu,
                     vaapi_device: &hardware.vaapi_device,
+                    video_crf: hardware.video_crf,
+                    video_quality: hardware.video_quality,
+                    full_transcode_quality: hardware.full_transcode_quality,
+                    large_maxrate: &hardware.large_maxrate,
+                    large_bufsize: &hardware.large_bufsize,
                     progress_tx,
                 })
                 .await
@@ -211,6 +231,11 @@ impl HlsEncoder {
             segment_target_secs,
             video_encoder,
             vaapi_device,
+            video_crf,
+            video_quality,
+            full_transcode_quality,
+            large_maxrate,
+            large_bufsize,
             progress_tx,
         } = params;
         let duration_seconds = timing.duration_seconds;
@@ -266,13 +291,26 @@ impl HlsEncoder {
                 // Agent: SKIPS append_hls_timestamp_args; audio-only re-encode keeps source video timing.
             }
             HlsEncodeMode::AlignSegmentsRetranscode => {
+                let large_cap = if segment_target_secs >= HLS_SEGMENT_TARGET_SECS_LARGE {
+                    Some(HlsAlignRateCap {
+                        maxrate: large_maxrate,
+                        bufsize: large_bufsize,
+                    })
+                } else {
+                    None
+                };
                 append_align_segments_video_args(
                     &mut pre_input_args,
                     &mut encode_args,
                     output_fps,
                     segment_target_secs,
                     video_encoder,
-                    vaapi_device,
+                    &HlsAlignEncodeOpts {
+                        vaapi_device,
+                        video_crf,
+                        video_quality,
+                        large_source_cap: large_cap,
+                    },
                 );
                 append_hls_audio_encode(&mut encode_args);
                 append_hls_timestamp_args(&mut encode_args, output_fps);
@@ -283,6 +321,7 @@ impl HlsEncoder {
                     &mut encode_args,
                     video_encoder,
                     vaapi_device,
+                    full_transcode_quality,
                 );
                 append_hls_gop_args(&mut encode_args, output_fps, segment_target_secs);
                 append_hls_timestamp_args(&mut encode_args, output_fps);
@@ -494,14 +533,33 @@ fn append_hls_gop_args(encode_args: &mut Vec<String>, fps: f64, segment_target_s
     ]);
 }
 
+/// Human: ffmpeg quality + optional large-source bitrate cap for GOP-aligned HLS.
+struct HlsAlignEncodeOpts<'a> {
+    vaapi_device: &'a str,
+    video_crf: u8,
+    video_quality: u8,
+    large_source_cap: Option<HlsAlignRateCap<'a>>,
+}
+
+/// Human: Optional ffmpeg bitrate cap for large-source HLS (see HLS_LARGE_MAXRATE).
+struct HlsAlignRateCap<'a> {
+    maxrate: &'a str,
+    bufsize: &'a str,
+}
+
 fn append_align_segments_video_args(
     pre_input: &mut Vec<String>,
     encode_args: &mut Vec<String>,
     fps: f64,
     segment_target_secs: f64,
     video_encoder: ResolvedHardwareEncoder,
-    vaapi_device: &str,
+    opts: &HlsAlignEncodeOpts<'_>,
 ) {
+    let vaapi_device = opts.vaapi_device;
+    let video_crf = opts.video_crf;
+    let video_quality = opts.video_quality;
+    let crf = video_crf.to_string();
+    let quality = video_quality.to_string();
     match video_encoder {
         ResolvedHardwareEncoder::Cpu => {
             encode_args.extend([
@@ -512,7 +570,7 @@ fn append_align_segments_video_args(
                 "-preset".into(),
                 "veryfast".into(),
                 "-crf".into(),
-                "20".into(),
+                crf,
             ]);
         }
         ResolvedHardwareEncoder::Nvenc => {
@@ -526,7 +584,7 @@ fn append_align_segments_video_args(
                 "-rc".into(),
                 "vbr".into(),
                 "-cq".into(),
-                "22".into(),
+                quality.clone(),
             ]);
         }
         ResolvedHardwareEncoder::Vaapi => {
@@ -540,7 +598,7 @@ fn append_align_segments_video_args(
                 "-c:v".into(),
                 "h264_vaapi".into(),
                 "-qp".into(),
-                "22".into(),
+                quality.clone(),
             ]);
         }
         ResolvedHardwareEncoder::Qsv => {
@@ -558,17 +616,17 @@ fn append_align_segments_video_args(
                 "-preset".into(),
                 "veryfast".into(),
                 "-global_quality".into(),
-                "22".into(),
+                quality,
             ]);
         }
     }
     append_hls_gop_args(encode_args, fps, segment_target_secs);
-    if segment_target_secs >= HLS_SEGMENT_TARGET_SECS_LARGE {
+    if let Some(cap) = &opts.large_source_cap {
         encode_args.extend([
             "-maxrate".into(),
-            "5M".into(),
+            cap.maxrate.to_string(),
             "-bufsize".into(),
-            "10M".into(),
+            cap.bufsize.to_string(),
         ]);
     }
 }

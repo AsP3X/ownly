@@ -53,6 +53,24 @@ pub struct Config {
     pub hls_hardware_encode: String,
     #[serde(default = "default_hls_vaapi_device")]
     pub hls_vaapi_device: String,
+    /// Human: libx264 CRF for GOP-aligned HLS re-encode (lower = larger / higher quality).
+    /// Agent: READ by hls::encoder append_align_segments_video_args; DEFAULT 20.
+    #[serde(default = "default_hls_video_crf")]
+    pub hls_video_crf: u8,
+    /// Human: NVENC CQ / VAAPI QP / QSV quality for align-path HLS (lower = larger / higher quality).
+    /// Agent: READ by hls::encoder and hls::hardware; DEFAULT 22.
+    #[serde(default = "default_hls_video_quality")]
+    pub hls_video_quality: u8,
+    /// Human: Quality for full HLS transcode (CRF/CQ/QP/QSV); higher = smaller files.
+    /// Agent: READ by append_full_transcode_encoder_args; DEFAULT 26.
+    #[serde(default = "default_hls_full_transcode_quality")]
+    pub hls_full_transcode_quality: u8,
+    /// Human: ffmpeg -maxrate when source exceeds HLS_LARGE_SOURCE_BYTES (e.g. 4M, 5M).
+    #[serde(default = "default_hls_large_maxrate")]
+    pub hls_large_maxrate: String,
+    /// Human: ffmpeg -bufsize paired with hls_large_maxrate.
+    #[serde(default = "default_hls_large_bufsize")]
+    pub hls_large_bufsize: String,
     /// Human: `nebular` (default) or `ownly` — whether blob index lives in Nebular or Ownly Postgres.
     /// Agent: WRITTEN to app_settings on setup; READ by placement::read_metadata_mode.
     #[serde(default = "default_storage_metadata_mode")]
@@ -160,6 +178,26 @@ fn default_hls_hardware_encode() -> String {
 
 fn default_hls_vaapi_device() -> String {
     "/dev/dri/renderD128".into()
+}
+
+fn default_hls_video_crf() -> u8 {
+    20
+}
+
+fn default_hls_video_quality() -> u8 {
+    22
+}
+
+fn default_hls_full_transcode_quality() -> u8 {
+    26
+}
+
+fn default_hls_large_maxrate() -> String {
+    "5M".into()
+}
+
+fn default_hls_large_bufsize() -> String {
+    "10M".into()
 }
 
 fn default_storage_metadata_mode() -> String {

@@ -7,6 +7,7 @@ import { MarketingCtaSection } from "@/components/marketing/MarketingCtaSection"
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import {
+  BLOB_STORAGE_PLAINTEXT_TO_NEBULAR,
   KEY_EXCHANGE,
   KEY_WRAPPING,
   QUANTUM_READINESS_CHECKLIST,
@@ -14,6 +15,12 @@ import {
   STREAMING_SEGMENT_CIPHER,
   SYMMETRIC_CIPHER,
 } from "@/lib/encryption-standards";
+import {
+  NEBULAR_ON_DISK_FORMAT_ROWS,
+  NEBULAR_ZSTD_PHASE_ROWS,
+  OWNLY_FOLDER_ZIP_NOTE,
+  OWNLY_STORAGE_ENCRYPTION_SUMMARY,
+} from "@/lib/nebular-storage-docs";
 
 type StorageCard = {
   title: string;
@@ -46,8 +53,8 @@ const storageCards: StorageCard[] = [
     items: [
       "Predictable content keys",
       "xxHash3 prefix spread",
-      "SQLite metadata index",
-      "HLS sidecars prefix",
+      "zstd NOS2 / legacy NOSZ blobs",
+      "HLS sidecars (encrypted segments)",
     ],
   },
 ];
@@ -56,9 +63,8 @@ const cryptoSteps = [
   {
     step: "STEP 1",
     icon: Cpu,
-    title: "Processing & key generation",
-    description:
-      "Uploads are processed server-side. Video jobs package fMP4 segments and derive per-file content keys with a CSPRNG before any bytes reach Nebular OS.",
+    title: "Drive uploads → Nebular zstd",
+    description: BLOB_STORAGE_PLAINTEXT_TO_NEBULAR,
   },
   {
     step: "STEP 2",
@@ -69,7 +75,7 @@ const cryptoSteps = [
   {
     step: "STEP 3",
     icon: Key,
-    title: "Segment encryption (HLS)",
+    title: "Segment encryption (HLS only)",
     description: STREAMING_SEGMENT_CIPHER,
   },
   {
@@ -78,14 +84,6 @@ const cryptoSteps = [
     title: "Hybrid PQC key exchange",
     description: KEY_EXCHANGE,
   },
-];
-
-const compressionLevels = [
-  { size: "< 10 MiB", level: "1–3", note: "Real-time upload path" },
-  { size: ">= 10 MiB", level: "3–6", note: "Async background job" },
-  { size: ">= 100 MiB", level: "6–9", note: "Off-peak recompression" },
-  { size: ">= 500 MiB", level: "9–12", note: "Cold storage tier" },
-  { size: "On Demand", level: "Store-if-smaller", note: "Skip if compressed larger" },
 ];
 
 export default function StorageSpecsPage() {
@@ -228,21 +226,36 @@ export default function StorageSpecsPage() {
 
           <article className="flex flex-col gap-5 rounded-2xl border border-[#E5E7EB] bg-white p-8">
             <div className="flex flex-col gap-1">
-              <h3 className="text-lg font-bold text-[#1A1A1A]">Dynamic zstd Storage Engine</h3>
-              <span className="text-xs font-semibold text-[#2563EB]">Dynamic Levels &amp; Store-If-Smaller Policy</span>
+              <h3 className="text-lg font-bold text-[#1A1A1A]">Nebular zstd (upload vs maintenance)</h3>
+              <span className="text-xs font-semibold text-[#2563EB]">Compose: NOS_ZSTD_LEVEL_UPLOAD / NOS_ZSTD_LEVEL</span>
             </div>
+            <p className="text-sm leading-relaxed text-[#666666]">{OWNLY_STORAGE_ENCRYPTION_SUMMARY}</p>
             <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">
               <div className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-xs font-bold text-[#666666]">
-                <div className="bg-[#F7F8FA] px-4 py-2.5">Size</div>
-                <div className="bg-[#F7F8FA] px-4 py-2.5">Level</div>
-                <div className="bg-[#F7F8FA] px-4 py-2.5">Note</div>
+                <div className="bg-[#F7F8FA] px-4 py-2.5">Phase</div>
+                <div className="bg-[#F7F8FA] px-4 py-2.5">Env</div>
+                <div className="bg-[#F7F8FA] px-4 py-2.5">Default</div>
               </div>
-              {compressionLevels.map((row) => (
-                <div key={row.size} className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-sm">
-                  <div className="bg-white px-4 py-3 font-mono text-xs text-[#1A1A1A]">{row.size}</div>
-                  <div className="bg-white px-4 py-3 text-xs text-[#666666]">{row.level}</div>
-                  <div className="bg-white px-4 py-3 text-xs text-[#666666]">{row.note}</div>
+              {NEBULAR_ZSTD_PHASE_ROWS.map((row) => (
+                <div key={row.phase} className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-sm">
+                  <div className="bg-white px-4 py-3 text-xs text-[#1A1A1A]">{row.phase}</div>
+                  <div className="bg-white px-4 py-3 font-mono text-[10px] text-[#666666]">{row.env}</div>
+                  <div className="bg-white px-4 py-3 text-xs text-[#666666]">
+                    {row.level} — {row.note}
+                  </div>
                 </div>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-[#666666]">{OWNLY_FOLDER_ZIP_NOTE}</p>
+            <div className="flex flex-wrap gap-2">
+              {NEBULAR_ON_DISK_FORMAT_ROWS.map((fmt) => (
+                <span
+                  key={fmt.magic}
+                  className="rounded-md border border-[#E5E7EB] bg-[#F7F8FA] px-2 py-1 font-mono text-[10px] text-[#666666]"
+                  title={fmt.detail}
+                >
+                  {fmt.magic}
+                </span>
               ))}
             </div>
           </article>

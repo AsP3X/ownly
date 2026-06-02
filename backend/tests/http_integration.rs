@@ -32,6 +32,11 @@ fn test_config(database_url: &str) -> Config {
         job_recovery_poll_seconds: 60,
         hls_hardware_encode: "off".into(),
         hls_vaapi_device: "/dev/dri/renderD128".into(),
+        hls_video_crf: 20,
+        hls_video_quality: 22,
+        hls_full_transcode_quality: 26,
+        hls_large_maxrate: "5M".into(),
+        hls_large_bufsize: "10M".into(),
         storage_metadata_mode: "nebular".into(),
     }
 }

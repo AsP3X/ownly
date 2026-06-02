@@ -70,12 +70,13 @@ const ownlyComparison = [
   },
   {
     title: "High-Ratio Compression",
-    description: "All data is zstd compressed prior to storage, reducing payload size by up to 70%.",
+    description:
+      "Drive uploads are zstd-compressed in Nebular OS (fast upload level, optional background upgrade). HLS segments are encrypted separately and rarely shrink under zstd.",
   },
   {
     title: "AES-256 envelope encryption",
     description:
-      "Content keys are wrapped with AES-256-GCM before blobs reach Nebular OS; plaintext keys never persist on disk.",
+      "Per-file content keys are wrapped with AES-256-GCM in Postgres; HLS segment keys use AES-128-CBC for player compatibility. Plaintext keys never persist on disk.",
   },
   {
     title: "Multi-Zone Redundancy",

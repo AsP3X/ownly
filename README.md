@@ -81,6 +81,8 @@ Node B is exposed on **http://localhost:9001**; register it in Admin → Add Sto
 
 For non-Docker development or production-like random secrets, run `init-env.sh` once (or `docker compose --profile init run --rm init-env`) to generate `.env` files from the examples.
 
+**Disk tuning:** Nebular zstd levels, recompression, and HLS ingest quality are documented in [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md) (Compose env vars in `.env.example`).
+
 Open **http://localhost:8080** — the onboarding wizard runs on first launch.
 
 | Service | URL |

@@ -158,9 +158,9 @@ const processingSteps = [
   {
     step: "STEP 1",
     icon: Key,
-    title: "1. Binary Blob Conversion",
+    title: "1. Upload to Nebular OS",
     description:
-      "The binary blobs are heavily compressed using advanced zstd streams to reduce the payload file size by up to 70% before final storage write.",
+      "Drive files are sent as plaintext bytes so Nebular zstd can compress them (NOS2 blobs). Video HLS paths encrypt segments before upload.",
     visual: (
       <>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#1A1A1A]">
@@ -177,9 +177,9 @@ const processingSteps = [
   {
     step: "STEP 2",
     icon: Cpu,
-    title: "2. High-Ratio Compression",
+    title: "2. zstd in Nebular OS",
     description:
-      "The binary blobs are heavily compressed using advanced zstd streams to reduce the payload file size by up to 70% before final storage write.",
+      "Nebular applies fast upload zstd (default level 3) and can recompress to a stronger maintenance level in the background.",
     visual: (
       <>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#2563EB]">

@@ -11,20 +11,20 @@ import {
 } from "lucide-react";
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import {
+  NEBULAR_ON_DISK_FORMAT_ROWS,
+  NEBULAR_ZSTD_PHASE_ROWS,
+} from "@/lib/nebular-storage-docs";
 
 const heroHighlights = [
   { icon: Database, label: "SQLite WAL Metadata", detail: "Atomic bucket/key storage in Write-Ahead Log mode." },
   { icon: HardDrive, label: "Flat-File Disk Blobs", detail: "No file system overhead, direct content-addressable storage." },
-  { icon: Zap, label: "zstd Smart Compression", detail: "Real-time transparent compression based on content entropy." },
+  {
+    icon: Zap,
+    label: "Tiered zstd (NOS2)",
+    detail: "Fast upload level (default 3) plus background recompress to level 22.",
+  },
   { icon: KeyRound, label: "JWT & HMAC Security", detail: "Stateless security gates and S3-compatible credentials." },
-];
-
-const compressionLevels = [
-  { size: "< 10 MiB", level: "Level 1–3", policy: "Real-time upload" },
-  { size: ">= 10 MiB", level: "Level 3–6", policy: "Async background" },
-  { size: ">= 100 MiB", level: "Level 6–9", policy: "Off-peak pass" },
-  { size: ">= 500 MiB", level: "Level 9–12", policy: "Cold storage" },
-  { size: "On Demand", level: "Store-if-smaller", policy: "Skip if larger" },
 ];
 
 const securityGates = [
@@ -186,45 +186,38 @@ export default function NebularOsSpecsPage() {
         </div>
       </section>
 
-      {/* Human: Section 4 — NOSZ compression format from Pencil Section 4: zstd Compression */}
+      {/* Human: Section 4 — NOS2/NOSZ compression (aligned with Nebular changelog, not size-tier fiction) */}
       <section className="flex w-full flex-col gap-6 py-8">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-bold text-[#2563EB]">04 — TRANSPARENT COMPRESSION</span>
-          <h2 className="text-2xl font-bold text-[#1A1A1A]">Transparent zstd Compression Format</h2>
+          <h2 className="text-2xl font-bold text-[#1A1A1A]">zstd upload vs maintenance</h2>
           <p className="max-w-3xl text-sm leading-relaxed text-[#666666]">
-            Compressed files on disk use our custom NOSZ header format with vital recovery parameters for standalone
-            file reconstruction.
+            New blobs use the NOS2 header (logical size, optional dictionary id, stored level). Legacy NOSZ v1 remains
+            readable. Background recompression upgrades raw, NOSZ, and low-level NOS2 when a stronger pass saves space.
           </p>
         </div>
-        <div className="rounded-2xl border border-[#E5E7EB] bg-[#F7F8FA] p-8">
-          <p className="mb-4 text-xs font-bold tracking-wide text-[#666666]">NOSZ ON-DISK BINARY SPECIFICATION</p>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-[#E5E7EB] bg-white p-4">
-              <span className="font-mono text-sm font-bold text-[#2563EB]">NOSZ</span>
-              <p className="mt-1 text-xs text-[#666666]">Magic Header (4 Bytes) — validates file type</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {NEBULAR_ON_DISK_FORMAT_ROWS.map((fmt) => (
+            <div key={fmt.magic} className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] p-4">
+              <span className="font-mono text-sm font-bold text-[#2563EB]">{fmt.magic}</span>
+              <p className="mt-1 text-xs text-[#666666]">{fmt.detail}</p>
             </div>
-            <div className="rounded-lg border border-[#E5E7EB] bg-white p-4">
-              <span className="font-mono text-sm font-bold text-[#2563EB]">64-bit LE</span>
-              <p className="mt-1 text-xs text-[#666666]">Logical Size (8 Bytes) — uncompressed size</p>
-            </div>
-            <div className="rounded-lg border border-[#E5E7EB] bg-white p-4">
-              <span className="font-mono text-sm font-bold text-[#2563EB]">zstd</span>
-              <p className="mt-1 text-xs text-[#666666]">Compressed Block — standard Zstandard stream</p>
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">
           <div className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-xs font-bold text-[#666666]">
-            <div className="bg-[#F7F8FA] px-4 py-2.5">File Size</div>
-            <div className="bg-[#F7F8FA] px-4 py-2.5">Level</div>
-            <div className="bg-[#F7F8FA] px-4 py-2.5">Policy</div>
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Phase</div>
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Environment</div>
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Default</div>
           </div>
-          {compressionLevels.map((row) => (
-            <div key={row.size} className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-sm">
-              <div className="bg-white px-4 py-3 font-mono text-[#1A1A1A]">{row.size}</div>
-              <div className="bg-white px-4 py-3 text-[#666666]">{row.level}</div>
-              <div className="bg-white px-4 py-3 text-[#666666]">{row.policy}</div>
+          {NEBULAR_ZSTD_PHASE_ROWS.map((row) => (
+            <div key={row.phase} className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-sm">
+              <div className="bg-white px-4 py-3 text-xs text-[#1A1A1A]">{row.phase}</div>
+              <div className="bg-white px-4 py-3 font-mono text-[10px] text-[#666666]">{row.env}</div>
+              <div className="bg-white px-4 py-3 text-xs text-[#666666]">
+                {row.level} — {row.note}
+              </div>
             </div>
           ))}
         </div>

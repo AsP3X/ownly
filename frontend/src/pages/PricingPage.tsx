@@ -135,8 +135,8 @@ export default function PricingPage() {
         <div className="flex flex-col gap-1.5">
           <h2 className="text-base font-bold text-[#1A1A1A]">Our Nebular-OS High Performance Guarantee</h2>
           <p className="text-[13px] leading-relaxed text-[#666666]">
-            All files are converted into secure blobs, zstd compressed, and encrypted at rest inside nebular-os,
-            guaranteeing lightning-fast transfers and absolute data integrity.
+            Drive files are zstd-compressed in Nebular OS; HLS streams use segment encryption with keys wrapped in
+            Postgres. Tune compression and ingest via Compose — see docs/storage-disk-tuning.md.
           </p>
         </div>
       </section>

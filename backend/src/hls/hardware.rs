@@ -33,6 +33,14 @@ pub struct HlsHardwareEncode {
     pub preference: HardwareEncodePreference,
     pub resolved: ResolvedHardwareEncoder,
     pub vaapi_device: String,
+    /// Human: libx264 CRF for GOP-aligned segment re-encode.
+    pub video_crf: u8,
+    /// Human: NVENC / VAAPI / QSV quality for align-path encode.
+    pub video_quality: u8,
+    /// Human: CRF/CQ/QP for full transcode (smaller disk when raised).
+    pub full_transcode_quality: u8,
+    pub large_maxrate: String,
+    pub large_bufsize: String,
 }
 
 impl HlsHardwareEncode {
@@ -43,6 +51,11 @@ impl HlsHardwareEncode {
             preference: parse_hardware_preference(&config.hls_hardware_encode),
             resolved: ResolvedHardwareEncoder::Cpu,
             vaapi_device: config.hls_vaapi_device.clone(),
+            video_crf: config.hls_video_crf,
+            video_quality: config.hls_video_quality,
+            full_transcode_quality: config.hls_full_transcode_quality,
+            large_maxrate: config.hls_large_maxrate.clone(),
+            large_bufsize: config.hls_large_bufsize.clone(),
         }
     }
 
@@ -174,7 +187,9 @@ pub fn append_full_transcode_encoder_args(
     encode_args: &mut Vec<String>,
     encoder: ResolvedHardwareEncoder,
     vaapi_device: &str,
+    full_transcode_quality: u8,
 ) {
+    let q = full_transcode_quality.to_string();
     match encoder {
         ResolvedHardwareEncoder::Cpu => {
             encode_args.extend([
@@ -185,7 +200,7 @@ pub fn append_full_transcode_encoder_args(
                 "-preset".into(),
                 "ultrafast".into(),
                 "-crf".into(),
-                "26".into(),
+                q.clone(),
                 "-vf".into(),
                 "scale='min(1920,iw)':-2,format=yuv420p".into(),
             ]);
@@ -201,7 +216,7 @@ pub fn append_full_transcode_encoder_args(
                 "-rc".into(),
                 "vbr".into(),
                 "-cq".into(),
-                "26".into(),
+                q.clone(),
                 "-vf".into(),
                 "scale='min(1920,iw)':-2,format=yuv420p".into(),
             ]);
@@ -217,6 +232,8 @@ pub fn append_full_transcode_encoder_args(
                     .into(),
                 "-c:v".into(),
                 "h264_vaapi".into(),
+                "-qp".into(),
+                q.clone(),
             ]);
         }
         ResolvedHardwareEncoder::Qsv => {
@@ -234,7 +251,7 @@ pub fn append_full_transcode_encoder_args(
                 "-preset".into(),
                 "veryfast".into(),
                 "-global_quality".into(),
-                "26".into(),
+                q,
             ]);
         }
     }
@@ -279,6 +296,7 @@ mod tests {
             &mut encode,
             ResolvedHardwareEncoder::Cpu,
             "/dev/dri/renderD128",
+            26,
         );
         assert!(pre.is_empty());
         assert!(encode.iter().any(|arg| arg == "libx264"));
@@ -293,6 +311,7 @@ mod tests {
             &mut encode,
             ResolvedHardwareEncoder::Nvenc,
             "/dev/dri/renderD128",
+            26,
         );
         assert!(encode.iter().any(|arg| arg == "h264_nvenc"));
     }
