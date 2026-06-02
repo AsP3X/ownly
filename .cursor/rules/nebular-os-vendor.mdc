@@ -1,0 +1,35 @@
+---
+description: Nebular OS is an upstream git submodule — never edit it inside Ownly
+alwaysApply: true
+---
+
+# Nebular OS vendor (read-only submodule)
+
+`nebular-os/` is a **git submodule** pointing at [github.com/AsP3X/nebular-os](https://github.com/AsP3X/nebular-os). Ownly records only the **pinned commit**; all storage service source changes belong in that repository.
+
+## Mandatory for agents
+
+- **Never** create, edit, or delete files under `nebular-os/` in this workspace (including `nebular-os/.cursor/`, tests, Dockerfile, or Rust sources).
+- **Never** run `git add` on paths under `nebular-os/*` except bumping the submodule pointer at `nebular-os` (gitlink only).
+- **Nebular bugs or features:** produce a **unified diff** or **format-patch** for the user, or describe changes for them to apply in `AsP3X/nebular-os`. Do not implement fixes inside this repo’s submodule checkout.
+- **Ownly integration** (JWT/signing alignment, upload limits, Compose env, HTTP client): change **Ownly** only — `docker-compose.yml`, `.env.example`, `init-env.sh`, `backend/src/storage/`, frontend docs — not Nebular source.
+
+## Bumping the dependency
+
+After the user merges work upstream:
+
+```bash
+cd nebular-os && git fetch && git checkout <tag-or-sha>
+cd .. && git add nebular-os && git commit -m "CHORE: Bump nebular-os to <tag-or-sha>"
+```
+
+Use `scripts/nebular-export-patch.sh` to export local submodule diffs when testing against a pinned commit.
+
+## Clone / CI
+
+```bash
+git clone --recurse-submodules <ownly-url>
+# or: git submodule update --init --recursive
+```
+
+Docker Compose still builds `object-storage` from `./nebular-os` after the submodule is initialized.

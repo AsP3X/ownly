@@ -7,13 +7,37 @@ Self-hosted personal cloud storage for documents, images, videos, audio, and mor
 - **Frontend:** Vite + React + TypeScript + Tailwind CSS + [shadcn/ui](https://ui.shadcn.com)
 - **Backend:** Rust (Axum)
 - **Database:** PostgreSQL
-- **Object storage:** [Nebular OS](https://github.com/AsP3X/nebular-os) (included under `nebular-os/`) — transparent zstd compression on write, store-if-smaller encoding, soft-delete blob reclamation, and background recompression of legacy raw blobs
+- **Object storage:** [Nebular OS](https://github.com/AsP3X/nebular-os) — **git submodule** at `nebular-os/` (read-only in Ownly; bump the pinned commit to upgrade)
+
+## Clone
+
+```bash
+git clone --recurse-submodules <repository-url>
+cd ownly
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+Install Git hooks (blocks accidental commits under `nebular-os/`):
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+**Nebular changes** belong in [AsP3X/nebular-os](https://github.com/AsP3X/nebular-os). To export local submodule diffs for upstream: `./scripts/nebular-export-patch.sh`.
+
+Pinned submodule commit (update with `git add nebular-os` after checkout): see `git rev-parse :nebular-os` (currently tracks upstream `master`; no `v0.1.0` tag on the remote yet).
 
 ## Quick start (Docker)
 
 Start the full stack (no `.env` or secret setup required for local Compose):
 
 ```bash
+git submodule update --init --recursive   # if nebular-os/ is empty
 docker compose up --build
 ```
 
@@ -65,7 +89,7 @@ Vite proxies `/api/v1` to `http://localhost:3000`.
 .
 ├── backend/          # Rust Axum API
 ├── frontend/         # Vite + React + shadcn/ui
-├── nebular-os/       # Object storage service
+├── nebular-os/       # Nebular OS (git submodule — do not edit here)
 ├── docker-compose.yml
 ├── init-env.sh
 └── .cursor/rules/    # Agent rules for this repo

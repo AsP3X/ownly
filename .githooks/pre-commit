@@ -1,0 +1,48 @@
+#!/bin/sh
+# Human: Block accidental commits of Nebular OS source inside Ownly; allow submodule pointer bumps only.
+# Agent: RUNS on every commit when core.hooksPath=.githooks; FAILS on nebular-os/* paths except gitlink nebular-os.
+
+set -e
+
+# Human: Staging nebular-os/src/... must never land in Ownly history (vendored mistake or broken submodule setup).
+# Agent: git add .githooks/pre-commit after editing this file so hook updates are not missed.
+# Agent: READS cached paths; EXITS 1 if any path is nebular-os/<file> rather than the submodule entry alone.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  staged_paths=$(git diff --cached --name-only 2>/dev/null || true)
+  deleted_paths=$(git diff --cached --name-only --diff-filter=D 2>/dev/null || true)
+  for path in $staged_paths; do
+    case "$path" in
+      nebular-os/*)
+        # Human: One-time vendor→submodule migration may stage deletes under nebular-os/*.
+        # Agent: ALLOW diff-filter D only; BLOCK adds/modifies under nebular-os/* in Ownly index.
+        if echo "$deleted_paths" | grep -Fxq "$path"; then
+          continue
+        fi
+        echo "pre-commit: refusing to commit files under nebular-os/: $path" >&2
+        echo "Nebular OS is a read-only submodule. Apply changes at https://github.com/AsP3X/nebular-os" >&2
+        echo "then bump the submodule: cd nebular-os && git checkout <sha> && cd .. && git add nebular-os" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+
+# Human: Dirty submodule working tree should not ship with unrelated Ownly commits.
+# Agent: SKIPS when only bumping gitlink (sole staged path is nebular-os); else FAILS on porcelain inside submodule.
+if [ -f .gitmodules ] && { [ -d nebular-os/.git ] || [ -f nebular-os/.git ]; }; then
+  only_gitlink_bump=false
+  staged_count=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$staged_count" = "1" ] && git diff --cached --name-only 2>/dev/null | grep -qx 'nebular-os'; then
+    only_gitlink_bump=true
+  fi
+  if [ "$only_gitlink_bump" = "false" ]; then
+    dirty=$(git -C nebular-os status --porcelain 2>/dev/null || true)
+    if [ -n "$dirty" ]; then
+      echo "pre-commit: nebular-os submodule has uncommitted changes" >&2
+      echo "Commit or discard them in the Nebular repo, or reset: git -C nebular-os checkout -- ." >&2
+      exit 1
+    fi
+  fi
+fi
+
+exit 0
