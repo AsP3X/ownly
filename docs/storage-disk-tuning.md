@@ -41,6 +41,8 @@ Lower **CRF/CQ** values = higher quality and **larger** segments on disk.
 
 From the repo root (Postgres reachable, Nebular data volume mounted or `NEBULAR_DATA_DIR` set):
 
+(Use the shared `scripts/.venv` — run `bash scripts/setup-test-env.sh` once if you haven't.)
+
 ```bash
 python scripts/storage-audit.py
 ```
@@ -52,6 +54,7 @@ export DATABASE_URL=postgres://mediavault:mediavault@localhost:5432/mediavault
 export NEBULAR_DATA_DIR=/var/lib/docker/volumes/ownly_nebular_data/_data/blobs
 python scripts/storage-audit.py
 ```
+(Activate `scripts/.venv` first so `psycopg` is available.)
 
 The script sums `files.size_bytes` (non-deleted) and walks the Nebular blob tree, classifying **NOS2**, **NOSZ**, **NOSD**, and raw files. Large gaps often mean orphaned blobs, incomplete deletes, or HLS sidecars not reflected in a single file row.
 

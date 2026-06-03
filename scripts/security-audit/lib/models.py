@@ -115,6 +115,23 @@ class Sec008Config:
 
 
 @dataclass
+class Sec009Config:
+    # Human: SEC-009 share password brute-force throttling probe options.
+    # Agent: READS env/CLI; WRITES runner_sec009; bursts wrong x-share-password guesses.
+    http: Config
+    owner_email: str
+    owner_password: str
+    share_password: str
+    folder_id: str
+    file_id: str
+    share_id: str
+    share_token: str
+    bootstrap_fixtures: bool
+    revoke_after_probe: bool
+    wrong_attempts: int
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

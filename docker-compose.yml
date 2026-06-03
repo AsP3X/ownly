@@ -32,7 +32,9 @@ services:
   object-storage:
     build:
       context: ./nebular-os
-      dockerfile: Dockerfile
+      # Human: Ownly Dockerfile adds migrations/ for compile-time include_str (see docker/nebular-os.Dockerfile).
+      # Agent: CONTEXT nebular-os; dockerfile path relative to compose file root.
+      dockerfile: ../docker/nebular-os.Dockerfile
     container_name: mediavault-object-storage
     environment:
       # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.

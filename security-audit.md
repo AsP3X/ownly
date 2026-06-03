@@ -736,6 +736,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Unauthorized access / brute force                                                                                                   |
 | **Impacted files** | `backend/src/shares/store.rs` (`verify_share_password`), `backend/src/shares/handlers.rs` (public share routes using password gate) |
 | **Routes**         | `/api/v1/public/shares/{token}`* on password-protected links                                                                        |
+| **Audit script**   | [`scripts/security-audit/sec009_share_password_bruteforce.py`](scripts/security-audit/sec009_share_password_bruteforce.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -767,10 +768,40 @@ Password-protected shares are vulnerable to online guessing, potentially enablin
 3. Log and audit repeated failures for detection.
 4. Consider configurable minimum/complexity policy for share passwords.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec009_share_password_bruteforce.py`](scripts/security-audit/sec009_share_password_bruteforce.py). Bootstraps a password-protected folder share, then bursts wrong `x-share-password` values on `GET /public/shares/{token}/contents`.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Owner | Account that can create shares and set a share password |
+
+```bash
+python3 scripts/security-audit/sec009_share_password_bruteforce.py --prompt
+```
+
+```bash
+export SEC009_OWNER_EMAIL='owner@example.com'
+export SEC009_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec009_share_password_bruteforce.py
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Throttling observed (HTTP 429) on wrong-password burst |
+| **1** | Vulnerable — many wrong guesses return 403 without rate limit |
+| **2** | Inconclusive — credentials, API, or bootstrap failure |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Repeated wrong-password attempts trigger 429 and/or lockout behavior.
 - Correct password succeeds after cooldown/within configured policy.
+- `python3 scripts/security-audit/sec009_share_password_bruteforce.py` exits **0** after remediation (**1** = vulnerable).
 
 ---
 

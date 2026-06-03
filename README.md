@@ -28,7 +28,7 @@ git submodule update --init --recursive
 
 ### 2. Initialize the `nebular-os` submodule (required)
 
-Docker builds **`object-storage`** (and optional **`object-storage-b`**) from `./nebular-os/Dockerfile`. That directory is a **git submodule**, not copied into Ownly — an empty `nebular-os/` folder will break Compose with:
+Docker builds **`object-storage`** (and optional **`object-storage-b`**) from the **`nebular-os/`** submodule using **`docker/nebular-os.Dockerfile`** (includes `migrations/` for compile-time SQL; sync with upstream `nebular-os/Dockerfile` when bumping the pin). An empty `nebular-os/` folder will break Compose with:
 
 ```text
 failed to read dockerfile: open Dockerfile: no such file or directory
@@ -122,6 +122,21 @@ npm run dev
 ```
 
 Vite proxies `/api/v1` to `http://localhost:3000`.
+
+### Audit & testing scripts (Python)
+
+Security probes (SEC-00x) and the storage audit helper live under `scripts/`. They are designed to be runnable against any deployment (including local Docker) and have their own unit tests (no backend required for most tests).
+
+See [`scripts/security-audit/README.md`](scripts/security-audit/README.md) for full details.
+
+**One-time setup (macOS / Linux / Windows):**
+```bash
+bash scripts/setup-test-env.sh     # or scripts\setup-test-env.bat on Windows
+source scripts/.venv/bin/activate  # (or the Windows equivalent)
+python -m unittest discover -s scripts/security-audit/tests -v
+```
+
+The same venv also gives you `psycopg` for `scripts/storage-audit.py` (see `docs/storage-disk-tuning.md`).
 
 ## Project structure
 

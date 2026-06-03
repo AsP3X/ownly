@@ -27,7 +27,7 @@ x-nebular-storage-env: &nebular-storage-env
 x-nebular-storage-service: &nebular-storage-service
   build:
     context: ./nebular-os
-    dockerfile: Dockerfile
+    dockerfile: ../docker/nebular-os.Dockerfile
   healthcheck:
     test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
     interval: 5s

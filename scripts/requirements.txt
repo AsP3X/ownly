@@ -1,0 +1,15 @@
+# Dependencies for Ownly testing/audit scripts.
+#
+# Security audit scripts (scripts/security-audit/*.py and tests) are implemented
+# using only the Python standard library (stdlib-only, no third-party packages).
+# See scripts/security-audit/lib/http_client.py and the audit README.
+#
+# storage-audit.py requires a Postgres client library.
+
+# For scripts/storage-audit.py (compares Postgres logical size vs on-disk Nebular blobs)
+# The [binary] extra provides prebuilt wheels so no system libpq / build deps are needed.
+psycopg[binary]>=3.1
+
+# No other runtime dependencies for the audit scripts.
+# Dev/test tools (e.g. for editing) can be added here if desired, but are not required
+# to run the security or storage audit scripts.
