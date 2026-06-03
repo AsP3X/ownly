@@ -35,7 +35,7 @@ Use the checkboxes below to track remediation as you work through each item.
 | **Category**       | Data extraction / information disclosure                                                                                                                                                        |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`setup_database_info`, `setup_storage_info`), `backend/src/lib.rs` (public route wiring)                                                                       |
 | **Routes**         | `GET /api/v1/setup/database`, `GET /api/v1/setup/storage`                                                                                                                                       |
-| **Audit script**   | `[scripts/security-audit/sec001_setup_info_disclosure.py](scripts/security-audit/sec001_setup_info_disclosure.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+| **Audit script**   | [`scripts/security-audit/sec001_setup_info_disclosure.py`](scripts/security-audit/sec001_setup_info_disclosure.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -66,11 +66,37 @@ Credential theft, infrastructure mapping, possible full database compromise if t
 2. Never return full `DATABASE_URL` with secrets in API responses — return driver/host only, or a redacted placeholder.
 3. Consider removing these routes from the public router after first admin exists.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec001_setup_info_disclosure.py`](scripts/security-audit/sec001_setup_info_disclosure.py). Unauthenticated `GET` of `/setup/database` and `/setup/storage`; flags credential or infrastructure metadata leaks. Full flag list: [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (SEC-001).
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Credentials | None — unauthenticated probe |
+
+```bash
+python3 scripts/security-audit/sec001_setup_info_disclosure.py
+```
+
+```bash
+python3 scripts/security-audit/sec001_setup_info_disclosure.py --base-url http://127.0.0.1:8080 --json --quiet
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | No vulnerability indicators (blocked or redacted after setup) |
+| **1** | Vulnerable — credentials or storage metadata exposed |
+| **2** | Inconclusive — API unreachable |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Unauthenticated `GET /setup/database` returns 404/401 after setup (or redacted body only).
 - No password material appears in JSON responses or audit logs.
-- `python3 scripts/security-audit/sec001_setup_info_disclosure.py` exits **0** against a post-fix deployment (exit **1** = vulnerable; **2** = inconclusive).
+- `python3 scripts/security-audit/sec001_setup_info_disclosure.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
@@ -85,7 +111,7 @@ Credential theft, infrastructure mapping, possible full database compromise if t
 | **Category**       | Unauthorized action / privilege escalation                                                                                                                                                    |
 | **Impacted files** | `backend/src/auth/mod.rs` (`auth_middleware`), `backend/src/admin/handlers.rs` (`require_admin`, `update_user`)                                                                               |
 | **Routes**         | All `/api/v1/admin/`* protected routes                                                                                                                                                        |
-| **Audit script**   | `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+| **Audit script**   | `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (venv setup for contributors) |
 
 
 **Description**
@@ -121,7 +147,7 @@ Unauthorized admin operations, user lifecycle changes, settings changes, and sto
 
 **Automated test**
 
-Standalone probe: `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-002).
+Standalone probe: `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scripts/security-audit/sec002_stale_jwt_admin_role.py)`. Full flag list + contributor venv setup: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-002).
 
 
 | Prerequisite | Detail                                                                                   |
@@ -132,6 +158,8 @@ Standalone probe: `[scripts/security-audit/sec002_stale_jwt_admin_role.py](scrip
 
 
 The script logs in the **subject**, confirms admin access, has the **demoter** `PATCH` the subject to a non-admin role (default `pro`), then reuses the **pre-demotion JWT** on `GET /api/v1/admin/users`. Exit **1** if the stale token still returns the admin user list (HTTP 200); exit **0** if access is denied (401/403).
+
+**Note for contributors:** First run `bash scripts/setup-test-env.sh` (or the `.bat` on Windows) and activate `scripts/.venv` so you have an isolated Python with the right packages. See the top of `scripts/security-audit/README.md`.
 
 **Usage (pick one)**
 
@@ -218,7 +246,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / unauthorized access                                                                                                                                                                                                                |
 | **Impacted files** | `backend/src/shares/store.rs` (`load_file_in_share_scope`, `list_share_folder_files`, `list_all_files_in_share`, `compute_share_tree_stats`, `folder_is_under_root`), `backend/src/shares/handlers.rs` (public share download/list/archive handlers) |
 | **Routes**         | `/api/v1/public/shares/{token}/`*                                                                                                                                                                                                                    |
-| **Audit script**   | `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)`                                                |
+| **Audit script**   | `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (venv setup for contributors) |
 
 
 **Description**
@@ -255,7 +283,7 @@ Data retention bypass; users believe deleted content is inaccessible but it rema
 
 **Automated test**
 
-Standalone probe: `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-003).
+Standalone probe: `[scripts/security-audit/sec003_public_share_soft_delete.py](scripts/security-audit/sec003_public_share_soft_delete.py)`. Full flag list + contributor venv setup: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-003).
 
 
 | Prerequisite | Detail                                                                               |
@@ -335,7 +363,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction                                                                                                                                                                                               |
 | **Impacted files** | `backend/src/files/handlers.rs` (`download_file`, `download_url`, `preview_url`), `backend/src/hls/handlers.rs` (`ensure_file_owned`, stream/HLS paths)                                                       |
 | **Routes**         | `GET /api/v1/files/{id}/download`, `/download-url`, `/preview-url`, HLS/stream routes                                                                                                                         |
-| **Audit script**   | `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+| **Audit script**   | `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (venv setup for contributors) |
 
 
 **Description**
@@ -358,7 +386,7 @@ Weak deletion guarantees; compromised session can extract recycle-bin content at
 
 **Automated test**
 
-Standalone probe: `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)`. Full flag list: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-004).
+Standalone probe: `[scripts/security-audit/sec004_authenticated_trash_download.py](scripts/security-audit/sec004_authenticated_trash_download.py)`. Full flag list + contributor venv setup: `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (SEC-004).
 
 
 | Prerequisite | Detail                                                  |
@@ -410,7 +438,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Unauthorized action (account takeover)                                                                                                                                                        |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`setup`, `ensure_not_complete_pool`), `backend/src/lib.rs`                                                                                                   |
 | **Routes**         | `POST /api/v1/setup`                                                                                                                                                                          |
-| **Audit script**   | `[scripts/security-audit/sec005_setup_bootstrap_race.py](scripts/security-audit/sec005_setup_bootstrap_race.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` |
+| **Audit script**   | `[scripts/security-audit/sec005_setup_bootstrap_race.py](scripts/security-audit/sec005_setup_bootstrap_race.py)` — see `[scripts/security-audit/README.md](scripts/security-audit/README.md)` (venv setup for contributors) |
 
 
 **Description**
@@ -479,7 +507,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Brute force / account enumeration                                                                            |
 | **Impacted files** | `backend/src/rate_limit.rs` (`client_ip_from_headers`), `backend/src/auth/handlers.rs` (`login`, `register`) |
 | **Routes**         | `POST /api/v1/auth/login`, `POST /api/v1/auth/register`                                                      |
-| **Audit script**   | [`scripts/security-audit/sec006_rate_limit_forwarded_headers.py`](scripts/security-audit/sec006_rate_limit_forwarded_headers.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+| **Audit script**   | [`scripts/security-audit/sec006_rate_limit_forwarded_headers.py`](scripts/security-audit/sec006_rate_limit_forwarded_headers.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (venv setup for contributors) |
 
 
 **Description**
@@ -545,7 +573,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / unauthorized access                                              |
 | **Impacted files** | `backend/src/shares/handlers.rs` (`public_share_overview`, `resolve_public_share`) |
 | **Routes**         | `GET /api/v1/public/shares/{token}`                                                |
-| **Audit script**   | [`scripts/security-audit/sec007_share_overview_password_bypass.py`](scripts/security-audit/sec007_share_overview_password_bypass.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+| **Audit script**   | [`scripts/security-audit/sec007_share_overview_password_bypass.py`](scripts/security-audit/sec007_share_overview_password_bypass.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (venv setup for contributors) |
 
 
 **Description**
@@ -626,7 +654,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / infrastructure reconnaissance                                                                                           |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_storage`), `backend/src/admin/storage_nodes.rs` (`normalize_base_url`, `probe_storage_node`) |
 | **Routes**         | `POST /api/v1/setup/storage/test`                                                                                                         |
-| **Audit script**   | [`scripts/security-audit/sec008_setup_storage_ssrf.py`](scripts/security-audit/sec008_setup_storage_ssrf.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+| **Audit script**   | [`scripts/security-audit/sec008_setup_storage_ssrf.py`](scripts/security-audit/sec008_setup_storage_ssrf.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) (venv setup for contributors) |
 
 
 **Description**
