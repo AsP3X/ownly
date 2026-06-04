@@ -140,7 +140,9 @@ export function RecycleBinPanel({
     setEmptyBinLoading(true);
     try {
       const preview = await fetchRecycleBinDeletionPreview();
-      if (preview.files.length === 0) {
+      // Human: Preview omits per-file rows for large bins — use file_count, not files.length.
+      // Agent: WHEN file_count is 0, only folders remain; skip dialog and purge synchronously.
+      if (preview.file_count === 0) {
         await emptyRecycleBin();
         onRefresh();
         onChanged?.();

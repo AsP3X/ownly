@@ -248,7 +248,32 @@ export function ConfirmBulkDeleteDialog({
   }
 
   const showPreviewSummary = preview && !previewLoading && !previewError;
-  const showProgress = confirming && deleteJobStatus !== null;
+  const permanentDeleteUsesJob =
+    recycleBinEmpty ||
+    (preview ? shouldUseDeleteJob(preview) : items.length > 1);
+  // Human: Show the progress bar for the whole job, including before the first status poll returns.
+  // Agent: WHEN confirming permanent job delete; USE placeholder totals from preview until status exists.
+  const progressStatus: DeleteJobStatus | null =
+    deleteJobStatus ??
+    (confirming &&
+    confirmMode === "permanent" &&
+    permanentDeleteUsesJob &&
+    preview
+      ? {
+          job_id: "",
+          status: "starting",
+          progress: 0,
+          total_blobs: preview.storage_object_count,
+          deleted_blobs: 0,
+          total_files: preview.file_count,
+          deleted_files: 0,
+          ready: false,
+          error: null,
+          deleted_file_ids: [],
+        }
+      : null);
+  const showProgress =
+    confirming && confirmMode === "permanent" && progressStatus !== null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={confirming}>
@@ -304,7 +329,9 @@ export function ConfirmBulkDeleteDialog({
             </ul>
           ) : null}
 
-          {showProgress ? <DeleteJobProgress status={deleteJobStatus} /> : null}
+          {showProgress && progressStatus ? (
+            <DeleteJobProgress status={progressStatus} />
+          ) : null}
 
           {error ? (
             <div className="min-w-0 px-6 pt-4">
