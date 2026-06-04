@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
+import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -496,6 +497,7 @@ export function DriveCloudExplorer({
               const canPreview =
                 canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
+              const showImagePreview = isImage && !processing;
 
               return (
                 <div
@@ -576,12 +578,19 @@ export function DriveCloudExplorer({
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(
-                      "flex min-h-[108px] w-full flex-col items-center justify-center gap-1.5 rounded-[11px] px-2.5 py-3.5 text-center transition-colors",
+                      "flex w-full flex-col gap-1.5 rounded-[11px] text-center transition-colors",
+                      showImagePreview
+                        ? "min-h-[148px] items-stretch p-2"
+                        : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
                       canPreview && !isSelected && "hover:bg-[#F7F8FA]",
                       canPreview && isSelected && "hover:bg-blue-100/50",
                     )}
                   >
-                    <ExplorerFileIcon mimeType={file.mime_type} />
+                    {showImagePreview ? (
+                      <ExplorerImageThumbnail file={file} />
+                    ) : (
+                      <ExplorerFileIcon mimeType={file.mime_type} />
+                    )}
                     <span
                       className={cn(
                         "line-clamp-2 w-full text-[13px] font-semibold leading-snug",
