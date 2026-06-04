@@ -126,6 +126,19 @@ init_env_file() {
                 { print }
             ' "$env_file" > "${env_file}.sync" && mv "${env_file}.sync" "$env_file"
         fi
+        # Human: Backend container reads OBJECT_STORAGE_JWT_SECRET; Nebular uses NOS_JWT_SECRET.
+        # Agent: SYNC from NOS_JWT_SECRET so env_file-only Compose does not need a duplicate manual line.
+        nos_jwt="$(grep '^NOS_JWT_SECRET=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+        if [ -n "$nos_jwt" ]; then
+            if grep -q '^OBJECT_STORAGE_JWT_SECRET=' "$env_file" 2>/dev/null; then
+                awk -v nos_jwt="$nos_jwt" '
+                    /^OBJECT_STORAGE_JWT_SECRET=/ { print "OBJECT_STORAGE_JWT_SECRET=" nos_jwt; next }
+                    { print }
+                ' "$env_file" > "${env_file}.jwt" && mv "${env_file}.jwt" "$env_file"
+            else
+                printf '%s\n' "OBJECT_STORAGE_JWT_SECRET=$nos_jwt" >> "$env_file"
+            fi
+        fi
     fi
 
     echo "$env_file is ready."

@@ -63,12 +63,14 @@ Pinned submodule commit (update with `git add nebular-os` after checkout): see `
 
 ## Quick start (Docker)
 
-Start the full stack (no `.env` or secret setup required for local Compose). Run submodule init first if you skipped it during clone:
+Start the full stack with **no configuration** — no `.env`, no `init-env`, no exports. Secrets are baked into `docker-compose.yml`. Run submodule init first if you skipped it during clone:
 
 ```bash
 git submodule update --init --recursive
 docker compose up --build
 ```
+
+Open **http://localhost:8080** (or your host port mapping). Optional: change public media URLs via `OBJECT_STORAGE_PUBLIC_URL` in `docker-compose.yml` when not using localhost.
 
 **Optional second storage node** (local admin testing with two Nebular instances):
 

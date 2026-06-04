@@ -25,17 +25,23 @@ pub fn is_weak_secret(value: &str) -> bool {
 
 // Human: Operator-facing hint without echoing the secret value.
 // Agent: RETURNS static reason when is_weak_secret; used in validate_field error text.
-fn weak_secret_reason(value: &str) -> Option<&'static str> {
+fn weak_secret_reason(env_name: &str, value: &str) -> Option<&'static str> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Some(
-            "empty — remove `SETUP_TOKEN=` from .env, unset shell SETUP_TOKEN, or set a random value",
+            "empty — recreate backend with `docker compose up -d --force-recreate backend` (Compose must inject SETUP_TOKEN)",
         );
     }
     if trimmed == "GENERATE_ME" {
         return Some("still GENERATE_ME — run `docker compose --profile init run --rm init-env`");
     }
     if KNOWN_WEAK_SECRETS.contains(&trimmed) {
+        if trimmed == "change-me-in-production" && env_name == "SETUP_TOKEN" {
+            return Some(
+                "missing from container — run `git pull`, then `docker compose up -d --build --force-recreate backend frontend`; \
+                 check `docker compose config | grep SETUP_TOKEN` shows the compose literal, not empty",
+            );
+        }
         return Some(
             "known weak default (e.g. change-me-in-production) — replace with `openssl rand -hex 32`",
         );
@@ -47,13 +53,11 @@ fn weak_secret_reason(value: &str) -> Option<&'static str> {
 // Agent: CALLS is_weak_secret + length check; BAILS with anyhow message naming env var.
 fn validate_field(env_name: &str, value: &str) -> anyhow::Result<()> {
     if is_weak_secret(value) {
-        let hint = weak_secret_reason(value).unwrap_or("invalid placeholder or default");
+        let hint = weak_secret_reason(env_name, value).unwrap_or("invalid placeholder or default");
         anyhow::bail!(
             "{env_name} rejected at startup: {hint}. \
              Need at least {MIN_SECRET_LEN} random characters. \
-             On the server: `sh scripts/verify-compose-secrets.sh` then recreate containers \
-             (`docker compose up -d --build`). \
-             Shell `export SETUP_TOKEN=...` overrides `.env` for Compose."
+             On the server: `sh scripts/verify-compose-secrets.sh` then `docker compose up -d --build --force-recreate backend frontend`."
         );
     }
     if value.len() < MIN_SECRET_LEN {
@@ -88,11 +92,18 @@ mod tests {
     }
 
     #[test]
+    fn compose_dev_setup_token_is_acceptable() {
+        use crate::config::COMPOSE_DEV_SETUP_TOKEN;
+        assert!(!is_weak_secret(COMPOSE_DEV_SETUP_TOKEN));
+        assert!(COMPOSE_DEV_SETUP_TOKEN.len() >= MIN_SECRET_LEN);
+    }
+
+    #[test]
     fn weak_reason_for_placeholder() {
-        assert!(weak_secret_reason("GENERATE_ME").is_some());
-        assert!(weak_secret_reason("change-me-in-production").is_some());
-        assert!(weak_secret_reason("").is_some());
+        assert!(weak_secret_reason("SETUP_TOKEN", "GENERATE_ME").is_some());
+        assert!(weak_secret_reason("SETUP_TOKEN", "change-me-in-production").is_some());
+        assert!(weak_secret_reason("SETUP_TOKEN", "").is_some());
         let good = "a".repeat(40);
-        assert!(weak_secret_reason(&good).is_none());
+        assert!(weak_secret_reason("SETUP_TOKEN", &good).is_none());
     }
 }

@@ -41,30 +41,12 @@ read_env_key() {
 echo "Working directory: $(pwd)"
 echo ""
 
+echo "Zero-config: secrets are literals in docker-compose.yml (a root .env is not used)."
 if [ -f .env ]; then
-    echo "Root .env secret lines (status only):"
-    for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET; do
-        if ! value=$(read_env_key "$key" .env); then
-            echo "  ${key}: (missing — Compose may use docker-compose.yml default)"
-            continue
-        fi
-        echo "  ${key}: $(is_weak_hint "$value")"
-    done
-    dup=$(grep -E '^[[:space:]]*SETUP_TOKEN[[:space:]]*=' .env 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$dup" -gt 1 ]; then
-        echo "  WARNING: .env defines SETUP_TOKEN ${dup} times — only the first may be used; remove duplicates."
-    fi
-else
-    echo "No .env in project root — Compose uses defaults from docker-compose.yml."
+    echo "NOTE: .env exists but Compose no longer substitutes secrets from it — remove or ignore for Docker."
 fi
 
 echo ""
-if [ -n "${SETUP_TOKEN:-}" ]; then
-    echo "WARNING: SETUP_TOKEN is set in your shell (overrides .env for docker compose)."
-    echo "  Shell SETUP_TOKEN status: $(is_weak_hint "$SETUP_TOKEN")"
-    echo "  Fix: unset SETUP_TOKEN   # then re-run docker compose up"
-    echo ""
-fi
 
 if command -v docker >/dev/null 2>&1; then
     echo "Resolved backend SETUP_TOKEN (from docker compose config):"
@@ -95,7 +77,6 @@ else
 fi
 
 echo ""
-echo "If SETUP_TOKEN is WEAK or SHORT:"
-echo "  unset SETUP_TOKEN"
-echo "  docker compose --profile init run --rm init-env"
+echo "If SETUP_TOKEN is WEAK, SHORT, or missing on the container:"
+echo "  git pull"
 echo "  docker compose up -d --build --force-recreate backend frontend"

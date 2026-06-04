@@ -1,5 +1,19 @@
 // Human: Environment-backed configuration for the API process and Docker Compose stack.
-// Agent: READS envy/dotenvy at startup; DEFAULTS weak dev placeholders overridden by init-env.sh.
+// Agent: READS envy/dotenvy at startup; DEFAULTS match docker-compose.yml literals for zero-config Compose.
+
+/// Human: Same value as `SETUP_TOKEN` in `docker-compose.yml` (zero-config `docker compose up`).
+/// Agent: USED by serde defaults and setup wizard; MUST stay >= 32 chars and not in KNOWN_WEAK_SECRETS.
+pub const COMPOSE_DEV_SETUP_TOKEN: &str =
+    "ownly-compose-local-dev-setup-token-not-for-production-use";
+
+pub const COMPOSE_DEV_JWT_SECRET: &str =
+    "ownly-compose-local-dev-mediavault-jwt-secret-not-for-production";
+
+pub const COMPOSE_DEV_SIGNING_SECRET: &str =
+    "ownly-compose-local-dev-nos-signing-secret-not-for-production";
+
+pub const COMPOSE_DEV_OBJECT_STORAGE_JWT_SECRET: &str =
+    "ownly-compose-local-dev-nos-jwt-secret-not-for-production-use";
 
 use serde::Deserialize;
 
@@ -85,7 +99,11 @@ impl Config {
     // Human: Parse all API settings from process environment (and optional `.env` file).
     // Agent: CALLS dotenvy then envy; RETURNS Config; ERRORS on missing required typed fields.
     pub fn from_env() -> anyhow::Result<Self> {
-        dotenvy::dotenv().ok();
+        // Human: In Compose, secrets come from docker-compose.yml — not from a file under /app.
+        // Agent: SKIP dotenv when MEDIAVAULT_SKIP_DOTENV=1 so a mounted .env cannot override Compose.
+        if std::env::var("MEDIAVAULT_SKIP_DOTENV").is_err() {
+            dotenvy::dotenv().ok();
+        }
         Ok(envy::from_env()?)
     }
 }
@@ -95,11 +113,11 @@ fn default_database_url() -> String {
 }
 
 fn default_jwt_secret() -> String {
-    "change-me-in-production".into()
+    COMPOSE_DEV_JWT_SECRET.into()
 }
 
 fn default_setup_token() -> String {
-    "change-me-in-production".into()
+    COMPOSE_DEV_SETUP_TOKEN.into()
 }
 
 fn default_bind_addr() -> String {
@@ -123,11 +141,11 @@ fn default_object_storage_bucket() -> String {
 }
 
 fn default_signing_secret() -> String {
-    "change-me-in-production".into()
+    COMPOSE_DEV_SIGNING_SECRET.into()
 }
 
 fn default_object_storage_jwt_secret() -> String {
-    "dev-nos-jwt-secret-change-me".into()
+    COMPOSE_DEV_OBJECT_STORAGE_JWT_SECRET.into()
 }
 
 fn default_url_expiry_seconds() -> u64 {

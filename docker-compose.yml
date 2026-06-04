@@ -1,3 +1,13 @@
+# Human: Zero-config stack — these literals are injected into containers; no `.env` or init-env required.
+# Agent: NOT ${VAR} — host `.env` and shell exports cannot override; edit here only for custom production secrets.
+x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
+  JWT_SECRET: ownly-compose-local-dev-mediavault-jwt-secret-not-for-production
+  SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
+  SIGNING_SECRET: ownly-compose-local-dev-nos-signing-secret-not-for-production
+  NOS_JWT_SECRET: ownly-compose-local-dev-nos-jwt-secret-not-for-production-use
+  NOS_SIGNING_SECRET: ownly-compose-local-dev-nos-signing-secret-not-for-production
+  OBJECT_STORAGE_JWT_SECRET: ownly-compose-local-dev-nos-jwt-secret-not-for-production-use
+
 services:
   init-env:
     image: alpine:latest
@@ -37,10 +47,7 @@ services:
       dockerfile: ../docker/nebular-os.Dockerfile
     container_name: mediavault-object-storage
     environment:
-      # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
-      # Agent: EMPTY host env falls back here; NOT in KNOWN_WEAK_SECRETS; shared with backend OBJECT_STORAGE_JWT_SECRET.
-      NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
-      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
+      <<: *ownly-compose-dev-secrets
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
@@ -80,19 +87,10 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     container_name: mediavault-backend
     environment:
+      <<: *ownly-compose-dev-secrets
+      MEDIAVAULT_SKIP_DOTENV: "1"
       DATABASE_URL: ${DATABASE_URL:-postgres://mediavault:mediavault@postgres:5432/mediavault}
       TMPDIR: /tmp
-      # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
-      # Agent: MUST match object-storage NOS_JWT_SECRET default when host env is unset.
-      JWT_SECRET: ${JWT_SECRET:-ownly-compose-local-dev-mediavault-jwt-secret-not-for-production}
-      SETUP_TOKEN: ${SETUP_TOKEN:-ownly-compose-local-dev-setup-token-not-for-production-use}
-      # Human: Presigned signatures must match Nebular's NOS_SIGNING_SECRET in local Compose.
-      # Agent: KEEP fallback aligned with object-storage NOS_SIGNING_SECRET to avoid 401 invalid signature.
-      SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
-      OBJECT_STORAGE_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
-      # Human: Presigned download URLs must use Nebular's HMAC secret (read by create_app_state).
-      # Agent: PASS NOS_SIGNING_SECRET into backend; lib.rs prefers this over SIGNING_SECRET for storage.
-      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
       # Human: Browser-facing base for presigned GETs — use the web origin (port 8080) when nginx proxies /media/.
       # Agent: DEFAULT localhost:8080 not :9000; OVERRIDE with public host (e.g. http://corespace.de:8089) in production.
@@ -132,7 +130,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_SETUP_TOKEN: ${SETUP_TOKEN:-ownly-compose-local-dev-setup-token-not-for-production-use}
+        # Human: Must match backend SETUP_TOKEN literal for the setup wizard (zero-config, no .env).
+        # Agent: BUILD-TIME only; same string as x-ownly-compose-dev-secrets SETUP_TOKEN.
+        VITE_SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
     container_name: mediavault-frontend
     environment:
       # Human: nginx client_max_body_size uses the same byte cap as the API.
