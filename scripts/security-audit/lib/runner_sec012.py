@@ -84,6 +84,41 @@ def _looks_like_placeholder_email(email: str) -> bool:
     return any(h in lowered for h in hints)
 
 
+def _subject_eligible_for_jwt_forgery(cache: dict[str, Any]) -> bool:
+    # Human: Chain B requires a non-admin DB role — real admins already pass admin API checks.
+    # Agent: READS subject_role + bootstrapped_via_admin; RETURNS False when subject is administrator.
+    role = cache.get("subject_role")
+    if role == "admin" and not cache.get("bootstrapped_via_admin"):
+        return False
+    return True
+
+
+def _login_token_grants_admin_probe(
+    cfg: Sec012Config,
+    cache: dict[str, Any],
+    token: str,
+) -> bool:
+    # Human: Control probe — if the unmodified login JWT already lists users, forged role=admin is not escalation.
+    # Agent: GET admin_probe_route with subject_token; RETURNS True when API already treats subject as admin.
+    http = _http(cfg)
+    res = http_get_with_retries(
+        http,
+        api_url(http, cfg.admin_probe_route),
+        extra_headers=_auth_headers(token),
+    )
+    cache["jwt_forgery_control_probe"] = res
+    return response_indicates_admin_users_list(res)
+
+
+def _browser_user_creation_blocked(res: HttpResult) -> bool:
+    # Human: Server-side browser guard on register/admin create/setup mutations.
+    # Agent: READS 403 + AppError message; RETURNS True when script client was rejected (patched).
+    if res.status != 403:
+        return False
+    msg = _api_error_message(res).lower()
+    return "web application" in msg or "setup token" in msg
+
+
 def fail_result(
     name: str,
     detail: str,
@@ -464,11 +499,20 @@ def test_auth_me_role_admin(cfg: Sec012Config, cache: dict[str, Any]) -> CaseRes
     res = http_get_with_retries(http, url, extra_headers=_auth_headers(token))
     cache["auth_me"] = res
     role = user_role_from_response(res)
+    subject_role = cache.get("subject_role")
     if res.status == 200 and role == "admin":
-        return fail_result(
-            "auth_me_role_admin",
-            "GET /auth/me reports role=admin for exploit session",
-        )
+        if subject_role == "admin" and not cache.get("bootstrapped_via_admin"):
+            return CaseResult(
+                name="auth_me_role_admin",
+                passed=True,
+                detail="auth/me reports admin for real administrator subject (expected)",
+                severity="pass",
+            )
+        if subject_role and subject_role != "admin":
+            return fail_result(
+                "auth_me_role_admin",
+                f"GET /auth/me reports role=admin for subject with DB role={subject_role!r}",
+            )
     return CaseResult(
         name="auth_me_role_admin",
         passed=True,
@@ -698,6 +742,8 @@ def _bootstrap_staging_subject(cfg: Sec012Config, cache: dict[str, Any]) -> Case
     )
     cache["bootstrap_create"] = create
     if create.status not in (200, 201):
+        if _browser_user_creation_blocked(create):
+            return None
         return CaseResult(
             name="subject_session_obtained",
             passed=False,
@@ -760,6 +806,19 @@ def test_subject_session_obtained(cfg: Sec012Config, cache: dict[str, Any]) -> C
         boot = _bootstrap_staging_subject(cfg, cache)
         if boot is not None:
             return boot
+        role = cache.get("subject_role")
+        create = cache.get("bootstrap_create")
+        if role == "admin" and isinstance(create, HttpResult) and _browser_user_creation_blocked(create):
+            cache["chain_b_limited"] = "admin_credentials_browser_guard"
+            return CaseResult(
+                name="subject_session_obtained",
+                passed=True,
+                detail=(
+                    "admin session ok; API staging user blocked by browser guard (403) — "
+                    "Chain B JWT probe skipped; use a pro/standard/user account for full Chain B test"
+                ),
+                severity="pass",
+            )
         role = cache.get("subject_role")
     return CaseResult(
         name="subject_session_obtained",
@@ -835,17 +894,37 @@ def test_jwt_forgery_escalation(cfg: Sec012Config, cache: dict[str, Any]) -> Cas
             detail="skipped",
             severity="pass",
         )
-    if "subject_user_id" not in cache or not cfg.jwt_secrets:
+    if not cfg.jwt_secrets or "subject_user_id" not in cache:
         return CaseResult(
             name="jwt_forgery_escalation",
             passed=True,
             detail="skipped (prerequisites failed)",
             severity="pass",
         )
+    if not _subject_eligible_for_jwt_forgery(cache):
+        return CaseResult(
+            name="jwt_forgery_escalation",
+            passed=True,
+            detail=(
+                "skipped — subject is already administrator in DB; "
+                "use a pro/standard/user account for JWT forgery probe"
+            ),
+            severity="pass",
+        )
     http = _http(cfg)
     email = cache["subject_email"]
     user_id = cache["subject_user_id"]
     source = cache.get("subject_token")
+    if isinstance(source, str) and _login_token_grants_admin_probe(cfg, cache, source):
+        return CaseResult(
+            name="jwt_forgery_escalation",
+            passed=True,
+            detail=(
+                f"unmodified login token already grants {cfg.admin_probe_route} — "
+                "not JWT role forgery (subject already has admin access from DB role)"
+            ),
+            severity="pass",
+        )
     matched = cache.get("matched_jwt_secret")
     if not matched and isinstance(source, str):
         matched = match_jwt_secret_for_token(source, list(cfg.jwt_secrets))
@@ -1075,6 +1154,11 @@ def run_sec012_audit(cfg: Sec012Config) -> tuple[AuditReport, dict[str, Any]]:
         hints.append(
             "Re-run with --confirm-exploit. Initialized instances need --exploit-email/--exploit-password "
             "(any non-admin user) and JWT_SECRET in .env."
+        )
+    elif cache.get("chain_b_limited") == "admin_credentials_browser_guard":
+        hints.append(
+            "Exploit chains blocked. For a full Chain B JWT forgery probe, re-run with "
+            "--exploit-email/--exploit-password for a pro/standard/user account (not admin)."
         )
     elif cache.get("setup_complete") is True and not fails and cfg.try_jwt_forgery:
         hints.append(

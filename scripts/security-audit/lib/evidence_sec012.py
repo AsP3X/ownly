@@ -71,6 +71,6 @@ def build_jwt_forgery_evidence(
             "subject_email": subject_email,
             "forged_role": forged_role,
             "http_status": str(res.status),
-            "db_admin_row": "false (role only in JWT, not users table)",
+            "db_admin_row": "non-admin subject escalated via JWT role claim only",
         },
     )
