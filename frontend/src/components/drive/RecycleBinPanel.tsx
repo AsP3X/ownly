@@ -14,10 +14,7 @@ import {
   type RecycleBinFolderItem,
   type RecycleBinResponse,
 } from "@/api/client";
-import {
-  ConfirmBulkDeleteDialog,
-  type BulkDeleteItem,
-} from "@/components/drive/ConfirmBulkDeleteDialog";
+import { ConfirmBulkDeleteDialog } from "@/components/drive/ConfirmBulkDeleteDialog";
 import {
   ConfirmDeleteDialog,
   type DeleteTarget,
@@ -75,8 +72,8 @@ export function RecycleBinPanel({
   const [folderPreview, setFolderPreview] = useState<FolderDeletionPreview | null>(null);
   const [folderPreviewLoading, setFolderPreviewLoading] = useState(false);
   const [folderPreviewError, setFolderPreviewError] = useState("");
-  const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
   const [emptyBinOpen, setEmptyBinOpen] = useState(false);
+  const [emptyBinFileCount, setEmptyBinFileCount] = useState(0);
   const [emptyBinLoading, setEmptyBinLoading] = useState(false);
   const [emptyBinError, setEmptyBinError] = useState("");
 
@@ -149,9 +146,7 @@ export function RecycleBinPanel({
         onChanged?.();
         return;
       }
-      setBulkDeleteItems(
-        preview.files.map((file) => ({ id: file.id, name: file.name })),
-      );
+      setEmptyBinFileCount(preview.file_count);
       setEmptyBinOpen(true);
     } catch (err) {
       setEmptyBinError(getErrorMessage(err));
@@ -311,18 +306,19 @@ export function RecycleBinPanel({
       />
 
       <ConfirmBulkDeleteDialog
-        open={emptyBinOpen && bulkDeleteItems.length > 0}
+        open={emptyBinOpen}
         onOpenChange={(open) => {
           if (!open) {
             setEmptyBinOpen(false);
-            setBulkDeleteItems([]);
+            setEmptyBinFileCount(0);
           }
         }}
-        items={bulkDeleteItems}
+        items={[]}
+        recycleBinEmpty
         variant="permanent-only"
         title="Empty recycle bin?"
-        description={`All ${bulkDeleteItems.length} file${
-          bulkDeleteItems.length === 1 ? "" : "s"
+        description={`All ${emptyBinFileCount} file${
+          emptyBinFileCount === 1 ? "" : "s"
         } in the recycle bin will be permanently removed. This cannot be undone.`}
         onPermanentComplete={async () => {
           await emptyRecycleBin();

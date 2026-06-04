@@ -348,9 +348,37 @@ pub async fn recycle_bin_deletion_preview(
         }));
     }
 
-    let preview =
+    let mut preview =
         delete_job::preview_files_for_permanent_delete(&state.pool, &claims.sub, file_ids).await?;
+    // Human: Empty-bin dialog only needs totals — omit per-file rows to keep large bins responsive.
+    // Agent: CLEARS files vec; RETAINS file_count and storage_object_count for confirmation UI.
+    preview.files.clear();
     Ok(Json(preview))
+}
+
+// Human: Permanently delete every trashed file via the async blob-progress delete job.
+// Agent: POST /recycle-bin/delete; SPAWNS start_delete_job; NO 500-file cap (folders cleaned after).
+pub async fn post_recycle_bin_delete_job(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<delete_job::DeleteJobStatusResponse>, AppError> {
+    let file_ids: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM files WHERE user_id = $1 AND deleted_at IS NOT NULL ORDER BY name ASC",
+    )
+    .bind(&claims.sub)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let file_ids: Vec<String> = file_ids.into_iter().map(|(id,)| id).collect();
+    if file_ids.is_empty() {
+        return Err(AppError::BadRequest(
+            "recycle bin has no files to delete".into(),
+        ));
+    }
+
+    let status = delete_job::start_delete_job(&state, &claims.sub, &headers, file_ids, true).await?;
+    Ok(Json(status))
 }
 
 // Human: Restore soft-deleted files back to the drive when the original folder still exists.

@@ -27,7 +27,9 @@ use crate::{
     AppState,
 };
 
-const MAX_DELETE_FILES: usize = 500;
+/// Human: Cap per POST /files/delete request so one job stays bounded.
+/// Agent: RECYCLE-BIN empty uses [`start_delete_job`] with `enforce_max = false` instead.
+pub const MAX_DELETE_FILES_PER_JOB: usize = 500;
 
 type FilePreviewRow = (String, String, Option<i32>);
 
@@ -146,9 +148,12 @@ fn delete_status_json(job_id: &str, job: &DeleteJob) -> DeleteJobStatusResponse 
     }
 }
 
-// Human: Normalize client file id list and reject empty or oversized bulk requests.
-// Agent: TRIMS ids; ENFORCES MAX_DELETE_FILES; RETURNS owned Vec<String>.
-fn normalize_file_ids(file_ids: Vec<String>) -> Result<Vec<String>, AppError> {
+// Human: Normalize client file id list and optionally reject oversized bulk requests.
+// Agent: TRIMS ids; WHEN enforce_max, caps at MAX_DELETE_FILES_PER_JOB; RETURNS owned Vec<String>.
+fn normalize_file_ids(
+    file_ids: Vec<String>,
+    enforce_max: bool,
+) -> Result<Vec<String>, AppError> {
     let ids: Vec<String> = file_ids
         .into_iter()
         .map(|id| id.trim().to_string())
@@ -157,9 +162,10 @@ fn normalize_file_ids(file_ids: Vec<String>) -> Result<Vec<String>, AppError> {
     if ids.is_empty() {
         return Err(AppError::BadRequest("file_ids must not be empty".into()));
     }
-    if ids.len() > MAX_DELETE_FILES {
+    if enforce_max && ids.len() > MAX_DELETE_FILES_PER_JOB {
         return Err(AppError::BadRequest(format!(
-            "cannot delete more than {MAX_DELETE_FILES} files at once"
+            "cannot delete more than {} files at once",
+            MAX_DELETE_FILES_PER_JOB
         )));
     }
     Ok(ids)
@@ -245,7 +251,7 @@ pub async fn bulk_deletion_preview(
     Extension(claims): Extension<Claims>,
     Json(body): Json<BulkDeletionPreviewRequest>,
 ) -> Result<Json<BulkDeletionPreviewResponse>, AppError> {
-    let file_ids = normalize_file_ids(body.file_ids)?;
+    let file_ids = normalize_file_ids(body.file_ids, true)?;
     let rows = load_owned_files_for_delete(&state.pool, &claims.sub, &file_ids).await?;
     Ok(Json(preview_from_rows(&rows)))
 }
@@ -257,9 +263,81 @@ pub async fn preview_files_for_permanent_delete(
     user_id: &str,
     file_ids: Vec<String>,
 ) -> Result<BulkDeletionPreviewResponse, AppError> {
-    let file_ids = normalize_file_ids(file_ids)?;
+    let file_ids = normalize_file_ids(file_ids, false)?;
     let rows = load_owned_files_for_delete(pool, user_id, &file_ids).await?;
     Ok(preview_from_rows(&rows))
+}
+
+// Human: Start a delete job for an arbitrary owned file id list (no per-request file cap).
+// Agent: SPAWNS run_delete_job; USED by recycle-bin empty; AUDIT files.delete.start.
+pub async fn start_delete_job(
+    state: &Arc<AppState>,
+    user_id: &str,
+    headers: &HeaderMap,
+    file_ids: Vec<String>,
+    permanent: bool,
+) -> Result<DeleteJobStatusResponse, AppError> {
+    let file_ids = normalize_file_ids(file_ids, false)?;
+    ensure_files_not_processing(&state.pool, user_id, &file_ids).await?;
+    let preview_rows = load_owned_files_for_delete(&state.pool, user_id, &file_ids).await?;
+    let preview = preview_from_rows(&preview_rows);
+
+    let job_id = Uuid::new_v4().to_string();
+    let key = DeleteJobRegistry::job_key(user_id, &job_id);
+    let job = DeleteJob {
+        status: "queued".to_string(),
+        progress: 0,
+        total_blobs: if permanent {
+            preview.storage_object_count
+        } else {
+            0
+        },
+        deleted_blobs: 0,
+        total_files: preview.file_count,
+        deleted_files: 0,
+        ready: false,
+        error: None,
+        deleted_file_ids: Vec::new(),
+        cancelled: false,
+    };
+    state.delete_jobs.set(key.clone(), job.clone()).await;
+
+    let audit_action = if permanent {
+        "files.delete.start"
+    } else {
+        "files.trash.start"
+    };
+    audit::write_audit(
+        &state.pool,
+        Some(user_id),
+        audit_action,
+        Some("delete_job"),
+        Some(&job_id),
+        Some(serde_json::json!({
+            "file_count": preview.file_count,
+            "storage_object_count": preview.storage_object_count,
+        })),
+        headers,
+    )
+    .await
+    .ok();
+
+    let work_state = state.clone();
+    let work_user = user_id.to_string();
+    let work_headers = headers.clone();
+    tokio::spawn(async move {
+        run_delete_job(
+            work_state,
+            work_user,
+            key,
+            file_ids,
+            permanent,
+            work_headers,
+        )
+        .await;
+    });
+
+    Ok(delete_status_json(&job_id, &job))
 }
 
 // Human: Ensure the caller owns the delete job before polling status.
@@ -458,69 +536,9 @@ pub async fn post_delete_job(
     headers: HeaderMap,
     Json(body): Json<StartDeleteJobRequest>,
 ) -> Result<Json<DeleteJobStatusResponse>, AppError> {
-    let file_ids = normalize_file_ids(body.file_ids)?;
-    ensure_files_not_processing(&state.pool, &claims.sub, &file_ids).await?;
-    let permanent = body.permanent;
-    let preview_rows = load_owned_files_for_delete(&state.pool, &claims.sub, &file_ids).await?;
-    let preview = preview_from_rows(&preview_rows);
-
-    let job_id = Uuid::new_v4().to_string();
-    let key = DeleteJobRegistry::job_key(&claims.sub, &job_id);
-    let job = DeleteJob {
-        status: "queued".to_string(),
-        progress: 0,
-        total_blobs: if permanent {
-            preview.storage_object_count
-        } else {
-            0
-        },
-        deleted_blobs: 0,
-        total_files: preview.file_count,
-        deleted_files: 0,
-        ready: false,
-        error: None,
-        deleted_file_ids: Vec::new(),
-        cancelled: false,
-    };
-    state.delete_jobs.set(key.clone(), job.clone()).await;
-
-    let audit_action = if permanent {
-        "files.delete.start"
-    } else {
-        "files.trash.start"
-    };
-    audit::write_audit(
-        &state.pool,
-        Some(&claims.sub),
-        audit_action,
-        Some("delete_job"),
-        Some(&job_id),
-        Some(serde_json::json!({
-            "file_count": preview.file_count,
-            "storage_object_count": preview.storage_object_count,
-        })),
-        &headers,
-    )
-    .await
-    .ok();
-
-    let work_state = state.clone();
-    let work_user = claims.sub.clone();
-    let work_headers = headers.clone();
-    let work_permanent = permanent;
-    tokio::spawn(async move {
-        run_delete_job(
-            work_state,
-            work_user,
-            key,
-            file_ids,
-            work_permanent,
-            work_headers,
-        )
-        .await;
-    });
-
-    Ok(Json(delete_status_json(&job_id, &job)))
+    let file_ids = normalize_file_ids(body.file_ids, true)?;
+    let status = start_delete_job(&state, &claims.sub, &headers, file_ids, body.permanent).await?;
+    Ok(Json(status))
 }
 
 // Human: Poll blob-level delete progress for an in-flight delete job.

@@ -1732,6 +1732,12 @@ export async function fetchRecycleBinDeletionPreview() {
   return apiFetch("/recycle-bin/deletion-preview") as Promise<BulkDeletionPreview>;
 }
 
+// Human: Start a background job that permanently deletes every file in the recycle bin.
+// Agent: POST /recycle-bin/delete; RETURNS job_id for the same status polling as /files/delete.
+export async function startRecycleBinEmptyDeleteJob() {
+  return apiFetch("/recycle-bin/delete", { method: "POST" }) as Promise<DeleteJobStatus>;
+}
+
 // Human: Restore selected recycle bin files and folders back to the drive.
 // Agent: POST /recycle-bin/restore JSON { file_ids, folder_ids }; CLEARS deleted_at server-side.
 export async function restoreRecycleBinItems(payload: {

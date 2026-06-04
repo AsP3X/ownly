@@ -484,6 +484,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(files::recycle_bin::recycle_bin_deletion_preview),
         )
         .route(
+            "/api/v1/recycle-bin/delete",
+            post(files::recycle_bin::post_recycle_bin_delete_job),
+        )
+        .route(
             "/api/v1/recycle-bin/restore",
             post(files::recycle_bin::restore_recycle_bin_items),
         )

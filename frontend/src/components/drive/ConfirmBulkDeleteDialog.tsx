@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import {
   deleteFile,
   fetchBulkDeletionPreview,
+  fetchRecycleBinDeletionPreview,
   getErrorMessage,
   type BulkDeletionPreview,
   type DeleteJobStatus,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/confirm-dialog-layout";
 import {
   runDeleteJobWithProgress,
+  runRecycleBinEmptyDeleteJobWithProgress,
   shouldUseDeleteJob,
 } from "@/lib/delete-with-progress";
 import { cn } from "@/lib/utils";
@@ -51,6 +53,8 @@ type ConfirmBulkDeleteDialogProps = {
   /** Human: Runs after a successful permanent delete job (e.g. empty recycle bin folder cleanup). */
   onPermanentComplete?: () => Promise<void>;
   onDeleted?: (deletedIds: string[]) => void;
+  /** Human: Empty entire recycle bin — preview/delete all trashed files without a 500-file cap. */
+  recycleBinEmpty?: boolean;
 };
 
 // Human: Ask the user to confirm before bulk destructive deletes proceed.
@@ -64,6 +68,7 @@ export function ConfirmBulkDeleteDialog({
   description: descriptionOverride,
   onPermanentComplete,
   onDeleted,
+  recycleBinEmpty = false,
 }: ConfirmBulkDeleteDialogProps) {
   const permanentOnly = variant === "permanent-only";
   const [confirming, setConfirming] = useState(false);
@@ -74,7 +79,7 @@ export function ConfirmBulkDeleteDialog({
   const [previewError, setPreviewError] = useState("");
   const [deleteJobStatus, setDeleteJobStatus] = useState<DeleteJobStatus | null>(null);
 
-  const count = items.length;
+  const count = recycleBinEmpty ? (preview?.file_count ?? 0) : items.length;
   const defaultTitle = permanentOnly
     ? count === 1
       ? "Delete file permanently?"
@@ -105,7 +110,7 @@ export function ConfirmBulkDeleteDialog({
   // Human: Load blob counts whenever the dialog opens with a new selection.
   // Agent: POST /files/deletion-preview; WRITES preview state for summary + job decision.
   useEffect(() => {
-    if (!open || items.length === 0) {
+    if (!open || (!recycleBinEmpty && items.length === 0)) {
       setPreview(null);
       setPreviewLoading(false);
       setPreviewError("");
@@ -119,7 +124,11 @@ export function ConfirmBulkDeleteDialog({
     setPreviewError("");
     setDeleteJobStatus(null);
 
-    void fetchBulkDeletionPreview(items.map((item) => item.id))
+    const previewRequest = recycleBinEmpty
+      ? fetchRecycleBinDeletionPreview()
+      : fetchBulkDeletionPreview(items.map((item) => item.id));
+
+    void previewRequest
       .then((nextPreview) => {
         if (!cancelled) setPreview(nextPreview);
       })
@@ -133,7 +142,7 @@ export function ConfirmBulkDeleteDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, items]);
+  }, [open, items, recycleBinEmpty]);
 
   function handleOpenChange(next: boolean) {
     if (!next && confirming) return;
@@ -147,7 +156,7 @@ export function ConfirmBulkDeleteDialog({
 
   async function handleSubmit(event: React.FormEvent, permanent: boolean) {
     event.preventDefault();
-    if (items.length === 0 || confirming) return;
+    if ((!recycleBinEmpty && items.length === 0) || confirming) return;
 
     setConfirming(true);
     setConfirmMode(permanent ? "permanent" : "recycle");
@@ -156,17 +165,33 @@ export function ConfirmBulkDeleteDialog({
 
     const fileIds = items.map((item) => item.id);
     const useDeleteJob =
-      permanent && (preview ? shouldUseDeleteJob(preview) : items.length > 1);
+      permanent &&
+      (recycleBinEmpty ||
+        (preview ? shouldUseDeleteJob(preview) : items.length > 1));
 
     try {
       if (useDeleteJob) {
-        const finalStatus = await runDeleteJobWithProgress(
-          fileIds,
-          (status) => {
-            setDeleteJobStatus(status);
-          },
-          { permanent: true },
-        );
+        const previewTotals = preview
+          ? {
+              total_files: preview.file_count,
+              total_blobs: preview.storage_object_count,
+            }
+          : undefined;
+
+        const finalStatus = recycleBinEmpty
+          ? await runRecycleBinEmptyDeleteJobWithProgress(
+              previewTotals ?? { total_files: count, total_blobs: 0 },
+              (status) => {
+                setDeleteJobStatus(status);
+              },
+            )
+          : await runDeleteJobWithProgress(
+              fileIds,
+              (status) => {
+                setDeleteJobStatus(status);
+              },
+              { permanent: true, previewTotals },
+            );
 
         if (finalStatus.deleted_file_ids.length > 0) {
           onDeleted?.(finalStatus.deleted_file_ids);
@@ -262,7 +287,7 @@ export function ConfirmBulkDeleteDialog({
             />
           ) : null}
 
-          {count > 1 ? (
+          {!recycleBinEmpty && count > 1 ? (
             <ul className="max-h-40 min-w-0 overflow-y-auto border-b border-neutral-100 px-6 py-4 text-sm text-neutral-700">
               {items.map((item) => (
                 <li

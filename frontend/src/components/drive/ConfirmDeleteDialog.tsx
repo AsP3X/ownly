@@ -205,7 +205,15 @@ export function ConfirmDeleteDialog({
             (status) => {
               setDeleteJobStatus(status);
             },
-            { permanent: true },
+            {
+              permanent: true,
+              previewTotals: filePreview
+                ? {
+                    total_files: 1,
+                    total_blobs: filePreview.storage_object_count,
+                  }
+                : undefined,
+            },
           );
 
           if (finalStatus.status === "complete") {
@@ -235,7 +243,13 @@ export function ConfirmDeleteDialog({
             (status) => {
               setDeleteJobStatus(status);
             },
-            { permanent: true },
+            {
+              permanent: true,
+              previewTotals: {
+                total_files: fileIds.length,
+                total_blobs: storageObjectCount,
+              },
+            },
           );
 
           if (finalStatus.status !== "complete") {
