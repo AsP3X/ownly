@@ -5,11 +5,11 @@
 """
 SEC-012 — Administrator creation exploit (setup hijack or initialized-instance JWT chain)
 
-Requires --confirm-exploit.
+On an interactive terminal, prompts for target URL, exploit confirmation, subject
+credentials, and optional JWT secret. Use --no-prompt with flags/env for CI.
 
 - Fresh DB (setup_complete=false): POST /setup creates first admin.
-- Initialized instance: login as any non-admin, re-sign JWT with role=admin using JWT_SECRET
-  from repo .env, POST /admin/users to create a new administrator, verify login.
+- Initialized instance: login, re-sign JWT with role=admin, POST /admin/users.
 
 See scripts/security-audit/README.md and security-audit.md → SEC-012.
 """

@@ -7,9 +7,14 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import Any
 
+from .constants_sec012 import (
+    CREATED_ADMIN_EMAIL_FALLBACK_DOMAIN,
+    CREATED_ADMIN_EMAIL_FALLBACK_PREFIX,
+)
 from .heuristics import json_get
 from .heuristics_sec002 import (
     extract_login_token,
@@ -26,6 +31,7 @@ __all__ = [
     "extract_login_user",
     "extract_setup_auth",
     "forge_admin_jwt",
+    "normalize_created_admin_email",
     "registration_enabled",
     "response_indicates_admin_forbidden",
     "response_indicates_admin_users_list",
@@ -33,6 +39,26 @@ __all__ = [
     "setup_mutation_succeeded",
     "user_role_from_response",
 ]
+
+
+def normalize_created_admin_email(raw: str) -> str:
+    # Human: Map operator "username" or full email to a value POST /admin/users accepts.
+    # Agent: READS raw CLI/prompt; RETURNS lowercased email; appends @audit.invalid when no @.
+    value = raw.strip().lower()
+    if not value:
+        return ""
+    if "@" not in value:
+        local = re.sub(r"[^a-z0-9._+-]", "-", value)
+        local = re.sub(r"-+", "-", local).strip("-._")
+        if not local:
+            raise ValueError(
+                "created administrator name must include at least one letter or digit"
+            )
+        return f"{local}@{CREATED_ADMIN_EMAIL_FALLBACK_DOMAIN}"
+    local, _, domain = value.partition("@")
+    if not local.strip() or not domain.strip():
+        raise ValueError("created administrator email must be user@domain")
+    return value
 
 
 def _b64url(data: bytes) -> str:

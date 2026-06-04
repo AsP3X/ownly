@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 from .constants_sec012 import (
     AUDIT_ID,
     AUDIT_LOG_HINT,
+    CREATED_ADMIN_EMAIL_FALLBACK_DOMAIN,
+    CREATED_ADMIN_EMAIL_FALLBACK_PREFIX,
     EXPLOIT_ANALYSIS_JWT,
     EXPLOIT_ANALYSIS_SETUP,
     REMEDIATION_SEC012,
@@ -32,6 +34,7 @@ from .heuristics_sec012 import (
     extract_login_token,
     extract_login_user,
     extract_setup_auth,
+    normalize_created_admin_email,
     registration_enabled,
     response_indicates_admin_forbidden,
     response_indicates_admin_users_list,
@@ -115,9 +118,18 @@ def _record_timing(cache: dict[str, Any], key: str, res: HttpResult) -> None:
 
 
 def _created_admin_email(cfg: Sec012Config, cache: dict[str, Any]) -> str:
-    email = cfg.created_admin_email.strip()
-    if not email:
-        email = f"sec012-created-{secrets.token_hex(4)}@audit.invalid"
+    raw = cfg.created_admin_email.strip()
+    if raw:
+        email = normalize_created_admin_email(raw)
+    else:
+        email = (
+            f"{CREATED_ADMIN_EMAIL_FALLBACK_PREFIX}-{secrets.token_hex(4)}"
+            f"@{CREATED_ADMIN_EMAIL_FALLBACK_DOMAIN}"
+        )
+    subject = cache.get("subject_email")
+    if isinstance(subject, str) and email == subject.strip().lower():
+        local, _, domain = email.partition("@")
+        email = f"{local}-admin-{secrets.token_hex(2)}@{domain}"
     cache["created_admin_email"] = email
     return email
 
@@ -891,7 +903,7 @@ def test_admin_user_created_via_api(cfg: Sec012Config, cache: dict[str, Any]) ->
         )
     http = _http(cfg)
     new_email = _created_admin_email(cfg, cache)
-    new_password = cache.get("exploit_password") or f"Sec012-{secrets.token_hex(8)}!"
+    new_password = f"Sec012-{secrets.token_hex(10)}!"
     cache["created_admin_password"] = new_password
     res = http_post_json(
         http,
@@ -932,7 +944,10 @@ def test_admin_user_created_via_api(cfg: Sec012Config, cache: dict[str, Any]) ->
     return CaseResult(
         name="admin_user_created_via_api",
         passed=False,
-        detail=f"POST {ROUTE_ADMIN_USERS} failed (HTTP {res.status})",
+        detail=(
+            f"POST {ROUTE_ADMIN_USERS} failed (HTTP {res.status}: "
+            f"{_api_error_message(res) or 'n/a'})"
+        ),
         severity="error",
     )
 
@@ -966,7 +981,10 @@ def test_created_admin_login(cfg: Sec012Config, cache: dict[str, Any]) -> CaseRe
     return CaseResult(
         name="created_admin_login",
         passed=False,
-        detail=f"created admin login failed (HTTP {res.status}, role={role!r})",
+        detail=(
+            f"created admin login failed (HTTP {res.status}, role={role!r}"
+            f"{': ' + _api_error_message(res) if _api_error_message(res) else ''})"
+        ),
         severity="error",
     )
 

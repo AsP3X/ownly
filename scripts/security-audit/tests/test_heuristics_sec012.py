@@ -14,6 +14,7 @@ sys.path.insert(0, str(_ROOT))
 
 from lib.heuristics_sec012 import (  # noqa: E402
     forge_admin_jwt,
+    normalize_created_admin_email,
     setup_blocked_after_init,
     user_role_from_response,
 )
@@ -56,6 +57,23 @@ class TestHeuristicsSec012(unittest.TestCase):
     def test_setup_blocked_409(self) -> None:
         res = HttpResult(409, {}, "", {"error": {"message": "already"}})
         self.assertTrue(setup_blocked_after_init(res))
+
+
+class TestNormalizeCreatedAdminEmail(unittest.TestCase):
+    def test_username_gets_audit_domain(self) -> None:
+        self.assertEqual(
+            normalize_created_admin_email("My-Audit-Admin"),
+            "my-audit-admin@audit.invalid",
+        )
+
+    def test_full_email_preserved(self) -> None:
+        self.assertEqual(
+            normalize_created_admin_email("Attacker@Corp.Test"),
+            "attacker@corp.test",
+        )
+
+    def test_empty_returns_empty(self) -> None:
+        self.assertEqual(normalize_created_admin_email("   "), "")
 
 
 if __name__ == "__main__":

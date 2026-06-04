@@ -15,6 +15,11 @@ ROUTE_SETTINGS_REGISTRATION = "/settings/registration"
 ROUTE_ADMIN_USERS = "/admin/users"
 DEFAULT_ADMIN_PROBE_ROUTE = ROUTE_ADMIN_USERS
 
+# Human: Auto-generated admin email when --created-admin-email / prompt is omitted.
+# Agent: READ by runner _created_admin_email; WRITTEN to cache for login verification.
+CREATED_ADMIN_EMAIL_FALLBACK_PREFIX = "sec012-created"
+CREATED_ADMIN_EMAIL_FALLBACK_DOMAIN = "audit.invalid"
+
 REMEDIATION_SEC012 = (
     "Require SETUP_TOKEN (or equivalent) on POST /setup; restrict setup to private network; "
     "reload users.role from DB in auth_middleware; rotate sessions on role change; "
