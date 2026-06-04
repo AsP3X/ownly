@@ -236,7 +236,7 @@ export function ImagePreviewDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[960px]"
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col items-center justify-center gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[1440px]"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
         onKeyDown={handleContentKeyDown}
@@ -272,7 +272,8 @@ export function ImagePreviewDialog({
 
           {/* Human: Lightbox card — dark frame, image fill, close + bottom metadata bar. */}
           <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[#111118] shadow-[0_16px_48px_rgba(0,0,0,0.4)]">
-            <div className="relative flex min-h-[min(600px,70dvh)] w-full items-center justify-center">
+            {/* Human: Image stage — 1.5× Pencil baseline (600px / 70dvh) for a larger lightbox on desktop. */}
+            <div className="relative flex min-h-[min(900px,105dvh)] w-full items-center justify-center">
               {error ? (
                 <p className="px-6 text-center text-sm text-red-400" role="alert">
                   {error}
@@ -283,7 +284,7 @@ export function ImagePreviewDialog({
                 <img
                   src={displayUrl}
                   alt={file?.name ?? "Image preview"}
-                  className="max-h-[min(600px,70dvh)] w-full object-contain"
+                  className="max-h-[min(900px,105dvh)] w-full object-contain"
                   draggable={false}
                 />
               ) : null}
