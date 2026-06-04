@@ -34,11 +34,17 @@ fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppE
     Ok(())
 }
 
+// Human: Bump when adding routes the SPA depends on (drive dashboard, admin console, etc.).
+// Agent: EXPOSED via GET /api/v1/version; MISSING on older images → ops run check-api-deployment.sh.
+pub const API_SURFACE: &str = "20260604-drive-admin";
+
 #[derive(Debug, Serialize)]
 pub struct ReleaseInfo {
     pub version: &'static str,
     pub git_sha: String,
     pub environment: String,
+    /// Human: Lets operators confirm frontend/backend route parity without guessing from 404s.
+    pub api_surface: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +128,7 @@ pub async fn release_info(State(state): State<Arc<AppState>>) -> Json<ReleaseInf
         version: env!("CARGO_PKG_VERSION"),
         git_sha: state.git_sha.clone(),
         environment: state.environment.clone(),
+        api_surface: API_SURFACE,
     })
 }
 
