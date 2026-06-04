@@ -132,6 +132,28 @@ class Sec009Config:
 
 
 @dataclass
+class Sec010Config:
+    # Human: SEC-010 setup database test internal Postgres probe options.
+    # Agent: READS env/CLI; WRITES runner_sec010; probes internal DB URLs without auth.
+    http: Config
+    require_pre_setup: bool
+    probe_targets: tuple[tuple[str, str], ...]
+
+
+@dataclass
+class Sec011Config:
+    # Human: SEC-011 zip archive includes soft-deleted files probe options.
+    # Agent: READS env/CLI; WRITES runner_sec011; bulk + folder zip after trash.
+    http: Config
+    owner_email: str
+    owner_password: str
+    folder_id: str
+    file_id: str
+    bootstrap_fixtures: bool
+    restore_after_probe: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

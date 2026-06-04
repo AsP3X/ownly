@@ -816,6 +816,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 | **Category**       | Data extraction / infrastructure reconnaissance                                                               |
 | **Impacted files** | `backend/src/setup/handlers.rs` (`test_setup_database`), `backend/src/db.rs` (`test_connection`, `init_pool`) |
 | **Routes**         | `POST /api/v1/setup/database/test`                                                                            |
+| **Audit script**   | [`scripts/security-audit/sec010_setup_database_ssrf.py`](scripts/security-audit/sec010_setup_database_ssrf.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -848,10 +849,36 @@ SSRF-style database probing from the API host; may aid credential stuffing again
 3. Prefer a lightweight TCP/TLS handshake check over full `init_pool` + migrations for wizard “test connection” UX.
 4. Rate-limit setup test endpoints per source IP.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec010_setup_database_ssrf.py`](scripts/security-audit/sec010_setup_database_ssrf.py). Posts internal `database_url` values to `POST /setup/database/test` without credentials.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Pre-setup | **Full DB probe check** needs `setup_complete=false` (fresh DB or uninitialized instance) |
+| Credentials | None |
+
+```bash
+python3 scripts/security-audit/sec010_setup_database_ssrf.py
+```
+
+On initialized instances the script still checks post-setup gating (expects **409**). Use `--require-pre-setup` to require a fresh instance.
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Internal targets rejected or endpoint auth-gated |
+| **1** | Vulnerable — unauthenticated probe accepts internal Postgres URLs |
+| **2** | Inconclusive — API unreachable or `--require-pre-setup` on completed setup |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Unauthenticated setup DB test without valid bootstrap token → 401/403 (when token enforced).
 - URLs targeting `127.0.0.1` and private ranges are rejected before outbound connect.
+- `python3 scripts/security-audit/sec010_setup_database_ssrf.py` exits **0** after remediation on a **pre-setup** deployment (**1** = vulnerable).
 
 ---
 
@@ -866,6 +893,7 @@ SSRF-style database probing from the API host; may aid credential stuffing again
 | **Category**       | Data extraction                                                                                                                                |
 | **Impacted files** | `backend/src/files/folder_download.rs` (`collect_zip_entries_for_folder`), `backend/src/files/zip_job.rs` (`collect_zip_entries_for_file_ids`) |
 | **Routes**         | `POST /api/v1/folders/{id}/download`, `POST /api/v1/files/download`                                                                            |
+| **Audit script**   | [`scripts/security-audit/sec011_trash_zip_download.py`](scripts/security-audit/sec011_trash_zip_download.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 
 
 **Description**
@@ -899,11 +927,41 @@ Weak deletion guarantees on archive paths; overlaps SEC-004 theme but affects mu
 2. Reject bulk download requests where any `file_id` refers to a trashed row.
 3. When walking folder trees for zip, skip trashed subfolders/files consistently with browse listing.
 
+**Automated test**
+
+Standalone probe: [`scripts/security-audit/sec011_trash_zip_download.py`](scripts/security-audit/sec011_trash_zip_download.py). Bootstraps a folder + probe file, confirms bulk and folder zip jobs start before trash, soft-deletes the file, then re-probes with the **same owner JWT**.
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running Ownly API (default `http://127.0.0.1:8080`) |
+| Setup | `setup_complete=true` |
+| Owner | One account that can upload, delete, and start zip downloads |
+
+```bash
+python3 scripts/security-audit/sec011_trash_zip_download.py --prompt
+```
+
+```bash
+export SEC011_OWNER_EMAIL='owner@example.com'
+export SEC011_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec011_trash_zip_download.py
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Not vulnerable — trashed file blocked on bulk and/or folder zip |
+| **1** | Vulnerable — zip job still starts after trash |
+| **2** | Inconclusive — credentials, API, or bootstrap failure |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
 **Verification**
 
 - Folder zip of a tree with trashed files excludes trashed members.
 - Bulk download with a trashed `file_id` → 400/404.
 - Regression test aligned with SEC-003/SEC-004 recycle-bin behavior.
+- `python3 scripts/security-audit/sec011_trash_zip_download.py` exits **0** on a fixed deployment (**1** = vulnerable; **2** = inconclusive).
 
 ---
 
@@ -964,5 +1022,6 @@ Add or extend integration tests in `backend/tests/` for:
 | 2026-06-02 | Security audit (static) | Initial findings documented |
 | 2026-06-02 | Follow-up static review | SEC-007–SEC-009 added       |
 | 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added       |
+| 2026-06-03 | Audit scripts           | SEC-010–SEC-011 probe scripts added |
 
 

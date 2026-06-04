@@ -154,6 +154,39 @@ SEC009_KEYS = frozenset(
     }
 )
 
+SEC010_KEYS = frozenset(
+    {
+        "SEC010_BASE_URL",
+        "SEC010_API_PREFIX",
+        "SEC010_REQUIRE_PRE_SETUP",
+        "SEC010_RETRIES",
+        "SEC010_QUIET",
+        "SEC010_OUTPUT",
+        "SEC010_NO_REDACTION",
+        "SEC010_I_KNOW",
+    }
+)
+
+SEC011_KEYS = frozenset(
+    {
+        "SEC011_BASE_URL",
+        "SEC011_API_PREFIX",
+        "SEC011_OWNER_EMAIL",
+        "SEC011_OWNER_PASSWORD",
+        "SEC011_FOLDER_ID",
+        "SEC011_FILE_ID",
+        "SEC011_REQUIRE_SETUP",
+        "SEC011_NO_RESTORE",
+        "SEC011_NO_BOOTSTRAP",
+        "SEC011_RETRIES",
+        "SEC011_QUIET",
+        "SEC011_OUTPUT",
+        "SEC011_PROMPT",
+        "SEC011_NO_REDACTION",
+        "SEC011_I_KNOW",
+    }
+)
+
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 
@@ -283,6 +316,18 @@ def load_sec009_env_file(explicit: str | None = None) -> Path | None:
     # Human: Best-effort load of SEC009_* from discovered .env before config load.
     # Agent: RETURNS path loaded or None; does not override already-exported vars.
     return _load_env_file_for_keys(explicit, SEC009_KEYS)
+
+
+def load_sec010_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC010_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC010_KEYS)
+
+
+def load_sec011_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC011_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC011_KEYS)
 
 
 def inspect_env_file(

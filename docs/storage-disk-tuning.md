@@ -47,14 +47,23 @@ From the repo root (Postgres reachable, Nebular data volume mounted or `NEBULAR_
 python scripts/storage-audit.py
 ```
 
-Optional:
+The script loads `DATABASE_URL` and `NEBULAR_DATA_DIR` from the repo `.env` when those variables are not already exported (same discovery as the security-audit scripts: cwd, then parents up to `docker-compose.yml`). Shell exports take precedence.
+
+Optional overrides:
 
 ```bash
 export DATABASE_URL=postgres://mediavault:mediavault@localhost:5432/mediavault
 export NEBULAR_DATA_DIR=/var/lib/docker/volumes/ownly_nebular_data/_data/blobs
 python scripts/storage-audit.py
 ```
-(Activate `scripts/.venv` first so `psycopg` is available.)
+
+Or point at a specific env file:
+
+```bash
+python scripts/storage-audit.py --env-file /path/to/.env
+```
+
+(Activate `scripts/.venv` first so `psycopg` is available. For host-side Postgres, use `localhost` in `DATABASE_URL`, not the Compose service name `postgres`.)
 
 The script sums `files.size_bytes` (non-deleted) and walks the Nebular blob tree, classifying **NOS2**, **NOSZ**, **NOSD**, and raw files. Large gaps often mean orphaned blobs, incomplete deletes, or HLS sidecars not reflected in a single file row.
 

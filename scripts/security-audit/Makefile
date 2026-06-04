@@ -14,7 +14,7 @@ else
 PYTHON ?= python3
 endif
 
-.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 sec007 sec008 sec009 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json sec007-json sec008-json sec009-json
+.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 sec007 sec008 sec009 sec010 sec011 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json sec007-json sec008-json sec009-json sec010-json sec011-json
 
 sec001:
 	$(PYTHON) sec001_setup_info_disclosure.py --base-url $(BASE_URL)
@@ -80,6 +80,19 @@ sec009:
 
 sec009-json:
 	$(PYTHON) sec009_share_password_bruteforce.py --base-url $(BASE_URL) --json
+
+sec010:
+	$(PYTHON) sec010_setup_database_ssrf.py --base-url $(BASE_URL)
+
+sec010-json:
+	$(PYTHON) sec010_setup_database_ssrf.py --base-url $(BASE_URL) --json
+
+sec011:
+	@echo "SEC011 requires SEC011_OWNER_EMAIL and SEC011_OWNER_PASSWORD"
+	$(PYTHON) sec011_trash_zip_download.py --base-url $(BASE_URL)
+
+sec011-json:
+	$(PYTHON) sec011_trash_zip_download.py --base-url $(BASE_URL) --json
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v

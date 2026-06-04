@@ -10,6 +10,8 @@
 #
 # After running:
 #   source scripts/.venv/bin/activate
+#   # Re-install deps only (venv already exists):
+#   bash scripts/install-requirements.sh
 #   # then run e.g.
 #   python scripts/storage-audit.py
 #   python -m unittest discover -s scripts/security-audit/tests -v
@@ -21,7 +23,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
-REQ_FILE="$SCRIPT_DIR/requirements.txt"
 
 echo "==> Creating virtual environment at $VENV_DIR"
 
@@ -39,18 +40,8 @@ fi
 $PYTHON -m venv "$VENV_DIR"
 
 # Activate for this script (portable across bash/zsh)
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
-
-echo "==> Upgrading pip"
-python -m pip install --upgrade pip wheel setuptools
-
-if [ -f "$REQ_FILE" ]; then
-    echo "==> Installing dependencies from $REQ_FILE"
-    python -m pip install -r "$REQ_FILE"
-else
-    echo "Warning: $REQ_FILE not found; skipping pip install"
-fi
+echo "==> Installing dependencies"
+bash "$SCRIPT_DIR/install-requirements.sh"
 
 echo ""
 echo "==> Done. Virtual environment created at: $VENV_DIR"

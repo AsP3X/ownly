@@ -9,9 +9,10 @@ rem
 rem Usage:
 rem   scripts\setup-test-env.bat
 rem
-rem After running, in the same cmd session the script will activate the venv
-rem for subsequent commands in the same window, or run:
+rem After running, activate the venv in new shells with:
 rem   scripts\.venv\Scripts\activate.bat
+rem Re-install deps only (venv already exists):
+rem   scripts\install-requirements.bat
 rem
 rem The security-audit scripts require no third-party packages (stdlib only).
 rem storage-audit.py pulls in psycopg[binary].
@@ -20,7 +21,6 @@ echo ==^> Creating virtual environment for audit / test scripts
 
 set "SCRIPT_DIR=%~dp0"
 set "VENV_DIR=%SCRIPT_DIR%.venv"
-set "REQ_FILE=%SCRIPT_DIR%requirements.txt"
 
 rem Try "py" launcher first (recommended on Windows), then plain python.
 set "PYTHON=py"
@@ -42,18 +42,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo ==^> Activating venv for this session...
-call "%VENV_DIR%\Scripts\activate.bat"
-
-echo ==^> Upgrading pip, wheel, setuptools...
-python -m pip install --upgrade pip wheel setuptools
-
-if exist "%REQ_FILE%" (
-    echo ==^> Installing dependencies from %REQ_FILE% ...
-    python -m pip install -r "%REQ_FILE%"
-) else (
-    echo Warning: %REQ_FILE% not found; skipping dependency install.
-)
+echo ==^> Installing dependencies...
+call "%SCRIPT_DIR%install-requirements.bat"
+if errorlevel 1 exit /b 1
 
 echo.
 echo ==^> Done. Virtual environment created at: %VENV_DIR%

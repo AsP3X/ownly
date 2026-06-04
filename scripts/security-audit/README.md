@@ -26,6 +26,18 @@ scripts\setup-test-env.bat
 
 This creates `scripts/.venv/` (git-ignored) and installs the minimal requirements.
 
+To **only** install or refresh dependencies (venv already exists):
+
+```bash
+bash scripts/install-requirements.sh
+```
+
+```bat
+scripts\install-requirements.bat
+```
+
+Use `--create-venv` if you want the install script to create `scripts/.venv` when it is missing.
+
 ### 2. Activate
 
 - **macOS / Linux**: `source scripts/.venv/bin/activate`
@@ -68,7 +80,7 @@ make -C scripts/security-audit PYTHON=python sec002
 
 ### Storage-audit.py
 
-The shared venv also covers the storage audit script (`scripts/storage-audit.py`). It compares Postgres `files.size_bytes` (logical) against on-disk Nebular blob sizes. Requires `DATABASE_URL` (and optionally `NEBULAR_DATA_DIR`). See [`docs/storage-disk-tuning.md`](../../docs/storage-disk-tuning.md) for details and example environment.
+The shared venv also covers the storage audit script (`scripts/storage-audit.py`). It compares Postgres `files.size_bytes` (logical) against on-disk Nebular blob sizes. Loads `DATABASE_URL` and `NEBULAR_DATA_DIR` from the repo `.env` when not exported. See [`docs/storage-disk-tuning.md`](../../docs/storage-disk-tuning.md) for details and example environment.
 
 ## SEC-001 — setup endpoint disclosure
 
@@ -431,5 +443,61 @@ Environment: `SEC009_*` (also loaded from repo `.env`). Use `export` or one-line
 
 ```bash
 make -C scripts/security-audit sec009
+make -C scripts/security-audit test
+```
+
+## SEC-010 — setup database test internal Postgres probing
+
+Sends unauthenticated `POST /setup/database/test` with internal Postgres URLs (`127.0.0.1`, `10.0.0.1`). **Vulnerable** when targets are not rejected before an outbound database connect (400 “could not connect to database” still counts).
+
+```bash
+python3 scripts/security-audit/sec010_setup_database_ssrf.py
+```
+
+On **initialized** instances (`setup_complete=true`), DB probes are skipped; the script still verifies the endpoint returns **409** after setup. Use a **fresh/pre-setup** stack for full detection, or pass `--require-pre-setup` to fail when setup is already complete.
+
+| Flag | Description |
+|------|-------------|
+| `--base-url` | API origin |
+| `--require-pre-setup` | Exit inconclusive if `setup_complete=true` |
+| `--json` / `--sarif` | Machine-readable output |
+
+No credentials required.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec010
+make -C scripts/security-audit test
+```
+
+## SEC-011 — folder and bulk zip include recycle-bin files
+
+Creates a probe folder + file, confirms bulk (`POST /files/download`) and folder (`POST /folders/{id}/download`) zip jobs start **before** trash, soft-deletes the file, then re-probes. **Vulnerable** when either zip job still starts after trash.
+
+```bash
+python3 scripts/security-audit/sec011_trash_zip_download.py --prompt
+```
+
+```bash
+export SEC011_OWNER_EMAIL='owner@example.com'
+export SEC011_OWNER_PASSWORD='...'
+python3 scripts/security-audit/sec011_trash_zip_download.py
+```
+
+| Flag | Description |
+|------|-------------|
+| `--owner-email` / `--owner-password` | Drive owner |
+| `--folder-id` / `--file-id` | Skip bootstrap when set |
+| `--no-bootstrap` | Require explicit ids |
+| `--no-restore` | Leave probe in recycle bin |
+| `--prompt` | Interactive credentials |
+
+Environment: `SEC011_*` (also loaded from repo `.env`). Use `export` or one-line env prefix.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec011
 make -C scripts/security-audit test
 ```

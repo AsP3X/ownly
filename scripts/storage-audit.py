@@ -4,9 +4,16 @@
 
 from __future__ import annotations
 
+import argparse
 import os
+import re
 import sys
 from pathlib import Path
+
+# Human: Keys loaded from repo .env when not already exported in the shell.
+# Agent: READS DATABASE_URL, NEBULAR_DATA_DIR; does not override existing os.environ.
+_STORAGE_ENV_KEYS = frozenset({"DATABASE_URL", "NEBULAR_DATA_DIR"})
+_ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 try:
     import psycopg
@@ -20,6 +27,73 @@ except ImportError:
 NOSZ_MAGIC = b"NOSZ"
 NOS2_MAGIC = b"NOS2"
 NOSD_MAGIC = b"NOSD"
+
+
+def _strip_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    # Human: Parse KEY=VALUE lines from a .env file (no variable expansion).
+    # Agent: RETURNS only DATABASE_URL and NEBULAR_DATA_DIR when present.
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _ENV_LINE.match(line)
+        if not match:
+            continue
+        key, value = match.group(1), _strip_quotes(match.group(2).strip())
+        if key in _STORAGE_ENV_KEYS:
+            out[key] = value
+    return out
+
+
+def discover_env_file(explicit: str | None) -> Path | None:
+    # Human: Resolve .env — explicit path, cwd, then parents of this script up to repo root.
+    # Agent: RETURNS first existing .env path or None.
+    if explicit:
+        p = Path(explicit).expanduser()
+        return p if p.is_file() else None
+    candidates: list[Path] = [Path.cwd() / ".env"]
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / ".env").is_file():
+            candidates.append(parent / ".env")
+        if (parent / "docker-compose.yml").is_file():
+            candidates.append(parent / ".env")
+            break
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def load_env_from_dotenv(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of DATABASE_URL / NEBULAR_DATA_DIR from discovered .env.
+    # Agent: RETURNS path loaded or None; skips keys already set in the environment.
+    path = discover_env_file(explicit)
+    if path is None:
+        return None
+    applied = 0
+    for key, value in _parse_env_file(path).items():
+        if os.environ.get(key, "").strip():
+            continue
+        os.environ[key] = value
+        applied += 1
+    if applied or _parse_env_file(path):
+        return path
+    return None
 
 
 def classify_blob(path: Path) -> tuple[str, int]:
@@ -79,10 +153,31 @@ def fmt_bytes(n: int) -> str:
     return f"{n} B"
 
 
-def main() -> int:
-    database_url = os.environ.get("DATABASE_URL")
+def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare Postgres logical file bytes to Nebular on-disk blob sizes.",
+    )
+    parser.add_argument(
+        "--env-file",
+        metavar="PATH",
+        help="load DATABASE_URL and NEBULAR_DATA_DIR from this .env (default: discover repo .env)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    cli = parse_cli(argv)
+    explicit_env = (cli.env_file or "").strip() or os.environ.get("STORAGE_AUDIT_ENV_FILE", "").strip() or None
+    loaded_env = load_env_from_dotenv(explicit_env)
+
+    database_url = os.environ.get("DATABASE_URL", "").strip()
     if not database_url:
-        print("DATABASE_URL is required", file=sys.stderr)
+        hint = "set DATABASE_URL in the environment or in a repo .env (see .env.example)"
+        if loaded_env:
+            hint = f"found {loaded_env} but DATABASE_URL is missing or empty — {hint}"
+        elif discover_env_file(explicit_env) is None:
+            hint = f"no .env found (cwd={Path.cwd()}) — {hint}"
+        print(f"DATABASE_URL is required ({hint})", file=sys.stderr)
         return 1
 
     data_dir = os.environ.get("NEBULAR_DATA_DIR")
@@ -134,4 +229,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
