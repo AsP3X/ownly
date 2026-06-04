@@ -32,6 +32,44 @@ def _share_password_headers(cfg: Sec003Config) -> dict[str, str]:
     return {"x-share-password": cfg.share_password}
 
 
+def find_folder_with_file(cfg: Sec003Config, owner_token: str) -> tuple[str, str] | None:
+    # Human: Scan drive for any folder that already contains at least one file.
+    # Agent: READS /folders and /files; RETURNS (folder_id, file_id) or None.
+    # SEC-007/009 bootstrap reuse this; SEC-003 uses a dedicated sec003-audit-* folder instead.
+    http = cfg.http
+    folders_res = http_get(
+        http,
+        api_url(http, ROUTE_FOLDERS),
+        extra_headers=_auth_headers(owner_token),
+    )
+    if folders_res.status != 200 or not isinstance(folders_res.body_json, dict):
+        return None
+    folders = folders_res.body_json.get("folders")
+    if not isinstance(folders, list):
+        return None
+    for row in folders:
+        if not isinstance(row, dict):
+            continue
+        folder_id = row.get("id")
+        if not isinstance(folder_id, str) or not folder_id.strip():
+            continue
+        files_res = http_get(
+            http,
+            api_url(http, f"{ROUTE_FILES}?folder_id={folder_id}&limit=5"),
+            extra_headers=_auth_headers(owner_token),
+        )
+        if files_res.status != 200 or not isinstance(files_res.body_json, dict):
+            continue
+        files = files_res.body_json.get("files")
+        if isinstance(files, list) and files:
+            first = files[0]
+            if isinstance(first, dict):
+                file_id = first.get("id")
+                if isinstance(file_id, str) and file_id.strip():
+                    return folder_id.strip(), file_id.strip()
+    return None
+
+
 def create_audit_folder(cfg: Sec003Config, owner_token: str) -> tuple[str, HttpResult]:
     http = cfg.http
     name = f"sec003-audit-{secrets.token_hex(3)}"
