@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from .config import _env_bool
+from .config import _env_bool, require_interactive_prompt, should_prompt_missing_credentials
 from .constants_sec002 import (
     AUDIT_ID,
     DEFAULT_ADMIN_PROBE_ROUTE,
@@ -44,7 +44,12 @@ def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         action="store_true",
-        help="prompt for missing credentials on a TTY (or SEC002_PROMPT=1)",
+        help="force credential prompt (default: prompt on TTY when credentials missing)",
+    )
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="never prompt; fail if credentials missing (SEC002_NO_PROMPT=1)",
     )
     parser.add_argument(
         "--bootstrap-subject",
@@ -189,13 +194,13 @@ def credential_setup_hint(*, bootstrap: bool = False) -> str:
             f"Bootstrap: add to repo .env, or export, or CLI flags:\n"
             f"  python3 {script} --bootstrap-subject \\\n"
             f"    --demoter-email 'you@example.com' --demoter-password '...'\n"
-            f"Or: python3 {script} --bootstrap-subject --prompt\n"
+            f"Or: python3 {script} --bootstrap-subject\n"
             f"{shell_export_hint()}"
         )
     return (
         "Add to your repo .env (see .env.example) or export SEC002_* vars.\n"
-        f"Or one admin: python3 {script} --bootstrap-subject --prompt\n"
-        f"Or two admins: python3 {script} --prompt\n"
+        f"Or one admin: python3 {script} --bootstrap-subject\n"
+        f"Or two admins: run interactively (prompts on TTY) or pass CLI flags.\n"
         f"{shell_export_hint()}"
     )
 
@@ -253,8 +258,6 @@ def _prompt_credentials(
     demoter_password: str,
     bootstrap: bool,
 ) -> tuple[str, str, str, str]:
-    if not sys.stdin.isatty():
-        raise SystemExit("SEC-002 --prompt requires an interactive terminal.")
     if bootstrap:
         print("SEC-002 demoter admin (creates temporary subject via --bootstrap-subject):", file=sys.stderr)
     else:
@@ -349,8 +352,28 @@ def load_config(cli: argparse.Namespace | None = None) -> Sec002Config:
     bootstrap = cli.bootstrap_subject or _env_bool("SEC002_BOOTSTRAP_SUBJECT")
     if bootstrap:
         restore = False
-    want_prompt = cli.prompt or _env_bool("SEC002_PROMPT")
+    missing = missing_credential_fields(
+        Sec002Config(
+            http=http,
+            subject_email=subject_email,
+            subject_password=subject_password,
+            demoter_email=demoter_email,
+            demoter_password=demoter_password,
+            demote_role=demote_role,
+            admin_probe_route=probe_route,
+            restore_admin_role=restore,
+            bootstrap_subject=bootstrap,
+        )
+    )
+    want_prompt = should_prompt_missing_credentials(
+        explicit_prompt=cli.prompt,
+        prompt_env_name="SEC002_PROMPT",
+        no_prompt=cli.no_prompt,
+        no_prompt_env_name="SEC002_NO_PROMPT",
+        missing=missing,
+    )
     if want_prompt:
+        require_interactive_prompt("SEC-002", missing=missing)
         subject_email, subject_password, demoter_email, demoter_password = _prompt_credentials(
             subject_email=subject_email,
             subject_password=subject_password,

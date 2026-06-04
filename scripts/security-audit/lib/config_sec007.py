@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from .config import _env_bool
+from .config import _env_bool, require_interactive_prompt, should_prompt_missing_credentials
 from .constants_sec007 import AUDIT_ID, DEFAULT_API_PREFIX, DEFAULT_BASE_URL, DEFAULT_SHARE_PASSWORD
 from .env_file import SEC007_KEYS, inspect_env_file, load_sec007_env_file
 from .models import Config, Sec007Config
@@ -24,7 +24,16 @@ def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
         description="SEC-007: password-protected share overview leaks metadata without password.",
     )
     parser.add_argument("--env-file", metavar="PATH", help="load SEC007_* from .env")
-    parser.add_argument("--prompt", action="store_true", help="prompt for owner credentials on TTY")
+    parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="force credential prompt (default: prompt on TTY when credentials missing)",
+    )
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="never prompt; fail if credentials missing (SEC007_NO_PROMPT=1)",
+    )
     parser.add_argument("--base-url", metavar="URL", help="API origin")
     parser.add_argument("--owner-email", metavar="EMAIL")
     parser.add_argument("--owner-password", metavar="PASSWORD")
@@ -68,7 +77,7 @@ def missing_credential_fields(cfg: Sec007Config) -> list[str]:
 def credential_setup_hint() -> str:
     return (
         "Add to .env (see .env.example) or run:\n"
-        "  python3 scripts/security-audit/sec007_share_overview_password_bypass.py --prompt\n"
+        "  python3 scripts/security-audit/sec007_share_overview_password_bypass.py\n"
         "Export: SEC007_OWNER_EMAIL=... SEC007_OWNER_PASSWORD=... python3 scripts/security-audit/sec007_share_overview_password_bypass.py"
     )
 
@@ -119,8 +128,6 @@ def env_file_diagnostic() -> str | None:
 
 
 def _prompt_owner(*, email: str, password: str) -> tuple[str, str]:
-    if not sys.stdin.isatty():
-        raise SystemExit("SEC-007 --prompt requires an interactive terminal.")
     print("SEC-007 owner credentials (password-protected share overview probe):", file=sys.stderr)
     if not email:
         email = input("Owner email: ").strip()
@@ -155,7 +162,47 @@ def load_config(cli: argparse.Namespace | None = None) -> Sec007Config:
         fmt = "human"
     owner_email = (cli.owner_email or "").strip() or os.environ.get("SEC007_OWNER_EMAIL", "").strip()
     owner_password = (cli.owner_password or os.environ.get("SEC007_OWNER_PASSWORD", "")).strip()
-    if cli.prompt or _env_bool("SEC007_PROMPT"):
+    missing = missing_credential_fields(
+        Sec007Config(
+            http=Config(
+                audit_id=AUDIT_ID,
+                base_url=base,
+                api_prefix=prefix,
+                timeout_sec=timeout,
+                insecure_tls=False,
+                require_setup_complete=True,
+                verbose=False,
+                show_leaks=True,
+                redact_output=True,
+                output_format=fmt,
+                quiet=False,
+                compact=False,
+                strict_heuristics=False,
+                retries=0,
+                fail_fast=False,
+                output_file=None,
+                compare_baseline=None,
+                save_baseline=None,
+            ),
+            owner_email=owner_email,
+            owner_password=owner_password,
+            share_password=DEFAULT_SHARE_PASSWORD,
+            folder_id="",
+            file_id="",
+            share_id="",
+            share_token="",
+            bootstrap_fixtures=True,
+            revoke_after_probe=True,
+        )
+    )
+    if should_prompt_missing_credentials(
+        explicit_prompt=cli.prompt,
+        prompt_env_name="SEC007_PROMPT",
+        no_prompt=cli.no_prompt,
+        no_prompt_env_name="SEC007_NO_PROMPT",
+        missing=missing,
+    ):
+        require_interactive_prompt("SEC-007", missing=missing)
         owner_email, owner_password = _prompt_owner(email=owner_email, password=owner_password)
     share_password = (
         (cli.share_password or "").strip()

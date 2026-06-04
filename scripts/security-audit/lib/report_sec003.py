@@ -83,6 +83,12 @@ class AuditReporter:
         print(f"  {'Bootstrap':<12} {boot}")
         restore = "yes" if self.sec003.restore_after_probe else "no (--no-restore)"
         print(f"  {'Restore':<12} {restore}")
+        if self.sec003.share_password:
+            print(f"  {'Share pwd':<12} {self.dim('configured (x-share-password)')}")
+        else:
+            print(
+                f"  {'Share pwd':<12} {self.dim('none — required when link has password protection')}"
+            )
 
     def status_icon(self, result: CaseResult) -> str:
         if result.passed:

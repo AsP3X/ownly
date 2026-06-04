@@ -10,9 +10,14 @@ from .constants_sec003 import (
     ROUTE_FILES,
     ROUTE_FILES_UPLOAD,
     ROUTE_FOLDERS,
+    ROUTE_PUBLIC_OVERVIEW,
     ROUTE_SHARES,
 )
-from .heuristics_sec003 import extract_upload_file_id
+from .heuristics_sec003 import (
+    extract_share_requires_password,
+    extract_upload_file_id,
+    public_overview_requires_password,
+)
 from .http_client import api_url, http_get, http_post_json, http_post_multipart_file
 from .models import HttpResult, Sec003Config
 
@@ -25,43 +30,6 @@ def _share_password_headers(cfg: Sec003Config) -> dict[str, str]:
     if not cfg.share_password:
         return {}
     return {"x-share-password": cfg.share_password}
-
-
-def find_folder_with_file(cfg: Sec003Config, owner_token: str) -> tuple[str, str] | None:
-    # Human: Scan drive for any folder that already contains at least one file.
-    # Agent: READS /folders and /files; RETURNS (folder_id, file_id) or None.
-    http = cfg.http
-    folders_res = http_get(
-        http,
-        api_url(http, ROUTE_FOLDERS),
-        extra_headers=_auth_headers(owner_token),
-    )
-    if folders_res.status != 200 or not isinstance(folders_res.body_json, dict):
-        return None
-    folders = folders_res.body_json.get("folders")
-    if not isinstance(folders, list):
-        return None
-    for row in folders:
-        if not isinstance(row, dict):
-            continue
-        folder_id = row.get("id")
-        if not isinstance(folder_id, str) or not folder_id.strip():
-            continue
-        files_res = http_get(
-            http,
-            api_url(http, f"{ROUTE_FILES}?folder_id={folder_id}&limit=5"),
-            extra_headers=_auth_headers(owner_token),
-        )
-        if files_res.status != 200 or not isinstance(files_res.body_json, dict):
-            continue
-        files = files_res.body_json.get("files")
-        if isinstance(files, list) and files:
-            first = files[0]
-            if isinstance(first, dict):
-                file_id = first.get("id")
-                if isinstance(file_id, str) and file_id.strip():
-                    return folder_id.strip(), file_id.strip()
-    return None
 
 
 def create_audit_folder(cfg: Sec003Config, owner_token: str) -> tuple[str, HttpResult]:
@@ -99,6 +67,35 @@ def upload_probe_file(cfg: Sec003Config, owner_token: str, folder_id: str) -> tu
     return file_id, res
 
 
+def public_route(template: str, *, token: str, file_id: str = "") -> str:
+    return template.format(token=token, file_id=file_id)
+
+
+def share_requires_password_probe(cfg: Sec003Config, share_token: str) -> bool | None:
+    # Human: Confirm whether anonymous visitors must send x-share-password.
+    # Agent: GET /public/shares/{token} overview (no password header).
+    http = cfg.http
+    res = http_get(
+        http,
+        api_url(http, public_route(ROUTE_PUBLIC_OVERVIEW, token=share_token)),
+    )
+    return public_overview_requires_password(res)
+
+
+def ensure_share_probe_ready(cfg: Sec003Config, share_token: str, create_res: HttpResult) -> str | None:
+    # Human: Fail fast when the link needs a password the audit did not configure.
+    # Agent: CHECKS create response + overview; RETURNS error detail or None.
+    needs = extract_share_requires_password(create_res)
+    if needs is None:
+        needs = share_requires_password_probe(cfg, share_token)
+    if needs and not cfg.share_password:
+        return (
+            "share requires a password but SEC003_SHARE_PASSWORD / --share-password is unset "
+            "(reuse of an existing folder share often causes this — use a fresh folder or pass the password)"
+        )
+    return None
+
+
 def create_folder_share(
     cfg: Sec003Config,
     owner_token: str,
@@ -131,10 +128,8 @@ def prepare_fixtures(cfg: Sec003Config, cache: dict[str, Any], owner_token: str)
     file_id = cfg.file_id
     share_token = cfg.share_token
 
-    if cfg.bootstrap_fixtures and not (folder_id and file_id):
-        found = find_folder_with_file(cfg, owner_token)
-        if found:
-            folder_id, file_id = found
+    # Human: Always use a dedicated sec003-audit-* folder so POST /shares does not reuse
+    # an older password-protected link on a random drive folder (create_share upserts by folder).
 
     if cfg.bootstrap_fixtures and not folder_id:
         folder_id, create_res = create_audit_folder(cfg, owner_token)
@@ -149,14 +144,19 @@ def prepare_fixtures(cfg: Sec003Config, cache: dict[str, Any], owner_token: str)
     if not folder_id or not file_id:
         return "", "", "", "missing folder_id/file_id — enable --bootstrap-fixtures or set SEC003_* ids"
 
+    share_res: HttpResult | None = None
     if not share_token:
         share_token, share_res = create_folder_share(cfg, owner_token, folder_id)
         if not share_token:
             return folder_id, file_id, "", f"create folder share failed (HTTP {share_res.status})"
 
+    if share_res is not None:
+        blocked = ensure_share_probe_ready(cfg, share_token, share_res)
+        if blocked:
+            return folder_id, file_id, share_token, blocked
+    elif share_token and not cfg.share_password:
+        blocked = ensure_share_probe_ready(cfg, share_token, HttpResult(0, {}, "", None))
+        if blocked:
+            return folder_id, file_id, share_token, blocked
+
     return folder_id, file_id, share_token, None
-
-
-def public_route(template: str, *, token: str, file_id: str = "") -> str:
-    path = template.format(token=token, file_id=file_id)
-    return path

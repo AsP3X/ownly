@@ -153,15 +153,15 @@ Credentials are **required**. Either export `SEC002_*` variables, pass CLI flags
 **Quick start (one admin — recommended):**
 
 ```bash
-python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject --prompt
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --bootstrap-subject
 ```
 
-Creates a temporary `sec002-audit-*@audit.local` admin, runs the demotion probe, then deletes it.
+Creates a temporary `sec002-audit-*@audit.local` admin, runs the demotion probe, then deletes it. On an interactive terminal, missing `SEC002_*` credentials are **prompted automatically** (no `--prompt` flag required).
 
 **Two admins (interactive):**
 
 ```bash
-python3 scripts/security-audit/sec002_stale_jwt_admin_role.py --prompt
+python3 scripts/security-audit/sec002_stale_jwt_admin_role.py
 ```
 
 **Or** export / `.env`:
@@ -195,8 +195,10 @@ Same as SEC-001: `0` ok, `1` vulnerable, `2` inconclusive, `3` baseline drift.
 | Flag | Description |
 |------|-------------|
 | `--base-url` | API origin |
+| `--prompt` / `--no-prompt` | Force or disable interactive credential prompts |
 | `--subject-email` / `--subject-password` | Admin account to demote |
 | `--demoter-email` / `--demoter-password` | Second admin that performs demotion |
+| `--bootstrap-subject` | Create temporary subject admin via demoter (one admin enough) |
 | `--demote-role` | Target role after demotion (default: `pro`) |
 | `--admin-probe-route` | Admin route to probe (default: `/admin/users`) |
 | `--no-restore` | Do not PATCH subject back to `admin` after probe |
@@ -226,7 +228,7 @@ make -C scripts/security-audit test
 
 Probes **folder** public shares: after the owner soft-deletes a file inside the shared folder, anonymous `GET /public/shares/{token}/all-files` and `/download` must not expose it.
 
-Credentials are **required** (`SEC003_OWNER_*`). Bootstrap (default) finds or creates a folder, uploads a tiny probe file if needed, and creates the share.
+Credentials are **required** (`SEC003_OWNER_*`). Bootstrap (default) creates a dedicated `sec003-audit-*` folder, uploads `sec003-probe.txt`, and creates a **new** folder share (avoids reusing password-protected links on existing folders). If the share link requires a visitor password, set `SEC003_SHARE_PASSWORD` / `--share-password`.
 
 ```bash
 python3 scripts/security-audit/sec003_public_share_soft_delete.py --prompt

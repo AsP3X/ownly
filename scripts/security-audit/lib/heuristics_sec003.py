@@ -11,10 +11,65 @@ from .models import HttpResult
 __all__ = [
     "extract_login_token",
     "extract_upload_file_id",
+    "extract_share_requires_password",
+    "public_overview_requires_password",
     "public_all_files_contains_id",
     "public_download_grants_file",
     "public_access_denied",
+    "public_access_blocked_detail",
 ]
+
+
+def extract_share_requires_password(res: HttpResult) -> bool | None:
+    # Human: True when POST /shares returned a link that needs x-share-password.
+    # Agent: READS share.requires_password from create/lookup JSON; RETURNS None when absent.
+    if res.body_json is None or not isinstance(res.body_json, dict):
+        return None
+    share = res.body_json.get("share")
+    if not isinstance(share, dict):
+        return None
+    raw = share.get("requires_password")
+    if isinstance(raw, bool):
+        return raw
+    return None
+
+
+def public_overview_requires_password(res: HttpResult) -> bool | None:
+    # Human: Anonymous GET /public/shares/{token} exposes whether a password is required.
+    # Agent: READS share.requires_password; no x-share-password header needed.
+    if res.status != 200 or res.body_json is None or not isinstance(res.body_json, dict):
+        return None
+    share = res.body_json.get("share")
+    if not isinstance(share, dict):
+        return None
+    raw = share.get("requires_password")
+    if isinstance(raw, bool):
+        return raw
+    return None
+
+
+def public_access_blocked_detail(res: HttpResult, *, share_password_configured: bool) -> str:
+    # Human: Turn HTTP 403 on public routes into actionable audit guidance.
+    # Agent: READS AppError message; SUGGESTS SEC003_SHARE_PASSWORD when link is protected.
+    from .heuristics import api_error_detail
+
+    extra = api_error_detail(res)
+    if res.status == 403:
+        if "password" in (extra or "").lower():
+            if share_password_configured:
+                return (
+                    f"HTTP 403 ({extra or 'forbidden'}) — "
+                    "check SEC003_SHARE_PASSWORD / --share-password"
+                )
+            return (
+                f"HTTP 403 ({extra or 'this link requires a password'}) — "
+                "set SEC003_SHARE_PASSWORD or --share-password "
+                "(bootstrap reuses existing folder shares that may already be protected)"
+            )
+        return f"HTTP 403 ({extra or 'forbidden'})"
+    if extra:
+        return f"HTTP {res.status} ({extra})"
+    return f"HTTP {res.status}"
 
 
 def extract_upload_file_id(res: HttpResult) -> str | None:

@@ -18,6 +18,37 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+def should_prompt_missing_credentials(
+    *,
+    explicit_prompt: bool,
+    prompt_env_name: str,
+    missing: list[str],
+    no_prompt: bool = False,
+    no_prompt_env_name: str = "",
+) -> bool:
+    # Human: Decide whether to ask the operator for credentials on this run.
+    # Agent: RETURNS False when complete or SEC00N_NO_PROMPT; True on TTY when fields missing.
+    if not missing:
+        return False
+    if no_prompt or (no_prompt_env_name and _env_bool(no_prompt_env_name)):
+        return False
+    if explicit_prompt or (prompt_env_name and _env_bool(prompt_env_name)):
+        return True
+    return sys.stdin.isatty()
+
+
+def require_interactive_prompt(audit_id: str, *, missing: list[str] | None = None) -> None:
+    # Human: Guard before input()/getpass when --prompt or auto-prompt was requested.
+    # Agent: RAISES SystemExit when stdin is not a TTY (CI must use env vars or SEC00N_NO_PROMPT).
+    if sys.stdin.isatty():
+        return
+    detail = f" Missing: {', '.join(missing)}." if missing else ""
+    raise SystemExit(
+        f"{audit_id}: interactive credential prompt requires a TTY.{detail} "
+        "Set SEC00N_* env vars, pass CLI flags, or use SEC00N_NO_PROMPT=1 in non-interactive CI."
+    )
+
+
 def _env_show_leaks() -> bool:
     raw = os.environ.get("SEC001_SHOW_LEAKS", "").strip().lower()
     if not raw:

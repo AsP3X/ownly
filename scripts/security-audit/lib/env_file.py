@@ -24,6 +24,7 @@ SEC002_KEYS = frozenset(
         "SEC002_OUTPUT",
         "SEC002_BOOTSTRAP_SUBJECT",
         "SEC002_PROMPT",
+        "SEC002_NO_PROMPT",
     }
 )
 
@@ -44,6 +45,7 @@ SEC003_KEYS = frozenset(
         "SEC003_QUIET",
         "SEC003_OUTPUT",
         "SEC003_PROMPT",
+        "SEC003_NO_PROMPT",
     }
 )
 
@@ -61,6 +63,7 @@ SEC004_KEYS = frozenset(
         "SEC004_QUIET",
         "SEC004_OUTPUT",
         "SEC004_PROMPT",
+        "SEC004_NO_PROMPT",
     }
 )
 
@@ -112,6 +115,7 @@ SEC007_KEYS = frozenset(
         "SEC007_QUIET",
         "SEC007_OUTPUT",
         "SEC007_PROMPT",
+        "SEC007_NO_PROMPT",
         "SEC007_NO_REDACTION",
         "SEC007_I_KNOW",
     }
@@ -149,6 +153,7 @@ SEC009_KEYS = frozenset(
         "SEC009_QUIET",
         "SEC009_OUTPUT",
         "SEC009_PROMPT",
+        "SEC009_NO_PROMPT",
         "SEC009_NO_REDACTION",
         "SEC009_I_KNOW",
     }
@@ -182,6 +187,7 @@ SEC011_KEYS = frozenset(
         "SEC011_QUIET",
         "SEC011_OUTPUT",
         "SEC011_PROMPT",
+        "SEC011_NO_PROMPT",
         "SEC011_NO_REDACTION",
         "SEC011_I_KNOW",
     }

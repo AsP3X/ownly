@@ -13,6 +13,7 @@ ROUTE_FILES_UPLOAD = "/files/upload"
 ROUTE_SHARES = "/shares"
 ROUTE_RECYCLE_RESTORE = "/recycle-bin/restore"
 
+ROUTE_PUBLIC_OVERVIEW = "/public/shares/{token}"
 ROUTE_PUBLIC_ALL_FILES = "/public/shares/{token}/all-files"
 ROUTE_PUBLIC_DOWNLOAD = "/public/shares/{token}/files/{file_id}/download"
 

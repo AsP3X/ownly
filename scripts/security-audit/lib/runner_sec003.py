@@ -26,6 +26,7 @@ from .evidence_sec003 import build_public_leak_evidence
 from .heuristics import api_error_detail, json_get
 from .heuristics_sec003 import (
     extract_login_token,
+    public_access_blocked_detail,
     public_access_denied,
     public_all_files_contains_id,
     public_download_grants_file,
@@ -224,10 +225,14 @@ def test_public_lists_file_before_delete(cfg: Sec003Config, cache: dict[str, Any
     cache["all_files_before"] = res
     _record_timing(cache, "all_files_before", res)
     if res.status != 200:
+        detail = public_access_blocked_detail(
+            res,
+            share_password_configured=bool(cfg.share_password),
+        )
         return CaseResult(
             name="public_lists_file_before_delete",
             passed=False,
-            detail=f"GET all-files -> HTTP {res.status} before delete",
+            detail=f"GET all-files before delete: {detail}",
             severity="error",
         )
     if not public_all_files_contains_id(res, file_id):

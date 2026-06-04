@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from .config import _env_bool
+from .config import _env_bool, require_interactive_prompt, should_prompt_missing_credentials
 from .constants_sec009 import (
     AUDIT_ID,
     DEFAULT_API_PREFIX,
@@ -30,7 +30,16 @@ def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
         description="SEC-009: public share password guesses lack brute-force throttling.",
     )
     parser.add_argument("--env-file", metavar="PATH", help="load SEC009_* from .env")
-    parser.add_argument("--prompt", action="store_true", help="prompt for owner credentials on TTY")
+    parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="force credential prompt (default: prompt on TTY when credentials missing)",
+    )
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="never prompt; fail if credentials missing (SEC009_NO_PROMPT=1)",
+    )
     parser.add_argument("--base-url", metavar="URL", help="API origin")
     parser.add_argument("--owner-email", metavar="EMAIL")
     parser.add_argument("--owner-password", metavar="PASSWORD")
@@ -81,7 +90,7 @@ def missing_credential_fields(cfg: Sec009Config) -> list[str]:
 def credential_setup_hint() -> str:
     return (
         "Add to .env (see .env.example) or run:\n"
-        "  python3 scripts/security-audit/sec009_share_password_bruteforce.py --prompt\n"
+        "  python3 scripts/security-audit/sec009_share_password_bruteforce.py\n"
         "Export: SEC009_OWNER_EMAIL=... SEC009_OWNER_PASSWORD=... python3 scripts/security-audit/sec009_share_password_bruteforce.py"
     )
 
@@ -133,8 +142,6 @@ def env_file_diagnostic() -> str | None:
 
 
 def _prompt_owner(*, email: str, password: str) -> tuple[str, str]:
-    if not sys.stdin.isatty():
-        raise SystemExit("SEC-009 --prompt requires an interactive terminal.")
     print("SEC-009 owner credentials (password-protected share brute-force probe):", file=sys.stderr)
     if not email:
         email = input("Owner email: ").strip()
@@ -169,7 +176,48 @@ def load_config(cli: argparse.Namespace | None = None) -> Sec009Config:
         fmt = "human"
     owner_email = (cli.owner_email or "").strip() or os.environ.get("SEC009_OWNER_EMAIL", "").strip()
     owner_password = (cli.owner_password or os.environ.get("SEC009_OWNER_PASSWORD", "")).strip()
-    if cli.prompt or _env_bool("SEC009_PROMPT"):
+    missing = missing_credential_fields(
+        Sec009Config(
+            http=Config(
+                audit_id=AUDIT_ID,
+                base_url=base,
+                api_prefix=prefix,
+                timeout_sec=timeout,
+                insecure_tls=False,
+                require_setup_complete=True,
+                verbose=False,
+                show_leaks=True,
+                redact_output=True,
+                output_format=fmt,
+                quiet=False,
+                compact=False,
+                strict_heuristics=False,
+                retries=0,
+                fail_fast=False,
+                output_file=None,
+                compare_baseline=None,
+                save_baseline=None,
+            ),
+            owner_email=owner_email,
+            owner_password=owner_password,
+            share_password=DEFAULT_SHARE_PASSWORD,
+            folder_id="",
+            file_id="",
+            share_id="",
+            share_token="",
+            bootstrap_fixtures=True,
+            revoke_after_probe=True,
+            wrong_attempts=DEFAULT_WRONG_ATTEMPTS,
+        )
+    )
+    if should_prompt_missing_credentials(
+        explicit_prompt=cli.prompt,
+        prompt_env_name="SEC009_PROMPT",
+        no_prompt=cli.no_prompt,
+        no_prompt_env_name="SEC009_NO_PROMPT",
+        missing=missing,
+    ):
+        require_interactive_prompt("SEC-009", missing=missing)
         owner_email, owner_password = _prompt_owner(email=owner_email, password=owner_password)
     wrong_attempts = cli.wrong_attempts
     if wrong_attempts is None:
