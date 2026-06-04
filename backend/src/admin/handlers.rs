@@ -289,6 +289,7 @@ pub async fn create_user(
     Json(body): Json<CreateAdminUserRequest>,
 ) -> Result<Json<UserDto>, AppError> {
     require_admin(&claims)?;
+    crate::browser_guard::require_browser_user_creation(&headers)?;
 
     let email = body.email.trim().to_lowercase();
     if !email.contains('@') {

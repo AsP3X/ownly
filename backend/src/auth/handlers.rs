@@ -130,6 +130,7 @@ pub async fn register(
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    crate::browser_guard::require_browser_user_creation(&headers)?;
     rate_limit::enforce(&state.auth_register_rl, &rate_limit::client_ip_from_headers(&headers))?;
     info!(email_redacted = %redact::email_for_log(&body.email), "register attempt");
 

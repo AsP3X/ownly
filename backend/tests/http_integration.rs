@@ -219,6 +219,7 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
                 .uri("/api/v1/setup")
                 .header("content-type", "application/json")
                 .header("X-Setup-Token", "test-setup-token-at-least-32-chars!!")
+                .header("Sec-Fetch-Site", "same-origin")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
         )
@@ -1266,6 +1267,82 @@ async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
 
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&member_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Admin user creation must reject script clients missing browser fetch metadata (SEC-012 bootstrap).
+// Agent: POST /api/v1/admin/users with admin JWT but no Sec-Fetch-Site; EXPECT 403.
+#[tokio::test]
+async fn admin_create_user_requires_browser_request() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping admin_create_user_requires_browser_request: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping admin_create_user_requires_browser_request: {error}");
+            return;
+        }
+    };
+
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let admin_email = format!("admin-create-guard-{admin_id}@example.com");
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(&admin_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    let admin_token = mediavault_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        admin_email,
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+    let body = json!({
+        "email": format!("blocked-{admin_id}@example.com"),
+        "password": "password123",
+        "role": "pro",
+        "enabled": true
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/users")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
         .execute(&state.pool)
         .await
         .ok();

@@ -20,6 +20,7 @@ pub mod admin;
 pub mod audit;
 pub mod auth;
 pub mod audio;
+pub mod browser_guard;
 pub mod config;
 pub mod crypto;
 pub mod db;
