@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminUrlState } from "@/hooks/useAdminUrlState";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
 import { AdminSidebar, type AdminNavId } from "@/components/admin/AdminSidebar";
@@ -45,6 +46,9 @@ function statusTextForNav(activeNav: AdminNavId): string {
 export default function AdminDashboardWireframePage() {
   const { user, logout } = useAuth();
   const [activeNav, setActiveNav] = useState<AdminNavId>("overview");
+  // Human: Persist the active admin section in ?section= so reload stays on the same panel.
+  // Agent: CALLS useAdminUrlState; WRITES ADMIN_SECTION_PARAM when sidebar changes.
+  useAdminUrlState(activeNav, setActiveNav);
 
   // Human: Only administrators may access the console — others return to drive.
   // Agent: READS user.role; NAVIGATE away when role !== admin.

@@ -66,6 +66,7 @@ import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
+import { useDriveUrlState } from "@/hooks/useDriveUrlState";
 import {
   buildAudioGallery,
   buildImageGallery,
@@ -145,6 +146,18 @@ export default function DrivePage() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
+  // Human: Mirror drive view/folder/search into the URL so reload restores the same screen.
+  // Agent: CALLS useDriveUrlState; READS/WRITES ?view &folder &q &type on pathname /.
+  useDriveUrlState({
+    activeNav,
+    folderStack,
+    query,
+    typeFilter,
+    setActiveNav,
+    setFolderStack,
+    setQuery,
+    setTypeFilter,
+  });
   const [usedBytes, setUsedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
   const [effectiveRemainingBytes, setEffectiveRemainingBytes] = useState(

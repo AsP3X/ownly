@@ -252,7 +252,10 @@ export default function PublicSharePage() {
   async function handleSaveToOwnly(fileIds?: string[]) {
     if (!token || !overview || overview.block_download) return;
     if (!authToken) {
-      navigate("/login", { state: { from: location.pathname } });
+      const returnTo = `${location.pathname}${location.search}`;
+      navigate(`/login?next=${encodeURIComponent(returnTo)}`, {
+        state: { from: returnTo },
+      });
       return;
     }
     setSaveLoading(true);

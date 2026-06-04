@@ -3,6 +3,7 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import NotFoundPage from "@/pages/NotFoundPage";
 import { setupStatus } from "@/api/client";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
@@ -74,8 +75,13 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
-  // Human: Guests hitting protected URLs land on the public landing page, not login.
-  if (!token) return <Navigate to="/" replace />;
+  const location = useLocation();
+  // Human: Guests keep the intended URL via `next` so login + reload return to the same page.
+  // Agent: NAVIGATE /login?next=<encoded path+search>; READS location from react-router.
+  if (!token) {
+    const next = encodeURIComponent(`${location.pathname}${location.search}`);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   return <>{children}</>;
 }
 
@@ -117,7 +123,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </SetupGuard>
