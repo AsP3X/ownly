@@ -5,9 +5,15 @@ set -e
 # Agent: USED by is_weak_env_value and replace_weak_secret_keys before init-env exits.
 WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me mediavault-master-key"
 
+# Human: Strip CRLF, whitespace, and optional quotes from .env values.
+# Agent: CALLED before weak/length checks so SETUP_TOKEN="GENERATE_ME" is still detected.
+normalize_env_value() {
+    printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+        -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
 is_weak_env_value() {
-    value="$1"
-    value=$(printf '%s' "$value" | tr -d '\r')
+    value=$(normalize_env_value "$1")
     [ -z "$value" ] && return 0
     for weak in $WEAK_SECRETS; do
         if [ "$value" = "$weak" ]; then
@@ -62,14 +68,18 @@ init_env_file() {
         keys="$1"
         file="$2"
         for key in $keys; do
-            line=$(grep -m1 "^${key}=" "$file" 2>/dev/null || true)
+            line=$(grep -m1 -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null || true)
             [ -z "$line" ] && continue
             value=${line#*=}
             if is_weak_env_value "$value"; then
                 secret="$(generate_secret)"
                 echo "  Rotating weak ${key} in ${file}"
                 awk -v key="$key" -v secret="$secret" '
-                    $0 ~ "^" key "=" { print key "=" secret; next }
+                    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+                        sub(/^[^=]*=/, key "=" secret)
+                        print
+                        next
+                    }
                     { print }
                 ' "$file" > "${file}.rotate" && mv "${file}.rotate" "$file"
             fi
@@ -91,14 +101,14 @@ init_env_file() {
     # Human: Fail loudly if placeholders remain so operators do not start a broken stack.
     # Agent: EXITS 1 when GENERATE_ME or weak secret still present on rotated keys.
     for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET; do
-        line=$(grep -m1 "^${key}=" "$env_file" 2>/dev/null || true)
+        line=$(grep -m1 -E "^[[:space:]]*${key}[[:space:]]*=" "$env_file" 2>/dev/null || true)
         [ -z "$line" ] && continue
         value=${line#*=}
         if is_weak_env_value "$value"; then
             echo "Error: ${env_file} still has weak ${key} (run init-env again or set a random value >= 32 chars)."
             exit 1
         fi
-        value=$(printf '%s' "$value" | tr -d '\r')
+        value=$(normalize_env_value "$value")
         len=${#value}
         if [ "$len" -lt 32 ]; then
             echo "Error: ${env_file} ${key} is only ${len} characters (need >= 32)."

@@ -23,14 +23,37 @@ pub fn is_weak_secret(value: &str) -> bool {
         || KNOWN_WEAK_SECRETS.contains(&trimmed)
 }
 
+// Human: Operator-facing hint without echoing the secret value.
+// Agent: RETURNS static reason when is_weak_secret; used in validate_field error text.
+fn weak_secret_reason(value: &str) -> Option<&'static str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Some(
+            "empty — remove `SETUP_TOKEN=` from .env, unset shell SETUP_TOKEN, or set a random value",
+        );
+    }
+    if trimmed == "GENERATE_ME" {
+        return Some("still GENERATE_ME — run `docker compose --profile init run --rm init-env`");
+    }
+    if KNOWN_WEAK_SECRETS.contains(&trimmed) {
+        return Some(
+            "known weak default (e.g. change-me-in-production) — replace with `openssl rand -hex 32`",
+        );
+    }
+    None
+}
+
 // Human: Fail fast with a field name so operators know which env var to fix.
 // Agent: CALLS is_weak_secret + length check; BAILS with anyhow message naming env var.
 fn validate_field(env_name: &str, value: &str) -> anyhow::Result<()> {
     if is_weak_secret(value) {
+        let hint = weak_secret_reason(value).unwrap_or("invalid placeholder or default");
         anyhow::bail!(
-            "{env_name} is unset, still GENERATE_ME, or a known weak default. \
-             Set a random secret (at least {MIN_SECRET_LEN} characters). \
-             For Docker: run `docker compose --profile init run --rm init-env` to create .env."
+            "{env_name} rejected at startup: {hint}. \
+             Need at least {MIN_SECRET_LEN} random characters. \
+             On the server: `sh scripts/verify-compose-secrets.sh` then recreate containers \
+             (`docker compose up -d --build`). \
+             Shell `export SETUP_TOKEN=...` overrides `.env` for Compose."
         );
     }
     if value.len() < MIN_SECRET_LEN {
@@ -62,5 +85,14 @@ mod tests {
             assert!(is_weak_secret(weak), "expected weak: {weak}");
         }
         assert!(is_weak_secret("GENERATE_ME"));
+    }
+
+    #[test]
+    fn weak_reason_for_placeholder() {
+        assert!(weak_secret_reason("GENERATE_ME").is_some());
+        assert!(weak_secret_reason("change-me-in-production").is_some());
+        assert!(weak_secret_reason("").is_some());
+        let good = "a".repeat(40);
+        assert!(weak_secret_reason(&good).is_none());
     }
 }

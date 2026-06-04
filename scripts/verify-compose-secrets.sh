@@ -5,8 +5,13 @@
 set -e
 cd "$(dirname "$0")/.."
 
+normalize_env_value() {
+    printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+        -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
 is_weak_hint() {
-    value="$1"
+    value=$(normalize_env_value "$1")
     case "$value" in
         "" | GENERATE_ME | change-me-in-production | change-me-in-production-jwt-secret \
         | dev-jwt-secret-change-me | dev-nos-jwt-secret-change-me \
@@ -24,20 +29,31 @@ is_weak_hint() {
     esac
 }
 
+read_env_key() {
+    key="$1"
+    file="$2"
+    line=$(grep -m1 -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null || true)
+    [ -z "$line" ] && return 1
+    value=${line#*=}
+    printf '%s' "$(normalize_env_value "$value")"
+}
+
 echo "Working directory: $(pwd)"
 echo ""
 
 if [ -f .env ]; then
     echo "Root .env secret lines (status only):"
     for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET; do
-        line=$(grep -m1 "^${key}=" .env 2>/dev/null || true)
-        if [ -z "$line" ]; then
+        if ! value=$(read_env_key "$key" .env); then
             echo "  ${key}: (missing — Compose may use docker-compose.yml default)"
             continue
         fi
-        value=${line#*=}
         echo "  ${key}: $(is_weak_hint "$value")"
     done
+    dup=$(grep -E '^[[:space:]]*SETUP_TOKEN[[:space:]]*=' .env 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$dup" -gt 1 ]; then
+        echo "  WARNING: .env defines SETUP_TOKEN ${dup} times — only the first may be used; remove duplicates."
+    fi
 else
     echo "No .env in project root — Compose uses defaults from docker-compose.yml."
 fi
@@ -60,13 +76,26 @@ if command -v docker >/dev/null 2>&1; then
     if [ -n "$resolved" ]; then
         echo "  SETUP_TOKEN: $(is_weak_hint "$resolved")"
     else
-        echo "  (could not parse — run: docker compose config | grep -A2 backend)"
+        echo "  (could not parse — run: docker compose config | grep SETUP_TOKEN)"
+    fi
+
+    if docker inspect mediavault-backend >/dev/null 2>&1; then
+        echo ""
+        echo "Last-created mediavault-backend container env:"
+        container_val=$(docker inspect mediavault-backend --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -m1 '^SETUP_TOKEN=' | cut -d= -f2- || true)
+        if [ -n "$container_val" ]; then
+            echo "  SETUP_TOKEN: $(is_weak_hint "$container_val")"
+        else
+            echo "  SETUP_TOKEN: (not set on container — API uses code default change-me-in-production)"
+        fi
     fi
 else
     echo "docker not in PATH — skip compose config check."
 fi
 
 echo ""
-echo "If SETUP_TOKEN is WEAK or SHORT, run:"
+echo "If SETUP_TOKEN is WEAK or SHORT:"
+echo "  unset SETUP_TOKEN"
 echo "  docker compose --profile init run --rm init-env"
-echo "  docker compose up -d --build"
+echo "  docker compose up -d --build --force-recreate backend frontend"
