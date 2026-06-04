@@ -28,9 +28,14 @@ init_env_file() {
     tmp_file="${env_file}.tmp"
     cp "$env_file" "$tmp_file"
 
+    # Human: Replace one GENERATE_ME placeholder per loop (secrets are hex from openssl — safe for awk).
+    # Agent: USES awk not perl so alpine:latest init-env container works without extra packages.
     while grep -q 'GENERATE_ME' "$tmp_file"; do
         secret="$(generate_secret)"
-        perl -i -pe "BEGIN { \$replaced = 0 } if (!\$replaced && /GENERATE_ME/) { s/GENERATE_ME/$secret/; \$replaced = 1; }" "$tmp_file"
+        awk -v secret="$secret" '
+            !done && /GENERATE_ME/ { sub(/GENERATE_ME/, secret); done = 1 }
+            { print }
+        ' "$tmp_file" > "${tmp_file}.new" && mv "${tmp_file}.new" "$tmp_file"
     done
 
     mv "$tmp_file" "$env_file"
@@ -40,7 +45,10 @@ init_env_file() {
     if [ "$env_file" = ".env" ]; then
         signing="$(grep '^SIGNING_SECRET=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
         if [ -n "$signing" ] && grep -q '^NOS_SIGNING_SECRET=' "$env_file" 2>/dev/null; then
-            perl -i -pe "BEGIN { \$s = q{$signing} } if (/^NOS_SIGNING_SECRET=/) { \$_ = \"NOS_SIGNING_SECRET=\$s\\n\" }" "$env_file"
+            awk -v signing="$signing" '
+                /^NOS_SIGNING_SECRET=/ { print "NOS_SIGNING_SECRET=" signing; next }
+                { print }
+            ' "$env_file" > "${env_file}.sync" && mv "${env_file}.sync" "$env_file"
         fi
     fi
 
