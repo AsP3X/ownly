@@ -15,6 +15,25 @@ use crate::{
     AppState,
 };
 
+/// Human: Header the SPA and audit scripts send with setup mutation requests.
+/// Agent: MATCHES SEC-005/SEC-012 bootstrap probe; compared to AppState.setup_token.
+pub const SETUP_TOKEN_HEADER: &str = "X-Setup-Token";
+
+// Human: Reject setup mutations unless the caller presents the configured bootstrap secret.
+// Agent: READS X-Setup-Token header; RETURNS 403 when missing or wrong (checked before setup_complete gate).
+fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppError> {
+    let provided = headers
+        .get(SETUP_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if provided != state.setup_token {
+        return Err(AppError::Forbidden(
+            "valid setup token is required to complete instance setup".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct ReleaseInfo {
     pub version: &'static str,
@@ -145,8 +164,10 @@ pub async fn setup_storage_info(
 
 pub async fn test_setup_database(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<DatabaseUrlBody>,
 ) -> Result<Json<DatabaseTestResponse>, AppError> {
+    require_setup_token(&headers, &state)?;
     ensure_not_complete(&state).await?;
     let url = body.database_url.trim();
     if url.is_empty() {
@@ -168,8 +189,10 @@ pub async fn test_setup_database(
 // Agent: POST /setup/storage/test; READS base_url; NO DB writes.
 pub async fn test_setup_storage(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<StorageEndpointBody>,
 ) -> Result<Json<StorageTestResponse>, AppError> {
+    require_setup_token(&headers, &state)?;
     ensure_not_complete(&state).await?;
     let base_url = storage_nodes::normalize_base_url(&body.base_url)?;
     if state.setup_relaxes_storage_probe {
@@ -266,6 +289,7 @@ pub async fn setup(
     headers: HeaderMap,
     Json(body): Json<SetupRequest>,
 ) -> Result<Json<SetupResponse>, AppError> {
+    require_setup_token(&headers, &state)?;
     let target_url = body
         .database_url
         .as_deref()

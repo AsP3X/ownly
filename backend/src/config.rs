@@ -9,6 +9,10 @@ pub struct Config {
     pub database_url: String,
     #[serde(default = "default_jwt_secret")]
     pub jwt_secret: String,
+    /// Human: Bootstrap secret required on POST /setup* mutation routes until setup completes.
+    /// Agent: READ from SETUP_TOKEN; COMPARED to X-Setup-Token header in setup handlers.
+    #[serde(default = "default_setup_token")]
+    pub setup_token: String,
     #[serde(default = "default_bind_addr")]
     pub bind_addr: String,
     #[serde(default = "default_storage_mode")]
@@ -91,6 +95,10 @@ fn default_database_url() -> String {
 }
 
 fn default_jwt_secret() -> String {
+    "change-me-in-production".into()
+}
+
+fn default_setup_token() -> String {
     "change-me-in-production".into()
 }
 

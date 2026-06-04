@@ -10,6 +10,7 @@ fn test_config(database_url: &str) -> Config {
     Config {
         database_url: database_url.to_string(),
         jwt_secret: "test-jwt-secret-at-least-32-chars-long!!".to_string(),
+        setup_token: "test-setup-token-at-least-32-chars!!".to_string(),
         bind_addr: "127.0.0.1:0".to_string(),
         storage_mode: "proxy".to_string(),
         object_storage_url: "http://localhost:9000".to_string(),
@@ -217,6 +218,7 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
                 .method("POST")
                 .uri("/api/v1/setup")
                 .header("content-type", "application/json")
+                .header("X-Setup-Token", "test-setup-token-at-least-32-chars!!")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
         )
@@ -1197,6 +1199,73 @@ async fn admin_users_list_requires_admin_role() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: JWT role=admin must not bypass admin APIs when users.role is non-admin (SEC-012 Chain B).
+// Agent: GET /api/v1/admin/users with forged admin claim; EXPECT 403 because middleware reloads DB role.
+#[tokio::test]
+async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping forged_jwt_admin_role_is_denied_when_db_role_is_user: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping forged_jwt_admin_role_is_denied_when_db_role_is_user: {error}");
+            return;
+        }
+    };
+
+    let member_id = uuid::Uuid::new_v4().to_string();
+    let member_email = format!("forged-{member_id}@example.com");
+    let password_hash =
+        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&member_id)
+    .bind(&member_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert member");
+
+    let forged_admin_token = mediavault_backend::auth::handlers::create_token(
+        member_id.clone(),
+        member_email,
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("forged token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/users")
+                .header("authorization", format!("Bearer {forged_admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&member_id)
         .execute(&state.pool)
         .await
         .ok();

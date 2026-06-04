@@ -85,6 +85,7 @@ services:
       # Human: Local Compose dev-only secrets (>=32 chars); override via .env for real deployments.
       # Agent: MUST match object-storage NOS_JWT_SECRET default when host env is unset.
       JWT_SECRET: ${JWT_SECRET:-ownly-compose-local-dev-mediavault-jwt-secret-not-for-production}
+      SETUP_TOKEN: ${SETUP_TOKEN:-ownly-compose-local-dev-setup-token-not-for-production-use}
       # Human: Presigned signatures must match Nebular's NOS_SIGNING_SECRET in local Compose.
       # Agent: KEEP fallback aligned with object-storage NOS_SIGNING_SECRET to avoid 401 invalid signature.
       SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
@@ -130,6 +131,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_SETUP_TOKEN: ${SETUP_TOKEN:-ownly-compose-local-dev-setup-token-not-for-production-use}
     container_name: mediavault-frontend
     environment:
       # Human: nginx client_max_body_size uses the same byte cap as the API.

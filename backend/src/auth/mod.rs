@@ -16,7 +16,7 @@ use crate::{error::AppError, AppState};
 pub mod handlers;
 
 // Human: Parse Bearer JWT, verify expiry, confirm the user row still exists and is enabled.
-// Agent: READS JWT + postgres users; REQUIRES enabled=true; MUTATES Request extensions with Claims.
+// Agent: READS JWT + postgres users; REQUIRES enabled=true; RELOADS role from DB; MUTATES Request extensions with Claims.
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
@@ -29,25 +29,29 @@ pub async fn auth_middleware(
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(AppError::Unauthorized)?;
 
-    let claims = decode_token(token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
+    let mut claims = decode_token(token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
 
     if chrono::Utc::now().timestamp() > claims.exp {
         return Err(AppError::Unauthorized);
     }
 
-    let enabled: Option<(bool,)> =
-        sqlx::query_as("SELECT enabled FROM users WHERE id = $1")
+    let enabled: Option<(bool, String)> =
+        sqlx::query_as("SELECT enabled, role FROM users WHERE id = $1")
             .bind(&claims.sub)
             .fetch_optional(&state.pool)
             .await
             .map_err(AppError::Database)?;
 
-    let (user_enabled,) = enabled.ok_or(AppError::Unauthorized)?;
+    let (user_enabled, db_role) = enabled.ok_or(AppError::Unauthorized)?;
     if !user_enabled {
         return Err(AppError::Forbidden(
             "account is not activated. Contact an administrator.".into(),
         ));
     }
+
+    // Human: Authorization uses DB role — JWT role claim alone must not grant admin APIs (SEC-002/SEC-012).
+    // Agent: OVERWRITES claims.role after signature verify; require_admin reads refreshed Claims.
+    claims.role = db_role;
 
     if !crate::user_sessions::is_token_session_valid(
         &state.pool,

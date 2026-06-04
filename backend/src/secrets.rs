@@ -46,6 +46,7 @@ fn validate_field(env_name: &str, value: &str) -> anyhow::Result<()> {
 // Agent: VALIDATES jwt_secret, signing_secret, object_storage_jwt_secret on Config.
 pub fn validate_startup_secrets(config: &Config) -> anyhow::Result<()> {
     validate_field("JWT_SECRET", &config.jwt_secret)?;
+    validate_field("SETUP_TOKEN", &config.setup_token)?;
     validate_field("SIGNING_SECRET", &config.signing_secret)?;
     validate_field("OBJECT_STORAGE_JWT_SECRET", &config.object_storage_jwt_secret)?;
     Ok(())

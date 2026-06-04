@@ -53,6 +53,9 @@ pub struct AppState {
     pub pool: PgPool,
     pub storage: Arc<dyn Storage>,
     pub jwt_secret: String,
+    /// Human: Shared bootstrap secret for first-run setup POST routes (header X-Setup-Token).
+    /// Agent: READ by setup handlers; SET from Config.setup_token at startup.
+    pub setup_token: String,
     pub signing_secret: String,
     pub url_expiry_seconds: u64,
     pub environment: String,
@@ -110,6 +113,7 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,
             request_tracking::REQUEST_ID_HEADER.clone(),
+            axum::http::HeaderName::from_static("x-setup-token"),
         ])
 }
 
@@ -161,6 +165,7 @@ async fn build_app_state(
         pool: pool.clone(),
         storage,
         jwt_secret: config.jwt_secret.clone(),
+        setup_token: config.setup_token.clone(),
         signing_secret: config.signing_secret.clone(),
         url_expiry_seconds: config.url_expiry_seconds,
         environment,

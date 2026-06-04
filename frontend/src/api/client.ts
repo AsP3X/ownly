@@ -4,6 +4,14 @@
 import { createClientId } from "@/lib/utils-app";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
+// Human: Bootstrap secret for first-run setup POST routes — must match backend SETUP_TOKEN.
+// Agent: READ from VITE_SETUP_TOKEN; SENT as X-Setup-Token on setup mutations only.
+const SETUP_TOKEN = import.meta.env.VITE_SETUP_TOKEN ?? "";
+
+function setupMutationHeaders(): HeadersInit | undefined {
+  if (!SETUP_TOKEN) return undefined;
+  return { "X-Setup-Token": SETUP_TOKEN };
+}
 
 export class ApiError extends Error {
   code: string;
@@ -143,6 +151,7 @@ export async function setupStorageInfo() {
 export async function testSetupDatabase(database_url: string) {
   return apiFetch("/setup/database/test", {
     method: "POST",
+    headers: setupMutationHeaders(),
     body: JSON.stringify({ database_url }),
   }) as Promise<{ ok: boolean; driver: string }>;
 }
@@ -152,6 +161,7 @@ export async function testSetupDatabase(database_url: string) {
 export async function testSetupStorage(base_url: string) {
   return apiFetch("/setup/storage/test", {
     method: "POST",
+    headers: setupMutationHeaders(),
     body: JSON.stringify({ base_url }),
   }) as Promise<{
     ok: boolean;
@@ -178,6 +188,7 @@ export async function setup(body: {
 }) {
   return apiFetch("/setup", {
     method: "POST",
+    headers: setupMutationHeaders(),
     body: JSON.stringify(body),
   }) as Promise<{
     token?: string;
