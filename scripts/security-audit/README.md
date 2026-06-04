@@ -503,3 +503,60 @@ Environment: `SEC011_*` (also loaded from repo `.env`). Use `export` or one-line
 make -C scripts/security-audit sec011
 make -C scripts/security-audit test
 ```
+
+## SEC-012 — live exploit: administrator creation
+
+**Required:** `--confirm-exploit`. Loads `JWT_SECRET` from repo `.env` automatically (same value as the API).
+
+### Initialized instance (existing database — primary use case)
+
+Uses a **non-admin** session to forge an admin JWT, then `POST /admin/users` to **create a new administrator** in the database. If you only have **admin** credentials, the script auto-creates a temporary `pro` user first (omit `--no-bootstrap-via-admin`).
+
+```bash
+# From repo root — use a real pro/standard/user account on your instance
+export SEC012_CONFIRM_EXPLOIT=1
+export SEC012_EXPLOIT_EMAIL='your-user@example.com'
+export SEC012_EXPLOIT_PASSWORD='your-password'
+# JWT_SECRET is read from .env when the script loads it
+
+python3 scripts/security-audit/sec012_unauthenticated_admin_creation.py \
+  --base-url http://127.0.0.1:8080 \
+  --confirm-exploit
+```
+
+Interactive prompt when email/password omitted (TTY):
+
+```bash
+python3 scripts/security-audit/sec012_unauthenticated_admin_creation.py \
+  --base-url http://127.0.0.1:8080 \
+  --confirm-exploit \
+  --prompt
+```
+
+### Fresh instance only (empty users table)
+
+Completes `POST /api/v1/setup` and becomes the first admin (destructive — do not run on production data you care about).
+
+| Flag | Description |
+|------|-------------|
+| `--confirm-exploit` | Run live exploit |
+| `--exploit-email` / `--exploit-password` | Subject login (initialized) or setup email (fresh DB) |
+| `--created-admin-email` | New admin row email for Chain B (default: `sec012-created-*@audit.invalid`) |
+| `--jwt-secret` | Extra JWT_SECRET candidate (`.env` `JWT_SECRET` is tried first) |
+| `--no-try-dev-defaults` | Do not try `change-me-in-production` |
+| `--skip-jwt-forgery` | Fresh-db setup hijack only |
+| `--prompt` | Ask for subject credentials on TTY |
+| `--no-redaction` | Print raw tokens (TTY or `SEC012_I_KNOW=1`) |
+
+Environment: `SEC012_*` and `JWT_SECRET` (see `.env.example`).
+
+### Exit codes
+
+Same as SEC-001: `0` ok (exploit blocked), `1` vulnerable (admin created or forged JWT reached admin API), `2` inconclusive, `3` baseline drift.
+
+### Makefile
+
+```bash
+make -C scripts/security-audit sec012
+make -C scripts/security-audit test
+```

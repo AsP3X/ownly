@@ -13,12 +13,12 @@ Use the checkboxes below to track remediation as you work through each item.
 
 | Severity | Count | Open |
 | -------- | ----- | ---- |
-| High     | 4     | 4    |
+| High     | 5     | 5    |
 | Medium   | 7     | 7    |
 | Low      | 0     | 0    |
 
 
-**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
+**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-012 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
 
 ---
 
@@ -965,6 +965,73 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ---
 
+### SEC-012 — Live exploit: unauthenticated first-admin creation (setup hijack)
+
+- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                                                                                            |
+| **Category**       | Unauthorized action / privilege escalation / account takeover                                                                                                                                   |
+| **Related**        | SEC-005 (probe only), SEC-002 (JWT role trust)                                                                                                                                                  |
+| **Impacted files** | `backend/src/setup/handlers.rs` (`setup`, `ensure_not_complete_pool`), `backend/src/auth/mod.rs`, `backend/src/admin/handlers.rs` (`require_admin`)                                            |
+| **Routes**         | `POST /api/v1/setup`, `POST /api/v1/auth/login`, `GET /api/v1/admin/users`                                                                                                                      |
+| **Audit script**   | [`scripts/security-audit/sec012_unauthenticated_admin_creation.py`](scripts/security-audit/sec012_unauthenticated_admin_creation.py) — see [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
+
+
+**Description**
+
+Unlike SEC-005 (invalid probe body only), **SEC-012** runs a **live exploit** when `--confirm-exploit` is set.
+
+**Chain A (fresh DB):** `POST /setup` creates the first `role=admin` user.
+
+**Chain B (initialized instance — default for existing databases):** Log in as any non-admin (credentials via `--exploit-email` / `--prompt`), load `JWT_SECRET` from repo `.env`, re-sign the session JWT with `role=admin`, confirm `GET /admin/users`, then `POST /admin/users` to insert a **new** administrator row and log in as that account (same JWT trust gap as SEC-002).
+
+**Exploit scenario (Chain A)**
+
+1. Fresh deployment is reachable before the operator completes setup (see SEC-005).
+2. Attacker runs the SEC-012 script with `--confirm-exploit`.
+3. Attacker becomes the instance administrator; can create users, change settings, and access all user data via admin APIs.
+
+**Impact**
+
+Full instance takeover on mis-exposed or slow-to-configure deployments.
+
+**Remediation**
+
+Same as SEC-005 plus SEC-002: bootstrap secret on setup, network restriction until complete, reload `role` from DB in `auth_middleware`, strong non-default `JWT_SECRET`.
+
+**Automated test (destructive on fresh DB)**
+
+```bash
+# Requires setup_complete=false and object storage reachable (Compose stack up).
+export SEC012_CONFIRM_EXPLOIT=1
+python3 scripts/security-audit/sec012_unauthenticated_admin_creation.py --base-url http://127.0.0.1:8080
+```
+
+| Prerequisite | Detail |
+|--------------|--------|
+| API | Running; `GET /api/v1/setup/status` → `setup_complete: false` for Chain A |
+| Confirm | `--confirm-exploit` or `SEC012_CONFIRM_EXPLOIT=1` (refuses live exploit otherwise) |
+| Storage | Nebular `/health` reachable unless API runs with relaxed setup probe (tests only) |
+
+| Exit code | Meaning |
+|-----------|---------|
+| **0** | Exploit blocked (bootstrap token, or post-setup with forgery rejected) |
+| **1** | **Vulnerable** — administrator created via setup and/or forged JWT reached admin API |
+| **2** | Inconclusive — no `--confirm-exploit`, API unreachable, or setup POST failed (storage down) |
+| **3** | `--compare-baseline` mismatch |
+
+Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audit/tests -v`
+
+**Verification**
+
+- Fresh instance: script with `--confirm-exploit` exits **1** before fix; **0** after bootstrap token required.
+- Initialized instance: second `POST /setup` returns 409; optional JWT forgery exits **0** after role reload from DB.
+
+---
+
 ## Areas reviewed — no critical issues found
 
 
@@ -1023,5 +1090,6 @@ Add or extend integration tests in `backend/tests/` for:
 | 2026-06-02 | Follow-up static review | SEC-007–SEC-009 added       |
 | 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added       |
 | 2026-06-03 | Audit scripts           | SEC-010–SEC-011 probe scripts added |
+| 2026-06-04 | Audit scripts           | SEC-012 live setup-hijack exploit script added |
 
 

@@ -154,6 +154,25 @@ class Sec011Config:
 
 
 @dataclass
+class Sec012Config:
+    # Human: SEC-012 live admin-creation exploit (setup hijack + JWT forgery on initialized DB).
+    # Agent: READS env/CLI; WRITES runner_sec012; requires confirm_exploit for mutations.
+    http: Config
+    confirm_exploit: bool
+    exploit_email: str
+    exploit_password: str
+    instance_name: str
+    jwt_secrets: tuple[str, ...]
+    try_jwt_forgery: bool
+    try_dev_jwt_defaults: bool
+    admin_probe_route: str
+    created_admin_email: str
+    bootstrap_via_admin: bool
+    prompt_credentials: bool
+    no_prompt: bool
+
+
+@dataclass
 class HttpResult:
     status: int
     headers: dict[str, str]

@@ -193,6 +193,34 @@ SEC011_KEYS = frozenset(
     }
 )
 
+SEC012_KEYS = frozenset(
+    {
+        "SEC012_BASE_URL",
+        "SEC012_API_PREFIX",
+        "SEC012_CONFIRM_EXPLOIT",
+        "SEC012_EXPLOIT_EMAIL",
+        "SEC012_EXPLOIT_PASSWORD",
+        "SEC012_INSTANCE_NAME",
+        "SEC012_JWT_SECRET",
+        "JWT_SECRET",
+        "SEC012_TRY_JWT_FORGERY",
+        "SEC012_TRY_DEV_JWT_DEFAULTS",
+        "SEC012_ADMIN_PROBE_ROUTE",
+        "SEC012_BOOTSTRAP_VIA_ADMIN",
+        "SEC012_NO_BOOTSTRAP_VIA_ADMIN",
+        "SEC012_PROMPT",
+        "SEC012_NO_PROMPT",
+        "SEC012_RETRIES",
+        "SEC012_QUIET",
+        "SEC012_OUTPUT",
+        "SEC012_NO_REDACTION",
+        "SEC012_I_KNOW",
+        "SEC012_VERBOSE",
+        "SEC012_INSECURE_TLS",
+        "SEC012_TIMEOUT_SEC",
+    }
+)
+
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 
 
@@ -334,6 +362,12 @@ def load_sec011_env_file(explicit: str | None = None) -> Path | None:
     # Human: Best-effort load of SEC011_* from discovered .env before config load.
     # Agent: RETURNS path loaded or None; does not override already-exported vars.
     return _load_env_file_for_keys(explicit, SEC011_KEYS)
+
+
+def load_sec012_env_file(explicit: str | None = None) -> Path | None:
+    # Human: Best-effort load of SEC012_* from discovered .env before config load.
+    # Agent: RETURNS path loaded or None; does not override already-exported vars.
+    return _load_env_file_for_keys(explicit, SEC012_KEYS)
 
 
 def inspect_env_file(

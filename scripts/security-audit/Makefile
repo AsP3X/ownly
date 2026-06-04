@@ -14,7 +14,7 @@ else
 PYTHON ?= python3
 endif
 
-.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 sec007 sec008 sec009 sec010 sec011 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json sec007-json sec008-json sec009-json sec010-json sec011-json
+.PHONY: sec001 sec002 sec003 sec004 sec005 sec006 sec007 sec008 sec009 sec010 sec011 sec012 test sec001-json sec001-quiet sec002-json sec002-quiet sec003-json sec004-json sec005-json sec006-json sec007-json sec008-json sec009-json sec010-json sec011-json sec012-json
 
 sec001:
 	$(PYTHON) sec001_setup_info_disclosure.py --base-url $(BASE_URL)
@@ -93,6 +93,13 @@ sec011:
 
 sec011-json:
 	$(PYTHON) sec011_trash_zip_download.py --base-url $(BASE_URL) --json
+
+sec012:
+	@echo "SEC012 requires --confirm-exploit (destructive on fresh DB)"
+	$(PYTHON) sec012_unauthenticated_admin_creation.py --base-url $(BASE_URL) --confirm-exploit
+
+sec012-json:
+	$(PYTHON) sec012_unauthenticated_admin_creation.py --base-url $(BASE_URL) --confirm-exploit --json
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
