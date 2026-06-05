@@ -49,7 +49,18 @@ struct ListApiItem {
 #[derive(Debug, Deserialize)]
 struct DeletePrefixApiResult {
     #[serde(default)]
-    deleted: u32,
+    deleted: u64,
+    #[serde(default)]
+    truncated: bool,
+    next_start_after: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchDeleteApiResult {
+    #[serde(default)]
+    deleted: u64,
+    #[serde(default)]
+    failed: Vec<serde_json::Value>,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -105,38 +116,114 @@ impl NebulaStorage {
             .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static(""))
     }
 
-    // Human: Try Nebular bulk DELETE /{bucket}?prefix=… when the pinned submodule supports it.
-    // Agent: HTTP DELETE with prefix query; RETURNS None on 404/405 so caller can list+parallel fallback.
+    // Human: Nebular bulk DELETE /{bucket}?prefix=… — paginates when the batch limit truncates.
+    // Agent: HTTP DELETE with prefix + start_after; RETURNS None on 404/405/501 for list+parallel fallback.
     async fn try_bulk_delete_prefix(&self, prefix: &str) -> anyhow::Result<Option<u32>> {
         let list_url = format!("{}/{}", self.base_url, self.bucket);
-        let response = self
-            .client
-            .delete(&list_url)
-            .header(reqwest::header::AUTHORIZATION, self.auth_header())
-            .query(&[("prefix", prefix)])
-            .send()
-            .await?;
-        let status = response.status();
-        if status.as_u16() == 404 || status.as_u16() == 405 || status.as_u16() == 501 {
-            return Ok(None);
+        let mut total_deleted: u64 = 0;
+        let mut start_after: Option<String> = None;
+
+        loop {
+            let mut request = self
+                .client
+                .delete(&list_url)
+                .header(reqwest::header::AUTHORIZATION, self.auth_header())
+                .query(&[("prefix", prefix)]);
+
+            if let Some(ref after) = start_after {
+                request = request.query(&[("start_after", after.as_str())]);
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            if status.as_u16() == 404 || status.as_u16() == 405 || status.as_u16() == 501 {
+                return Ok(None);
+            }
+            if !status.is_success() {
+                anyhow::bail!("object storage bulk DELETE failed: {}", status);
+            }
+
+            let body: DeletePrefixApiResult = response.json().await.unwrap_or(DeletePrefixApiResult {
+                deleted: 0,
+                truncated: false,
+                next_start_after: None,
+            });
+            total_deleted = total_deleted.saturating_add(body.deleted);
+
+            if !body.truncated {
+                break;
+            }
+            start_after = body.next_start_after;
+            if start_after.is_none() {
+                break;
+            }
         }
-        if !status.is_success() {
-            anyhow::bail!("object storage bulk DELETE failed: {}", status);
-        }
-        let body: DeletePrefixApiResult = response.json().await.unwrap_or(DeletePrefixApiResult {
-            deleted: 0,
-        });
-        Ok(Some(body.deleted))
+
+        Ok(Some(total_deleted.min(u32::MAX as u64) as u32))
     }
 
-    // Human: List every key under a prefix and delete them with bounded concurrency.
-    // Agent: CALLS list_keys_with_prefix; DELETE per key; RETURNS attempt count.
+    // Human: Delete explicit keys via POST /{bucket}/_batch_delete when Nebular supports it.
+    // Agent: CHUNKS keys at 1000; RETURNS None on 404/405 so caller uses per-key DELETE fallback.
+    async fn try_batch_delete_keys(&self, keys: &[String]) -> anyhow::Result<Option<u32>> {
+        if keys.is_empty() {
+            return Ok(Some(0));
+        }
+
+        const BATCH_LIMIT: usize = 1000;
+        let batch_url = format!("{}/{}/_batch_delete", self.base_url, self.bucket);
+        let mut total_deleted: u64 = 0;
+
+        for chunk in keys.chunks(BATCH_LIMIT) {
+            let response = self
+                .client
+                .post(&batch_url)
+                .header(reqwest::header::AUTHORIZATION, self.auth_header())
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(&serde_json::json!({ "keys": chunk }))
+                .send()
+                .await?;
+            let status = response.status();
+            if status.as_u16() == 404 || status.as_u16() == 405 || status.as_u16() == 501 {
+                return Ok(None);
+            }
+            if !status.is_success() {
+                anyhow::bail!("object storage batch DELETE failed: {}", status);
+            }
+            let body: BatchDeleteApiResult = response.json().await.unwrap_or(BatchDeleteApiResult {
+                deleted: 0,
+                failed: Vec::new(),
+            });
+            if !body.failed.is_empty() {
+                tracing::warn!(
+                    failed = body.failed.len(),
+                    chunk_size = chunk.len(),
+                    "nebular batch delete reported key failures"
+                );
+            }
+            total_deleted = total_deleted.saturating_add(body.deleted);
+        }
+
+        Ok(Some(total_deleted.min(u32::MAX as u64) as u32))
+    }
+
+    // Human: List keys under a prefix then batch-delete or fall back to parallel per-key DELETE.
+    // Agent: CALLS try_batch_delete_keys; ON miss CALLS list_keys_with_prefix + concurrent delete.
     async fn delete_prefix_parallel_fallback(&self, prefix: &str) -> anyhow::Result<u32> {
         let keys = self.list_keys_with_prefix(prefix).await?;
+        self.delete_keys_parallel_fallback(&keys).await
+    }
+
+    // Human: Delete a known key list — prefers Nebular _batch_delete, else bounded parallel DELETE.
+    // Agent: CALLS try_batch_delete_keys; RETURNS per-key attempt count on fallback.
+    async fn delete_keys_parallel_fallback(&self, keys: &[String]) -> anyhow::Result<u32> {
+        if let Ok(Some(deleted)) = self.try_batch_delete_keys(keys).await {
+            return Ok(deleted);
+        }
+
         let deleted = Arc::new(AtomicU32::new(0));
         let counter = deleted.clone();
         let client = self.clone();
-        stream::iter(keys)
+        stream::iter(keys.to_vec())
             .for_each_concurrent(DELETE_BLOB_CONCURRENCY, move |key| {
                 let deleted = counter.clone();
                 let client = client.clone();
@@ -366,6 +453,25 @@ impl Storage for NebulaStorage {
             })?;
         let status = response.status();
         let elapsed_ms = started.elapsed().as_millis() as u64;
+        if status.as_u16() == 503 {
+            let retry_after = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(1);
+            tracing::warn!(
+                bucket = %self.bucket,
+                storage_key = %key,
+                size_bytes,
+                retry_after_secs = retry_after,
+                "nebular storage PUT backpressure — retry after delay"
+            );
+            anyhow::bail!(
+                "object storage PUT backpressure (retry after {}s)",
+                retry_after
+            );
+        }
         if !status.is_success() {
             let body_snippet = response.text().await.unwrap_or_default();
             let body_snippet = body_snippet.chars().take(512).collect::<String>();

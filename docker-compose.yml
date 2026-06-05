@@ -67,13 +67,19 @@ services:
       # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
+      # Human: When Ownly STORAGE_METADATA_MODE=ownly, set NOS_METADATA_MODE=blob_only (Postgres index lives in Ownly).
+      # Agent: OPTIONAL NOS_METADATA_MODE full|blob_only; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps concurrent PUT pressure.
+      NOS_METADATA_MODE: ${NOS_METADATA_MODE:-full}
+      NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-33554432}
+      NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
+      NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
       RUST_LOG: info
     ports:
       - "9000:9000"
     volumes:
       - nebular_data:/data
-    # Human: Nebular OS binds HTTP only after NOS_RECOMPRESS_ON_STARTUP finishes — large volumes can take many minutes.
-    # Agent: start_period 10m + retries covers boot recompression; backend depends_on service_healthy.
+    # Human: Recompress-on-startup runs in background — HTTP binds immediately (nebular-os a7e261f+).
+    # Agent: start_period still allows slow first health on cold volumes; backend depends_on service_healthy.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
       interval: 10s
