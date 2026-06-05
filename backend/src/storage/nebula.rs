@@ -160,8 +160,8 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<String> {
         .as_secs() as i64;
 
     let claims = Claims {
-        sub: "mediavault-backend".to_string(),
-        email: "backend@mediavault.local".to_string(),
+        sub: "ownly-backend".to_string(),
+        email: "backend@ownly.local".to_string(),
         role: "admin".to_string(),
         exp: now + 86400 * 365,
         iat: now,

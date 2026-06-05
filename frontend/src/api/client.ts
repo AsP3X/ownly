@@ -1,4 +1,4 @@
-// Human: Typed fetch wrapper for the MediaVault API with JWT auth and consistent error parsing.
+// Human: Typed fetch wrapper for the Ownly API with JWT auth and consistent error parsing.
 // Agent: READS localStorage token; EMITS Authorization header; PARSES `{ error: { code, message, fields? } }`.
 
 import { createClientId } from "@/lib/utils-app";
@@ -36,7 +36,7 @@ export class ApiError extends Error {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem("mediavault_token");
+  return localStorage.getItem("ownly_token");
 }
 
 // Human: Global hook so a 401 from any API call clears the client session (revoked JWT, etc.).

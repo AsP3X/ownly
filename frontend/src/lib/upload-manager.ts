@@ -95,7 +95,7 @@ const UPLOAD_RETRY_MAX_MS = 30_000;
 /** Human: When the API returns 429, pause all upload workers until the server window clears. */
 let uploadPumpPausedUntil = 0;
 
-const UPLOAD_BATCH_STORAGE_KEY = "mediavault_upload_batch";
+const UPLOAD_BATCH_STORAGE_KEY = "ownly_upload_batch";
 
 type PersistedUploadItem = UploadItemSnapshot;
 
@@ -228,7 +228,7 @@ function toBatchSnapshot(): UploadBatchSnapshot | null {
 
 // Human: Mirror the active batch to localStorage so reload can reopen the transfer panel.
 
-// Agent: WRITES mediavault_upload_batch; REMOVES key when batch is cleared.
+// Agent: WRITES ownly_upload_batch; REMOVES key when batch is cleared.
 
 function persistBatchToStorage() {
 

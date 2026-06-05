@@ -1,21 +1,21 @@
-# MediaVault iOS
+﻿# Ownly iOS
 
-Native iOS client for [MediaVault](../README.md), rebuilt from the **Cloudwrkz iOS 26** app shell.
+Native iOS client for [Ownly](../README.md), rebuilt from the **Cloudwrkz iOS 26** app shell.
 
 ## Requirements
 
 - macOS with Xcode 26+ (uses `glassEffect` on iOS 26)
 - iOS 26 deployment target
-- A running MediaVault API (local Docker stack or remote instance)
+- A running Ownly API (local Docker stack or remote instance)
 
 ## Open the project
 
 ```bash
 cd ios
-open MediaVault.xcodeproj
+open Ownly.xcodeproj
 ```
 
-Select the **MediaVault** scheme and an iPhone simulator, then run (⌘R).
+Select the **Ownly** scheme and an iPhone simulator, then run (⌘R).
 
 ## Server configuration
 
@@ -28,11 +28,11 @@ For a physical device, set the host to your Mac's LAN IP instead of `127.0.0.1`.
 ## Architecture (Cloudwrkz template)
 
 ```
-ios/MediaVault/
-├── App/                 # MediaVaultApp, RootView, SplashView, ContentView, AppState
+ios/Ownly/
+├── App/                 # OwnlyApp, RootView, SplashView, ContentView, AppState
 ├── Auth/                # AuthFlowController, Login/Register, AuthService, Keychain token
 ├── Core/                # AppIdentity (User-Agent)
-├── Design/              # MediaVaultDesign (liquid glass, colors, motion)
+├── Design/              # OwnlyDesign (liquid glass, colors, motion)
 └── Settings/            # ServerConfig, health pill, config sheet
 ```
 

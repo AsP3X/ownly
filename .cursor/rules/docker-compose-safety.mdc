@@ -1,5 +1,5 @@
 ---
-description: Docker Compose dev safety and volume protection for MediaVault
+description: Docker Compose dev safety and volume protection for Ownly
 alwaysApply: true
 ---
 
@@ -12,7 +12,7 @@ Supplements **`data-safety.mdc`** — read both before any Compose or database o
 - **Never run `docker compose down -v`** (or `docker volume rm`) unless the user **explicitly** requests destruction of local database volumes and confirms data loss is acceptable.
 - **Never assume** the dev Compose Postgres volume is disposable. Users may store important files metadata and accounts there.
 - Prefer **`scripts/compose-dev-down.sh`** (no `-v`) to stop the dev stack.
-- If volume removal is truly required, require **`MEDIAVAULT_CONFIRM_DESTROY_DATA=yes scripts/compose-dev-down.sh --destroy-volumes`** and explicit user confirmation first.
+- If volume removal is truly required, require **`OWNLY_CONFIRM_DESTROY_DATA=yes scripts/compose-dev-down.sh --destroy-volumes`** and explicit user confirmation first.
 
 ## Compose layout (this project)
 
@@ -32,7 +32,7 @@ Environment-specific values belong in `.env` (gitignored), copied from `.env.exa
 ## Production database
 
 - Production should use managed PostgreSQL (RDS, Cloud SQL, etc.) with backups and PITR — not a Docker volume.
-- Set `MEDIAVAULT_ENVIRONMENT=production` on production API hosts.
+- Set `OWNLY_ENVIRONMENT=production` on production API hosts.
 
 ## Migrations
 

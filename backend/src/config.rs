@@ -7,7 +7,7 @@ pub const COMPOSE_DEV_SETUP_TOKEN: &str =
     "ownly-compose-local-dev-setup-token-not-for-production-use";
 
 pub const COMPOSE_DEV_JWT_SECRET: &str =
-    "ownly-compose-local-dev-mediavault-jwt-secret-not-for-production";
+    "ownly-compose-local-dev-jwt-secret-not-for-production";
 
 pub const COMPOSE_DEV_SIGNING_SECRET: &str =
     "ownly-compose-local-dev-nos-signing-secret-not-for-production";
@@ -43,8 +43,8 @@ pub struct Config {
     pub object_storage_jwt_secret: String,
     #[serde(default = "default_url_expiry_seconds")]
     pub url_expiry_seconds: u64,
-    #[serde(default = "default_mediavault_environment")]
-    pub mediavault_environment: String,
+    #[serde(default = "default_ownly_environment")]
+    pub ownly_environment: String,
     #[serde(default)]
     pub git_sha: Option<String>,
     #[serde(default = "default_auth_login_rpm")]
@@ -100,8 +100,8 @@ impl Config {
     // Agent: CALLS dotenvy then envy; RETURNS Config; ERRORS on missing required typed fields.
     pub fn from_env() -> anyhow::Result<Self> {
         // Human: In Compose, secrets come from docker-compose.yml — not from a file under /app.
-        // Agent: SKIP dotenv when MEDIAVAULT_SKIP_DOTENV=1 so a mounted .env cannot override Compose.
-        if std::env::var("MEDIAVAULT_SKIP_DOTENV").is_err() {
+        // Agent: SKIP dotenv when OWNLY_SKIP_DOTENV=1 so a mounted .env cannot override Compose.
+        if std::env::var("OWNLY_SKIP_DOTENV").is_err() {
             dotenvy::dotenv().ok();
         }
         Ok(envy::from_env()?)
@@ -109,7 +109,7 @@ impl Config {
 }
 
 fn default_database_url() -> String {
-    "postgres://mediavault:mediavault@localhost:5432/mediavault".into()
+    "postgres://ownly:ownly@localhost:5432/ownly".into()
 }
 
 fn default_jwt_secret() -> String {
@@ -152,7 +152,7 @@ fn default_url_expiry_seconds() -> u64 {
     3600
 }
 
-fn default_mediavault_environment() -> String {
+fn default_ownly_environment() -> String {
     "development".into()
 }
 

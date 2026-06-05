@@ -44,7 +44,7 @@ services:
 
   object-storage-b:
     <<: *nebular-storage-service
-    container_name: mediavault-object-storage-b
+    container_name: ownly-object-storage-b
     environment:
       <<: *nebular-storage-env
     ports:

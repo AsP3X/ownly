@@ -5,7 +5,7 @@
 
 ## Summary
 
-Replace MediaVault's owner-only access model and decorative `users.role` field with a unified **atomic grant** system. Permissions are indivisible capabilities granted to **users or groups** on **instance, folder, or file** resources. Folder grants inherit to descendants; **explicit deny always beats allow**. The `admin` capability is not a special user attribute — it is membership in a seeded system group that holds instance-wide grants.
+Replace Ownly's owner-only access model and decorative `users.role` field with a unified **atomic grant** system. Permissions are indivisible capabilities granted to **users or groups** on **instance, folder, or file** resources. Folder grants inherit to descendants; **explicit deny always beats allow**. The `admin` capability is not a special user attribute — it is membership in a seeded system group that holds instance-wide grants.
 
 ---
 

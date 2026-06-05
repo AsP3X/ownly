@@ -12,7 +12,7 @@ fi
 # Agent: Shell exports override Compose .env — clear common secret overrides.
 unset SETUP_TOKEN JWT_SECRET SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET
 
-WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me mediavault-master-key"
+WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me ownly-master-key"
 
 normalize_env_value() {
     printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \

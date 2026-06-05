@@ -16,7 +16,7 @@ New features and refactors must **not break existing behavior**. Treat regressio
 
 | Area | Automated checks | Notes |
 | --- | --- | --- |
-| **Backend (`backend/`)** | `cargo test -p mediavault-backend`, `cargo clippy -p mediavault-backend -- -D warnings` | Add integration tests under `backend/tests/` for HTTP-visible behavior. |
+| **Backend (`backend/`)** | `cargo test -p ownly-backend`, `cargo clippy -p ownly-backend -- -D warnings` | Add integration tests under `backend/tests/` for HTTP-visible behavior. |
 | **Frontend (`frontend/`)** | `npm run build`, `npm run lint` | Manual smoke: setup wizard, login, upload, download, delete. |
 | **Migrations** | API startup / `cargo test` | New migrations only (`api-sqlx-migrations.mdc`). |
 

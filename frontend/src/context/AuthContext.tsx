@@ -1,5 +1,5 @@
 // Human: Session state for JWT + user profile persisted in localStorage across reloads.
-// Agent: WRITES mediavault_token + mediavault_user; PROVIDES AuthContext to the app shell.
+// Agent: WRITES ownly_token + ownly_user; PROVIDES AuthContext to the app shell.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,17 +19,17 @@ function scheduleIdleTask(task: () => void): () => void {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("mediavault_token"));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem("ownly_token"));
   const [user, setUser] = useState<User | null>(() => {
-    const raw = localStorage.getItem("mediavault_user");
+    const raw = localStorage.getItem("ownly_user");
     return raw ? (JSON.parse(raw) as User) : null;
   });
 
   // Human: Persist a successful login or setup response so protected routes work after refresh.
   // Agent: WRITES localStorage; MUTATES token + user React state.
   const setAuth = useCallback((nextToken: string, nextUser: User) => {
-    localStorage.setItem("mediavault_token", nextToken);
-    localStorage.setItem("mediavault_user", JSON.stringify(nextUser));
+    localStorage.setItem("ownly_token", nextToken);
+    localStorage.setItem("ownly_user", JSON.stringify(nextUser));
     setToken(nextToken);
     setUser(nextUser);
   }, []);
@@ -37,8 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Human: Clear client session when setup guard detects stale tokens or the user signs out.
   // Agent: REMOVES localStorage keys; RESETS token + user; NAVIGATES / (public landing) replace.
   const logout = useCallback(() => {
-    localStorage.removeItem("mediavault_token");
-    localStorage.removeItem("mediavault_user");
+    localStorage.removeItem("ownly_token");
+    localStorage.removeItem("ownly_user");
     setToken(null);
     setUser(null);
     navigate("/", { replace: true });

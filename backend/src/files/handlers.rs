@@ -466,7 +466,7 @@ pub async fn upload_file(
 
                 if multipart_part_is_video(&filename, &content_type) {
                     let work_dir =
-                        std::env::temp_dir().join(format!("mediavault_upload_{file_id}"));
+                        std::env::temp_dir().join(format!("ownly_upload_{file_id}"));
                     tokio::fs::create_dir_all(&work_dir).await.map_err(|error| {
                         AppError::Internal(anyhow::anyhow!("create upload work dir: {error}"))
                     })?;

@@ -51,7 +51,7 @@ import { cn } from "@/lib/utils";
 
 // Human: MIME payload for HTML5 drag — must match DrivePage FileTable for drop handlers.
 // Agent: SET on dragstart; READ on folder drop.
-const FILE_DRAG_MIME = "application/x-mediavault-file-id";
+const FILE_DRAG_MIME = "application/x-ownly-file-id";
 
 export type ExplorerFolderCrumb = { id: string; name: string };
 

@@ -1,8 +1,8 @@
 // Human: Client-side drive preferences until the API tracks recent access and favourites.
 // Agent: READS/WRITES localStorage keys for recent file opens and starred favourites.
 
-const RECENT_KEY = "mediavault_recent_files";
-const FAVOURITES_KEY = "mediavault_favourite_files";
+const RECENT_KEY = "ownly_recent_files";
+const FAVOURITES_KEY = "ownly_favourite_files";
 const MAX_RECENT = 50;
 
 type RecentEntry = {
@@ -41,13 +41,13 @@ function writeFavouriteIds(ids: string[]) {
 }
 
 // Human: Return recent file ids in access order for Home batch loading.
-// Agent: READS mediavault_recent_files; RETURNS fileId strings only.
+// Agent: READS ownly_recent_files; RETURNS fileId strings only.
 export function getRecentFileIds(): string[] {
   return readRecent().map((entry) => entry.fileId);
 }
 
 // Human: Record that the user opened or downloaded a file (feeds Home → Recently accessed).
-// Agent: WRITES mediavault_recent_files; PROMOTES fileId to front; TRIMS to MAX_RECENT.
+// Agent: WRITES ownly_recent_files; PROMOTES fileId to front; TRIMS to MAX_RECENT.
 export function recordFileAccess(fileId: string) {
   const next = readRecent().filter((entry) => entry.fileId !== fileId);
   next.unshift({ fileId, accessedAt: new Date().toISOString() });
@@ -55,13 +55,13 @@ export function recordFileAccess(fileId: string) {
 }
 
 // Human: Return favourite file ids in user-star order.
-// Agent: READS mediavault_favourite_files from localStorage.
+// Agent: READS ownly_favourite_files from localStorage.
 export function getFavouriteFileIds(): string[] {
   return readFavouriteIds();
 }
 
 // Human: Toggle starred state for a file and return whether it is now favourited.
-// Agent: WRITES mediavault_favourite_files; RETURNS new favourited boolean.
+// Agent: WRITES ownly_favourite_files; RETURNS new favourited boolean.
 export function toggleFavouriteFile(fileId: string): boolean {
   const ids = readFavouriteIds();
   const exists = ids.includes(fileId);

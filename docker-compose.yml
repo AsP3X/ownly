@@ -1,7 +1,7 @@
 # Human: Zero-config stack — these literals are injected into containers; no `.env` or init-env required.
 # Agent: NOT ${VAR} — host `.env` and shell exports cannot override; edit here only for custom production secrets.
 x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
-  JWT_SECRET: ownly-compose-local-dev-mediavault-jwt-secret-not-for-production
+  JWT_SECRET: ownly-compose-local-dev-jwt-secret-not-for-production
   SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
   SIGNING_SECRET: ownly-compose-local-dev-nos-signing-secret-not-for-production
   NOS_JWT_SECRET: ownly-compose-local-dev-nos-jwt-secret-not-for-production-use
@@ -11,7 +11,7 @@ x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
 services:
   init-env:
     image: alpine:latest
-    container_name: mediavault-init-env
+    container_name: ownly-init-env
     volumes:
       - .:/workspace
     working_dir: /workspace
@@ -24,17 +24,17 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: mediavault-postgres
+    container_name: ownly-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-mediavault}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mediavault}
-      POSTGRES_DB: ${POSTGRES_DB:-mediavault}
+      POSTGRES_USER: ${POSTGRES_USER:-ownly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ownly}
+      POSTGRES_DB: ${POSTGRES_DB:-ownly}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mediavault}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ownly}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -45,7 +45,7 @@ services:
       # Human: Ownly Dockerfile adds migrations/ for compile-time include_str (see docker/nebular-os.Dockerfile).
       # Agent: CONTEXT nebular-os; dockerfile path relative to compose file root.
       dockerfile: ../docker/nebular-os.Dockerfile
-    container_name: mediavault-object-storage
+    container_name: ownly-object-storage
     environment:
       <<: *ownly-compose-dev-secrets
       NOS_BIND_ADDR: 0.0.0.0:9000
@@ -87,11 +87,11 @@ services:
       dockerfile: Dockerfile
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
-    container_name: mediavault-backend
+    container_name: ownly-backend
     environment:
       <<: *ownly-compose-dev-secrets
-      MEDIAVAULT_SKIP_DOTENV: "1"
-      DATABASE_URL: ${DATABASE_URL:-postgres://mediavault:mediavault@postgres:5432/mediavault}
+      OWNLY_SKIP_DOTENV: "1"
+      DATABASE_URL: ${DATABASE_URL:-postgres://ownly:ownly@postgres:5432/ownly}
       TMPDIR: /tmp
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
       # Human: Browser-facing base for presigned GETs — use the web origin (port 8080) when nginx proxies /media/.
@@ -103,7 +103,7 @@ services:
       URL_EXPIRY_SECONDS: ${URL_EXPIRY_SECONDS:-3600}
       RUST_LOG: ${RUST_LOG:-info}
       BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3000}
-      MEDIAVAULT_ENVIRONMENT: ${MEDIAVAULT_ENVIRONMENT:-development}
+      OWNLY_ENVIRONMENT: ${OWNLY_ENVIRONMENT:-development}
       GIT_SHA: ${GIT_SHA:-unknown}
       AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
@@ -135,7 +135,7 @@ services:
         # Human: Must match backend SETUP_TOKEN literal for the setup wizard (zero-config, no .env).
         # Agent: BUILD-TIME only; same string as x-ownly-compose-dev-secrets SETUP_TOKEN.
         VITE_SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
-    container_name: mediavault-frontend
+    container_name: ownly-frontend
     environment:
       # Human: nginx client_max_body_size uses the same byte cap as the API.
       # Agent: envsubst in nginx.conf.template; NGINX_PROXY_READ_TIMEOUT for multi-GB uploads.

@@ -4,7 +4,7 @@
 //! 1. Playback 404 — manifest referenced `.ts` while Nebular stored `.m4s` segments.
 //! 2. Incomplete ingest marked `hls_ready` — object storage OOM/transport errors during parallel PUTs.
 //!
-//! Run: `cargo test -p mediavault-backend hls_playback_regression`
+//! Run: `cargo test -p ownly-backend hls_playback_regression`
 
 use crate::hls::handlers::{build_playlist_for_playback, open_hls_segment, storage_hls_uses_fmp4};
 use crate::hls::playlist::{

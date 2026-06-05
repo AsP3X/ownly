@@ -1,4 +1,4 @@
-# MediaVault
+# Ownly
 
 Self-hosted personal cloud storage for documents, images, videos, audio, and more — similar to OneDrive, Google Drive, or MEGA, but under your control.
 

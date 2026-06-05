@@ -506,14 +506,14 @@ pub async fn run_hls_encode_job(
 }
 
 // Human: Resolve the per-upload scratch directory used for source video + ffmpeg output.
-// Agent: PREFERS tmp_video parent when it is a dedicated mediavault_upload_* dir under temp root.
+// Agent: PREFERS tmp_video parent when it is a dedicated ownly_upload_* dir under temp root.
 fn job_work_dir(tmp_video: &Path, file_id: &str) -> PathBuf {
     if let Some(parent) = tmp_video.parent() {
         if is_deletable_work_dir(parent) {
             return parent.to_path_buf();
         }
     }
-    std::env::temp_dir().join(format!("mediavault_hls_{file_id}"))
+    std::env::temp_dir().join(format!("ownly_hls_{file_id}"))
 }
 
 // Human: Guard against deleting the OS temp root (e.g. /tmp) during HLS cleanup.
@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn dedicated_upload_dir_is_deletable() {
-        let dir = std::env::temp_dir().join("mediavault_upload_test-file-id");
+        let dir = std::env::temp_dir().join("ownly_upload_test-file-id");
         assert!(is_deletable_work_dir(&dir));
     }
 

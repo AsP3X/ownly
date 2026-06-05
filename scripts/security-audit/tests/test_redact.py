@@ -16,7 +16,7 @@ from lib.redact import looks_redacted, redact_sensitive_text  # noqa: E402
 
 class TestRedact(unittest.TestCase):
     def test_masks_postgres_url(self) -> None:
-        raw = "postgres://mediavault:secret@postgres:5432/db"
+        raw = "postgres://ownly:secret@postgres:5432/db"
         out = redact_sensitive_text(raw)
         self.assertIn("***", out)
         self.assertNotIn("secret", out)

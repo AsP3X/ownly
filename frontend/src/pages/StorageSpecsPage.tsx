@@ -90,7 +90,7 @@ export default function StorageSpecsPage() {
   return (
     <MarketingPageShell>
       <MarketingHeroSection
-        badgeLabel="MEDIAVAULT STORAGE CORE"
+        badgeLabel="OWNLY STORAGE CORE"
         title="Ownly Cryptographic & Storage Architecture"
         subtitle="Technical specification of how file metadata, AES-256-GCM envelope keys, hybrid post-quantum TLS, and binary blobs are managed across Postgres and Nebular OS."
       />
@@ -100,7 +100,7 @@ export default function StorageSpecsPage() {
         <div className="flex flex-col items-center gap-2 text-center">
           <h2 className="text-3xl font-bold text-[#1A1A1A]">Two-Layer Hybrid Storage Slices</h2>
           <p className="max-w-2xl text-base text-[#666666]">
-            MediaVault separates structured relational metadata from raw binary file bytes, achieving fast queries and
+            Ownly separates structured relational metadata from raw binary file bytes, achieving fast queries and
             massive scalability. Symmetric protection uses {SYMMETRIC_CIPHER}; keys in transit should use hybrid PQC TLS
             at your edge.
           </p>

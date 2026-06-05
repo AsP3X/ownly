@@ -42,7 +42,7 @@ export type VideoPreviewDialogProps = {
 const SWIPE_THRESHOLD_PX = 48;
 
 function getToken(): string | null {
-  return localStorage.getItem("mediavault_token");
+  return localStorage.getItem("ownly_token");
 }
 
 // Human: Resolve playlist/segment URLs against the site origin for hls.js XHR loads.

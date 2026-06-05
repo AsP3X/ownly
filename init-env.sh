@@ -3,7 +3,7 @@ set -e
 
 # Human: Values the API rejects at startup (must match backend/src/secrets.rs KNOWN_WEAK + GENERATE_ME).
 # Agent: USED by is_weak_env_value and replace_weak_secret_keys before init-env exits.
-WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me mediavault-master-key"
+WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me ownly-master-key"
 
 # Human: Strip CRLF, whitespace, and optional quotes from .env values.
 # Agent: CALLED before weak/length checks so SETUP_TOKEN="GENERATE_ME" is still detected.
@@ -116,7 +116,7 @@ init_env_file() {
         fi
     done
 
-    # Human: Nebular presigned URLs must use the same HMAC secret as mediavault-backend (NOS_SIGNING_SECRET).
+    # Human: Nebular presigned URLs must use the same HMAC secret as ownly-backend (NOS_SIGNING_SECRET).
     # Agent: SYNC NOS_SIGNING_SECRET from SIGNING_SECRET when both exist in root .env (init used separate GENERATE_ME values).
     if [ "$env_file" = ".env" ]; then
         signing="$(grep '^SIGNING_SECRET=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"

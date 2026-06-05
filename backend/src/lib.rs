@@ -151,7 +151,7 @@ async fn build_app_state(
     };
 
     let storage_configured = config.storage_mode == "proxy";
-    let environment = config.mediavault_environment.clone();
+    let environment = config.ownly_environment.clone();
     let git_sha = config
         .git_sha
         .clone()
@@ -642,7 +642,7 @@ pub async fn run() -> anyhow::Result<()> {
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
-    info!("MediaVault API listening on {}", config.bind_addr);
+    info!("Ownly API listening on {}", config.bind_addr);
     axum::serve(listener, app).await?;
     Ok(())
 }

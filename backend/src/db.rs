@@ -39,7 +39,7 @@ pub async fn init_pool(database_url: &str) -> anyhow::Result<PgPool> {
         .connect(database_url)
         .await?;
 
-    let migrations_root = std::env::var("MEDIAVAULT_MIGRATIONS_DIR")
+    let migrations_root = std::env::var("OWNLY_MIGRATIONS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations"));
     let migrations_dir = migrations_root.join("postgres");

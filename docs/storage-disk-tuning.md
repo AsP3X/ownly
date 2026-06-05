@@ -52,7 +52,7 @@ The script loads `DATABASE_URL` and `NEBULAR_DATA_DIR` from the repo `.env` when
 Optional overrides:
 
 ```bash
-export DATABASE_URL=postgres://mediavault:mediavault@localhost:5432/mediavault
+export DATABASE_URL=postgres://ownly:ownly@localhost:5432/ownly
 export NEBULAR_DATA_DIR=/var/lib/docker/volumes/ownly_nebular_data/_data/blobs
 python scripts/storage-audit.py
 ```

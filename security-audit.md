@@ -1,4 +1,4 @@
-# Security Audit — Ownly / MediaVault Stack
+# Security Audit — Ownly Stack
 
 **Date:** 2026-06-02  
 **Scope:** Static code review of authentication, authorization, setup/bootstrap, file/share access, and admin mutation paths.  
@@ -1064,8 +1064,8 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ```bash
 # Backend
-cd backend && cargo test -p mediavault-backend
-cd backend && cargo clippy -p mediavault-backend -- -D warnings
+cd backend && cargo test -p ownly-backend
+cd backend && cargo clippy -p ownly-backend -- -D warnings
 
 # Frontend
 cd frontend && npm run build && npm run lint

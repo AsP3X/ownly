@@ -15,7 +15,7 @@ is_weak_hint() {
     case "$value" in
         "" | GENERATE_ME | change-me-in-production | change-me-in-production-jwt-secret \
         | dev-jwt-secret-change-me | dev-nos-jwt-secret-change-me \
-        | dev-nos-signing-secret-change-me | mediavault-master-key)
+        | dev-nos-signing-secret-change-me | ownly-master-key)
             echo "WEAK"
             ;;
         *)
@@ -61,10 +61,10 @@ if command -v docker >/dev/null 2>&1; then
         echo "  (could not parse — run: docker compose config | grep SETUP_TOKEN)"
     fi
 
-    if docker inspect mediavault-backend >/dev/null 2>&1; then
+    if docker inspect ownly-backend >/dev/null 2>&1; then
         echo ""
-        echo "Last-created mediavault-backend container env:"
-        container_val=$(docker inspect mediavault-backend --format '{{range .Config.Env}}{{println .}}{{end}}' \
+        echo "Last-created ownly-backend container env:"
+        container_val=$(docker inspect ownly-backend --format '{{range .Config.Env}}{{println .}}{{end}}' \
             | grep -m1 '^SETUP_TOKEN=' | cut -d= -f2- || true)
         if [ -n "$container_val" ]; then
             echo "  SETUP_TOKEN: $(is_weak_hint "$container_val")"

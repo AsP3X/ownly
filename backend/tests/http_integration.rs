@@ -2,7 +2,7 @@
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use mediavault_backend::{config::Config, create_router, create_test_app_state};
+use ownly_backend::{config::Config, create_router, create_test_app_state};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -19,7 +19,7 @@ fn test_config(database_url: &str) -> Config {
         signing_secret: "test-signing-secret-not-default-value".to_string(),
         object_storage_jwt_secret: "test-nos-jwt-secret-not-default-value!!".to_string(),
         url_expiry_seconds: 3600,
-        mediavault_environment: "development".to_string(),
+        ownly_environment: "development".to_string(),
         git_sha: None,
         auth_login_rpm: 15,
         auth_register_rpm: 5,
@@ -353,7 +353,7 @@ async fn public_share_download_is_scoped_to_shared_file_only() {
     let share_id = uuid::Uuid::new_v4().to_string();
     let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -484,7 +484,7 @@ async fn check_upload_names_finds_library_duplicates_globally() {
     let existing_file_id = uuid::Uuid::new_v4().to_string();
     let email = format!("dup-check-{user_id}@example.com");
 
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -517,7 +517,7 @@ async fn check_upload_names_finds_library_duplicates_globally() {
     .await
     .expect("insert file");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),
@@ -601,7 +601,7 @@ async fn check_upload_names_finds_exact_recycle_bin_matches() {
     let trashed_file_id = uuid::Uuid::new_v4().to_string();
     let email = format!("recycle-check-{user_id}@example.com");
 
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -634,7 +634,7 @@ async fn check_upload_names_finds_exact_recycle_bin_matches() {
     .await
     .expect("insert trashed file");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),
@@ -716,7 +716,7 @@ async fn check_upload_names_accepts_html_documents() {
 
     let user_id = uuid::Uuid::new_v4().to_string();
     let email = format!("html-check-{user_id}@example.com");
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -729,7 +729,7 @@ async fn check_upload_names_accepts_html_documents() {
     .await
     .expect("insert user");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),
@@ -798,7 +798,7 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
     let user_id = uuid::Uuid::new_v4().to_string();
     let file_id = uuid::Uuid::new_v4().to_string();
     let email = format!("recycle-{user_id}@example.com");
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -821,7 +821,7 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
     .await
     .expect("insert file");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),
@@ -945,7 +945,7 @@ async fn public_share_password_and_download_block() {
     let file_id = uuid::Uuid::new_v4().to_string();
     let share_id = uuid::Uuid::new_v4().to_string();
     let token = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    let password_hash = mediavault_backend::auth::handlers::hash_password("share-secret")
+    let password_hash = ownly_backend::auth::handlers::hash_password("share-secret")
         .expect("hash password");
 
     sqlx::query(
@@ -976,7 +976,7 @@ async fn public_share_password_and_download_block() {
     .bind(token)
     .bind(&user_id)
     .bind(&file_id)
-    .bind(mediavault_backend::auth::handlers::hash_password("visitor-pass").expect("hash share pass"))
+    .bind(ownly_backend::auth::handlers::hash_password("visitor-pass").expect("hash share pass"))
     .execute(&state.pool)
     .await
     .expect("insert share");
@@ -1051,7 +1051,7 @@ async fn public_share_password_and_download_block() {
         .unwrap();
     assert_eq!(download_blocked.status(), StatusCode::FORBIDDEN);
 
-    let visitor_token = mediavault_backend::auth::handlers::create_token(
+    let visitor_token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         format!("share-protect-{user_id}@example.com"),
         "user".into(),
@@ -1120,7 +1120,7 @@ async fn admin_users_list_requires_admin_role() {
     let member_email = format!("member-{member_id}@example.com");
     let admin_email = format!("admin-{admin_id}@example.com");
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
@@ -1142,7 +1142,7 @@ async fn admin_users_list_requires_admin_role() {
     .await
     .expect("insert admin");
 
-    let member_token = mediavault_backend::auth::handlers::create_token(
+    let member_token = ownly_backend::auth::handlers::create_token(
         member_id.clone(),
         member_email.clone(),
         "user".into(),
@@ -1152,7 +1152,7 @@ async fn admin_users_list_requires_admin_role() {
     )
     .expect("member token");
 
-    let admin_token = mediavault_backend::auth::handlers::create_token(
+    let admin_token = ownly_backend::auth::handlers::create_token(
         admin_id.clone(),
         admin_email.clone(),
         "admin".into(),
@@ -1229,7 +1229,7 @@ async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
     let member_id = uuid::Uuid::new_v4().to_string();
     let member_email = format!("forged-{member_id}@example.com");
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
@@ -1241,7 +1241,7 @@ async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
     .await
     .expect("insert member");
 
-    let forged_admin_token = mediavault_backend::auth::handlers::create_token(
+    let forged_admin_token = ownly_backend::auth::handlers::create_token(
         member_id.clone(),
         member_email,
         "admin".into(),
@@ -1296,7 +1296,7 @@ async fn admin_create_user_requires_browser_request() {
     let admin_id = uuid::Uuid::new_v4().to_string();
     let admin_email = format!("admin-create-guard-{admin_id}@example.com");
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
@@ -1308,7 +1308,7 @@ async fn admin_create_user_requires_browser_request() {
     .await
     .expect("insert admin");
 
-    let admin_token = mediavault_backend::auth::handlers::create_token(
+    let admin_token = ownly_backend::auth::handlers::create_token(
         admin_id.clone(),
         admin_email,
         "admin".into(),
@@ -1372,7 +1372,7 @@ async fn admin_overview_requires_admin_role() {
     let member_id = uuid::Uuid::new_v4().to_string();
     let admin_id = uuid::Uuid::new_v4().to_string();
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
@@ -1394,7 +1394,7 @@ async fn admin_overview_requires_admin_role() {
     .await
     .expect("insert admin");
 
-    let member_token = mediavault_backend::auth::handlers::create_token(
+    let member_token = ownly_backend::auth::handlers::create_token(
         member_id.clone(),
         format!("member-overview-{member_id}@example.com"),
         "user".into(),
@@ -1404,7 +1404,7 @@ async fn admin_overview_requires_admin_role() {
     )
     .expect("member token");
 
-    let admin_token = mediavault_backend::auth::handlers::create_token(
+    let admin_token = ownly_backend::auth::handlers::create_token(
         admin_id.clone(),
         format!("admin-overview-{admin_id}@example.com"),
         "admin".into(),
@@ -1480,7 +1480,7 @@ async fn admin_storage_nodes_registry_lists_created_node() {
 
     let admin_id = uuid::Uuid::new_v4().to_string();
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
@@ -1492,7 +1492,7 @@ async fn admin_storage_nodes_registry_lists_created_node() {
     .await
     .expect("insert admin");
 
-    let admin_token = mediavault_backend::auth::handlers::create_token(
+    let admin_token = ownly_backend::auth::handlers::create_token(
         admin_id.clone(),
         format!("admin-storage-{admin_id}@example.com"),
         "admin".into(),
@@ -1634,7 +1634,7 @@ async fn admin_revoked_session_invalidates_jwt() {
     let admin_email = format!("admin-revoke-{admin_id}@example.com");
     let target_email = format!("target-revoke-{target_id}@example.com");
     let password_hash =
-        mediavault_backend::auth::handlers::hash_password("password123").expect("hash password");
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
@@ -1667,7 +1667,7 @@ async fn admin_revoked_session_invalidates_jwt() {
     .await
     .expect("insert audit row");
 
-    let target_token = mediavault_backend::auth::handlers::create_token(
+    let target_token = ownly_backend::auth::handlers::create_token(
         target_id.clone(),
         target_email.clone(),
         "pro".into(),
@@ -1677,7 +1677,7 @@ async fn admin_revoked_session_invalidates_jwt() {
     )
     .expect("target token");
 
-    let admin_token = mediavault_backend::auth::handlers::create_token(
+    let admin_token = ownly_backend::auth::handlers::create_token(
         admin_id.clone(),
         admin_email.clone(),
         "admin".into(),
@@ -1780,7 +1780,7 @@ async fn user_profile_returns_account_and_storage_summary() {
     let user_id = uuid::Uuid::new_v4().to_string();
     let file_id = uuid::Uuid::new_v4().to_string();
     let email = format!("profile-{user_id}@example.com");
-    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
         .expect("hash password");
 
     sqlx::query(
@@ -1803,7 +1803,7 @@ async fn user_profile_returns_account_and_storage_summary() {
     .await
     .expect("insert file");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),
@@ -1867,7 +1867,7 @@ async fn user_can_change_own_password() {
 
     let user_id = uuid::Uuid::new_v4().to_string();
     let email = format!("pw-change-{user_id}@example.com");
-    let password_hash = mediavault_backend::auth::handlers::hash_password("oldpassword1")
+    let password_hash = ownly_backend::auth::handlers::hash_password("oldpassword1")
         .expect("hash password");
 
     sqlx::query(
@@ -1880,7 +1880,7 @@ async fn user_can_change_own_password() {
     .await
     .expect("insert user");
 
-    let token = mediavault_backend::auth::handlers::create_token(
+    let token = ownly_backend::auth::handlers::create_token(
         user_id.clone(),
         email.clone(),
         "user".into(),

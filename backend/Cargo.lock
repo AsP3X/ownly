@@ -1255,47 +1255,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mediavault-backend"
-version = "0.1.0"
-dependencies = [
- "aes",
- "aes-gcm",
- "anyhow",
- "argon2",
- "async-trait",
- "axum",
- "bytes",
- "cbc",
- "chrono",
- "dotenvy",
- "envy",
- "futures-util",
- "hex",
- "hmac",
- "hyper",
- "image",
- "jsonwebtoken",
- "mime_guess",
- "password-hash",
- "rand",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "zip",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1506,6 +1465,47 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "ownly-backend"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "axum",
+ "bytes",
+ "cbc",
+ "chrono",
+ "dotenvy",
+ "envy",
+ "futures-util",
+ "hex",
+ "hmac",
+ "hyper",
+ "image",
+ "jsonwebtoken",
+ "mime_guess",
+ "password-hash",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zip",
 ]
 
 [[package]]

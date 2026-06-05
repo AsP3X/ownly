@@ -11,7 +11,7 @@ const KNOWN_WEAK_SECRETS: &[&str] = &[
     "dev-jwt-secret-change-me",
     "dev-nos-jwt-secret-change-me",
     "dev-nos-signing-secret-change-me",
-    "mediavault-master-key",
+    "ownly-master-key",
 ];
 
 // Human: True when the value is empty, an init placeholder, or a known weak default from code or compose.

@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 
 destroy=false
 if [ "${1:-}" = "--destroy-volumes" ]; then
-  if [ "${MEDIAVAULT_CONFIRM_DESTROY_DATA:-}" != "yes" ]; then
-    echo "Refusing to destroy volumes. Set MEDIAVAULT_CONFIRM_DESTROY_DATA=yes to confirm data loss."
+  if [ "${OWNLY_CONFIRM_DESTROY_DATA:-}" != "yes" ]; then
+    echo "Refusing to destroy volumes. Set OWNLY_CONFIRM_DESTROY_DATA=yes to confirm data loss."
     exit 1
   fi
   destroy=true

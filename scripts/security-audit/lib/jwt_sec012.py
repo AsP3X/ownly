@@ -13,7 +13,7 @@ from typing import Any
 # Human: Fallback secrets when .env is missing — includes docker-compose.yml inlined defaults.
 # Agent: READ by resolve_jwt_secret_candidates; matched via jwt_signature_valid against login token.
 COMPOSE_DEFAULT_JWT_SECRET = (
-    "ownly-compose-local-dev-mediavault-jwt-secret-not-for-production"
+    "ownly-compose-local-dev-jwt-secret-not-for-production"
 )
 DEFAULT_JWT_SECRET_CANDIDATES: tuple[str, ...] = (
     COMPOSE_DEFAULT_JWT_SECRET,

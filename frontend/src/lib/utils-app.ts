@@ -369,9 +369,9 @@ export function fileMatchesTypeFilter(
 export const DOCKER_POSTGRES_DEFAULTS = {
   host: "postgres",
   port: "5432",
-  user: "mediavault",
-  password: "mediavault",
-  database: "mediavault",
+  user: "ownly",
+  password: "ownly",
+  database: "ownly",
 };
 
 export type PostgresConnectionFields = typeof DOCKER_POSTGRES_DEFAULTS;

@@ -1,7 +1,7 @@
 // Human: Session-scoped cache for setup completion — avoids blocking the shell on repeat visits.
-// Agent: READS/WRITES sessionStorage key mediavault_setup_complete; INVALIDATED only when setup POST succeeds.
+// Agent: READS/WRITES sessionStorage key ownly_setup_complete; INVALIDATED only when setup POST succeeds.
 
-const SETUP_STATUS_CACHE_KEY = "mediavault_setup_complete";
+const SETUP_STATUS_CACHE_KEY = "ownly_setup_complete";
 
 /** Human: Last known setup_complete from GET /setup/status — null when uncached. */
 export function readSetupStatusCache(): boolean | null {

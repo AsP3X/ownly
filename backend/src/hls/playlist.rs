@@ -1,4 +1,4 @@
-// Human: Build dynamic `.m3u8` manifests with AES-128 segment URIs under the MediaVault API.
+// Human: Build dynamic `.m3u8` manifests with AES-128 segment URIs under the Ownly API.
 // Agent: PURE string builder generate(); rewrite_stored_playlist preserves ffmpeg EXTINF timing.
 
 use std::path::Path;
