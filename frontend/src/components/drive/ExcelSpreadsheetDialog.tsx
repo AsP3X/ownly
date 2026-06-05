@@ -34,6 +34,7 @@ import {
   columnRangeFromSelection,
   statusBadgePresetRules,
 } from "@/lib/spreadsheet/conditional-formatting";
+import { expandSheetToAddress } from "@/lib/spreadsheet/grid";
 import {
   applyFormulaBarEdit,
   parseSpreadsheetBuffer,
@@ -178,7 +179,8 @@ export function ExcelSpreadsheetDialog({
       if (!loadState.workbook || !selection || !activeSheet || readOnly) return;
       const nextSheets = loadState.workbook.sheets.map((sheet, index) => {
         if (index !== activeSheetIndex) return sheet;
-        const nextRows = sheet.rows.map((row, rowIndex) =>
+        const expanded = expandSheetToAddress(sheet, selection.row, selection.col);
+        const nextRows = expanded.rows.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             if (rowIndex !== selection.row || colIndex !== selection.col) return cell;
             const style = { ...cell.style, ...patch };
@@ -189,7 +191,7 @@ export function ExcelSpreadsheetDialog({
             };
           }),
         );
-        return { ...sheet, rows: nextRows };
+        return { ...expanded, rows: nextRows };
       });
       setLoadState((current) => ({
         ...current,

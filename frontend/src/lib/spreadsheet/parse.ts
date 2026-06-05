@@ -8,6 +8,7 @@ import {
   columnWidthsFromWorksheet,
   rowHeightsFromWorksheet,
 } from "@/lib/spreadsheet/dimensions";
+import { normalizeSheetGrid, expandSheetToAddress, trimSheetForSave } from "@/lib/spreadsheet/grid";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
 
@@ -74,17 +75,23 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
     const rows = sheetToRows(worksheet);
-    const columnCount = Math.max(...rows.map((row) => row.length), 1);
-    return {
+    const importColumnCount = Math.max(...rows.map((row) => row.length), 1);
+    const imported: SheetData = {
       name,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
-      columnWidths: columnWidthsFromWorksheet(worksheet, columnCount),
+      columnWidths: columnWidthsFromWorksheet(worksheet, importColumnCount),
       rowHeights: rowHeightsFromWorksheet(worksheet, rows.length),
     };
+    return normalizeSheetGrid(imported);
   });
 
-  return { sheets: sheets.length > 0 ? sheets : [{ name: "Sheet1", rows: [[{ value: null, display: "" }]] }] };
+  return {
+    sheets:
+      sheets.length > 0
+        ? sheets
+        : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
+  };
 }
 
 // Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
@@ -93,14 +100,15 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
   const xlsxWorkbook = XLSX.utils.book_new();
 
   for (const sheet of workbook.sheets) {
-    const matrix = sheet.rows.map((row) =>
+    const trimmed = trimSheetForSave(sheet);
+    const matrix = trimmed.rows.map((row) =>
       row.map((cell) => {
         if (cell.formula) return { f: cell.formula.replace(/^=/, ""), v: cell.value ?? undefined };
         return cell.value ?? "";
       }),
     );
     const worksheet = XLSX.utils.aoa_to_sheet(matrix);
-    applyDimensionsToWorksheet(worksheet, sheet);
+    applyDimensionsToWorksheet(worksheet, trimmed);
     XLSX.utils.book_append_sheet(xlsxWorkbook, worksheet, sheet.name);
   }
 
@@ -123,7 +131,9 @@ export function applyFormulaBarEdit(
 ): SpreadsheetWorkbook {
   const nextSheets = workbook.sheets.map((sheet, index) => {
     if (index !== sheetIndex) return sheet;
-    const nextRows = sheet.rows.map((sheetRow, rowIndex) =>
+
+    const expanded = expandSheetToAddress(sheet, row, col);
+    const nextRows = expanded.rows.map((sheetRow, rowIndex) =>
       rowIndex === row
         ? sheetRow.map((cell, colIndex) => {
             if (colIndex !== col) return cell;
@@ -148,7 +158,7 @@ export function applyFormulaBarEdit(
           })
         : [...sheetRow],
     );
-    return { ...sheet, rows: nextRows };
+    return { ...expanded, rows: nextRows };
   });
 
   return { sheets: nextSheets };
