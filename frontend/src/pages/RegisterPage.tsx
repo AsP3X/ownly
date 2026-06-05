@@ -1,12 +1,12 @@
 // Human: Self-service registration when the instance allows public sign-ups — Ownly signup wireframe.
-// Agent: CALLS register API (email + password only); toast + redirect /login with prefilled email; validates confirm password + terms.
+// Agent: CALLS register API (email + password only); success dialog then /login with prefilled email; validates confirm password + terms.
 
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Mail, User } from "lucide-react";
-import { toast } from "sonner";
 import { getErrorMessage, register } from "@/api/client";
 import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
+import { RegisterSuccessDialog } from "@/components/auth/RegisterSuccessDialog";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthIconField } from "@/components/auth/AuthIconField";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
@@ -28,6 +28,27 @@ export default function RegisterPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [successState, setSuccessState] = useState<{
+    email: string;
+    pendingActivation: boolean;
+  } | null>(null);
+
+  // Human: After the success dialog, send the user to login with their email ready to fill in.
+  // Agent: NAVIGATE /login with state.email + optional pending-activation info.
+  function continueToLogin() {
+    if (!successState) return;
+
+    navigate("/login", {
+      replace: true,
+      state: {
+        email: successState.email,
+        from: redirectTo,
+        info: successState.pendingActivation
+          ? "An administrator must approve your account before you can sign in."
+          : undefined,
+      },
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,29 +77,9 @@ export default function RegisterPage() {
       const trimmedEmail = email.trim();
       const res = await register(trimmedEmail, password);
 
-      // Human: After sign-up, send the user to login with their email ready to fill in.
-      // Agent: toast success; NAVIGATE /login with state.email + optional pending-activation info.
-      if (res.pending_activation) {
-        toast.success("Account created", {
-          description: "An administrator must approve your account before you can sign in.",
-        });
-        navigate("/login", {
-          replace: true,
-          state: {
-            email: trimmedEmail,
-            from: redirectTo,
-            info: "An administrator must approve your account before you can sign in.",
-          },
-        });
-        return;
-      }
-
-      toast.success("Account created", {
-        description: "You can now sign in with your email and password.",
-      });
-      navigate("/login", {
-        replace: true,
-        state: { email: trimmedEmail, from: redirectTo },
+      setSuccessState({
+        email: trimmedEmail,
+        pendingActivation: Boolean(res.pending_activation),
       });
     } catch (err) {
       setError(getErrorMessage(err));
@@ -161,6 +162,12 @@ export default function RegisterPage() {
           </AuthSubmitButton>
         </form>
       </AuthFormCard>
+
+      <RegisterSuccessDialog
+        open={successState !== null}
+        pendingActivation={successState?.pendingActivation ?? false}
+        onContinue={continueToLogin}
+      />
     </AuthPageShell>
   );
 }

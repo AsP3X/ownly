@@ -8,7 +8,6 @@ import { setupStatus } from "@/api/client";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { InstanceNameProvider } from "@/context/InstanceNameContext";
-import { Toaster } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import SetupPage from "@/pages/SetupPage";
 import LoginPage from "@/pages/LoginPage";
@@ -128,7 +127,6 @@ export default function App() {
             </Routes>
           </Suspense>
         </SetupGuard>
-        <Toaster richColors closeButton position="top-center" />
         </InstanceNameProvider>
       </AuthProvider>
     </BrowserRouter>
