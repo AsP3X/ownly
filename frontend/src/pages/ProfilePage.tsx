@@ -1,45 +1,85 @@
-// Human: Signed-in user profile — account summary and storage usage (security lives in Settings later).
-// Agent: CALLS fetchUserProfile + fetchDashboard; RENDERS drive shell; route /profile.
+// Human: Account Settings & Security — Pencil User Profile wireframe with drive shell.
+// Agent: CALLS fetchUserProfile + changeOwnPassword; RENDERS /profile; Tailwind-only chrome.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
-import { fetchDashboard, fetchUserProfile, getErrorMessage } from "@/api/client";
+import { Loader2, Save } from "lucide-react";
+import {
+  changeOwnPassword,
+  fetchDashboard,
+  fetchUserProfile,
+  getErrorMessage,
+} from "@/api/client";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
-import { ProfileAccountSection } from "@/components/profile/ProfileAccountSection";
-import { ProfileStorageSection } from "@/components/profile/ProfileStorageSection";
-import {
-  ProfilePageHeader,
-  profileContentClassName,
-} from "@/components/profile/profile-ui";
+import { ProfilePersonalDetailsCard } from "@/components/profile/ProfilePersonalDetailsCard";
+import { ProfilePreferencesCard } from "@/components/profile/ProfilePreferencesCard";
+import { ProfileSectionNav, type ProfileSectionId } from "@/components/profile/ProfileSectionNav";
+import { ProfileSecurityCard } from "@/components/profile/ProfileSecurityCard";
+import { ProfileSessionsCard } from "@/components/profile/ProfileSessionsCard";
+import { ProfileSummaryCard } from "@/components/profile/ProfileSummaryCard";
+import { profilePrimaryButtonClassName } from "@/components/profile/profile-ui";
 import { useAuth } from "@/hooks/useAuth";
 import { buildDriveSearchParams } from "@/lib/app-location-state";
+import {
+  readPasswordChangedAt,
+  readProfileDetailsDraft,
+  readProfileMfaEnabled,
+  readProfilePreferences,
+  writePasswordChangedAt,
+  writeProfileDetailsDraft,
+  writeProfileMfaEnabled,
+  writeProfilePreferences,
+  type ProfileDetailsDraft,
+} from "@/lib/profile-details-storage";
+import { formatProfileLocationLabel } from "@/lib/profile-format";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
 
-/** Human: Authenticated profile route — explorer layout with drive sidebar and account panels. */
+/** Human: Authenticated profile route — explorer sidebar + Account Settings & Security layout. */
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [securityError, setSecurityError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
+  const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(null);
   const [usedBytes, setUsedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
+  const [activeSection, setActiveSection] = useState<ProfileSectionId>("details");
+  const [detailsDraft, setDetailsDraft] = useState<ProfileDetailsDraft>({
+    fullName: "",
+    jobTitle: "",
+    department: "",
+    bio: "",
+  });
+  const [preferences, setPreferences] = useState(() =>
+    user?.id ? readProfilePreferences(user.id) : { emailNotifications: true, securityAlerts: true },
+  );
+  const [mfaEnabled, setMfaEnabled] = useState(() =>
+    user?.id ? readProfileMfaEnabled(user.id) : false,
+  );
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [lastPasswordResetAt, setLastPasswordResetAt] = useState<string | null>(null);
 
   const displayName = useMemo(
-    () => (user?.email ? displayNameFromEmail(user.email) : "Account"),
-    [user],
+    () => detailsDraft.fullName.trim() || (user?.email ? displayNameFromEmail(user.email) : "Account"),
+    [detailsDraft.fullName, user],
   );
-  const roleLabel = useMemo(() => userRoleLabel(user?.role), [user]);
+  const roleLabel = useMemo(
+    () => detailsDraft.jobTitle.trim() || userRoleLabel(user?.role),
+    [detailsDraft.jobTitle, user],
+  );
   const initials = userInitials(user?.email);
+  const locationLabel = useMemo(() => formatProfileLocationLabel(), []);
 
-  // Human: Load profile payload and sidebar quota on mount.
-  // Agent: GET /me/profile + /dashboard; SETS profile + storage widget bytes.
   const loadProfile = useCallback(async () => {
     setLoading(true);
-    setError("");
+    setLoadError("");
     try {
       const [profileRes, dashboardRes] = await Promise.all([
         fetchUserProfile(),
@@ -48,8 +88,20 @@ export default function ProfilePage() {
       setProfile(profileRes);
       setUsedBytes(dashboardRes.used_bytes);
       setQuotaBytes(dashboardRes.quota_bytes);
+
+      const savedDraft = readProfileDetailsDraft(profileRes.user.id);
+      const derivedName = displayNameFromEmail(profileRes.user.email);
+      setDetailsDraft({
+        fullName: savedDraft?.fullName ?? derivedName,
+        jobTitle: savedDraft?.jobTitle ?? userRoleLabel(profileRes.user.role),
+        department: savedDraft?.department ?? "",
+        bio: savedDraft?.bio ?? "",
+      });
+      setPreferences(readProfilePreferences(profileRes.user.id));
+      setMfaEnabled(readProfileMfaEnabled(profileRes.user.id));
+      setLastPasswordResetAt(readPasswordChangedAt(profileRes.user.id));
     } catch (err) {
-      setError(getErrorMessage(err));
+      setLoadError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -60,8 +112,6 @@ export default function ProfilePage() {
     void loadProfile();
   }, [loadProfile]);
 
-  // Human: Sidebar nav returns to the drive with the same view query keys as DrivePage.
-  // Agent: NAVIGATE /?view=… via buildDriveSearchParams.
   const handleNavChange = useCallback(
     (nav: DriveNavId) => {
       const params = buildDriveSearchParams({
@@ -76,81 +126,154 @@ export default function ProfilePage() {
     [navigate],
   );
 
-  const handleBackToDrive = useCallback(() => {
-    navigate("/");
-  }, [navigate]);
+  const handleSaveAll = useCallback(async () => {
+    if (!profile) return;
+    setSaving(true);
+    setSaveError("");
+    setSecurityError("");
+    setSaveSuccess("");
+
+    try {
+      if (currentPassword || newPassword) {
+        if (newPassword.length < 8) {
+          const message = "New password must be at least 8 characters.";
+          setSecurityError(message);
+          setSaveError(message);
+          setActiveSection("security");
+          return;
+        }
+        await changeOwnPassword(currentPassword, newPassword);
+        const changedAt = new Date().toISOString();
+        writePasswordChangedAt(profile.user.id, changedAt);
+        setLastPasswordResetAt(changedAt);
+        setCurrentPassword("");
+        setNewPassword("");
+      }
+
+      writeProfileDetailsDraft(profile.user.id, detailsDraft);
+      writeProfilePreferences(profile.user.id, preferences);
+      writeProfileMfaEnabled(profile.user.id, mfaEnabled);
+      setSaveSuccess("Profile changes saved.");
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setSecurityError(message);
+      setSaveError(message);
+      setActiveSection("security");
+    } finally {
+      setSaving(false);
+    }
+  }, [currentPassword, detailsDraft, mfaEnabled, newPassword, preferences, profile]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
-      {/* Human: Compact mobile title bar — profile is not a drive nav view, so skip MobileDriveHeader. */}
-      <header className="sticky top-0 z-30 shrink-0 border-b border-[#E5E7EB] bg-[#F7F8FA]/95 px-4 pb-3 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-xl lg:hidden">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleBackToDrive}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-white"
-            aria-label="Back to drive"
-          >
-            <ArrowLeft className="size-5" aria-hidden />
-          </button>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-[#888888]">Account</p>
-            <h1 className="truncate text-lg font-semibold text-[#1A1A1A]">My Profile</h1>
-          </div>
-        </div>
+      {/* Human: Mobile page title — desktop header lives inside scroll area per Pencil layout. */}
+      <header className="shrink-0 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
+        <h1 className="text-lg font-bold text-[#1A1A1A]">Account Settings & Security</h1>
+        <p className="text-xs text-[#666666]">Manage your personal details and security.</p>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
         <DriveSidebar
           activeNav="home"
+          settingsActive
           usedBytes={usedBytes}
           quotaBytes={quotaBytes}
           onNavChange={handleNavChange}
         />
 
-        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <div className="shrink-0 px-4 pt-4 lg:px-10 lg:pt-6">
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#F7F8FA]">
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-10 pt-4 lg:px-12 lg:pb-12 lg:pt-0">
             <DriveDesktopTopbar
               displayName={displayName}
-              roleLabel={roleLabel}
+              roleLabel={userRoleLabel(user?.role)}
               initials={initials}
               email={user?.email}
               isAdmin={user?.role === "admin"}
-              statusText="My profile • Secure encrypted session"
+              statusText="Secure Profile Session Active"
               onSignOut={logout}
               className="hidden lg:flex"
             />
-          </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-6 lg:px-12 lg:pb-12">
-            <div className={profileContentClassName}>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <ProfilePageHeader
-                  title="My Profile"
-                  description="View your account details and storage usage."
-                />
-                <button
-                  type="button"
-                  onClick={handleBackToDrive}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA]"
-                >
-                  <ArrowLeft className="size-4" aria-hidden />
-                  Back to drive
-                </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <h1 className="text-2xl font-bold text-[#1A1A1A]">Account Settings & Security</h1>
+                <p className="max-w-2xl text-sm text-[#666666]">
+                  Manage your personal details, secure keys, active sessions, and preferences.
+                </p>
               </div>
-
-              {loading ? (
-                <p className="text-sm text-[#666666]">Loading profile…</p>
-              ) : null}
-              {error ? <p className="text-sm text-[#EF4444]">{error}</p> : null}
-
-              {profile ? (
-                <div className="flex max-w-2xl flex-col gap-6">
-                  <ProfileAccountSection user={profile.user} />
-                  <ProfileStorageSection storage={profile.storage} />
-                </div>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => void handleSaveAll()}
+                disabled={saving || loading || !profile}
+                className={profilePrimaryButtonClassName}
+              >
+                {saving ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Save className="size-4" aria-hidden />
+                )}
+                Save All Changes
+              </button>
             </div>
+
+            {loading ? <p className="text-sm text-[#666666]">Loading profile…</p> : null}
+            {loadError ? (
+              <p className="text-sm text-[#EF4444]" role="alert">
+                {loadError}
+              </p>
+            ) : null}
+            {saveError ? (
+              <p className="text-sm text-[#EF4444]" role="alert">
+                {saveError}
+              </p>
+            ) : null}
+            {saveSuccess ? (
+              <p className="text-sm text-[#10B981]" role="status">
+                {saveSuccess}
+              </p>
+            ) : null}
+
+            {profile ? (
+              <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+                <div className="flex w-full shrink-0 flex-col gap-6 xl:w-[360px]">
+                  <ProfileSummaryCard
+                    initials={initials}
+                    displayName={displayName}
+                    roleLabel={roleLabel}
+                    locationLabel={locationLabel}
+                    user={profile.user}
+                    storage={profile.storage}
+                    lastPasswordResetAt={lastPasswordResetAt}
+                  />
+                  <ProfileSectionNav activeSection={activeSection} onSelect={setActiveSection} />
+                </div>
+
+                <div className="flex min-w-0 flex-1 flex-col gap-6">
+                  <ProfilePersonalDetailsCard
+                    draft={detailsDraft}
+                    email={profile.user.email}
+                    onChange={setDetailsDraft}
+                  />
+                  <ProfileSecurityCard
+                    currentPassword={currentPassword}
+                    newPassword={newPassword}
+                    mfaEnabled={mfaEnabled}
+                    error={securityError}
+                    onCurrentPasswordChange={(value) => {
+                      setSecurityError("");
+                      setCurrentPassword(value);
+                    }}
+                    onNewPasswordChange={(value) => {
+                      setSecurityError("");
+                      setNewPassword(value);
+                    }}
+                    onMfaEnabledChange={setMfaEnabled}
+                  />
+                  <ProfileSessionsCard />
+                  <ProfilePreferencesCard preferences={preferences} onChange={setPreferences} />
+                </div>
+              </div>
+            ) : null}
           </div>
         </main>
       </div>

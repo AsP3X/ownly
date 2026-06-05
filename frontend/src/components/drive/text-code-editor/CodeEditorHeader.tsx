@@ -3,6 +3,7 @@
 
 import { Code2, FileCode, Search, Settings, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { editorTabIconClass } from "@/lib/text-code-editor/language";
 import { cn } from "@/lib/utils";
 
@@ -31,8 +32,10 @@ export function CodeEditorHeader({
   onToggleSearch,
   onToggleSettings,
 }: CodeEditorHeaderProps) {
+  const { theme } = useCodeEditorTheme();
+
   return (
-    <header className="flex h-11 shrink-0 items-center justify-between bg-[#151521]">
+    <header className={cn("flex h-11 shrink-0 items-center justify-between", theme.header)}>
       <div className="flex h-full min-w-0 items-center gap-px overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeFileId;
@@ -41,7 +44,7 @@ export function CodeEditorHeader({
               key={tab.id}
               className={cn(
                 "flex h-full shrink-0 items-center gap-2 px-4",
-                active ? "bg-[#1E1E2E]" : "bg-[#14141F]",
+                active ? theme.tabActive : theme.tabInactive,
               )}
             >
               <button
@@ -50,13 +53,16 @@ export function CodeEditorHeader({
                 className="flex min-w-0 items-center gap-2"
               >
                 <FileCode
-                  className={cn("size-3.5 shrink-0", editorTabIconClass(tab.name, active))}
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    editorTabIconClass(tab.name, active, theme.id),
+                  )}
                   aria-hidden
                 />
                 <span
                   className={cn(
                     "truncate text-[13px]",
-                    active ? "font-medium text-[#CDD6F4]" : "font-normal text-[#565F89]",
+                    active ? theme.tabTextActive : theme.tabTextInactive,
                   )}
                 >
                   {tab.name}
@@ -67,8 +73,9 @@ export function CodeEditorHeader({
                 onClick={() => onCloseTab(tab)}
                 aria-label={`Close ${tab.name}`}
                 className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-white/5",
-                  active ? "text-[#7F848E]" : "text-[#3F445B]",
+                  "flex size-4 shrink-0 items-center justify-center rounded-sm transition-colors",
+                  theme.tabCloseHover,
+                  active ? theme.tabCloseActive : theme.tabCloseInactive,
                 )}
               >
                 <X className="size-3" aria-hidden />
@@ -85,8 +92,9 @@ export function CodeEditorHeader({
           aria-label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
           aria-pressed={wordWrap}
           className={cn(
-            "flex size-4 items-center justify-center text-[#A6ADC8] transition-colors hover:text-[#CDD6F4]",
-            wordWrap && "text-[#2563EB]",
+            "flex size-4 items-center justify-center",
+            theme.toolbarIcon,
+            wordWrap && theme.toolbarIconActive,
           )}
         >
           <Code2 className="size-4" aria-hidden />
@@ -97,8 +105,9 @@ export function CodeEditorHeader({
           aria-label={searchOpen ? "Close search" : "Open search"}
           aria-pressed={searchOpen}
           className={cn(
-            "flex size-4 items-center justify-center text-[#A6ADC8] transition-colors hover:text-[#CDD6F4]",
-            searchOpen && "text-[#2563EB]",
+            "flex size-4 items-center justify-center",
+            theme.toolbarIcon,
+            searchOpen && theme.toolbarIconActive,
           )}
         >
           <Search className="size-4" aria-hidden />
@@ -109,8 +118,9 @@ export function CodeEditorHeader({
           aria-label={settingsOpen ? "Close editor settings" : "Open editor settings"}
           aria-pressed={settingsOpen}
           className={cn(
-            "flex size-4 items-center justify-center text-[#A6ADC8] transition-colors hover:text-[#CDD6F4]",
-            settingsOpen && "text-[#2563EB]",
+            "flex size-4 items-center justify-center",
+            theme.toolbarIcon,
+            settingsOpen && theme.toolbarIconActive,
           )}
         >
           <Settings className="size-4" aria-hidden />

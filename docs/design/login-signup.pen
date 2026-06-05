@@ -93588,6 +93588,3525 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "SwnjK",
+      "x": 38388,
+      "y": -3616,
+      "name": "User Profile Page - Public View",
+      "clip": true,
+      "width": 1440,
+      "height": 1024,
+      "fill": "$bg-primary",
+      "children": [
+        {
+          "id": "yy4nl",
+          "type": "ref",
+          "ref": "L5DyOw",
+          "name": "Sidebar Instance",
+          "height": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "hGg1M",
+          "name": "Right Container",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-primary",
+          "layout": "vertical",
+          "children": [
+            {
+              "id": "Vjt7p",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container"
+            },
+            {
+              "type": "frame",
+              "id": "HWWGW",
+              "name": "Main Scroll Area",
+              "width": "fill_container",
+              "height": "fill_container",
+              "fill": "$bg-secondary",
+              "gap": 24,
+              "padding": 32,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "eiz4l",
+                  "name": "Left Column",
+                  "width": 360,
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "JUxf0",
+                      "name": "User Info Card",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 20,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "mEY4J",
+                          "name": "User Header",
+                          "width": "fill_container",
+                          "gap": 16,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "EYKNq",
+                              "name": "Avatar Circle",
+                              "width": 64,
+                              "height": 64,
+                              "fill": "$accent-primary",
+                              "cornerRadius": 32,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "M9fVwg",
+                                  "name": "Avatar Initials",
+                                  "fill": "$text-inverse",
+                                  "content": "SC",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 20,
+                                  "fontWeight": "Bold"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JokMN",
+                              "name": "User Name and Title",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "DC6My",
+                                  "name": "Full Name",
+                                  "fill": "$text-primary",
+                                  "content": "Sarah Chen",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 18,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "j1ODpG",
+                                  "name": "Role",
+                                  "fill": "$text-secondary",
+                                  "content": "Lead Cloud Architect",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "fnb8O",
+                                  "name": "Department",
+                                  "fill": "$text-muted",
+                                  "content": "INFRASTRUCTURE & SECURITY",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "atf75",
+                          "name": "Divider",
+                          "width": "fill_container",
+                          "height": 1,
+                          "fill": "$border-color"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "UhCqy",
+                          "name": "Info List",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 14,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ZVhAb",
+                              "name": "Location Row",
+                              "width": "fill_container",
+                              "gap": 12,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "iTFmV",
+                                  "name": "map-pin Icon",
+                                  "width": 16,
+                                  "height": 16,
+                                  "icon": "map-pin",
+                                  "library": "lucide",
+                                  "fill": "$text-secondary"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "O38zsO",
+                                  "name": "Location Label",
+                                  "fill": "$text-secondary",
+                                  "content": "San Francisco, CA",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "wJg7i",
+                              "name": "Local Time Row",
+                              "width": "fill_container",
+                              "gap": 12,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "i20n6",
+                                  "name": "clock Icon",
+                                  "width": 16,
+                                  "height": 16,
+                                  "icon": "clock",
+                                  "library": "feather",
+                                  "fill": "$text-secondary"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "JLdtu",
+                                  "name": "Local Time Label",
+                                  "fill": "$text-secondary",
+                                  "content": "02:14 PM (PST)",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "pvTZr",
+                              "name": "Contact Row",
+                              "width": "fill_container",
+                              "gap": 12,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "Sq2e9",
+                                  "name": "mail Icon",
+                                  "width": 16,
+                                  "height": 16,
+                                  "icon": "mail",
+                                  "library": "lucide",
+                                  "fill": "$text-secondary"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "h0Hobt",
+                                  "name": "Contact Label",
+                                  "fill": "$text-secondary",
+                                  "content": "sarah.chen@ownly.io",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "iClFs",
+                              "name": "Joined Date Row",
+                              "width": "fill_container",
+                              "gap": 12,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "KzrlQ",
+                                  "name": "calendar Icon",
+                                  "width": 16,
+                                  "height": 16,
+                                  "icon": "calendar",
+                                  "library": "lucide",
+                                  "fill": "$text-secondary"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "UTQM2",
+                                  "name": "Joined Date Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Joined March 2024",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lgeW8",
+                      "name": "Teams and Endorsements Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "M3uwEj",
+                          "name": "Teams Section Header",
+                          "fill": "$text-primary",
+                          "content": "TEAMS & ASSOCIATIONS",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 13,
+                          "fontWeight": "Bold"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "M9trPH",
+                          "name": "Teams List",
+                          "width": "fill_container",
+                          "gap": 8,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "xqF6g",
+                              "name": "Platform Core Badge",
+                              "fill": "$bg-secondary",
+                              "cornerRadius": "$radius-lg",
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "krl7U",
+                                  "name": "Badge Label",
+                                  "fill": "$text-primary",
+                                  "content": "Platform Core",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "r9ZLrH",
+                              "name": "SecOps Taskforce Badge",
+                              "fill": "$bg-secondary",
+                              "cornerRadius": "$radius-lg",
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "o3aeV",
+                                  "name": "Badge Label",
+                                  "fill": "$text-primary",
+                                  "content": "SecOps Taskforce",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "WqcWV",
+                          "name": "Divider 2",
+                          "width": "fill_container",
+                          "height": 1,
+                          "fill": "$border-color"
+                        },
+                        {
+                          "type": "text",
+                          "id": "ThqSW",
+                          "name": "Endorsements Section Header",
+                          "fill": "$text-primary",
+                          "content": "PEER ENDORSEMENTS",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 13,
+                          "fontWeight": "Bold"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Oi6m1",
+                          "name": "Endorsements List",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "zWiRc",
+                              "name": "Cloud Architecture Row",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "hhVzJ",
+                                  "name": "Skill Name",
+                                  "fill": "$text-primary",
+                                  "content": "Cloud Architecture",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "WywAD",
+                                  "name": "Endorsement Count Badge",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": "$radius-lg",
+                                  "padding": [
+                                    4,
+                                    8
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Nc1Gs",
+                                      "name": "Count Text",
+                                      "fill": "$accent-primary",
+                                      "content": "+24",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "GQWZc",
+                              "name": "Zero Trust Security Row",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "o0ueK",
+                                  "name": "Skill Name",
+                                  "fill": "$text-primary",
+                                  "content": "Zero Trust Security",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "POqGF",
+                                  "name": "Endorsement Count Badge",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": "$radius-lg",
+                                  "padding": [
+                                    4,
+                                    8
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "E1WCXP",
+                                      "name": "Count Text",
+                                      "fill": "$accent-primary",
+                                      "content": "+18",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "gIWzs",
+                              "name": "Kubernetes Orchestration Row",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "nX3VZ",
+                                  "name": "Skill Name",
+                                  "fill": "$text-primary",
+                                  "content": "Kubernetes Orchestration",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Innmi",
+                                  "name": "Endorsement Count Badge",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": "$radius-lg",
+                                  "padding": [
+                                    4,
+                                    8
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Rx1DU",
+                                      "name": "Count Text",
+                                      "fill": "$accent-primary",
+                                      "content": "+15",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ElSS6",
+                              "name": "Disaster Recovery Planning Row",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "xdk8d",
+                                  "name": "Skill Name",
+                                  "fill": "$text-primary",
+                                  "content": "Disaster Recovery Planning",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "asafK",
+                                  "name": "Endorsement Count Badge",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": "$radius-lg",
+                                  "padding": [
+                                    4,
+                                    8
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "cdXIz",
+                                      "name": "Count Text",
+                                      "fill": "$accent-primary",
+                                      "content": "+12",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "rZlXd",
+                  "name": "Right Column",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "K4CoMw",
+                      "name": "Stats Row",
+                      "width": "fill_container",
+                      "height": 96,
+                      "gap": 16,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "KGeW5",
+                          "name": "Storage Used Stat Card",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "$bg-primary",
+                          "cornerRadius": "$radius-xl",
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "padding": 16,
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "K4nNbC",
+                              "name": "Stat Content",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "R919kJ",
+                                  "name": "Stat Title",
+                                  "fill": "$text-muted",
+                                  "content": "STORAGE USED",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 10,
+                                  "fontWeight": "Semi-Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "i3x8rU",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "742 GB / 1 TB",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 20,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "W6HUX",
+                                  "name": "Stat Subtitle",
+                                  "fill": "$text-secondary",
+                                  "content": "74.2% Capacity",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "G8BaNU",
+                              "name": "Stat Icon Frame",
+                              "width": 36,
+                              "height": 36,
+                              "fill": "$bg-secondary",
+                              "cornerRadius": 18,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "O0N7NQ",
+                                  "name": "Stat Icon",
+                                  "width": 18,
+                                  "height": 18,
+                                  "icon": "hard-drive",
+                                  "library": "lucide",
+                                  "fill": "$accent-primary"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "stbfO",
+                          "name": "Files Shared Stat Card",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "$bg-primary",
+                          "cornerRadius": "$radius-xl",
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "padding": 16,
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "tenTN",
+                              "name": "Stat Content",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "l7tht",
+                                  "name": "Stat Title",
+                                  "fill": "$text-muted",
+                                  "content": "FILES SHARED",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 10,
+                                  "fontWeight": "Semi-Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "L4dSZ",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "1,248",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 20,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "X0o6g3",
+                                  "name": "Stat Subtitle",
+                                  "fill": "$text-secondary",
+                                  "content": "Across 24 secure links",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zdezd",
+                              "name": "Stat Icon Frame",
+                              "width": 36,
+                              "height": 36,
+                              "fill": "$bg-secondary",
+                              "cornerRadius": 18,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "zCAxy",
+                                  "name": "Stat Icon",
+                                  "width": 18,
+                                  "height": 18,
+                                  "icon": "share-2",
+                                  "library": "lucide",
+                                  "fill": "$accent-primary"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ibWhb",
+                          "name": "Active Projects Stat Card",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "$bg-primary",
+                          "cornerRadius": "$radius-xl",
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "padding": 16,
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "UdkxQ",
+                              "name": "Stat Content",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "H2lEeV",
+                                  "name": "Stat Title",
+                                  "fill": "$text-muted",
+                                  "content": "ACTIVE PROJECTS",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 10,
+                                  "fontWeight": "Semi-Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "f0HHg",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "12 Projects",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 20,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "LAhoQ",
+                                  "name": "Stat Subtitle",
+                                  "fill": "$text-secondary",
+                                  "content": "4 cross-dept teams",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "GZSVn",
+                              "name": "Stat Icon Frame",
+                              "width": 36,
+                              "height": 36,
+                              "fill": "$bg-secondary",
+                              "cornerRadius": 18,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "KGLnc",
+                                  "name": "Stat Icon",
+                                  "width": 18,
+                                  "height": 18,
+                                  "icon": "git-branch",
+                                  "library": "lucide",
+                                  "fill": "$accent-primary"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dTrmM",
+                          "name": "Collaboration Stat Card",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "$bg-primary",
+                          "cornerRadius": "$radius-xl",
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "padding": 16,
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "HZsDi",
+                              "name": "Stat Content",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "rCnaq",
+                                  "name": "Stat Title",
+                                  "fill": "$text-muted",
+                                  "content": "COLLABORATION",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 10,
+                                  "fontWeight": "Semi-Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "iaZQd",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "4.9 / 5.0",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 20,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "w1gln",
+                                  "name": "Stat Subtitle",
+                                  "fill": "$text-secondary",
+                                  "content": "Top 5% rating",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ULZCW",
+                              "name": "Stat Icon Frame",
+                              "width": 36,
+                              "height": 36,
+                              "fill": "$bg-secondary",
+                              "cornerRadius": 18,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "w3rPQ",
+                                  "name": "Stat Icon",
+                                  "width": 18,
+                                  "height": 18,
+                                  "icon": "award",
+                                  "library": "lucide",
+                                  "fill": "$accent-primary"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XaHdd",
+                      "name": "Recently Shared Card",
+                      "width": "fill_container",
+                      "height": 380,
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "lWmSM",
+                          "name": "Shared Card Header",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "oNrbO",
+                              "name": "Header Text",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "hhJrC",
+                                  "name": "Shared Title",
+                                  "fill": "$text-primary",
+                                  "content": "Recently Shared Files",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 16,
+                                  "fontWeight": "Bold"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "xKhiI",
+                                  "name": "Shared Subtitle",
+                                  "fill": "$text-secondary",
+                                  "content": "Active public and team-shared assets",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "Normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "w2fiiJ",
+                              "name": "View All Button",
+                              "cornerRadius": "$radius-lg",
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "layout": "vertical",
+                              "padding": [
+                                8,
+                                14
+                              ],
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "qP9Ih",
+                                  "name": "Button Label",
+                                  "fill": "$text-secondary",
+                                  "content": "View All Assets",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "hGfvv",
+                          "name": "Table Container",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "IAagp",
+                              "name": "Table Header Row",
+                              "width": "fill_container",
+                              "stroke": "$border-color",
+                              "strokeWidth": {
+                                "bottom": 1
+                              },
+                              "padding": [
+                                8,
+                                12,
+                                12,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "v8pdTz",
+                                  "name": "File Name Header Cell",
+                                  "width": "fill_container",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Vhfde",
+                                      "name": "Header Label",
+                                      "fill": "$text-muted",
+                                      "content": "FILE NAME",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "T5b9o",
+                                  "name": "Size Header Cell",
+                                  "width": 100,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "UvBcl",
+                                      "name": "Header Label",
+                                      "fill": "$text-muted",
+                                      "content": "SIZE",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "foW7r",
+                                  "name": "Security Level Header Cell",
+                                  "width": 160,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "xyjmd",
+                                      "name": "Header Label",
+                                      "fill": "$text-muted",
+                                      "content": "SECURITY LEVEL",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "rXXWo",
+                                  "name": "Last Modified Header Cell",
+                                  "width": 140,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "fsHRQ",
+                                      "name": "Header Label",
+                                      "fill": "$text-muted",
+                                      "content": "LAST MODIFIED",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 11,
+                                      "fontWeight": "Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "b02G3",
+                              "name": "API_Integration_Spec_v2.1.pdf Row",
+                              "width": "fill_container",
+                              "stroke": "$border-color",
+                              "strokeWidth": {
+                                "bottom": 1
+                              },
+                              "padding": [
+                                14,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Nv5ej",
+                                  "name": "Name Cell",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "fhQeI",
+                                      "name": "File Icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "file-text",
+                                      "library": "lucide",
+                                      "fill": "$accent-primary"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "yctV3",
+                                      "name": "File Name Text",
+                                      "fill": "$text-primary",
+                                      "content": "API_Integration_Spec_v2.1.pdf",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "F7jxj",
+                                  "name": "Size Cell",
+                                  "width": 100,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "mPkCj",
+                                      "name": "Size Text",
+                                      "fill": "$text-secondary",
+                                      "content": "2.4 MB",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "B8FF4f",
+                                  "name": "Security Cell",
+                                  "width": 160,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "v8MZc",
+                                      "name": "Security Badge",
+                                      "fill": "#ECFDF5",
+                                      "cornerRadius": "$radius-lg",
+                                      "padding": [
+                                        4,
+                                        8
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "QJoJE",
+                                          "name": "Badge Text",
+                                          "fill": "#10B981",
+                                          "content": "Encrypted / Public",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11,
+                                          "fontWeight": "Semi-Bold"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "g2WHhR",
+                                  "name": "Modified Cell",
+                                  "width": 140,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "MUH10",
+                                      "name": "Modified Text",
+                                      "fill": "$text-secondary",
+                                      "content": "2 hours ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "fmlnC",
+                              "name": "Design_System_Assets_Final Row",
+                              "width": "fill_container",
+                              "stroke": "$border-color",
+                              "strokeWidth": {
+                                "bottom": 1
+                              },
+                              "padding": [
+                                14,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "R8cQdp",
+                                  "name": "Name Cell",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "nITXe",
+                                      "name": "File Icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "folder",
+                                      "library": "lucide",
+                                      "fill": "#F59E0B"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Lu8Ce",
+                                      "name": "File Name Text",
+                                      "fill": "$text-primary",
+                                      "content": "Design_System_Assets_Final",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Q1VmK",
+                                  "name": "Size Cell",
+                                  "width": 100,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "UhJqM",
+                                      "name": "Size Text",
+                                      "fill": "$text-secondary",
+                                      "content": "142.5 MB",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "eWSjh",
+                                  "name": "Security Cell",
+                                  "width": 160,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "lribI",
+                                      "name": "Security Badge",
+                                      "fill": "#F3F4F6",
+                                      "cornerRadius": "$radius-lg",
+                                      "padding": [
+                                        4,
+                                        8
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "B8qy78",
+                                          "name": "Badge Text",
+                                          "fill": "$text-secondary",
+                                          "content": "Restricted / Team",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11,
+                                          "fontWeight": "Semi-Bold"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "u2rt00",
+                                  "name": "Modified Cell",
+                                  "width": 140,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "syGe5",
+                                      "name": "Modified Text",
+                                      "fill": "$text-secondary",
+                                      "content": "1 day ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "LQKZN",
+                              "name": "Zero_Trust_Architecture_Audit.md Row",
+                              "width": "fill_container",
+                              "stroke": "$border-color",
+                              "strokeWidth": {
+                                "bottom": 1
+                              },
+                              "padding": [
+                                14,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "pLhqJ",
+                                  "name": "Name Cell",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "H5r8Sh",
+                                      "name": "File Icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "shield-alert",
+                                      "library": "lucide",
+                                      "fill": "$accent-primary"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "K45aIj",
+                                      "name": "File Name Text",
+                                      "fill": "$text-primary",
+                                      "content": "Zero_Trust_Architecture_Audit.md",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "syZsk",
+                                  "name": "Size Cell",
+                                  "width": 100,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "tWRGW",
+                                      "name": "Size Text",
+                                      "fill": "$text-secondary",
+                                      "content": "45 KB",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "QPVis",
+                                  "name": "Security Cell",
+                                  "width": 160,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "pWQdP",
+                                      "name": "Security Badge",
+                                      "fill": "#ECFDF5",
+                                      "cornerRadius": "$radius-lg",
+                                      "padding": [
+                                        4,
+                                        8
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "e2Ftnu",
+                                          "name": "Badge Text",
+                                          "fill": "#10B981",
+                                          "content": "Encrypted / Public",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11,
+                                          "fontWeight": "Semi-Bold"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "yMDPz",
+                                  "name": "Modified Cell",
+                                  "width": 140,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "FrAIB",
+                                      "name": "Modified Text",
+                                      "fill": "$text-secondary",
+                                      "content": "3 days ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "y1qe0u",
+                              "name": "Q3_Infrastructure_Budget_Projections.xlsx Row",
+                              "width": "fill_container",
+                              "padding": [
+                                14,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "VgYX3",
+                                  "name": "Name Cell",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "J6hFeh",
+                                      "name": "File Icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "file-spreadsheet",
+                                      "library": "lucide",
+                                      "fill": "$accent-primary"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "x1bfB",
+                                      "name": "File Name Text",
+                                      "fill": "$text-primary",
+                                      "content": "Q3_Infrastructure_Budget_Projections.xlsx",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "FVxdB",
+                                  "name": "Size Cell",
+                                  "width": 100,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "ttsS7",
+                                      "name": "Size Text",
+                                      "fill": "$text-secondary",
+                                      "content": "1.2 MB",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ZcLi8",
+                                  "name": "Security Cell",
+                                  "width": 160,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "UREYT",
+                                      "name": "Security Badge",
+                                      "fill": "#FEF2F2",
+                                      "cornerRadius": "$radius-lg",
+                                      "padding": [
+                                        4,
+                                        8
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "EGta8",
+                                          "name": "Badge Text",
+                                          "fill": "#EF4444",
+                                          "content": "Confidential / Team",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11,
+                                          "fontWeight": "Semi-Bold"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ytzLd",
+                                  "name": "Modified Cell",
+                                  "width": 140,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "a3zBXP",
+                                      "name": "Modified Text",
+                                      "fill": "$text-secondary",
+                                      "content": "1 week ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "S28Qfj",
+                      "name": "Collaboration Timeline Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "GBs5S",
+                          "name": "Timeline Header",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "hbs1T",
+                              "name": "Timeline Title",
+                              "fill": "$text-primary",
+                              "content": "Recent Collaboration Actions",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 16,
+                              "fontWeight": "Bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "CF3XD",
+                              "name": "Timeline Subtitle",
+                              "fill": "$text-secondary",
+                              "content": "Audit history of actions taken on collaborative nodes",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "Normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ZF9bU",
+                          "name": "Timeline List",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 14,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "OvXn7",
+                              "name": "Timeline Item Row",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "d3OCZb",
+                                  "name": "Node Container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "V4B9j",
+                                      "name": "Dot",
+                                      "width": 24,
+                                      "height": 24,
+                                      "fill": "#2563EB1A",
+                                      "cornerRadius": 12,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "Y4Ewu",
+                                          "name": "Dot Icon",
+                                          "width": 12,
+                                          "height": 12,
+                                          "icon": "link",
+                                          "library": "lucide",
+                                          "fill": "#2563EB"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "eAmYc",
+                                      "name": "Line",
+                                      "width": 2,
+                                      "height": 32,
+                                      "fill": "$border-color"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Q5WEG",
+                                  "name": "Text Container",
+                                  "width": "fill_container",
+                                  "justifyContent": "space_between",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "gH2un",
+                                      "name": "Text Details",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "iRabp",
+                                          "name": "Action Text Flow",
+                                          "gap": 4,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "PhScB",
+                                              "name": "Action Verb",
+                                              "fill": "$text-primary",
+                                              "content": "Created secure sharing link for",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Semi-Bold"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "drn8G",
+                                              "name": "Item Name",
+                                              "fill": "$accent-primary",
+                                              "content": "API_Integration_Spec_v2.1.pdf",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Medium"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "G3E25",
+                                      "name": "Timestamp",
+                                      "fill": "$text-muted",
+                                      "content": "2 hours ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ko0cX",
+                              "name": "Timeline Item Row",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "przCa",
+                                  "name": "Node Container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "FUYV8",
+                                      "name": "Dot",
+                                      "width": 24,
+                                      "height": 24,
+                                      "fill": "#10B9811A",
+                                      "cornerRadius": 12,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "X2HbmC",
+                                          "name": "Dot Icon",
+                                          "width": 12,
+                                          "height": 12,
+                                          "icon": "user-plus",
+                                          "library": "lucide",
+                                          "fill": "#10B981"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Bb96V",
+                                      "name": "Line",
+                                      "width": 2,
+                                      "height": 32,
+                                      "fill": "$border-color"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "yV5BQ",
+                                  "name": "Text Container",
+                                  "width": "fill_container",
+                                  "justifyContent": "space_between",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "ASFAu",
+                                      "name": "Text Details",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "XzEkX",
+                                          "name": "Action Text Flow",
+                                          "gap": 4,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "Y2pDn",
+                                              "name": "Action Verb",
+                                              "fill": "$text-primary",
+                                              "content": "Added 4 teammates to",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Semi-Bold"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "U8IViu",
+                                              "name": "Item Name",
+                                              "fill": "$accent-primary",
+                                              "content": "Design_System_Assets_Final",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Medium"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "mWbep",
+                                      "name": "Timestamp",
+                                      "fill": "$text-muted",
+                                      "content": "1 day ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "YTdL1",
+                              "name": "Timeline Item Row",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "uFZML",
+                                  "name": "Node Container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "XKspc",
+                                      "name": "Dot",
+                                      "width": 24,
+                                      "height": 24,
+                                      "fill": "#8B5CF61A",
+                                      "cornerRadius": 12,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "TebDK",
+                                          "name": "Dot Icon",
+                                          "width": 12,
+                                          "height": 12,
+                                          "icon": "shield-check",
+                                          "library": "lucide",
+                                          "fill": "#8B5CF6"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AfLTk",
+                                  "name": "Text Container",
+                                  "width": "fill_container",
+                                  "justifyContent": "space_between",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "HnHGs",
+                                      "name": "Text Details",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "eSCoZ",
+                                          "name": "Action Text Flow",
+                                          "gap": 4,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "yKFev",
+                                              "name": "Action Verb",
+                                              "fill": "$text-primary",
+                                              "content": "Approved security audit review on",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Semi-Bold"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "sx69c",
+                                              "name": "Item Name",
+                                              "fill": "$accent-primary",
+                                              "content": "Zero_Trust_Architecture_Audit.md",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 13,
+                                              "fontWeight": "Medium"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "MLHVA",
+                                      "name": "Timestamp",
+                                      "fill": "$text-muted",
+                                      "content": "3 days ago",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "Normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "yi501",
+      "x": 36848,
+      "y": -232,
+      "name": "User Profile - Account Settings & Security",
+      "clip": true,
+      "width": 1440,
+      "height": 1024,
+      "fill": "$bg-secondary",
+      "children": [
+        {
+          "id": "Gryyc",
+          "type": "ref",
+          "ref": "L5DyOw",
+          "name": "Sidebar Instance",
+          "width": 260,
+          "height": "fill_container",
+          "descendants": {
+            "V6PIb": {
+              "fill": "#00000000"
+            },
+            "hsCzw": {
+              "fill": "$text-secondary"
+            },
+            "qN6K1": {
+              "fill": "$text-secondary",
+              "fontWeight": "Normal"
+            },
+            "qCbnI": {
+              "fill": "$bg-secondary"
+            },
+            "Swlgr": {
+              "fill": "$accent-primary"
+            },
+            "gdLlg": {
+              "fill": "$text-primary",
+              "fontWeight": "Semi-Bold"
+            }
+          }
+        },
+        {
+          "type": "frame",
+          "id": "MMCzp",
+          "name": "Explorer Content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-secondary",
+          "layout": "vertical",
+          "gap": 24,
+          "padding": [
+            0,
+            48,
+            48,
+            48
+          ],
+          "children": [
+            {
+              "id": "rPv2w",
+              "type": "ref",
+              "ref": "w7t69Z",
+              "name": "Topbar Instance",
+              "width": "fill_container",
+              "descendants": {
+                "NURDT": {
+                  "content": "Secure Profile Session Active"
+                },
+                "lhfQr": {
+                  "content": "AM"
+                },
+                "OskwH": {
+                  "content": "Alex Mercer"
+                },
+                "Q2JnnO": {
+                  "content": "Pro Member"
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "RVPfj",
+              "name": "Page Header",
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "IV7S6",
+                  "name": "Title Group",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "dY2l2",
+                      "name": "Title",
+                      "fill": "$text-primary",
+                      "content": "Account Settings & Security",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 24,
+                      "fontWeight": "Bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "CO7gG",
+                      "name": "Subtitle",
+                      "fill": "$text-secondary",
+                      "content": "Manage your personal details, secure keys, active sessions, and preferences.",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "iDfpi",
+                  "name": "Save Profile Button",
+                  "fill": "$accent-primary",
+                  "cornerRadius": "$radius-lg",
+                  "gap": 8,
+                  "padding": [
+                    10,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "NpbRL",
+                      "name": "Save Icon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "save",
+                      "library": "lucide",
+                      "fill": "$text-inverse"
+                    },
+                    {
+                      "type": "text",
+                      "id": "w7TuR",
+                      "name": "Save Text",
+                      "fill": "$text-inverse",
+                      "content": "Save All Changes",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 14,
+                      "fontWeight": "Semi-Bold"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "p0LrJ",
+              "name": "Main Container",
+              "width": "fill_container",
+              "height": "fill_container",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "kM5OU",
+                  "name": "Left Column",
+                  "width": 360,
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "svkva",
+                      "name": "Profile Summary Card",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "fZBF2",
+                          "name": "Avatar Container",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "JW8YP",
+                              "name": "Large Avatar",
+                              "width": 80,
+                              "height": 80,
+                              "fill": "$accent-primary",
+                              "cornerRadius": 40,
+                              "layout": "vertical",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "PlU1L",
+                                  "name": "Avatar Initials",
+                                  "fill": "$text-inverse",
+                                  "content": "AM",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 28,
+                                  "fontWeight": "Bold"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "fcJnK",
+                              "name": "Edit Badge Button",
+                              "fill": "$bg-secondary",
+                              "cornerRadius": "$radius-lg",
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 6,
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "KdX8H",
+                                  "name": "Camera Icon",
+                                  "width": 14,
+                                  "height": 14,
+                                  "icon": "camera",
+                                  "library": "lucide",
+                                  "fill": "$text-secondary"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "g3e2K6",
+                                  "name": "Edit Badge Text",
+                                  "fill": "$text-secondary",
+                                  "content": "Change Avatar",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "pDTSt",
+                          "name": "User Info Group",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ifPov",
+                              "name": "Profile Name",
+                              "fill": "$text-primary",
+                              "content": "Alex Mercer",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 18,
+                              "fontWeight": "Bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "qzAMy",
+                              "name": "Profile Role",
+                              "fill": "$text-secondary",
+                              "content": "Senior Storage Engineer",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "xd9lI",
+                              "name": "Location Group",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "gWIxy",
+                                  "name": "Map Pin",
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "map-pin",
+                                  "library": "lucide",
+                                  "fill": "$text-muted"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Q0HDz",
+                                  "name": "Location Text",
+                                  "fill": "$text-muted",
+                                  "content": "San Francisco, CA (PST)",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "w1GvKG",
+                          "name": "Separator Line",
+                          "fill": "$border-color",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "stp2T",
+                          "name": "Stats Group",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "IxMTg",
+                              "name": "Stat Row - Account Level",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "JrveD",
+                                  "name": "Stat Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Account Level",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "fQw5t",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "Pro Member",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ppXtT",
+                              "name": "Stat Row - Storage Usage",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "BsZ6W",
+                                  "name": "Stat Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Storage Usage",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "wIkaB",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "1.2 TB of 2.0 TB",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vGUV3",
+                              "name": "Stat Row - Encryption Keys",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "pq1qe",
+                                  "name": "Stat Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Encryption Keys",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "qMgoC",
+                                  "name": "Stat Value",
+                                  "fill": "#10B981",
+                                  "content": "12 Keys Active",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "IGcwm",
+                              "name": "Stat Row - Last Password Reset",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "O6tj1",
+                                  "name": "Stat Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Last Password Reset",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "h94Ri0",
+                                  "name": "Stat Value",
+                                  "fill": "$text-primary",
+                                  "content": "14 days ago",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Semi-Bold"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Zogeg",
+                      "name": "Section Navigation",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "padding": 16,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "W5WyXY",
+                          "name": "Nav Row - Profile Details",
+                          "width": "fill_container",
+                          "fill": "#EFF6FF",
+                          "cornerRadius": "$radius-lg",
+                          "gap": 12,
+                          "padding": [
+                            10,
+                            16
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "zcvWU",
+                              "name": "Nav Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "user",
+                              "library": "lucide",
+                              "fill": "$accent-primary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KFtIF",
+                              "name": "Nav Label",
+                              "fill": "$accent-primary",
+                              "content": "Profile Details",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "Semi-Bold"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "o0jXh",
+                          "name": "Nav Row - Security & Password",
+                          "width": "fill_container",
+                          "fill": "#00000000",
+                          "cornerRadius": "$radius-lg",
+                          "gap": 12,
+                          "padding": [
+                            10,
+                            16
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "iYmER",
+                              "name": "Nav Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "lock",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "NMYze",
+                              "name": "Nav Label",
+                              "fill": "$text-secondary",
+                              "content": "Security & Password",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "Medium"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "JNsJf",
+                          "name": "Nav Row - Authorized Sessions",
+                          "width": "fill_container",
+                          "fill": "#00000000",
+                          "cornerRadius": "$radius-lg",
+                          "gap": 12,
+                          "padding": [
+                            10,
+                            16
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "fgfXP",
+                              "name": "Nav Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "monitor",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Idj87",
+                              "name": "Nav Label",
+                              "fill": "$text-secondary",
+                              "content": "Authorized Sessions",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "Medium"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "XEtKc",
+                          "name": "Nav Row - Preferences",
+                          "width": "fill_container",
+                          "fill": "#00000000",
+                          "cornerRadius": "$radius-lg",
+                          "gap": 12,
+                          "padding": [
+                            10,
+                            16
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "UAPr4",
+                              "name": "Nav Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "bell",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "A5HSn",
+                              "name": "Nav Label",
+                              "fill": "$text-secondary",
+                              "content": "Preferences",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "Medium"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "paBx2",
+                  "name": "Right Column",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ZLrSd",
+                      "name": "Profile Details Form Card",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "QA24r",
+                          "name": "Card Header",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "yN1uu",
+                              "name": "Card Title",
+                              "fill": "$text-primary",
+                              "content": "Personal Details",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 16,
+                              "fontWeight": "Bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "O3fUF",
+                              "name": "Card Subtitle",
+                              "fill": "$text-secondary",
+                              "content": "Update your public profile, job title, and organization settings.",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "dmM4k",
+                          "name": "Separator",
+                          "fill": "$border-color",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "c8kV9h",
+                          "name": "Form Layout",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 16,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "OWJ4F",
+                              "name": "Form Row 1",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "q3bNN",
+                                  "name": "Full Name Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "uCSED",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Full Name",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "rjYOw",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "mDJV2",
+                                          "name": "Value",
+                                          "fill": "$text-primary",
+                                          "content": "Alex Mercer",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "FpOJF",
+                                  "name": "Email Address Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "ESx49",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Email Address",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "AYGQl",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "C6wTdL",
+                                          "name": "Value",
+                                          "fill": "$text-primary",
+                                          "content": "alex.mercer@ownly.io",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JyAl9",
+                              "name": "Form Row 2",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "SifWI",
+                                  "name": "Job Title Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "fp54d",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Job Title",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "S0C6WC",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "P8D3Ht",
+                                          "name": "Value",
+                                          "fill": "$text-primary",
+                                          "content": "Senior Storage Engineer",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "R6doSZ",
+                                  "name": "Department Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "uQDNj",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Department",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "u3Or2",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "qS3Y0",
+                                          "name": "Value",
+                                          "fill": "$text-primary",
+                                          "content": "Infrastructure & Security",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "c64Vvp",
+                              "name": "Form Row 3",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "ctFjR",
+                                  "name": "Bio Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "WUol7",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Professional Bio / Notes",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "eo7pM",
+                                      "name": "Bio Input Box",
+                                      "width": "fill_container",
+                                      "height": 80,
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "wEwIv",
+                                          "name": "Value",
+                                          "fill": "$text-primary",
+                                          "textGrowth": "fixed-width",
+                                          "width": "fill_container",
+                                          "content": "Responsible for maintaining secure local cloud keys, node distribution, and encrypted backups across company servers.",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "t2wJgd",
+                      "name": "Security Card",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "lJ5iO",
+                          "name": "Card Header",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "gfhMR",
+                              "name": "Card Title",
+                              "fill": "$text-primary",
+                              "content": "Security & Credentials",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 16,
+                              "fontWeight": "Bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "k6a9fF",
+                              "name": "Card Subtitle",
+                              "fill": "$text-secondary",
+                              "content": "Secure your workspace access, encryption keys, and multi-factor verification.",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "mfqoZ",
+                          "name": "Separator",
+                          "fill": "$border-color",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OrYTF",
+                          "name": "Security Form Layout",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 16,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "VFKOK",
+                              "name": "Password Inputs Row",
+                              "width": "fill_container",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "EbDLx",
+                                  "name": "Current Password Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "EezwV",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "Current Password",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "ndR2s",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "MQVi4",
+                                          "name": "Value",
+                                          "fill": "$text-secondary",
+                                          "content": "••••••••••••",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "icon",
+                                          "id": "I8I5Bp",
+                                          "name": "Eye Icon",
+                                          "width": 16,
+                                          "height": 16,
+                                          "icon": "eye-off",
+                                          "library": "lucide",
+                                          "fill": "$text-muted"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "dIurh",
+                                  "name": "New Password Field Container",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "qwmht",
+                                      "name": "Label",
+                                      "fill": "$text-primary",
+                                      "content": "New Password",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 13,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "ozjtQ",
+                                      "name": "Input Box",
+                                      "width": "fill_container",
+                                      "cornerRadius": "$radius-lg",
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        16
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "Qylkg",
+                                          "name": "Value",
+                                          "fill": "$text-secondary",
+                                          "content": "••••••••••••",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 14,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "icon",
+                                          "id": "TNQDZ",
+                                          "name": "Eye Icon",
+                                          "width": 16,
+                                          "height": 16,
+                                          "icon": "eye-off",
+                                          "library": "lucide",
+                                          "fill": "$text-muted"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "MipfO",
+                              "name": "MFA Switch Row",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "WW9pn",
+                                  "name": "MFA Text Group",
+                                  "layout": "vertical",
+                                  "gap": 2,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "sbDAt",
+                                      "name": "MFA Label",
+                                      "fill": "$text-primary",
+                                      "content": "Multi-Factor Authentication (MFA)",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 14,
+                                      "fontWeight": "Semi-Bold"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "aOHEJ",
+                                      "name": "MFA Help",
+                                      "fill": "$text-secondary",
+                                      "content": "Require a secure TOTP verification code from an authenticator app when logging in.",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "E22vHK",
+                                  "name": "MFA Toggle",
+                                  "width": 44,
+                                  "height": 24,
+                                  "fill": "#10B981",
+                                  "cornerRadius": 12,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "XrVJG",
+                                      "x": 22,
+                                      "y": 3,
+                                      "name": "Toggle Knob",
+                                      "fill": "#FFFFFF",
+                                      "width": 18,
+                                      "height": 18
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ZSdmk",
+                      "name": "Sessions Card",
+                      "width": "fill_container",
+                      "fill": "$bg-primary",
+                      "cornerRadius": "$radius-xl",
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "howr4",
+                          "name": "Card Header",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "XjZbm",
+                              "name": "Card Title",
+                              "fill": "$text-primary",
+                              "content": "Authorized Sessions",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 16,
+                              "fontWeight": "Bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "IBvph",
+                              "name": "Card Subtitle",
+                              "fill": "$text-secondary",
+                              "content": "These are the devices and browsers currently logged into your Ownly cloud account.",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "v18kN",
+                          "name": "Separator",
+                          "fill": "$border-color",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "y2FS3y",
+                          "name": "Sessions List Container",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "H82L1",
+                              "name": "Session Row - MacBook Pro 16\"",
+                              "width": "fill_container",
+                              "fill": "$bg-primary",
+                              "cornerRadius": "$radius-lg",
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "padding": 12,
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Zh6YQ",
+                                  "name": "Left Group",
+                                  "gap": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "elJ1R",
+                                      "name": "Icon Container",
+                                      "width": 40,
+                                      "height": 40,
+                                      "fill": "$bg-secondary",
+                                      "cornerRadius": 8,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "xlxMF",
+                                          "name": "Device Icon",
+                                          "width": 20,
+                                          "height": 20,
+                                          "icon": "laptop",
+                                          "library": "lucide",
+                                          "fill": "$text-primary"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "N9KUXy",
+                                      "name": "Details Column",
+                                      "layout": "vertical",
+                                      "gap": 4,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "I3mXFM",
+                                          "name": "Title Row",
+                                          "gap": 8,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "fqz5e",
+                                              "name": "Device Name",
+                                              "fill": "$text-primary",
+                                              "content": "MacBook Pro 16\"",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 14,
+                                              "fontWeight": "Semi-Bold"
+                                            },
+                                            {
+                                              "type": "frame",
+                                              "id": "x9Hk8f",
+                                              "name": "Badge",
+                                              "fill": "#EFF6FF",
+                                              "cornerRadius": 4,
+                                              "stroke": "#DBEAFE",
+                                              "strokeWidth": 1,
+                                              "padding": [
+                                                2,
+                                                6
+                                              ],
+                                              "children": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "yo2wF",
+                                                  "name": "Badge Text",
+                                                  "fill": "$accent-primary",
+                                                  "content": "Current Session",
+                                                  "fontFamily": "$font-sans",
+                                                  "fontSize": 10,
+                                                  "fontWeight": "Semi-Bold"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "s5HwzW",
+                                          "name": "Metadata",
+                                          "fill": "$text-secondary",
+                                          "content": "San Francisco, USA · 192.168.1.145 · Chrome Browser",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "n5Xdo",
+                                  "name": "Current Label",
+                                  "fill": "$text-muted",
+                                  "content": "This Device",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "Medium"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ddTA0",
+                              "name": "Session Row - iPhone 15 Pro",
+                              "width": "fill_container",
+                              "fill": "$bg-primary",
+                              "cornerRadius": "$radius-lg",
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "padding": 12,
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "bhsad",
+                                  "name": "Left Group",
+                                  "gap": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "S1puW",
+                                      "name": "Icon Container",
+                                      "width": 40,
+                                      "height": 40,
+                                      "fill": "$bg-secondary",
+                                      "cornerRadius": 8,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "n6hk3",
+                                          "name": "Device Icon",
+                                          "width": 20,
+                                          "height": 20,
+                                          "icon": "smartphone",
+                                          "library": "lucide",
+                                          "fill": "$text-primary"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Y6pt9y",
+                                      "name": "Details Column",
+                                      "layout": "vertical",
+                                      "gap": 4,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "ynVqq",
+                                          "name": "Title Row",
+                                          "gap": 8,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "vkVOq",
+                                              "name": "Device Name",
+                                              "fill": "$text-primary",
+                                              "content": "iPhone 15 Pro",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 14,
+                                              "fontWeight": "Semi-Bold"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "BJGHF",
+                                          "name": "Metadata",
+                                          "fill": "$text-secondary",
+                                          "content": "San Francisco, USA · 172.56.21.90 · Ownly Mobile App · 2 hours ago",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "X5cvX",
+                                  "name": "Revoke Button",
+                                  "cornerRadius": "$radius-lg",
+                                  "stroke": "#FEE2E2",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    8,
+                                    14
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "NCim3",
+                                      "name": "Revoke Button Text",
+                                      "fill": "#EF4444",
+                                      "content": "Revoke",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "k9O0h",
+                              "name": "Session Row - Windows Desktop",
+                              "width": "fill_container",
+                              "fill": "$bg-primary",
+                              "cornerRadius": "$radius-lg",
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "padding": 12,
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "z1Mna6",
+                                  "name": "Left Group",
+                                  "gap": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "H40Gs",
+                                      "name": "Icon Container",
+                                      "width": 40,
+                                      "height": 40,
+                                      "fill": "$bg-secondary",
+                                      "cornerRadius": 8,
+                                      "layout": "vertical",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "kvSz8",
+                                          "name": "Device Icon",
+                                          "width": 20,
+                                          "height": 20,
+                                          "icon": "monitor",
+                                          "library": "lucide",
+                                          "fill": "$text-primary"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "c4t6ZU",
+                                      "name": "Details Column",
+                                      "layout": "vertical",
+                                      "gap": 4,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "dxNJ1",
+                                          "name": "Title Row",
+                                          "gap": 8,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "tF4xb",
+                                              "name": "Device Name",
+                                              "fill": "$text-primary",
+                                              "content": "Windows Desktop",
+                                              "fontFamily": "$font-sans",
+                                              "fontSize": 14,
+                                              "fontWeight": "Semi-Bold"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "q6Jqxl",
+                                          "name": "Metadata",
+                                          "fill": "$text-secondary",
+                                          "content": "New York, USA · 64.233.160.10 · Edge Browser · 3 days ago",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Y5Wi9",
+                                  "name": "Revoke Button",
+                                  "cornerRadius": "$radius-lg",
+                                  "stroke": "#FEE2E2",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    8,
+                                    14
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "WdiOq",
+                                      "name": "Revoke Button Text",
+                                      "fill": "#EF4444",
+                                      "content": "Revoke",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "Semi-Bold"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {

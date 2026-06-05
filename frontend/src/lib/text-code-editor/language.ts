@@ -1,6 +1,8 @@
 // Human: Map stored filenames and MIME types to editor language metadata for tabs and status bar.
 // Agent: READS name + mime_type; RETURNS EditorLanguage with display label and highlight mode id.
 
+import { getEditorTheme, type EditorThemeId } from "@/lib/text-code-editor/theme";
+
 export type EditorHighlightMode =
   | "javascript"
   | "typescript"
@@ -78,11 +80,16 @@ export function detectEditorLanguage(
 }
 
 // Human: File icon tint in the tab bar — warm gold for active code files per Pencil.
-// Agent: READS filename; RETURNS Tailwind text color class for lucide FileCode icon.
-export function editorTabIconClass(filename: string, active: boolean): string {
-  if (!active) return "text-[#565F89]";
+// Agent: READS filename + theme; RETURNS Tailwind text color class for lucide FileCode icon.
+export function editorTabIconClass(
+  filename: string,
+  active: boolean,
+  themeId: EditorThemeId = "dark",
+): string {
+  const theme = getEditorTheme(themeId);
+  if (!active) return theme.tabIconInactive;
   const language = detectEditorLanguage(filename, null);
-  if (language.id === "css") return "text-[#61AFEF]";
-  if (language.id === "json") return "text-[#98C379]";
-  return "text-[#E5C07B]";
+  if (language.id === "css") return theme.tabIconCss;
+  if (language.id === "json") return theme.tabIconJson;
+  return theme.tabIconJs;
 }

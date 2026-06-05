@@ -1,8 +1,9 @@
-// Human: Editable code surface with line numbers and One Dark syntax overlay per Pencil panel.
+// Human: Editable code surface with line numbers and syntax overlay — light or dark per theme.
 // Agent: SYNC scroll/caret between textarea and highlight layer; EMITS value + selection changes.
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import "@fontsource/inconsolata/400.css";
+import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { buildHighlightedLines, renderHighlightedSegments } from "@/lib/text-code-editor/highlight";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
 import type { TextSearchMatch } from "@/lib/text-code-editor/search";
@@ -38,6 +39,7 @@ export function CodeEditorSurface({
   onChange,
   onSelectionChange,
 }: CodeEditorSurfaceProps) {
+  const { theme } = useCodeEditorTheme();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const language = useMemo(() => detectEditorLanguage(filename, mimeType), [filename, mimeType]);
@@ -49,8 +51,9 @@ export function CodeEditorSurface({
         language.id,
         searchMatches,
         activeSearchMatchIndex,
+        theme.id,
       ),
-    [value, language.id, searchMatches, activeSearchMatchIndex],
+    [value, language.id, searchMatches, activeSearchMatchIndex, theme.id],
   );
 
   const lineNumbers = useMemo(() => {
@@ -102,7 +105,7 @@ export function CodeEditorSurface({
   }, [value]);
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-[#1E1E2E]">
+    <div className={cn("relative min-h-0 flex-1 overflow-hidden", theme.surface)}>
       {/* Human: One scroll container for gutter + code so line numbers stay locked to rows. */}
       {/* Agent: overflow-auto on parent; textarea has overflow-hidden and grows with line count. */}
       <div ref={scrollRef} className="absolute inset-0 overflow-auto p-6">
@@ -112,7 +115,7 @@ export function CodeEditorSurface({
         >
           <div
             aria-hidden
-            className="w-6 shrink-0 select-none text-right font-[Inconsolata] text-[#565F89]"
+            className={cn("w-6 shrink-0 select-none text-right font-[Inconsolata]", theme.lineNumber)}
             style={typographyStyle}
           >
             {lineNumbers.map((lineNumber) => (
@@ -132,7 +135,8 @@ export function CodeEditorSurface({
             <pre
               aria-hidden
               className={cn(
-                "pointer-events-none m-0 font-[Inconsolata] text-[#ABB2BF]",
+                "pointer-events-none m-0 font-[Inconsolata]",
+                theme.plainText,
                 wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
               )}
               style={typographyStyle}
@@ -171,7 +175,8 @@ export function CodeEditorSurface({
               }}
               aria-label={`Edit ${filename}`}
               className={cn(
-                "absolute inset-0 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 font-[Inconsolata] text-transparent caret-[#CDD6F4] outline-none",
+                "absolute inset-0 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 font-[Inconsolata] text-transparent outline-none",
+                theme.caret,
                 wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
               )}
               style={{

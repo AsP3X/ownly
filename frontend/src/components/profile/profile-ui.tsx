@@ -1,72 +1,174 @@
-// Human: Shared layout primitives for the signed-in user profile page.
-// Agent: Tailwind-only shells; RENDERS section cards; no API calls.
+// Human: Shared Tailwind primitives for the Account Settings & Security profile page.
+// Agent: RENDERS Pencil login-signup.pen card shells, form fields, and stat rows; no API calls.
 
-import type { ReactNode } from "react";
+import { useState, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Human: Explorer content padding — matches admin console spacing tokens. */
-export const profileContentClassName = "flex flex-col gap-6";
+/** Human: White bordered card — Pencil radius-xl + border-color on profile panels. */
+export const profileCardClassName =
+  "rounded-xl border border-[#E5E7EB] bg-white";
 
-/** Human: Page header — title + optional description for profile sections. */
-export function ProfilePageHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description?: string;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <h1 className="text-[28px] font-bold leading-tight text-[#1A1A1A]">{title}</h1>
-      {description ? (
-        <p className="max-w-3xl text-sm leading-relaxed text-[#666666]">{description}</p>
-      ) : null}
-    </div>
-  );
-}
+/** Human: Primary save CTA — Pencil Save Profile Button (accent fill, radius-lg). */
+export const profilePrimaryButtonClassName =
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60";
 
-/** Human: White bordered card shell for one profile section (account, storage, security). */
-export function ProfileSectionCard({
-  title,
-  description,
+/** Human: Revoke session outline — Pencil Revoke Button (red text, #FEE2E2 stroke). */
+export const profileRevokeButtonClassName =
+  "inline-flex items-center justify-center rounded-lg border border-[#FEE2E2] px-3.5 py-2 text-xs font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-50";
+
+export function ProfileCard({
   children,
   className,
+  id,
 }: {
-  title: string;
-  description?: string;
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
-    <section
-      className={cn(
-        "rounded-xl border border-[#E5E7EB] bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
-        className,
-      )}
-    >
-      <div className="mb-5 flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-[#1A1A1A]">{title}</h2>
-        {description ? <p className="text-[13px] text-[#666666]">{description}</p> : null}
-      </div>
+    <section id={id} className={cn(profileCardClassName, "p-6", className)}>
       {children}
     </section>
   );
 }
 
-/** Human: Label + value row inside profile cards. */
-export function ProfileDetailRow({
-  label,
-  value,
-  children,
+/** Human: Card title block — 16px bold title + 13px secondary subtitle per Pencil card headers. */
+export function ProfileCardHeader({
+  title,
+  description,
 }: {
-  label: string;
-  value?: string;
-  children?: ReactNode;
+  title: string;
+  description?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <span className="text-[13px] font-medium text-[#666666]">{label}</span>
-      {children ?? <span className="text-sm font-semibold text-[#1A1A1A]">{value}</span>}
+    <div className="flex flex-col gap-1">
+      <h2 className="text-base font-bold text-[#1A1A1A]">{title}</h2>
+      {description ? (
+        <p className="text-[13px] leading-relaxed text-[#666666]">{description}</p>
+      ) : null}
     </div>
+  );
+}
+
+export function ProfileDivider() {
+  return <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />;
+}
+
+/** Human: Label above profile form controls — 13px semi-bold per Pencil field labels. */
+export function ProfileFieldLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label htmlFor={htmlFor} className="text-[13px] font-semibold text-[#1A1A1A]">
+      {children}
+    </label>
+  );
+}
+
+/** Human: Bordered text input — Pencil Input Box (radius-lg, 12×16 padding). */
+export function ProfileTextInput({
+  className,
+  readOnly,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={cn(
+        "flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-sm text-[#1A1A1A] outline-none transition-colors",
+        "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
+        readOnly && "cursor-default bg-[#F7F8FA] text-[#666666]",
+        className,
+      )}
+      readOnly={readOnly}
+      {...props}
+    />
+  );
+}
+
+/** Human: Multi-line bio field — Pencil Bio Input Box (80px min height). */
+export function ProfileTextarea({
+  className,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        "min-h-20 w-full resize-y rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-[#1A1A1A] outline-none transition-colors",
+        "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Human: Password row with eye toggle — Pencil security inputs with eye-off icon. */
+export function ProfilePasswordInput({
+  id,
+  value,
+  onChange,
+  placeholder = "••••••••••••",
+  autoComplete,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        className="flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 pr-11 text-sm text-[#1A1A1A] outline-none transition-colors placeholder:text-[#666666] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] transition-colors hover:text-[#666666]"
+        aria-label={visible ? "Hide password" : "Show password"}
+      >
+        {visible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+      </button>
+    </div>
+  );
+}
+
+/** Human: Summary stat row — label left, value right in summary card. */
+export function ProfileStatRow({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-[13px] text-[#666666]">{label}</span>
+      <span className={cn("text-[13px] font-semibold text-[#1A1A1A]", valueClassName)}>{value}</span>
+    </div>
+  );
+}
+
+/** Human: Current session badge — Pencil #EFF6FF fill with accent text. */
+export function ProfileSessionBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex rounded border border-[#DBEAFE] bg-[#EFF6FF] px-1.5 py-0.5 text-[10px] font-semibold text-[#2563EB]">
+      {children}
+    </span>
   );
 }

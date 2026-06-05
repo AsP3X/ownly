@@ -1,8 +1,9 @@
-// Human: Lightweight One Dark syntax tokens for the in-browser code editor overlay.
-// Agent: READS source + highlight mode; RETURNS React spans with Pencil token colors.
+// Human: Lightweight syntax tokens for the in-browser code editor overlay (light + dark).
+// Agent: READS source + highlight mode + theme; RETURNS React spans with palette token colors.
 
 import type { ReactNode } from "react";
 import type { EditorHighlightMode } from "@/lib/text-code-editor/language";
+import { getEditorTheme, type EditorThemeId } from "@/lib/text-code-editor/theme";
 
 export type SyntaxTokenStyle =
   | "keyword"
@@ -19,19 +20,6 @@ export type SyntaxTokenStyle =
 export type SyntaxToken = {
   text: string;
   style: SyntaxTokenStyle;
-};
-
-const TOKEN_CLASS: Record<SyntaxTokenStyle, string> = {
-  keyword: "text-[#C678DD]",
-  plain: "text-[#ABB2BF]",
-  function: "text-[#61AFEF]",
-  string: "text-[#98C379]",
-  class: "text-[#E5C07B]",
-  variable: "text-[#E06C75]",
-  property: "text-[#D19A66]",
-  number: "text-[#D19A66]",
-  comment: "text-[#5C6370]",
-  punctuation: "text-[#ABB2BF]",
 };
 
 const JS_KEYWORDS = new Set([
@@ -250,7 +238,10 @@ export function buildHighlightedLines(
   mode: EditorHighlightMode,
   matches: Array<{ start: number; end: number }>,
   activeMatchIndex: number,
+  themeId: EditorThemeId = "dark",
 ): HighlightSegment[][] {
+  const theme = getEditorTheme(themeId);
+  const tokenClass = theme.syntax;
   const lines = source.split("\n");
   let offset = 0;
   const matchStates = matches.map((match, index) => ({
@@ -269,10 +260,10 @@ export function buildHighlightedLines(
 
     if (lineMatches.length === 0) {
       for (const token of tokens) {
-        segments.push({ text: token.text, className: TOKEN_CLASS[token.style] });
+        segments.push({ text: token.text, className: tokenClass[token.style] });
       }
       if (segments.length === 0) {
-        segments.push({ text: line || " ", className: TOKEN_CLASS.plain });
+        segments.push({ text: line || " ", className: tokenClass.plain });
       }
       return segments;
     }
@@ -291,7 +282,7 @@ export function buildHighlightedLines(
       );
 
       if (relevantMatches.length === 0) {
-        segments.push({ text: token.text, className: TOKEN_CLASS[token.style] });
+        segments.push({ text: token.text, className: tokenClass[token.style] });
         continue;
       }
 
@@ -306,16 +297,14 @@ export function buildHighlightedLines(
         if (localStart > localOffset) {
           localSegments.push({
             text: token.text.slice(localOffset, localStart),
-            className: TOKEN_CLASS[token.style],
+            className: tokenClass[token.style],
           });
         }
 
         localSegments.push({
           text: token.text.slice(localStart, localEnd),
           className:
-            searchMatch.state === "active"
-              ? "rounded-sm bg-[#FF9100]/50 text-[#FFE082] ring-1 ring-[#FF9100]/75"
-              : "rounded-sm bg-[#FFE082]/33 text-[#FFE082] ring-1 ring-[#FFE082]/55",
+            searchMatch.state === "active" ? theme.searchActive : theme.searchInactive,
           searchState: searchMatch.state,
         });
         localOffset = localEnd;
@@ -324,7 +313,7 @@ export function buildHighlightedLines(
       if (localOffset < token.text.length) {
         localSegments.push({
           text: token.text.slice(localOffset),
-          className: TOKEN_CLASS[token.style],
+          className: tokenClass[token.style],
         });
       }
 
@@ -332,7 +321,7 @@ export function buildHighlightedLines(
     }
 
     if (segments.length === 0) {
-      segments.push({ text: line || " ", className: TOKEN_CLASS.plain });
+      segments.push({ text: line || " ", className: tokenClass.plain });
     }
 
     return segments;

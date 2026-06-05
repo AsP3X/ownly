@@ -9,6 +9,7 @@ import {
   ReplaceAll,
   X,
 } from "lucide-react";
+import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { cn } from "@/lib/utils";
 
 export type EditorSearchPanelProps = {
@@ -51,6 +52,7 @@ export function EditorSearchPanel({
   onReplaceAll,
   findInputRef,
 }: EditorSearchPanelProps) {
+  const { theme } = useCodeEditorTheme();
   const localFindInputRef = useRef<HTMLInputElement>(null);
   const queryInputRef = findInputRef ?? localFindInputRef;
 
@@ -71,7 +73,7 @@ export function EditorSearchPanel({
     matchCount > 0 ? `${activeMatchIndex + 1} of ${matchCount}` : query ? "0 of 0" : "";
 
   return (
-    <div className="absolute right-6 top-6 z-20 w-[380px] rounded-lg border border-[#313244] bg-[#151521] p-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.25)]">
+    <div className={cn("absolute right-6 top-6 z-20 w-[380px] p-2.5", theme.panel)}>
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <button
@@ -79,7 +81,11 @@ export function EditorSearchPanel({
             onClick={onToggleReplaceExpanded}
             aria-label={replaceExpanded ? "Hide replace" : "Show replace"}
             aria-expanded={replaceExpanded}
-            className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4]"
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center",
+              theme.panelText,
+              "hover:opacity-80",
+            )}
           >
             <ChevronDown
               className={cn("size-3.5 transition-transform", replaceExpanded && "rotate-180")}
@@ -87,7 +93,13 @@ export function EditorSearchPanel({
             />
           </button>
 
-          <div className="flex h-7 min-w-0 flex-1 items-center justify-between rounded border border-[#2563EB] bg-[#11111B] px-2">
+          <div
+            className={cn(
+              "flex h-7 min-w-0 flex-1 items-center justify-between rounded border px-2",
+              theme.panelInputBorderFocus,
+              theme.panelInputBg,
+            )}
+          >
             <input
               ref={queryInputRef}
               type="text"
@@ -95,7 +107,11 @@ export function EditorSearchPanel({
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Find"
               aria-label="Find in file"
-              className="min-w-0 flex-1 bg-transparent font-[Inconsolata] text-xs text-[#CDD6F4] outline-none placeholder:text-[#565F89]"
+              className={cn(
+                "min-w-0 flex-1 bg-transparent font-[Inconsolata] text-xs outline-none",
+                theme.panelInputText,
+                theme.panelInputPlaceholder,
+              )}
             />
             <button
               type="button"
@@ -104,21 +120,24 @@ export function EditorSearchPanel({
               aria-pressed={caseSensitive}
               className={cn(
                 "shrink-0 text-[11px]",
-                caseSensitive ? "text-[#2563EB]" : "text-[#565F89]",
+                caseSensitive ? "text-[#2563EB]" : theme.panelTitle,
               )}
             >
               Aa
             </button>
           </div>
 
-          <span className="shrink-0 text-[11px] text-[#A6ADC8]">{counterLabel}</span>
+          <span className={cn("shrink-0 text-[11px]", theme.panelText)}>{counterLabel}</span>
 
           <button
             type="button"
             onClick={onPreviousMatch}
             disabled={matchCount === 0}
             aria-label="Previous match"
-            className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4] disabled:opacity-40"
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center hover:opacity-80 disabled:opacity-40",
+              theme.panelText,
+            )}
           >
             <ChevronUp className="size-3.5" aria-hidden />
           </button>
@@ -127,7 +146,10 @@ export function EditorSearchPanel({
             onClick={onNextMatch}
             disabled={matchCount === 0}
             aria-label="Next match"
-            className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4] disabled:opacity-40"
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center hover:opacity-80 disabled:opacity-40",
+              theme.panelText,
+            )}
           >
             <ChevronDown className="size-3.5" aria-hidden />
           </button>
@@ -135,7 +157,10 @@ export function EditorSearchPanel({
             type="button"
             onClick={onClose}
             aria-label="Close search"
-            className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4]"
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center hover:opacity-80",
+              theme.panelText,
+            )}
           >
             <X className="size-3.5" aria-hidden />
           </button>
@@ -144,14 +169,24 @@ export function EditorSearchPanel({
         {replaceExpanded ? (
           <div className="flex items-center gap-2">
             <span className="size-3.5 shrink-0" aria-hidden />
-            <div className="flex h-7 min-w-0 flex-1 items-center rounded border border-[#313244] bg-[#11111B] px-2">
+            <div
+              className={cn(
+                "flex h-7 min-w-0 flex-1 items-center rounded border px-2",
+                theme.panelInputBorder,
+                theme.panelInputBg,
+              )}
+            >
               <input
                 type="text"
                 value={replaceValue}
                 onChange={(event) => onReplaceChange(event.target.value)}
                 placeholder="Replace"
                 aria-label="Replace with"
-                className="min-w-0 flex-1 bg-transparent font-[Inconsolata] text-xs text-[#A6ADC8] outline-none placeholder:text-[#565F89]"
+                className={cn(
+                  "min-w-0 flex-1 bg-transparent font-[Inconsolata] text-xs outline-none",
+                  theme.panelInputTextMuted,
+                  theme.panelInputPlaceholder,
+                )}
               />
             </div>
             <button
@@ -159,7 +194,10 @@ export function EditorSearchPanel({
               onClick={onReplaceOne}
               disabled={matchCount === 0}
               aria-label="Replace current match"
-              className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4] disabled:opacity-40"
+              className={cn(
+                "flex size-3.5 shrink-0 items-center justify-center hover:opacity-80 disabled:opacity-40",
+                theme.panelText,
+              )}
             >
               <Replace className="size-3.5" aria-hidden />
             </button>
@@ -168,7 +206,10 @@ export function EditorSearchPanel({
               onClick={onReplaceAll}
               disabled={matchCount === 0}
               aria-label="Replace all matches"
-              className="flex size-3.5 shrink-0 items-center justify-center text-[#A6ADC8] hover:text-[#CDD6F4] disabled:opacity-40"
+              className={cn(
+                "flex size-3.5 shrink-0 items-center justify-center hover:opacity-80 disabled:opacity-40",
+                theme.panelText,
+              )}
             >
               <ReplaceAll className="size-3.5" aria-hidden />
             </button>

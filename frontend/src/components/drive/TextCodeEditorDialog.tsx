@@ -15,6 +15,7 @@ import { CodeEditorStatusBar } from "@/components/drive/text-code-editor/CodeEdi
 import { CodeEditorSurface } from "@/components/drive/text-code-editor/CodeEditorSurface";
 import { EditorSearchPanel } from "@/components/drive/text-code-editor/EditorSearchPanel";
 import { EditorSettingsPanel } from "@/components/drive/text-code-editor/EditorSettingsPanel";
+import { EditorThemeProvider } from "@/components/drive/text-code-editor/EditorThemeProvider";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
+import {
+  getEditorTheme,
+  readEditorThemePreference,
+  resolveEditorThemeId,
+  writeEditorThemePreference,
+  type EditorThemePreference,
+} from "@/lib/text-code-editor/theme";
+import { cn } from "@/lib/utils";
 import {
   applyTextReplacement,
   caretPositionFromIndex,
@@ -87,8 +96,13 @@ export function TextCodeEditorDialog({
   const [selectionStart, setSelectionStart] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [themePreference, setThemePreference] = useState<EditorThemePreference>(() =>
+    readEditorThemePreference(),
+  );
   const activeFileIdRef = useRef<string | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
+  const resolvedThemeId = resolveEditorThemeId(themePreference);
+  const resolvedTheme = getEditorTheme(resolvedThemeId);
 
   useEffect(() => {
     if (!open) return;
@@ -358,11 +372,16 @@ export function TextCodeEditorDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleSave, open, searchOpen]);
 
+  const handleThemePreferenceChange = useCallback((preference: EditorThemePreference) => {
+    setThemePreference(preference);
+    writeEditorThemePreference(preference);
+  }, []);
+
   return (
     <Dialog open={open} onOpenChange={handleCloseRequest}>
       <DialogContent
         className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[75rem]"
-        overlayClassName="bg-[#0B0F19]/60 backdrop-blur-[2px]"
+        overlayClassName={resolvedTheme.overlay}
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
@@ -372,7 +391,13 @@ export function TextCodeEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative flex h-[min(913px,90dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#313244] bg-[#1E1E2E] shadow-[0_12px_32px_rgba(0,0,0,0.1)]">
+        <EditorThemeProvider preference={themePreference}>
+          <div
+            className={cn(
+              "relative flex h-[min(913px,90dvh)] w-full flex-col overflow-hidden",
+              resolvedTheme.shell,
+            )}
+          >
           <CodeEditorHeader
             tabs={openTabs}
             activeFileId={activeFile?.id ?? null}
@@ -396,13 +421,20 @@ export function TextCodeEditorDialog({
             open={settingsOpen}
             tabSize={tabSize}
             wordWrap={wordWrap}
+            themePreference={themePreference}
             onTabSizeChange={setTabSize}
             onWordWrapChange={setWordWrap}
+            onThemePreferenceChange={handleThemePreferenceChange}
           />
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             {activeBuffer.loading ? (
-              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[#A6ADC8]">
+              <div
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 text-sm",
+                  resolvedTheme.loadingText,
+                )}
+              >
                 <Loader2 className="size-5 animate-spin" aria-hidden />
                 Loading file…
               </div>
@@ -475,7 +507,8 @@ export function TextCodeEditorDialog({
             onClose={() => handleCloseRequest(false)}
             onSave={() => void handleSave()}
           />
-        </div>
+          </div>
+        </EditorThemeProvider>
       </DialogContent>
     </Dialog>
   );

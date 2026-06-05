@@ -800,7 +800,7 @@ export default function DrivePage() {
   }
 
   // Human: Open the in-browser text/code editor for editable plain-text and source files.
-  // Agent: SETS previewText; TextCodeEditorDialog FETCHES bytes and RENDERS One Dark editor chrome.
+  // Agent: SETS previewText; TextCodeEditorDialog FETCHES bytes and RENDERS themed editor chrome.
   function handlePreviewText(file: FileItem) {
     if (isFileProcessing(file)) return;
     if (!isTextCodePreviewMime(file.mime_type, file.name)) return;

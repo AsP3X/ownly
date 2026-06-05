@@ -22,6 +22,8 @@ type DriveSidebarProps = {
   usedBytes: number;
   quotaBytes: number;
   onNavChange: (nav: DriveNavId) => void;
+  /** Human: Highlight Settings row on profile route per Pencil Account Settings wireframe. */
+  settingsActive?: boolean;
 };
 
 // Human: One sidebar nav row with icon + label; active row uses muted panel background.
@@ -97,7 +99,13 @@ function StorageWidget({ usedBytes, quotaBytes }: { usedBytes: number; quotaByte
 }
 
 /** Human: Left rail for authenticated drive — matches Pencil Ownly Main Overview sidebar. */
-export function DriveSidebar({ activeNav, usedBytes, quotaBytes, onNavChange }: DriveSidebarProps) {
+export function DriveSidebar({
+  activeNav,
+  usedBytes,
+  quotaBytes,
+  onNavChange,
+  settingsActive = false,
+}: DriveSidebarProps) {
   const { instanceName } = useInstanceName();
 
   return (
@@ -141,8 +149,8 @@ export function DriveSidebar({ activeNav, usedBytes, quotaBytes, onNavChange }: 
         <SidebarNavRow
           label="Settings"
           icon={<Settings className="size-[18px]" strokeWidth={2} />}
-          active={false}
-          disabled
+          active={settingsActive}
+          disabled={!settingsActive}
         />
       </nav>
 

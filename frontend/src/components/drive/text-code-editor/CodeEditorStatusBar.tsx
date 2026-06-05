@@ -2,6 +2,7 @@
 // Agent: SHOWS sync state, cursor position, language; EMITS close/save when editable.
 
 import { CloudLightning, GitBranch, Loader2 } from "lucide-react";
+import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { cn } from "@/lib/utils";
 
 export type CodeEditorStatusBarProps = {
@@ -31,11 +32,13 @@ export function CodeEditorStatusBar({
   onClose,
   onSave,
 }: CodeEditorStatusBarProps) {
+  const { theme } = useCodeEditorTheme();
+
   return (
-    <footer className="flex h-12 shrink-0 items-center justify-between border-t border-[#262637] bg-[#151521] px-4">
+    <footer className={cn("flex h-12 shrink-0 items-center justify-between px-4", theme.statusBar)}>
       <div className="flex min-w-0 items-center gap-3">
-        <GitBranch className="size-3 shrink-0 text-[#A6ADC8]" aria-hidden />
-        <span className="truncate text-xs text-[#A6ADC8]">{branchLabel}</span>
+        <GitBranch className={cn("size-3 shrink-0", theme.statusText)} aria-hidden />
+        <span className={cn("truncate text-xs", theme.statusText)}>{branchLabel}</span>
         <CloudLightning
           className={cn(
             "size-3 shrink-0",
@@ -60,15 +63,11 @@ export function CodeEditorStatusBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-4">
-        <span className="hidden text-xs text-[#A6ADC8] sm:inline">{cursorLabel}</span>
-        <span className="hidden text-xs text-[#A6ADC8] md:inline">{tabSizeLabel}</span>
-        <span className="text-xs text-[#A6ADC8]">{languageLabel}</span>
+        <span className={cn("hidden text-xs sm:inline", theme.statusText)}>{cursorLabel}</span>
+        <span className={cn("hidden text-xs md:inline", theme.statusText)}>{tabSizeLabel}</span>
+        <span className={cn("text-xs", theme.statusText)}>{languageLabel}</span>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg border border-[#313244] px-3 py-1.5 text-xs font-medium text-[#A6ADC8] transition-colors hover:bg-white/5"
-        >
+        <button type="button" onClick={onClose} className={theme.closeButton}>
           Close
         </button>
 
