@@ -447,6 +447,18 @@ mod tests {
             base
         ));
         assert!(is_derived_storage_key("users/u/files/f1/waveform.json", base));
+        assert!(is_derived_storage_key(
+            "users/u/files/f1/thumbnails/0.jpg",
+            base
+        ));
+        assert!(is_derived_storage_key(
+            "users/u/files/f1/thumbnails/manifest.json",
+            base
+        ));
+        assert!(is_derived_storage_key(
+            "users/u/files/f1/grid-thumbnail.jpg",
+            base
+        ));
         assert!(!is_derived_storage_key(base, base));
         assert!(!is_derived_storage_key("users/u/files/f2/segments/0001.m4s", base));
     }

@@ -128,7 +128,9 @@ export function useExplorerGridThumbnail(
       revokeObjectUrl(objectUrlRef);
       setDisplaySrc(null);
     };
-  }, [options.cacheKey, options.file, isVisible, options.loadBlob]);
+    // Human: Only reload when identity or thumbnail version changes — not every listing poll object swap.
+    // Agent: DEPS file.id + cacheKey; AVOIDS abort/retry storms on unrelated FileItem field updates.
+  }, [options.cacheKey, options.file.id, isVisible, options.loadBlob]);
 
   const handleImageError = () => {
     setFailed(true);

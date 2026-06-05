@@ -1,4 +1,4 @@
-// Human: Pencil desktop video player — 1.5× baseline (1800×1350 card), title pill, control bar, fullscreen.
+// Human: Pencil desktop video player — 1.25× baseline (1500×1125 card), capped by 112.5dvh like Excel dialog.
 // Agent: READS videoRef from parent for HLS attach; USES useVideoTransport; hidden below lg breakpoint.
 
 import { useRef, type RefObject } from "react";
@@ -75,10 +75,12 @@ export function VideoPlayerSurface({
     <div
       ref={cardRef}
       className={cn(
-        "relative w-full max-w-[1800px] overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
+        "relative overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
         "fullscreen:overflow-visible",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
-        isFullscreen ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none" : "aspect-[4/3]",
+        isFullscreen
+          ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
+          : "min-w-0 flex-1 aspect-[4/3] max-h-[min(1125px,112.5dvh)] w-full max-w-[min(1500px,calc(min(1125px,112.5dvh)*4/3))]",
       )}
       onFocus={revealChrome}
     >

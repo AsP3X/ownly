@@ -167,11 +167,25 @@ impl RouterStorage {
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))
     }
+
+    // Human: Sidecars (thumbnails, manifest, HLS segments) live on the parent file's node — never striped.
+    // Agent: READS is_derived_storage_key; BYPASSES file_storage_parts lookup that would concat video stripes.
+    fn is_derived_sidecar_key(key: &str) -> bool {
+        let base = base_file_storage_key(key).unwrap_or_else(|| key.to_string());
+        is_derived_storage_key(key, &base)
+    }
 }
 
 #[async_trait]
 impl Storage for RouterStorage {
     async fn get_stream(&self, key: &str) -> anyhow::Result<(StorageStream, u64, String)> {
+        // Human: Thumbnail/manifest GET must not replay multi-node stripe parts of the parent video blob.
+        // Agent: MATCHES put_routed derived fast-path; READS single sidecar object via resolve_client.
+        if Self::is_derived_sidecar_key(key) {
+            let client = self.resolve_client(key).await?;
+            return client.get_stream(key).await;
+        }
+
         let parts = self.stripe_parts_for_key(key).await?;
         if parts.is_empty() {
             let client = self.resolve_client(key).await?;
@@ -197,6 +211,11 @@ impl Storage for RouterStorage {
     }
 
     async fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        if Self::is_derived_sidecar_key(key) {
+            let client = self.resolve_client(key).await?;
+            return client.exists(key).await;
+        }
+
         let parts = self.stripe_parts_for_key(key).await?;
         if !parts.is_empty() {
             for part in parts {
@@ -213,6 +232,11 @@ impl Storage for RouterStorage {
 
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         let base = base_file_storage_key(key).unwrap_or_else(|| key.to_string());
+        if is_derived_storage_key(key, &base) {
+            let client = self.resolve_client(key).await?;
+            return client.delete(key).await;
+        }
+
         let parts = self.stripe_parts_for_key(key).await?;
         if !parts.is_empty() {
             for part in parts {

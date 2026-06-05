@@ -74,8 +74,8 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       role="region"
       aria-label="Uploads"
     >
-      <div className="flex items-center justify-between gap-2 px-5 pt-5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-5">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
           <Upload className="size-4 shrink-0 text-[#2563EB]" aria-hidden />
           <span className="text-sm font-bold text-[#1A1A1A]">Uploads</span>
           {!minimized && isComplete ? (
@@ -172,7 +172,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       ) : null}
 
       {!minimized && !isComplete ? (
-        <div className="flex min-h-0 flex-col gap-3 px-5 pb-5 pt-3">
+        <div className="flex min-h-0 shrink-0 flex-col gap-3 px-5 pb-5 pt-3">
           <UploadBatchProgressView
             items={batch.items}
             onCancelItem={cancelUploadItem}

@@ -130,11 +130,13 @@ pub async fn get_thumbnail_option(
     stream_thumbnail_bytes(&state, &option.storage_key).await
 }
 
+// Human: Buffered JPEG response for poster sidecars — Content-Length must match bytes read.
+// Agent: READS storage stream fully; SETS image/jpeg + private cache; USES data.len() not upstream hint.
 async fn stream_thumbnail_bytes(
     state: &Arc<crate::AppState>,
     storage_key: &str,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let (mut stream, size, _) = state
+    let (mut stream, _, _) = state
         .storage
         .get_stream(storage_key)
         .await
@@ -146,23 +148,29 @@ async fn stream_thumbnail_bytes(
         data.extend_from_slice(&chunk);
     }
 
-    let headers = HeaderMap::from_iter([
-        (
-            header::CONTENT_TYPE,
-            "image/jpeg"
-                .parse()
-                .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content type")))?,
-        ),
-        (
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "image/jpeg"
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content type")))?,
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "private, max-age=3600"
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid cache-control")))?,
+    );
+    let body_len = data.len() as u64;
+    if body_len > 0 {
+        headers.insert(
             header::CONTENT_LENGTH,
-            size.to_string()
+            body_len
+                .to_string()
                 .parse()
                 .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content length")))?,
-        ),
-        (header::CACHE_CONTROL, "private, max-age=3600".parse().map_err(|_| {
-            AppError::Internal(anyhow::anyhow!("invalid cache-control"))
-        })?),
-    ]);
+        );
+    }
 
     Ok((headers, Body::from(data)))
 }

@@ -270,14 +270,14 @@ export function VideoPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Human: Desktop shell — 1.5× Pencil baseline (1440px) so the 1800px player card fits with flanking nav. */}
-      {/* Agent: NARROW branch stays full-viewport; wide branch caps at 2160px with calc(100%-1rem) fallback. */}
+      {/* Human: Desktop shell — 1.25× player (1500×1125) + flanking nav; capped by 112.5dvh like Excel dialog. */}
+      {/* Agent: NARROW branch stays full-viewport; wide branch uses calc(100%-1rem) and max-h 100dvh so shell never clips. */}
       <DialogContent
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
             ? "!flex fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
-            : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[2160px]",
+            : "max-h-[100dvh] w-full max-w-[calc(100%-1rem)] items-center justify-center p-4 sm:max-w-[108rem]",
         )}
         overlayClassName={cn(
           "bg-[#0A0A10]/80 backdrop-blur-2xl",
@@ -296,10 +296,10 @@ export function VideoPreviewDialog({
           data-video-layout={isNarrow ? narrowLayout : undefined}
           tabIndex={-1}
           className={cn(
-            "flex w-full min-h-0 flex-1 outline-none",
+            "flex w-full min-h-0 outline-none",
             isNarrow
-              ? "flex-1 flex-col items-center justify-center min-h-0 video-landscape:items-stretch video-landscape:justify-stretch"
-              : "items-center justify-center gap-4 sm:gap-6",
+              ? "min-h-0 flex-1 flex-col items-center justify-center video-landscape:items-stretch video-landscape:justify-stretch"
+              : "max-h-[min(1125px,112.5dvh)] shrink-0 items-center justify-center gap-4 sm:gap-6",
           )}
           aria-label="Video player"
           onTouchStart={handleTouchStart}

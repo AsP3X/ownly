@@ -15,6 +15,9 @@ import { Button } from "@/components/ui/button";
 /** Human: Max height for the scrollable file list inside the expanded transfer panel. */
 export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "17.5rem";
 
+/** Human: Above this count, backlog rows collapse to one summary line to avoid list height churn. */
+const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
+
 // Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / amber / green).
 // Agent: MAPS uploading | processing | encrypting | storing to Tailwind text and bar fill classes.
 function phaseStyles(phase: UploadPhase) {
@@ -341,40 +344,68 @@ export function UploadOverallProgressBar({ percent }: { percent: number }) {
   );
 }
 
-// Human: Compact stage summary — only in-flight pipeline workers, not the full backlog.
-// Agent: READS UploadBatchDisplayCounts; RETURNS "3 uploading · 2 processing · 705 queued" style text.
-function formatPipelineSummary(
-  counts: ReturnType<typeof getUploadBatchDisplayCounts>,
-): string {
-  const stageParts: string[] = [];
-  if (counts.uploadingBytes > 0) {
-    stageParts.push(`${counts.uploadingBytes} uploading`);
-  }
-  if (counts.processing > 0) {
-    stageParts.push(`${counts.processing} processing`);
-  }
-  if (counts.encrypting > 0) {
-    stageParts.push(`${counts.encrypting} encrypting`);
-  }
-  if (counts.storing > 0) {
-    stageParts.push(`${counts.storing} moving to storage`);
-  }
-
-  const parts: string[] = [];
+// Human: Fixed-height tray summary — stable counts only; per-stage detail stays on in-flight rows.
+// Agent: READS UploadBatchDisplayCounts; RENDERS two truncated lines that do not resize the panel.
+function UploadBatchSummaryRow({
+  processedCount,
+  totalCount,
+  counts,
+}: {
+  processedCount: number;
+  totalCount: number;
+  counts: ReturnType<typeof getUploadBatchDisplayCounts>;
+}) {
+  const backlogParts: string[] = [];
   if (counts.inFlight > 0) {
-    parts.push(
-      stageParts.length > 0
-        ? stageParts.join(" · ")
-        : `${counts.inFlight} active`,
-    );
+    backlogParts.push(`${counts.inFlight} active`);
   }
   if (counts.waiting > 0) {
-    parts.push(`${counts.waiting} queued`);
+    backlogParts.push(`${counts.waiting} queued`);
   }
   if (counts.failed + counts.cancelled > 0) {
-    parts.push(`${counts.failed + counts.cancelled} failed`);
+    backlogParts.push(`${counts.failed + counts.cancelled} failed`);
   }
-  return parts.join(" · ");
+
+  return (
+    <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-xs text-[#666666]">
+      <span className="truncate tabular-nums">
+        {processedCount} of {totalCount} completed
+      </span>
+      <span className="truncate text-right tabular-nums">
+        {backlogParts.length > 0 ? backlogParts.join(" · ") : "Preparing…"}
+      </span>
+    </div>
+  );
+}
+
+// Human: One-line queue backlog — avoids rendering hundreds of QueuedFileRow tiles during bulk uploads.
+// Agent: READS waiting count; RETURNS null when zero.
+function UploadQueueBacklogSummary({ count }: { count: number }) {
+  if (count === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
+      <p className="truncate text-[11px] text-[#888888]">
+        {count} file{count === 1 ? "" : "s"} waiting in queue
+      </p>
+    </div>
+  );
+}
+
+// Human: Collapsed completed summary when the batch is large — keeps scroll height stable.
+// Agent: READS done count; RETURNS single line instead of one row per finished file.
+function UploadDoneBacklogSummary({ count }: { count: number }) {
+  if (count === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
+      <p className="truncate text-[11px] text-[#888888]">
+        {count} file{count === 1 ? "" : "s"} completed
+      </p>
+    </div>
+  );
 }
 
 // Human: Upload batch body — overall summary, divider, and unified scrollable file list.
@@ -398,39 +429,54 @@ export function UploadBatchProgressView({
   const processedCount = counts.done + counts.failed + counts.cancelled;
   const overallPercent =
     items.length === 0 ? 0 : Math.round((processedCount / items.length) * 100);
-  const pipelineSummary = formatPipelineSummary(counts);
+  const showIndividualWaitingRows =
+    waitingItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
+  const showIndividualDoneRows =
+    doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
+  const listIsEmpty =
+    activeItems.length === 0 &&
+    waitingItems.length === 0 &&
+    doneItems.length === 0 &&
+    failedItems.length === 0;
 
   return (
     <>
-      <div className="flex items-center justify-between gap-2 text-xs text-[#666666]">
-        <span>
-          {processedCount} of {items.length} completed
-        </span>
-        <span>{pipelineSummary || "Preparing…"}</span>
-      </div>
+      <UploadBatchSummaryRow
+        processedCount={processedCount}
+        totalCount={items.length}
+        counts={counts}
+      />
       <UploadOverallProgressBar percent={overallPercent} />
 
-      <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+      <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
 
       <div
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+        className="flex min-h-0 shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain"
         style={{ maxHeight: UPLOAD_PANEL_LIST_MAX_HEIGHT }}
       >
-        {activeItems.length === 0 && waitingItems.length === 0 && doneItems.length === 0 ? (
+        {listIsEmpty ? (
           <p className="py-6 text-center text-sm text-[#888888]">Preparing next files…</p>
         ) : null}
 
         {activeItems.map((item) => (
-          <ActiveUploadRow key={`${item.id}-${item.phase}`} item={item} onCancel={onCancelItem} />
+          <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
         ))}
 
-        {waitingItems.map((item) => (
-          <QueuedFileRow key={item.id} item={item} onCancel={onCancelItem} />
-        ))}
+        {showIndividualWaitingRows
+          ? waitingItems.map((item) => (
+              <QueuedFileRow key={item.id} item={item} onCancel={onCancelItem} />
+            ))
+          : null}
+        {!showIndividualWaitingRows ? (
+          <UploadQueueBacklogSummary count={waitingItems.length} />
+        ) : null}
 
-        {doneItems.map((item) => (
-          <CompletedUploadRow key={item.id} item={item} />
-        ))}
+        {showIndividualDoneRows
+          ? doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
+          : null}
+        {!showIndividualDoneRows ? (
+          <UploadDoneBacklogSummary count={doneItems.length} />
+        ) : null}
 
         {failedItems.map((item) => (
           <FailedUploadRow key={item.id} item={item} onRemove={onRemoveItem} />
