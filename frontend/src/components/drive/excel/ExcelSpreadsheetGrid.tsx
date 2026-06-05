@@ -407,6 +407,7 @@ export function ExcelSpreadsheetGrid({
                   const selected = selection?.row === rowIndex && selection.col === colIndex;
                   const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                   const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
+                  const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
 
                   return (
                     <button
@@ -416,24 +417,19 @@ export function ExcelSpreadsheetGrid({
                       onClick={() => onSelectCell({ row: rowIndex, col: colIndex })}
                       className={cn(
                         "relative flex shrink-0 items-center overflow-hidden border-r border-b border-[#E5E7EB] text-left transition-colors",
-                        isHeader && "bg-[#FAFAFA] font-bold",
-                        isTotalRow && "bg-[#EFF6FF]",
-                        !isHeader &&
-                          !isTotalRow &&
-                          !cf?.backgroundColor &&
-                          !cell.style?.backgroundColor &&
-                          "bg-white",
-                        selected && "z-10 border-2 border-[#2563EB] bg-[#EFF6FF] ring-1 ring-[#2563EB]",
+                        isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
+                        isHeader && cellFill && "font-bold",
+                        isTotalRow && !cellFill && "bg-[#EFF6FF]",
+                        !isHeader && !isTotalRow && !cellFill && "bg-white",
+                        selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
+                        selected && !cellFill && "bg-[#EFF6FF]",
                         isNumericCol && "justify-end",
                       )}
                       style={{
                         width: columnWidths[colIndex],
                         height: rowHeight,
                         paddingInline: scaledPx(8),
-                        backgroundColor:
-                          !selected && (cf?.backgroundColor ?? cell.style?.backgroundColor)
-                            ? (cf?.backgroundColor ?? cell.style?.backgroundColor)
-                            : undefined,
+                        backgroundColor: cellFill ?? undefined,
                       }}
                     >
                       {/* Agent: Data bar overlay from conditional formatting rules. */}

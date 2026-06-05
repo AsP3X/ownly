@@ -24,21 +24,36 @@ export function cellAddressLabel(address: CellAddress): string {
   return `${columnIndexToLetters(address.col)}${address.row + 1}`;
 }
 
-// Human: Parse "D4" style references back to zero-based indices.
-// Agent: RETURNS null when input is not a valid cell reference.
-export function parseCellAddressLabel(label: string): CellAddress | null {
-  const match = /^([A-Za-z]+)(\d+)$/.exec(label.trim());
-  if (!match) return null;
+// Human: Column letters (optional $) to zero-based index — used by CF sqref parsing.
+// Agent: RETURNS null when letters are not A–Z.
+export function columnLettersToIndex(letters: string): number | null {
+  const normalized = letters.replace(/\$/g, "").toUpperCase();
+  if (!/^[A-Z]+$/.test(normalized)) return null;
 
-  const letters = match[1].toUpperCase();
   let col = 0;
-  for (const char of letters) {
+  for (const char of normalized) {
     col = col * 26 + (char.charCodeAt(0) - 64);
   }
+  return col - 1;
+}
 
-  const row = Number.parseInt(match[2], 10) - 1;
-  if (!Number.isFinite(row) || row < 0 || col <= 0) return null;
-  return { row, col: col - 1 };
+// Human: Parse "D4" / "$D$4" style references back to zero-based indices.
+// Agent: RETURNS null when input is not a valid cell reference.
+export function parseCellAddressLabel(label: string): CellAddress | null {
+  const match = /^(\$?)([A-Za-z]+)(\$?)(\d+)$/.exec(label.trim());
+  if (!match) {
+    const lettersOnly = /^(\$?)([A-Za-z]+)$/.exec(label.trim());
+    if (!lettersOnly) return null;
+    const col = columnLettersToIndex(lettersOnly[2]);
+    return col === null ? null : { row: 0, col };
+  }
+
+  const col = columnLettersToIndex(match[2]);
+  if (col === null) return null;
+
+  const row = Number.parseInt(match[4], 10) - 1;
+  if (!Number.isFinite(row) || row < 0 || col < 0) return null;
+  return { row, col };
 }
 
 // Human: Format numeric cell values for grid display according to ribbon number format.

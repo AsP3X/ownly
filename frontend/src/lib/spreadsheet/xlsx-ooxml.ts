@@ -207,6 +207,32 @@ function applyThemeTint(hex: string, tint: number): string {
 
 // Human: Resolve rgb, theme, or indexed color on an OOXML color element string.
 // Agent: RETURNS #RRGGBB for dxf fill/font parsing.
+// Human: Legacy Excel indexed palette (first 64 entries) for dxf colors without rgb/theme.
+// Agent: INDEXED by OOXML indexed="N" on fgColor/bgColor/font color elements.
+const INDEXED_COLORS = [
+  "#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+  "#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+  "#800000", "#008000", "#000080", "#808000", "#800080", "#008080", "#C0C0C0", "#808080",
+  "#9999FF", "#993366", "#FFFFCC", "#CCFFFF", "#660066", "#FF8080", "#0066CC", "#CCCCFF",
+  "#000080", "#FF00FF", "#FFFF00", "#00FFFF", "#800080", "#800000", "#008080", "#0000FF",
+  "#00CCFF", "#CCFFFF", "#CCFFCC", "#FFFF99", "#99CCFF", "#FF99CC", "#CC99FF", "#FFCC99",
+  "#3366FF", "#33CCCC", "#99CC00", "#FFCC00", "#FF9900", "#FF6600", "#666699", "#969696",
+  "#003366", "#339966", "#003300", "#333300", "#993300", "#993366", "#333399", "#333333",
+];
+
+// Human: Default traffic-light colors when icon sets have no dxf fill.
+// Agent: BUCKETED by percentile across the CF range.
+const ICON_SET_COLORS: Record<string, string[]> = {
+  "3TrafficLights1": ["#63BE7B", "#FFEB84", "#F8696B"],
+  "3TrafficLights2": ["#63BE7B", "#FFEB84", "#F8696B"],
+  "3Symbols": ["#63BE7B", "#FFEB84", "#F8696B"],
+  "3Symbols2": ["#63BE7B", "#FFEB84", "#F8696B"],
+  "3Arrows": ["#63BE7B", "#FFEB84", "#F8696B"],
+  "3ArrowsGray": ["#A5A5A5", "#D9D9D9", "#7F7F7F"],
+  "4TrafficLights": ["#63BE7B", "#FFEB84", "#FFC7CE", "#F8696B"],
+  "5Arrows": ["#63BE7B", "#C6EFCE", "#FFEB84", "#FFC7CE", "#F8696B"],
+};
+
 function resolveOoxmlColorTag(colorTag: string, themePalette: string[]): string | undefined {
   const rgb = readXmlAttribute(colorTag, "rgb");
   if (rgb) return ooxmlColorToHex(rgb);
@@ -222,7 +248,21 @@ function resolveOoxmlColorTag(colorTag: string, themePalette: string[]): string 
     }
   }
 
+  const indexedRaw = readXmlAttribute(colorTag, "indexed");
+  if (indexedRaw !== null) {
+    const index = Number.parseInt(indexedRaw, 10);
+    if (Number.isFinite(index) && index >= 0 && index < INDEXED_COLORS.length) {
+      return INDEXED_COLORS[index];
+    }
+  }
+
   return undefined;
+}
+
+function compactDxfStyle(style: ConditionalFormatStyle | undefined): ConditionalFormatStyle | undefined {
+  if (!style) return undefined;
+  if (!style.backgroundColor && !style.textColor && !style.bold) return undefined;
+  return style;
 }
 
 // Human: Extract fill background and font styling from a styles.xml dxf block.
@@ -319,6 +359,7 @@ function parseCfRuleElement(
   const priority = priorityRaw !== null ? Number.parseInt(priorityRaw, 10) : rules.length + 1;
   const dxfRaw = readXmlAttribute(openTag, "dxfId");
   const dxfId = dxfRaw !== null ? Number.parseInt(dxfRaw, 10) : null;
+  const stopIfTrue = readXmlAttribute(openTag, "stopIfTrue") === "1" || readXmlAttribute(openTag, "stopIfTrue") === "true";
   const body = ruleXml.replace(/<cfRule\b[^>]*>/i, "").replace(/<\/cfRule>/i, "");
 
   const colorFromBody = (tag: string): string | undefined => {
@@ -337,7 +378,11 @@ function parseCfRuleElement(
           priority: Number.isFinite(priority) ? priority : rules.length + 1,
           range,
           type: "colorScale",
-          colorScale: { minColor: colors[0], maxColor: colors[colors.length - 1] },
+          colorScale:
+            colors.length >= 3
+              ? { minColor: colors[0], midColor: colors[1], maxColor: colors[colors.length - 1] }
+              : { minColor: colors[0], maxColor: colors[colors.length - 1] },
+          stopIfTrue,
         });
       }
       continue;
@@ -352,17 +397,81 @@ function parseCfRuleElement(
         range,
         type: "dataBar",
         dataBar: { color: barColor },
+        stopIfTrue,
       });
       continue;
     }
 
-    const formulas = [...body.matchAll(/<formula>([\s\S]*?)<\/formula>/gi)].map((match) =>
-      readFormulaText(match[1]),
+    const formulas = [...body.matchAll(/<(?:formula|x14:formula)>([\s\S]*?)<\/(?:formula|x14:formula)>/gi)].map(
+      (match) => readFormulaText(match[1]),
     );
 
     const styleFromDxf =
       dxfId !== null && Number.isFinite(dxfId) && dxfStyles[dxfId] ? dxfStyles[dxfId] : undefined;
-    const style = styleFromDxf ?? parseInlineRuleStyle(body, themePalette);
+    const style = compactDxfStyle(styleFromDxf ?? parseInlineRuleStyle(body, themePalette));
+
+    if (type === "aboveAverage") {
+      const aboveRaw = readXmlAttribute(openTag, "aboveAverage");
+      rules.push({
+        id: createRuleId(),
+        priority: Number.isFinite(priority) ? priority : rules.length + 1,
+        range,
+        type: "aboveAverage",
+        aboveAverage: {
+          above: aboveRaw !== "0",
+          equalAverage: readXmlAttribute(openTag, "equalAverage") === "1",
+          stdDev: Number.parseInt(readXmlAttribute(openTag, "stdDev") ?? "0", 10) || 0,
+        },
+        style,
+        stopIfTrue,
+      });
+      continue;
+    }
+
+    if (type === "top10") {
+      rules.push({
+        id: createRuleId(),
+        priority: Number.isFinite(priority) ? priority : rules.length + 1,
+        range,
+        type: "top10",
+        top10: {
+          rank: Number.parseInt(readXmlAttribute(openTag, "rank") ?? "10", 10) || 10,
+          percent: readXmlAttribute(openTag, "percent") === "1",
+          bottom: readXmlAttribute(openTag, "bottom") === "1",
+        },
+        style,
+        stopIfTrue,
+      });
+      continue;
+    }
+
+    if (type === "duplicateValues" || type === "uniqueValues") {
+      rules.push({
+        id: createRuleId(),
+        priority: Number.isFinite(priority) ? priority : rules.length + 1,
+        range,
+        type: type === "duplicateValues" ? "duplicateValues" : "uniqueValues",
+        style,
+        stopIfTrue,
+      });
+      continue;
+    }
+
+    if (type === "iconSet") {
+      const iconSetType =
+        readXmlAttribute(/<iconSet\b[^>]*>/i.exec(body)?.[0] ?? "", "iconSet") ?? "3TrafficLights1";
+      const colors = ICON_SET_COLORS[iconSetType] ?? ICON_SET_COLORS["3TrafficLights1"];
+      rules.push({
+        id: createRuleId(),
+        priority: Number.isFinite(priority) ? priority : rules.length + 1,
+        range,
+        type: "iconSet",
+        iconSet: { colors },
+        style,
+        stopIfTrue,
+      });
+      continue;
+    }
 
     if (type === "expression") {
       rules.push({
@@ -372,6 +481,7 @@ function parseCfRuleElement(
         type: "expression",
         formula: formulas[0],
         style,
+        stopIfTrue,
       });
       continue;
     }
@@ -395,7 +505,28 @@ function parseCfRuleElement(
       value: formulas[0],
       value2: formulas[1],
       style,
+      stopIfTrue,
     });
+  }
+}
+
+// Human: Parse cfRule elements from one conditionalFormatting inner block.
+// Agent: READS standard and x14-prefixed cfRule tags for a resolved sqref range list.
+function ingestConditionalFormattingBlock(
+  inner: string,
+  ranges: CellRange[],
+  dxfStyles: ConditionalFormatStyle[],
+  themePalette: string[],
+  rules: ConditionalFormatRule[],
+): void {
+  const ruleMatches = inner.matchAll(/<(?:x14:)?cfRule\b[\s\S]*?<\/(?:x14:)?cfRule>/gi);
+  for (const ruleMatch of ruleMatches) {
+    const normalized = ruleMatch[0]
+      .replace(/<x14:cfRule/gi, "<cfRule")
+      .replace(/<\/x14:cfRule>/gi, "</cfRule>")
+      .replace(/<x14:formula>/gi, "<formula>")
+      .replace(/<\/x14:formula>/gi, "</formula>");
+    parseCfRuleElement(normalized, ranges, dxfStyles, themePalette, rules);
   }
 }
 
@@ -412,16 +543,11 @@ function parseWorksheetConditionalRules(
     if (!sqref) continue;
     const ranges = parseSqref(sqref);
     if (ranges.length === 0) continue;
-
-    const inner = block[2];
-    const ruleMatches = inner.matchAll(/<cfRule\b[\s\S]*?<\/cfRule>/gi);
-    for (const ruleMatch of ruleMatches) {
-      parseCfRuleElement(ruleMatch[0], ranges, dxfStyles, themePalette, rules);
-    }
+    ingestConditionalFormattingBlock(block[2], ranges, dxfStyles, themePalette, rules);
   }
 
-  // Human: Excel 2010+ extension CF blocks (x14:conditionalFormatting) with xm:sqref sibling.
-  // Agent: PARSES x14:cfRule elements when standard conditionalFormatting is absent.
+  // Human: Excel 2010+ extension CF (inside extLst / x14:conditionalFormattings wrappers).
+  // Agent: MATCHES nested x14:conditionalFormatting blocks with xm:sqref siblings.
   const x14Blocks = sheetXml.matchAll(
     /<x14:conditionalFormatting\b[^>]*>([\s\S]*?)<\/x14:conditionalFormatting>/gi,
   );
@@ -431,16 +557,7 @@ function parseWorksheetConditionalRules(
     if (!sqref) continue;
     const ranges = parseSqref(sqref);
     if (ranges.length === 0) continue;
-
-    const ruleMatches = inner.matchAll(/<x14:cfRule\b[\s\S]*?<\/x14:cfRule>/gi);
-    for (const ruleMatch of ruleMatches) {
-      const normalized = ruleMatch[0]
-        .replace(/<x14:cfRule/gi, "<cfRule")
-        .replace(/<\/x14:cfRule>/gi, "</cfRule>")
-        .replace(/<x14:formula>/gi, "<formula>")
-        .replace(/<\/x14:formula>/gi, "</formula>");
-      parseCfRuleElement(normalized, ranges, dxfStyles, themePalette, rules);
-    }
+    ingestConditionalFormattingBlock(inner, ranges, dxfStyles, themePalette, rules);
   }
 
   return rules;
