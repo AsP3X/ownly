@@ -1,7 +1,7 @@
-// Human: Excel dialog header — filename, cloud save badge, copilot toggle, share, save & close.
-// Agent: READS file metadata + dirty/copilot flags; EMITS toggle/share/save callbacks per Pencil sgOxg header.
+// Human: Excel dialog header — filename, cloud save badge, share, save & close.
+// Agent: READS file metadata + dirty flag; EMITS share/save callbacks per Pencil sgOxg header.
 
-import { FileSpreadsheet, Share2, Sparkles } from "lucide-react";
+import { FileSpreadsheet, Share2 } from "lucide-react";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import type { FileItem } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -11,8 +11,6 @@ type ExcelDialogHeaderProps = {
   dirty: boolean;
   saving: boolean;
   readOnly: boolean;
-  copilotOpen: boolean;
-  onToggleCopilot: () => void;
   onShare?: () => void;
   onSaveAndClose: () => void;
 };
@@ -22,8 +20,6 @@ export function ExcelDialogHeader({
   dirty,
   saving,
   readOnly,
-  copilotOpen,
-  onToggleCopilot,
   onShare,
   onSaveAndClose,
 }: ExcelDialogHeaderProps) {
@@ -59,27 +55,8 @@ export function ExcelDialogHeader({
         </span>
       </div>
 
-      {/* Human: Right actions — copilot toggle, share, primary save & close per Pencil. */}
+      {/* Human: Right actions — share and primary save & close per Pencil. */}
       <div className="flex shrink-0 items-center gap-4">
-        <button
-          type="button"
-          onClick={onToggleCopilot}
-          className={cn(
-            "inline-flex items-center rounded-lg border font-semibold transition-colors",
-            copilotOpen
-              ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]"
-              : "border-[#E5E7EB] bg-white text-[#2563EB] hover:bg-[#EFF6FF]",
-          )}
-          style={{
-            gap: scaledPx(6),
-            padding: `${scaledPx(8)}px ${scaledPx(12)}px`,
-            fontSize: scaledPx(13),
-          }}
-        >
-          <Sparkles style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
-          Copilot Sidebar
-        </button>
-
         {onShare ? (
           <button
             type="button"

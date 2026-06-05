@@ -2,7 +2,7 @@
 // Agent: FETCHES blob; PARSES xlsx; RENDERS ribbon/grid/copilot; SAVE replace upload on Save & Close.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FileSpreadsheet, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
   deleteFile,
@@ -25,9 +25,15 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX,
+} from "@/components/drive/excel/excel-dialog-scale";
+import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cellAddressLabel, formatCellDisplay, formulaBarValue } from "@/lib/spreadsheet/cells";
 import {
@@ -78,11 +84,12 @@ export function ExcelSpreadsheetDialog({
   sharePassword,
 }: ExcelSpreadsheetDialogProps) {
   const readOnly = Boolean(shareToken);
+  const isDesktopViewport = useIsDesktopExcelViewport(open);
   const [loadState, setLoadState] = useState<LoadState>(emptyLoadState);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [selection, setSelection] = useState<CellAddress | null>({ row: 3, col: 3 });
   const [ribbonTab, setRibbonTab] = useState<RibbonTabId>("home");
-  const [copilotOpen, setCopilotOpen] = useState(true);
+  const [copilotCollapsed, setCopilotCollapsed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -134,7 +141,7 @@ export function ExcelSpreadsheetDialog({
   }, [sharePassword, shareToken]);
 
   useEffect(() => {
-    if (!open || !file) return;
+    if (!open || !file || !isDesktopViewport) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
@@ -143,7 +150,7 @@ export function ExcelSpreadsheetDialog({
     return () => {
       cancelled = true;
     };
-  }, [file, loadWorkbook, open]);
+  }, [file, isDesktopViewport, loadWorkbook, open]);
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -152,7 +159,7 @@ export function ExcelSpreadsheetDialog({
         setSaveError("");
         setSaving(false);
         setRibbonTab("home");
-        setCopilotOpen(true);
+        setCopilotCollapsed(false);
       }
       onOpenChange(nextOpen);
     },
@@ -295,10 +302,36 @@ export function ExcelSpreadsheetDialog({
   const cellLabel = selection ? cellAddressLabel(selection) : "A1";
   const formulaValue = formulaBarValue(activeCell);
 
+  if (!isDesktopViewport) {
+    return (
+      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        <DialogContent
+          className="gap-4 border border-[#E5E7EB] bg-white p-6 sm:max-w-md"
+          overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
+        >
+          <DialogHeader>
+            <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-[#EFF6FF] text-[#2563EB]">
+              <FileSpreadsheet className="size-6" aria-hidden />
+            </div>
+            <DialogTitle className="text-center">{file?.name ?? "Spreadsheet preview"}</DialogTitle>
+            <DialogDescription className="text-center">
+              Spreadsheet preview is not supported on mobile. Open this file on a desktop browser to view and edit it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-0 bg-transparent px-0 py-0 sm:justify-center">
+            <Button type="button" className="w-full sm:w-auto" onClick={() => handleDialogOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[93.75rem]"
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[93.75rem]"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -307,15 +340,17 @@ export function ExcelSpreadsheetDialog({
           <DialogDescription>View and edit spreadsheet files in the browser.</DialogDescription>
         </DialogHeader>
 
-        {/* Human: Viewer card — 1.25× Pencil baseline (1063px / 112.5dvh); between prior 1.5× and 1× sizes. */}
-        <div className="flex h-[min(1063px,112.5dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+        {/* Human: Viewer card — up to 1063px tall but capped at viewport minus dialog padding. */}
+        {/* Agent: PREVENTS top=-50 overflow from 112.5dvh exceeding 100dvh when vertically centered. */}
+        <div
+          className="flex w-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
+          style={{ height: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - 2rem))` }}
+        >
           <ExcelDialogHeader
             file={file}
             dirty={dirty}
             saving={saving}
             readOnly={readOnly}
-            copilotOpen={copilotOpen}
-            onToggleCopilot={() => setCopilotOpen((current) => !current)}
             onShare={file && onShare ? () => onShare(file) : undefined}
             onSaveAndClose={() => void handleSaveAndClose()}
           />
@@ -381,12 +416,11 @@ export function ExcelSpreadsheetDialog({
               ) : null}
             </div>
 
-            {copilotOpen ? (
-              <ExcelCopilotSidebar
-                analysis={copilotAnalysis}
-                onCollapse={() => setCopilotOpen(false)}
-              />
-            ) : null}
+            <ExcelCopilotSidebar
+              analysis={copilotAnalysis}
+              collapsed={copilotCollapsed}
+              onCollapsedChange={setCopilotCollapsed}
+            />
           </div>
         </div>
       </DialogContent>
