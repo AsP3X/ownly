@@ -13,7 +13,9 @@ export type CellRange = {
 
 export type CfOperator =
   | "greaterThan"
+  | "greaterThanOrEqual"
   | "lessThan"
+  | "lessThanOrEqual"
   | "equal"
   | "notEqual"
   | "between"
@@ -95,8 +97,12 @@ function compareCellIs(
   switch (operator) {
     case "greaterThan":
       return numeric !== null && typeof value === "number" && numeric > value;
+    case "greaterThanOrEqual":
+      return numeric !== null && typeof value === "number" && numeric >= value;
     case "lessThan":
       return numeric !== null && typeof value === "number" && numeric < value;
+    case "lessThanOrEqual":
+      return numeric !== null && typeof value === "number" && numeric <= value;
     case "equal":
       if (typeof value === "number") return numeric === value;
       return text === String(value ?? "").trim().toLowerCase();
@@ -236,8 +242,8 @@ function evaluateRule(
   }
 }
 
-// Human: Resolve the first matching conditional format for a grid cell (Excel priority order).
-// Agent: READS rules sorted by priority; RETURNS merged ResolvedConditionalFormat or null.
+// Human: Resolve the winning conditional format for a grid cell (Excel priority order).
+// Agent: READS rules sorted by descending priority; RETURNS highest-priority match.
 export function resolveConditionalFormat(
   rules: ConditionalFormatRule[] | undefined,
   rows: SheetCell[][],
@@ -247,7 +253,9 @@ export function resolveConditionalFormat(
   if (!rules || rules.length === 0) return null;
 
   const cell = rows[row]?.[col] ?? { value: null, display: "" };
-  const sorted = [...rules].sort((left, right) => left.priority - right.priority);
+  // Human: OOXML priority — higher value is applied later and wins when multiple rules match.
+  // Agent: SORT descending so the first matching rule is the effective Excel format.
+  const sorted = [...rules].sort((left, right) => right.priority - left.priority);
 
   for (const rule of sorted) {
     const resolved = evaluateRule(cell, rule, row, col, rows);

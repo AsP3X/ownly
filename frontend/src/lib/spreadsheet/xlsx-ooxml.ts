@@ -138,6 +138,21 @@ async function writeXlsxZipEntries(entries: Map<string, Uint8Array>): Promise<Ar
   return output.buffer;
 }
 
+// Human: Read one attribute from an XML start tag regardless of attribute order.
+// Agent: RETURNS attribute value or null when missing.
+function readXmlAttribute(openTag: string, attributeName: string): string | null {
+  const pattern = new RegExp(`${attributeName}="([^"]*)"`, "i");
+  return pattern.exec(openTag)?.[1] ?? null;
+}
+
+// Human: Map workbook .rels Target paths to zip entry keys (always under xl/).
+// Agent: FIXES imports when Target is worksheets/sheet1.xml instead of xl/worksheets/sheet1.xml.
+function normalizeXlsxEntryPath(target: string): string {
+  let path = target.replace(/^\.\//, "");
+  if (!path.startsWith("xl/")) path = `xl/${path}`;
+  return path;
+}
+
 function ooxmlColorToHex(raw: string | null): string | undefined {
   if (!raw) return undefined;
   const cleaned = raw.replace(/^#?/, "").toUpperCase();
@@ -146,19 +161,91 @@ function ooxmlColorToHex(raw: string | null): string | undefined {
   return undefined;
 }
 
-function parseDxfStyles(stylesXml: string): ConditionalFormatStyle[] {
+// Human: Excel theme palette order used by theme="N" on fgColor/bgColor/font color elements.
+// Agent: INDEXED 0–11 from xl/theme/theme1.xml clrScheme.
+const THEME_COLOR_KEYS = [
+  "dk1",
+  "lt1",
+  "dk2",
+  "lt2",
+  "accent1",
+  "accent2",
+  "accent3",
+  "accent4",
+  "accent5",
+  "accent6",
+  "hlink",
+  "folHlink",
+] as const;
+
+// Human: Parse Office theme clrScheme into #RRGGBB values for theme-indexed CF colors.
+// Agent: READS theme1.xml; RETURNS palette array aligned with OOXML theme indices.
+function parseThemePalette(themeXml: string): string[] {
+  const palette: string[] = [];
+  for (const key of THEME_COLOR_KEYS) {
+    const block = new RegExp(`<a:${key}>([\\s\\S]*?)</a:${key}>`, "i").exec(themeXml)?.[1] ?? "";
+    const srgb = /<a:srgbClr[^>]*val="([^"]+)"/i.exec(block)?.[1];
+    const sysLast = /<a:sysClr[^>]*lastClr="([^"]+)"/i.exec(block)?.[1];
+    palette.push(ooxmlColorToHex(srgb ?? sysLast ?? null) ?? "#000000");
+  }
+  return palette;
+}
+
+// Human: Apply Excel tint attribute (-1…1) to a theme base color.
+// Agent: APPROXIMATES OOXML tint curve for fill/font colors.
+function applyThemeTint(hex: string, tint: number): string {
+  const rgb = hex.replace("#", "");
+  if (rgb.length !== 6) return hex;
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(rgb.slice(offset, offset + 2), 16));
+  const adjust = (channel: number): number => {
+    if (tint < 0) return Math.round(channel * (1 + tint));
+    return Math.round(channel * (1 - tint) + 255 * tint);
+  };
+  const toHex = (value: number) => Math.min(255, Math.max(0, value)).toString(16).padStart(2, "0");
+  return `#${toHex(adjust(channels[0]))}${toHex(adjust(channels[1]))}${toHex(adjust(channels[2]))}`;
+}
+
+// Human: Resolve rgb, theme, or indexed color on an OOXML color element string.
+// Agent: RETURNS #RRGGBB for dxf fill/font parsing.
+function resolveOoxmlColorTag(colorTag: string, themePalette: string[]): string | undefined {
+  const rgb = readXmlAttribute(colorTag, "rgb");
+  if (rgb) return ooxmlColorToHex(rgb);
+
+  const themeRaw = readXmlAttribute(colorTag, "theme");
+  if (themeRaw !== null && themePalette.length > 0) {
+    const index = Number.parseInt(themeRaw, 10);
+    const base = themePalette[index];
+    if (base) {
+      const tintRaw = readXmlAttribute(colorTag, "tint");
+      const tint = tintRaw !== null ? Number.parseFloat(tintRaw) : 0;
+      return Number.isFinite(tint) && tint !== 0 ? applyThemeTint(base, tint) : base;
+    }
+  }
+
+  return undefined;
+}
+
+// Human: Extract fill background and font styling from a styles.xml dxf block.
+// Agent: READS fgColor/bgColor/font color with theme palette fallback.
+function parseDxfBlock(block: string, themePalette: string[]): ConditionalFormatStyle {
+  const fgTag = /<fgColor[^>]*\/?>/i.exec(block)?.[0] ?? "";
+  const bgTag = /<bgColor[^>]*\/?>/i.exec(block)?.[0] ?? "";
+  const fontColorTag = /<font>[\s\S]*?<color[^>]*\/?>/i.exec(block)?.[0] ?? "";
+  const bold = /<b\s*\/>|<b>/.test(block);
+
+  return {
+    backgroundColor: resolveOoxmlColorTag(fgTag, themePalette) ?? resolveOoxmlColorTag(bgTag, themePalette),
+    textColor: resolveOoxmlColorTag(fontColorTag, themePalette),
+    bold,
+  };
+}
+
+function parseDxfStyles(stylesXml: string, themePalette: string[]): ConditionalFormatStyle[] {
+  const dxfsSection = /<dxfs[^>]*>([\s\S]*?)<\/dxfs>/i.exec(stylesXml)?.[1] ?? stylesXml;
   const styles: ConditionalFormatStyle[] = [];
-  const dxfMatches = stylesXml.matchAll(/<dxf>([\s\S]*?)<\/dxf>/g);
+  const dxfMatches = dxfsSection.matchAll(/<dxf>([\s\S]*?)<\/dxf>/g);
   for (const match of dxfMatches) {
-    const block = match[1];
-    const fgMatch = /<fgColor[^>]*rgb="([^"]+)"/i.exec(block);
-    const fontMatch = /<font>[\s\S]*?<color[^>]*rgb="([^"]+)"/i.exec(block);
-    const bold = /<b\s*\/>|<b>/.test(block);
-    styles.push({
-      backgroundColor: ooxmlColorToHex(fgMatch?.[1] ?? null),
-      textColor: ooxmlColorToHex(fontMatch?.[1] ?? null),
-      bold,
-    });
+    styles.push(parseDxfBlock(match[1], themePalette));
   }
   return styles;
 }
@@ -166,12 +253,17 @@ function parseDxfStyles(stylesXml: string): ConditionalFormatStyle[] {
 function mapOperator(raw: string | null): CfOperator | undefined {
   switch (raw) {
     case "greaterThan":
+    case "greaterThanOrEqual":
     case "lessThan":
+    case "lessThanOrEqual":
     case "equal":
     case "notEqual":
     case "between":
     case "containsText":
-      return raw === "containsText" ? "textContains" : raw;
+      if (raw === "containsText") return "textContains";
+      if (raw === "greaterThanOrEqual") return "greaterThanOrEqual";
+      if (raw === "lessThanOrEqual") return "lessThanOrEqual";
+      return raw;
     default:
       return undefined;
   }
@@ -186,76 +278,119 @@ function parseFormulaValue(formula: string): number | string {
   return Number.isFinite(numeric) ? numeric : trimmed;
 }
 
-function parseWorksheetConditionalRules(sheetXml: string, dxfStyles: ConditionalFormatStyle[]): ConditionalFormatRule[] {
-  const rules: ConditionalFormatRule[] = [];
-  const blocks = sheetXml.matchAll(/<conditionalFormatting[^>]*sqref="([^"]+)"[^>]*>([\s\S]*?)<\/conditionalFormatting>/g);
+// Human: Parse one cfRule element into rules for each sqref range in the parent block.
+// Agent: READS cfRule attrs in any order; RESOLVES dxf styles and formula thresholds.
+function parseCfRuleElement(
+  ruleXml: string,
+  ranges: CellRange[],
+  dxfStyles: ConditionalFormatStyle[],
+  themePalette: string[],
+  rules: ConditionalFormatRule[],
+): void {
+  const openTag = /<cfRule\b[^>]*>/i.exec(ruleXml)?.[0] ?? "";
+  const type = readXmlAttribute(openTag, "type");
+  if (!type) return;
 
-  for (const block of blocks) {
-    const sqref = block[1];
-    const inner = block[2];
-    const ranges = parseSqref(sqref);
-    if (ranges.length === 0) continue;
-    const range = ranges[0];
+  const operator = mapOperator(readXmlAttribute(openTag, "operator"));
+  const priorityRaw = readXmlAttribute(openTag, "priority");
+  const priority = priorityRaw !== null ? Number.parseInt(priorityRaw, 10) : rules.length + 1;
+  const dxfRaw = readXmlAttribute(openTag, "dxfId");
+  const dxfId = dxfRaw !== null ? Number.parseInt(dxfRaw, 10) : null;
+  const body = ruleXml.replace(/<cfRule\b[^>]*>/i, "").replace(/<\/cfRule>/i, "");
 
-    const ruleMatches = inner.matchAll(
-      /<cfRule[^>]*type="([^"]+)"(?:[^>]*operator="([^"]+)")?[^>]*priority="(\d+)"[^>]*>([\s\S]*?)<\/cfRule>/g,
-    );
+  const colorFromBody = (tag: string): string | undefined => {
+    const match = new RegExp(`<${tag}[^>]*\\/?>`, "i").exec(body)?.[0] ?? "";
+    return resolveOoxmlColorTag(match, themePalette);
+  };
 
-    for (const ruleMatch of ruleMatches) {
-      const type = ruleMatch[1];
-      const operator = mapOperator(ruleMatch[2] ?? null);
-      const priority = Number.parseInt(ruleMatch[3], 10);
-      const body = ruleMatch[4];
-      const formulaMatch = /<formula>([\s\S]*?)<\/formula>/.exec(body);
-      const formula = formulaMatch?.[1]?.trim() ?? "";
-      const dxfMatch = /dxfId="(\d+)"/.exec(ruleMatch[0]);
-      const dxfId = dxfMatch ? Number.parseInt(dxfMatch[1], 10) : null;
-
-      if (type === "colorScale") {
-        const colors = [...body.matchAll(/<rgb[^>]*rgb="([^"]+)"/g)]
-          .map((match) => ooxmlColorToHex(match[1]))
-          .filter((color): color is string => Boolean(color));
-        if (colors.length >= 2) {
-          rules.push({
-            id: createRuleId(),
-            priority: Number.isFinite(priority) ? priority : rules.length + 1,
-            range,
-            type: "colorScale",
-            colorScale: { minColor: colors[0], maxColor: colors[colors.length - 1] },
-          });
-        }
-        continue;
-      }
-
-      if (type === "dataBar") {
-        const colorMatch = /<rgb[^>]*rgb="([^"]+)"/.exec(body);
+  for (const range of ranges) {
+    if (type === "colorScale") {
+      const colors = [...body.matchAll(/<(?:rgb|bgColor|fgColor)[^>]*\/?>/gi)]
+        .map((match) => resolveOoxmlColorTag(match[0], themePalette))
+        .filter((color): color is string => Boolean(color));
+      if (colors.length >= 2) {
         rules.push({
           id: createRuleId(),
           priority: Number.isFinite(priority) ? priority : rules.length + 1,
           range,
-          type: "dataBar",
-          dataBar: { color: ooxmlColorToHex(colorMatch?.[1] ?? null) ?? "#2563EB" },
+          type: "colorScale",
+          colorScale: { minColor: colors[0], maxColor: colors[colors.length - 1] },
         });
-        continue;
       }
+      continue;
+    }
 
-      const style = dxfId !== null ? dxfStyles[dxfId] : undefined;
-      const cfType = type === "containsText" ? "text" : "cellIs";
-      const value = parseFormulaValue(formula);
-      const formulas = [...body.matchAll(/<formula>([\s\S]*?)<\/formula>/g)].map((match) =>
-        parseFormulaValue(match[1]),
-      );
-
+    if (type === "dataBar") {
       rules.push({
         id: createRuleId(),
         priority: Number.isFinite(priority) ? priority : rules.length + 1,
         range,
-        type: cfType,
-        operator: operator ?? "equal",
-        value: formulas[0] ?? value,
-        value2: typeof formulas[1] === "number" ? formulas[1] : undefined,
-        style,
+        type: "dataBar",
+        dataBar: { color: colorFromBody("rgb") ?? colorFromBody("fgColor") ?? "#2563EB" },
       });
+      continue;
+    }
+
+    const style = dxfId !== null && Number.isFinite(dxfId) ? dxfStyles[dxfId] : undefined;
+    const cfType = type === "containsText" ? "text" : "cellIs";
+    const formulas = [...body.matchAll(/<formula>([\s\S]*?)<\/formula>/gi)].map((match) =>
+      parseFormulaValue(match[1]),
+    );
+
+    rules.push({
+      id: createRuleId(),
+      priority: Number.isFinite(priority) ? priority : rules.length + 1,
+      range,
+      type: cfType,
+      operator: operator ?? "equal",
+      value: formulas[0],
+      value2: typeof formulas[1] === "number" ? formulas[1] : undefined,
+      style,
+    });
+  }
+}
+
+function parseWorksheetConditionalRules(
+  sheetXml: string,
+  dxfStyles: ConditionalFormatStyle[],
+  themePalette: string[],
+): ConditionalFormatRule[] {
+  const rules: ConditionalFormatRule[] = [];
+  const blocks = sheetXml.matchAll(/<conditionalFormatting\b([^>]*)>([\s\S]*?)<\/conditionalFormatting>/gi);
+
+  for (const block of blocks) {
+    const sqref = readXmlAttribute(block[1], "sqref");
+    if (!sqref) continue;
+    const ranges = parseSqref(sqref);
+    if (ranges.length === 0) continue;
+
+    const inner = block[2];
+    const ruleMatches = inner.matchAll(/<cfRule\b[\s\S]*?<\/cfRule>/gi);
+    for (const ruleMatch of ruleMatches) {
+      parseCfRuleElement(ruleMatch[0], ranges, dxfStyles, themePalette, rules);
+    }
+  }
+
+  // Human: Excel 2010+ extension CF blocks (x14:conditionalFormatting) with xm:sqref sibling.
+  // Agent: PARSES x14:cfRule elements when standard conditionalFormatting is absent.
+  const x14Blocks = sheetXml.matchAll(
+    /<x14:conditionalFormatting\b[^>]*>([\s\S]*?)<\/x14:conditionalFormatting>/gi,
+  );
+  for (const block of x14Blocks) {
+    const inner = block[1];
+    const sqref = /<xm:sqref>([\s\S]*?)<\/xm:sqref>/i.exec(inner)?.[1]?.trim() ?? "";
+    if (!sqref) continue;
+    const ranges = parseSqref(sqref);
+    if (ranges.length === 0) continue;
+
+    const ruleMatches = inner.matchAll(/<x14:cfRule\b[\s\S]*?<\/x14:cfRule>/gi);
+    for (const ruleMatch of ruleMatches) {
+      const normalized = ruleMatch[0]
+        .replace(/<x14:cfRule/gi, "<cfRule")
+        .replace(/<\/x14:cfRule>/gi, "</cfRule>")
+        .replace(/<x14:formula>/gi, "<formula>")
+        .replace(/<\/x14:formula>/gi, "</formula>");
+      parseCfRuleElement(normalized, ranges, dxfStyles, themePalette, rules);
     }
   }
 
@@ -390,23 +525,29 @@ export async function importConditionalFormatsFromXlsx(
   const entries = await readXlsxZipEntries(buffer);
   const workbookXml = new TextDecoder().decode(entries.get("xl/workbook.xml") ?? new Uint8Array());
   const stylesXml = new TextDecoder().decode(entries.get("xl/styles.xml") ?? new Uint8Array());
-  const dxfStyles = parseDxfStyles(stylesXml);
+  const themeXml = new TextDecoder().decode(entries.get("xl/theme/theme1.xml") ?? new Uint8Array());
+  const themePalette = parseThemePalette(themeXml);
+  const dxfStyles = parseDxfStyles(stylesXml, themePalette);
   const result = new Map<string, ConditionalFormatRule[]>();
 
   const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
   const relMap = new Map<string, string>();
-  for (const match of relsXml.matchAll(/Id="([^"]+)"[^>]*Target="([^"]+)"/g)) {
-    relMap.set(match[1], match[2].replace(/^\.\//, "xl/"));
+  for (const match of relsXml.matchAll(/<Relationship\b([^/>]*)\/?>/gi)) {
+    const id = readXmlAttribute(match[1], "Id");
+    const target = readXmlAttribute(match[1], "Target");
+    if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
   }
 
-  const sheetMatches = [...workbookXml.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)];
+  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^/>]*)\/?>/gi)];
   for (const sheetMatch of sheetMatches) {
-    const name = sheetMatch[1];
-    if (!sheetNames.includes(name)) continue;
-    const target = relMap.get(sheetMatch[2]);
+    const attrs = sheetMatch[1];
+    const name = readXmlAttribute(attrs, "name");
+    const relId = readXmlAttribute(attrs, "r:id");
+    if (!name || !relId || !sheetNames.includes(name)) continue;
+    const target = relMap.get(relId);
     if (!target) continue;
     const sheetXml = new TextDecoder().decode(entries.get(target) ?? new Uint8Array());
-    const rules = parseWorksheetConditionalRules(sheetXml, dxfStyles);
+    const rules = parseWorksheetConditionalRules(sheetXml, dxfStyles, themePalette);
     if (rules.length > 0) result.set(name, rules);
   }
 
@@ -427,20 +568,24 @@ export async function exportConditionalFormatsToXlsx(
   const stylesXml = new TextDecoder().decode(entries.get("xl/styles.xml") ?? new Uint8Array());
   const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
   const relMap = new Map<string, string>();
-  for (const match of relsXml.matchAll(/Id="([^"]+)"[^>]*Target="([^"]+)"/g)) {
-    relMap.set(match[1], match[2].replace(/^\.\//, "xl/"));
+  for (const match of relsXml.matchAll(/<Relationship\b([^/>]*)\/?>/gi)) {
+    const id = readXmlAttribute(match[1], "Id");
+    const target = readXmlAttribute(match[1], "Target");
+    if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
   }
 
   const dxfOffset = countExistingDxfs(stylesXml);
   const allDxfs: string[] = [];
-  const sheetMatches = [...workbookXml.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)];
+  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^/>]*)\/?>/gi)];
 
   for (const sheetMatch of sheetMatches) {
-    const name = sheetMatch[1];
+    const attrs = sheetMatch[1];
+    const name = readXmlAttribute(attrs, "name");
+    const relId = readXmlAttribute(attrs, "r:id");
     const sheet = sheets.find((entry) => entry.name === name);
-    if (!sheet?.conditionalFormats?.length) continue;
+    if (!name || !relId || !sheet?.conditionalFormats?.length) continue;
 
-    const target = relMap.get(sheetMatch[2]);
+    const target = relMap.get(relId);
     if (!target) continue;
 
     const original = new TextDecoder().decode(entries.get(target) ?? new Uint8Array());
