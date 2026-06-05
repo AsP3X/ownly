@@ -72,6 +72,13 @@ export function MobileDriveHeader({
     navigate("/admin");
   }
 
+  // Human: Route to the profile page from the mobile account menu.
+  // Agent: NAVIGATE /profile; CLOSES popover via onProfileToggle when open.
+  function handleProfile() {
+    if (profileOpen) onProfileToggle();
+    navigate("/profile");
+  }
+
   const inFolder = activeNav === "my-files" && folderStack.length > 0;
   const pageTitle = inFolder
     ? (folderStack.at(-1)?.name ?? "My files")
@@ -174,6 +181,7 @@ export function MobileDriveHeader({
               isAdmin={isAdmin}
               onLogout={onLogout}
               onAdminConsole={isAdmin ? handleAdminConsole : undefined}
+              onProfile={handleProfile}
             />
           </div>
         </div>

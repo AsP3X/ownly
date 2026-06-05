@@ -281,6 +281,138 @@ pub async fn me(Extension(claims): Extension<Claims>) -> Json<UserDto> {
     })
 }
 
+#[derive(Debug, Serialize)]
+pub struct UserProfileResponse {
+    pub user: UserProfileDto,
+    pub storage: UserProfileStorageDto,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserProfileDto {
+    pub id: String,
+    pub email: String,
+    pub role: String,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserProfileStorageDto {
+    pub instance_name: String,
+    pub file_count: i64,
+    pub used_bytes: i64,
+    pub quota_bytes: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+// Human: Rich profile payload for the signed-in user's account page.
+// Agent: READS users + files + app_settings; RETURNS account + storage summary JSON.
+pub async fn profile(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<UserProfileResponse>, AppError> {
+    let row: Option<(String, String, bool, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT email, role, enabled, created_at FROM users WHERE id = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (email, role, enabled, created_at) = row.ok_or(AppError::NotFound)?;
+
+    let instance_name: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM app_settings WHERE key = 'instance_name'")
+            .fetch_optional(&state.pool)
+            .await?;
+    let quota_gb: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM app_settings WHERE key = 'default_storage_quota_gb'")
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let stats: (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE user_id = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await?;
+
+    let quota_bytes = quota_gb
+        .and_then(|(value,)| value.parse::<i64>().ok())
+        .unwrap_or(50)
+        .saturating_mul(1024 * 1024 * 1024);
+
+    Ok(Json(UserProfileResponse {
+        user: UserProfileDto {
+            id: claims.sub,
+            email,
+            role,
+            enabled,
+            created_at: created_at.to_rfc3339(),
+        },
+        storage: UserProfileStorageDto {
+            instance_name: instance_name
+                .map(|(name,)| name)
+                .unwrap_or_else(|| "Ownly".into()),
+            file_count: stats.0,
+            used_bytes: stats.1,
+            quota_bytes,
+        },
+    }))
+}
+
+// Human: Let a signed-in user rotate their own password after verifying the current one.
+// Agent: READS users.password_hash; WRITES new hash; AUDIT auth.password_change.
+pub async fn change_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if body.new_password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "password must be at least 8 characters".into(),
+        ));
+    }
+
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(&claims.sub)
+            .fetch_optional(&state.pool)
+            .await?;
+    let (password_hash,) = row.ok_or(AppError::NotFound)?;
+
+    if !verify_password(&body.current_password, &password_hash).unwrap_or(false) {
+        return Err(AppError::Unauthorized);
+    }
+
+    let next_hash =
+        hash_password(&body.new_password).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    sqlx::query("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2")
+        .bind(&next_hash)
+        .bind(&claims.sub)
+        .execute(&state.pool)
+        .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "auth.password_change",
+        Some("user"),
+        Some(&claims.sub),
+        None,
+        &headers,
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 // Human: Expose whether public registration is enabled for the login page.
 // Agent: READS app_settings allow_public_registration; PUBLIC route.
 pub async fn public_registration_setting(

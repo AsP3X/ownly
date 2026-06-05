@@ -24,6 +24,7 @@ const NebularOsSpecsPage = lazy(() => import("@/pages/NebularOsSpecsPage"));
 const StorageSpecsPage = lazy(() => import("@/pages/StorageSpecsPage"));
 const DrivePage = lazy(() => import("@/pages/DrivePage"));
 const AdminDashboardWireframePage = lazy(() => import("@/pages/AdminDashboardWireframePage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const PublicSharePage = lazy(() => import("@/pages/PublicSharePage"));
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
@@ -120,6 +121,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <AdminDashboardWireframePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <ProfilePage />
                   </ProtectedRoute>
                 }
               />

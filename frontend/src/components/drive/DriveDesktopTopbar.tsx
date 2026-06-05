@@ -46,6 +46,13 @@ export function DriveDesktopTopbar({
     navigate("/admin");
   }, [navigate]);
 
+  // Human: Open the signed-in user's profile page from the account dropdown.
+  // Agent: NAVIGATE /profile; WRITES profileOpen false before routing.
+  const handleProfile = useCallback(() => {
+    setProfileOpen(false);
+    navigate("/profile");
+  }, [navigate]);
+
   // Human: Dismiss profile popover when pointer down occurs outside the anchor cluster.
   // Agent: LISTENS document mousedown; READS profileAnchorRef; WRITES profileOpen false.
   useEffect(() => {
@@ -91,6 +98,7 @@ export function DriveDesktopTopbar({
           isAdmin={isAdmin}
           onLogout={handleSignOut}
           onAdminConsole={isAdmin ? handleAdminConsole : undefined}
+          onProfile={handleProfile}
         />
       </div>
     </header>

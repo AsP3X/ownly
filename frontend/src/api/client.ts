@@ -210,6 +210,40 @@ export async function fetchCurrentUser() {
   }>;
 }
 
+export type UserProfileResponse = {
+  user: {
+    id: string;
+    email: string;
+    role: string;
+    enabled: boolean;
+    created_at: string;
+  };
+  storage: {
+    instance_name: string;
+    file_count: number;
+    used_bytes: number;
+    quota_bytes: number;
+  };
+};
+
+// Human: Load account + storage summary for the signed-in user's profile page.
+// Agent: GET /me/profile; REQUIRES JWT; RETURNS user row + library usage stats.
+export async function fetchUserProfile() {
+  return apiFetch("/me/profile", { cache: "no-store" }) as Promise<UserProfileResponse>;
+}
+
+// Human: Rotate the signed-in user's password after verifying the current one.
+// Agent: PATCH /me/password; AUDIT auth.password_change server-side.
+export async function changeOwnPassword(currentPassword: string, newPassword: string) {
+  return apiFetch("/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  }) as Promise<{ ok: boolean }>;
+}
+
 export async function login(email: string, password: string) {
   return apiFetch("/auth/login", {
     method: "POST",

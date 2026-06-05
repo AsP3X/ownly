@@ -1755,3 +1755,187 @@ async fn admin_revoked_session_invalidates_jwt() {
         .await
         .ok();
 }
+
+// Human: Signed-in users can load their profile page payload with storage stats.
+// Agent: GET /api/v1/me/profile; EXPECT user email + file_count from DB.
+#[tokio::test]
+async fn user_profile_returns_account_and_storage_summary() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping user_profile_returns_account_and_storage_summary: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping user_profile_returns_account_and_storage_summary: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("profile-{user_id}@example.com");
+    let password_hash = mediavault_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, NULL, 'notes.txt', 'storage/notes', 'text/plain', 512)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me/profile")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    assert_eq!(json["user"]["email"], email);
+    assert_eq!(json["user"]["role"], "user");
+    assert_eq!(json["storage"]["file_count"], 1);
+    assert_eq!(json["storage"]["used_bytes"], 512);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Users can rotate their own password when the current password is correct.
+// Agent: PATCH /api/v1/me/password; EXPECT 200 then login succeeds with the new password.
+#[tokio::test]
+async fn user_can_change_own_password() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping user_can_change_own_password: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping user_can_change_own_password: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("pw-change-{user_id}@example.com");
+    let password_hash = mediavault_backend::auth::handlers::hash_password("oldpassword1")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = mediavault_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let change_body = json!({
+        "current_password": "oldpassword1",
+        "new_password": "newpassword9"
+    });
+
+    let change_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/me/password")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(change_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(change_response.status(), StatusCode::OK);
+
+    let login_body = json!({
+        "email": email,
+        "password": "newpassword9"
+    });
+    let login_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(login_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM audit_logs WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

@@ -381,6 +381,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
+        .route("/api/v1/me/profile", get(auth::handlers::profile))
+        .route(
+            "/api/v1/me/password",
+            axum::routing::patch(auth::handlers::change_password),
+        )
         .route("/api/v1/files", get(files::handlers::list_files))
         .route("/api/v1/files/batch", post(files::handlers::batch_files))
         .route(
