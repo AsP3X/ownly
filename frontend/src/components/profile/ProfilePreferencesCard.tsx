@@ -12,12 +12,17 @@ import type { ProfilePreferences } from "@/lib/profile-details-storage";
 export type ProfilePreferencesCardProps = {
   preferences: ProfilePreferences;
   onChange: (preferences: ProfilePreferences) => void;
+  sectionId?: string;
 };
 
 /** Human: Notification preference switches — scroll target for Preferences nav item. */
-export function ProfilePreferencesCard({ preferences, onChange }: ProfilePreferencesCardProps) {
+export function ProfilePreferencesCard({
+  preferences,
+  onChange,
+  sectionId = "profile-preferences",
+}: ProfilePreferencesCardProps) {
   return (
-    <ProfileCard id="profile-preferences">
+    <ProfileCard id={sectionId}>
       <div className="flex flex-col gap-4">
         <ProfileCardHeader
           title="Preferences"

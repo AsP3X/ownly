@@ -15,6 +15,7 @@ export type DriveProfileMenuProps = {
   onLogout: () => void;
   onAdminConsole?: () => void;
   onProfile?: () => void;
+  onSettings?: () => void;
   className?: string;
 };
 
@@ -98,6 +99,7 @@ export function DriveProfileMenu({
   onLogout,
   onAdminConsole,
   onProfile,
+  onSettings,
   className,
 }: DriveProfileMenuProps) {
   if (!open) return null;
@@ -168,7 +170,12 @@ export function DriveProfileMenu({
 
       <div className="flex flex-col gap-0.5 py-1">
         <ProfileMenuRow icon={User} label="My Profile" onClick={onProfile} disabled={!onProfile} />
-        <ProfileMenuRow icon={Settings} label="Settings" disabled />
+        <ProfileMenuRow
+          icon={Settings}
+          label="Settings"
+          onClick={onSettings}
+          disabled={!onSettings}
+        />
       </div>
 
       <div className="h-px w-full bg-[#E5E7EB]" role="separator" />

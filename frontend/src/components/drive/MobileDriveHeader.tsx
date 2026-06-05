@@ -79,6 +79,13 @@ export function MobileDriveHeader({
     navigate("/profile");
   }
 
+  // Human: Route to account settings from the mobile account menu.
+  // Agent: NAVIGATE /settings; CLOSES popover via onProfileToggle when open.
+  function handleSettings() {
+    if (profileOpen) onProfileToggle();
+    navigate("/settings");
+  }
+
   const inFolder = activeNav === "my-files" && folderStack.length > 0;
   const pageTitle = inFolder
     ? (folderStack.at(-1)?.name ?? "My files")
@@ -182,6 +189,7 @@ export function MobileDriveHeader({
               onLogout={onLogout}
               onAdminConsole={isAdmin ? handleAdminConsole : undefined}
               onProfile={handleProfile}
+              onSettings={handleSettings}
             />
           </div>
         </div>

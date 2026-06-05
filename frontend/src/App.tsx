@@ -25,6 +25,7 @@ const StorageSpecsPage = lazy(() => import("@/pages/StorageSpecsPage"));
 const DrivePage = lazy(() => import("@/pages/DrivePage"));
 const AdminDashboardWireframePage = lazy(() => import("@/pages/AdminDashboardWireframePage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const PublicSharePage = lazy(() => import("@/pages/PublicSharePage"));
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
@@ -129,6 +130,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <ProfilePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <SettingsPage />
                   </ProtectedRoute>
                 }
               />

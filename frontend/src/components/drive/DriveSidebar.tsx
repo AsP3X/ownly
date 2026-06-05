@@ -22,8 +22,10 @@ type DriveSidebarProps = {
   usedBytes: number;
   quotaBytes: number;
   onNavChange: (nav: DriveNavId) => void;
-  /** Human: Highlight Settings row on profile route per Pencil Account Settings wireframe. */
+  /** Human: Highlight Settings row on /settings per Pencil Account Settings wireframe. */
   settingsActive?: boolean;
+  /** Human: Navigate to /settings when the sidebar Settings row is clicked. */
+  onSettingsClick?: () => void;
 };
 
 // Human: One sidebar nav row with icon + label; active row uses muted panel background.
@@ -105,6 +107,7 @@ export function DriveSidebar({
   quotaBytes,
   onNavChange,
   settingsActive = false,
+  onSettingsClick,
 }: DriveSidebarProps) {
   const { instanceName } = useInstanceName();
 
@@ -150,7 +153,8 @@ export function DriveSidebar({
           label="Settings"
           icon={<Settings className="size-[18px]" strokeWidth={2} />}
           active={settingsActive}
-          disabled={!settingsActive}
+          disabled={!onSettingsClick}
+          onClick={onSettingsClick}
         />
       </nav>
 

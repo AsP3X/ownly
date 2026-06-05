@@ -15,6 +15,8 @@ export type ProfilePersonalDetailsCardProps = {
   draft: ProfileDetailsDraft;
   email: string;
   onChange: (draft: ProfileDetailsDraft) => void;
+  /** Human: Anchor id for section nav scroll targets — differs between /profile and /settings. */
+  sectionId?: string;
 };
 
 /** Human: Two-column personal details form with bio textarea per Pencil right column. */
@@ -22,13 +24,14 @@ export function ProfilePersonalDetailsCard({
   draft,
   email,
   onChange,
+  sectionId = "profile-details",
 }: ProfilePersonalDetailsCardProps) {
   const update = (patch: Partial<ProfileDetailsDraft>) => {
     onChange({ ...draft, ...patch });
   };
 
   return (
-    <ProfileCard id="profile-details">
+    <ProfileCard id={sectionId}>
       <div className="flex flex-col gap-4">
         <ProfileCardHeader
           title="Personal Details"

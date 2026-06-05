@@ -26,6 +26,7 @@ const DEVICE_ICONS: Record<ProfileSessionDeviceType, LucideIcon> = {
 export type ProfileSessionsCardProps = {
   remoteSessions: ProfileSessionRow[];
   onRevoke: (sessionId: string) => void;
+  sectionId?: string;
 };
 
 function sessionMetadataLine(session: ProfileSessionRow): string {
@@ -91,7 +92,11 @@ function SessionRow({
 }
 
 /** Human: Authorized sessions list — current browser row plus revocable remote devices. */
-export function ProfileSessionsCard({ remoteSessions, onRevoke }: ProfileSessionsCardProps) {
+export function ProfileSessionsCard({
+  remoteSessions,
+  onRevoke,
+  sectionId = "settings-sessions",
+}: ProfileSessionsCardProps) {
   const currentDeviceName = detectCurrentSessionDeviceName();
   const currentDeviceType = detectCurrentSessionDeviceType();
   const currentMetadata = [
@@ -101,7 +106,7 @@ export function ProfileSessionsCard({ remoteSessions, onRevoke }: ProfileSession
   ].join(" · ");
 
   return (
-    <ProfileCard id="profile-sessions">
+    <ProfileCard id={sectionId}>
       <div className="flex flex-col gap-4">
         <ProfileCardHeader
           title="Authorized Sessions"

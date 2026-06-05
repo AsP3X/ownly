@@ -14,16 +14,21 @@ import type { ProfileSecurityDraft } from "@/lib/profile-details-storage";
 export type ProfileSecurityCardProps = {
   draft: ProfileSecurityDraft;
   onChange: (draft: ProfileSecurityDraft) => void;
+  sectionId?: string;
 };
 
 /** Human: Password rotation row plus green MFA switch per login-signup.pen Security Card. */
-export function ProfileSecurityCard({ draft, onChange }: ProfileSecurityCardProps) {
+export function ProfileSecurityCard({
+  draft,
+  onChange,
+  sectionId = "settings-security",
+}: ProfileSecurityCardProps) {
   const update = (patch: Partial<ProfileSecurityDraft>) => {
     onChange({ ...draft, ...patch });
   };
 
   return (
-    <ProfileCard id="profile-security">
+    <ProfileCard id={sectionId}>
       <div className="flex flex-col gap-4">
         <ProfileCardHeader
           title="Security & Credentials"

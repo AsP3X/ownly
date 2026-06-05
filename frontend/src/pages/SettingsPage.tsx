@@ -1,18 +1,25 @@
-// Human: My Profile — personal details and preferences only; security lives on /settings.
-// Agent: CALLS fetchUserProfile; RENDERS /profile; WRITES drafts to localStorage on save.
+// Human: Account Settings & Security — Pencil wireframe at /settings (password, MFA, sessions).
+// Agent: CALLS fetchUserProfile + changeOwnPassword; RENDERS drive shell; Tailwind-only chrome.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Save } from "lucide-react";
-import { fetchDashboard, fetchUserProfile, getErrorMessage } from "@/api/client";
+import {
+  changeOwnPassword,
+  fetchDashboard,
+  fetchUserProfile,
+  getErrorMessage,
+} from "@/api/client";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
 import { ProfilePersonalDetailsCard } from "@/components/profile/ProfilePersonalDetailsCard";
 import { ProfilePreferencesCard } from "@/components/profile/ProfilePreferencesCard";
 import {
   ProfileSectionNav,
-  type ProfileOnlySectionId,
+  type SettingsSectionId,
 } from "@/components/profile/ProfileSectionNav";
+import { ProfileSecurityCard } from "@/components/profile/ProfileSecurityCard";
+import { ProfileSessionsCard } from "@/components/profile/ProfileSessionsCard";
 import { ProfileSummaryCard } from "@/components/profile/ProfileSummaryCard";
 import { profilePrimaryButtonClassName } from "@/components/profile/profile-ui";
 import { useAuth } from "@/hooks/useAuth";
@@ -20,17 +27,26 @@ import { buildDriveSearchParams } from "@/lib/app-location-state";
 import {
   readPasswordChangedAt,
   readProfileDetailsDraft,
+  readProfileMfaEnabled,
   readProfilePreferences,
+  writePasswordChangedAt,
   writeProfileDetailsDraft,
+  writeProfileMfaEnabled,
   writeProfilePreferences,
   type ProfileDetailsDraft,
+  type ProfileSecurityDraft,
 } from "@/lib/profile-details-storage";
 import { formatProfileLocationLabel } from "@/lib/profile-format";
+import {
+  readProfileRemoteSessions,
+  writeProfileRemoteSessions,
+  type ProfileSessionRow,
+} from "@/lib/profile-sessions-storage";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
 
-/** Human: Authenticated profile route — identity summary, personal details, and preferences. */
-export default function ProfilePage() {
+/** Human: Authenticated settings route — full Account Settings & Security layout per login-signup.pen. */
+export default function SettingsPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -41,16 +57,22 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(null);
   const [usedBytes, setUsedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
-  const [activeSection, setActiveSection] = useState<ProfileOnlySectionId>("details");
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("security");
   const [detailsDraft, setDetailsDraft] = useState<ProfileDetailsDraft>({
     fullName: "",
     jobTitle: "",
     department: "",
     bio: "",
   });
+  const [securityDraft, setSecurityDraft] = useState<ProfileSecurityDraft>({
+    currentPassword: "",
+    newPassword: "",
+    mfaEnabled: true,
+  });
   const [preferences, setPreferences] = useState(() =>
     user?.id ? readProfilePreferences(user.id) : { emailNotifications: true, securityAlerts: true },
   );
+  const [remoteSessions, setRemoteSessions] = useState<ProfileSessionRow[]>([]);
   const [lastPasswordResetAt, setLastPasswordResetAt] = useState<string | null>(null);
 
   const displayName = useMemo(
@@ -86,6 +108,12 @@ export default function ProfilePage() {
         bio: savedDraft?.bio ?? "",
       });
       setPreferences(readProfilePreferences(userId));
+      setSecurityDraft({
+        currentPassword: "",
+        newPassword: "",
+        mfaEnabled: readProfileMfaEnabled(userId),
+      });
+      setRemoteSessions(readProfileRemoteSessions(userId));
       setLastPasswordResetAt(readPasswordChangedAt(userId));
     } catch (err) {
       setLoadError(getErrorMessage(err));
@@ -95,7 +123,7 @@ export default function ProfilePage() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial profile fetch on mount
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial settings fetch on mount
     void loadProfile();
   }, [loadProfile]);
 
@@ -113,7 +141,17 @@ export default function ProfilePage() {
     [navigate],
   );
 
-  const handleSaveAll = useCallback(() => {
+  const handleRevokeSession = useCallback(
+    (sessionId: string) => {
+      if (!profile) return;
+      const next = remoteSessions.filter((session) => session.id !== sessionId);
+      setRemoteSessions(next);
+      writeProfileRemoteSessions(profile.user.id, next);
+    },
+    [profile, remoteSessions],
+  );
+
+  const handleSaveAll = useCallback(async () => {
     if (!profile) return;
     setSaving(true);
     setSaveError("");
@@ -122,24 +160,47 @@ export default function ProfilePage() {
     try {
       writeProfileDetailsDraft(profile.user.id, detailsDraft);
       writeProfilePreferences(profile.user.id, preferences);
-      setSaveSuccess("Profile changes saved.");
+      writeProfileMfaEnabled(profile.user.id, securityDraft.mfaEnabled);
+
+      const wantsPasswordChange =
+        securityDraft.currentPassword.length > 0 || securityDraft.newPassword.length > 0;
+
+      if (wantsPasswordChange) {
+        if (!securityDraft.currentPassword || !securityDraft.newPassword) {
+          throw new Error("Enter both current and new password to update your credentials.");
+        }
+        await changeOwnPassword(securityDraft.currentPassword, securityDraft.newPassword);
+        const changedAt = new Date().toISOString();
+        writePasswordChangedAt(profile.user.id, changedAt);
+        setLastPasswordResetAt(changedAt);
+        setSecurityDraft((current) => ({
+          ...current,
+          currentPassword: "",
+          newPassword: "",
+        }));
+      }
+
+      setSaveSuccess("Settings saved.");
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [detailsDraft, preferences, profile]);
+  }, [detailsDraft, preferences, profile, securityDraft]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
       <header className="shrink-0 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
-        <h1 className="text-lg font-bold text-[#1A1A1A]">My Profile</h1>
-        <p className="text-xs text-[#666666]">Manage your personal details and preferences.</p>
+        <h1 className="text-lg font-bold text-[#1A1A1A]">Account Settings & Security</h1>
+        <p className="text-xs text-[#666666]">
+          Manage your personal details, secure keys, active sessions, and preferences.
+        </p>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
         <DriveSidebar
           activeNav="home"
+          settingsActive
           usedBytes={usedBytes}
           quotaBytes={quotaBytes}
           onNavChange={handleNavChange}
@@ -161,14 +222,14 @@ export default function ProfilePage() {
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
               <div className="flex min-w-0 flex-col gap-1.5">
-                <h1 className="text-2xl font-bold text-[#1A1A1A]">My Profile</h1>
+                <h1 className="text-2xl font-bold text-[#1A1A1A]">Account Settings & Security</h1>
                 <p className="max-w-2xl text-sm text-[#666666]">
-                  Manage your personal details and preferences.
+                  Manage your personal details, secure keys, active sessions, and preferences.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={handleSaveAll}
+                onClick={() => void handleSaveAll()}
                 disabled={saving || loading || !profile}
                 className={profilePrimaryButtonClassName}
               >
@@ -181,7 +242,7 @@ export default function ProfilePage() {
               </button>
             </div>
 
-            {loading ? <p className="text-sm text-[#666666]">Loading profile…</p> : null}
+            {loading ? <p className="text-sm text-[#666666]">Loading settings…</p> : null}
             {loadError ? (
               <p className="text-sm text-[#EF4444]" role="alert">
                 {loadError}
@@ -211,7 +272,7 @@ export default function ProfilePage() {
                     lastPasswordResetAt={lastPasswordResetAt}
                   />
                   <ProfileSectionNav
-                    variant="profile"
+                    variant="settings"
                     activeSection={activeSection}
                     onSelect={setActiveSection}
                   />
@@ -222,8 +283,18 @@ export default function ProfilePage() {
                     draft={detailsDraft}
                     email={profile.user.email}
                     onChange={setDetailsDraft}
+                    sectionId="settings-profile-details"
                   />
-                  <ProfilePreferencesCard preferences={preferences} onChange={setPreferences} />
+                  <ProfileSecurityCard draft={securityDraft} onChange={setSecurityDraft} />
+                  <ProfileSessionsCard
+                    remoteSessions={remoteSessions}
+                    onRevoke={handleRevokeSession}
+                  />
+                  <ProfilePreferencesCard
+                    preferences={preferences}
+                    onChange={setPreferences}
+                    sectionId="settings-preferences"
+                  />
                 </div>
               </div>
             ) : null}

@@ -53,6 +53,13 @@ export function DriveDesktopTopbar({
     navigate("/profile");
   }, [navigate]);
 
+  // Human: Open account settings from the profile dropdown Settings row.
+  // Agent: NAVIGATE /settings; WRITES profileOpen false before routing.
+  const handleSettings = useCallback(() => {
+    setProfileOpen(false);
+    navigate("/settings");
+  }, [navigate]);
+
   // Human: Dismiss profile popover when pointer down occurs outside the anchor cluster.
   // Agent: LISTENS document mousedown; READS profileAnchorRef; WRITES profileOpen false.
   useEffect(() => {
@@ -99,6 +106,7 @@ export function DriveDesktopTopbar({
           onLogout={handleSignOut}
           onAdminConsole={isAdmin ? handleAdminConsole : undefined}
           onProfile={handleProfile}
+          onSettings={handleSettings}
         />
       </div>
     </header>
