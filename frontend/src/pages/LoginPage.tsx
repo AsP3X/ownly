@@ -1,11 +1,13 @@
 // Human: Sign-in page for returning users after setup is complete — Ownly wireframe layout.
-// Agent: CALLS login API; setAuth; navigate "/"; READS registration setting for optional sign-up link.
+// Agent: CALLS login API; setAuth; navigate "/"; shows AccountNotActivatedDialog for inactive accounts.
 
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { getErrorMessage, login, registrationSetting } from "@/api/client";
+import { AccountNotActivatedDialog } from "@/components/auth/AccountNotActivatedDialog";
 import { useAuth } from "@/hooks/useAuth";
+import { isAccountActivationBlockedMessage } from "@/lib/account-activation";
 import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthIconField } from "@/components/auth/AuthIconField";
@@ -39,7 +41,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(Boolean(prefilledEmail));
   const [error, setError] = useState("");
-  const [info, setInfo] = useState(locationState?.info ?? "");
+  const [info, setInfo] = useState(
+    locationState?.info && !isAccountActivationBlockedMessage(locationState.info)
+      ? locationState.info
+      : "",
+  );
+  const [activationDialogOpen, setActivationDialogOpen] = useState(
+    Boolean(locationState?.info && isAccountActivationBlockedMessage(locationState.info)),
+  );
   const [loading, setLoading] = useState(false);
   const [allowRegister, setAllowRegister] = useState(false);
 
@@ -82,7 +91,13 @@ export default function LoginPage() {
       setAuth(res.token, res.user);
       navigate(redirectTo, { replace: true });
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      if (isAccountActivationBlockedMessage(message)) {
+        setActivationDialogOpen(true);
+        setError("");
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -162,6 +177,11 @@ export default function LoginPage() {
           </AuthSubmitButton>
         </form>
       </AuthFormCard>
+
+      <AccountNotActivatedDialog
+        open={activationDialogOpen}
+        onDismiss={() => setActivationDialogOpen(false)}
+      />
     </AuthPageShell>
   );
 }
