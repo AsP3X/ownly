@@ -73,6 +73,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
   const overallPercent =
     totalCount === 0 ? 0 : Math.round((processedCount / totalCount) * 100);
   const hasPending = counts.inFlight > 0 || counts.waiting > 0;
+  const isBulkBatch = totalCount > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
 
   return (
     <div
@@ -96,13 +97,18 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
           <span className="truncate text-sm font-bold text-[#1A1A1A]">Uploads</span>
         </div>
 
-        <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-0.5 self-start">
-          {!isComplete && hasPending && !minimized ? (
+        <div className="col-start-2 row-start-1 flex h-7 shrink-0 items-center justify-end gap-0.5 self-start">
+          {!isComplete && !minimized ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs font-semibold text-[#666666] hover:text-[#1A1A1A]"
+              className={cn(
+                "h-7 px-2 text-xs font-semibold text-[#666666] hover:text-[#1A1A1A]",
+                hasPending ? "visible" : "invisible pointer-events-none",
+              )}
+              tabIndex={hasPending ? 0 : -1}
+              aria-hidden={!hasPending}
               onClick={() => cancelAllUploadItems()}
             >
               Cancel all
@@ -137,7 +143,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
           )}
         </div>
 
-        <div className="col-span-2 min-w-0">
+        <div className="col-span-2 min-h-[1.125rem] min-w-0">
           <UploadHeaderStatusLine counts={counts} isComplete={isComplete} />
         </div>
       </div>
@@ -145,7 +151,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       {/* Human: Minimized tray — file count, percent, and overall bar per Pencil Minimized Uploads Panel. */}
       {/* Agent: READS processedCount/totalCount; RENDERS compact summary when minimized && !complete. */}
       {minimized && !isComplete ? (
-        <div className="flex flex-col gap-2.5 px-4 pb-4 pt-3">
+        <div className="flex min-h-[6.75rem] flex-col gap-2.5 px-4 pb-4 pt-3">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-[13px] font-semibold text-[#1A1A1A]">
               {processedCount} of {totalCount} file{totalCount === 1 ? "" : "s"}
@@ -155,16 +161,18 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             </span>
           </div>
           <UploadOverallProgressBar percent={overallPercent} />
-          {counts.waiting > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS ? (
-            <UploadQueueBacklogSummary count={counts.waiting} />
-          ) : null}
-          {counts.failed > 0 || counts.cancelled > 0 ? (
-            <p className="text-xs text-amber-800">
-              {counts.done} uploaded
-              {counts.failed > 0 ? ` · ${counts.failed} failed` : ""}
-              {counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}
-            </p>
-          ) : null}
+          <UploadQueueBacklogSummary count={counts.waiting} reserveSlot={isBulkBatch} />
+          <p
+            className={cn(
+              "min-h-[1rem] text-xs text-amber-800",
+              counts.failed > 0 || counts.cancelled > 0 ? "visible" : "invisible",
+            )}
+            aria-hidden={counts.failed === 0 && counts.cancelled === 0}
+          >
+            {counts.done} uploaded
+            {counts.failed > 0 ? ` · ${counts.failed} failed` : ""}
+            {counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}
+          </p>
         </div>
       ) : null}
 

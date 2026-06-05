@@ -12,10 +12,13 @@ import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-/** Human: Max height for the scrollable file list inside the expanded transfer panel. */
-export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "17.5rem";
+/** Human: Fixed height for the scrollable in-flight list — prevents the tray from resizing as rows finish. */
+export const UPLOAD_PANEL_LIST_HEIGHT = "17.5rem";
 
-/** Human: Above this count, backlog rows collapse to one summary line to avoid list height churn. */
+/** Human: Reserved height for the pinned queue/done summary slots in the fixed top band. */
+export const UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT = "1.375rem";
+
+/** Human: Above this count, completed rows collapse to one summary line to avoid list height churn. */
 export const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
 
 // Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / amber / green).
@@ -359,13 +362,7 @@ function UploadBatchSummaryRow({
   if (counts.inFlight > 0) {
     backlogParts.push(`${counts.inFlight} active`);
   }
-  // Human: Large queues use UploadQueueBacklogSummary in the fixed top band — avoid duplicating the count here.
-  if (
-    counts.waiting > 0 &&
-    counts.waiting <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS
-  ) {
-    backlogParts.push(`${counts.waiting} queued`);
-  }
+  // Human: Waiting files always use UploadQueueBacklogSummary in the fixed top band — not repeated here.
   if (counts.failed + counts.cancelled > 0) {
     backlogParts.push(`${counts.failed + counts.cancelled} failed`);
   }
@@ -382,32 +379,62 @@ function UploadBatchSummaryRow({
   );
 }
 
-// Human: One-line queue backlog — pinned above the scroll list during bulk uploads.
-// Agent: READS waiting count; RENDERED in fixed top band; RETURNS null when zero.
-export function UploadQueueBacklogSummary({ count }: { count: number }) {
-  if (count === 0) return null;
+// Human: One-line queue backlog — always occupies a fixed slot in the top band when reserved.
+// Agent: READS waiting count; RENDERS clock + label or empty placeholder to keep tray height stable.
+export function UploadQueueBacklogSummary({
+  count,
+  reserveSlot = false,
+}: {
+  count: number;
+  reserveSlot?: boolean;
+}) {
+  if (count === 0 && !reserveSlot) return null;
 
   return (
-    <div className="flex items-center gap-2 py-1">
-      <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
-      <p className="truncate text-[11px] text-[#888888]">
-        {count} file{count === 1 ? "" : "s"} waiting in queue
-      </p>
+    <div
+      className="flex shrink-0 items-center gap-2"
+      style={{ minHeight: UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT }}
+    >
+      {count > 0 ? (
+        <>
+          <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
+          <p className="truncate text-[11px] text-[#888888]">
+            {count} file{count === 1 ? "" : "s"} waiting in queue
+          </p>
+        </>
+      ) : (
+        <span className="sr-only">No files waiting in queue</span>
+      )}
     </div>
   );
 }
 
-// Human: Collapsed completed summary when the batch is large — keeps scroll height stable.
-// Agent: READS done count; RETURNS single line instead of one row per finished file.
-function UploadDoneBacklogSummary({ count }: { count: number }) {
-  if (count === 0) return null;
+// Human: Collapsed completed summary — pinned in the fixed top band for large batches.
+// Agent: READS done count; RENDERS check + label or empty placeholder when reserveSlot keeps layout stable.
+export function UploadDoneBacklogSummary({
+  count,
+  reserveSlot = false,
+}: {
+  count: number;
+  reserveSlot?: boolean;
+}) {
+  if (count === 0 && !reserveSlot) return null;
 
   return (
-    <div className="flex items-center gap-2 py-1">
-      <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
-      <p className="truncate text-[11px] text-[#888888]">
-        {count} file{count === 1 ? "" : "s"} completed
-      </p>
+    <div
+      className="flex shrink-0 items-center gap-2"
+      style={{ minHeight: UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT }}
+    >
+      {count > 0 ? (
+        <>
+          <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
+          <p className="truncate text-[11px] text-[#888888]">
+            {count} file{count === 1 ? "" : "s"} completed
+          </p>
+        </>
+      ) : (
+        <span className="sr-only">No completed uploads yet</span>
+      )}
     </div>
   );
 }
@@ -433,15 +460,10 @@ export function UploadBatchProgressView({
   const processedCount = counts.done + counts.failed + counts.cancelled;
   const overallPercent =
     items.length === 0 ? 0 : Math.round((processedCount / items.length) * 100);
-  const showIndividualWaitingRows =
-    waitingItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
+  const isBulkBatch = items.length > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const showIndividualDoneRows =
-    doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
-  const listIsEmpty =
-    activeItems.length === 0 &&
-    waitingItems.length === 0 &&
-    doneItems.length === 0 &&
-    failedItems.length === 0;
+    !isBulkBatch && doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
+  const listIsEmpty = activeItems.length === 0 && failedItems.length === 0;
 
   return (
     <>
@@ -452,35 +474,32 @@ export function UploadBatchProgressView({
       />
       <UploadOverallProgressBar percent={overallPercent} />
 
-      {!showIndividualWaitingRows ? (
-        <UploadQueueBacklogSummary count={waitingItems.length} />
+      {/* Human: Fixed-height top slots — bulk batches reserve space so the tray never reflows. */}
+      {/* Agent: queue/done summaries stay above the divider; scroll list height stays constant. */}
+      <UploadQueueBacklogSummary count={waitingItems.length} reserveSlot={isBulkBatch} />
+      {isBulkBatch ? (
+        <UploadDoneBacklogSummary count={doneItems.length} reserveSlot />
       ) : null}
 
       <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
 
       <div
-        className="flex min-h-0 shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain"
-        style={{ maxHeight: UPLOAD_PANEL_LIST_MAX_HEIGHT }}
+        className="flex shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain"
+        style={{ height: UPLOAD_PANEL_LIST_HEIGHT }}
       >
         {listIsEmpty ? (
-          <p className="py-6 text-center text-sm text-[#888888]">Preparing next files…</p>
+          <p className="flex min-h-[3.25rem] items-center justify-center text-center text-sm text-[#888888]">
+            {waitingItems.length > 0 ? "Waiting for the next slot…" : "Preparing next files…"}
+          </p>
         ) : null}
 
         {activeItems.map((item) => (
           <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
         ))}
 
-        {showIndividualWaitingRows
-          ? waitingItems.map((item) => (
-              <QueuedFileRow key={item.id} item={item} onCancel={onCancelItem} />
-            ))
-          : null}
         {showIndividualDoneRows
           ? doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
           : null}
-        {!showIndividualDoneRows ? (
-          <UploadDoneBacklogSummary count={doneItems.length} />
-        ) : null}
 
         {failedItems.map((item) => (
           <FailedUploadRow key={item.id} item={item} onRemove={onRemoveItem} />
