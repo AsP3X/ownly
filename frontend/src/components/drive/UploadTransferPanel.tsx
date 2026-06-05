@@ -2,7 +2,7 @@
 // Agent: SUBSCRIBES upload-manager; RENDERS UploadBatchProgressView; DISMISS when batch complete.
 
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Upload, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import {
   UploadBatchProgressView,
   UploadOverallProgressBar,
@@ -24,27 +24,34 @@ type UploadTransferPanelProps = {
   onMinimizedChange: (minimized: boolean) => void;
 };
 
-// Human: Pill badge for active or queued counts in the panel header.
-function UploadStatusBadge({
-  label,
-  variant,
+// Human: Compact status line for the minimized tray header — plain text avoids pill/button overlap.
+// Agent: READS batch counts; RETURNS null when expanded (summary row already shows the same detail).
+function UploadHeaderStatusLine({
+  counts,
+  isComplete,
 }: {
-  label: string;
-  variant: "active" | "queued" | "complete" | "warning";
+  counts: ReturnType<typeof getUploadBatchDisplayCounts>;
+  isComplete: boolean;
 }) {
-  const classes =
-    variant === "active"
-      ? "bg-[#DBEAFE] text-[#2563EB]"
-      : variant === "queued"
-        ? "bg-[#F3F4F6] text-[#666666]"
-        : variant === "complete"
-          ? "bg-[#DCFCE7] text-emerald-800"
-          : "bg-[#FEF3C7] text-amber-900";
+  if (isComplete) {
+    if (counts.failed > 0 || counts.cancelled > 0) {
+      const parts = [`${counts.done} uploaded`];
+      if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+      if (counts.cancelled > 0) parts.push(`${counts.cancelled} cancelled`);
+      return (
+        <p className="text-xs font-medium text-amber-800">{parts.join(" · ")}</p>
+      );
+    }
+    return <p className="text-xs font-medium text-emerald-800">All uploads complete</p>;
+  }
+
+  const parts: string[] = [];
+  if (counts.inFlight > 0) parts.push(`${counts.inFlight} active`);
+  if (counts.waiting > 0) parts.push(`${counts.waiting} queued`);
+  if (parts.length === 0) return null;
 
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold", classes)}>
-      {label}
-    </span>
+    <p className="text-xs tabular-nums text-[#666666]">{parts.join(" · ")}</p>
   );
 }
 
@@ -74,39 +81,30 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       role="region"
       aria-label="Uploads"
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-5">
-        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+      {/* Human: Two-row header — title/actions never share a row with status labels. */}
+      {/* Agent: GRID col1 title + optional status; col2 stacked actions; SKIPS status row when expanded. */}
+      <div
+        className={cn(
+          "grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-5 pt-4",
+          !minimized ? "border-b border-[#E5E7EB] pb-3" : "pb-1",
+        )}
+      >
+        <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2">
           <Upload className="size-4 shrink-0 text-[#2563EB]" aria-hidden />
-          <span className="text-sm font-bold text-[#1A1A1A]">Uploads</span>
-          {!minimized && isComplete ? (
-            counts.failed > 0 || counts.cancelled > 0 ? (
-              <UploadStatusBadge
-                variant="warning"
-                label={`${counts.done} done${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}${counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}`}
-              />
-            ) : (
-              <UploadStatusBadge variant="complete" label="Complete" />
-            )
-          ) : !minimized && !isComplete ? (
-            <>
-              {counts.inFlight > 0 ? (
-                <UploadStatusBadge variant="active" label={`${counts.inFlight} active`} />
-              ) : null}
-              {counts.waiting > 0 ? (
-                <UploadStatusBadge variant="queued" label={`${counts.waiting} queued`} />
-              ) : null}
-            </>
-          ) : null}
+          <span className="truncate text-sm font-bold text-[#1A1A1A]">Uploads</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+
+        <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-0.5 self-start">
           {!isComplete && hasPending && !minimized ? (
-            <button
+            <Button
               type="button"
-              className="rounded-md px-2 py-1 text-xs font-bold text-[#666666] transition hover:bg-[#F7F8FA] hover:text-[#1A1A1A]"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold text-[#666666] hover:text-[#1A1A1A]"
               onClick={() => cancelAllUploadItems()}
             >
               Cancel all
-            </button>
+            </Button>
           ) : null}
           {isComplete ? (
             <Button
@@ -120,15 +118,28 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               <X className="size-4" />
             </Button>
           ) : (
-            <button
+            <Button
               type="button"
-              className="rounded-md px-2 py-1 text-xs font-bold text-[#666666] transition hover:bg-[#F7F8FA] hover:text-[#1A1A1A]"
+              variant="ghost"
+              size="icon-sm"
+              className="text-[#888888] hover:text-[#1A1A1A]"
+              aria-label={minimized ? "Expand uploads panel" : "Minimize uploads panel"}
               onClick={() => onMinimizedChange(!minimized)}
             >
-              {minimized ? "Show" : "Minimize"}
-            </button>
+              {minimized ? (
+                <ChevronUp className="size-4" aria-hidden />
+              ) : (
+                <ChevronDown className="size-4" aria-hidden />
+              )}
+            </Button>
           )}
         </div>
+
+        {minimized ? (
+          <div className="col-span-2 min-w-0">
+            <UploadHeaderStatusLine counts={counts} isComplete={isComplete} />
+          </div>
+        ) : null}
       </div>
 
       {/* Human: Minimized tray — file count, percent, and overall bar per Pencil Minimized Uploads Panel. */}
@@ -172,7 +183,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       ) : null}
 
       {!minimized && !isComplete ? (
-        <div className="flex min-h-0 shrink-0 flex-col gap-3 px-5 pb-5 pt-3">
+        <div className="flex min-h-0 shrink-0 flex-col gap-3 px-5 pb-5 pt-4">
           <UploadBatchProgressView
             items={batch.items}
             onCancelItem={cancelUploadItem}
