@@ -90,7 +90,7 @@ function CellContent({
       )}
       style={{
         fontSize: scaledPx(12),
-        color: cf?.textColor ?? "#1A1A1A",
+        color: cf?.textColor ?? cell.style?.textColor ?? "#1A1A1A",
         fontWeight: cf?.bold ? 700 : undefined,
       }}
     >
@@ -415,7 +415,11 @@ export function ExcelSpreadsheetGrid({
                         "relative flex shrink-0 items-center overflow-hidden border-r border-b border-[#E5E7EB] text-left transition-colors",
                         isHeader && "bg-[#FAFAFA] font-bold",
                         isTotalRow && "bg-[#EFF6FF]",
-                        !isHeader && !isTotalRow && !cf?.backgroundColor && "bg-white",
+                        !isHeader &&
+                          !isTotalRow &&
+                          !cf?.backgroundColor &&
+                          !cell.style?.backgroundColor &&
+                          "bg-white",
                         selected && "z-10 border-2 border-[#2563EB] bg-[#EFF6FF] ring-1 ring-[#2563EB]",
                         isNumericCol && "justify-end",
                       )}
@@ -423,7 +427,10 @@ export function ExcelSpreadsheetGrid({
                         width: columnWidths[colIndex],
                         height: rowHeight,
                         paddingInline: scaledPx(8),
-                        backgroundColor: !selected && cf?.backgroundColor ? cf.backgroundColor : undefined,
+                        backgroundColor:
+                          !selected && (cf?.backgroundColor ?? cell.style?.backgroundColor)
+                            ? (cf?.backgroundColor ?? cell.style?.backgroundColor)
+                            : undefined,
                       }}
                     >
                       {/* Agent: Data bar overlay from conditional formatting rules. */}

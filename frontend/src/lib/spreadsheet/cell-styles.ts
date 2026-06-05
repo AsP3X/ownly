@@ -1,0 +1,91 @@
+// Human: Map SheetJS per-cell style objects (cellStyles) into our CellStyle model.
+// Agent: READS raw.s from XLSX.read({ cellStyles: true }); RETURNS background/font fields.
+
+import type { CellStyle, NumberFormat } from "@/lib/spreadsheet/types";
+
+type XlsxColor = {
+  rgb?: string;
+  theme?: number;
+  tint?: number;
+  indexed?: number;
+};
+
+export type XlsxCellStyle = {
+  patternType?: string;
+  fgColor?: XlsxColor;
+  bgColor?: XlsxColor;
+  color?: XlsxColor;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  horizontal?: string;
+  vertical?: string;
+};
+
+// Human: Convert OOXML/SheetJS ARGB or RGB hex into #RRGGBB for CSS.
+// Agent: STRIPS alpha prefix when present; RETURNS undefined for empty input.
+export function argbToDisplayHex(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const cleaned = raw.replace(/^#?/, "").toUpperCase();
+  if (cleaned.length === 8) return `#${cleaned.slice(2)}`;
+  if (cleaned.length === 6) return `#${cleaned}`;
+  return undefined;
+}
+
+function resolveFillColor(fgColor?: XlsxColor, bgColor?: XlsxColor): string | undefined {
+  return argbToDisplayHex(fgColor?.rgb) ?? argbToDisplayHex(bgColor?.rgb);
+}
+
+function mapHorizontalAlign(raw: string | undefined): CellStyle["horizontalAlign"] {
+  switch (raw) {
+    case "center":
+      return "center";
+    case "right":
+      return "right";
+    default:
+      return "left";
+  }
+}
+
+function mapVerticalAlign(raw: string | undefined): CellStyle["verticalAlign"] {
+  switch (raw) {
+    case "center":
+      return "middle";
+    case "bottom":
+      return "bottom";
+    default:
+      return "top";
+  }
+}
+
+// Human: Build CellStyle from SheetJS cell.s plus optional number format hint.
+// Agent: MERGES imported fill/font with row-level header defaults from parse.ts.
+export function cellStyleFromXlsx(
+  sheetStyle: XlsxCellStyle | Record<string, unknown> | undefined,
+  numberFormat: NumberFormat,
+  rowDefaults: Pick<CellStyle, "bold" | "isHeaderRow" | "isTotalRow">,
+): CellStyle {
+  const style: CellStyle = {
+    ...rowDefaults,
+    numberFormat,
+  };
+
+  if (!sheetStyle || typeof sheetStyle !== "object") return style;
+
+  const xlsxStyle = sheetStyle as XlsxCellStyle;
+
+  if (xlsxStyle.patternType && xlsxStyle.patternType !== "none") {
+    const fill = resolveFillColor(xlsxStyle.fgColor, xlsxStyle.bgColor);
+    if (fill) style.backgroundColor = fill;
+  }
+
+  const textColor = argbToDisplayHex(xlsxStyle.color?.rgb);
+  if (textColor) style.textColor = textColor;
+  if (xlsxStyle.bold) style.bold = true;
+  if (xlsxStyle.italic) style.italic = true;
+  if (xlsxStyle.underline) style.underline = true;
+  if (xlsxStyle.horizontal) style.horizontalAlign = mapHorizontalAlign(xlsxStyle.horizontal);
+  if (xlsxStyle.vertical) style.verticalAlign = mapVerticalAlign(xlsxStyle.vertical);
+
+  return style;
+}

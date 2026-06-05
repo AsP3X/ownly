@@ -2,6 +2,7 @@
 // Agent: READS ArrayBuffer/Blob; WRITES SpreadsheetWorkbook; SERIALIZES back to xlsx bytes on save.
 
 import * as XLSX from "xlsx";
+import { cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import {
   applyDimensionsToWorksheet,
@@ -37,15 +38,13 @@ function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCe
       ? raw.w
       : formatCellDisplay(value, numberFormat === "currency" ? "currency" : "general");
 
+  const resolvedNumberFormat = numberFormat === "currency" ? "currency" : "general";
+
   return {
     value,
     formula,
     display,
-    style: {
-      numberFormat: numberFormat === "currency" ? "currency" : "general",
-      bold: row === 0,
-      isHeaderRow: row === 0,
-    },
+    style: cellStyleFromXlsx(raw.s, resolvedNumberFormat, { bold: row === 0, isHeaderRow: row === 0 }),
   };
 }
 
@@ -68,7 +67,7 @@ function sheetToRows(sheet: XLSX.WorkSheet): SheetCell[][] {
 // Human: Parse uploaded spreadsheet bytes into an in-memory workbook model.
 // Agent: READS ArrayBuffer; IMPORTS conditional formatting from OOXML; RETURNS SpreadsheetWorkbook.
 export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<SpreadsheetWorkbook> {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: true, cellStyles: true });
   const sheetNames = workbook.SheetNames;
   const conditionalBySheet = await importConditionalFormatsFromXlsx(buffer, sheetNames);
 

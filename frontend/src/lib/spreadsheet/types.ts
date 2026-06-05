@@ -15,6 +15,9 @@ export type CellStyle = {
   verticalAlign?: VerticalAlign;
   numberFormat?: NumberFormat;
   backgroundColor?: string;
+  // Human: Direct font color from xlsx cell style (not conditional formatting).
+  // Agent: READ from SheetJS cell.s.color; RENDERED in grid when no CF textColor wins.
+  textColor?: string;
   isHeaderRow?: boolean;
   isTotalRow?: boolean;
 };

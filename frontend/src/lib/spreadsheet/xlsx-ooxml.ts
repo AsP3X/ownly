@@ -532,13 +532,13 @@ export async function importConditionalFormatsFromXlsx(
 
   const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
   const relMap = new Map<string, string>();
-  for (const match of relsXml.matchAll(/<Relationship\b([^/>]*)\/?>/gi)) {
+  for (const match of relsXml.matchAll(/<Relationship\b([^>]*)\/?>/gi)) {
     const id = readXmlAttribute(match[1], "Id");
     const target = readXmlAttribute(match[1], "Target");
     if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
   }
 
-  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^/>]*)\/?>/gi)];
+  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^>]*)\/?>/gi)];
   for (const sheetMatch of sheetMatches) {
     const attrs = sheetMatch[1];
     const name = readXmlAttribute(attrs, "name");
@@ -568,7 +568,7 @@ export async function exportConditionalFormatsToXlsx(
   const stylesXml = new TextDecoder().decode(entries.get("xl/styles.xml") ?? new Uint8Array());
   const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
   const relMap = new Map<string, string>();
-  for (const match of relsXml.matchAll(/<Relationship\b([^/>]*)\/?>/gi)) {
+  for (const match of relsXml.matchAll(/<Relationship\b([^>]*)\/?>/gi)) {
     const id = readXmlAttribute(match[1], "Id");
     const target = readXmlAttribute(match[1], "Target");
     if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
@@ -576,7 +576,7 @@ export async function exportConditionalFormatsToXlsx(
 
   const dxfOffset = countExistingDxfs(stylesXml);
   const allDxfs: string[] = [];
-  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^/>]*)\/?>/gi)];
+  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^>]*)\/?>/gi)];
 
   for (const sheetMatch of sheetMatches) {
     const attrs = sheetMatch[1];
