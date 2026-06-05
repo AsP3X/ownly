@@ -44,7 +44,9 @@ pub mod user_sessions;
 use config::Config;
 use sqlx::PgPool;
 use storage::{
+    gated::GatedStorage,
     memory::MemoryStorage,
+    put_gate::StoragePutGate,
     router::{RouterConfig, RouterStorage},
     Storage,
 };
@@ -138,7 +140,7 @@ async fn build_app_state(
             .ok()
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| config.signing_secret.clone());
-        let router = RouterStorage::new(
+        let router = Arc::new(RouterStorage::new(
             pool.clone(),
             RouterConfig {
                 primary_base_url: config.object_storage_url.clone(),
@@ -147,8 +149,13 @@ async fn build_app_state(
                 jwt_secret: config.object_storage_jwt_secret.clone(),
                 signing_secret: object_storage_signing,
             },
-        )?;
-        Arc::new(router)
+        )?) as Arc<dyn Storage>;
+        let put_gate = StoragePutGate::new(config.storage_put_max_concurrent as usize);
+        info!(
+            storage_put_max_concurrent = put_gate.max_concurrent(),
+            "Object storage PUT concurrency gate enabled"
+        );
+        Arc::new(GatedStorage::new(router, put_gate))
     };
 
     let storage_configured = config.storage_mode == "proxy";

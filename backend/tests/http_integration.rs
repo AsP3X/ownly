@@ -39,6 +39,7 @@ fn test_config(database_url: &str) -> Config {
         hls_large_maxrate: "5M".into(),
         hls_large_bufsize: "10M".into(),
         storage_metadata_mode: "nebular".into(),
+        storage_put_max_concurrent: 2,
     }
 }
 

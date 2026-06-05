@@ -5,11 +5,11 @@ use std::future::Future;
 
 use super::Storage;
 
-// Human: Match HLS segment upload retry budget — enough for SQLite busy windows under bulk ingest.
-// Agent: MAX 4 attempts; exponential backoff from 250ms capped at 5s.
-const PUT_MAX_ATTEMPTS: u32 = 4;
-const PUT_RETRY_BASE_MS: u64 = 250;
-const PUT_RETRY_MAX_MS: u64 = 5_000;
+// Human: Back off longer than Nebular/SQLite busy_timeout (~5s) so retries run after locks clear.
+// Agent: MAX 5 attempts; exponential backoff from 1.5s capped at 12s; PAIRED with StoragePutGate.
+const PUT_MAX_ATTEMPTS: u32 = 5;
+const PUT_RETRY_BASE_MS: u64 = 1_500;
+const PUT_RETRY_MAX_MS: u64 = 12_000;
 
 // Human: Classify errors that often clear after a short pause (Nebular contention, dropped connections).
 // Agent: READS anyhow display string; MATCHES HLS is_likely_storage_pressure for consistent behavior.

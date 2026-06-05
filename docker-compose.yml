@@ -115,6 +115,9 @@ services:
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
       UPLOAD_RPM: ${UPLOAD_RPM:-600}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
+      # Human: Cap parallel Nebular PUTs from API — pairs with SQLite metadata; raise only when using Postgres metadata backend.
+      # Agent: READ by StoragePutGate; DEFAULT 2; WRAPS all Storage::put (uploads, thumbnails, HLS).
+      STORAGE_PUT_MAX_CONCURRENT: ${STORAGE_PUT_MAX_CONCURRENT:-2}
       # Human: Optional GPU HLS ingest — auto|off|nvenc|vaapi|qsv (defaults to auto; CPU when no GPU).
       # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}

@@ -96,9 +96,9 @@ type UploadFileRegisteredListener = (file: FileItem) => void;
 
 
 
-// Human: Four pipeline stages — three concurrent uploads, then three each for processing, encrypting, and storing.
+// Human: Two browser upload slots — aligned with backend STORAGE_PUT_MAX_CONCURRENT to avoid Nebular SQLite lock storms.
 // Agent: UPLOAD slots = localFile rows; POST-UPLOAD slots = upload-pipeline.ts per phase.
-const MAX_CONCURRENT_UPLOADS = 3;
+const MAX_CONCURRENT_UPLOADS = 2;
 const UPLOAD_MAX_RETRIES = 6;
 const UPLOAD_RETRY_BASE_MS = 1_500;
 const UPLOAD_RETRY_MAX_MS = 30_000;

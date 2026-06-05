@@ -93,6 +93,10 @@ pub struct Config {
     /// Agent: WRITTEN to app_settings on setup; READ by placement::read_metadata_mode.
     #[serde(default = "default_storage_metadata_mode")]
     pub storage_metadata_mode: String,
+    /// Human: Max simultaneous Nebular PUT HTTP calls from this API (uploads, thumbnails, HLS).
+    /// Agent: READ by StoragePutGate; DEFAULT 2; LOWER under SQLite metadata to avoid 500 busy timeouts.
+    #[serde(default = "default_storage_put_max_concurrent")]
+    pub storage_put_max_concurrent: u32,
 }
 
 impl Config {
@@ -228,4 +232,8 @@ fn default_hls_large_bufsize() -> String {
 
 fn default_storage_metadata_mode() -> String {
     "nebular".into()
+}
+
+fn default_storage_put_max_concurrent() -> u32 {
+    2
 }

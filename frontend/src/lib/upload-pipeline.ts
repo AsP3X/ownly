@@ -1,10 +1,10 @@
-// Human: Per-stage upload pipeline slots — up to three files in processing, encrypting, and storing at once.
+// Human: Per-stage upload pipeline slots — up to two files in processing, encrypting, and storing at once.
 // Agent: ACQUIRE blocks until a stage slot opens; RELEASE drains wait queues and unblocks the next file.
 
 export type PipelinePostStage = "processing" | "encrypting" | "storing";
 
-/** Human: Independent concurrency ceiling for each post-upload pipeline stage. */
-export const PIPELINE_STAGE_LIMIT = 3;
+/** Human: Independent concurrency ceiling for each post-upload pipeline stage (matches upload slot count). */
+export const PIPELINE_STAGE_LIMIT = 2;
 
 const POST_STAGES: PipelinePostStage[] = ["processing", "encrypting", "storing"];
 

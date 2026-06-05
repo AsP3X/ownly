@@ -24,9 +24,11 @@ pub trait Storage: Send + Sync {
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String>;
 }
 
+pub mod gated;
 pub mod memory;
 pub mod nebula;
 pub mod placement;
+pub mod put_gate;
 pub mod put_retry;
 pub mod router;
 
