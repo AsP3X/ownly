@@ -296,7 +296,7 @@ export function ExcelSpreadsheetDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[112.5rem]"
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[75rem]"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -305,8 +305,8 @@ export function ExcelSpreadsheetDialog({
           <DialogDescription>View and edit spreadsheet files in the browser.</DialogDescription>
         </DialogHeader>
 
-        {/* Human: Viewer card — 1.5× Pencil baseline (1275px / 135dvh) matching PdfPreviewDialog shell scale. */}
-        <div className="flex h-[min(1275px,135dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+        {/* Human: Viewer card — 1× Pencil baseline (850px / 90dvh); was 1.5× before scale-down. */}
+        <div className="flex h-[min(850px,90dvh)] w-full flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
           <ExcelDialogHeader
             file={file}
             dirty={dirty}
