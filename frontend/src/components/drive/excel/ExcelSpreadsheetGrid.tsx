@@ -4,13 +4,17 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
 import { cellAddressLabel, columnIndexToLetters, statusBadgeTone } from "@/lib/spreadsheet/cells";
+import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import type { CellAddress, SheetCell } from "@/lib/spreadsheet/types";
 import { cn } from "@/lib/utils";
 
-const ROW_HEIGHT = 25;
-const ROW_INDEX_WIDTH = 40;
-const DEFAULT_COL_WIDTH = 100;
-const FIRST_COL_WIDTH = 179;
+// Human: Pencil grid metrics at 1.5× — row 25px, index 40px, cols 179/100px baselines.
+// Agent: READ by virtualizer estimateSize and column width math.
+const ROW_HEIGHT = scaledPx(25);
+const HEADER_ROW_HEIGHT = scaledPx(26);
+const ROW_INDEX_WIDTH = scaledPx(40);
+const DEFAULT_COL_WIDTH = scaledPx(100);
+const FIRST_COL_WIDTH = scaledPx(179);
 
 type ExcelSpreadsheetGridProps = {
   rows: SheetCell[][];
@@ -35,7 +39,10 @@ function CellContent({ cell }: { cell: SheetCell }) {
   const badge = statusBadgeTone(cell.display);
   if (badge) {
     return (
-      <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", badgeClasses(badge))}>
+      <span
+        className={cn("rounded-full font-semibold", badgeClasses(badge))}
+        style={{ fontSize: scaledPx(10), padding: `${scaledPx(2)}px ${scaledPx(8)}px` }}
+      >
         {cell.display}
       </span>
     );
@@ -44,7 +51,7 @@ function CellContent({ cell }: { cell: SheetCell }) {
   return (
     <span
       className={cn(
-        "truncate text-xs text-[#1A1A1A]",
+        "truncate text-[#1A1A1A]",
         cell.style?.bold && "font-bold",
         cell.style?.italic && "italic",
         cell.style?.underline && "underline",
@@ -52,6 +59,7 @@ function CellContent({ cell }: { cell: SheetCell }) {
         cell.style?.horizontalAlign === "right" && "text-right",
         (cell.style?.numberFormat === "currency" || typeof cell.value === "number") && "ml-auto text-right",
       )}
+      style={{ fontSize: scaledPx(12) }}
     >
       {cell.display}
     </span>
@@ -78,13 +86,20 @@ export function ExcelSpreadsheetGrid({ rows, selection, onSelectCell }: ExcelSpr
     <div ref={parentRef} className="min-h-0 flex-1 overflow-auto bg-[#F7F8FA]">
       <div style={{ width: gridWidth, minWidth: "100%" }}>
         {/* Human: Column header row — corner cell + A…N labels per Pencil AOdk5. */}
-        <div className="sticky top-0 z-20 flex h-[26px] border-b border-[#E5E7EB] bg-[#F3F4F6]">
-          <div className="w-10 shrink-0 border-r border-[#E5E7EB] bg-[#E5E7EB]" aria-hidden />
+        <div
+          className="sticky top-0 z-20 flex border-b border-[#E5E7EB] bg-[#F3F4F6]"
+          style={{ height: HEADER_ROW_HEIGHT }}
+        >
+          <div
+            className="shrink-0 border-r border-[#E5E7EB] bg-[#E5E7EB]"
+            style={{ width: ROW_INDEX_WIDTH }}
+            aria-hidden
+          />
           {Array.from({ length: columnCount }, (_, colIndex) => (
             <div
               key={colIndex}
-              style={{ width: colWidths[colIndex] }}
-              className="flex shrink-0 items-center justify-center border-r border-[#E5E7EB] text-xs font-medium text-[#666666]"
+              className="flex shrink-0 items-center justify-center border-r border-[#E5E7EB] font-medium text-[#666666]"
+              style={{ width: colWidths[colIndex], fontSize: scaledPx(12) }}
             >
               {columnIndexToLetters(colIndex)}
             </div>
@@ -108,7 +123,10 @@ export function ExcelSpreadsheetGrid({ rows, selection, onSelectCell }: ExcelSpr
                   width: gridWidth,
                 }}
               >
-                <div className="flex w-10 shrink-0 items-center justify-center border-r border-b border-[#E5E7EB] bg-[#F3F4F6] text-[11px] text-[#666666]">
+                <div
+                  className="flex shrink-0 items-center justify-center border-r border-b border-[#E5E7EB] bg-[#F3F4F6] text-[#666666]"
+                  style={{ width: ROW_INDEX_WIDTH, fontSize: scaledPx(11) }}
+                >
                   {rowIndex + 1}
                 </div>
 
@@ -121,17 +139,17 @@ export function ExcelSpreadsheetGrid({ rows, selection, onSelectCell }: ExcelSpr
                     <button
                       key={colIndex}
                       type="button"
-                      style={{ width: colWidths[colIndex] }}
                       aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                       onClick={() => onSelectCell({ row: rowIndex, col: colIndex })}
                       className={cn(
-                        "flex shrink-0 items-center border-r border-b border-[#E5E7EB] px-2 text-left transition-colors",
+                        "flex shrink-0 items-center border-r border-b border-[#E5E7EB] text-left transition-colors",
                         isHeader && "bg-[#FAFAFA] font-bold",
                         isTotalRow && "bg-[#EFF6FF]",
                         !isHeader && !isTotalRow && "bg-white",
                         selected && "z-10 border-2 border-[#2563EB] bg-[#EFF6FF] ring-1 ring-[#2563EB]",
                         isNumericCol && "justify-end",
                       )}
+                      style={{ width: colWidths[colIndex], paddingInline: scaledPx(8) }}
                     >
                       <CellContent cell={cell} />
                     </button>

@@ -21,6 +21,7 @@ import type {
   CellStyle,
   HorizontalAlign,
 } from "@/lib/spreadsheet/types";
+import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import { cn } from "@/lib/utils";
 
 export type RibbonTabId =
@@ -50,7 +51,9 @@ type ExcelSpreadsheetRibbonProps = {
 };
 
 function RibbonDivider() {
-  return <div className="h-6 w-px shrink-0 bg-[#E5E7EB]" aria-hidden />;
+  return (
+    <div className="w-px shrink-0 bg-[#E5E7EB]" style={{ height: scaledPx(24) }} aria-hidden />
+  );
 }
 
 function RibbonButton({
@@ -69,11 +72,16 @@ function RibbonButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold text-[#1A1A1A] transition-colors",
+        "inline-flex items-center rounded-lg border font-semibold text-[#1A1A1A] transition-colors",
         active
           ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]"
           : "border-[#E5E7EB] bg-[#F7F8FA] hover:bg-white",
       )}
+      style={{
+        gap: scaledPx(4),
+        padding: `${scaledPx(4)}px ${scaledPx(8)}px`,
+        fontSize: scaledPx(11),
+      }}
     >
       {icon}
       {label}
@@ -274,7 +282,15 @@ export function ExcelSpreadsheetRibbon({
   return (
     <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
       {/* Human: Tab row — active tab gets blue underline per Pencil ribbon variants. */}
-      <div className="flex h-7 items-end gap-4 bg-[#F7F8FA] px-4 pt-1">
+      <div
+        className="flex items-end bg-[#F7F8FA]"
+        style={{
+          height: scaledPx(28),
+          gap: scaledPx(16),
+          paddingInline: scaledPx(16),
+          paddingTop: scaledPx(4),
+        }}
+      >
         {RIBBON_TABS.map((tab) => {
           const active = tab.id === activeTab;
           return (
@@ -283,9 +299,14 @@ export function ExcelSpreadsheetRibbon({
               type="button"
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "relative px-2 pb-1 text-xs transition-colors",
+                "relative transition-colors",
                 active ? "font-bold text-[#2563EB]" : "font-medium text-[#666666] hover:text-[#1A1A1A]",
               )}
+              style={{
+                fontSize: scaledPx(12),
+                paddingInline: scaledPx(8),
+                paddingBottom: scaledPx(4),
+              }}
             >
               {tab.label}
               {active ? (
@@ -296,8 +317,15 @@ export function ExcelSpreadsheetRibbon({
         })}
       </div>
 
-      {/* Human: Tools area — 61px tall ribbon controls matching Pencil height. */}
-      <div className="flex min-h-[61px] flex-wrap items-center gap-3 px-4 py-2">
+      {/* Human: Tools area — 1.5× Pencil ribbon height (61px baseline). */}
+      <div
+        className="flex flex-wrap items-center bg-white"
+        style={{
+          minHeight: scaledPx(61),
+          gap: scaledPx(12),
+          padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
+        }}
+      >
         {activeTab === "file" ? <FileTools /> : null}
         {activeTab === "home" ? <HomeTools cellStyle={cellStyle} onStyleChange={onStyleChange} /> : null}
         {activeTab === "insert" ? <InsertTools /> : null}

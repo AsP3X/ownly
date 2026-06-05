@@ -1,7 +1,8 @@
 // Human: Excel formula bar — active cell name box, fx label, editable formula input.
-// Agent: READS cell address + formula text; EMITS commit on Enter/blur per Pencil S1A5tt.
+// Agent: READS cell address + formula text; EMITS commit on Enter/blur per Pencil S1A5tt at 1.5× scale.
 
 import { useState } from "react";
+import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import { cn } from "@/lib/utils";
 
 type ExcelFormulaBarProps = {
@@ -27,12 +28,29 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
   const [draft, setDraft] = useState(value);
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[#E5E7EB] bg-white px-4 py-1">
-      <div className="flex h-[26px] w-12 items-center justify-center rounded border border-[#E5E7EB] bg-[#F7F8FA] text-xs font-bold text-[#1A1A1A]">
+    <div
+      className="flex shrink-0 items-center border-b border-[#E5E7EB] bg-white"
+      style={{
+        height: scaledPx(36),
+        gap: scaledPx(8),
+        paddingInline: scaledPx(16),
+        paddingBlock: scaledPx(4),
+      }}
+    >
+      <div
+        className="flex items-center justify-center rounded border border-[#E5E7EB] bg-[#F7F8FA] font-bold text-[#1A1A1A]"
+        style={{
+          height: scaledPx(26),
+          width: scaledPx(48),
+          fontSize: scaledPx(12),
+        }}
+      >
         {cellLabel}
       </div>
-      <div className="h-4 w-px bg-[#E5E7EB]" aria-hidden />
-      <span className="px-1 text-sm font-bold italic text-[#888888]">fx</span>
+      <div className="bg-[#E5E7EB]" style={{ height: scaledPx(16), width: 1 }} aria-hidden />
+      <span className="font-bold italic text-[#888888]" style={{ fontSize: scaledPx(14), paddingInline: scaledPx(4) }}>
+        fx
+      </span>
       <input
         type="text"
         value={draft}
@@ -49,9 +67,13 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
           if (draft !== value) onCommit(draft);
         }}
         className={cn(
-          "min-w-0 flex-1 rounded border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]",
+          "min-w-0 flex-1 rounded border border-[#E5E7EB] bg-white text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]",
           readOnly && "cursor-default bg-[#F7F8FA]",
         )}
+        style={{
+          fontSize: scaledPx(12),
+          padding: `${scaledPx(4)}px ${scaledPx(8)}px`,
+        }}
         aria-label="Formula input"
       />
     </div>

@@ -1,5 +1,7 @@
-// Human: Excel footer status bar — Ready indicator and selection metrics per Pencil h15ld0.
+// Human: Excel footer status bar — Ready indicator and selection metrics per Pencil h15ld0 at 1.5× scale.
 // Agent: READS formatted stats line; RENDERS green dot + Average/Count/Sum summary.
+
+import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 
 type ExcelStatusBarProps = {
   metricsLine: string;
@@ -7,12 +9,23 @@ type ExcelStatusBarProps = {
 
 export function ExcelStatusBar({ metricsLine }: ExcelStatusBarProps) {
   return (
-    <div className="flex h-6 shrink-0 items-center justify-between border-t border-[#E5E7EB] bg-[#F7F8FA] px-4">
-      <div className="flex items-center gap-1.5">
-        <span className="size-1.5 rounded-full bg-[#10B981]" aria-hidden />
-        <span className="text-[10px] text-[#888888]">Ready</span>
+    <div
+      className="flex shrink-0 items-center justify-between border-t border-[#E5E7EB] bg-[#F7F8FA]"
+      style={{ height: scaledPx(24), paddingInline: scaledPx(16) }}
+    >
+      <div className="flex items-center" style={{ gap: scaledPx(6) }}>
+        <span
+          className="rounded-full bg-[#10B981]"
+          style={{ width: scaledPx(6), height: scaledPx(6) }}
+          aria-hidden
+        />
+        <span className="text-[#888888]" style={{ fontSize: scaledPx(10) }}>
+          Ready
+        </span>
       </div>
-      <p className="text-[10px] font-medium text-[#666666]">{metricsLine}</p>
+      <p className="font-medium text-[#666666]" style={{ fontSize: scaledPx(10) }}>
+        {metricsLine}
+      </p>
     </div>
   );
 }
