@@ -11,7 +11,6 @@ export type ProfileDetailsDraft = {
 const DETAILS_KEY_PREFIX = "ownly-profile-details-";
 const PASSWORD_CHANGED_KEY_PREFIX = "ownly-password-changed-at-";
 const PREFERENCES_KEY_PREFIX = "ownly-profile-preferences-";
-const MFA_KEY_PREFIX = "ownly-profile-mfa-";
 
 export type ProfilePreferences = {
   emailNotifications: boolean;
@@ -46,13 +45,6 @@ export function writeProfileDetailsDraft(userId: string, draft: ProfileDetailsDr
   window.localStorage.setItem(detailsKey(userId), JSON.stringify(draft));
 }
 
-// Human: Record successful password rotation for the summary stat row.
-// Agent: WRITES ISO timestamp to localStorage.
-export function writePasswordChangedAt(userId: string, iso: string): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(passwordChangedKey(userId), iso);
-}
-
 // Human: Read last password change timestamp for the summary card.
 // Agent: READS localStorage; RETURNS ISO string or null.
 export function readPasswordChangedAt(userId: string): string | null {
@@ -62,10 +54,6 @@ export function readPasswordChangedAt(userId: string): string | null {
 
 function preferencesKey(userId: string) {
   return `${PREFERENCES_KEY_PREFIX}${userId}`;
-}
-
-function mfaKey(userId: string) {
-  return `${MFA_KEY_PREFIX}${userId}`;
 }
 
 // Human: Load notification preference toggles saved from the profile page.
@@ -86,14 +74,4 @@ export function readProfilePreferences(userId: string): ProfilePreferences {
 export function writeProfilePreferences(userId: string, preferences: ProfilePreferences): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(preferencesKey(userId), JSON.stringify(preferences));
-}
-
-export function readProfileMfaEnabled(userId: string): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(mfaKey(userId)) === "1";
-}
-
-export function writeProfileMfaEnabled(userId: string, enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(mfaKey(userId), enabled ? "1" : "0");
 }

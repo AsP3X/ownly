@@ -1,22 +1,15 @@
-// Human: Account Settings & Security — Pencil User Profile wireframe with drive shell.
-// Agent: CALLS fetchUserProfile + changeOwnPassword; RENDERS /profile; Tailwind-only chrome.
+// Human: Account Settings — Pencil User Profile wireframe with drive shell.
+// Agent: CALLS fetchUserProfile; RENDERS /profile; Tailwind-only chrome.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Save } from "lucide-react";
-import {
-  changeOwnPassword,
-  fetchDashboard,
-  fetchUserProfile,
-  getErrorMessage,
-} from "@/api/client";
+import { fetchDashboard, fetchUserProfile, getErrorMessage } from "@/api/client";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
 import { ProfilePersonalDetailsCard } from "@/components/profile/ProfilePersonalDetailsCard";
 import { ProfilePreferencesCard } from "@/components/profile/ProfilePreferencesCard";
 import { ProfileSectionNav, type ProfileSectionId } from "@/components/profile/ProfileSectionNav";
-import { ProfileSecurityCard } from "@/components/profile/ProfileSecurityCard";
-import { ProfileSessionsCard } from "@/components/profile/ProfileSessionsCard";
 import { ProfileSummaryCard } from "@/components/profile/ProfileSummaryCard";
 import { profilePrimaryButtonClassName } from "@/components/profile/profile-ui";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,11 +17,8 @@ import { buildDriveSearchParams } from "@/lib/app-location-state";
 import {
   readPasswordChangedAt,
   readProfileDetailsDraft,
-  readProfileMfaEnabled,
   readProfilePreferences,
-  writePasswordChangedAt,
   writeProfileDetailsDraft,
-  writeProfileMfaEnabled,
   writeProfilePreferences,
   type ProfileDetailsDraft,
 } from "@/lib/profile-details-storage";
@@ -43,7 +33,6 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
-  const [securityError, setSecurityError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(null);
@@ -59,11 +48,6 @@ export default function ProfilePage() {
   const [preferences, setPreferences] = useState(() =>
     user?.id ? readProfilePreferences(user.id) : { emailNotifications: true, securityAlerts: true },
   );
-  const [mfaEnabled, setMfaEnabled] = useState(() =>
-    user?.id ? readProfileMfaEnabled(user.id) : false,
-  );
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [lastPasswordResetAt, setLastPasswordResetAt] = useState<string | null>(null);
 
   const displayName = useMemo(
@@ -98,7 +82,6 @@ export default function ProfilePage() {
         bio: savedDraft?.bio ?? "",
       });
       setPreferences(readProfilePreferences(profileRes.user.id));
-      setMfaEnabled(readProfileMfaEnabled(profileRes.user.id));
       setLastPasswordResetAt(readPasswordChangedAt(profileRes.user.id));
     } catch (err) {
       setLoadError(getErrorMessage(err));
@@ -126,50 +109,29 @@ export default function ProfilePage() {
     [navigate],
   );
 
-  const handleSaveAll = useCallback(async () => {
+  const handleSaveAll = useCallback(() => {
     if (!profile) return;
     setSaving(true);
     setSaveError("");
-    setSecurityError("");
     setSaveSuccess("");
 
     try {
-      if (currentPassword || newPassword) {
-        if (newPassword.length < 8) {
-          const message = "New password must be at least 8 characters.";
-          setSecurityError(message);
-          setSaveError(message);
-          setActiveSection("security");
-          return;
-        }
-        await changeOwnPassword(currentPassword, newPassword);
-        const changedAt = new Date().toISOString();
-        writePasswordChangedAt(profile.user.id, changedAt);
-        setLastPasswordResetAt(changedAt);
-        setCurrentPassword("");
-        setNewPassword("");
-      }
-
       writeProfileDetailsDraft(profile.user.id, detailsDraft);
       writeProfilePreferences(profile.user.id, preferences);
-      writeProfileMfaEnabled(profile.user.id, mfaEnabled);
       setSaveSuccess("Profile changes saved.");
     } catch (err) {
-      const message = getErrorMessage(err);
-      setSecurityError(message);
-      setSaveError(message);
-      setActiveSection("security");
+      setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [currentPassword, detailsDraft, mfaEnabled, newPassword, preferences, profile]);
+  }, [detailsDraft, preferences, profile]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
       {/* Human: Mobile page title — desktop header lives inside scroll area per Pencil layout. */}
       <header className="shrink-0 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
         <h1 className="text-lg font-bold text-[#1A1A1A]">Account Settings & Security</h1>
-        <p className="text-xs text-[#666666]">Manage your personal details and security.</p>
+        <p className="text-xs text-[#666666]">Manage your personal details and preferences.</p>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -198,12 +160,12 @@ export default function ProfilePage() {
               <div className="flex min-w-0 flex-col gap-1.5">
                 <h1 className="text-2xl font-bold text-[#1A1A1A]">Account Settings & Security</h1>
                 <p className="max-w-2xl text-sm text-[#666666]">
-                  Manage your personal details, secure keys, active sessions, and preferences.
+                  Manage your personal details and preferences.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => void handleSaveAll()}
+                onClick={handleSaveAll}
                 disabled={saving || loading || !profile}
                 className={profilePrimaryButtonClassName}
               >
@@ -254,22 +216,6 @@ export default function ProfilePage() {
                     email={profile.user.email}
                     onChange={setDetailsDraft}
                   />
-                  <ProfileSecurityCard
-                    currentPassword={currentPassword}
-                    newPassword={newPassword}
-                    mfaEnabled={mfaEnabled}
-                    error={securityError}
-                    onCurrentPasswordChange={(value) => {
-                      setSecurityError("");
-                      setCurrentPassword(value);
-                    }}
-                    onNewPasswordChange={(value) => {
-                      setSecurityError("");
-                      setNewPassword(value);
-                    }}
-                    onMfaEnabledChange={setMfaEnabled}
-                  />
-                  <ProfileSessionsCard />
                   <ProfilePreferencesCard preferences={preferences} onChange={setPreferences} />
                 </div>
               </div>

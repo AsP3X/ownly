@@ -1,8 +1,7 @@
 // Human: Shared Tailwind primitives for the Account Settings & Security profile page.
 // Agent: RENDERS Pencil login-signup.pen card shells, form fields, and stat rows; no API calls.
 
-import { useState, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 /** Human: White bordered card — Pencil radius-xl + border-color on profile panels. */
@@ -12,10 +11,6 @@ export const profileCardClassName =
 /** Human: Primary save CTA — Pencil Save Profile Button (accent fill, radius-lg). */
 export const profilePrimaryButtonClassName =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60";
-
-/** Human: Revoke session outline — Pencil Revoke Button (red text, #FEE2E2 stroke). */
-export const profileRevokeButtonClassName =
-  "inline-flex items-center justify-center rounded-lg border border-[#FEE2E2] px-3.5 py-2 text-xs font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-50";
 
 export function ProfileCard({
   children,
@@ -107,45 +102,6 @@ export function ProfileTextarea({
   );
 }
 
-/** Human: Password row with eye toggle — Pencil security inputs with eye-off icon. */
-export function ProfilePasswordInput({
-  id,
-  value,
-  onChange,
-  placeholder = "••••••••••••",
-  autoComplete,
-}: {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  autoComplete?: string;
-}) {
-  const [visible, setVisible] = useState(false);
-
-  return (
-    <div className="relative">
-      <input
-        id={id}
-        type={visible ? "text" : "password"}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        className="flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 pr-11 text-sm text-[#1A1A1A] outline-none transition-colors placeholder:text-[#666666] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-      />
-      <button
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] transition-colors hover:text-[#666666]"
-        aria-label={visible ? "Hide password" : "Show password"}
-      >
-        {visible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
-      </button>
-    </div>
-  );
-}
-
 /** Human: Summary stat row — label left, value right in summary card. */
 export function ProfileStatRow({
   label,
@@ -164,11 +120,3 @@ export function ProfileStatRow({
   );
 }
 
-/** Human: Current session badge — Pencil #EFF6FF fill with accent text. */
-export function ProfileSessionBadge({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex rounded border border-[#DBEAFE] bg-[#EFF6FF] px-1.5 py-0.5 text-[10px] font-semibold text-[#2563EB]">
-      {children}
-    </span>
-  );
-}
