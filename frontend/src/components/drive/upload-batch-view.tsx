@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "17.5rem";
 
 /** Human: Above this count, backlog rows collapse to one summary line to avoid list height churn. */
-const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
+export const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
 
 // Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / amber / green).
 // Agent: MAPS uploading | processing | encrypting | storing to Tailwind text and bar fill classes.
@@ -359,7 +359,11 @@ function UploadBatchSummaryRow({
   if (counts.inFlight > 0) {
     backlogParts.push(`${counts.inFlight} active`);
   }
-  if (counts.waiting > 0) {
+  // Human: Large queues use UploadQueueBacklogSummary in the fixed top band — avoid duplicating the count here.
+  if (
+    counts.waiting > 0 &&
+    counts.waiting <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS
+  ) {
     backlogParts.push(`${counts.waiting} queued`);
   }
   if (counts.failed + counts.cancelled > 0) {
@@ -378,9 +382,9 @@ function UploadBatchSummaryRow({
   );
 }
 
-// Human: One-line queue backlog — avoids rendering hundreds of QueuedFileRow tiles during bulk uploads.
-// Agent: READS waiting count; RETURNS null when zero.
-function UploadQueueBacklogSummary({ count }: { count: number }) {
+// Human: One-line queue backlog — pinned above the scroll list during bulk uploads.
+// Agent: READS waiting count; RENDERED in fixed top band; RETURNS null when zero.
+export function UploadQueueBacklogSummary({ count }: { count: number }) {
   if (count === 0) return null;
 
   return (
@@ -448,6 +452,10 @@ export function UploadBatchProgressView({
       />
       <UploadOverallProgressBar percent={overallPercent} />
 
+      {!showIndividualWaitingRows ? (
+        <UploadQueueBacklogSummary count={waitingItems.length} />
+      ) : null}
+
       <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
 
       <div
@@ -467,10 +475,6 @@ export function UploadBatchProgressView({
               <QueuedFileRow key={item.id} item={item} onCancel={onCancelItem} />
             ))
           : null}
-        {!showIndividualWaitingRows ? (
-          <UploadQueueBacklogSummary count={waitingItems.length} />
-        ) : null}
-
         {showIndividualDoneRows
           ? doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
           : null}

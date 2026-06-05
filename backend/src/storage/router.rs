@@ -266,6 +266,13 @@ impl Storage for RouterStorage {
         client.list_keys_with_prefix(prefix).await
     }
 
+    // Human: Purge every routed object under a prefix — delegates to the resolved Nebular client.
+    // Agent: CALLS NebulaStorage::delete_prefix; STRIPED keys still purge via per-key router.delete fallback.
+    async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<u32> {
+        let client = self.resolve_client(prefix).await?;
+        client.delete_prefix(prefix).await
+    }
+
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
         // Human: Presigned URLs only work for single-node blobs — striped files use API proxy download.
         // Agent: block_in_place + block_on from async handlers; ERRORS when file_storage_parts exist.

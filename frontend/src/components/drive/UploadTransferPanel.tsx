@@ -4,8 +4,10 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import {
+  UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS,
   UploadBatchProgressView,
   UploadOverallProgressBar,
+  UploadQueueBacklogSummary,
 } from "@/components/drive/upload-batch-view";
 import {
   cancelAllUploadItems,
@@ -24,8 +26,8 @@ type UploadTransferPanelProps = {
   onMinimizedChange: (minimized: boolean) => void;
 };
 
-// Human: Compact status line for the minimized tray header — plain text avoids pill/button overlap.
-// Agent: READS batch counts; RETURNS null when expanded (summary row already shows the same detail).
+// Human: Compact status line under the title — plain text avoids pill/button overlap in the header grid.
+// Agent: READS batch counts; RENDERS active/queued or completion text on its own full-width row.
 function UploadHeaderStatusLine({
   counts,
   isComplete,
@@ -135,11 +137,9 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
           )}
         </div>
 
-        {minimized ? (
-          <div className="col-span-2 min-w-0">
-            <UploadHeaderStatusLine counts={counts} isComplete={isComplete} />
-          </div>
-        ) : null}
+        <div className="col-span-2 min-w-0">
+          <UploadHeaderStatusLine counts={counts} isComplete={isComplete} />
+        </div>
       </div>
 
       {/* Human: Minimized tray — file count, percent, and overall bar per Pencil Minimized Uploads Panel. */}
@@ -155,6 +155,9 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             </span>
           </div>
           <UploadOverallProgressBar percent={overallPercent} />
+          {counts.waiting > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS ? (
+            <UploadQueueBacklogSummary count={counts.waiting} />
+          ) : null}
           {counts.failed > 0 || counts.cancelled > 0 ? (
             <p className="text-xs text-amber-800">
               {counts.done} uploaded

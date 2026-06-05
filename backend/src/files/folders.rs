@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     audit, auth::handlers::Claims, error::AppError,
-    files::file_delete::{delete_owned_file_row, storage_object_count},
+    files::file_delete::{permanent_delete_owned_files, storage_object_count},
     files::listing::{self, ListFoldersParams},
     files::recycle_bin::{self, DeleteQuery, ACTIVE_FILES_SQL, ACTIVE_FOLDERS_SQL},
     AppState,
@@ -456,17 +456,17 @@ pub async fn delete_folder(
     let file_count = files.len() as u32;
     let file_ids: Vec<String> = files.into_iter().map(|file| file.id).collect();
 
-    for file_id in &file_ids {
-        let deleted =
-            delete_owned_file_row(&state, &state.pool, &claims.sub, file_id).await?;
+    let purged =
+        permanent_delete_owned_files(&state, &state.pool, &claims.sub, &file_ids, None).await?;
+    for row in &purged {
         audit::write_audit(
             &state.pool,
             Some(&claims.sub),
             "files.delete.permanent",
             Some("file"),
-            Some(file_id),
+            Some(&row.id),
             Some(serde_json::json!({
-                "name": deleted.name,
+                "name": row.name,
                 "via": "folders.delete.permanent",
                 "folder_id": id,
             })),

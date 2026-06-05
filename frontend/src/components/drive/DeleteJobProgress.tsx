@@ -52,13 +52,18 @@ export function DeletePreviewLoading() {
 export function DeletePreviewSummary({
   storageObjectCount,
   fileCount,
+  permanentOnly = true,
 }: {
   storageObjectCount: number;
   fileCount: number;
+  /** Human: When false (drive recycle dialog), clarify blobs are removed only via Permanently. */
+  permanentOnly?: boolean;
 }) {
+  const verb = permanentOnly ? "This will remove" : "Permanently deleting will remove";
+
   return (
     <p className="border-b border-neutral-100 px-6 py-3 text-sm text-neutral-600">
-      This will remove {formatStorageObjectCount(storageObjectCount)}
+      {verb} {formatStorageObjectCount(storageObjectCount)}
       {fileCount > 1 ? ` across ${fileCount.toLocaleString()} files` : ""}.
     </p>
   );

@@ -62,6 +62,20 @@ impl Storage for MemoryStorage {
         Ok(keys)
     }
 
+    // Human: Remove every in-memory blob whose key starts with the prefix.
+    // Agent: COLLECTS matching keys; REMOVES from HashMap; RETURNS removed count.
+    async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<u32> {
+        let keys = self.list_keys_with_prefix(prefix).await?;
+        let mut guard = self.blobs.lock().expect("memory storage lock");
+        let mut deleted = 0u32;
+        for key in keys {
+            if guard.remove(&key).is_some() {
+                deleted = deleted.saturating_add(1);
+            }
+        }
+        Ok(deleted)
+    }
+
     fn presigned_url(&self, key: &str, _expiry_seconds: u64) -> anyhow::Result<String> {
         Ok(format!("memory://{key}"))
     }

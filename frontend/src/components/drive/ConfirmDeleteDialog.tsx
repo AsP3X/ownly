@@ -272,7 +272,11 @@ export function ConfirmDeleteDialog({
   }
 
   const showFilePreviewSummary =
-    itemKind === "file" && filePreview && !filePreviewLoading && !filePreviewError;
+    itemKind === "file" &&
+    filePreview &&
+    !filePreviewLoading &&
+    !filePreviewError &&
+    filePreview.storage_object_count > 0;
   const previewBlocked =
     (itemKind === "file" && filePreviewLoading) ||
     (itemKind === "folder" && folderPreviewLoading);
@@ -318,6 +322,7 @@ export function ConfirmDeleteDialog({
             <DeletePreviewSummary
               storageObjectCount={filePreview.storage_object_count}
               fileCount={1}
+              permanentOnly={permanentOnly}
             />
           ) : null}
 
@@ -336,6 +341,7 @@ export function ConfirmDeleteDialog({
                     <DeletePreviewSummary
                       storageObjectCount={folderPreview.storage_object_count}
                       fileCount={folderPreview.file_count}
+                      permanentOnly={permanentOnly}
                     />
                   ) : null}
                 </>

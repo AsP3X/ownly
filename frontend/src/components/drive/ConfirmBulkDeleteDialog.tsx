@@ -247,7 +247,11 @@ export function ConfirmBulkDeleteDialog({
     }
   }
 
-  const showPreviewSummary = preview && !previewLoading && !previewError;
+  const showPreviewSummary =
+    preview &&
+    !previewLoading &&
+    !previewError &&
+    preview.storage_object_count > 0;
   const permanentDeleteUsesJob =
     recycleBinEmpty ||
     (preview ? shouldUseDeleteJob(preview) : items.length > 1);
@@ -309,6 +313,7 @@ export function ConfirmBulkDeleteDialog({
             <DeletePreviewSummary
               storageObjectCount={preview.storage_object_count}
               fileCount={preview.file_count}
+              permanentOnly={permanentOnly}
             />
           ) : null}
 

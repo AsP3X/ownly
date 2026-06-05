@@ -1,0 +1,126 @@
+From: ownly-backend <backend@ownly.local>
+Subject: [PATCH] Add bulk DELETE by prefix for faster library purge
+
+Apply in AsP3X/nebular-os (not in the ownly submodule checkout):
+
+  git am scripts/nebular-bulk-delete-prefix.patch
+
+Ownly's NebulaStorage calls `DELETE /{bucket}?prefix=…` and falls back to
+list + parallel per-key DELETE when the endpoint is unavailable (404/405/501).
+
+---
+ src/routes/bucket.rs | 45 +++++++++++++++++++++++++++++++++++++++++++++
+ src/server.rs       |  2 +-
+ src/storage/engine.rs | 35 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 81 insertions(+), 1 deletion(-)
+
+diff --git a/src/routes/bucket.rs b/src/routes/bucket.rs
+index 71df618..bulkdel1 100644
+--- a/src/routes/bucket.rs
++++ b/src/routes/bucket.rs
+@@ -23,6 +23,12 @@ pub struct ListQuery {
+     list_type: Option<u32>,
+ }
+ 
++#[derive(Debug, Deserialize)]
++pub struct DeletePrefixQuery {
++    pub prefix: String,
++}
++
+ /// Human: List object keys in a bucket; returns JSON by default or S3 ListObjectsV2 XML when compat is on.
+ /// Agent: GET /{bucket}; READS NOS_S3_COMPAT; CALLS StorageEngine::list_objects; EMITS JSON or application/xml.
+ pub async fn list_objects(
+@@ -78,3 +84,38 @@ pub async fn list_objects(
+         }
+     }
+ }
++
++/// Human: Hard-delete every object whose key starts with `prefix` — used by Ownly bulk library purge.
++/// Agent: DELETE /{bucket}?prefix=…; CALLS StorageEngine::delete_objects_with_prefix; JSON `{ deleted }`.
++pub async fn delete_objects_by_prefix(
++    State(state): State<Arc<AppState>>,
++    Path(bucket): Path<String>,
++    Query(query): Query<DeletePrefixQuery>,
++) -> impl IntoResponse {
++    if query.prefix.trim().is_empty() {
++        return (
++            StatusCode::BAD_REQUEST,
++            Json(serde_json::json!({ "error": "prefix is required" })),
++        )
++            .into_response();
++    }
++
++    match state
++        .backend()
++        .delete_objects_with_prefix(&bucket, query.prefix.trim())
++        .await
++    {
++        Ok(deleted) => (
++            StatusCode::OK,
++            Json(serde_json::json!({ "deleted": deleted })),
++        )
++            .into_response(),
++        Err(e) => {
++            tracing::error!(%bucket, prefix = %query.prefix, error = %e, "delete_objects_by_prefix failed");
++            let (status, json) = crate::routes::errors::map_storage_error(e);
++            (status, json).into_response()
++        }
++    }
++}
+diff --git a/src/server.rs b/src/server.rs
+index c1a1198..bulkdel2 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -86,7 +86,7 @@ pub async fn create_app(
+             .get(object::get_object)
+             .head(object::head_object),
+     )
+-    .route("/{bucket}", get(bucket::list_objects))
++    .route("/{bucket}", get(bucket::list_objects).delete(bucket::delete_objects_by_prefix))
+     .layer(auth_layer);
+ 
+     if cfg.rate_limit_rps > 0 {
+diff --git a/src/storage/engine.rs b/src/storage/engine.rs
+index 002e13c..bulkdel3 100644
+--- a/src/storage/engine.rs
++++ b/src/storage/engine.rs
+@@ -682,6 +682,41 @@ impl StorageEngine {
+         Ok(())
+     }
+ 
++    /// Human: Hard-delete all live objects under a prefix — paginated list + per-key delete.
++    /// Agent: CALLS list_objects; DELETE each key via delete_object; RETURNS deleted count.
++    pub async fn delete_objects_with_prefix(
++        &self,
++        bucket: &str,
++        prefix: &str,
++    ) -> Result<u32, StorageError> {
++        let bucket = sanitize_bucket(bucket).map_err(|_| StorageError::InvalidBucket)?;
++        if prefix.trim().is_empty() {
++            return Err(StorageError::InvalidKey);
++        }
++
++        let mut deleted = 0u32;
++        let mut start_after: Option<String> = None;
++        loop {
++            let page = self
++                .list_objects(&bucket, Some(prefix), None, Some(1000), start_after.as_deref())
++                .await?;
++            for item in &page.items {
++                self.delete_object(&bucket, &item.key, None).await?;
++                deleted = deleted.saturating_add(1);
++            }
++            if !page.is_truncated {
++                break;
++            }
++            start_after = page.next_start_after;
++            if start_after.is_none() {
++                break;
++            }
++        }
++        Ok(deleted)
++    }
++
+     /// Human: Probes SQLite pools and blob directory writability for orchestrator readiness checks.
+     /// Agent: SELECT 1 on write+read pools; WRITE+DELETE probe file under NOS_DATA_DIR/.nos-ready-probe.
+     pub async fn probe_readiness(&self) -> ReadinessChecks {

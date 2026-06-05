@@ -1,13 +1,18 @@
 // Human: HTTP client for Nebular OS object storage — authenticated with service JWTs and HMAC presigned URLs.
 // Agent: USES reqwest with Bearer service token; IMPLEMENTS Storage trait; READS base/public URLs + bucket.
 
-use futures_util::StreamExt;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use futures_util::stream::{self, StreamExt};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::Sha256;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use crate::storage::{Storage, StorageStream};
+use crate::storage::{Storage, StorageStream, DELETE_BLOB_CONCURRENCY};
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct ObjectListItem {
@@ -39,6 +44,12 @@ struct ListApiItem {
     #[serde(default)]
     size: i64,
     mime_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeletePrefixApiResult {
+    #[serde(default)]
+    deleted: u32,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -92,6 +103,50 @@ impl NebulaStorage {
     fn auth_header(&self) -> reqwest::header::HeaderValue {
         reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.jwt_token))
             .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static(""))
+    }
+
+    // Human: Try Nebular bulk DELETE /{bucket}?prefix=… when the pinned submodule supports it.
+    // Agent: HTTP DELETE with prefix query; RETURNS None on 404/405 so caller can list+parallel fallback.
+    async fn try_bulk_delete_prefix(&self, prefix: &str) -> anyhow::Result<Option<u32>> {
+        let list_url = format!("{}/{}", self.base_url, self.bucket);
+        let response = self
+            .client
+            .delete(&list_url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .query(&[("prefix", prefix)])
+            .send()
+            .await?;
+        let status = response.status();
+        if status.as_u16() == 404 || status.as_u16() == 405 || status.as_u16() == 501 {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            anyhow::bail!("object storage bulk DELETE failed: {}", status);
+        }
+        let body: DeletePrefixApiResult = response.json().await.unwrap_or(DeletePrefixApiResult {
+            deleted: 0,
+        });
+        Ok(Some(body.deleted))
+    }
+
+    // Human: List every key under a prefix and delete them with bounded concurrency.
+    // Agent: CALLS list_keys_with_prefix; DELETE per key; RETURNS attempt count.
+    async fn delete_prefix_parallel_fallback(&self, prefix: &str) -> anyhow::Result<u32> {
+        let keys = self.list_keys_with_prefix(prefix).await?;
+        let deleted = Arc::new(AtomicU32::new(0));
+        let counter = deleted.clone();
+        let client = self.clone();
+        stream::iter(keys)
+            .for_each_concurrent(DELETE_BLOB_CONCURRENCY, move |key| {
+                let deleted = counter.clone();
+                let client = client.clone();
+                async move {
+                    let _ = client.delete(&key).await;
+                    deleted.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+            .await;
+        Ok(deleted.load(Ordering::Relaxed))
     }
 
     // Human: Paginated bucket listing with optional delimiter for admin storage explorer UI.
@@ -263,6 +318,19 @@ impl Storage for NebulaStorage {
         }
 
         Ok(keys)
+    }
+
+    // Human: Delete all objects under a prefix — bulk Nebular API first, parallel per-key fallback.
+    // Agent: CALLS try_bulk_delete_prefix; ON miss CALLS delete_prefix_parallel_fallback.
+    async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<u32> {
+        match self.try_bulk_delete_prefix(prefix).await {
+            Ok(Some(deleted)) if deleted > 0 => Ok(deleted),
+            Ok(_) => self.delete_prefix_parallel_fallback(prefix).await,
+            Err(error) => {
+                tracing::warn!(%prefix, %error, "nebular bulk delete_prefix failed; falling back");
+                self.delete_prefix_parallel_fallback(prefix).await
+            }
+        }
     }
 
     async fn put(&self, key: &str, content_type: &str, data: Vec<u8>) -> anyhow::Result<()> {
