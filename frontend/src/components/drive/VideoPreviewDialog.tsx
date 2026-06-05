@@ -270,12 +270,14 @@ export function VideoPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* Human: Desktop shell — 1.5× Pencil baseline (1440px) so the 1800px player card fits with flanking nav. */}
+      {/* Agent: NARROW branch stays full-viewport; wide branch caps at 2160px with calc(100%-1rem) fallback. */}
       <DialogContent
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
             ? "!flex fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
-            : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
+            : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[2160px]",
         )}
         overlayClassName={cn(
           "bg-[#0A0A10]/80 backdrop-blur-2xl",
@@ -310,9 +312,9 @@ export function VideoPreviewDialog({
               disabled={!hasPrevious}
               onClick={goPrevious}
               aria-label="Previous video"
-              className="flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+              className="flex size-[5.625rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
-              <ChevronLeft className="size-7" aria-hidden />
+              <ChevronLeft className="size-10" aria-hidden />
             </button>
           ) : null}
 
@@ -334,9 +336,9 @@ export function VideoPreviewDialog({
               disabled={!hasNext}
               onClick={goNext}
               aria-label="Next video"
-              className="flex size-[3.75rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+              className="flex size-[5.625rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
-              <ChevronRight className="size-7" aria-hidden />
+              <ChevronRight className="size-10" aria-hidden />
             </button>
           ) : null}
         </div>

@@ -1,4 +1,4 @@
-// Human: Pencil desktop video player — 1200×900 card, title pill, control bar, fullscreen.
+// Human: Pencil desktop video player — 1.5× baseline (1800×1350 card), title pill, control bar, fullscreen.
 // Agent: READS videoRef from parent for HLS attach; USES useVideoTransport; hidden below lg breakpoint.
 
 import { useRef, type RefObject } from "react";
@@ -75,7 +75,7 @@ export function VideoPlayerSurface({
     <div
       ref={cardRef}
       className={cn(
-        "relative w-full max-w-[1200px] overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
+        "relative w-full max-w-[1800px] overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
         "fullscreen:overflow-visible",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none" : "aspect-[4/3]",
@@ -195,7 +195,7 @@ export function VideoPlayerSurface({
           chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <div className="mx-auto flex h-24 max-w-[1140px] items-center justify-between gap-6 rounded-xl bg-[#000000CC] px-8 backdrop-blur-md">
+        <div className="mx-auto flex h-24 max-w-[1710px] items-center justify-between gap-6 rounded-xl bg-[#000000CC] px-8 backdrop-blur-md">
           <div className="flex shrink-0 items-center gap-6">
             <button
               type="button"

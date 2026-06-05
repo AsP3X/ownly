@@ -58,11 +58,12 @@ const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.05;
 // Human: Default opens at 100% — matches Pencil zoom label in the viewer header.
 const DEFAULT_ZOOM = 1;
-const THUMBNAIL_WIDTH = 84;
-// Human: Padding inside the dark document pane (Tailwind p-6) used when fitting a full page.
-const PAGE_AREA_PADDING_PX = 48;
-// Human: Vertical gap between stacked pages in the scrollable document pane.
-const PAGE_STACK_GAP_PX = 24;
+// Human: 1.5× Pencil thumbnail rail width (56px baseline).
+const THUMBNAIL_WIDTH = 126;
+// Human: Padding inside the dark document pane (Tailwind p-9) used when fitting a full page — 1.5× p-6 baseline.
+const PAGE_AREA_PADDING_PX = 72;
+// Human: Vertical gap between stacked pages in the scrollable document pane — 1.5× 16px baseline.
+const PAGE_STACK_GAP_PX = 36;
 // Human: Debounce in-document search while typing so large PDFs stay responsive.
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -105,8 +106,8 @@ function computeFitPageWidth(
   containerWidth: number,
   containerHeight: number,
 ): number {
-  const availableWidth = Math.max(containerWidth - PAGE_AREA_PADDING_PX, 200);
-  const availableHeight = Math.max(containerHeight - PAGE_AREA_PADDING_PX, 200);
+  const availableWidth = Math.max(containerWidth - PAGE_AREA_PADDING_PX, 300);
+  const availableHeight = Math.max(containerHeight - PAGE_AREA_PADDING_PX, 300);
   const widthScale = availableWidth / nativeWidth;
   const heightScale = availableHeight / nativeHeight;
   const fitScale = Math.min(widthScale, heightScale);
@@ -598,7 +599,7 @@ export function PdfPreviewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[75rem]"
+        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[112.5rem]"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -612,8 +613,9 @@ export function PdfPreviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Human: Viewer card — white shell, header toolbar, thumbnail sidebar, dark document pane. */}
-        <div className="flex h-[min(850px,90dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+        {/* Human: Viewer card — 1.5× Pencil baseline (850px / 90dvh) for a larger PDF shell on desktop. */}
+        {/* Agent: RENDERS header + thumbnail rail + document pane inside scaled max width/height. */}
+        <div className="flex h-[min(1275px,135dvh)] w-full flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
           {/* Human: Card header — filename, security badge, page/zoom controls, actions. */}
           <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
@@ -934,7 +936,7 @@ export function PdfPreviewDialog({
                 className="flex min-h-0 min-w-0 flex-1 flex-row"
               >
                 {/* Human: Thumbnail sidebar — scrollable page previews with active border state. */}
-                <aside className="hidden w-[180px] shrink-0 flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] sm:flex">
+                <aside className="hidden w-[270px] shrink-0 flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] sm:flex">
                   <p className="px-3 pt-4 text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
                     {numPages > 0
@@ -957,7 +959,7 @@ export function PdfPreviewDialog({
                             >
                               <div
                                 className={cn(
-                                  "flex w-[100px] items-center justify-center rounded border bg-white p-2 transition-colors",
+                                  "flex w-[150px] items-center justify-center rounded border bg-white p-2 transition-colors",
                                   isActive
                                     ? "border-2 border-[#2563EB]"
                                     : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
@@ -969,7 +971,7 @@ export function PdfPreviewDialog({
                                   renderAnnotationLayer={false}
                                   renderTextLayer={false}
                                   loading={
-                                    <div className="flex h-[110px] w-full items-center justify-center">
+                                    <div className="flex h-[165px] w-full items-center justify-center">
                                       <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
                                     </div>
                                   }
@@ -995,7 +997,7 @@ export function PdfPreviewDialog({
                   ref={documentAreaRef}
                   tabIndex={-1}
                   onScroll={handleDocumentScroll}
-                  className="relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-[#374151] p-6 outline-none [touch-action:pan-x_pan-y]"
+                  className="relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-[#374151] p-9 outline-none [touch-action:pan-x_pan-y]"
                 >
                   {numPages > 0 && scaledWidth ? (
                     <div
@@ -1024,7 +1026,7 @@ export function PdfPreviewDialog({
                                 hasSearchQuery && searchMatches.length > 0 ? customTextRenderer : undefined
                               }
                               loading={
-                                <div className="flex min-h-[24rem] min-w-[16rem] items-center justify-center">
+                                <div className="flex min-h-[36rem] min-w-[24rem] items-center justify-center">
                                   <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
                                 </div>
                               }
