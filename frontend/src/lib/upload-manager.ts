@@ -44,6 +44,10 @@ export type UploadPhase = UploadProgressUpdate["phase"];
 
 
 
+// Human: How the transfer panel groups a row — only in_flight rows count toward "active" badges.
+// Agent: DERIVED in toItemSnapshot from status, localFile, uploadedFileId, resumingItemIds.
+export type UploadItemDisplayBucket = "in_flight" | "queued" | "done" | "error" | "cancelled";
+
 export type UploadItemSnapshot = {
 
   id: string;
@@ -65,6 +69,8 @@ export type UploadItemSnapshot = {
   uploadedFileId?: string;
 
   error?: string;
+
+  displayBucket: UploadItemDisplayBucket;
 
 };
 
@@ -182,6 +188,24 @@ const abortedUploadItemIds = new Set<string>();
 
 
 
+// Human: Decide whether a row is actively using a pipeline slot or waiting in the backlog.
+// Agent: READS localFile, uploadedFileId, resumingItemIds; RETURNS in_flight vs queued for tray counts.
+function resolveItemDisplayBucket(item: InternalUploadItem): UploadItemDisplayBucket {
+  if (item.status === "done") return "done";
+  if (item.status === "error") return "error";
+  if (item.status === "cancelled") return "cancelled";
+  if (item.status === "queued") return "queued";
+
+  if (item.status === "uploading") {
+    if (item.localFile !== undefined) return "in_flight";
+    if (!item.uploadedFileId) return "in_flight";
+    if (resumingItemIds.has(item.id)) return "in_flight";
+    return "queued";
+  }
+
+  return "queued";
+}
+
 function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
 
   return {
@@ -205,6 +229,8 @@ function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
     uploadedFileId: item.uploadedFileId,
 
     error: item.error,
+
+    displayBucket: resolveItemDisplayBucket(item),
 
   };
 
@@ -543,6 +569,7 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
   if (!batch || !item.uploadedFileId || resumingItemIds.has(item.id)) return;
 
   resumingItemIds.add(item.id);
+  emitBatch();
 
   const uploadId = item.id;
 
@@ -631,6 +658,7 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
 
     resumingItemIds.delete(uploadId);
     releaseAllPipelineStages(uploadId);
+    emitBatch();
 
     pumpProcessingQueue();
     maybeCompleteBatch();
@@ -1334,6 +1362,70 @@ export function getUploadManagedIngestFileIds(): ReadonlySet<string> {
     }
   }
   return ids;
+}
+
+export type UploadBatchDisplayCounts = {
+  total: number;
+  inFlight: number;
+  waiting: number;
+  uploadingBytes: number;
+  processing: number;
+  encrypting: number;
+  storing: number;
+  done: number;
+  failed: number;
+  cancelled: number;
+};
+
+// Human: Pipeline-aware tray totals — "active" is in-flight workers only, not the whole backlog.
+// Agent: READS UploadItemSnapshot displayBucket + phase; RETURNS per-stage counts for header badges.
+export function getUploadBatchDisplayCounts(
+  items: UploadItemSnapshot[],
+): UploadBatchDisplayCounts {
+  const counts: UploadBatchDisplayCounts = {
+    total: items.length,
+    inFlight: 0,
+    waiting: 0,
+    uploadingBytes: 0,
+    processing: 0,
+    encrypting: 0,
+    storing: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+
+  for (const item of items) {
+    if (item.displayBucket === "done") {
+      counts.done += 1;
+      continue;
+    }
+    if (item.displayBucket === "error") {
+      counts.failed += 1;
+      continue;
+    }
+    if (item.displayBucket === "cancelled") {
+      counts.cancelled += 1;
+      continue;
+    }
+    if (item.displayBucket === "queued") {
+      counts.waiting += 1;
+      continue;
+    }
+
+    counts.inFlight += 1;
+    if (item.phase === "encrypting") {
+      counts.encrypting += 1;
+    } else if (item.phase === "storing") {
+      counts.storing += 1;
+    } else if (item.phase === "processing") {
+      counts.processing += 1;
+    } else {
+      counts.uploadingBytes += 1;
+    }
+  }
+
+  return counts;
 }
 
 

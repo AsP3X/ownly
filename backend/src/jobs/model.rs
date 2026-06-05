@@ -115,6 +115,9 @@ pub struct HlsEncodePayload {
 pub struct AudioWaveformPayload {
     pub file_id: String,
     pub storage_key: String,
+    /// Human: Upload spool path when available; omitted on jobs queued before spool support.
+    #[serde(default)]
+    pub tmp_audio: Option<String>,
 }
 
 /// Human: Payload for grid JPEG generation after raster image upload.
@@ -122,6 +125,9 @@ pub struct AudioWaveformPayload {
 pub struct ImageThumbnailPayload {
     pub file_id: String,
     pub storage_key: String,
+    /// Human: Upload spool path when available; avoids re-downloading the original from Nebular.
+    #[serde(default)]
+    pub tmp_source: Option<String>,
 }
 
 /// Human: Payload for multi-option video poster extraction after video upload.

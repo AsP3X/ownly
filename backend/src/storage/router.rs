@@ -11,8 +11,8 @@ use tokio::sync::RwLock;
 
 use crate::storage::nebula::NebulaStorage;
 use crate::storage::placement::{
-    self, base_file_storage_key, load_node_snapshots, load_stripe_parts, persist_placement,
-    plan_upload, resolve_node_for_key, UploadPlacementPlan,
+    self, base_file_storage_key, is_derived_storage_key, load_node_snapshots_cached,
+    load_stripe_parts, persist_placement, plan_upload, resolve_node_for_key, UploadPlacementPlan,
 };
 use crate::storage::{Storage, StorageStream};
 
@@ -106,7 +106,20 @@ impl RouterStorage {
         let size_bytes = data.len() as u64;
         let base_key = base_file_storage_key(key).unwrap_or_else(|| key.to_string());
 
-        let nodes = load_node_snapshots(&self.pool)
+        // Human: HLS segments and other sidecars reuse the parent file's reserved node — skip placement probes.
+        // Agent: READS resolve_node_for_key; PUTS via client_for_node_id; NO persist_placement on fast path.
+        if is_derived_storage_key(key, &base_key) {
+            if let Some(node_id) = resolve_node_for_key(&self.pool, key)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            {
+                let client = self.client_for_node_id(&node_id).await?;
+                client.put(key, content_type, data).await?;
+                return Ok(());
+            }
+        }
+
+        let nodes = load_node_snapshots_cached(&self.pool)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 

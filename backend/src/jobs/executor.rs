@@ -163,6 +163,9 @@ async fn run_audio_waveform(state: Arc<AppState>, job: &BackgroundJob) -> Result
     let waveform_job = crate::audio::waveform_job::AudioWaveformJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
+        tmp_audio: payload
+            .tmp_audio
+            .map(std::path::PathBuf::from),
     };
 
     let result = crate::audio::waveform_job::run_audio_waveform_job(
@@ -305,6 +308,9 @@ async fn run_image_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
     let thumbnail_job = crate::image::thumbnail_job::ImageThumbnailJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
+        tmp_source: payload
+            .tmp_source
+            .map(std::path::PathBuf::from),
     };
 
     let result = crate::image::thumbnail_job::run_image_thumbnail_job(

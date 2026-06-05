@@ -2,9 +2,12 @@
 // Agent: IV matches ffmpeg/hls.js (sequence in last 4 bytes BE); PKCS7 padding; init.mp4 stays clear.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use anyhow::Context;
 use cbc::cipher::BlockSizeUser;
 
@@ -67,8 +70,12 @@ pub fn segment_sequence_from_filename(name: &str) -> Option<u32> {
     stem.parse::<u32>().ok()
 }
 
+// Human: Max concurrent segment encrypt tasks — CPU-bound AES work after ffmpeg packaging.
+// Agent: LIMITS JoinSet parallelism; TUNE if hosts have more cores and fast local disk.
+const HLS_SEGMENT_ENCRYPT_PARALLEL: usize = 4;
+
 // Human: Encrypt every clear `.m4s` under `segments/` in place after ffmpeg packaging.
-// Agent: SKIPS init.mp4; USES filename index as sequence; READS key from encode job.
+// Agent: SKIPS init.mp4; USES filename index as sequence; PARALLEL encrypt via bounded JoinSet.
 pub async fn encrypt_hls_segments_dir(
     dir: &Path,
     playlist_path: &Path,
@@ -79,6 +86,7 @@ pub async fn encrypt_hls_segments_dir(
         .with_context(|| format!("read playlist {}", playlist_path.display()))?;
     let seq_map: HashMap<String, u32> = segment_aes_sequence_map(&playlist)?;
 
+    let mut segments: Vec<(PathBuf, u32)> = Vec::new();
     let mut entries = tokio::fs::read_dir(dir)
         .await
         .context("reading segments directory for encryption")?;
@@ -97,14 +105,39 @@ pub async fn encrypt_hls_segments_dir(
             .copied()
             .or_else(|| segment_sequence_from_filename(name))
             .with_context(|| format!("no AES sequence for segment {name}"))?;
+        segments.push((path, sequence));
+    }
 
-        let plain = tokio::fs::read(&path)
+    if segments.is_empty() {
+        return Ok(());
+    }
+
+    let gate = Arc::new(Semaphore::new(HLS_SEGMENT_ENCRYPT_PARALLEL));
+    let key = Arc::new(*key);
+    let mut tasks = JoinSet::new();
+
+    for (path, sequence) in segments {
+        let permit = gate
+            .clone()
+            .acquire_owned()
             .await
-            .with_context(|| format!("read clear segment {name}"))?;
-        let encrypted = encrypt_hls_media_segment(&plain, key, sequence)?;
-        tokio::fs::write(&path, &encrypted)
-            .await
-            .with_context(|| format!("write encrypted segment {name}"))?;
+            .context("acquire HLS segment encrypt slot")?;
+        let key = key.clone();
+        tasks.spawn(async move {
+            let _permit = permit;
+            let plain = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("read clear segment {}", path.display()))?;
+            let encrypted = encrypt_hls_media_segment(&plain, &key, sequence)?;
+            tokio::fs::write(&path, &encrypted)
+                .await
+                .with_context(|| format!("write encrypted segment {}", path.display()))?;
+            Ok::<(), anyhow::Error>(())
+        });
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        result.context("HLS segment encrypt task join")??;
     }
 
     Ok(())

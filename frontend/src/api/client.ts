@@ -1163,11 +1163,13 @@ export type UploadProgressUpdate = {
 // Agent: uploading = XHR bytes; processing/encrypting/storing = conversion_progress bands from ingest jobs.
 const PROCESSING_DISPLAY_MAX = 99;
 const POST_UPLOAD_PROGRESS_ASYMPTOTE = 99.4;
-const POST_UPLOAD_PROGRESS_INTERVAL_MS = 380;
+const POST_UPLOAD_PROGRESS_INTERVAL_MS = 320;
 /** Human: Minimum time each tray phase stays visible so fast uploads do not skip steps. */
-const MIN_UPLOAD_PHASE_DISPLAY_MS = 1000;
-const POST_UPLOAD_STORE_COMPLETE_DWELL_MS = 400;
-const VIDEO_INGEST_POLL_MS = 1500;
+const MIN_UPLOAD_PHASE_DISPLAY_MS = 280;
+/** Human: Brief beat for generic upload tray phases — overlapped with server response wait when possible. */
+const GENERIC_UPLOAD_PHASE_BEAT_MS = 220;
+const POST_UPLOAD_STORE_COMPLETE_DWELL_MS = 120;
+const VIDEO_INGEST_POLL_MS = 800;
 /** Human: Backend ffmpeg progress maps into conversion_progress ~5–50 before Nebular upload begins. */
 const HLS_ENCRYPT_PROGRESS_START = 40;
 const HLS_STORAGE_PROGRESS_START = 50;
@@ -1275,8 +1277,8 @@ function createUploadProgressEmitter(
   return { emit };
 }
 
-// Human: Generic uploads — processing → encrypting (fixed beats), then storing until the API responds.
-// Agent: storing phase COVERS server Nebular PUT / multi-node striping; AWAITS serverResponsePromise.
+// Human: Generic uploads — brief processing/encrypting beats while the API PUT runs; storing until response.
+// Agent: RACES serverResponsePromise during early phases; AWAITS full response only in storing.
 async function runGenericPostUploadPhases(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
   isCancelled: () => boolean,
@@ -1287,25 +1289,20 @@ async function runGenericPostUploadPhases(
 
   await acquirePipelineStage?.("processing");
   if (isCancelled()) return;
-  const stopProcessing = startSimulatedPhaseProgress("processing", onProgress, isCancelled);
-  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
-  stopProcessing();
+  onProgress({ phase: "processing", percent: 35, indeterminate: false });
+  await Promise.race([sleepMs(GENERIC_UPLOAD_PHASE_BEAT_MS), serverResponsePromise]);
   if (isCancelled()) return;
   onProgress({ phase: "processing", percent: 100, indeterminate: false });
   await waitForNextPaint();
-  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
-  if (isCancelled()) return;
 
   await acquirePipelineStage?.("encrypting");
   if (isCancelled()) return;
   const stopEncrypting = startSimulatedPhaseProgress("encrypting", onProgress, isCancelled);
-  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
+  await Promise.race([sleepMs(GENERIC_UPLOAD_PHASE_BEAT_MS), serverResponsePromise]);
   stopEncrypting();
   if (isCancelled()) return;
   onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
   await waitForNextPaint();
-  await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
-  if (isCancelled()) return;
 
   await acquirePipelineStage?.("storing");
   if (isCancelled()) return;

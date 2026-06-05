@@ -2,8 +2,11 @@
 // Agent: READS storage_nodes + live Nebular metrics; WRITES storage_blob_placements + file_storage_parts.
 
 use std::cmp::min;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use sqlx::PgPool;
+use tokio::sync::RwLock;
 
 use crate::admin::storage_nodes;
 use crate::error::AppError;
@@ -62,6 +65,23 @@ pub fn base_file_storage_key(key: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+// Human: Short TTL cache so HLS segment PUTs do not re-probe every Nebular /metrics endpoint.
+// Agent: READ by load_node_snapshots_cached; REFRESH after NODE_SNAPSHOT_CACHE_TTL.
+const NODE_SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(10);
+
+struct NodeSnapshotCacheEntry {
+    snapshots: Vec<NodeSnapshot>,
+    fetched_at: Instant,
+}
+
+static NODE_SNAPSHOT_CACHE: OnceLock<RwLock<Option<NodeSnapshotCacheEntry>>> = OnceLock::new();
+
+// Human: True for sidecar objects under a canonical file key (HLS segments, waveform.json, thumbnails).
+// Agent: USED by RouterStorage PUT fast-path; REQUIRES key.starts_with(base_key + "/").
+pub fn is_derived_storage_key(key: &str, base_key: &str) -> bool {
+    key != base_key && key.starts_with(&format!("{base_key}/"))
 }
 
 // Human: Parse file id from canonical storage key path.
@@ -163,6 +183,28 @@ pub async fn load_node_snapshots(pool: &PgPool) -> Result<Vec<NodeSnapshot>, App
     Ok(snapshots)
 }
 
+// Human: Return cached node snapshots when fresh; otherwise probe Nebular and refresh the cache.
+// Agent: CALLS load_node_snapshots on miss; CLONES Vec for callers.
+pub async fn load_node_snapshots_cached(pool: &PgPool) -> Result<Vec<NodeSnapshot>, AppError> {
+    let cache = NODE_SNAPSHOT_CACHE.get_or_init(|| RwLock::new(None));
+    {
+        let guard = cache.read().await;
+        if let Some(entry) = guard.as_ref() {
+            if entry.fetched_at.elapsed() < NODE_SNAPSHOT_CACHE_TTL {
+                return Ok(entry.snapshots.clone());
+            }
+        }
+    }
+
+    let snapshots = load_node_snapshots(pool).await?;
+    let mut guard = cache.write().await;
+    *guard = Some(NodeSnapshotCacheEntry {
+        snapshots: snapshots.clone(),
+        fetched_at: Instant::now(),
+    });
+    Ok(snapshots)
+}
+
 // Human: Pick nodes for a blob of `size_bytes` — single node when possible, else stripe across caps.
 // Agent: ERRORS with 507 when aggregate remaining capacity is insufficient.
 pub fn plan_upload(
@@ -242,7 +284,7 @@ pub async fn reserve_node_for_upload(
     storage_key: &str,
     size_bytes: u64,
 ) -> Result<String, AppError> {
-    let nodes = load_node_snapshots(pool).await?;
+    let nodes = load_node_snapshots_cached(pool).await?;
     let plan = plan_upload(&nodes, storage_key, size_bytes)?;
     Ok(match plan {
         UploadPlacementPlan::Single { node_id, .. } => node_id,
@@ -396,6 +438,18 @@ pub(crate) async fn load_stripe_parts(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derived_storage_key_detects_hls_segment_sidecars() {
+        let base = "users/u/files/f1";
+        assert!(is_derived_storage_key(
+            "users/u/files/f1/segments/0019.m4s",
+            base
+        ));
+        assert!(is_derived_storage_key("users/u/files/f1/waveform.json", base));
+        assert!(!is_derived_storage_key(base, base));
+        assert!(!is_derived_storage_key("users/u/files/f2/segments/0001.m4s", base));
+    }
 
     #[test]
     fn base_key_strips_hls_segment_suffix_for_placement_lookup() {

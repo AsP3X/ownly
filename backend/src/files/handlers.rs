@@ -363,14 +363,45 @@ async fn drain_multipart(multipart: &mut Multipart) {
     }
 }
 
-// Human: Where the uploaded bytes landed — in RAM for small files, on disk for video ingest.
-// Agent: Video variant avoids Vec allocation; Memory variant feeds storage.put for non-video uploads.
+// Human: Uploaded bytes spooled under a per-file temp work directory before storage PUT or HLS ingest.
+// Agent: is_video=true skips Nebular PUT for source; false reads spool for object storage upload.
 enum ReceivedUploadBody {
-    Memory(Vec<u8>),
-    VideoSpool {
+    DiskSpool {
+        work_dir: PathBuf,
         tmp_path: PathBuf,
         size_bytes: u64,
+        is_video: bool,
     },
+}
+
+// Human: Guard against deleting the OS temp root when removing upload scratch directories.
+fn is_deletable_upload_work_dir(path: &std::path::Path) -> bool {
+    let temp_root = std::env::temp_dir();
+    path.starts_with(&temp_root) && path != temp_root.as_path()
+}
+
+// Human: Remove an ownly_upload_* directory after a non-media blob is persisted to Nebular.
+async fn cleanup_upload_work_dir(work_dir: &std::path::Path) {
+    if is_deletable_upload_work_dir(work_dir) {
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
+    }
+}
+
+// Human: Read a spooled upload file and PUT it to object storage.
+// Agent: CALLS Storage::put; ERRORS on disk read or Nebular transport failure.
+async fn storage_put_spooled_file(
+    storage: &Arc<dyn crate::storage::Storage>,
+    storage_key: &str,
+    mime: &str,
+    tmp_path: &std::path::Path,
+) -> Result<(), AppError> {
+    let data = tokio::fs::read(tmp_path)
+        .await
+        .map_err(|error| AppError::Internal(anyhow::anyhow!("read upload spool: {error}")))?;
+    storage
+        .put(storage_key, mime, data)
+        .await
+        .map_err(|error| AppError::Storage(error.to_string()))
 }
 
 // Human: Stream one multipart file field to disk with a rolling size cap check.
@@ -468,57 +499,43 @@ pub async fn upload_file(
                     "files.upload receiving multipart body"
                 );
 
-                if multipart_part_is_video(&filename, &content_type) {
-                    let work_dir =
-                        std::env::temp_dir().join(format!("ownly_upload_{file_id}"));
-                    tokio::fs::create_dir_all(&work_dir).await.map_err(|error| {
-                        AppError::Internal(anyhow::anyhow!("create upload work dir: {error}"))
-                    })?;
-                    let tmp_path = work_dir.join("source");
-                    let size_bytes = stream_multipart_field_to_path(
-                        field,
-                        &tmp_path,
-                        state.max_upload_bytes,
-                    )
-                    .await?;
-                    received_body = Some(ReceivedUploadBody::VideoSpool {
-                        tmp_path,
-                        size_bytes,
-                    });
-                    tracing::info!(
+                let is_video = multipart_part_is_video(&filename, &content_type);
+                let work_dir = std::env::temp_dir().join(format!("ownly_upload_{file_id}"));
+                tokio::fs::create_dir_all(&work_dir).await.map_err(|error| {
+                    AppError::Internal(anyhow::anyhow!("create upload work dir: {error}"))
+                })?;
+                let tmp_path = work_dir.join("source");
+                let size_bytes = stream_multipart_field_to_path(
+                    field,
+                    &tmp_path,
+                    state.max_upload_bytes,
+                )
+                .await?;
+                received_body = Some(ReceivedUploadBody::DiskSpool {
+                    work_dir,
+                    tmp_path,
+                    size_bytes,
+                    is_video,
+                });
+                tracing::info!(
+                    request_id = %request_id.0,
+                    user_id = %claims.sub,
+                    filename = %filename,
+                    size_bytes,
+                    is_video,
+                    multipart_read_ms = multipart_read_started.elapsed().as_millis() as u64,
+                    spooled_to_disk = true,
+                    "files.upload spooled to temp file"
+                );
+                let multipart_ms = multipart_read_started.elapsed().as_millis() as u64;
+                if multipart_ms > 30_000 {
+                    tracing::warn!(
                         request_id = %request_id.0,
-                        user_id = %claims.sub,
                         filename = %filename,
                         size_bytes,
-                        multipart_read_ms = multipart_read_started.elapsed().as_millis() as u64,
-                        spooled_to_disk = true,
-                        "files.upload video spooled to temp file"
-                    );
-                } else {
-                    let data = field
-                        .bytes()
-                        .await
-                        .map_err(|e| AppError::BadRequest(e.to_string()))?
-                        .to_vec();
-                    let multipart_ms = multipart_read_started.elapsed().as_millis() as u64;
-                    tracing::info!(
-                        request_id = %request_id.0,
-                        user_id = %claims.sub,
-                        filename = %filename,
-                        size_bytes = data.len(),
                         multipart_read_ms = multipart_ms,
-                        "files.upload multipart body read complete"
+                        "files.upload multipart read was slow — check nginx proxy buffering or client link"
                     );
-                    if multipart_ms > 30_000 {
-                        tracing::warn!(
-                            request_id = %request_id.0,
-                            filename = %filename,
-                            size_bytes = data.len(),
-                            multipart_read_ms = multipart_ms,
-                            "files.upload multipart read was slow — check nginx proxy buffering or client link"
-                        );
-                    }
-                    received_body = Some(ReceivedUploadBody::Memory(data));
                 }
             }
             Some("folder_id") => {
@@ -566,9 +583,11 @@ pub async fn upload_file(
     let db_started = Instant::now();
 
     let file: FileDto = match received_body {
-        ReceivedUploadBody::VideoSpool {
+        ReceivedUploadBody::DiskSpool {
+            work_dir: _work_dir,
             tmp_path,
             size_bytes,
+            is_video: true,
         } => {
             if size_bytes == 0 {
                 let _ = tokio::fs::remove_file(&tmp_path).await;
@@ -663,16 +682,16 @@ pub async fn upload_file(
             .fetch_one(&state.pool)
             .await?
         }
-        ReceivedUploadBody::Memory(data) => {
-            if data.is_empty() {
+        ReceivedUploadBody::DiskSpool {
+            work_dir,
+            tmp_path,
+            size_bytes,
+            is_video: false,
+        } => {
+            if size_bytes == 0 {
+                cleanup_upload_work_dir(&work_dir).await;
                 return Err(AppError::BadRequest("file is required".into()));
             }
-            if data.len() as u64 > state.max_upload_bytes {
-                return Err(AppError::BadRequest(
-                    "file exceeds maximum upload size".into(),
-                ));
-            }
-            let size_bytes = data.len() as u64;
             let is_audio = mime.starts_with("audio/");
             let is_image = mime.starts_with("image/");
 
@@ -687,22 +706,26 @@ pub async fn upload_file(
                 "files.upload object storage PUT starting"
             );
 
-            state
-                .storage
-                .put(&storage_key, &mime, data)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        request_id = %request_id.0,
-                        file_id = %file_id,
-                        storage_key = %storage_key,
-                        size_bytes,
-                        storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
-                        error = %e,
-                        "files.upload object storage PUT failed"
-                    );
-                    AppError::Storage(e.to_string())
-                })?;
+            if let Err(error) = storage_put_spooled_file(
+                &state.storage,
+                &storage_key,
+                &mime,
+                &tmp_path,
+            )
+            .await
+            {
+                cleanup_upload_work_dir(&work_dir).await;
+                tracing::error!(
+                    request_id = %request_id.0,
+                    file_id = %file_id,
+                    storage_key = %storage_key,
+                    size_bytes,
+                    storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
+                    error = %error,
+                    "files.upload object storage PUT failed"
+                );
+                return Err(error);
+            }
 
             let storage_put_ms = storage_put_started.elapsed().as_millis() as u64;
             tracing::info!(
@@ -740,6 +763,7 @@ pub async fn upload_file(
                 let payload = AudioWaveformPayload {
                     file_id: file_id.clone(),
                     storage_key: storage_key.clone(),
+                    tmp_audio: Some(tmp_path.to_string_lossy().to_string()),
                 };
 
                 jobs::enqueue_job(
@@ -782,6 +806,7 @@ pub async fn upload_file(
                 let payload = ImageThumbnailPayload {
                     file_id: file_id.clone(),
                     storage_key: storage_key.clone(),
+                    tmp_source: Some(tmp_path.to_string_lossy().to_string()),
                 };
 
                 jobs::enqueue_job(
@@ -799,7 +824,7 @@ pub async fn upload_file(
 
                 file
             } else {
-                sqlx::query_as(&format!(
+                let file: FileDto = sqlx::query_as(&format!(
                     "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
                      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
                 ))
@@ -811,7 +836,9 @@ pub async fn upload_file(
                 .bind(&mime)
                 .bind(size_bytes as i64)
                 .fetch_one(&state.pool)
-                .await?
+                .await?;
+                cleanup_upload_work_dir(&work_dir).await;
+                file
             }
         }
     };
@@ -1383,7 +1410,7 @@ pub async fn dashboard_summary(
 
     // Human: Network-wide free space for upload preflight — same probe as RouterStorage placement.
     // Agent: READS storage_nodes + Nebular metrics; SUM remaining; MIN with user quota for effective_remaining_bytes.
-    let nodes = crate::storage::placement::load_node_snapshots(&state.pool).await?;
+    let nodes = crate::storage::placement::load_node_snapshots_cached(&state.pool).await?;
     let network_remaining_bytes =
         crate::storage::placement::aggregate_network_remaining_bytes(&nodes);
     let effective_remaining_bytes = crate::storage::placement::effective_remaining_bytes(

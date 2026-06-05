@@ -11,6 +11,7 @@ import {
   cancelAllUploadItems,
   cancelUploadItem,
   dismissUploadBatch,
+  getUploadBatchDisplayCounts,
   removeUploadBatchItem,
   subscribeUploadBatch,
   type UploadBatchSnapshot,
@@ -56,17 +57,13 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
 
   if (!batch) return null;
 
-  const activeCount = batch.items.filter((item) => item.status === "uploading").length;
-  const queuedCount = batch.items.filter((item) => item.status === "queued").length;
-  const doneCount = batch.items.filter((item) => item.status === "done").length;
-  const errorCount = batch.items.filter((item) => item.status === "error").length;
-  const cancelledCount = batch.items.filter((item) => item.status === "cancelled").length;
+  const counts = getUploadBatchDisplayCounts(batch.items);
   const isComplete = batch.status === "complete";
-  const totalCount = batch.items.length;
-  const processedCount = doneCount + errorCount + cancelledCount;
+  const totalCount = counts.total;
+  const processedCount = counts.done + counts.failed + counts.cancelled;
   const overallPercent =
     totalCount === 0 ? 0 : Math.round((processedCount / totalCount) * 100);
-  const hasPending = activeCount > 0 || queuedCount > 0;
+  const hasPending = counts.inFlight > 0 || counts.waiting > 0;
 
   return (
     <div
@@ -82,21 +79,21 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
           <Upload className="size-4 shrink-0 text-[#2563EB]" aria-hidden />
           <span className="text-sm font-bold text-[#1A1A1A]">Uploads</span>
           {!minimized && isComplete ? (
-            errorCount > 0 || cancelledCount > 0 ? (
+            counts.failed > 0 || counts.cancelled > 0 ? (
               <UploadStatusBadge
                 variant="warning"
-                label={`${doneCount} done${errorCount > 0 ? ` · ${errorCount} failed` : ""}${cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""}`}
+                label={`${counts.done} done${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}${counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}`}
               />
             ) : (
               <UploadStatusBadge variant="complete" label="Complete" />
             )
           ) : !minimized && !isComplete ? (
             <>
-              {activeCount > 0 ? (
-                <UploadStatusBadge variant="active" label={`${activeCount} active`} />
+              {counts.inFlight > 0 ? (
+                <UploadStatusBadge variant="active" label={`${counts.inFlight} active`} />
               ) : null}
-              {queuedCount > 0 ? (
-                <UploadStatusBadge variant="queued" label={`${queuedCount} queued`} />
+              {counts.waiting > 0 ? (
+                <UploadStatusBadge variant="queued" label={`${counts.waiting} queued`} />
               ) : null}
             </>
           ) : null}
@@ -147,11 +144,11 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             </span>
           </div>
           <UploadOverallProgressBar percent={overallPercent} />
-          {errorCount > 0 || cancelledCount > 0 ? (
+          {counts.failed > 0 || counts.cancelled > 0 ? (
             <p className="text-xs text-amber-800">
-              {doneCount} uploaded
-              {errorCount > 0 ? ` · ${errorCount} failed` : ""}
-              {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""}
+              {counts.done} uploaded
+              {counts.failed > 0 ? ` · ${counts.failed} failed` : ""}
+              {counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}
             </p>
           ) : null}
         </div>
@@ -160,8 +157,8 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       {minimized && isComplete ? (
         <div className="flex items-center justify-between gap-2 px-4 pb-4 pt-3">
           <p className="text-[13px] font-semibold text-[#1A1A1A]">
-            {errorCount > 0 || cancelledCount > 0
-              ? `${doneCount} of ${totalCount} uploaded${errorCount > 0 ? ` · ${errorCount} failed` : ""}${cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""}`
+            {counts.failed > 0 || counts.cancelled > 0
+              ? `${counts.done} of ${totalCount} uploaded${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}${counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}`
               : `${totalCount} file${totalCount === 1 ? "" : "s"} uploaded`}
           </p>
           <button
@@ -189,18 +186,18 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
           <div
             className={cn(
               "flex items-center gap-2 rounded-lg px-3 py-2",
-              errorCount > 0 ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-900",
+              counts.failed > 0 ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-900",
             )}
           >
-            {errorCount > 0 ? (
+            {counts.failed > 0 ? (
               <AlertCircle className="size-4 shrink-0" aria-hidden />
             ) : (
               <CheckCircle2 className="size-4 shrink-0" aria-hidden />
             )}
             <p className="text-sm font-medium">
-              {errorCount > 0 || cancelledCount > 0
-                ? `${doneCount} uploaded${errorCount > 0 ? ` · ${errorCount} failed` : ""}${cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""}`
-                : `${doneCount} file${doneCount === 1 ? "" : "s"} uploaded`}
+              {counts.failed > 0 || counts.cancelled > 0
+                ? `${counts.done} uploaded${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}${counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ""}`
+                : `${counts.done} file${counts.done === 1 ? "" : "s"} uploaded`}
             </p>
           </div>
           <ul className="max-h-40 divide-y divide-[#E5E7EB] overflow-y-auto rounded-lg border border-[#E5E7EB]">

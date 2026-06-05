@@ -3,7 +3,11 @@
 
 import { useEffect, useState } from "react";
 import { AlertCircle, Check, Clock, Loader2, X } from "lucide-react";
-import type { UploadItemSnapshot, UploadPhase } from "@/lib/upload-manager";
+import {
+  getUploadBatchDisplayCounts,
+  type UploadItemSnapshot,
+  type UploadPhase,
+} from "@/lib/upload-manager";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -337,8 +341,44 @@ export function UploadOverallProgressBar({ percent }: { percent: number }) {
   );
 }
 
+// Human: Compact stage summary — only in-flight pipeline workers, not the full backlog.
+// Agent: READS UploadBatchDisplayCounts; RETURNS "3 uploading · 2 processing · 705 queued" style text.
+function formatPipelineSummary(
+  counts: ReturnType<typeof getUploadBatchDisplayCounts>,
+): string {
+  const stageParts: string[] = [];
+  if (counts.uploadingBytes > 0) {
+    stageParts.push(`${counts.uploadingBytes} uploading`);
+  }
+  if (counts.processing > 0) {
+    stageParts.push(`${counts.processing} processing`);
+  }
+  if (counts.encrypting > 0) {
+    stageParts.push(`${counts.encrypting} encrypting`);
+  }
+  if (counts.storing > 0) {
+    stageParts.push(`${counts.storing} moving to storage`);
+  }
+
+  const parts: string[] = [];
+  if (counts.inFlight > 0) {
+    parts.push(
+      stageParts.length > 0
+        ? stageParts.join(" · ")
+        : `${counts.inFlight} active`,
+    );
+  }
+  if (counts.waiting > 0) {
+    parts.push(`${counts.waiting} queued`);
+  }
+  if (counts.failed + counts.cancelled > 0) {
+    parts.push(`${counts.failed + counts.cancelled} failed`);
+  }
+  return parts.join(" · ");
+}
+
 // Human: Upload batch body — overall summary, divider, and unified scrollable file list.
-// Agent: READS UploadItemSnapshot[]; CALLS onCancel/onRemove; USED by UploadTransferPanel when expanded.
+// Agent: READS UploadItemSnapshot displayBucket; CALLS onCancel/onRemove; USED by UploadTransferPanel when expanded.
 export function UploadBatchProgressView({
   items,
   onCancelItem,
@@ -348,18 +388,17 @@ export function UploadBatchProgressView({
   onCancelItem?: (itemId: string) => void;
   onRemoveItem?: (itemId: string) => void;
 }) {
-  const activeItems = items.filter((item) => item.status === "uploading");
-  const waitingItems = items.filter((item) => item.status === "queued");
-  const doneItems = items.filter((item) => item.status === "done");
+  const counts = getUploadBatchDisplayCounts(items);
+  const activeItems = items.filter((item) => item.displayBucket === "in_flight");
+  const waitingItems = items.filter((item) => item.displayBucket === "queued");
+  const doneItems = items.filter((item) => item.displayBucket === "done");
   const failedItems = items.filter(
-    (item) => item.status === "error" || item.status === "cancelled",
+    (item) => item.displayBucket === "error" || item.displayBucket === "cancelled",
   );
-  const doneCount = doneItems.length;
-  const errorCount = items.filter((item) => item.status === "error").length;
-  const cancelledCount = items.filter((item) => item.status === "cancelled").length;
-  const processedCount = doneCount + errorCount + cancelledCount;
+  const processedCount = counts.done + counts.failed + counts.cancelled;
   const overallPercent =
     items.length === 0 ? 0 : Math.round((processedCount / items.length) * 100);
+  const pipelineSummary = formatPipelineSummary(counts);
 
   return (
     <>
@@ -367,10 +406,7 @@ export function UploadBatchProgressView({
         <span>
           {processedCount} of {items.length} completed
         </span>
-        <span>
-          {activeItems.length} active · {waitingItems.length} queued
-          {failedItems.length > 0 ? ` · ${failedItems.length} failed` : ""}
-        </span>
+        <span>{pipelineSummary || "Preparing…"}</span>
       </div>
       <UploadOverallProgressBar percent={overallPercent} />
 

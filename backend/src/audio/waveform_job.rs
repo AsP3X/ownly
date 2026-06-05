@@ -1,11 +1,10 @@
-// Human: Background audio waveform job — download source, analyze peaks, upload JSON sidecar to Nebular.
+// Human: Background audio waveform job — analyze peaks from upload spool or storage, upload JSON sidecar.
 // Agent: MUTATES files.audio_* + conversion_progress; READS storage; CALLS ffmpeg via waveform module.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures_util::StreamExt;
 use sqlx::PgPool;
-use tempfile::NamedTempFile;
 
 use crate::{
     audio::waveform::{extract_waveform_bars, AudioWaveformArtifact},
@@ -19,6 +18,8 @@ use super::waveform_storage_key;
 pub struct AudioWaveformJob {
     pub file_id: String,
     pub storage_key: String,
+    /// Human: When set, analyze from the upload spool instead of downloading from Nebular.
+    pub tmp_audio: Option<PathBuf>,
 }
 
 pub async fn mark_processing(pool: &PgPool, file_id: &str) {
@@ -72,12 +73,33 @@ async fn set_progress(pool: &PgPool, file_id: &str, progress: i32) {
         .await;
 }
 
+// Human: Guard against deleting the OS temp root during upload spool cleanup.
+// Agent: TRUE when path is a strict child of std::env::temp_dir().
+fn is_deletable_upload_work_dir(path: &Path) -> bool {
+    let temp_root = std::env::temp_dir();
+    path.starts_with(&temp_root) && path != temp_root.as_path()
+}
+
+// Human: Remove the per-upload scratch directory after waveform ingest finishes or fails.
+// Agent: REMOVES ownly_upload_* parent when safe; NO-OP for foreign paths.
+async fn cleanup_upload_work_dir(tmp_audio: &Path) {
+    let Some(work_dir) = tmp_audio.parent() else {
+        return;
+    };
+    if is_deletable_upload_work_dir(work_dir) {
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
+    }
+}
+
 // Human: Stream the source audio object from Nebular into a temp file for ffmpeg analysis.
-// Agent: READS storage.get_stream; WRITES NamedTempFile; RETURNS handle so file survives until decode.
+// Agent: READS storage.get_stream; WRITES NamedTempFile; FALLBACK when upload spool is unavailable.
 async fn download_source_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
-) -> Result<NamedTempFile, String> {
+) -> Result<(PathBuf, Option<tempfile::TempPath>), String> {
+    use futures_util::StreamExt;
+    use tempfile::NamedTempFile;
+
     let (mut stream, _, _) = storage
         .get_stream(storage_key)
         .await
@@ -100,28 +122,48 @@ async fn download_source_to_temp(
         .await
         .map_err(|e| format!("temp file flush failed: {e}"))?;
 
-    Ok(temp)
+    let temp_path = temp.into_temp_path();
+    Ok((path, Some(temp_path)))
+}
+
+// Human: Resolve the on-disk audio path — prefer upload spool over Nebular round-trip.
+// Agent: RETURNS (path, keep_temp_guard) where guard holds downloaded temp until analysis completes.
+async fn resolve_source_audio_path(
+    storage: Arc<dyn Storage>,
+    storage_key: &str,
+    tmp_audio: Option<PathBuf>,
+) -> Result<(PathBuf, Option<tempfile::TempPath>), String> {
+    if let Some(path) = tmp_audio {
+        if tokio::fs::metadata(&path).await.is_ok() {
+            return Ok((path, None));
+        }
+    }
+    download_source_to_temp(storage, storage_key).await
 }
 
 // Human: Run waveform analysis for one queued audio file — main worker entry point.
-// Agent: DOWNLOADS source; PROBES duration; PUTS waveform.json; UPDATES files.audio_waveform_ready.
+// Agent: READS spool or storage; PUTS waveform.json; UPDATES files.audio_waveform_ready; CLEANUP spool dir.
 pub async fn run_audio_waveform_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
     job: AudioWaveformJob,
 ) -> Result<(), String> {
     if is_waveform_cancelled(&pool, &job.file_id).await {
+        if let Some(ref tmp) = job.tmp_audio {
+            cleanup_upload_work_dir(tmp).await;
+        }
         return Ok(());
     }
 
     mark_processing(&pool, &job.file_id).await;
     set_progress(&pool, &job.file_id, 5).await;
 
-    let tmp_file = download_source_to_temp(storage.clone(), &job.storage_key).await?;
-    let tmp_path = tmp_file.path();
+    let (tmp_path, _temp_guard) =
+        resolve_source_audio_path(storage.clone(), &job.storage_key, job.tmp_audio.clone()).await?;
     set_progress(&pool, &job.file_id, 25).await;
 
     if is_waveform_cancelled(&pool, &job.file_id).await {
+        cleanup_upload_work_dir(&tmp_path).await;
         return Ok(());
     }
 
@@ -141,10 +183,14 @@ pub async fn run_audio_waveform_job(
     let payload = serde_json::to_vec(&artifact).map_err(|e| format!("waveform json encode: {e}"))?;
     let waveform_key = waveform_storage_key(&job.storage_key);
 
-    storage
+    let result = storage
         .put(&waveform_key, "application/json", payload)
         .await
-        .map_err(|e| format!("waveform storage PUT failed: {e}"))?;
+        .map_err(|e| format!("waveform storage PUT failed: {e}"));
+
+    cleanup_upload_work_dir(&tmp_path).await;
+
+    result?;
 
     set_progress(&pool, &job.file_id, 95).await;
 

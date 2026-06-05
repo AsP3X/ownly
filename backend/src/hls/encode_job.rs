@@ -19,6 +19,10 @@ use crate::hls::segment_upload::{
 use crate::files::file_delete::purge_file_storage;
 use crate::storage::Storage;
 
+// Human: Throttle conversion_progress writes during parallel HLS segment PUTs.
+// Agent: UPDATES files row every N segments instead of after each PUT.
+const HLS_SEGMENT_PROGRESS_STEP: usize = 3;
+
 #[derive(Clone)]
 pub struct HlsEncodeJob {
     pub file_id: String,
@@ -205,8 +209,13 @@ async fn upload_hls_segments(
                     stored_bytes.fetch_add(len, Ordering::Relaxed);
                     uploaded_count.fetch_add(1, Ordering::Relaxed);
                     let step = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                    let upload_pct = 50 + ((step as f64 / total_steps as f64) * 50.0) as i32;
-                    set_progress(&pool, &file_id, upload_pct.min(99)).await;
+                    if step == 1
+                        || step.is_multiple_of(HLS_SEGMENT_PROGRESS_STEP)
+                        || step == total_steps
+                    {
+                        let upload_pct = 50 + ((step as f64 / total_steps as f64) * 50.0) as i32;
+                        set_progress(&pool, &file_id, upload_pct.min(99)).await;
+                    }
                 }
                 Err(error) => {
                     failed_count.fetch_add(1, Ordering::Relaxed);
@@ -348,80 +357,47 @@ pub async fn run_hls_encode_job(
                     let mut current_step = 0usize;
                     let mut stored_bytes: u64 = 0;
 
-                    let playlist_data = match tokio::fs::read(&output.playlist_path).await {
-                        Ok(data) => data,
+                    let (playlist_data, key_data, init_data) = match tokio::try_join!(
+                        tokio::fs::read(&output.playlist_path),
+                        tokio::fs::read(&output.key_path),
+                        tokio::fs::read(&output.init_path),
+                    ) {
+                        Ok(parts) => parts,
                         Err(e) => {
-                            let msg = format!("read playlist: {e}");
+                            let msg = format!("read HLS manifest artifacts: {e}");
                             mark_failed(&pool, &file_id, &msg).await;
                             cleanup_work_dir(&work_dir).await;
                             return Err(msg);
                         }
                     };
-                    stored_bytes += playlist_data.len() as u64;
-                    if let Err(e) = storage
-                        .put(
-                            &format!("{prefix}stream.m3u8"),
+                    stored_bytes += (playlist_data.len() + key_data.len() + init_data.len()) as u64;
+
+                    let playlist_key = format!("{prefix}stream.m3u8");
+                    let key_object_key = format!("{prefix}key.bin");
+                    let init_object_key = format!("{prefix}{HLS_INIT_FILENAME}");
+                    let storage_for_manifest = storage.clone();
+
+                    let manifest_upload = tokio::try_join!(
+                        storage_for_manifest.put(
+                            &playlist_key,
                             "application/vnd.apple.mpegurl",
                             playlist_data,
-                        )
-                        .await
-                    {
-                        let msg = format!("upload playlist: {e}");
-                        mark_failed(&pool, &file_id, &msg).await;
-                        discard_hls_output(&hls_output_dir).await;
-                        return Err(msg);
-                    }
-                    current_step += 1;
-
-                    let key_data = match tokio::fs::read(&output.key_path).await {
-                        Ok(data) => data,
-                        Err(e) => {
-                            let msg = format!("read hls key: {e}");
-                            mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_work_dir(&work_dir).await;
-                            return Err(msg);
-                        }
-                    };
-                    stored_bytes += key_data.len() as u64;
-                    if let Err(e) = storage
-                        .put(
-                            &format!("{prefix}key.bin"),
+                        ),
+                        storage_for_manifest.put(
+                            &key_object_key,
                             "application/octet-stream",
                             key_data,
-                        )
-                        .await
-                    {
-                        let msg = format!("upload hls key: {e}");
-                        mark_failed(&pool, &file_id, &msg).await;
-                        discard_hls_output(&hls_output_dir).await;
-                        return Err(msg);
-                    }
-                    current_step += 1;
+                        ),
+                        storage_for_manifest.put(&init_object_key, "video/mp4", init_data),
+                    );
 
-                    let init_data = match tokio::fs::read(&output.init_path).await {
-                        Ok(data) => data,
-                        Err(e) => {
-                            let msg = format!("read hls init: {e}");
-                            mark_failed(&pool, &file_id, &msg).await;
-                            cleanup_work_dir(&work_dir).await;
-                            return Err(msg);
-                        }
-                    };
-                    stored_bytes += init_data.len() as u64;
-                    if let Err(e) = storage
-                        .put(
-                            &format!("{prefix}{HLS_INIT_FILENAME}"),
-                            "video/mp4",
-                            init_data,
-                        )
-                        .await
-                    {
-                        let msg = format!("upload hls init: {e}");
+                    if let Err(e) = manifest_upload {
+                        let msg = format!("upload HLS manifest artifacts: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
                         discard_hls_output(&hls_output_dir).await;
                         return Err(msg);
                     }
-                    current_step += 1;
+                    current_step += 3;
 
                     let segment_outcome = match upload_hls_segments(SegmentUploadRequest {
                         pool: &pool,
