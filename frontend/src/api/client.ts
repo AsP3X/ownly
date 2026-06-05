@@ -637,6 +637,10 @@ export type FileItem = {
   audio_waveform_ready?: boolean;
   audio_encode_status?: string | null;
   audio_encode_error?: string | null;
+  video_thumbnail_ready?: boolean;
+  video_thumbnail_status?: string | null;
+  video_thumbnail_error?: string | null;
+  video_thumbnail_selected_index?: number;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
 };
@@ -666,6 +670,57 @@ export type AudioWaveformResponse = {
 // Agent: GET /files/:id/waveform; RETURNS Nebular sidecar JSON; THROWS when analysis still running.
 export async function fetchFileWaveform(fileId: string) {
   return apiFetch(`/files/${fileId}/waveform`) as Promise<AudioWaveformResponse>;
+}
+
+export type VideoThumbnailOption = {
+  index: number;
+  timestamp_seconds: number;
+  score: number;
+  storage_key: string;
+};
+
+export type VideoThumbnailsResponse = {
+  version: number;
+  options: VideoThumbnailOption[];
+  selected_index: number;
+};
+
+// Human: Build an authenticated URL for a video poster JPEG (selected or specific option).
+// Agent: RETURNS /api/v1/files/:id/thumbnail or /thumbnails/:index for <img> or fetch().
+export function fileThumbnailUrl(fileId: string, index?: number) {
+  const base = `${API_BASE}/files/${encodeURIComponent(fileId)}`;
+  return index === undefined
+    ? `${base}/thumbnail`
+    : `${base}/thumbnails/${encodeURIComponent(String(index))}`;
+}
+
+// Human: Load the scored poster options manifest for the thumbnail picker UI.
+// Agent: GET /files/:id/thumbnails; RETURNS VideoThumbnailsResponse.
+export async function fetchFileThumbnails(fileId: string) {
+  return apiFetch(`/files/${fileId}/thumbnails`) as Promise<VideoThumbnailsResponse>;
+}
+
+// Human: Fetch poster JPEG bytes for grid tiles — uses the user-selected option by default.
+// Agent: GET /files/:id/thumbnail or /thumbnails/:index with JWT; RETURNS Blob.
+export async function fetchFileThumbnailBlob(fileId: string, index?: number): Promise<Blob> {
+  const token = getToken();
+  const response = await fetch(fileThumbnailUrl(fileId, index), {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new ApiError(response.statusText || "Thumbnail failed", "thumbnail_failed", response.status);
+  }
+  return response.blob();
+}
+
+// Human: Persist the user's chosen poster frame for drive grid and future previews.
+// Agent: PATCH /files/:id/thumbnail; WRITES selected_index; RETURNS updated manifest.
+export async function selectFileThumbnail(fileId: string, selectedIndex: number) {
+  return apiFetch(`/files/${fileId}/thumbnail`, {
+    method: "PATCH",
+    body: JSON.stringify({ selected_index: selectedIndex }),
+  }) as Promise<VideoThumbnailsResponse>;
 }
 
 // Human: Load waveform peaks for audio inside an anonymous public share link.

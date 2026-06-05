@@ -36,6 +36,12 @@ pub struct FileListItem {
     pub audio_encode_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_encode_error: Option<String>,
+    pub video_thumbnail_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_thumbnail_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_thumbnail_error: Option<String>,
+    pub video_thumbnail_selected_index: i32,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -132,6 +138,11 @@ fn file_list_select_columns(minimal: bool) -> String {
     } else {
         "f.audio_encode_error"
     };
+    let thumbnail_error_col = if minimal {
+        "NULL::TEXT AS video_thumbnail_error"
+    } else {
+        "f.video_thumbnail_error"
+    };
     let duration_col = if minimal {
         "NULL::INT AS duration_seconds"
     } else {
@@ -142,6 +153,8 @@ fn file_list_select_columns(minimal: bool) -> String {
         "f.id, f.name, f.mime_type, f.size_bytes, f.folder_id, f.created_at, f.updated_at, \
          f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
          f.audio_waveform_ready, f.audio_encode_status, {audio_error_col}, \
+         f.video_thumbnail_ready, f.video_thumbnail_status, {thumbnail_error_col}, \
+         f.video_thumbnail_selected_index, \
          {SHARE_PUBLIC_FILE_EXPR}"
     )
 }

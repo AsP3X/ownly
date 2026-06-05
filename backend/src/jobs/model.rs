@@ -10,6 +10,7 @@ pub enum JobKind {
     HlsEncode,
     HlsExport,
     AudioWaveform,
+    VideoThumbnail,
     ZipBulk,
     ZipFolder,
 }
@@ -20,6 +21,7 @@ impl JobKind {
             Self::HlsEncode => "hls_encode",
             Self::HlsExport => "hls_export",
             Self::AudioWaveform => "audio_waveform",
+            Self::VideoThumbnail => "video_thumbnail",
             Self::ZipBulk => "zip_bulk",
             Self::ZipFolder => "zip_folder",
         }
@@ -30,6 +32,7 @@ impl JobKind {
             "hls_encode" => Some(Self::HlsEncode),
             "hls_export" => Some(Self::HlsExport),
             "audio_waveform" => Some(Self::AudioWaveform),
+            "video_thumbnail" => Some(Self::VideoThumbnail),
             "zip_bulk" => Some(Self::ZipBulk),
             "zip_folder" => Some(Self::ZipFolder),
             _ => None,
@@ -109,6 +112,14 @@ pub struct HlsEncodePayload {
 pub struct AudioWaveformPayload {
     pub file_id: String,
     pub storage_key: String,
+}
+
+/// Human: Payload for multi-option video poster extraction after video upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoThumbnailPayload {
+    pub file_id: String,
+    pub storage_key: String,
+    pub tmp_video: String,
 }
 
 /// Human: Payload for remuxing HLS segments into a downloadable MP4.

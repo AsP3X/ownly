@@ -20,6 +20,7 @@ pub mod admin;
 pub mod audit;
 pub mod auth;
 pub mod audio;
+pub mod video;
 pub mod browser_guard;
 pub mod config;
 pub mod crypto;
@@ -452,6 +453,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/{id}/waveform",
             get(crate::audio::handlers::get_waveform),
+        )
+        .route(
+            "/api/v1/files/{id}/thumbnails",
+            get(crate::video::handlers::get_thumbnails),
+        )
+        .route(
+            "/api/v1/files/{id}/thumbnail",
+            get(crate::video::handlers::get_selected_thumbnail)
+                .patch(crate::video::handlers::select_thumbnail),
+        )
+        .route(
+            "/api/v1/files/{id}/thumbnails/{index}",
+            get(crate::video::handlers::get_thumbnail_option),
         )
         .route("/api/v1/files/{id}/copy", post(files::handlers::copy_file))
         .route(

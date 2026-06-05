@@ -9,7 +9,8 @@ pub mod worker;
 
 pub use model::{JobKind, JobStatus};
 pub use store::{
-    cancel_hls_encode_for_file, cancel_job, cancel_job_by_resource, enqueue_job, find_active_job,
+    cancel_hls_encode_for_file, cancel_job, cancel_job_by_resource, cancel_video_thumbnail_for_file,
+    enqueue_job, find_active_job,
     list_user_jobs, recover_running_jobs_on_startup, recover_stale_jobs,
 };
 pub use worker::{start_worker_pool, JobWorkerSettings};

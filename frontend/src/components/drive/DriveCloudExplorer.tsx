@@ -31,6 +31,7 @@ import {
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
+import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -498,6 +499,7 @@ export function DriveCloudExplorer({
                 canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
               const showImagePreview = isImage && !processing;
+              const showVideoPreview = isVideo && file.video_thumbnail_ready;
 
               return (
                 <div
@@ -579,7 +581,7 @@ export function DriveCloudExplorer({
                     }}
                     className={cn(
                       "flex w-full flex-col gap-1.5 rounded-[11px] text-center transition-colors",
-                      showImagePreview
+                      showImagePreview || showVideoPreview
                         ? "min-h-[148px] items-stretch p-2"
                         : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
                       canPreview && !isSelected && "hover:bg-[#F7F8FA]",
@@ -588,6 +590,11 @@ export function DriveCloudExplorer({
                   >
                     {showImagePreview ? (
                       <ExplorerImageThumbnail file={file} />
+                    ) : showVideoPreview ? (
+                      <ExplorerVideoThumbnail
+                        key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
+                        file={file}
+                      />
                     ) : (
                       <ExplorerFileIcon mimeType={file.mime_type} />
                     )}

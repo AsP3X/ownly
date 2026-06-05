@@ -869,6 +869,20 @@ export default function DrivePage() {
     setPreviewVideo(file);
   }
 
+  // Human: Sync selected poster index into drive listings after the thumbnail picker saves.
+  // Agent: UPDATES files + previewVideo rows; KEEPS grid ExplorerVideoThumbnail key in sync.
+  function handleVideoThumbnailSelected(file: FileItem, selectedIndex: number) {
+    const patch = (item: FileItem): FileItem =>
+      item.id === file.id ? { ...item, video_thumbnail_selected_index: selectedIndex } : item;
+    setFiles((current) => current.map(patch));
+    setPreviewVideo((current) => (current?.id === file.id ? patch(current) : current));
+    setDetailsTarget((current) =>
+      current?.kind === "file" && current.file.id === file.id
+        ? { kind: "file", file: patch(current.file) }
+        : current,
+    );
+  }
+
   // Human: Open the public link dialog for one file.
   // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
   function handleShareFile(file: FileItem) {
@@ -1233,6 +1247,7 @@ export default function DrivePage() {
           target={detailsTarget}
           initialTab={detailsInitialTab}
           onShareChanged={handleShareChanged}
+          onThumbnailSelected={handleVideoThumbnailSelected}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}

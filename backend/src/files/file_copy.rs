@@ -23,6 +23,10 @@ pub struct CopyFileSourceRow {
     pub audio_waveform_ready: bool,
     pub audio_encode_status: Option<String>,
     pub audio_waveform_key: Option<String>,
+    pub video_thumbnail_ready: bool,
+    pub video_thumbnail_status: Option<String>,
+    pub video_thumbnail_manifest_key: Option<String>,
+    pub video_thumbnail_selected_index: i32,
 }
 
 // Human: Copy every storage object associated with a file row into a new key prefix.

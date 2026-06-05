@@ -372,6 +372,7 @@ export function VideoPreviewDialog({
             </button>
           </div>
         ) : null}
+
       </DialogContent>
     </Dialog>
   );

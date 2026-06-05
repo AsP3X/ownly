@@ -121,6 +121,7 @@ export function DriveContextMenu({
   const targetFolder = targetFolderId ? folderById.get(targetFolderId) : undefined;
   const targetFavourited = targetFile ? favouriteIds.has(targetFile.id) : false;
   const targetProcessing = targetFile ? isFileProcessing(targetFile) : false;
+  const targetIsVideo = targetFile?.mime_type?.startsWith("video/") ?? false;
   const multiSelectedCount = selectedFileIds?.size ?? 0;
   const bulkSelectionLabel =
     multiSelectedCount === 2 ? "2 files selected" : `${multiSelectedCount} files selected`;
@@ -199,12 +200,32 @@ export function DriveContextMenu({
               </p>
             ) : null}
 
-            <ContextMenuItem
-              disabled={targetProcessing}
-              onClick={() => onDetailsFile(targetFile)}
-            >
-              Open
-            </ContextMenuItem>
+            {/* Human: Videos — Open plays in-browser; Edit opens details (thumbnail picker lives there). */}
+            {targetIsVideo ? (
+              <>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing || !targetFile.hls_ready || !onPreviewVideo
+                  }
+                  onClick={() => onPreviewVideo?.(targetFile)}
+                >
+                  Open
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={targetProcessing}
+                  onClick={() => onDetailsFile(targetFile)}
+                >
+                  Edit
+                </ContextMenuItem>
+              </>
+            ) : (
+              <ContextMenuItem
+                disabled={targetProcessing}
+                onClick={() => onDetailsFile(targetFile)}
+              >
+                Open
+              </ContextMenuItem>
+            )}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger disabled={targetProcessing}>Share…</ContextMenuSubTrigger>

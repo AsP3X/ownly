@@ -9,7 +9,7 @@ const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
 /// Human: Sidecar keys always attempted during purge (playlist, key, export, legacy root).
 /// Agent: ADD segment_count for HLS bundles; RETURNS total storage object attempts per file.
-pub const STORAGE_SIDECAR_OBJECT_COUNT: u32 = 6;
+pub const STORAGE_SIDECAR_OBJECT_COUNT: u32 = 12;
 
 #[derive(Debug, Clone)]
 pub struct OwnedFileRow {
@@ -34,8 +34,15 @@ pub fn storage_keys_for_file(storage_key: &str, segment_count: Option<i32>) -> V
         format!("{storage_key}/init.mp4"),
         format!("{storage_key}/{EXPORT_OBJECT_SUFFIX}"),
         format!("{storage_key}/{}", crate::audio::WAVEFORM_OBJECT_SUFFIX),
+        format!("{storage_key}/{}", crate::video::THUMBNAIL_MANIFEST_SUFFIX),
         storage_key.to_string(),
     ];
+    for index in 0..crate::video::thumbnail::THUMBNAIL_OPTION_COUNT {
+        keys.push(crate::video::thumbnail_option_storage_key(
+            storage_key,
+            index as u32,
+        ));
+    }
     if let Some(count) = segment_count {
         for i in 0..count.max(0) {
             keys.push(format!(
@@ -162,9 +169,9 @@ mod tests {
 
     #[test]
     fn storage_object_count_matches_delete_attempts() {
-        assert_eq!(storage_object_count(None), 5);
-        assert_eq!(storage_object_count(Some(0)), 5);
-        assert_eq!(storage_object_count(Some(12)), 17);
+        assert_eq!(storage_object_count(None), 12);
+        assert_eq!(storage_object_count(Some(0)), 12);
+        assert_eq!(storage_object_count(Some(12)), 24);
     }
 
     #[tokio::test]

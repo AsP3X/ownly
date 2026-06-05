@@ -30,7 +30,11 @@ use crate::{
         upload_validation::{self, normalize_upload_filename, normalize_upload_size_bytes},
     },
     hls::export::export_cache_is_valid,
-    jobs::{self, model::AudioWaveformPayload, model::HlsEncodePayload, JobKind},
+    jobs::{
+        self,
+        model::{AudioWaveformPayload, HlsEncodePayload, VideoThumbnailPayload},
+        JobKind,
+    },
     rate_limit,
     request_tracking,
     AppState,
@@ -40,7 +44,8 @@ use crate::{
 // Agent: USED in SELECT/RETURNING for list, get, upload, and move handlers.
 pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
     hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
-    audio_waveform_ready, audio_encode_status, audio_encode_error";
+    audio_waveform_ready, audio_encode_status, audio_encode_error, \
+    video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_selected_index";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
@@ -112,6 +117,10 @@ pub struct FileDto {
     pub audio_waveform_ready: bool,
     pub audio_encode_status: Option<String>,
     pub audio_encode_error: Option<String>,
+    pub video_thumbnail_ready: bool,
+    pub video_thumbnail_status: Option<String>,
+    pub video_thumbnail_error: Option<String>,
+    pub video_thumbnail_selected_index: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -580,8 +589,9 @@ pub async fn upload_file(
 
             let _: FileDto = sqlx::query_as(&format!(
                 "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
-                 storage_node_id, duration_seconds, hls_encode_status, conversion_progress) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'queued', 0) \
+                 storage_node_id, duration_seconds, hls_encode_status, conversion_progress, \
+                 video_thumbnail_status) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'queued', 0, 'queued') \
                  RETURNING {FILE_COLUMNS}"
             ))
             .bind(&file_id)
@@ -617,6 +627,25 @@ pub async fn upload_file(
                 Some(&file_id),
                 serde_json::to_value(payload)
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("encode job payload: {e}")))?,
+            )
+            .await?;
+
+            let thumbnail_payload = VideoThumbnailPayload {
+                file_id: file_id.clone(),
+                storage_key: storage_key.clone(),
+                tmp_video: tmp_path.to_string_lossy().to_string(),
+            };
+
+            jobs::enqueue_job(
+                &state.pool,
+                &claims.sub,
+                JobKind::VideoThumbnail,
+                &filename,
+                Some("file"),
+                Some(&file_id),
+                serde_json::to_value(thumbnail_payload).map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("thumbnail job payload: {e}"))
+                })?,
             )
             .await?;
 
@@ -1045,7 +1074,9 @@ pub async fn copy_file(
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
          hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
-         audio_waveform_ready, audio_encode_status, audio_waveform_key \
+         audio_waveform_ready, audio_encode_status, audio_waveform_key, \
+         video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
+         video_thumbnail_selected_index \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
@@ -1091,12 +1122,18 @@ pub async fn copy_file(
         .audio_waveform_key
         .as_ref()
         .map(|_| crate::audio::waveform_storage_key(&new_storage_key));
+    let new_thumbnail_manifest_key = source
+        .video_thumbnail_manifest_key
+        .as_ref()
+        .map(|_| crate::video::thumbnail_manifest_storage_key(&new_storage_key));
 
     let file: FileDto = sqlx::query_as(&format!(
         "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
          duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
-         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
+         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key, \
+         video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
+         video_thumbnail_selected_index) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -1115,6 +1152,10 @@ pub async fn copy_file(
     .bind(source.audio_waveform_ready)
     .bind(&source.audio_encode_status)
     .bind(&new_waveform_key)
+    .bind(source.video_thumbnail_ready)
+    .bind(&source.video_thumbnail_status)
+    .bind(&new_thumbnail_manifest_key)
+    .bind(source.video_thumbnail_selected_index)
     .fetch_one(&state.pool)
     .await?;
 
@@ -1169,6 +1210,7 @@ pub async fn cancel_video_ingest(
     }
 
     let cancelled = jobs::cancel_hls_encode_for_file(&state.pool, &claims.sub, &id).await?;
+    let _ = jobs::cancel_video_thumbnail_for_file(&state.pool, &claims.sub, &id).await;
 
     if cancelled {
         purge_file_storage(state.storage.clone(), &storage_key, segment_count).await;

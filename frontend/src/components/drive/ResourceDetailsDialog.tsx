@@ -2,9 +2,10 @@
 // Agent: READS FileItem/FolderItem; RENDERS ShareLinksPanel on Sharing tab; CALLS onShareChanged on revoke/create.
 
 import { useState } from "react";
-import { FileIcon, Folder, Info, Link2 } from "lucide-react";
+import { FileIcon, Folder, ImageIcon, Info, Link2 } from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
 import { ShareLinksPanel } from "@/components/drive/ShareLinksPanel";
+import { VideoThumbnailEditorDialog } from "@/components/drive/VideoThumbnailEditorDialog";
 import type { ShareTarget } from "@/components/drive/ShareDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,8 @@ type ResourceDetailsDialogProps = {
   target: DetailsTarget | null;
   initialTab?: "details" | "sharing";
   onShareChanged?: () => void;
+  /** Human: Notifies parent when the user picks a different video poster frame. */
+  onThumbnailSelected?: (file: FileItem, selectedIndex: number) => void;
 };
 
 type DetailsTab = "details" | "sharing";
@@ -64,12 +67,16 @@ export function ResourceDetailsDialog({
   target,
   initialTab = "details",
   onShareChanged,
+  onThumbnailSelected,
 }: ResourceDetailsDialogProps) {
   const [tab, setTab] = useState<DetailsTab>(initialTab);
+  const [thumbnailEditorOpen, setThumbnailEditorOpen] = useState(false);
 
   function handleOpenChange(next: boolean) {
     if (next) {
       setTab(initialTab);
+    } else {
+      setThumbnailEditorOpen(false);
     }
     onOpenChange(next);
   }
@@ -77,7 +84,10 @@ export function ResourceDetailsDialog({
   const name = target?.kind === "file" ? target.file.name : target?.folder.name;
   const isFile = target?.kind === "file";
 
+  const videoFile = target?.kind === "file" ? target.file : null;
+
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-lg">
         <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
@@ -136,14 +146,36 @@ export function ResourceDetailsDialog({
                   <DetailRow label="Modified" value={formatFileOpened(target.file.updated_at)} />
                   <DetailRow label="Created" value={formatFileOpened(target.file.created_at)} />
                   {target.file.mime_type?.startsWith("video/") ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                        Video
-                      </span>
-                      <Badge variant="secondary">
-                        {target.file.hls_ready ? "Ready to stream" : "Processing"}
-                      </Badge>
-                    </div>
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                          Video
+                        </span>
+                        <Badge variant="secondary">
+                          {target.file.hls_ready ? "Ready to stream" : "Processing"}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-col gap-2 border-t border-neutral-100 pt-4">
+                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                          Thumbnail
+                        </span>
+                        {target.file.video_thumbnail_ready ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-fit gap-2"
+                            onClick={() => setThumbnailEditorOpen(true)}
+                          >
+                            <ImageIcon className="size-4" aria-hidden />
+                            Thumbnail
+                          </Button>
+                        ) : (
+                          <p className="text-sm text-neutral-500">
+                            Poster frames generate while the upload is processing.
+                          </p>
+                        )}
+                      </div>
+                    </>
                   ) : null}
                 </>
               ) : (
@@ -167,5 +199,13 @@ export function ResourceDetailsDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    <VideoThumbnailEditorDialog
+      file={videoFile}
+      open={thumbnailEditorOpen}
+      onOpenChange={setThumbnailEditorOpen}
+      onSelected={onThumbnailSelected}
+    />
+    </>
   );
 }

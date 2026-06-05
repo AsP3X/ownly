@@ -250,6 +250,27 @@ pub async fn cancel_hls_encode_for_file(
     Ok(result.rows_affected() > 0)
 }
 
+/// Human: Cancel an in-flight video thumbnail job and mark the row so UI polling can stop.
+// Agent: WRITES background_jobs cancelled; WRITES files.video_thumbnail_status=cancelled.
+pub async fn cancel_video_thumbnail_for_file(
+    pool: &PgPool,
+    user_id: &str,
+    file_id: &str,
+) -> Result<(), AppError> {
+    cancel_job_by_resource(pool, user_id, JobKind::VideoThumbnail, "file", file_id).await?;
+
+    sqlx::query(
+        "UPDATE files SET video_thumbnail_status = 'cancelled', video_thumbnail_error = NULL \
+         WHERE id = $1 AND user_id = $2 AND NOT video_thumbnail_ready",
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 /// Human: On startup and periodically, release running jobs whose worker stopped heartbeating.
 // Agent: RE-QUEUES stale running rows; MARKS failed when attempts exhausted; NEVER leaves locked_by set.
 pub async fn recover_stale_jobs(pool: &PgPool, stale_minutes: i64) -> Result<u64, AppError> {
