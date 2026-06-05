@@ -1,64 +1,84 @@
 // Human: Column/row sizing helpers — defaults, xlsx conversion, and auto-fit like Excel.
 // Agent: READS SheetJS !cols/!rows; WRITES display px arrays; RETURNS auto-fit widths/heights for grid.
 
-import { scaledPx, EXCEL_DIALOG_SCALE } from "@/components/drive/excel/excel-dialog-scale";
+import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import type { SheetCell, SheetData } from "@/lib/spreadsheet/types";
 import type * as XLSX from "xlsx";
 
-// Human: Pencil grid baselines (pre-1.5× scale) — match ExcelSpreadsheetGrid design tokens.
-// Agent: CONVERTED via scaledPx for on-screen CSS pixels.
+// Human: Pencil grid baselines for row chrome; column widths match Excel 96 dpi screen pixels.
+// Agent: ROW metrics use scaledPx; COLUMN widths use file screen px 1:1 (no dialog scale).
 export const GRID_DEFAULT_ROW_HEIGHT_BASE = 25;
 export const GRID_HEADER_ROW_HEIGHT_BASE = 26;
 export const GRID_ROW_INDEX_WIDTH_BASE = 40;
-export const GRID_DEFAULT_COL_WIDTH_BASE = 100;
-export const GRID_FIRST_COL_WIDTH_BASE = 179;
-export const GRID_MIN_COL_WIDTH_BASE = 20;
+// Human: Excel default column ≈ 8.43 characters (~64 screen px at 96 dpi).
+export const GRID_DEFAULT_COL_WIDTH = 64;
+export const GRID_MIN_COL_WIDTH = 20;
+export const GRID_MAX_COL_WIDTH = 400;
 export const GRID_MIN_ROW_HEIGHT_BASE = 14;
 
 export const GRID_DEFAULT_ROW_HEIGHT = scaledPx(GRID_DEFAULT_ROW_HEIGHT_BASE);
 export const GRID_HEADER_ROW_HEIGHT = scaledPx(GRID_HEADER_ROW_HEIGHT_BASE);
 export const GRID_ROW_INDEX_WIDTH = scaledPx(GRID_ROW_INDEX_WIDTH_BASE);
-export const GRID_DEFAULT_COL_WIDTH = scaledPx(GRID_DEFAULT_COL_WIDTH_BASE);
-export const GRID_FIRST_COL_WIDTH = scaledPx(GRID_FIRST_COL_WIDTH_BASE);
-export const GRID_MIN_COL_WIDTH = scaledPx(GRID_MIN_COL_WIDTH_BASE);
 export const GRID_MIN_ROW_HEIGHT = scaledPx(GRID_MIN_ROW_HEIGHT_BASE);
 
-// Human: Excel stores widths/heights in 96 dpi screen pixels; our UI is 1.5× Pencil scale.
-// Agent: MULTIPLIES/DIVIDES by EXCEL_DIALOG_SCALE when crossing model ↔ file boundary.
+// Human: Clamp imported/resized column width to Excel-like bounds.
+// Agent: PREVENTS oversized wpx/wch values from stretching the grid.
+function clampColumnWidth(width: number): number {
+  return Math.min(GRID_MAX_COL_WIDTH, Math.max(GRID_MIN_COL_WIDTH, Math.round(width)));
+}
+
+// Human: Excel wpx/wch are already 96 dpi screen pixels — map 1:1 to CSS pixels.
+// Agent: DOES NOT apply dialog UI scale; USED on xlsx import/export.
 export function wpxToDisplayPx(wpx: number): number {
-  return Math.max(GRID_MIN_COL_WIDTH, Math.round(wpx * EXCEL_DIALOG_SCALE));
+  return clampColumnWidth(wpx);
 }
 
 export function displayPxToWpx(displayPx: number): number {
-  return Math.max(1, Math.round(displayPx / EXCEL_DIALOG_SCALE));
+  return Math.max(1, Math.round(displayPx));
 }
 
 export function hpxToDisplayPx(hpx: number): number {
-  return Math.max(GRID_MIN_ROW_HEIGHT, Math.round(hpx * EXCEL_DIALOG_SCALE));
+  return Math.max(GRID_MIN_ROW_HEIGHT, Math.round(hpx));
 }
 
 export function displayPxToHpx(displayPx: number): number {
-  return Math.max(1, Math.round(displayPx / EXCEL_DIALOG_SCALE));
+  return Math.max(1, Math.round(displayPx));
 }
 
-// Human: Points (hpt) → screen pixels at 96 dpi, then apply dialog scale.
+// Human: Points (hpt) → screen pixels at 96 dpi.
 // Agent: USED when SheetJS exposes row height in points instead of hpx.
 export function hptToDisplayPx(hpt: number): number {
   const screenPx = (hpt * 96) / 72;
   return hpxToDisplayPx(screenPx);
 }
 
-function defaultColumnWidth(colIndex: number): number {
-  return colIndex === 0 ? GRID_FIRST_COL_WIDTH : GRID_DEFAULT_COL_WIDTH;
+// Human: Estimate column width from SheetJS col metadata (prefers wch over inflated wpx).
+// Agent: READS !cols entry; RETURNS clamped CSS pixel width.
+function columnWidthFromColMeta(meta: { wpx?: number; wch?: number; width?: number } | undefined): number {
+  if (!meta) return GRID_DEFAULT_COL_WIDTH;
+
+  if (meta.wch && meta.wch > 0) {
+    return clampColumnWidth(meta.wch * 7 + 5);
+  }
+
+  if (meta.wpx && meta.wpx > 0) {
+    return clampColumnWidth(meta.wpx);
+  }
+
+  if (meta.width && meta.width > 0) {
+    return clampColumnWidth(meta.width * 7 + 5);
+  }
+
+  return GRID_DEFAULT_COL_WIDTH;
 }
 
-// Human: Build a full column-width array, filling gaps with Excel-like defaults.
+// Human: Build a full column-width array, filling gaps with the Excel default width.
 // Agent: READS optional sheet.columnWidths; PADS to columnCount.
 export function resolveColumnWidths(sheet: Pick<SheetData, "rows" | "columnWidths">, columnCount: number): number[] {
   return Array.from({ length: columnCount }, (_, colIndex) => {
     const stored = sheet.columnWidths?.[colIndex];
-    if (typeof stored === "number" && stored > 0) return stored;
-    return defaultColumnWidth(colIndex);
+    if (typeof stored === "number" && stored > 0) return clampColumnWidth(stored);
+    return GRID_DEFAULT_COL_WIDTH;
   });
 }
 
@@ -72,21 +92,15 @@ export function resolveRowHeights(sheet: Pick<SheetData, "rows" | "rowHeights">,
   });
 }
 
-// Human: Import !cols metadata from a parsed SheetJS worksheet.
-// Agent: PREFERS wpx; FALLS BACK to wch/width; RETURNS display-pixel widths.
+// Human: Import !cols metadata from a parsed SheetJS worksheet (data columns only).
+// Agent: PREFERS wch; FALLS BACK to wpx; RETURNS clamped CSS pixel widths.
 export function columnWidthsFromWorksheet(
   worksheet: XLSX.WorkSheet,
   columnCount: number,
 ): number[] {
   const cols = worksheet["!cols"] as Array<{ wpx?: number; wch?: number; width?: number }> | undefined;
 
-  return Array.from({ length: columnCount }, (_, colIndex) => {
-    const meta = cols?.[colIndex];
-    if (meta?.wpx && meta.wpx > 0) return wpxToDisplayPx(meta.wpx);
-    if (meta?.wch && meta.wch > 0) return wpxToDisplayPx(meta.wch * 7 + 5);
-    if (meta?.width && meta.width > 0) return wpxToDisplayPx(meta.width * 7);
-    return defaultColumnWidth(colIndex);
-  });
+  return Array.from({ length: columnCount }, (_, colIndex) => columnWidthFromColMeta(cols?.[colIndex]));
 }
 
 // Human: Import !rows metadata from a parsed SheetJS worksheet.
@@ -149,7 +163,7 @@ export function autoFitColumnWidth(rows: SheetCell[][], colIndex: number): numbe
     }
   }
 
-  return Math.round(maxContent);
+  return clampColumnWidth(maxContent);
 }
 
 // Human: Auto-fit one row to tallest cell content (Excel double-click row divider).

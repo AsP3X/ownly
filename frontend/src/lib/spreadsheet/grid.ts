@@ -3,7 +3,6 @@
 
 import {
   GRID_DEFAULT_COL_WIDTH,
-  GRID_FIRST_COL_WIDTH,
   resolveColumnWidths,
   resolveRowHeights,
 } from "@/lib/spreadsheet/dimensions";
@@ -74,10 +73,6 @@ export function targetGridRowCount(rows: SheetCell[][]): number {
   return Math.max(GRID_MIN_ROW_COUNT, usedRows + GRID_PADDING_ROWS, rows.length);
 }
 
-function defaultColumnWidth(colIndex: number): number {
-  return colIndex === 0 ? GRID_FIRST_COL_WIDTH : GRID_DEFAULT_COL_WIDTH;
-}
-
 function padRow(row: SheetCell[], columnCount: number): SheetCell[] {
   const next = [...row];
   while (next.length < columnCount) {
@@ -95,7 +90,7 @@ export function padSheetToSize(sheet: SheetData, rowCount: number, columnCount: 
 
   const nextColumnWidths = resolveColumnWidths(sheet, columnCount);
   for (let colIndex = nextColumnWidths.length; colIndex < columnCount; colIndex += 1) {
-    nextColumnWidths[colIndex] = defaultColumnWidth(colIndex);
+    nextColumnWidths[colIndex] = GRID_DEFAULT_COL_WIDTH;
   }
 
   const nextRowHeights = resolveRowHeights(sheet, rowCount);
