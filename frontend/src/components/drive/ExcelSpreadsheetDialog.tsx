@@ -31,12 +31,20 @@ import {
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cellAddressLabel, formatCellDisplay, formulaBarValue } from "@/lib/spreadsheet/cells";
 import {
+  columnRangeFromSelection,
+  statusBadgePresetRules,
+} from "@/lib/spreadsheet/conditional-formatting";
+import {
   applyFormulaBarEdit,
   parseSpreadsheetBuffer,
   serializeSpreadsheetWorkbook,
 } from "@/lib/spreadsheet/parse";
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import type { CellAddress, CellStyle, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
+import {
+  rulesFromPreset,
+  type ConditionalFormatPreset,
+} from "@/components/drive/excel/ExcelConditionalFormatMenu";
 
 export type ExcelSpreadsheetDialogProps = {
   file: FileItem | null;
@@ -105,7 +113,7 @@ export function ExcelSpreadsheetDialog({
         ? await fetchPublicShareBlobForPreview(shareToken, target.id, sharePassword)
         : await fetchFileBlobForPreview(target);
       const buffer = await blob.arrayBuffer();
-      const workbook = parseSpreadsheetBuffer(buffer);
+      const workbook = await parseSpreadsheetBuffer(buffer);
       setLoadState({
         loading: false,
         error: "",
@@ -191,6 +199,66 @@ export function ExcelSpreadsheetDialog({
     [activeSheet, activeSheetIndex, loadState.workbook, readOnly, selection],
   );
 
+  const handleColumnWidthsChange = useCallback(
+    (widths: number[]) => {
+      if (!loadState.workbook || readOnly) return;
+      const nextSheets = loadState.workbook.sheets.map((sheet, index) =>
+        index === activeSheetIndex ? { ...sheet, columnWidths: widths } : sheet,
+      );
+      setLoadState((current) => ({
+        ...current,
+        workbook: { sheets: nextSheets },
+      }));
+    },
+    [activeSheetIndex, loadState.workbook, readOnly],
+  );
+
+  const handleRowHeightsChange = useCallback(
+    (heights: number[]) => {
+      if (!loadState.workbook || readOnly) return;
+      const nextSheets = loadState.workbook.sheets.map((sheet, index) =>
+        index === activeSheetIndex ? { ...sheet, rowHeights: heights } : sheet,
+      );
+      setLoadState((current) => ({
+        ...current,
+        workbook: { sheets: nextSheets },
+      }));
+    },
+    [activeSheetIndex, loadState.workbook, readOnly],
+  );
+
+  const handleConditionalFormatPreset = useCallback(
+    (preset: ConditionalFormatPreset) => {
+      if (!loadState.workbook || !selection || !activeSheet || readOnly) return;
+
+      const range = columnRangeFromSelection(selection, activeSheet.rows.length);
+      const existing = activeSheet.conditionalFormats ?? [];
+      const nextPriority =
+        existing.reduce((max, rule) => Math.max(max, rule.priority), 0) + 1;
+
+      let nextRules = [...existing];
+      if (preset.kind === "clear") {
+        nextRules = existing.filter((rule) => rule.range.startCol !== range.startCol);
+      } else if (preset.kind === "statusPresets") {
+        nextRules = [
+          ...existing.filter((rule) => rule.range.startCol !== range.startCol),
+          ...statusBadgePresetRules(range, nextPriority),
+        ];
+      } else {
+        nextRules = [...existing, ...rulesFromPreset(preset, range, nextPriority)];
+      }
+
+      const nextSheets = loadState.workbook.sheets.map((sheet, index) =>
+        index === activeSheetIndex ? { ...sheet, conditionalFormats: nextRules } : sheet,
+      );
+      setLoadState((current) => ({
+        ...current,
+        workbook: { sheets: nextSheets },
+      }));
+    },
+    [activeSheet, activeSheetIndex, loadState.workbook, readOnly, selection],
+  );
+
   const handleSaveAndClose = useCallback(async () => {
     if (!file || !loadState.workbook) {
       handleDialogOpenChange(false);
@@ -205,7 +273,7 @@ export function ExcelSpreadsheetDialog({
     setSaving(true);
     setSaveError("");
     try {
-      const blob = serializeSpreadsheetWorkbook(loadState.workbook);
+      const blob = await serializeSpreadsheetWorkbook(loadState.workbook);
       const nextFileObject = new File([blob], file.name, {
         type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -261,8 +329,10 @@ export function ExcelSpreadsheetDialog({
               <ExcelSpreadsheetRibbon
                 activeTab={ribbonTab}
                 cellStyle={cellStyle}
+                readOnly={readOnly}
                 onTabChange={setRibbonTab}
                 onStyleChange={handleStyleChange}
+                onConditionalFormatPreset={handleConditionalFormatPreset}
               />
 
               <ExcelFormulaBar
@@ -288,9 +358,16 @@ export function ExcelSpreadsheetDialog({
               {!loadState.loading && !loadState.error && activeSheet ? (
                 <>
                   <ExcelSpreadsheetGrid
+                    sheetKey={activeSheet.name}
                     rows={activeSheet.rows}
+                    conditionalFormats={activeSheet.conditionalFormats}
+                    columnWidths={activeSheet.columnWidths}
+                    rowHeights={activeSheet.rowHeights}
+                    readOnly={readOnly}
                     selection={selection}
                     onSelectCell={setSelection}
+                    onColumnWidthsChange={handleColumnWidthsChange}
+                    onRowHeightsChange={handleRowHeightsChange}
                   />
                   <ExcelSheetTabsBar
                     sheets={loadState.workbook?.sheets.map((sheet) => sheet.name) ?? []}

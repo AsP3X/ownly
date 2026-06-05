@@ -21,6 +21,10 @@ import type {
   CellStyle,
   HorizontalAlign,
 } from "@/lib/spreadsheet/types";
+import {
+  ExcelConditionalFormatMenu,
+  type ConditionalFormatPreset,
+} from "@/components/drive/excel/ExcelConditionalFormatMenu";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +50,10 @@ const RIBBON_TABS: { id: RibbonTabId; label: string }[] = [
 type ExcelSpreadsheetRibbonProps = {
   activeTab: RibbonTabId;
   cellStyle: CellStyle;
+  readOnly?: boolean;
   onTabChange: (tab: RibbonTabId) => void;
   onStyleChange: (patch: Partial<CellStyle>) => void;
+  onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
 };
 
 function RibbonDivider() {
@@ -91,10 +97,14 @@ function RibbonButton({
 
 function HomeTools({
   cellStyle,
+  readOnly,
   onStyleChange,
+  onConditionalFormatPreset,
 }: {
   cellStyle: CellStyle;
+  readOnly?: boolean;
   onStyleChange: (patch: Partial<CellStyle>) => void;
+  onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
 }) {
   const setAlign = (horizontalAlign: HorizontalAlign) => onStyleChange({ horizontalAlign });
 
@@ -180,9 +190,9 @@ function HomeTools({
           Currency
           <ChevronDown className="size-3 text-[#666666]" aria-hidden />
         </button>
-        <RibbonButton
-          label="Conditional Formatting"
-          onClick={() => undefined}
+        <ExcelConditionalFormatMenu
+          disabled={readOnly || !onConditionalFormatPreset}
+          onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
         />
       </div>
     </>
@@ -276,8 +286,10 @@ function AutomateTools() {
 export function ExcelSpreadsheetRibbon({
   activeTab,
   cellStyle,
+  readOnly,
   onTabChange,
   onStyleChange,
+  onConditionalFormatPreset,
 }: ExcelSpreadsheetRibbonProps) {
   return (
     <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
@@ -327,7 +339,14 @@ export function ExcelSpreadsheetRibbon({
         }}
       >
         {activeTab === "file" ? <FileTools /> : null}
-        {activeTab === "home" ? <HomeTools cellStyle={cellStyle} onStyleChange={onStyleChange} /> : null}
+        {activeTab === "home" ? (
+          <HomeTools
+            cellStyle={cellStyle}
+            readOnly={readOnly}
+            onStyleChange={onStyleChange}
+            onConditionalFormatPreset={onConditionalFormatPreset}
+          />
+        ) : null}
         {activeTab === "insert" ? <InsertTools /> : null}
         {activeTab === "page-layout" ? <PageLayoutTools /> : null}
         {activeTab === "formulas" ? <FormulasTools /> : null}
