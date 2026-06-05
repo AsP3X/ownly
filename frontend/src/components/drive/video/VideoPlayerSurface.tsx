@@ -1,4 +1,4 @@
-// Human: Pencil desktop video player — 1.25× baseline (1500×1125 card), capped by 112.5dvh like Excel dialog.
+// Human: Pencil desktop video player — 1.25× baseline (1500×1125), height capped by calc(100dvh - 2rem).
 // Agent: READS videoRef from parent for HLS attach; USES useVideoTransport; hidden below lg breakpoint.
 
 import { useRef, type RefObject } from "react";
@@ -19,6 +19,7 @@ import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
+import { videoDialogPlayerShellClass } from "@/components/drive/video/video-dialog-viewport";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -80,7 +81,7 @@ export function VideoPlayerSurface({
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen
           ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
-          : "min-w-0 flex-1 aspect-[4/3] max-h-[min(1125px,112.5dvh)] w-full max-w-[min(1500px,calc(min(1125px,112.5dvh)*4/3))]",
+          : videoDialogPlayerShellClass,
       )}
       onFocus={revealChrome}
     >
