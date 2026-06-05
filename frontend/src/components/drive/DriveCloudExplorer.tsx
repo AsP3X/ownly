@@ -23,12 +23,9 @@ import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import {
   ExplorerFileGridTile,
   ExplorerFolderGridTile,
-} from "@/components/drive/ExplorerGridTiles";
-import {
-  EXPLORER_GRID_VIRTUALIZE_THRESHOLD,
-  VirtualizedExplorerGrid,
   type ExplorerGridEntry,
-} from "@/components/drive/VirtualizedExplorerGrid";
+} from "@/components/drive/ExplorerGridTiles";
+import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
@@ -37,7 +34,6 @@ import { cn } from "@/lib/utils";
 // Human: MIME payload for HTML5 drag — must match DrivePage FileTable for drop handlers.
 // Agent: SET on dragstart; READ on folder drop.
 const FILE_DRAG_MIME = "application/x-ownly-file-id";
-const EMPTY_FILE_SELECTION = new Set<string>();
 
 export type ExplorerFolderCrumb = { id: string; name: string };
 
@@ -189,6 +185,8 @@ export function DriveCloudExplorer({
   const draggingFileIdRef = useRef<string | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+  const fallbackScrollRef = useRef<HTMLElement | null>(null);
+  const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const selectionEnabled =
@@ -201,7 +199,7 @@ export function DriveCloudExplorer({
     typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
 
   // Human: Flatten folders + files into one grid sequence (folders first when browsing).
-  // Agent: FED to VirtualizedExplorerGrid or the small-list static grid below.
+  // Agent: RENDERED in a static grid; off-screen paint skipped via content-visibility on each tile.
   const gridEntries = useMemo(() => {
     const entries: ExplorerGridEntry[] = [];
     if (!isSearching) {
@@ -214,8 +212,6 @@ export function DriveCloudExplorer({
     }
     return entries;
   }, [files, folders, isSearching]);
-
-  const useVirtualizedGrid = gridEntries.length >= EXPLORER_GRID_VIRTUALIZE_THRESHOLD;
 
   // Human: Close the filter popover when clicking outside the filter control cluster.
   // Agent: LISTENS mousedown on document; WRITES filterOpen false when outside filterRef.
@@ -255,13 +251,18 @@ export function DriveCloudExplorer({
     dragDepthRef.current.clear();
   }, []);
 
-  function toggleFileSelected(fileId: string, checked: boolean) {
-    if (!selectionEnabled) return;
-    const next = new Set(selectedFileIds);
-    if (checked) next.add(fileId);
-    else next.delete(fileId);
-    onSelectedFileIdsChange(next);
-  }
+  const toggleFileSelected = useCallback(
+    (fileId: string, checked: boolean) => {
+      if (!selectionEnabled || selectedFileIds === undefined || !onSelectedFileIdsChange) {
+        return;
+      }
+      const next = new Set(selectedFileIds);
+      if (checked) next.add(fileId);
+      else next.delete(fileId);
+      onSelectedFileIdsChange(next);
+    },
+    [onSelectedFileIdsChange, selectedFileIds, selectionEnabled],
+  );
 
   function handleFileDragStart(event: DragEvent<HTMLButtonElement>, fileId: string) {
     if (!dragEnabled) {
@@ -435,75 +436,48 @@ export function DriveCloudExplorer({
               Try a different search term or clear filters.
             </p>
           </div>
-        ) : useVirtualizedGrid ? (
-          <VirtualizedExplorerGrid
-            entries={gridEntries}
-            scrollElementRef={scrollElementRef}
-            isSearching={isSearching}
-            dragEnabled={dragEnabled}
-            selectionEnabled={selectionEnabled}
-            selectedFileIds={selectedFileIds ?? EMPTY_FILE_SELECTION}
-            hasActiveSelection={hasActiveSelection}
-            draggingFileId={draggingFileId}
-            dropTargetFolderId={dropTargetFolderId}
-            fileShareFlags={fileShareFlags}
-            folderShareFlags={folderShareFlags}
-            onOpenFolder={onOpenFolder}
-            onToggleSelected={toggleFileSelected}
-            onFolderDragEnter={handleFolderDragEnter}
-            onFolderDragOver={handleFolderDragOver}
-            onFolderDragLeave={handleFolderDragLeave}
-            onFolderDrop={handleFolderDrop}
-            onFileDragStart={handleFileDragStart}
-            onFileDragEnd={resetDragState}
-            onPreviewVideo={onPreviewVideo}
-            onPreviewImage={onPreviewImage}
-            onPreviewPdf={onPreviewPdf}
-            onPreviewText={onPreviewText}
-            onPreviewSpreadsheet={onPreviewSpreadsheet}
-            onPreviewAudio={onPreviewAudio}
-            onOpenActions={onOpenActions}
-          />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 sm:gap-4">
-            {gridEntries.map((entry) =>
-              entry.kind === "folder" ? (
-                <ExplorerFolderGridTile
-                  key={`folder-${entry.folder.id}`}
-                  folder={entry.folder}
-                  shareFlags={folderShareFlags[entry.folder.id]}
-                  isDropTarget={dropTargetFolderId === entry.folder.id}
-                  dragEnabled={dragEnabled && !isSearching}
-                  onOpenFolder={onOpenFolder}
-                  onDragEnter={handleFolderDragEnter}
-                  onDragOver={handleFolderDragOver}
-                  onDragLeave={handleFolderDragLeave}
-                  onDrop={handleFolderDrop}
-                />
-              ) : (
-                <ExplorerFileGridTile
-                  key={entry.file.id}
-                  file={entry.file}
-                  shareFlags={fileShareFlags[entry.file.id]}
-                  selectionEnabled={selectionEnabled}
-                  isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
-                  hasActiveSelection={hasActiveSelection}
-                  isDragging={draggingFileId === entry.file.id}
-                  dragEnabled={dragEnabled}
-                  onToggleSelected={toggleFileSelected}
-                  onDragStart={handleFileDragStart}
-                  onDragEnd={resetDragState}
-                  onPreviewVideo={onPreviewVideo}
-                  onPreviewImage={onPreviewImage}
-                  onPreviewPdf={onPreviewPdf}
-                  onPreviewText={onPreviewText}
-                  onPreviewSpreadsheet={onPreviewSpreadsheet}
-                  onPreviewAudio={onPreviewAudio}
-                  onOpenActions={onOpenActions}
-                />
-              ),
-            )}
-          </div>
+          <ExplorerScrollProvider scrollElementRef={explorerScrollRef}>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 sm:gap-4">
+              {gridEntries.map((entry) =>
+                entry.kind === "folder" ? (
+                  <ExplorerFolderGridTile
+                    key={`folder-${entry.folder.id}`}
+                    folder={entry.folder}
+                    shareFlags={folderShareFlags[entry.folder.id]}
+                    isDropTarget={dropTargetFolderId === entry.folder.id}
+                    dragEnabled={dragEnabled && !isSearching}
+                    onOpenFolder={onOpenFolder}
+                    onDragEnter={handleFolderDragEnter}
+                    onDragOver={handleFolderDragOver}
+                    onDragLeave={handleFolderDragLeave}
+                    onDrop={handleFolderDrop}
+                  />
+                ) : (
+                  <ExplorerFileGridTile
+                    key={entry.file.id}
+                    file={entry.file}
+                    shareFlags={fileShareFlags[entry.file.id]}
+                    selectionEnabled={selectionEnabled}
+                    isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
+                    hasActiveSelection={hasActiveSelection}
+                    isDragging={draggingFileId === entry.file.id}
+                    dragEnabled={dragEnabled}
+                    onToggleSelected={toggleFileSelected}
+                    onDragStart={handleFileDragStart}
+                    onDragEnd={resetDragState}
+                    onPreviewVideo={onPreviewVideo}
+                    onPreviewImage={onPreviewImage}
+                    onPreviewPdf={onPreviewPdf}
+                    onPreviewText={onPreviewText}
+                    onPreviewSpreadsheet={onPreviewSpreadsheet}
+                    onPreviewAudio={onPreviewAudio}
+                    onOpenActions={onOpenActions}
+                  />
+                ),
+              )}
+            </div>
+          </ExplorerScrollProvider>
         )}
         <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
         {!isSearching && hasMoreFolders && loadingMoreFolders ? (

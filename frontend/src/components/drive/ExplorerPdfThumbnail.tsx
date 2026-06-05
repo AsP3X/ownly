@@ -6,6 +6,7 @@ import { FileText, Loader2 } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview } from "@/api/client";
+import { useExplorerTileVisible } from "@/hooks/useExplorerTileVisible";
 import "@/lib/pdf-viewer";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +18,7 @@ type ExplorerPdfThumbnailProps = {
 /** Human: Lazy-loaded first-page preview for explorer PDF grid tiles. */
 export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
+  const visible = useExplorerTileVisible(containerRef);
   const [pageWidth, setPageWidth] = useState(0);
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [failed, setFailed] = useState(false);
@@ -35,24 +36,6 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
 
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  // Human: Defer PDF fetch until the tile nears the viewport — avoids N+1 downloads for off-screen rows.
-  // Agent: IntersectionObserver with rootMargin; WRITES visible true once; DISCONNECTS after first intersect.
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        setVisible(true);
-        observer.disconnect();
-      },
-      { rootMargin: "240px" },
-    );
     observer.observe(element);
     return () => observer.disconnect();
   }, []);

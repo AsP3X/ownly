@@ -34,6 +34,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+// Human: Browser skips layout/paint for off-screen tiles without JS scroll handlers.
+// Agent: APPLIED to folder/file shells; contain-intrinsic-size reserves scroll height.
+export const EXPLORER_GRID_TILE_PERF =
+  "[content-visibility:auto] [contain-intrinsic-size:auto_176px]";
+
+export type ExplorerGridEntry =
+  | { kind: "folder"; folder: FolderItem }
+  | { kind: "file"; file: FileItem };
+
 // Human: Large centered icon for explorer file tiles (32px per wireframe).
 // Agent: READS mime_type; RETURNS lucide icon in brand blue.
 function ExplorerFileIcon({ mimeType }: { mimeType: string | null }) {
@@ -94,6 +103,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       onDragLeave={() => onDragLeave(folder.id)}
       onDrop={(event) => onDrop(event, folder.id)}
       className={cn(
+        EXPLORER_GRID_TILE_PERF,
         "flex min-h-[108px] flex-col items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-3.5 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
         isDropTarget && "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
         !dragEnabled && "cursor-pointer",
@@ -181,6 +191,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     <div
       data-file-id={file.id}
       className={cn(
+        EXPLORER_GRID_TILE_PERF,
         "group relative overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
         isSelected
           ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
