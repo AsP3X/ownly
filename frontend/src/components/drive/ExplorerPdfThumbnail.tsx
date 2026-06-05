@@ -9,9 +9,6 @@ import { fetchFileBlobForPreview } from "@/api/client";
 import "@/lib/pdf-viewer";
 import { cn } from "@/lib/utils";
 
-// Human: Render width for the first page — sized for explorer grid tiles (4:3 frame).
-const THUMBNAIL_PAGE_WIDTH = 140;
-
 type ExplorerPdfThumbnailProps = {
   file: FileItem;
   className?: string;
@@ -21,8 +18,26 @@ type ExplorerPdfThumbnailProps = {
 export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  const [pageWidth, setPageWidth] = useState(0);
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [failed, setFailed] = useState(false);
+
+  // Human: Scale the rendered page to the tile width so the top of the document fills the preview frame.
+  // Agent: ResizeObserver READS container width; WRITES pageWidth for react-pdf Page.
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const updateWidth = () => {
+      const width = element.clientWidth;
+      if (width > 0) setPageWidth(Math.round(width));
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   // Human: Defer PDF fetch until the tile nears the viewport — avoids N+1 downloads for off-screen rows.
   // Agent: IntersectionObserver with rootMargin; WRITES visible true once; DISCONNECTS after first intersect.
@@ -80,8 +95,10 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
         <div className="flex size-full items-center justify-center">
           <FileText className="size-8 text-[#2563EB]" aria-hidden />
         </div>
-      ) : pdfData ? (
-        <div className="flex size-full items-center justify-center bg-white">
+      ) : pdfData && pageWidth > 0 ? (
+        // Human: Top-aligned page — overflow clips the bottom so the tile shows the document header area.
+        // Agent: items-start + overflow-hidden on ancestors; Page width matches tile for full-bleed width.
+        <div className="flex size-full items-start justify-center overflow-hidden bg-white">
           <Document
             file={pdfData}
             loading={
@@ -90,11 +107,11 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
               </div>
             }
             onLoadError={() => setFailed(true)}
-            className="flex max-h-full max-w-full items-center justify-center"
+            className="w-full"
           >
             <Page
               pageNumber={1}
-              width={THUMBNAIL_PAGE_WIDTH}
+              width={pageWidth}
               renderAnnotationLayer={false}
               renderTextLayer={false}
               loading={
@@ -102,7 +119,7 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
                   <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
                 </div>
               }
-              className="max-h-full [&_canvas]:max-h-full [&_canvas]:w-auto"
+              className="[&_canvas]:h-auto [&_canvas]:w-full"
             />
           </Document>
         </div>
