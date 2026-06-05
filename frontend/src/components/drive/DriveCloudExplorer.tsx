@@ -506,10 +506,14 @@ export function DriveCloudExplorer({
                   key={file.id}
                   data-file-id={file.id}
                   className={cn(
-                    "group relative rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+                    // Human: Card shell — hover fill covers the full bordered area, not an inset button.
+                    // Agent: APPLIES hover bg on outer shell; CLIPS children with overflow-hidden + rounded-xl.
+                    "group relative overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
                     isSelected
                       ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
                       : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
+                    canPreview && !isSelected && "hover:bg-[#F7F8FA]",
+                    canPreview && isSelected && "hover:bg-blue-100/50",
                     processing && "opacity-80",
                     draggingFileId === file.id && "opacity-50",
                   )}
@@ -580,12 +584,11 @@ export function DriveCloudExplorer({
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
                     className={cn(
-                      "flex w-full flex-col gap-1.5 rounded-[11px] text-center transition-colors",
+                      // Human: Preview/drag target fills the card; hover styling lives on the outer shell.
+                      "flex h-full w-full flex-col gap-1.5 text-center",
                       showImagePreview || showVideoPreview
                         ? "min-h-[148px] items-stretch p-2"
                         : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
-                      canPreview && !isSelected && "hover:bg-[#F7F8FA]",
-                      canPreview && isSelected && "hover:bg-blue-100/50",
                     )}
                   >
                     {showImagePreview ? (
