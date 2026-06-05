@@ -31,6 +31,7 @@ import {
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
+import { ExplorerPdfThumbnail } from "@/components/drive/ExplorerPdfThumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
@@ -500,6 +501,7 @@ export function DriveCloudExplorer({
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
               const showImagePreview = isImage && !processing;
               const showVideoPreview = isVideo && file.video_thumbnail_ready;
+              const showPdfPreview = isPdf && !processing;
 
               return (
                 <div
@@ -586,7 +588,7 @@ export function DriveCloudExplorer({
                     className={cn(
                       // Human: Preview/drag target fills the card; hover styling lives on the outer shell.
                       "flex h-full w-full flex-col gap-1.5 text-center",
-                      showImagePreview || showVideoPreview
+                      showImagePreview || showVideoPreview || showPdfPreview
                         ? "min-h-[148px] items-stretch p-2"
                         : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
                     )}
@@ -598,6 +600,8 @@ export function DriveCloudExplorer({
                         key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
                         file={file}
                       />
+                    ) : showPdfPreview ? (
+                      <ExplorerPdfThumbnail file={file} />
                     ) : (
                       <ExplorerFileIcon mimeType={file.mime_type} />
                     )}
