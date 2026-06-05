@@ -7,51 +7,37 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type DragEvent,
   type RefObject,
 } from "react";
 import {
-  Check,
   ChevronRight,
   FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Film,
-  Folder,
   FolderPlus,
-  ImageIcon,
-  Music,
-  Presentation,
   Search,
   SlidersHorizontal,
-  MoreVertical,
   Upload,
 } from "lucide-react";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
-import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
-import { LazyExplorerPdfThumbnail } from "@/components/drive/lazy-explorer-pdf-thumbnail";
-import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
-import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
-import { SharedIndicator } from "@/components/drive/SharedIndicator";
-import { isFileProcessing } from "@/lib/file-processing";
 import {
-  formatBytes,
-  formatFileOpened,
-  isAudioMime,
-  isImageMime,
-  isPdfMime,
-  isSpreadsheetPreviewMime,
-  isTextCodePreviewMime,
-  type FileTypeFilter,
-} from "@/lib/utils-app";
+  ExplorerFileGridTile,
+  ExplorerFolderGridTile,
+} from "@/components/drive/ExplorerGridTiles";
+import {
+  EXPLORER_GRID_VIRTUALIZE_THRESHOLD,
+  VirtualizedExplorerGrid,
+  type ExplorerGridEntry,
+} from "@/components/drive/VirtualizedExplorerGrid";
+import { isFileProcessing } from "@/lib/file-processing";
+import { type FileTypeFilter } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // Human: MIME payload for HTML5 drag — must match DrivePage FileTable for drop handlers.
 // Agent: SET on dragstart; READ on folder drop.
 const FILE_DRAG_MIME = "application/x-ownly-file-id";
+const EMPTY_FILE_SELECTION = new Set<string>();
 
 export type ExplorerFolderCrumb = { id: string; name: string };
 
@@ -97,31 +83,6 @@ type DriveCloudExplorerProps = {
   /** Human: Opens the mobile action sheet when the row ⋯ control is used. */
   onOpenActions?: (target: MobileActionTarget) => void;
 };
-
-// Human: Large centered icon for explorer file tiles (32px per wireframe).
-// Agent: READS mime_type; RETURNS lucide icon in brand blue.
-function ExplorerFileIcon({ mimeType }: { mimeType: string | null }) {
-  const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-8 text-[#2563EB]";
-  if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
-  if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
-  if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
-  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return <FileSpreadsheet className={className} aria-hidden />;
-  }
-  if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return <Presentation className={className} aria-hidden />;
-  }
-  if (
-    mime.startsWith("text/") ||
-    mime.includes("pdf") ||
-    mime.includes("word") ||
-    mime.includes("document")
-  ) {
-    return <FileText className={className} aria-hidden />;
-  }
-  return <FileIcon className={className} aria-hidden />;
-}
 
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
 // Agent: CALLS parent navigation handlers; BOLDS the current leaf crumb.
@@ -239,6 +200,23 @@ export function DriveCloudExplorer({
   const activeFilterLabel =
     typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
 
+  // Human: Flatten folders + files into one grid sequence (folders first when browsing).
+  // Agent: FED to VirtualizedExplorerGrid or the small-list static grid below.
+  const gridEntries = useMemo(() => {
+    const entries: ExplorerGridEntry[] = [];
+    if (!isSearching) {
+      for (const folder of folders) {
+        entries.push({ kind: "folder", folder });
+      }
+    }
+    for (const file of files) {
+      entries.push({ kind: "file", file });
+    }
+    return entries;
+  }, [files, folders, isSearching]);
+
+  const useVirtualizedGrid = gridEntries.length >= EXPLORER_GRID_VIRTUALIZE_THRESHOLD;
+
   // Human: Close the filter popover when clicking outside the filter control cluster.
   // Agent: LISTENS mousedown on document; WRITES filterOpen false when outside filterRef.
   useEffect(() => {
@@ -309,17 +287,25 @@ export function DriveCloudExplorer({
     return plain || draggingFileIdRef.current || draggingFileId;
   }
 
-  function handleFolderDragEnter(
-    event: DragEvent<HTMLButtonElement>,
-    folderId: string,
-    fileId: string | null,
-  ) {
-    if (!dragEnabled || !fileId) return;
-    event.preventDefault();
-    const depth = (dragDepthRef.current.get(folderId) ?? 0) + 1;
-    dragDepthRef.current.set(folderId, depth);
-    setDropTargetFolderId(folderId);
-  }
+  const handleFolderDragEnter = useCallback(
+    (event: DragEvent<HTMLButtonElement>, folderId: string) => {
+      const fileId = draggingFileIdRef.current;
+      if (!dragEnabled || !fileId) return;
+      event.preventDefault();
+      const depth = (dragDepthRef.current.get(folderId) ?? 0) + 1;
+      dragDepthRef.current.set(folderId, depth);
+      setDropTargetFolderId(folderId);
+    },
+    [dragEnabled],
+  );
+
+  const handleFolderDragOver = useCallback(
+    (event: DragEvent<HTMLButtonElement>) => {
+      if (!dragEnabled || !draggingFileIdRef.current) return;
+      event.preventDefault();
+    },
+    [dragEnabled],
+  );
 
   function handleFolderDragLeave(folderId: string) {
     const depth = (dragDepthRef.current.get(folderId) ?? 0) - 1;
@@ -449,204 +435,74 @@ export function DriveCloudExplorer({
               Try a different search term or clear filters.
             </p>
           </div>
+        ) : useVirtualizedGrid ? (
+          <VirtualizedExplorerGrid
+            entries={gridEntries}
+            scrollElementRef={scrollElementRef}
+            isSearching={isSearching}
+            dragEnabled={dragEnabled}
+            selectionEnabled={selectionEnabled}
+            selectedFileIds={selectedFileIds ?? EMPTY_FILE_SELECTION}
+            hasActiveSelection={hasActiveSelection}
+            draggingFileId={draggingFileId}
+            dropTargetFolderId={dropTargetFolderId}
+            fileShareFlags={fileShareFlags}
+            folderShareFlags={folderShareFlags}
+            onOpenFolder={onOpenFolder}
+            onToggleSelected={toggleFileSelected}
+            onFolderDragEnter={handleFolderDragEnter}
+            onFolderDragOver={handleFolderDragOver}
+            onFolderDragLeave={handleFolderDragLeave}
+            onFolderDrop={handleFolderDrop}
+            onFileDragStart={handleFileDragStart}
+            onFileDragEnd={resetDragState}
+            onPreviewVideo={onPreviewVideo}
+            onPreviewImage={onPreviewImage}
+            onPreviewPdf={onPreviewPdf}
+            onPreviewText={onPreviewText}
+            onPreviewSpreadsheet={onPreviewSpreadsheet}
+            onPreviewAudio={onPreviewAudio}
+            onOpenActions={onOpenActions}
+          />
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 sm:gap-4">
-            {!isSearching
-              ? folders.map((folder) => (
-                  <button
-                    key={`folder-${folder.id}`}
-                    type="button"
-                    data-folder-id={folder.id}
-                    onClick={() => onOpenFolder(folder)}
-                    onDragEnter={(event) =>
-                      handleFolderDragEnter(event, folder.id, draggingFileIdRef.current)
-                    }
-                    onDragOver={(event) => {
-                      if (!dragEnabled || !draggingFileIdRef.current) return;
-                      event.preventDefault();
-                    }}
-                    onDragLeave={() => handleFolderDragLeave(folder.id)}
-                    onDrop={(event) => handleFolderDrop(event, folder.id)}
-                    className={cn(
-                      "flex min-h-[108px] flex-col items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-3.5 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
-                      dropTargetFolderId === folder.id &&
-                        "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
-                    )}
-                  >
-                    <Folder className="size-8 text-[#2563EB]" aria-hidden />
-                    <span className="line-clamp-2 w-full text-[13px] font-semibold leading-tight text-[#1A1A1A]">
-                      {folder.name}
-                    </span>
-                    <span className="text-[11px] text-[#888888]">Folder</span>
-                    <SharedIndicator flags={folderShareFlags[folder.id]} className="size-3" />
-                  </button>
-                ))
-              : null}
-            {files.map((file) => {
-              const isVideo = file.mime_type?.startsWith("video/") ?? false;
-              const isImage = isImageMime(file.mime_type);
-              const isPdf = isPdfMime(file.mime_type);
-              const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
-              const isAudio = isAudioMime(file.mime_type);
-              const processing = isFileProcessing(file);
-              const canPreviewVideo =
-                isVideo && onPreviewVideo !== undefined && !processing;
-              const canPreviewImage =
-                isImage && onPreviewImage !== undefined && !processing;
-              const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
-              const canPreviewSpreadsheet =
-                isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
-              const canPreviewText =
-                isTextCodePreviewMime(file.mime_type, file.name) &&
-                onPreviewText !== undefined &&
-                !processing;
-              const canPreviewAudio =
-                isAudio && onPreviewAudio !== undefined && !processing;
-              const canPreview =
-                canPreviewVideo ||
-                canPreviewImage ||
-                canPreviewPdf ||
-                canPreviewSpreadsheet ||
-                canPreviewText ||
-                canPreviewAudio;
-              const isSelected = selectionEnabled && selectedFileIds.has(file.id);
-              const showImagePreview = isImage && !processing;
-              const showVideoPreview = isVideo && file.video_thumbnail_ready;
-              const showPdfPreview = isPdf && !processing;
-
-              return (
-                <div
-                  key={file.id}
-                  data-file-id={file.id}
-                  className={cn(
-                    // Human: Card shell — hover fill covers the full bordered area, not an inset button.
-                    // Agent: APPLIES hover bg on outer shell; CLIPS children with overflow-hidden + rounded-xl.
-                    "group relative overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
-                    isSelected
-                      ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
-                      : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
-                    canPreview && !isSelected && "hover:bg-[#F7F8FA]",
-                    canPreview && isSelected && "hover:bg-blue-100/50",
-                    processing && "opacity-80",
-                    draggingFileId === file.id && "opacity-50",
-                  )}
-                >
-                  {selectionEnabled ? (
-                    <label
-                      className={cn(
-                        "absolute right-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity",
-                        isSelected || hasActiveSelection
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        disabled={processing}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          toggleFileSelected(file.id, event.target.checked)
-                        }
-                        className="peer sr-only"
-                        aria-label={`Select ${file.name}`}
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                      <span
-                        className={cn(
-                          "flex size-5 items-center justify-center rounded-md border transition-colors",
-                          "peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-1",
-                          isSelected
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-[#D1D5DB] bg-white text-transparent shadow-sm",
-                        )}
-                        aria-hidden
-                      >
-                        <Check className="size-3.5 stroke-[2.5]" />
-                      </span>
-                    </label>
-                  ) : null}
-                  {onOpenActions ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className={cn(
-                        "absolute left-1.5 top-1.5 z-10 size-7 text-[#888888] lg:hidden",
-                        isSelected && "bg-white/80",
-                      )}
-                      aria-label={`Actions for ${file.name}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenActions({ kind: "file", file });
-                      }}
-                    >
-                      <MoreVertical className="size-4" aria-hidden />
-                    </Button>
-                  ) : null}
-                  <button
-                    type="button"
-                    draggable={dragEnabled && !processing}
-                    onDragStart={(event) => handleFileDragStart(event, file.id)}
-                    onDragEnd={resetDragState}
-                    onClick={() => {
-                      if (!canPreview) return;
-                      if (canPreviewVideo) onPreviewVideo!(file);
-                      else if (canPreviewImage) onPreviewImage!(file);
-                      else if (canPreviewPdf) onPreviewPdf!(file);
-                      else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
-                      else if (canPreviewText) onPreviewText!(file);
-                      else if (canPreviewAudio) onPreviewAudio!(file);
-                    }}
-                    className={cn(
-                      // Human: Preview/drag target fills the card; hover styling lives on the outer shell.
-                      "flex h-full w-full flex-col gap-1.5 text-center",
-                      showImagePreview || showVideoPreview || showPdfPreview
-                        ? "min-h-[148px] items-stretch p-2"
-                        : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
-                    )}
-                  >
-                    {showImagePreview ? (
-                      <ExplorerImageThumbnail file={file} />
-                    ) : showVideoPreview ? (
-                      <ExplorerVideoThumbnail
-                        key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
-                        file={file}
-                      />
-                    ) : showPdfPreview ? (
-                      <LazyExplorerPdfThumbnail file={file} />
-                    ) : (
-                      <ExplorerFileIcon mimeType={file.mime_type} />
-                    )}
-                    <span
-                      className={cn(
-                        "line-clamp-2 w-full text-[13px] font-semibold leading-snug",
-                        isSelected ? "text-blue-950" : "text-[#1A1A1A]",
-                      )}
-                    >
-                      {file.name}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-[11px]",
-                        isSelected ? "text-blue-700/80" : "text-[#888888]",
-                      )}
-                    >
-                      {formatBytes(file.size_bytes)} · {formatFileOpened(file.updated_at)}
-                    </span>
-                    {processing ? (
-                      <div className="mt-1 flex w-full max-w-full justify-center overflow-hidden px-0.5">
-                        <FileProcessingBadge
-                          file={file}
-                          compact
-                          className="bg-violet-100 text-violet-900"
-                        />
-                      </div>
-                    ) : null}
-                    <SharedIndicator flags={fileShareFlags[file.id]} className="size-3" />
-                  </button>
-                </div>
-              );
-            })}
+            {gridEntries.map((entry) =>
+              entry.kind === "folder" ? (
+                <ExplorerFolderGridTile
+                  key={`folder-${entry.folder.id}`}
+                  folder={entry.folder}
+                  shareFlags={folderShareFlags[entry.folder.id]}
+                  isDropTarget={dropTargetFolderId === entry.folder.id}
+                  dragEnabled={dragEnabled && !isSearching}
+                  onOpenFolder={onOpenFolder}
+                  onDragEnter={handleFolderDragEnter}
+                  onDragOver={handleFolderDragOver}
+                  onDragLeave={handleFolderDragLeave}
+                  onDrop={handleFolderDrop}
+                />
+              ) : (
+                <ExplorerFileGridTile
+                  key={entry.file.id}
+                  file={entry.file}
+                  shareFlags={fileShareFlags[entry.file.id]}
+                  selectionEnabled={selectionEnabled}
+                  isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
+                  hasActiveSelection={hasActiveSelection}
+                  isDragging={draggingFileId === entry.file.id}
+                  dragEnabled={dragEnabled}
+                  onToggleSelected={toggleFileSelected}
+                  onDragStart={handleFileDragStart}
+                  onDragEnd={resetDragState}
+                  onPreviewVideo={onPreviewVideo}
+                  onPreviewImage={onPreviewImage}
+                  onPreviewPdf={onPreviewPdf}
+                  onPreviewText={onPreviewText}
+                  onPreviewSpreadsheet={onPreviewSpreadsheet}
+                  onPreviewAudio={onPreviewAudio}
+                  onOpenActions={onOpenActions}
+                />
+              ),
+            )}
           </div>
         )}
         <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
