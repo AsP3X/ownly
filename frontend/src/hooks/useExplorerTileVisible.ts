@@ -5,7 +5,9 @@ import { useEffect, useState, type RefObject } from "react";
 import { useExplorerScrollRoot } from "@/hooks/useExplorerScrollRoot";
 import type { ExplorerThumbnailPriority } from "@/lib/explorer-thumbnail-queue";
 
-const EXPLORER_TILE_ROOT_MARGIN = "160px 0px";
+// Human: Wider band so near-phase prefetch fills the LRU before tiles enter the viewport.
+// Agent: INCREASED margin; MORE tiles load into cache during fast scroll.
+const EXPLORER_TILE_ROOT_MARGIN = "280px 0px";
 const EXPLORER_TILE_HIDE_DEBOUNCE_MS = 180;
 
 export type ExplorerTilePhase = "off" | "near" | "on";

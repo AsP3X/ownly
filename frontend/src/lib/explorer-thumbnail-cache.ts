@@ -3,7 +3,9 @@
 
 import type { FileItem } from "@/api/client";
 
-const MAX_EXPLORER_THUMBNAIL_CACHE = 120;
+// Human: Keep several folder pages of grid JPEGs hot (~25–40MB typical for mixed image/video rows).
+// Agent: RAISED from 120 so load-more listings stay cached while scrolling up/down.
+const MAX_EXPLORER_THUMBNAIL_CACHE = 400;
 
 type CacheEntry = {
   blob: Blob;
@@ -43,6 +45,12 @@ export function getCachedExplorerThumbnailBlob(key: string): Blob | null {
   if (!entry) return null;
   touchKey(key);
   return entry.blob;
+}
+
+// Human: True when this cache key already has a decoded blob in the LRU store.
+// Agent: READ by prefetch helper; SKIPS network for warm-cache passes.
+export function hasCachedExplorerThumbnailBlob(key: string): boolean {
+  return cache.has(key);
 }
 
 // Human: Store a decoded thumbnail blob for reuse while browsing the same folder.

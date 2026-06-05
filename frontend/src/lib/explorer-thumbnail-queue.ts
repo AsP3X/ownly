@@ -3,7 +3,9 @@
 
 export type ExplorerThumbnailPriority = "high" | "low";
 
-const MAX_CONCURRENT_THUMBNAIL_LOADS = 4;
+// Human: Allow more parallel warm-cache fetches while visible tiles still sort ahead via priority.
+// Agent: RAISED from 4; HIGH jobs dequeue before LOW prefetch work.
+const MAX_CONCURRENT_THUMBNAIL_LOADS = 6;
 
 type QueueJob<T> = {
   fileId: string;

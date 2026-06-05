@@ -73,6 +73,11 @@ import {
   type ExplorerFileListContext,
 } from "@/lib/explorer-file-list-updates";
 import { isFileProcessing } from "@/lib/file-processing";
+import {
+  resetExplorerThumbnailWarmScope,
+  touchCachedExplorerThumbnailsForFiles,
+  warmExplorerThumbnailCache,
+} from "@/lib/explorer-thumbnail-prefetch";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
@@ -266,6 +271,20 @@ export default function DrivePage() {
     };
   }, [activeNav, currentFolderId, query, typeFilter]);
 
+  // Human: Warm the in-memory thumbnail LRU after listing fetches — fewer requests while scrolling.
+  // Agent: TOUCHES existing keys; QUEUES low-priority prefetch for ready image/video thumbs.
+  const primeExplorerThumbnailCache = useCallback(
+    (rows: FileItem[]) => {
+      const scope = `${activeNav}:${currentFolderId ?? "root"}:${
+        activeNav === "my-files" && query.trim() ? query.trim() : ""
+      }`;
+      resetExplorerThumbnailWarmScope(scope);
+      touchCachedExplorerThumbnailsForFiles(rows);
+      warmExplorerThumbnailCache(rows, scope);
+    },
+    [activeNav, currentFolderId, query],
+  );
+
   // Human: Insert or patch one uploaded file in local listing state without reloading the folder.
   // Agent: MERGES row via mergeExplorerFileRow; SKIPS setState when row already matches.
   const applyExplorerUploadFile = useCallback((file: FileItem) => {
@@ -405,6 +424,7 @@ export default function DrivePage() {
           ]);
           setFolders(folderListing.folders);
           setFiles(recentBatch);
+          primeExplorerThumbnailCache(recentBatch);
           setFileCount(recentBatch.length);
           setHasMoreFiles(false);
           setFolderCount(folderListing.folder_count);
@@ -426,6 +446,7 @@ export default function DrivePage() {
           });
           setFolders([]);
           setFiles(listing.files);
+          primeExplorerThumbnailCache(listing.files);
           setFileCount(listing.file_count);
           setHasMoreFiles(listing.has_more);
           setFolderCount(0);
@@ -453,6 +474,7 @@ export default function DrivePage() {
         ]);
         setFolders(folderListing.folders);
         setFiles(fileListing.files);
+        primeExplorerThumbnailCache(fileListing.files);
         setFileCount(fileListing.file_count);
         setHasMoreFiles(fileListing.has_more);
         setFolderCount(folderListing.folder_count);
@@ -469,7 +491,7 @@ export default function DrivePage() {
         }
       }
     },
-    [activeNav, currentFolderId, refreshDashboard, serverTypeFilter],
+    [activeNav, currentFolderId, primeExplorerThumbnailCache, refreshDashboard, serverTypeFilter],
   );
 
   // Human: Load Shared Files tab data when the sidebar nav selects that view.
@@ -510,6 +532,7 @@ export default function DrivePage() {
         type_filter: serverTypeFilter,
       });
       setFiles((prev) => [...prev, ...listing.files]);
+      primeExplorerThumbnailCache(listing.files);
       setHasMoreFiles(listing.has_more);
       setFileCount(listing.file_count);
       const flags = buildShareFlagMaps(listing.files, []);
@@ -526,6 +549,7 @@ export default function DrivePage() {
     hasMoreFiles,
     isSearchingMyFiles,
     loading,
+    primeExplorerThumbnailCache,
     query,
     serverTypeFilter,
   ]);
