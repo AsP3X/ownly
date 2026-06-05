@@ -7,6 +7,20 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Human: Compress text assets — hashed /assets/* benefit on every repeat visit.
+    # Agent: gzip on; TYPES include js/css/json/svg/woff2; VARY for downstream caches.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        application/javascript
+        application/json
+        image/svg+xml
+        font/woff2;
+
     # Human: Alpine nginx omits .mjs — pdf.js worker fails strict module MIME checks without this.
     # Agent: MERGES application/javascript for mjs; REQUIRED for react-pdf worker in /assets/*.mjs.
     include /etc/nginx/mime.types;
@@ -16,6 +30,20 @@ server {
 
     # Agent: Must match backend MAX_UPLOAD_BYTES — nginx rejects the body before Axum sees it.
     client_max_body_size ${MAX_UPLOAD_BYTES};
+
+    # Human: Fingerprinted Vite output — safe to cache for one year (filename changes on rebuild).
+    # Agent: location /assets/ BEFORE location /; Cache-Control immutable.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # Human: SPA shell must revalidate so deploys pick up new chunk hashes in index.html.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
 
     location /api/v1/ {
         proxy_pass http://backend:3000/api/v1/;

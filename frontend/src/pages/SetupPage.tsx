@@ -14,6 +14,7 @@ import {
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
 import { DEFAULT_INSTANCE_NAME } from "@/lib/instance-name";
+import { writeSetupStatusCache } from "@/lib/setup-status-cache";
 import { SetupActionsRow } from "@/components/setup/SetupActionsRow";
 import { SetupConnectionUrlBox } from "@/components/setup/SetupConnectionUrlBox";
 import { SetupDbStatusBanner } from "@/components/setup/SetupDbStatusBanner";
@@ -216,6 +217,7 @@ export default function SetupPage() {
         return;
       }
       applyInstanceName(instanceName.trim());
+      writeSetupStatusCache(true);
       setAuth(res.token, res.user);
       navigate("/", { replace: true });
     } catch (e) {

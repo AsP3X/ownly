@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   batchFiles,
   buildShareFlagMaps,
-  fetchDashboard,
   fetchFile,
   fetchFolderDeletionPreview,
   fetchRecycleBin,
@@ -133,7 +132,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
-  const { instanceName, setInstanceName } = useInstanceName();
+  const { instanceName, dashboard, refreshDashboard: refreshDashboardShared } = useInstanceName();
   // Human: Mobile profile menu anchor — desktop topbar uses an inline Sign Out button instead.
   // Agent: mobileProfileRef; WRITTEN by MobileDriveHeader; READ by outside-click dismiss handler.
   const mobileProfileRef = useRef<HTMLDivElement>(null);
@@ -234,23 +233,30 @@ export default function DrivePage() {
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
   const dashboardLoadedRef = useRef(false);
 
+  // Human: Mirror shared dashboard stats into local drive UI state when the provider fetch completes.
+  // Agent: READS dashboard from InstanceNameProvider; WRITES used/quota/effective remaining bytes.
+  useEffect(() => {
+    if (!dashboard) return;
+    setUsedBytes(dashboard.used_bytes);
+    setQuotaBytes(dashboard.quota_bytes || 1);
+    setEffectiveRemainingBytes(effectiveRemainingFromDashboard(dashboard));
+    dashboardLoadedRef.current = true;
+  }, [dashboard]);
+
   // Human: Storage summary for the sidebar and upload preflight — includes network node headroom.
-  // Agent: GET /dashboard; WRITES used/quota/effective remaining; RETURNS effective bytes for upload dialog.
+  // Agent: CALLS shared refreshDashboard; WRITES local quota state from returned payload.
   const refreshDashboard = useCallback(async (): Promise<number> => {
-    try {
-      const dashboard = await fetchDashboard();
-      setInstanceName(dashboard.instance_name);
-      setUsedBytes(dashboard.used_bytes);
-      setQuotaBytes(dashboard.quota_bytes || 1);
-      const effective = effectiveRemainingFromDashboard(dashboard);
-      setEffectiveRemainingBytes(effective);
-      dashboardLoadedRef.current = true;
-      return effective;
-    } catch {
-      // Human: Dashboard stats are non-critical — a failed fetch must not block browsing.
+    const nextDashboard = await refreshDashboardShared();
+    if (!nextDashboard) {
       return Number.POSITIVE_INFINITY;
     }
-  }, [setInstanceName]);
+    setUsedBytes(nextDashboard.used_bytes);
+    setQuotaBytes(nextDashboard.quota_bytes || 1);
+    const effective = effectiveRemainingFromDashboard(nextDashboard);
+    setEffectiveRemainingBytes(effective);
+    dashboardLoadedRef.current = true;
+    return effective;
+  }, [refreshDashboardShared]);
 
   // Human: Refresh paperclip indicators after share dialog changes (list rows may be stale).
   // Agent: POST /shares/status; WRITES fileShareFlags + folderShareFlags maps.

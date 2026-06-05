@@ -1,5 +1,5 @@
-// Human: Read the configured instance name from InstanceNameProvider anywhere in the React tree.
-// Agent: READS InstanceNameContext; THROWS if provider missing; RETURNS instanceName + setInstanceName.
+// Human: Read instance branding and shared dashboard stats from InstanceNameProvider.
+// Agent: READS InstanceNameContext; THROWS if provider missing; RETURNS instanceName + refreshDashboard.
 
 import { useContext } from "react";
 import { InstanceNameContext } from "@/context/instance-name-context";

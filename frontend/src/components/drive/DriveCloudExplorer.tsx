@@ -31,7 +31,7 @@ import {
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
-import { ExplorerPdfThumbnail } from "@/components/drive/ExplorerPdfThumbnail";
+import { LazyExplorerPdfThumbnail } from "@/components/drive/lazy-explorer-pdf-thumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
@@ -601,7 +601,7 @@ export function DriveCloudExplorer({
                         file={file}
                       />
                     ) : showPdfPreview ? (
-                      <ExplorerPdfThumbnail file={file} />
+                      <LazyExplorerPdfThumbnail file={file} />
                     ) : (
                       <ExplorerFileIcon mimeType={file.mime_type} />
                     )}

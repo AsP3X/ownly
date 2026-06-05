@@ -5,6 +5,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useNavigate } from "react-router-dom";
 import { fetchCurrentUser, setUnauthorizedHandler } from "@/api/client";
 import { AuthContext, type User } from "@/context/auth-context";
+import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
+
+/** Human: Run session probes after first paint so login shell is not blocked on /me. */
+function scheduleIdleTask(task: () => void): () => void {
+  if (typeof requestIdleCallback === "function") {
+    const id = requestIdleCallback(() => task());
+    return () => cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(task, 1);
+  return () => window.clearTimeout(id);
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -40,8 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [logout]);
 
+  // Human: Warm the drive chunk while the user is already signed in on repeat visits.
+  // Agent: CALLS prefetchDrivePageChunk when token is present at provider mount.
+  useEffect(() => {
+    if (!token) return;
+    prefetchDrivePageChunk();
+  }, [token]);
+
   // Human: Poll /me so revoked sessions log out even on idle pages without another API call.
-  // Agent: GET /me on interval + focus; 401 CALLS unauthorizedHandler.
+  // Agent: GET /me on idle + interval + focus; 401 CALLS unauthorizedHandler.
   useEffect(() => {
     if (!token) return;
 
@@ -69,12 +87,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    void probe();
+    const cancelIdle = scheduleIdleTask(() => {
+      if (!cancelled) void probe();
+    });
     const intervalId = window.setInterval(() => void probe(), 20_000);
     const onFocus = () => void probe();
     window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
+      cancelIdle();
       window.clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
     };

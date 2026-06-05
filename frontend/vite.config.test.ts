@@ -34,13 +34,13 @@ function isDeferredMediaChunk(dep: string): boolean {
   return (
     dep.includes("/pdf-") ||
     dep.includes("/hls-") ||
-    dep.includes("pdf-viewer") ||
+    dep.includes("pdf-rptWOpCb.css") ||
     dep.includes("PdfPreviewDialog") ||
-    dep.includes("pdf-rptWOpCb.css")
+    dep.includes("pdf-viewer")
   );
 }
 
-export default defineConfig({
+({
   plugins: [react(), tailwindcss(), copyPdfWorkerPlugin()],
   resolve: {
     alias: {
@@ -58,8 +58,7 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         manualChunks(id) {
-          // Human: Do NOT force react-pdf into manualChunks — Rolldown shared helpers then pin pdf to the entry graph.
-          // Agent: pdf.js splits via dynamic import() only (ExplorerPdfThumbnail, PdfPreviewDialog, etc.).
+          // pdf split only via dynamic import()
           if (id.includes("node_modules/hls.js")) {
             return "hls";
           }

@@ -3,15 +3,13 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import NotFoundPage from "@/pages/NotFoundPage";
 import { setupStatus } from "@/api/client";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { InstanceNameProvider } from "@/context/InstanceNameContext";
 import { useAuth } from "@/hooks/useAuth";
-import SetupPage from "@/pages/SetupPage";
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
+import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
+import { readSetupStatusCache, writeSetupStatusCache } from "@/lib/setup-status-cache";
 
 // Human: Route-level code splitting — heavy pages load only when navigated to.
 // Agent: dynamic import() per page; Suspense fallback is RouteLoadingFallback.
@@ -27,9 +25,13 @@ const AdminDashboardWireframePage = lazy(() => import("@/pages/AdminDashboardWir
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const PublicSharePage = lazy(() => import("@/pages/PublicSharePage"));
+const SetupPage = lazy(() => import("@/pages/SetupPage"));
+const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
-  const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
+  const [setupComplete, setSetupComplete] = useState<boolean | null>(() => readSetupStatusCache());
   const { token, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -38,7 +40,9 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setupStatus()
       .then((s) => {
-        if (!cancelled) setSetupComplete(s.setup_complete);
+        if (cancelled) return;
+        setSetupComplete(s.setup_complete);
+        writeSetupStatusCache(s.setup_complete);
       })
       .catch(() => {
         if (!cancelled) setSetupComplete(false);
@@ -64,14 +68,8 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     }
   }, [setupComplete, pathname, token, navigate]);
 
-  if (setupComplete === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
-        Loading…
-      </div>
-    );
-  }
-
+  // Human: Never block the shell on setup/status — routes render while the probe runs in the background.
+  // Agent: READS sessionStorage cache for optimistic setupComplete; REDIRECTS via effects when stale.
   return <>{children}</>;
 }
 
@@ -91,6 +89,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // Agent: READS token from AuthContext; lazy-loads LandingPage or DrivePage on demand.
 function HomeRoute() {
   const { token } = useAuth();
+
+  useEffect(() => {
+    if (token) prefetchDrivePageChunk();
+  }, [token]);
+
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
       {token ? <DrivePage /> : <LandingPage />}
