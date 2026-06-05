@@ -62,6 +62,7 @@ import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import {
+  getUploadManagedIngestFileIds,
   subscribeUploadFileComplete,
   subscribeUploadFileRegistered,
 } from "@/lib/upload-manager";
@@ -579,7 +580,7 @@ export default function DrivePage() {
   }, [applyExplorerUploadFile, refreshDashboard]);
 
   // Human: Poll only processing file rows instead of reloading the entire folder listing.
-  // Agent: GET /files/:id every 3s; PATCHES matching rows in files state.
+  // Agent: GET /files/:id every 3s; SKIPS ids the upload manager already polls during active batches.
   const processingFileIds = useMemo(
     () => files.filter(isFileProcessing).map((file) => file.id),
     [files],
@@ -590,8 +591,11 @@ export default function DrivePage() {
     const timer = window.setInterval(() => {
       void (async () => {
         try {
+          const uploadManagedIds = getUploadManagedIngestFileIds();
+          const idsToPoll = processingFileIds.filter((fileId) => !uploadManagedIds.has(fileId));
+          if (idsToPoll.length === 0) return;
           const updates = await Promise.all(
-            processingFileIds.map((fileId) => fetchFile(fileId)),
+            idsToPoll.map((fileId) => fetchFile(fileId)),
           );
           setFiles((prev) =>
             patchExplorerFileRows(

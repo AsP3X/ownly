@@ -18,10 +18,6 @@ import {
 
   listBackgroundJobs,
 
-  fetchFile,
-
-  mapFileToUploadProgressUpdate,
-
   uploadFileWithProgress,
 
   waitForFileIngestCompletion,
@@ -33,6 +29,12 @@ import {
 } from "@/api/client";
 
 import { createClientId } from "@/lib/utils-app";
+import {
+  acquirePipelineStage,
+  createPipelineStageGate,
+  PIPELINE_STAGE_LIMIT,
+  releaseAllPipelineStages,
+} from "@/lib/upload-pipeline";
 
 
 
@@ -88,6 +90,8 @@ type UploadFileRegisteredListener = (file: FileItem) => void;
 
 
 
+// Human: Four pipeline stages — three concurrent uploads, then three each for processing, encrypting, and storing.
+// Agent: UPLOAD slots = localFile rows; POST-UPLOAD slots = upload-pipeline.ts per phase.
 const MAX_CONCURRENT_UPLOADS = 3;
 const UPLOAD_MAX_RETRIES = 6;
 const UPLOAD_RETRY_BASE_MS = 1_500;
@@ -332,6 +336,31 @@ function applyUploadProgressUpdate(
   };
 }
 
+// Human: Apply tray progress only after the row holds a slot in the target post-upload stage.
+// Agent: AWAITS acquirePipelineStage for processing|encrypting|storing; WRITES percent/phase on the batch row.
+async function applyPipelinedProgress(uploadId: string, update: UploadProgressUpdate) {
+  if (abortedUploadItemIds.has(uploadId)) return;
+  if (!batch?.items.some((entry) => entry.id === uploadId && entry.status === "uploading")) {
+    return;
+  }
+  if (
+    update.phase === "processing" ||
+    update.phase === "encrypting" ||
+    update.phase === "storing"
+  ) {
+    await acquirePipelineStage(uploadId, update.phase);
+  }
+  if (abortedUploadItemIds.has(uploadId)) return;
+  if (!batch?.items.some((entry) => entry.id === uploadId && entry.status === "uploading")) {
+    return;
+  }
+  updateItems((items) =>
+    items.map((item) =>
+      item.id === uploadId ? { ...item, ...applyUploadProgressUpdate(update) } : item,
+    ),
+  );
+}
+
 
 
 function internalFromPersisted(item: PersistedUploadItem): InternalUploadItem {
@@ -459,38 +488,8 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
 
 
 
-  if (!awaitingIngest) return;
-
-
-
-  // Human: Paint real ingest percent immediately instead of waiting for the first poll interval.
-  // Agent: GET /files/:id once; MERGES mapFileToUploadProgressUpdate into the tray row.
-  void fetchFile(file.id)
-
-    .then(({ file: latest }) => {
-
-      if (!batch) return;
-
-      const update = mapFileToUploadProgressUpdate(latest, 0);
-
-      updateItems((items) =>
-
-        items.map((entry) =>
-
-          entry.id === sessionId ? { ...entry, ...applyUploadProgressUpdate(update) } : entry,
-
-        ),
-
-      );
-
-    })
-
-    .catch(() => {
-
-      // Human: Poll loop will pick up progress if this eager fetch fails.
-
-    });
-
+  // Human: Ingest percent is updated by the capped resume worker — avoid a parallel GET per registered file.
+  // Agent: SKIPS eager fetchFile; resumeUploadItemProcessing polls after acquirePipelineStage(processing).
 }
 
 
@@ -508,11 +507,40 @@ function isMediaAwaitingIngest(file: FileItem): boolean {
 
 // Agent: CALLS waitForFileIngestCompletion; WRITES done/error; NOTIFY on success.
 
+// Human: Free a browser upload slot once bytes are on the wire — post-upload work continues separately.
+// Agent: CLEARS localFile; CALLS pumpUploadQueue + pumpProcessingQueue.
+function releaseUploadByteSlot(uploadId: string) {
+  if (!batch) return;
+  const item = batch.items.find((entry) => entry.id === uploadId);
+  if (!item || item.localFile === undefined) return;
+
+  updateItems((items) =>
+    items.map((entry) =>
+      entry.id === uploadId ? { ...entry, localFile: undefined } : entry,
+    ),
+  );
+  pumpUploadQueue();
+  pumpProcessingQueue();
+}
+
+// Human: Start media ingest polling for rows past byte upload — at most PIPELINE_STAGE_LIMIT workers poll at once.
+// Agent: READS uploading rows with uploadedFileId; STARTS resumeUploadItemProcessing until resumingItemIds is full.
+function pumpProcessingQueue() {
+  if (!batch || batch.status !== "uploading") return;
+
+  for (const item of batch.items) {
+    if (resumingItemIds.size >= PIPELINE_STAGE_LIMIT) break;
+    if (item.status !== "uploading" || !item.uploadedFileId || item.localFile !== undefined) {
+      continue;
+    }
+    if (resumingItemIds.has(item.id)) continue;
+    void resumeUploadItemProcessing(item);
+  }
+}
+
 async function resumeUploadItemProcessing(item: InternalUploadItem) {
 
   if (!batch || !item.uploadedFileId || resumingItemIds.has(item.id)) return;
-
-
 
   resumingItemIds.add(item.id);
 
@@ -523,17 +551,14 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
 
 
   try {
+    // Human: Hold a processing slot before the first GET — pipeline gates UI only, not HTTP without this.
+    // Agent: AWAITS acquirePipelineStage(processing); THEN CALLS waitForFileIngestCompletion poll loop.
+    await acquirePipelineStage(uploadId, "processing");
 
     const file = await waitForFileIngestCompletion(
       fileId,
       (update) => {
-        updateItems((items) =>
-          items.map((entry) =>
-            entry.id === uploadId
-              ? { ...entry, ...applyUploadProgressUpdate(update) }
-              : entry,
-          ),
-        );
+        void applyPipelinedProgress(uploadId, update);
       },
       () =>
         abortedUploadItemIds.has(uploadId) ||
@@ -605,7 +630,9 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
   } finally {
 
     resumingItemIds.delete(uploadId);
+    releaseAllPipelineStages(uploadId);
 
+    pumpProcessingQueue();
     maybeCompleteBatch();
 
   }
@@ -640,6 +667,7 @@ function voidCleanupPartialServerFile(fileId: string, mimeType: string) {
 function removeItemFromActiveBatch(itemId: string) {
   if (!batch) return;
 
+  releaseAllPipelineStages(itemId);
   batch.items = batch.items.filter((entry) => entry.id !== itemId);
   abortedUploadItemIds.delete(itemId);
 
@@ -715,17 +743,7 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
 
 
-  for (const item of batch.items) {
-
-    if (item.uploadedFileId) {
-
-      void resumeUploadItemProcessing(item);
-
-    }
-
-  }
-
-
+  pumpProcessingQueue();
 
   return true;
 
@@ -737,20 +755,7 @@ function startResumePollingForBatch() {
 
   if (!batch) return;
 
-
-
-  for (const item of batch.items) {
-
-    if (item.status === "uploading" && item.uploadedFileId) {
-
-      void resumeUploadItemProcessing(item);
-
-    }
-
-  }
-
-
-
+  pumpProcessingQueue();
   maybeCompleteBatch();
 
 }
@@ -963,29 +968,36 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
   const uploadId = claimed.id;
   const folderId = claimed.folderId ?? batch.folderId;
 
+  const pipeline = createPipelineStageGate(uploadId);
+
   try {
     await waitForUploadPumpUnpause();
     const result = await uploadFileWithProgress(
       claimed.localFile,
       (update) => {
-        updateItems((items) =>
-          items.map((item) =>
-            item.id === uploadId
-              ? { ...item, ...applyUploadProgressUpdate(update) }
-              : item,
-          ),
-        );
+        void applyPipelinedProgress(uploadId, update);
       },
       {
         folderId,
         sessionId: uploadId,
+        deferIngest: true,
+        onUploadBytesComplete: () => releaseUploadByteSlot(uploadId),
         onServerFileRegistered: (file) => registerUploadServerFile(uploadId, file),
+        acquirePipelineStage: pipeline.acquire,
+        releasePipelineStages: pipeline.releaseAll,
       },
     );
 
     const uploadedFileId = result?.file?.id;
     if (!uploadedFileId) {
       throw new Error("Upload finished but the server response was missing file metadata.");
+    }
+
+    releaseUploadByteSlot(uploadId);
+
+    if (isMediaAwaitingIngest(result.file)) {
+      pumpProcessingQueue();
+      return;
     }
 
     updateItems((items) =>
@@ -1003,7 +1015,9 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
       ),
     );
     notifyFileUploaded(uploadedFileId);
+    pipeline.releaseAll();
   } catch (error) {
+    pipeline.releaseAll();
     const cancelled = error instanceof ApiError && error.code === "upload_cancelled";
     if (
       !cancelled &&
@@ -1112,6 +1126,7 @@ function pumpUploadQueue() {
 
       void uploadClaimedItem(claimed).finally(() => {
         pumpUploadQueue();
+        pumpProcessingQueue();
         maybeCompleteBatchWhenIdle();
       });
     }
@@ -1308,6 +1323,19 @@ export function getUploadBatch(): UploadBatchSnapshot | null {
 
 }
 
+// Human: Server file ids the upload manager is already polling for ingest — drive grid should not duplicate.
+// Agent: READS batch uploading rows with uploadedFileId; RETURNS Set for DrivePage processing poll filter.
+export function getUploadManagedIngestFileIds(): ReadonlySet<string> {
+  if (!batch) return new Set();
+  const ids = new Set<string>();
+  for (const item of batch.items) {
+    if (item.status === "uploading" && item.uploadedFileId) {
+      ids.add(item.uploadedFileId);
+    }
+  }
+  return ids;
+}
+
 
 
 // Human: Cancel one queued or in-flight file — abort transfer, delete partial server row, remove from tray.
@@ -1332,17 +1360,17 @@ export function cancelUploadItem(itemId: string) {
 
   if (item.status === "uploading") {
 
-    if (item.localFile) {
+    // Human: Abort active XHR even after the byte slot was released — generic rows may still await the HTTP response.
+    // Agent: CALLS abortUploadSession by session id; THEN deletes partial server rows when registered.
+    abortUploadSession(itemId, {
 
-      abortUploadSession(itemId, {
+      fileId: item.uploadedFileId,
 
-        fileId: item.uploadedFileId,
+      mimeType: item.mimeType,
 
-        mimeType: item.mimeType,
+    });
 
-      });
-
-    } else if (item.uploadedFileId) {
+    if (item.uploadedFileId) {
 
       voidCleanupPartialServerFile(item.uploadedFileId, item.mimeType);
 
@@ -1391,4 +1419,5 @@ export function cancelAllUploadItems() {
 
 
 export const UPLOAD_MANAGER_MAX_CONCURRENT = MAX_CONCURRENT_UPLOADS;
+export const UPLOAD_MANAGER_PIPELINE_STAGE_LIMIT = PIPELINE_STAGE_LIMIT;
 

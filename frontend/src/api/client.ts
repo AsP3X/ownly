@@ -1281,9 +1281,12 @@ async function runGenericPostUploadPhases(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
   isCancelled: () => boolean,
   serverResponsePromise: Promise<void>,
+  acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>,
 ) {
   if (!onProgress || isCancelled()) return;
 
+  await acquirePipelineStage?.("processing");
+  if (isCancelled()) return;
   const stopProcessing = startSimulatedPhaseProgress("processing", onProgress, isCancelled);
   await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   stopProcessing();
@@ -1293,6 +1296,8 @@ async function runGenericPostUploadPhases(
   await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   if (isCancelled()) return;
 
+  await acquirePipelineStage?.("encrypting");
+  if (isCancelled()) return;
   const stopEncrypting = startSimulatedPhaseProgress("encrypting", onProgress, isCancelled);
   await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   stopEncrypting();
@@ -1302,6 +1307,8 @@ async function runGenericPostUploadPhases(
   await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
   if (isCancelled()) return;
 
+  await acquirePipelineStage?.("storing");
+  if (isCancelled()) return;
   const stopStoring = startSimulatedPhaseProgress("storing", onProgress, isCancelled);
   onProgress({ phase: "storing", percent: 1, indeterminate: false });
   await serverResponsePromise;
@@ -1552,6 +1559,13 @@ export function uploadFileWithProgress(
     sessionId?: string;
     /** Fires when the API accepted the upload and returned a file row (before HLS ingest finishes). */
     onServerFileRegistered?: (file: FileItem) => void;
+    /** Fires when all request bytes reached the server — frees a browser upload slot before the HTTP response returns. */
+    onUploadBytesComplete?: () => void;
+    /** When true, return after the upload API responds without polling media ingest to completion. */
+    deferIngest?: boolean;
+    /** Gates each post-upload stage so only three files occupy processing, encrypting, or storing at once. */
+    acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
+    releasePipelineStages?: () => void;
   },
 ): Promise<{ file: FileItem }> {
   return new Promise((resolve, reject) => {
@@ -1560,6 +1574,12 @@ export function uploadFileWithProgress(
     const isAudioUpload = mediaKind === "audio";
     const sessionId = options?.sessionId ?? createClientId();
     const isGenericUpload = !isVideoUpload && !isAudioUpload;
+    let uploadBytesCompleteNotified = false;
+    const notifyUploadBytesComplete = () => {
+      if (uploadBytesCompleteNotified) return;
+      uploadBytesCompleteNotified = true;
+      options?.onUploadBytesComplete?.();
+    };
     let stopSimulatedProgress: (() => void) | null = null;
     let genericPostUploadPromise: Promise<void> | null = null;
     let releaseServerResponseGate: (() => void) | null = null;
@@ -1599,6 +1619,7 @@ export function uploadFileWithProgress(
     const fail = (error: ApiError) => {
       if (settled) return;
       settled = true;
+      options?.releasePipelineStages?.();
       openServerResponseGate();
       clearSimulatedProgress();
       finishSession();
@@ -1615,15 +1636,20 @@ export function uploadFileWithProgress(
           onProgress,
           () => session.cancelled,
           serverResponseGate,
+          options?.acquirePipelineStage,
         );
         return;
       }
-      clearSimulatedProgress();
-      stopSimulatedProgress = startSimulatedPhaseProgress(
-        "processing",
-        onProgress,
-        () => session.cancelled,
-      );
+      void (async () => {
+        await options?.acquirePipelineStage?.("processing");
+        if (session.cancelled) return;
+        clearSimulatedProgress();
+        stopSimulatedProgress = startSimulatedPhaseProgress(
+          "processing",
+          onProgress,
+          () => session.cancelled,
+        );
+      })();
     };
 
     onProgress?.({ phase: "uploading", percent: 0 });
@@ -1635,6 +1661,7 @@ export function uploadFileWithProgress(
         const percent = Math.min(100, Math.round(ratio * 100));
         onProgress({ phase: "uploading", percent });
         if (ratio >= 1) {
+          notifyUploadBytesComplete();
           emitPostUploadWaitPhase();
         }
       } else if (event.loaded > 0) {
@@ -1643,6 +1670,7 @@ export function uploadFileWithProgress(
     });
 
     xhr.upload.addEventListener("load", () => {
+      notifyUploadBytesComplete();
       emitPostUploadWaitPhase();
     });
 
@@ -1669,7 +1697,7 @@ export function uploadFileWithProgress(
             let file = payload.file;
             openServerResponseGate();
             clearSimulatedProgress();
-            if (isMediaAwaitingIngest(file)) {
+            if (isMediaAwaitingIngest(file) && !options?.deferIngest) {
               onProgress?.(mapFileToUploadProgressUpdate(file, 0));
               file = await waitForFileIngestCompletion(
                 file.id,
@@ -1682,6 +1710,7 @@ export function uploadFileWithProgress(
             if (session.cancelled) {
               throw new ApiError("Upload cancelled", "upload_cancelled", 0);
             }
+            options?.releasePipelineStages?.();
             finishSession();
             resolve({ file });
           } catch (error) {
