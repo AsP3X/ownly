@@ -1,6 +1,7 @@
 // Human: Conditional formatting rule types and evaluation for spreadsheet cells.
 // Agent: READS ConditionalFormatRule[] + SheetCell; RETURNS ResolvedConditionalFormat for grid paint.
 
+import { evaluateCfExpression, resolveCfOperand } from "@/lib/spreadsheet/cf-formula";
 import { parseCellAddressLabel } from "@/lib/spreadsheet/cells";
 import type { SheetCell } from "@/lib/spreadsheet/types";
 
@@ -19,7 +20,12 @@ export type CfOperator =
   | "equal"
   | "notEqual"
   | "between"
-  | "textContains";
+  | "textContains"
+  | "notContains"
+  | "beginsWith"
+  | "endsWith"
+  | "containsBlanks"
+  | "notContainsBlanks";
 
 export type ConditionalFormatStyle = {
   backgroundColor?: string;
@@ -32,10 +38,13 @@ export type ConditionalFormatRule = {
   id: string;
   priority: number;
   range: CellRange;
-  type: "cellIs" | "text" | "colorScale" | "dataBar";
+  type: "cellIs" | "text" | "expression" | "colorScale" | "dataBar";
   operator?: CfOperator;
-  value?: number | string;
-  value2?: number;
+  // Human: Raw <formula> text from xlsx (literal, number, or cell reference).
+  value?: string;
+  value2?: string;
+  // Human: Full expression for type="expression" rules (e.g. =$A1>0).
+  formula?: string;
   style?: ConditionalFormatStyle;
   colorScale?: { minColor: string; maxColor: string };
   dataBar?: { color: string };
@@ -88,11 +97,12 @@ export function cellNumericValue(cell: SheetCell): number | null {
 function compareCellIs(
   cell: SheetCell,
   operator: CfOperator,
-  value?: number | string,
-  value2?: number,
+  value: number | string | null | undefined,
+  value2: number | string | null | undefined,
 ): boolean {
   const numeric = cellNumericValue(cell);
   const text = String(cell.display ?? cell.value ?? "").trim().toLowerCase();
+  const needle = String(value ?? "").trim().toLowerCase();
 
   switch (operator) {
     case "greaterThan":
@@ -105,20 +115,27 @@ function compareCellIs(
       return numeric !== null && typeof value === "number" && numeric <= value;
     case "equal":
       if (typeof value === "number") return numeric === value;
-      return text === String(value ?? "").trim().toLowerCase();
+      return text === needle;
     case "notEqual":
       if (typeof value === "number") return numeric !== null && numeric !== value;
-      return text !== String(value ?? "").trim().toLowerCase();
-    case "between":
-      return (
-        numeric !== null &&
-        typeof value === "number" &&
-        typeof value2 === "number" &&
-        numeric >= value &&
-        numeric <= value2
-      );
+      return text !== needle;
+    case "between": {
+      const low = typeof value === "number" ? value : null;
+      const high = typeof value2 === "number" ? value2 : null;
+      return numeric !== null && low !== null && high !== null && numeric >= low && numeric <= high;
+    }
     case "textContains":
-      return text.includes(String(value ?? "").trim().toLowerCase());
+      return text.includes(needle);
+    case "notContains":
+      return !text.includes(needle);
+    case "beginsWith":
+      return text.startsWith(needle);
+    case "endsWith":
+      return text.endsWith(needle);
+    case "containsBlanks":
+      return text.length === 0 && cell.value === null;
+    case "notContainsBlanks":
+      return text.length > 0 || cell.value !== null;
     default:
       return false;
   }
@@ -228,11 +245,17 @@ function evaluateRule(
 
   switch (rule.type) {
     case "cellIs":
-      if (!rule.operator || !compareCellIs(cell, rule.operator, rule.value, rule.value2)) return null;
+    case "text": {
+      if (!rule.operator) return null;
+      const operand = resolveCfOperand(rule.value, rule.range, row, col, rows);
+      const operand2 = resolveCfOperand(rule.value2, rule.range, row, col, rows);
+      if (!compareCellIs(cell, rule.operator, operand, operand2)) return null;
       return rule.style ?? null;
-    case "text":
-      if (!rule.operator || !compareCellIs(cell, rule.operator, rule.value, rule.value2)) return null;
+    }
+    case "expression": {
+      if (!rule.formula || !evaluateCfExpression(rule.formula, rule.range, row, col, rows)) return null;
       return rule.style ?? null;
+    }
     case "colorScale":
       return evaluateColorScale(cell, rule, row, col, rows);
     case "dataBar":
@@ -296,7 +319,7 @@ export function statusBadgePresetRules(range: CellRange, nextPriority: number): 
     range,
     type: "text",
     operator: "equal",
-    value: preset.text,
+    value: `"${preset.text}"`,
     style: preset.style,
   }));
 }

@@ -212,7 +212,7 @@ export function rulesFromPreset(
           range,
           type: "cellIs",
           operator: "greaterThan",
-          value: preset.value,
+          value: String(preset.value),
           style: preset.style,
         },
       ];
@@ -224,7 +224,7 @@ export function rulesFromPreset(
           range,
           type: "cellIs",
           operator: "lessThan",
-          value: preset.value,
+          value: String(preset.value),
           style: preset.style,
         },
       ];
@@ -236,7 +236,7 @@ export function rulesFromPreset(
           range,
           type: "text",
           operator: "equal",
-          value: preset.value,
+          value: typeof preset.value === "number" ? String(preset.value) : `"${preset.value}"`,
           style: preset.style,
         },
       ];
@@ -248,7 +248,7 @@ export function rulesFromPreset(
           range,
           type: "text",
           operator: "textContains",
-          value: preset.value,
+          value: `"${preset.value}"`,
           style: preset.style,
         },
       ];

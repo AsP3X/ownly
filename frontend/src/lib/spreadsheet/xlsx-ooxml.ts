@@ -226,18 +226,39 @@ function resolveOoxmlColorTag(colorTag: string, themePalette: string[]): string 
 }
 
 // Human: Extract fill background and font styling from a styles.xml dxf block.
-// Agent: READS fgColor/bgColor/font color with theme palette fallback.
+// Agent: READS fgColor/bgColor/color/font with theme palette fallback.
 function parseDxfBlock(block: string, themePalette: string[]): ConditionalFormatStyle {
   const fgTag = /<fgColor[^>]*\/?>/i.exec(block)?.[0] ?? "";
   const bgTag = /<bgColor[^>]*\/?>/i.exec(block)?.[0] ?? "";
-  const fontColorTag = /<font>[\s\S]*?<color[^>]*\/?>/i.exec(block)?.[0] ?? "";
+  const fillColorTag = /<fill>[\s\S]*?(<color[^>]*\/?>)/i.exec(block)?.[1] ?? "";
+  const fontColorTag = /<font>[\s\S]*?(<color[^>]*\/?>)/i.exec(block)?.[1] ?? "";
   const bold = /<b\s*\/>|<b>/.test(block);
 
+  const backgroundColor =
+    resolveOoxmlColorTag(fgTag, themePalette) ??
+    resolveOoxmlColorTag(bgTag, themePalette) ??
+    resolveOoxmlColorTag(fillColorTag, themePalette);
+
+  const textColor = resolveOoxmlColorTag(fontColorTag, themePalette);
+
   return {
-    backgroundColor: resolveOoxmlColorTag(fgTag, themePalette) ?? resolveOoxmlColorTag(bgTag, themePalette),
-    textColor: resolveOoxmlColorTag(fontColorTag, themePalette),
-    bold,
+    backgroundColor,
+    textColor,
+    bold: bold || undefined,
   };
+}
+
+// Human: Parse inline fill/font on a cfRule when dxfId is absent.
+// Agent: READS nested <dxf> or direct <fill>/<font> children inside cfRule body.
+function parseInlineRuleStyle(body: string, themePalette: string[]): ConditionalFormatStyle | undefined {
+  const inlineDxf = /<dxf>([\s\S]*?)<\/dxf>/i.exec(body)?.[1];
+  if (inlineDxf) return parseDxfBlock(inlineDxf, themePalette);
+
+  const hasFill = /<fill[\s\S]*?<\/fill>|<fill[^>]*\/>/i.test(body);
+  const hasFont = /<font[\s\S]*?<\/font>/i.test(body);
+  if (!hasFill && !hasFont) return undefined;
+
+  return parseDxfBlock(body, themePalette);
 }
 
 function parseDxfStyles(stylesXml: string, themePalette: string[]): ConditionalFormatStyle[] {
@@ -260,6 +281,11 @@ function mapOperator(raw: string | null): CfOperator | undefined {
     case "notEqual":
     case "between":
     case "containsText":
+    case "notContains":
+    case "beginsWith":
+    case "endsWith":
+    case "containsBlanks":
+    case "notContainsBlanks":
       if (raw === "containsText") return "textContains";
       if (raw === "greaterThanOrEqual") return "greaterThanOrEqual";
       if (raw === "lessThanOrEqual") return "lessThanOrEqual";
@@ -269,13 +295,10 @@ function mapOperator(raw: string | null): CfOperator | undefined {
   }
 }
 
-function parseFormulaValue(formula: string): number | string {
-  const trimmed = formula.trim();
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed.slice(1, -1);
-  }
-  const numeric = Number(trimmed);
-  return Number.isFinite(numeric) ? numeric : trimmed;
+// Human: Keep raw <formula> text for evaluation (literals, numbers, or cell references).
+// Agent: RETURNS trimmed formula string unchanged except entity decoding is done by XML parser.
+function readFormulaText(formula: string): string {
+  return formula.trim();
 }
 
 // Human: Parse one cfRule element into rules for each sqref range in the parent block.
@@ -291,7 +314,7 @@ function parseCfRuleElement(
   const type = readXmlAttribute(openTag, "type");
   if (!type) return;
 
-  const operator = mapOperator(readXmlAttribute(openTag, "operator"));
+  const operator = mapOperator(readXmlAttribute(openTag, "operator")) ?? mapOperator(type);
   const priorityRaw = readXmlAttribute(openTag, "priority");
   const priority = priorityRaw !== null ? Number.parseInt(priorityRaw, 10) : rules.length + 1;
   const dxfRaw = readXmlAttribute(openTag, "dxfId");
@@ -305,7 +328,7 @@ function parseCfRuleElement(
 
   for (const range of ranges) {
     if (type === "colorScale") {
-      const colors = [...body.matchAll(/<(?:rgb|bgColor|fgColor)[^>]*\/?>/gi)]
+      const colors = [...body.matchAll(/<color[^>]*\/?>/gi)]
         .map((match) => resolveOoxmlColorTag(match[0], themePalette))
         .filter((color): color is string => Boolean(color));
       if (colors.length >= 2) {
@@ -321,21 +344,47 @@ function parseCfRuleElement(
     }
 
     if (type === "dataBar") {
+      const barColor =
+        colorFromBody("color") ?? colorFromBody("rgb") ?? colorFromBody("fgColor") ?? "#2563EB";
       rules.push({
         id: createRuleId(),
         priority: Number.isFinite(priority) ? priority : rules.length + 1,
         range,
         type: "dataBar",
-        dataBar: { color: colorFromBody("rgb") ?? colorFromBody("fgColor") ?? "#2563EB" },
+        dataBar: { color: barColor },
       });
       continue;
     }
 
-    const style = dxfId !== null && Number.isFinite(dxfId) ? dxfStyles[dxfId] : undefined;
-    const cfType = type === "containsText" ? "text" : "cellIs";
     const formulas = [...body.matchAll(/<formula>([\s\S]*?)<\/formula>/gi)].map((match) =>
-      parseFormulaValue(match[1]),
+      readFormulaText(match[1]),
     );
+
+    const styleFromDxf =
+      dxfId !== null && Number.isFinite(dxfId) && dxfStyles[dxfId] ? dxfStyles[dxfId] : undefined;
+    const style = styleFromDxf ?? parseInlineRuleStyle(body, themePalette);
+
+    if (type === "expression") {
+      rules.push({
+        id: createRuleId(),
+        priority: Number.isFinite(priority) ? priority : rules.length + 1,
+        range,
+        type: "expression",
+        formula: formulas[0],
+        style,
+      });
+      continue;
+    }
+
+    const cfType =
+      type === "containsText" ||
+      type === "notContains" ||
+      type === "beginsWith" ||
+      type === "endsWith" ||
+      type === "containsBlanks" ||
+      type === "notContainsBlanks"
+        ? "text"
+        : "cellIs";
 
     rules.push({
       id: createRuleId(),
@@ -344,7 +393,7 @@ function parseCfRuleElement(
       type: cfType,
       operator: operator ?? "equal",
       value: formulas[0],
-      value2: typeof formulas[1] === "number" ? formulas[1] : undefined,
+      value2: formulas[1],
       style,
     });
   }
@@ -470,15 +519,73 @@ function buildConditionalFormattingXml(
         continue;
       }
 
-      const operator = rule.operator === "textContains" ? "containsText" : rule.operator ?? "equal";
-      const cfType = rule.type === "text" ? "containsText" : "cellIs";
-      const formulas: string[] = [];
-      if (typeof rule.value === "string") {
-        formulas.push(`"${rule.value.replace(/"/g, '""')}"`);
-      } else if (typeof rule.value === "number") {
-        formulas.push(String(rule.value));
+      if (rule.type === "expression" && rule.formula) {
+        let dxfAttr = "";
+        if (rule.style) {
+          dxfs.push(buildDxfXml(rule.style));
+          dxfAttr = ` dxfId="${dxfIndex}"`;
+          dxfIndex += 1;
+        }
+        const formula = rule.formula.replace(/^=/, "");
+        ruleXml.push(
+          `<cfRule type="expression" priority="${rule.priority}"${dxfAttr}><formula>${formula}</formula></cfRule>`,
+        );
+        continue;
       }
-      if (typeof rule.value2 === "number") formulas.push(String(rule.value2));
+
+      const operator = rule.operator ?? "equal";
+      let cfType = "cellIs";
+      let xmlOperator: string = operator;
+
+      if (rule.type === "text") {
+        switch (operator) {
+          case "textContains":
+            cfType = "containsText";
+            xmlOperator = "containsText";
+            break;
+          case "notContains":
+            cfType = "notContains";
+            xmlOperator = "notContains";
+            break;
+          case "beginsWith":
+            cfType = "beginsWith";
+            xmlOperator = "beginsWith";
+            break;
+          case "endsWith":
+            cfType = "endsWith";
+            xmlOperator = "endsWith";
+            break;
+          case "containsBlanks":
+            cfType = "containsBlanks";
+            xmlOperator = "containsBlanks";
+            break;
+          case "notContainsBlanks":
+            cfType = "notContainsBlanks";
+            xmlOperator = "notContainsBlanks";
+            break;
+          default:
+            cfType = "cellIs";
+            xmlOperator = operator;
+            break;
+        }
+      }
+
+      const formulas: string[] = [];
+      const exportFormula = (raw: string | undefined) => {
+        if (!raw) return;
+        if (raw.startsWith('"') || /^(\$?[A-Za-z]+\$?\d+)$/i.test(raw)) {
+          formulas.push(raw);
+          return;
+        }
+        const numeric = Number(raw);
+        if (Number.isFinite(numeric) && raw.trim().length > 0) {
+          formulas.push(String(numeric));
+          return;
+        }
+        formulas.push(`"${raw.replace(/"/g, '""')}"`);
+      };
+      exportFormula(rule.value);
+      exportFormula(rule.value2);
 
       let dxfAttr = "";
       if (rule.style) {
@@ -488,7 +595,7 @@ function buildConditionalFormattingXml(
       }
 
       ruleXml.push(
-        `<cfRule type="${cfType}" operator="${operator}" priority="${rule.priority}"${dxfAttr}>${formulas.map((formula) => `<formula>${formula}</formula>`).join("")}</cfRule>`,
+        `<cfRule type="${cfType}" operator="${xmlOperator}" priority="${rule.priority}"${dxfAttr}>${formulas.map((formula) => `<formula>${formula}</formula>`).join("")}</cfRule>`,
       );
     }
     blocks.push(`<conditionalFormatting sqref="${sqref}">${ruleXml.join("")}</conditionalFormatting>`);

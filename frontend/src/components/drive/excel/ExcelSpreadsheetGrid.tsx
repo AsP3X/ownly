@@ -64,7 +64,10 @@ function CellContent({
   conditionalFormats?: ConditionalFormatRule[];
 }) {
   const cf = resolveConditionalFormat(conditionalFormats, rows, row, col);
-  const badge = cf?.badge ?? statusBadgeTone(cell.display);
+  // Human: Prefer imported CF colors over design-time status pills when Excel rules match.
+  // Agent: SKIPS statusBadgeTone when CF supplies background, text color, or badge.
+  const hasCfPaint = Boolean(cf?.backgroundColor || cf?.textColor || cf?.badge);
+  const badge = cf?.badge ?? (hasCfPaint ? null : statusBadgeTone(cell.display));
 
   if (badge) {
     return (
