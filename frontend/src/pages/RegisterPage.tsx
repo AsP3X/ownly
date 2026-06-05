@@ -1,11 +1,11 @@
 // Human: Self-service registration when the instance allows public sign-ups — Ownly signup wireframe.
-// Agent: CALLS register API (email + password only); setAuth when enabled; client validates confirm password + terms.
+// Agent: CALLS register API (email + password only); toast + redirect /login with prefilled email; validates confirm password + terms.
 
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Mail, User } from "lucide-react";
+import { toast } from "sonner";
 import { getErrorMessage, register } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
 import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthIconField } from "@/components/auth/AuthIconField";
@@ -17,7 +17,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 export default function RegisterPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setAuth } = useAuth();
   const redirectTo =
     (location.state as { from?: string } | null)?.from ??
     new URLSearchParams(location.search).get("next") ??
@@ -28,13 +27,11 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setInfo("");
 
     if (!fullName.trim()) {
       setError("Please enter your full name.");
@@ -56,17 +53,33 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       // Agent: register HTTP body is email + password only; fullName is UI-only until the API supports it.
-      const res = await register(email.trim(), password);
+      const trimmedEmail = email.trim();
+      const res = await register(trimmedEmail, password);
+
+      // Human: After sign-up, send the user to login with their email ready to fill in.
+      // Agent: toast success; NAVIGATE /login with state.email + optional pending-activation info.
       if (res.pending_activation) {
-        setInfo("Account created. An administrator must approve it before you can sign in.");
+        toast.success("Account created", {
+          description: "An administrator must approve your account before you can sign in.",
+        });
+        navigate("/login", {
+          replace: true,
+          state: {
+            email: trimmedEmail,
+            from: redirectTo,
+            info: "An administrator must approve your account before you can sign in.",
+          },
+        });
         return;
       }
-      if (!res.token) {
-        setError("Registration did not return a session token.");
-        return;
-      }
-      setAuth(res.token, res.user);
-      navigate(redirectTo, { replace: true });
+
+      toast.success("Account created", {
+        description: "You can now sign in with your email and password.",
+      });
+      navigate("/login", {
+        replace: true,
+        state: { email: trimmedEmail, from: redirectTo },
+      });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -143,12 +156,6 @@ export default function RegisterPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          {info ? (
-            <Alert>
-              <AlertDescription>{info}</AlertDescription>
-            </Alert>
-          ) : null}
-
           <AuthSubmitButton loading={loading} loadingLabel="Creating account…">
             Create Account
           </AuthSubmitButton>

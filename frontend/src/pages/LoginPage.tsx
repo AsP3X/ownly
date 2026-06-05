@@ -16,21 +16,30 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const REMEMBER_EMAIL_KEY = "ownly.auth.rememberEmail";
 
+type LoginLocationState = {
+  from?: string;
+  email?: string;
+  info?: string;
+};
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setAuth, token } = useAuth();
+  const locationState = location.state as LoginLocationState | null;
   const redirectTo =
-    (location.state as { from?: string } | null)?.from ??
+    locationState?.from ??
     new URLSearchParams(location.search).get("next") ??
     "/";
-  // Human: Restore remembered email on first paint without a hydration effect.
+  // Human: Registration redirect email wins over remembered email on first paint.
+  // Agent: READS location.state.email from RegisterPage; falls back to sessionStorage remember key.
   const savedEmail = sessionStorage.getItem(REMEMBER_EMAIL_KEY);
-  const [email, setEmail] = useState(savedEmail ?? "");
+  const prefilledEmail = locationState?.email ?? savedEmail ?? "";
+  const [email, setEmail] = useState(prefilledEmail);
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(Boolean(savedEmail));
+  const [rememberMe, setRememberMe] = useState(Boolean(prefilledEmail));
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
+  const [info, setInfo] = useState(locationState?.info ?? "");
   const [loading, setLoading] = useState(false);
   const [allowRegister, setAllowRegister] = useState(false);
 
@@ -43,6 +52,16 @@ export default function LoginPage() {
       .then((res) => setAllowRegister(res.allow_public_registration))
       .catch(() => undefined);
   }, []);
+
+  // Human: Drop one-time navigation state so refresh does not re-apply registration prefill or info.
+  // Agent: replace history entry after reading email/info from RegisterPage redirect.
+  useEffect(() => {
+    if (!locationState?.email && !locationState?.info) return;
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: locationState.from ? { from: locationState.from } : null,
+    });
+  }, [location.pathname, location.search, locationState, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
