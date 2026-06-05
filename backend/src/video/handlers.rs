@@ -26,9 +26,10 @@ use crate::{
     },
 };
 
-use super::thumbnail::VideoThumbnailManifest;
+use super::{thumbnail::VideoThumbnailManifest, thumbnail_option_storage_key};
 
 type ThumbnailManifestRow = (Option<String>, bool, Option<String>, Option<i32>);
+type SelectedThumbnailRow = (Option<String>, String, bool, Option<i32>);
 
 #[derive(Debug, Deserialize)]
 pub struct SelectThumbnailRequest {
@@ -98,36 +99,81 @@ pub async fn get_thumbnails(
     Ok(Json(manifest))
 }
 
+// Human: Resolve the canonical poster JPEG key from DB — avoids a manifest round-trip on hot grid paths.
+// Agent: READS files.storage_key + video_thumbnail_selected_index; RETURNS sidecar object key.
+async fn selected_thumbnail_storage_key(
+    state: &Arc<crate::AppState>,
+    file_id: &str,
+    user_id: &str,
+) -> Result<String, AppError> {
+    let row: Option<SelectedThumbnailRow> = sqlx::query_as(
+        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
+         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, storage_key, ready, selected_index) = row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    if !ready {
+        return Err(AppError::Conflict("video thumbnails are not ready yet".into()));
+    }
+
+    let index = selected_index.unwrap_or(0).max(0) as u32;
+    Ok(thumbnail_option_storage_key(&storage_key, index))
+}
+
 // Human: Stream the user-selected poster JPEG for grid tiles and previews.
-// Agent: GET /files/:id/thumbnail; READS selected option storage key; RETURNS image/jpeg body.
+// Agent: GET /files/:id/thumbnail; READS sidecar key from DB; RETURNS image/jpeg body.
 pub async fn get_selected_thumbnail(
     State(state): State<Arc<crate::AppState>>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let (manifest, _) = load_manifest_for_file(&state, &id, &claims.sub).await?;
-    let storage_key = manifest
-        .selected_storage_key()
-        .ok_or(AppError::NotFound)?;
-
-    stream_thumbnail_bytes(&state, storage_key).await
+    let thumb_key = selected_thumbnail_storage_key(&state, &id, &claims.sub).await?;
+    stream_thumbnail_bytes(&state, &thumb_key).await
 }
 
 // Human: Stream one manifest option by index for the thumbnail picker UI.
-// Agent: GET /files/:id/thumbnails/:index; VALIDATES index against manifest options.
+// Agent: GET /files/:id/thumbnails/:index; BUILDS sidecar key from files.storage_key + index.
 pub async fn get_thumbnail_option(
     State(state): State<Arc<crate::AppState>>,
     Extension(claims): Extension<Claims>,
     Path((id, index)): Path<(String, u32)>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let (manifest, _) = load_manifest_for_file(&state, &id, &claims.sub).await?;
-    let option = manifest
-        .options
-        .iter()
-        .find(|opt| opt.index == index)
-        .ok_or(AppError::NotFound)?;
+    let row: Option<SelectedThumbnailRow> = sqlx::query_as(
+        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
+         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
 
-    stream_thumbnail_bytes(&state, &option.storage_key).await
+    let (mime_type, storage_key, ready, _) = row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    if !ready {
+        return Err(AppError::Conflict("video thumbnails are not ready yet".into()));
+    }
+
+    let thumb_key = thumbnail_option_storage_key(&storage_key, index);
+    stream_thumbnail_bytes(&state, &thumb_key).await
 }
 
 // Human: Buffered JPEG response for poster sidecars — Content-Length must match bytes read.
