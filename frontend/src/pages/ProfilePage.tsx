@@ -1,4 +1,4 @@
-// Human: Signed-in user profile — account summary, storage usage, and password change.
+// Human: Signed-in user profile — account summary and storage usage (security lives in Settings later).
 // Agent: CALLS fetchUserProfile + fetchDashboard; RENDERS drive shell; route /profile.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -8,7 +8,6 @@ import { fetchDashboard, fetchUserProfile, getErrorMessage } from "@/api/client"
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
 import { ProfileAccountSection } from "@/components/profile/ProfileAccountSection";
-import { ProfileChangePasswordForm } from "@/components/profile/ProfileChangePasswordForm";
 import { ProfileStorageSection } from "@/components/profile/ProfileStorageSection";
 import {
   ProfilePageHeader,
@@ -117,7 +116,7 @@ export default function ProfilePage() {
               initials={initials}
               email={user?.email}
               isAdmin={user?.role === "admin"}
-              statusText="Account settings • Secure encrypted session"
+              statusText="My profile • Secure encrypted session"
               onSignOut={logout}
               className="hidden lg:flex"
             />
@@ -128,7 +127,7 @@ export default function ProfilePage() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <ProfilePageHeader
                   title="My Profile"
-                  description="View your account details, storage usage, and security settings."
+                  description="View your account details and storage usage."
                 />
                 <button
                   type="button"
@@ -146,12 +145,9 @@ export default function ProfilePage() {
               {error ? <p className="text-sm text-[#EF4444]">{error}</p> : null}
 
               {profile ? (
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  <div className="flex flex-col gap-6">
-                    <ProfileAccountSection user={profile.user} />
-                    <ProfileStorageSection storage={profile.storage} />
-                  </div>
-                  <ProfileChangePasswordForm />
+                <div className="flex max-w-2xl flex-col gap-6">
+                  <ProfileAccountSection user={profile.user} />
+                  <ProfileStorageSection storage={profile.storage} />
                 </div>
               ) : null}
             </div>
