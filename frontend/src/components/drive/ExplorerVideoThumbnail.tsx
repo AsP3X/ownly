@@ -1,13 +1,15 @@
-// Human: Grid tile video poster for DriveCloudExplorer — lazy-loaded JPEG above file metadata.
-// Agent: FETCHES poster blob, RESIZES when large, REVOKES object URL when tile leaves viewport.
+// Human: Grid tile video poster — server JPEG with priority queue, cache, and unload on scroll-away.
+// Agent: CALLS loadExplorerVideoThumbnailBlob; CANCELS when tile phase is off.
 
 import { useEffect, useRef, useState } from "react";
 import { Film, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fetchFileThumbnailBlob } from "@/api/client";
-import { useExplorerTileVisible } from "@/hooks/useExplorerTileVisible";
-import { runExplorerThumbnailLoad } from "@/lib/explorer-thumbnail-queue";
-import { resizeImageBlobForGridTile } from "@/lib/explorer-thumbnail-resize";
+import {
+  thumbnailPriorityForPhase,
+  useExplorerTileVisible,
+} from "@/hooks/useExplorerTileVisible";
+import { loadExplorerVideoThumbnailBlob } from "@/lib/explorer-thumbnail-loader";
+import { cancelExplorerThumbnailLoad } from "@/lib/explorer-thumbnail-queue";
 import { cn } from "@/lib/utils";
 
 type ExplorerVideoThumbnailProps = {
@@ -25,53 +27,48 @@ function revokeObjectUrl(objectUrlRef: { current: string | null }) {
 export function ExplorerVideoThumbnail({ file, className }: ExplorerVideoThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const visible = useExplorerTileVisible(containerRef);
+  const phase = useExplorerTileVisible(containerRef);
+  const priority = thumbnailPriorityForPhase(phase);
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  // Human: Load poster JPEG only while intersecting; revoke blob URL when tile scrolls away.
-  // Agent: QUEUES fetch+resize; WRITES src in async callback; CLEANUP revokes object URL when hidden.
   useEffect(() => {
-    if (!visible || !file.video_thumbnail_ready) {
+    if (!priority || !file.video_thumbnail_ready) {
       return () => {
+        cancelExplorerThumbnailLoad(file.id);
         revokeObjectUrl(objectUrlRef);
-        setSrc(null);
-        setLoading(false);
       };
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     revokeObjectUrl(objectUrlRef);
 
-    void runExplorerThumbnailLoad(async () => {
-      if (cancelled) return;
-      setLoading(true);
-      setFailed(false);
-
-      const blob = await fetchFileThumbnailBlob(file.id);
-      const resized = await resizeImageBlobForGridTile(blob);
-      if (cancelled) return;
-      const url = URL.createObjectURL(resized);
-      objectUrlRef.current = url;
-      setSrc(url);
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) {
+    void loadExplorerVideoThumbnailBlob(file, {
+      priority,
+      signal: controller.signal,
+    })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        setSrc(url);
+        setFailed(false);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setFailed(true);
-        setLoading(false);
-      }
-    });
+      });
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      cancelExplorerThumbnailLoad(file.id);
       revokeObjectUrl(objectUrlRef);
-      setSrc(null);
-      setLoading(false);
     };
-  }, [visible, file.id, file.video_thumbnail_ready, file.video_thumbnail_selected_index]);
+  }, [file, priority]);
 
-  const displaySrc = visible ? src : null;
+  const displaySrc = priority ? src : null;
+  const loading = Boolean(priority) && !displaySrc && !failed && file.video_thumbnail_ready;
 
   return (
     <div
@@ -92,14 +89,14 @@ export function ExplorerVideoThumbnail({ file, className }: ExplorerVideoThumbna
           alt=""
           decoding="async"
           draggable={false}
-          fetchPriority="low"
+          fetchPriority={priority === "high" ? "high" : "low"}
           className="size-full object-cover"
           onError={() => setFailed(true)}
         />
       ) : (
         <div className="flex size-full items-center justify-center">
           <Loader2
-            className={cn("size-5 text-[#888888]", visible && loading && "animate-spin")}
+            className={cn("size-5 text-[#888888]", loading && "animate-spin")}
             aria-hidden
           />
         </div>

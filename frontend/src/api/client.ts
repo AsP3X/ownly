@@ -676,6 +676,9 @@ export type FileItem = {
   video_thumbnail_error?: string | null;
   video_thumbnail_progress?: number;
   video_thumbnail_selected_index?: number;
+  image_thumbnail_ready?: boolean;
+  image_thumbnail_status?: string | null;
+  image_thumbnail_error?: string | null;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
 };
@@ -729,24 +732,51 @@ export function fileThumbnailUrl(fileId: string, index?: number) {
     : `${base}/thumbnails/${encodeURIComponent(String(index))}`;
 }
 
+// Human: Authenticated URL for server-generated image grid JPEG sidecars.
+// Agent: GET /files/:id/grid-thumbnail; RETURNS small JPEG for explorer tiles.
+export function fileGridThumbnailUrl(fileId: string) {
+  return `${API_BASE}/files/${encodeURIComponent(fileId)}/grid-thumbnail`;
+}
+
 // Human: Load the scored poster options manifest for the thumbnail picker UI.
 // Agent: GET /files/:id/thumbnails; RETURNS VideoThumbnailsResponse.
 export async function fetchFileThumbnails(fileId: string) {
   return apiFetch(`/files/${fileId}/thumbnails`) as Promise<VideoThumbnailsResponse>;
 }
 
-// Human: Fetch poster JPEG bytes for grid tiles — uses the user-selected option by default.
-// Agent: GET /files/:id/thumbnail or /thumbnails/:index with JWT; RETURNS Blob.
-export async function fetchFileThumbnailBlob(fileId: string, index?: number): Promise<Blob> {
+// Human: Authenticated blob fetch with HTTP cache for immutable thumbnail sidecars.
+// Agent: USES force-cache; SUPPORTS AbortSignal for scroll-away cancellation.
+async function fetchAuthenticatedBlob(
+  url: string,
+  errorCode: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
   const token = getToken();
-  const response = await fetch(fileThumbnailUrl(fileId, index), {
-    cache: "no-store",
+  const response = await fetch(url, {
+    cache: "force-cache",
+    signal,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) {
-    throw new ApiError(response.statusText || "Thumbnail failed", "thumbnail_failed", response.status);
+    throw new ApiError(response.statusText || "Request failed", errorCode, response.status);
   }
   return response.blob();
+}
+
+// Human: Fetch poster JPEG bytes for grid tiles — uses the user-selected option by default.
+// Agent: GET /files/:id/thumbnail or /thumbnails/:index with JWT; RETURNS Blob.
+export async function fetchFileThumbnailBlob(
+  fileId: string,
+  index?: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(fileThumbnailUrl(fileId, index), "thumbnail_failed", signal);
+}
+
+// Human: Fetch server-generated image grid JPEG for explorer tiles.
+// Agent: GET /files/:id/grid-thumbnail; RETURNS Blob; THROWS when thumbnail not ready.
+export async function fetchFileGridThumbnailBlob(fileId: string, signal?: AbortSignal): Promise<Blob> {
+  return fetchAuthenticatedBlob(fileGridThumbnailUrl(fileId), "grid_thumbnail_failed", signal);
 }
 
 // Human: Persist the user's chosen poster frame for drive grid and future previews.
@@ -792,8 +822,12 @@ export async function fetchVideoStreamUrl(id: string) {
   return apiFetch(`/files/${id}/stream-url`) as Promise<VideoStreamUrlResponse>;
 }
 
-// Human: Default page size for paginated drive file listings.
-// Agent: MATCHES backend listing::DEFAULT_LIST_LIMIT; USED by DrivePage refresh + load-more.
+// Human: First paint page size — smaller batch for faster folder open before infinite scroll.
+// Agent: USED for offset=0 listings; load-more uses FILES_PAGE_SIZE.
+export const FILES_INITIAL_PAGE_SIZE = 60;
+
+// Human: Default page size for paginated drive file listings after the first page.
+// Agent: MATCHES backend listing::DEFAULT_LIST_LIMIT; USED by DrivePage load-more.
 export const FILES_PAGE_SIZE = 200;
 
 export type ListFilesParams = {
@@ -2013,20 +2047,45 @@ export async function fetchFileStreamUrlForPreview(
 
 // Human: Load file bytes for in-browser preview without triggering a save dialog.
 // Agent: FETCHES /files/:id/download with JWT; FALLBACK to presigned URL; RETURNS Blob for object URLs.
-export async function fetchFileBlobForPreview(file: FileItem): Promise<Blob> {
+export async function fetchFileBlobForPreview(
+  file: FileItem,
+  signal?: AbortSignal,
+): Promise<Blob> {
   const token = getToken();
   const authHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-  let response = await fetch(fileDownloadUrl(file.id), { headers: authHeaders });
+  let response = await fetch(fileDownloadUrl(file.id), { headers: authHeaders, signal });
   if (!response.ok) {
     const presigned = await fetchFileDownloadUrl(file.id);
-    response = await fetch(presigned.url);
+    response = await fetch(presigned.url, { signal });
     if (!response.ok) {
       throw new ApiError(response.statusText || "Preview failed", "preview_failed", response.status);
     }
   }
 
   return response.blob();
+}
+
+// Human: Prefer same-origin ticket stream bytes before full download for image fallback thumbnails.
+// Agent: GET preview-url then /stream; FALLBACK fetchFileBlobForPreview on failure.
+export async function fetchFilePreviewStreamBlob(
+  file: FileItem,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  try {
+    const preview = await fetchFilePreviewUrl(file.id);
+    const response = await fetch(resolveSameOriginStreamUrl(preview.url), {
+      signal,
+      cache: "force-cache",
+    });
+    if (response.ok) {
+      return response.blob();
+    }
+  } catch {
+    // Human: Stream URL may be unavailable for some file types — fall through to download.
+    // Agent: FALLBACK path below.
+  }
+  return fetchFileBlobForPreview(file, signal);
 }
 
 // Human: Replace editable text file bytes by permanently removing the old row and uploading new content.

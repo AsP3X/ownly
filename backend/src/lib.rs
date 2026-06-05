@@ -20,6 +20,7 @@ pub mod admin;
 pub mod audit;
 pub mod auth;
 pub mod audio;
+pub mod image;
 pub mod video;
 pub mod browser_guard;
 pub mod config;
@@ -475,6 +476,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/{id}/thumbnails/{index}",
             get(crate::video::handlers::get_thumbnail_option),
+        )
+        .route(
+            "/api/v1/files/{id}/grid-thumbnail",
+            get(crate::image::handlers::get_grid_thumbnail),
         )
         .route("/api/v1/files/{id}/copy", post(files::handlers::copy_file))
         .route(

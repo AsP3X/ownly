@@ -35,6 +35,7 @@ pub fn storage_keys_for_file(storage_key: &str, segment_count: Option<i32>) -> V
         format!("{storage_key}/{EXPORT_OBJECT_SUFFIX}"),
         format!("{storage_key}/{}", crate::audio::WAVEFORM_OBJECT_SUFFIX),
         format!("{storage_key}/{}", crate::video::THUMBNAIL_MANIFEST_SUFFIX),
+        crate::image::grid_thumbnail_storage_key(storage_key),
         storage_key.to_string(),
     ];
     for index in 0..crate::video::thumbnail::THUMBNAIL_OPTION_COUNT {

@@ -32,7 +32,7 @@ use crate::{
     hls::export::export_cache_is_valid,
     jobs::{
         self,
-        model::{AudioWaveformPayload, HlsEncodePayload, VideoThumbnailPayload},
+        model::{AudioWaveformPayload, HlsEncodePayload, ImageThumbnailPayload, VideoThumbnailPayload},
         JobKind,
     },
     rate_limit,
@@ -46,7 +46,8 @@ pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_i
     hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
     audio_waveform_ready, audio_encode_status, audio_encode_error, \
     video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_progress, \
-    video_thumbnail_selected_index";
+    video_thumbnail_selected_index, \
+    image_thumbnail_ready, image_thumbnail_status, image_thumbnail_error";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
@@ -123,6 +124,9 @@ pub struct FileDto {
     pub video_thumbnail_error: Option<String>,
     pub video_thumbnail_progress: i32,
     pub video_thumbnail_selected_index: i32,
+    pub image_thumbnail_ready: bool,
+    pub image_thumbnail_status: Option<String>,
+    pub image_thumbnail_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -670,6 +674,7 @@ pub async fn upload_file(
             }
             let size_bytes = data.len() as u64;
             let is_audio = mime.starts_with("audio/");
+            let is_image = mime.starts_with("image/");
 
             tracing::info!(
                 request_id = %request_id.0,
@@ -678,6 +683,7 @@ pub async fn upload_file(
                 size_bytes,
                 is_video = false,
                 is_audio,
+                is_image,
                 "files.upload object storage PUT starting"
             );
 
@@ -745,6 +751,48 @@ pub async fn upload_file(
                     Some(&file_id),
                     serde_json::to_value(payload).map_err(|e| {
                         AppError::Internal(anyhow::anyhow!("audio waveform job payload: {e}"))
+                    })?,
+                )
+                .await?;
+
+                file
+            } else if is_image {
+                let file: FileDto = sqlx::query_as(&format!(
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                     image_thumbnail_status) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued') \
+                     RETURNING {FILE_COLUMNS}"
+                ))
+                .bind(&file_id)
+                .bind(&claims.sub)
+                .bind(&folder_id)
+                .bind(&filename)
+                .bind(&storage_key)
+                .bind(&mime)
+                .bind(size_bytes as i64)
+                .fetch_one(&state.pool)
+                .await?;
+
+                tracing::info!(
+                    request_id = %request_id.0,
+                    file_id = %file_id,
+                    "files.upload image grid thumbnail queued"
+                );
+
+                let payload = ImageThumbnailPayload {
+                    file_id: file_id.clone(),
+                    storage_key: storage_key.clone(),
+                };
+
+                jobs::enqueue_job(
+                    &state.pool,
+                    &claims.sub,
+                    JobKind::ImageThumbnail,
+                    &filename,
+                    Some("file"),
+                    Some(&file_id),
+                    serde_json::to_value(payload).map_err(|e| {
+                        AppError::Internal(anyhow::anyhow!("image thumbnail job payload: {e}"))
                     })?,
                 )
                 .await?;

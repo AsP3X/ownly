@@ -11,6 +11,7 @@ import {
   fetchShareStatusBulk,
   fetchSharedByMe,
   fetchSharedWithMe,
+  FILES_INITIAL_PAGE_SIZE,
   FILES_PAGE_SIZE,
   getErrorMessage,
   copyFile,
@@ -64,6 +65,12 @@ import {
   subscribeUploadFileComplete,
   subscribeUploadFileRegistered,
 } from "@/lib/upload-manager";
+import {
+  mergeExplorerFileRow,
+  patchExplorerFileRows,
+  shouldReflectUploadInFileList,
+  type ExplorerFileListContext,
+} from "@/lib/explorer-file-list-updates";
 import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useInstanceName } from "@/hooks/useInstanceName";
@@ -237,6 +244,47 @@ export default function DrivePage() {
   const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
   const dashboardLoadedRef = useRef(false);
+  const explorerListContextRef = useRef<ExplorerFileListContext>({
+    activeNav: "home",
+    currentFolderId: null,
+    searchQuery: "",
+    typeFilter: "all",
+  });
+
+  // Human: Keep upload listener context fresh without resubscribing on every nav/filter change.
+  // Agent: WRITES explorerListContextRef in effect; READ by applyExplorerUploadFile callbacks.
+  useEffect(() => {
+    explorerListContextRef.current = {
+      activeNav,
+      currentFolderId,
+      searchQuery:
+        activeNav === "my-files" || (activeNav === "home" && query.trim().length > 0)
+          ? query.trim()
+          : "",
+      typeFilter,
+    };
+  }, [activeNav, currentFolderId, query, typeFilter]);
+
+  // Human: Insert or patch one uploaded file in local listing state without reloading the folder.
+  // Agent: MERGES row via mergeExplorerFileRow; SKIPS setState when row already matches.
+  const applyExplorerUploadFile = useCallback((file: FileItem) => {
+    const context = explorerListContextRef.current;
+    if (!shouldReflectUploadInFileList(file, context)) {
+      return;
+    }
+    let fileCountDelta = 0;
+    setFiles((prev) => {
+      const merged = mergeExplorerFileRow(prev, file);
+      if (!merged.changed) {
+        return prev;
+      }
+      fileCountDelta = merged.fileCountDelta;
+      return merged.files;
+    });
+    if (fileCountDelta > 0) {
+      setFileCount((count) => count + fileCountDelta);
+    }
+  }, []);
 
   // Human: Mirror shared dashboard stats into local drive UI state when the provider fetch completes.
   // Agent: READS dashboard from InstanceNameProvider; WRITES used/quota/effective remaining bytes.
@@ -349,9 +397,9 @@ export default function DrivePage() {
           options?.folderId !== undefined ? options.folderId : currentFolderId;
 
         if (nav === "home" && !search) {
-          const recentIds = getRecentFileIds().slice(0, FILES_PAGE_SIZE);
+          const recentIds = getRecentFileIds().slice(0, FILES_INITIAL_PAGE_SIZE);
           const [folderListing, { files: recentBatch }] = await Promise.all([
-            listFolders({ limit: FILES_PAGE_SIZE, offset: 0 }),
+            listFolders({ limit: FILES_INITIAL_PAGE_SIZE, offset: 0 }),
             batchFiles(recentIds, "minimal"),
           ]);
           setFolders(folderListing.folders);
@@ -370,7 +418,7 @@ export default function DrivePage() {
         if (search) {
           const listing = await listFiles({
             q: search,
-            limit: FILES_PAGE_SIZE,
+            limit: FILES_INITIAL_PAGE_SIZE,
             offset: 0,
             fields: "minimal",
             type_filter: serverTypeFilter,
@@ -391,12 +439,12 @@ export default function DrivePage() {
         const [folderListing, fileListing] = await Promise.all([
           listFolders({
             parent_id: targetFolderId ?? undefined,
-            limit: FILES_PAGE_SIZE,
+            limit: FILES_INITIAL_PAGE_SIZE,
             offset: 0,
           }),
           listFiles({
             folder_id: targetFolderId ?? undefined,
-            limit: FILES_PAGE_SIZE,
+            limit: FILES_INITIAL_PAGE_SIZE,
             offset: 0,
             fields: "minimal",
             type_filter: serverTypeFilter,
@@ -505,29 +553,30 @@ export default function DrivePage() {
     }
   }, [currentFolderId, folders.length, foldersLoadingMore, hasMoreFolders, loading]);
 
-  // Human: Refresh the drive listing when the server registers a new upload so row badges show ingest progress.
-  // Agent: SUBSCRIBES subscribeUploadFileRegistered; CALLS refresh silent on POST /files/upload response.
+  // Human: Show a new upload row as soon as the API returns — without reloading the whole grid.
+  // Agent: SUBSCRIBES subscribeUploadFileRegistered; UPSERTS FileItem into files state.
   useEffect(() => {
-    return subscribeUploadFileRegistered(() => {
-      void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
-        silent: true,
-        nav: activeNav,
-      });
+    return subscribeUploadFileRegistered((file) => {
+      applyExplorerUploadFile(file);
     });
-  }, [activeNav, query, refresh]);
+  }, [applyExplorerUploadFile]);
 
-  // Human: Refresh the drive listing as each file finishes uploading in the corner panel.
-  // Agent: SUBSCRIBES upload-manager file events; CALLS refresh silent + dashboard stats.
+  // Human: Finalize one upload row when ingest completes — patch that file + refresh storage stats.
+  // Agent: SUBSCRIBES subscribeUploadFileComplete; GET /files/:id; PATCHES files state only.
   useEffect(() => {
     return subscribeUploadFileComplete((fileId) => {
       recordFileAccess(fileId);
       void refreshDashboard();
-      void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
-        silent: true,
-        nav: activeNav,
-      });
+      void (async () => {
+        try {
+          const { file } = await fetchFile(fileId);
+          applyExplorerUploadFile(file);
+        } catch {
+          // Human: Processing poll may have already updated the row; ignore transient fetch errors.
+        }
+      })();
     });
-  }, [activeNav, query, refresh, refreshDashboard]);
+  }, [applyExplorerUploadFile, refreshDashboard]);
 
   // Human: Poll only processing file rows instead of reloading the entire folder listing.
   // Agent: GET /files/:id every 3s; PATCHES matching rows in files state.
@@ -544,10 +593,12 @@ export default function DrivePage() {
           const updates = await Promise.all(
             processingFileIds.map((fileId) => fetchFile(fileId)),
           );
-          setFiles((prev) => {
-            const byId = new Map(updates.map((entry) => [entry.file.id, entry.file]));
-            return prev.map((file) => byId.get(file.id) ?? file);
-          });
+          setFiles((prev) =>
+            patchExplorerFileRows(
+              prev,
+              updates.map((entry) => entry.file),
+            ),
+          );
         } catch {
           // Human: Processing poll failures are non-critical — next interval retries.
         }

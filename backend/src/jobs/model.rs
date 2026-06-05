@@ -11,6 +11,7 @@ pub enum JobKind {
     HlsExport,
     AudioWaveform,
     VideoThumbnail,
+    ImageThumbnail,
     ZipBulk,
     ZipFolder,
 }
@@ -22,6 +23,7 @@ impl JobKind {
             Self::HlsExport => "hls_export",
             Self::AudioWaveform => "audio_waveform",
             Self::VideoThumbnail => "video_thumbnail",
+            Self::ImageThumbnail => "image_thumbnail",
             Self::ZipBulk => "zip_bulk",
             Self::ZipFolder => "zip_folder",
         }
@@ -33,6 +35,7 @@ impl JobKind {
             "hls_export" => Some(Self::HlsExport),
             "audio_waveform" => Some(Self::AudioWaveform),
             "video_thumbnail" => Some(Self::VideoThumbnail),
+            "image_thumbnail" => Some(Self::ImageThumbnail),
             "zip_bulk" => Some(Self::ZipBulk),
             "zip_folder" => Some(Self::ZipFolder),
             _ => None,
@@ -110,6 +113,13 @@ pub struct HlsEncodePayload {
 /// Human: Payload for audio waveform peak extraction after audio upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioWaveformPayload {
+    pub file_id: String,
+    pub storage_key: String,
+}
+
+/// Human: Payload for grid JPEG generation after raster image upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageThumbnailPayload {
     pub file_id: String,
     pub storage_key: String,
 }

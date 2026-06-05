@@ -2,6 +2,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+# Human: npm ci requires a Linux-complete lock file (includes optional @emnapi/* for rolldown).
+# Agent: Do not run Windows-only `npm install` and commit lock changes without Docker rebuild smoke.
 RUN npm ci
 
 COPY . .

@@ -1,13 +1,15 @@
-// Human: Grid tile image preview for DriveCloudExplorer — cover-cropped thumbnail above file metadata.
-// Agent: FETCHES blob, RESIZES for grid, REVOKES object URL when tile leaves viewport; FALLBACK icon on error.
+// Human: Grid tile image preview — server grid JPEG when ready, worker resize fallback otherwise.
+// Agent: USES explorer-thumbnail-loader + LRU cache; CANCELS loads when tile phase is off.
 
 import { useEffect, useRef, useState } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fetchFileBlobForPreview } from "@/api/client";
-import { useExplorerTileVisible } from "@/hooks/useExplorerTileVisible";
-import { runExplorerThumbnailLoad } from "@/lib/explorer-thumbnail-queue";
-import { resizeImageBlobForGridTile } from "@/lib/explorer-thumbnail-resize";
+import {
+  thumbnailPriorityForPhase,
+  useExplorerTileVisible,
+} from "@/hooks/useExplorerTileVisible";
+import { loadExplorerImageThumbnailBlob } from "@/lib/explorer-thumbnail-loader";
+import { cancelExplorerThumbnailLoad } from "@/lib/explorer-thumbnail-queue";
 import { cn } from "@/lib/utils";
 
 type ExplorerImageThumbnailProps = {
@@ -21,57 +23,56 @@ function revokeObjectUrl(objectUrlRef: { current: string | null }) {
   objectUrlRef.current = null;
 }
 
-/** Human: Lazy-loaded, grid-sized image preview for explorer tiles. */
+/** Human: Lazy-loaded grid image preview with server-side or client-side thumbnail sources. */
 export function ExplorerImageThumbnail({ file, className }: ExplorerImageThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const visible = useExplorerTileVisible(containerRef);
+  const phase = useExplorerTileVisible(containerRef);
+  const priority = thumbnailPriorityForPhase(phase);
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  // Human: Load grid-sized bytes only while intersecting; revoke blob URL on leave or unmount.
-  // Agent: QUEUES fetch+resize; WRITES src in async callback; CLEANUP revokes object URL when hidden.
   useEffect(() => {
-    if (!visible) {
+    if (!priority) {
       return () => {
+        cancelExplorerThumbnailLoad(file.id);
         revokeObjectUrl(objectUrlRef);
-        setSrc(null);
-        setLoading(false);
       };
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     revokeObjectUrl(objectUrlRef);
 
-    void runExplorerThumbnailLoad(async () => {
-      if (cancelled) return;
-      setLoading(true);
-      setFailed(false);
-
-      const blob = await fetchFileBlobForPreview(file);
-      const resized = await resizeImageBlobForGridTile(blob);
-      if (cancelled) return;
-      const url = URL.createObjectURL(resized);
-      objectUrlRef.current = url;
-      setSrc(url);
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) {
+    void loadExplorerImageThumbnailBlob(file, {
+      priority,
+      signal: controller.signal,
+    })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        setSrc(url);
+        setFailed(false);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setFailed(true);
-        setLoading(false);
-      }
-    });
+      });
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      cancelExplorerThumbnailLoad(file.id);
       revokeObjectUrl(objectUrlRef);
-      setSrc(null);
-      setLoading(false);
     };
-  }, [visible, file]);
+  }, [file, priority]);
 
-  const displaySrc = visible ? src : null;
+  const displaySrc = priority ? src : null;
+  const loading = Boolean(priority) && !displaySrc && !failed;
+  const waitingForServerThumb =
+    !file.image_thumbnail_ready &&
+    (file.image_thumbnail_status === "queued" ||
+      file.image_thumbnail_status === "processing");
 
   return (
     <div
@@ -92,16 +93,19 @@ export function ExplorerImageThumbnail({ file, className }: ExplorerImageThumbna
           alt=""
           decoding="async"
           draggable={false}
-          fetchPriority="low"
+          fetchPriority={priority === "high" ? "high" : "low"}
           className="size-full object-cover"
           onError={() => setFailed(true)}
         />
       ) : (
-        <div className="flex size-full items-center justify-center">
+        <div className="flex size-full flex-col items-center justify-center gap-1">
           <Loader2
-            className={cn("size-5 text-[#888888]", visible && loading && "animate-spin")}
+            className={cn("size-5 text-[#888888]", loading && "animate-spin")}
             aria-hidden
           />
+          {waitingForServerThumb ? (
+            <span className="text-[10px] text-[#888888]">Generating preview…</span>
+          ) : null}
         </div>
       )}
     </div>

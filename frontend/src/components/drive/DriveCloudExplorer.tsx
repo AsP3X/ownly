@@ -238,7 +238,7 @@ export function DriveCloudExplorer({
           onLoadMoreFiles();
         }
       },
-      { root, rootMargin: "240px" },
+      { root, rootMargin: "480px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();

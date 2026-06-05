@@ -20,6 +20,7 @@ import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnai
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
+import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
 import { isFileProcessing } from "@/lib/file-processing";
 import {
   formatBytes,
@@ -137,6 +138,30 @@ export type ExplorerFileGridTileProps = {
   onPreviewAudio?: (file: FileItem) => void;
   onOpenActions?: (target: MobileActionTarget) => void;
 };
+
+function shareFlagsEqual(a?: ShareFlags, b?: ShareFlags): boolean {
+  return (
+    (a?.public ?? false) === (b?.public ?? false) &&
+    (a?.users ?? false) === (b?.users ?? false)
+  );
+}
+
+// Human: Custom memo compare — only re-render a tile when its visible props change.
+// Agent: COMPARES file row render fields + selection/drag flags; IGNORES stable handler refs.
+function explorerFileGridTilePropsEqual(
+  prev: ExplorerFileGridTileProps,
+  next: ExplorerFileGridTileProps,
+): boolean {
+  return (
+    explorerFileRowRenderEqual(prev.file, next.file) &&
+    shareFlagsEqual(prev.shareFlags, next.shareFlags) &&
+    prev.selectionEnabled === next.selectionEnabled &&
+    prev.isSelected === next.isSelected &&
+    prev.hasActiveSelection === next.hasActiveSelection &&
+    prev.isDragging === next.isDragging &&
+    prev.dragEnabled === next.dragEnabled
+  );
+}
 
 // Human: File tile — preview, selection checkbox, drag source, and mobile actions.
 // Agent: MEMOIZED; LAZY-LOADS thumbnails via child components; SKIPS preview when processing.
@@ -315,4 +340,4 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       </button>
     </div>
   );
-});
+}, explorerFileGridTilePropsEqual);
