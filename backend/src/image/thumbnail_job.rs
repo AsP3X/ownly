@@ -106,10 +106,15 @@ pub async fn run_image_thumbnail_job(
     let jpeg = generate_grid_thumbnail_jpeg(&source_bytes)?;
     let thumb_key = grid_thumbnail_storage_key(&job.storage_key);
 
-    let result = storage
-        .put(&thumb_key, "image/jpeg", jpeg)
-        .await
-        .map_err(|e| format!("grid thumbnail upload failed: {e}"));
+    // Human: Thumbnail PUTs run concurrently with upload ingest — retry transient Nebular 5xx.
+    // Agent: CALLS put_with_retry; RE-SENDS same JPEG buffer on each attempt (small sidecar).
+    let jpeg_for_retry = jpeg.clone();
+    let result = crate::storage::put_with_retry(storage.as_ref(), &thumb_key, "image/jpeg", || {
+        let jpeg = jpeg_for_retry.clone();
+        async move { Ok(jpeg) }
+    })
+    .await
+    .map_err(|e| format!("grid thumbnail upload failed: {e}"));
 
     if let Some(ref tmp) = job.tmp_source {
         cleanup_upload_work_dir(tmp).await;

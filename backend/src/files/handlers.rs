@@ -387,21 +387,27 @@ async fn cleanup_upload_work_dir(work_dir: &std::path::Path) {
     }
 }
 
-// Human: Read a spooled upload file and PUT it to object storage.
-// Agent: CALLS Storage::put; ERRORS on disk read or Nebular transport failure.
+// Human: Read a spooled upload file and PUT it to object storage with transient-error retries.
+// Agent: CALLS put_with_retry; RE-READS spool each attempt; ERRORS on disk read or Nebular failure.
 async fn storage_put_spooled_file(
     storage: &Arc<dyn crate::storage::Storage>,
     storage_key: &str,
     mime: &str,
     tmp_path: &std::path::Path,
 ) -> Result<(), AppError> {
-    let data = tokio::fs::read(tmp_path)
-        .await
-        .map_err(|error| AppError::Internal(anyhow::anyhow!("read upload spool: {error}")))?;
-    storage
-        .put(storage_key, mime, data)
-        .await
-        .map_err(|error| AppError::Storage(error.to_string()))
+    let path = tmp_path.to_path_buf();
+    let mime = mime.to_string();
+    let key = storage_key.to_string();
+    crate::storage::put_with_retry(storage.as_ref(), &key, &mime, || {
+        let path = path.clone();
+        async move {
+            tokio::fs::read(&path)
+                .await
+                .map_err(|error| anyhow::anyhow!("read upload spool: {error}"))
+        }
+    })
+    .await
+    .map_err(|error| AppError::Storage(error.to_string()))
 }
 
 // Human: Stream one multipart file field to disk with a rolling size cap check.

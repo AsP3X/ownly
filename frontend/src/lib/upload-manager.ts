@@ -973,12 +973,17 @@ async function waitForUploadPumpUnpause() {
   }
 }
 
-// Human: Detect transient upload failures worth retrying (429 throttle or dropped connection).
-// Agent: READS ApiError status/code; RETURNS true for rate_limited and network_error.
+// Human: Detect transient upload failures worth retrying (429 throttle, storage pressure, or dropped connection).
+// Agent: READS ApiError status/code; RETURNS true for rate_limited, storage_error, and network_error.
 function isRetryableUploadError(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.code === "upload_cancelled") return false;
-  return error.status === 429 || error.code === "rate_limited" || error.code === "network_error";
+  return (
+    error.status === 429 ||
+    error.code === "rate_limited" ||
+    error.code === "storage_error" ||
+    error.code === "network_error"
+  );
 }
 
 // Human: Backoff delay for retry attempt N (1-based), capped to avoid multi-minute stalls.

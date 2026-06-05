@@ -27,4 +27,7 @@ pub trait Storage: Send + Sync {
 pub mod memory;
 pub mod nebula;
 pub mod placement;
+pub mod put_retry;
 pub mod router;
+
+pub use put_retry::put_with_retry;
