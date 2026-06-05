@@ -1,11 +1,15 @@
-// Human: Defer explorer tile work until the tile is near the scroll container viewport.
-// Agent: IntersectionObserver with ExplorerScrollContext root; RETURNS visible flag once intersecting.
+// Human: Track whether a grid tile intersects the explorer scroll pane — toggles on and off while scrolling.
+// Agent: IntersectionObserver root = mainScrollRef; UNLOAD previews when false to drop decoded bitmaps.
 
 import { useEffect, useState, type RefObject } from "react";
 import { useExplorerScrollRoot } from "@/hooks/useExplorerScrollRoot";
 
-// Human: Shared visibility gate for grid thumbnails — avoids fetch/render for off-screen tiles.
-// Agent: READS scrollElementRef from context; WRITES visible true once; DISCONNECTS observer.
+// Human: Tight margin — only load previews for tiles actually near the viewport, not hundreds ahead.
+// Agent: 48px rootMargin balances prefetch vs keeping too many decoded images alive during scroll.
+const EXPLORER_TILE_ROOT_MARGIN = "48px";
+
+// Human: Bidirectional visibility for explorer tiles (load on enter, unload on leave).
+// Agent: READS scrollElementRef from context; RETURNS inView boolean updated on each intersection change.
 export function useExplorerTileVisible(containerRef: RefObject<HTMLElement | null>) {
   const scrollRootRef = useExplorerScrollRoot();
   const [visible, setVisible] = useState(false);
@@ -16,13 +20,12 @@ export function useExplorerTileVisible(containerRef: RefObject<HTMLElement | nul
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        setVisible(true);
-        observer.disconnect();
+        setVisible(entry?.isIntersecting ?? false);
       },
       {
         root: scrollRootRef?.current ?? null,
-        rootMargin: "240px",
+        rootMargin: EXPLORER_TILE_ROOT_MARGIN,
+        threshold: 0,
       },
     );
     observer.observe(element);

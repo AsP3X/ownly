@@ -17,7 +17,6 @@ import {
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
-import { LazyExplorerPdfThumbnail } from "@/components/drive/lazy-explorer-pdf-thumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
@@ -185,7 +184,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     canPreviewAudio;
   const showImagePreview = isImage && !processing;
   const showVideoPreview = isVideo && file.video_thumbnail_ready;
-  const showPdfPreview = isPdf && !processing;
+  // Human: PDF grid tiles use the file icon — react-pdf canvases per row destroy scroll performance.
+  // Agent: full PDF preview remains on tile click via onPreviewPdf; SKIPS live PDF thumbnail in grid.
+  const showThumbnailPreview = showImagePreview || showVideoPreview;
 
   return (
     <div
@@ -270,7 +271,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         }}
         className={cn(
           "flex h-full w-full flex-col gap-1.5 text-center",
-          showImagePreview || showVideoPreview || showPdfPreview
+          showThumbnailPreview
             ? "min-h-[148px] items-stretch p-2"
             : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
         )}
@@ -282,8 +283,6 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
             file={file}
           />
-        ) : showPdfPreview ? (
-          <LazyExplorerPdfThumbnail file={file} />
         ) : (
           <ExplorerFileIcon mimeType={file.mime_type} />
         )}
