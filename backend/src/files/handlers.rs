@@ -45,7 +45,8 @@ use crate::{
 pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
     hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
     audio_waveform_ready, audio_encode_status, audio_encode_error, \
-    video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_selected_index";
+    video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_progress, \
+    video_thumbnail_selected_index";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
@@ -120,6 +121,7 @@ pub struct FileDto {
     pub video_thumbnail_ready: bool,
     pub video_thumbnail_status: Option<String>,
     pub video_thumbnail_error: Option<String>,
+    pub video_thumbnail_progress: i32,
     pub video_thumbnail_selected_index: i32,
 }
 
@@ -633,7 +635,7 @@ pub async fn upload_file(
             let thumbnail_payload = VideoThumbnailPayload {
                 file_id: file_id.clone(),
                 storage_key: storage_key.clone(),
-                tmp_video: tmp_path.to_string_lossy().to_string(),
+                tmp_video: Some(tmp_path.to_string_lossy().to_string()),
             };
 
             jobs::enqueue_job(

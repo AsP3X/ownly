@@ -674,6 +674,7 @@ export type FileItem = {
   video_thumbnail_ready?: boolean;
   video_thumbnail_status?: string | null;
   video_thumbnail_error?: string | null;
+  video_thumbnail_progress?: number;
   video_thumbnail_selected_index?: number;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
@@ -755,6 +756,14 @@ export async function selectFileThumbnail(fileId: string, selectedIndex: number)
     method: "PATCH",
     body: JSON.stringify({ selected_index: selectedIndex }),
   }) as Promise<VideoThumbnailsResponse>;
+}
+
+// Human: Re-queue poster extraction when upload-time thumbnails failed or never completed.
+// Agent: POST /files/:id/thumbnails/regenerate; ENQUEUES background job; RETURNS { file }.
+export async function regenerateFileThumbnails(fileId: string) {
+  return apiFetch(`/files/${fileId}/thumbnails/regenerate`, {
+    method: "POST",
+  }) as Promise<{ file: FileItem }>;
 }
 
 // Human: Load waveform peaks for audio inside an anonymous public share link.

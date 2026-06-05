@@ -260,8 +260,8 @@ pub async fn cancel_video_thumbnail_for_file(
     cancel_job_by_resource(pool, user_id, JobKind::VideoThumbnail, "file", file_id).await?;
 
     sqlx::query(
-        "UPDATE files SET video_thumbnail_status = 'cancelled', video_thumbnail_error = NULL \
-         WHERE id = $1 AND user_id = $2 AND NOT video_thumbnail_ready",
+        "UPDATE files SET video_thumbnail_status = 'cancelled', video_thumbnail_error = NULL, \
+         video_thumbnail_progress = 0 WHERE id = $1 AND user_id = $2 AND NOT video_thumbnail_ready",
     )
     .bind(file_id)
     .bind(user_id)

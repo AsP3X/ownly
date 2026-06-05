@@ -51,11 +51,11 @@ services:
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
-      # Human: Reclaim blob disk promptly on delete and re-compress legacy raw blobs in the background.
-      # Agent: NOS_SOFT_DELETE_DROP_BLOB drops files on soft-delete; NOS_RECOMPRESS_* migrates pre-zstd objects.
+      # Human: Reclaim blob disk promptly on delete; re-compress legacy blobs on an interval, not at boot.
+      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — Nebular blocks HTTP until boot recompress finishes (minutes on large volumes).
       NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
       NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
-      NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
+      NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
       NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
       NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
       # Human: zstd upload vs maintenance levels — fast PUT then background upgrade (see docs/storage-disk-tuning.md).
@@ -72,12 +72,14 @@ services:
       - "9000:9000"
     volumes:
       - nebular_data:/data
+    # Human: Nebular OS binds HTTP only after NOS_RECOMPRESS_ON_STARTUP finishes — large volumes can take many minutes.
+    # Agent: start_period 10m + retries covers boot recompression; backend depends_on service_healthy.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 60s
+      retries: 18
+      start_period: 600s
 
   backend:
     build:

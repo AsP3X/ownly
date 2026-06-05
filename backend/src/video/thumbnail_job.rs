@@ -26,8 +26,8 @@ pub struct VideoThumbnailJob {
 
 pub async fn mark_processing(pool: &PgPool, file_id: &str) {
     let _ = sqlx::query(
-        "UPDATE files SET video_thumbnail_status = 'processing', video_thumbnail_error = NULL \
-         WHERE id = $1",
+        "UPDATE files SET video_thumbnail_status = 'processing', video_thumbnail_error = NULL, \
+         video_thumbnail_progress = 0 WHERE id = $1",
     )
     .bind(file_id)
     .execute(pool)
@@ -37,7 +37,7 @@ pub async fn mark_processing(pool: &PgPool, file_id: &str) {
 pub async fn mark_failed(pool: &PgPool, file_id: &str, message: &str) {
     let _ = sqlx::query(
         "UPDATE files SET video_thumbnail_status = 'failed', video_thumbnail_error = $1, \
-         video_thumbnail_ready = false WHERE id = $2",
+         video_thumbnail_ready = false, video_thumbnail_progress = 0 WHERE id = $2",
     )
     .bind(message)
     .bind(file_id)
@@ -49,12 +49,23 @@ pub async fn mark_failed(pool: &PgPool, file_id: &str, message: &str) {
 // Agent: WRITES video_thumbnail_status=cancelled; NO-OP when thumbnails already ready.
 pub async fn mark_cancelled(pool: &PgPool, file_id: &str) {
     let _ = sqlx::query(
-        "UPDATE files SET video_thumbnail_status = 'cancelled', video_thumbnail_error = NULL \
-         WHERE id = $1 AND NOT video_thumbnail_ready",
+        "UPDATE files SET video_thumbnail_status = 'cancelled', video_thumbnail_error = NULL, \
+         video_thumbnail_progress = 0 WHERE id = $1 AND NOT video_thumbnail_ready",
     )
     .bind(file_id)
     .execute(pool)
     .await;
+}
+
+// Human: Mirror upload-tray percent on the file row while thumbnails generate.
+// Agent: WRITES files.video_thumbnail_progress; READ by jobs executor + drive polling.
+async fn set_thumbnail_progress(pool: &PgPool, file_id: &str, progress: i32) {
+    let pct = progress.clamp(0, 100);
+    let _ = sqlx::query("UPDATE files SET video_thumbnail_progress = $1 WHERE id = $2")
+        .bind(pct)
+        .bind(file_id)
+        .execute(pool)
+        .await;
 }
 
 async fn is_thumbnail_cancelled(pool: &PgPool, file_id: &str) -> bool {
@@ -85,6 +96,8 @@ pub async fn run_video_thumbnail_job(
         return Ok(());
     }
 
+    set_thumbnail_progress(&pool, &job.file_id, 5).await;
+
     // Human: Prefer upload spool when present; HLS-ready videos use export.mp4 or a local playlist.
     // Agent: READS tmp_video OR HLS bundle OR raw storage_key; WRITES temp input for ffmpeg.
     let local_copy = resolve_video_source(
@@ -100,14 +113,17 @@ pub async fn run_video_thumbnail_job(
         return Ok(());
     }
 
+    set_thumbnail_progress(&pool, &job.file_id, 58).await;
     let options = extract_thumbnail_options(local_copy.input_path()).await?;
+    set_thumbnail_progress(&pool, &job.file_id, 88).await;
+    set_thumbnail_progress(&pool, &job.file_id, 92).await;
     let manifest = build_and_upload_manifest(storage, &job.storage_key, options).await?;
     let manifest_key = thumbnail_manifest_storage_key(&job.storage_key);
 
     sqlx::query(
         "UPDATE files SET video_thumbnail_ready = true, video_thumbnail_status = 'ready', \
-         video_thumbnail_error = NULL, video_thumbnail_manifest_key = $1, \
-         video_thumbnail_selected_index = $2 WHERE id = $3",
+         video_thumbnail_error = NULL, video_thumbnail_progress = 100, \
+         video_thumbnail_manifest_key = $1, video_thumbnail_selected_index = $2 WHERE id = $3",
     )
     .bind(&manifest_key)
     .bind(manifest.selected_index as i32)
@@ -156,7 +172,10 @@ async fn resolve_video_source(
 ) -> Result<LocalVideoSource, String> {
     if let Some(path) = tmp_video {
         if path.exists() {
-            return copy_video_to_temp(path).await.map(LocalVideoSource::File);
+            set_thumbnail_progress(pool, file_id, 38).await;
+            let file = copy_video_to_temp(path).await.map(LocalVideoSource::File)?;
+            set_thumbnail_progress(pool, file_id, 52).await;
+            return Ok(file);
         }
     }
 
@@ -186,9 +205,10 @@ async fn resolve_video_source(
         .await;
     }
 
-    download_source_to_temp(storage, storage_key)
-        .await
-        .map(LocalVideoSource::File)
+    set_thumbnail_progress(pool, file_id, 12).await;
+    let file = download_source_to_temp(storage, storage_key).await?;
+    set_thumbnail_progress(pool, file_id, 35).await;
+    Ok(LocalVideoSource::File(file))
 }
 
 // Human: HLS vault videos keep segments + sidecars — not the upload spool path at storage_key.
@@ -204,20 +224,24 @@ async fn resolve_hls_video_source(
 ) -> Result<LocalVideoSource, String> {
     if export_cache_is_valid(export_ready, export_size) {
         let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
-        return download_source_to_temp(storage, &export_key)
-            .await
-            .map(LocalVideoSource::File);
+        set_thumbnail_progress(pool, file_id, 12).await;
+        let file = download_source_to_temp(storage, &export_key).await?;
+        set_thumbnail_progress(pool, file_id, 35).await;
+        return Ok(LocalVideoSource::File(file));
     }
 
+    set_thumbnail_progress(pool, file_id, 38).await;
     if let Ok((work_dir, mp4)) =
         materialize_hls_mp4_for_ffmpeg(storage.clone(), storage_key, segment_count).await
     {
+        set_thumbnail_progress(pool, file_id, 52).await;
         return Ok(LocalVideoSource::Remuxed {
             _work_dir: work_dir,
             mp4,
         });
     }
 
+    set_thumbnail_progress(pool, file_id, 18).await;
     run_hls_export_job(
         pool.clone(),
         storage.clone(),
@@ -242,9 +266,10 @@ async fn resolve_hls_video_source(
     }
 
     let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
-    download_source_to_temp(storage, &export_key)
-        .await
-        .map(LocalVideoSource::File)
+    set_thumbnail_progress(pool, file_id, 22).await;
+    let file = download_source_to_temp(storage, &export_key).await?;
+    set_thumbnail_progress(pool, file_id, 35).await;
+    Ok(LocalVideoSource::File(file))
 }
 
 // Human: Stream the stored video object from Nebular into a temp file for ffmpeg analysis.

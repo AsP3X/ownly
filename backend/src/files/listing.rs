@@ -41,6 +41,7 @@ pub struct FileListItem {
     pub video_thumbnail_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_thumbnail_error: Option<String>,
+    pub video_thumbnail_progress: i32,
     pub video_thumbnail_selected_index: i32,
 }
 
@@ -154,7 +155,7 @@ fn file_list_select_columns(minimal: bool) -> String {
          f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
          f.audio_waveform_ready, f.audio_encode_status, {audio_error_col}, \
          f.video_thumbnail_ready, f.video_thumbnail_status, {thumbnail_error_col}, \
-         f.video_thumbnail_selected_index, \
+         f.video_thumbnail_progress, f.video_thumbnail_selected_index, \
          {SHARE_PUBLIC_FILE_EXPR}"
     )
 }

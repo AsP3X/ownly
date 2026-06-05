@@ -464,6 +464,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(crate::video::handlers::get_thumbnails),
         )
         .route(
+            "/api/v1/files/{id}/thumbnails/regenerate",
+            post(crate::video::handlers::regenerate_thumbnails),
+        )
+        .route(
             "/api/v1/files/{id}/thumbnail",
             get(crate::video::handlers::get_selected_thumbnail)
                 .patch(crate::video::handlers::select_thumbnail),

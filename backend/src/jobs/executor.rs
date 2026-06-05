@@ -221,10 +221,28 @@ async fn run_video_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
     let job_id = job.id.clone();
     let file_id = payload.file_id.clone();
 
+    let progress_pool = pool.clone();
+    let progress_job_id = job_id.clone();
+    let progress_file_id = file_id.clone();
+    let progress_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let row: Option<(i32,)> =
+                sqlx::query_as("SELECT video_thumbnail_progress FROM files WHERE id = $1")
+                    .bind(&progress_file_id)
+                    .fetch_optional(&progress_pool)
+                    .await
+                    .unwrap_or(None);
+            if let Some((pct,)) = row {
+                let _ = set_job_progress(&progress_pool, &progress_job_id, pct).await;
+            }
+        }
+    });
+
     let thumbnail_job = crate::video::thumbnail_job::VideoThumbnailJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
-        tmp_video: PathBuf::from(payload.tmp_video),
+        tmp_video: payload.tmp_video.map(PathBuf::from),
     };
 
     let result = crate::video::thumbnail_job::run_video_thumbnail_job(
@@ -233,6 +251,8 @@ async fn run_video_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
         thumbnail_job,
     )
     .await;
+
+    progress_handle.abort();
 
     if is_job_cancelled(&state.pool, &job_id)
         .await

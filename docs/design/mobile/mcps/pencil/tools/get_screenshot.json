@@ -1,0 +1,21 @@
+{
+  "name": "get_screenshot",
+  "description": "\nReturns a screenshot of a node in a .pen file. Use nodeId \"document\" to screenshot the entire document.\n\nUsage:\n- Screenshots are expensive — use sparingly. Take one only after a complete section is done, not after every batch_design.\n- Prefer the smallest meaningful node (a section frame, not the whole document) — large nodes use more tokens and obscure detail.\n- Use snapshot_layout for structural/sizing checks; reach for a screenshot only when visual fidelity (color, type, alignment) is what you need to verify.\n",
+  "inputSchema": {
+    "properties": {
+      "filePath": {
+        "description": "An optional file path to access a .pen file.",
+        "type": "string"
+      },
+      "nodeId": {
+        "description": "ID of the node to take screenshot of, or \"document\" for the entire document",
+        "type": "string"
+      }
+    },
+    "required": [
+      "filePath",
+      "nodeId"
+    ],
+    "type": "object"
+  }
+}

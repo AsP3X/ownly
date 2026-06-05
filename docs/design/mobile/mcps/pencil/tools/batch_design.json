@@ -1,0 +1,20 @@
+{
+  "name": "batch_design",
+  "description": "Use get_editor_state if you don't have batch_design documentation",
+  "inputSchema": {
+    "properties": {
+      "filePath": {
+        "description": "An optional file path to access a .pen file.",
+        "type": "string"
+      },
+      "input": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "filePath",
+      "input"
+    ],
+    "type": "object"
+  }
+}

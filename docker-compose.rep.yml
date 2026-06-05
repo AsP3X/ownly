@@ -14,7 +14,7 @@ x-nebular-storage-env: &nebular-storage-env
   NOS_META_PATH: /data/meta/metadata.db
   NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
   NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
-  NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-true}
+  NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
   NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
   NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
   NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
@@ -28,12 +28,14 @@ x-nebular-storage-service: &nebular-storage-service
   build:
     context: ./nebular-os
     dockerfile: ../docker/nebular-os.Dockerfile
+  # Human: Match docker-compose.yml — HTTP listens only after startup recompression completes.
+  # Agent: Long start_period so depends_on service_healthy does not fail on large blob volumes.
   healthcheck:
     test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
-    interval: 5s
+    interval: 10s
     timeout: 5s
-    retries: 12
-    start_period: 60s
+    retries: 18
+    start_period: 600s
 
 services:
   object-storage:

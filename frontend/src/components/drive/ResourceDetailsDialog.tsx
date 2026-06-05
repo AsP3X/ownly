@@ -31,6 +31,8 @@ type ResourceDetailsDialogProps = {
   onShareChanged?: () => void;
   /** Human: Notifies parent when the user picks a different video poster frame. */
   onThumbnailSelected?: (file: FileItem, selectedIndex: number) => void;
+  /** Human: Notifies parent when thumbnail job status changes (e.g. after regenerate). */
+  onThumbnailUpdated?: (file: FileItem) => void;
 };
 
 type DetailsTab = "details" | "sharing";
@@ -68,6 +70,7 @@ export function ResourceDetailsDialog({
   initialTab = "details",
   onShareChanged,
   onThumbnailSelected,
+  onThumbnailUpdated,
 }: ResourceDetailsDialogProps) {
   const [tab, setTab] = useState<DetailsTab>(initialTab);
   const [thumbnailEditorOpen, setThumbnailEditorOpen] = useState(false);
@@ -84,7 +87,8 @@ export function ResourceDetailsDialog({
   const name = target?.kind === "file" ? target.file.name : target?.folder.name;
   const isFile = target?.kind === "file";
 
-  const videoFile = target?.kind === "file" ? target.file : null;
+  const videoFile =
+    target?.kind === "file" && target.file.mime_type?.startsWith("video/") ? target.file : null;
 
   return (
     <>
@@ -159,21 +163,22 @@ export function ResourceDetailsDialog({
                         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
                           Thumbnail
                         </span>
-                        {target.file.video_thumbnail_ready ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-fit gap-2"
-                            onClick={() => setThumbnailEditorOpen(true)}
-                          >
-                            <ImageIcon className="size-4" aria-hidden />
-                            Thumbnail
-                          </Button>
-                        ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-fit gap-2"
+                          onClick={() => setThumbnailEditorOpen(true)}
+                        >
+                          <ImageIcon className="size-4" aria-hidden />
+                          {videoFile?.video_thumbnail_ready ? "Thumbnail" : "Manage thumbnail"}
+                        </Button>
+                        {!videoFile?.video_thumbnail_ready ? (
                           <p className="text-sm text-neutral-500">
-                            Poster frames generate while the upload is processing.
+                            {videoFile?.video_thumbnail_status === "failed"
+                              ? "Thumbnail generation failed — open to regenerate."
+                              : "Poster frames generate while the upload is processing."}
                           </p>
-                        )}
+                        ) : null}
                       </div>
                     </>
                   ) : null}
@@ -205,6 +210,7 @@ export function ResourceDetailsDialog({
       open={thumbnailEditorOpen}
       onOpenChange={setThumbnailEditorOpen}
       onSelected={onThumbnailSelected}
+      onFileUpdated={onThumbnailUpdated}
     />
     </>
   );

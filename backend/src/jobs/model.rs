@@ -119,7 +119,9 @@ pub struct AudioWaveformPayload {
 pub struct VideoThumbnailPayload {
     pub file_id: String,
     pub storage_key: String,
-    pub tmp_video: String,
+    /// Human: Upload spool path when available; omitted on user-triggered regeneration.
+    #[serde(default)]
+    pub tmp_video: Option<String>,
 }
 
 /// Human: Payload for remuxing HLS segments into a downloadable MP4.

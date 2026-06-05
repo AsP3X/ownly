@@ -1,0 +1,931 @@
+{
+  "version": "2.13",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": 0,
+      "y": 0,
+      "name": "Login Screen - iPhone 16 Pro Max",
+      "clip": true,
+      "width": 1320,
+      "height": 2868,
+      "fill": {
+        "type": "gradient",
+        "gradientType": "linear",
+        "enabled": true,
+        "rotation": 180,
+        "size": {
+          "height": 1
+        },
+        "colors": [
+          {
+            "color": "#E0ECF8",
+            "position": 0
+          },
+          {
+            "color": "#F0E4F0",
+            "position": 0.5
+          },
+          {
+            "color": "#F8F0E4",
+            "position": 1
+          }
+        ]
+      },
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Aenul",
+          "name": "Status Bar",
+          "width": "fill_container",
+          "height": 186,
+          "fill": "#00000000",
+          "padding": [
+            0,
+            72
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "cDV0H",
+              "name": "Time",
+              "fill": "$text-primary",
+              "content": "9:41",
+              "fontFamily": "$font-sans",
+              "fontSize": 45,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "TJFvo",
+              "name": "Status Icons",
+              "height": 54,
+              "gap": 24,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "d8BTt",
+                  "name": "Signal",
+                  "width": 48,
+                  "height": 36,
+                  "icon": "signal",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                },
+                {
+                  "type": "icon",
+                  "id": "yQ9JM",
+                  "name": "Wifi",
+                  "width": 42,
+                  "height": 36,
+                  "icon": "wifi",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                },
+                {
+                  "type": "icon",
+                  "id": "cq5GX",
+                  "name": "Battery",
+                  "width": 66,
+                  "height": 36,
+                  "icon": "battery",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "RfkqH",
+          "name": "Content",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 96,
+          "padding": [
+            420,
+            100,
+            480,
+            100
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "oOm9L",
+              "name": "Logo Row",
+              "width": "fill_container",
+              "gap": 28,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "o7YcdN",
+                  "name": "Logo Icon",
+                  "width": 96,
+                  "height": 96,
+                  "icon": "cloud",
+                  "library": "lucide",
+                  "fill": "$accent-primary"
+                },
+                {
+                  "type": "text",
+                  "id": "zKdEK",
+                  "name": "Brand",
+                  "fill": "$text-primary",
+                  "content": "Ownly",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 60,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "D2ilpZ",
+              "name": "Title",
+              "fill": "$text-primary",
+              "content": "Sign In",
+              "textAlign": "center",
+              "fontFamily": "$font-sans",
+              "fontSize": 90,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "PLW3j",
+              "name": "Subtitle",
+              "fill": "$text-secondary",
+              "content": "Sign in to continue",
+              "textAlign": "center",
+              "fontFamily": "$font-sans",
+              "fontSize": 42,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "Bwa7Q",
+              "name": "Glass Form",
+              "width": "fill_container",
+              "fill": "#FFFFFF99",
+              "cornerRadius": "$radius-glass",
+              "stroke": "$glass-stroke",
+              "strokeWidth": 1,
+              "effect": [
+                {
+                  "type": "background_blur",
+                  "radius": "$glass-blur"
+                },
+                {
+                  "type": "shadow",
+                  "shadowType": "outer",
+                  "color": "#00000016",
+                  "offset": {
+                    "x": 0,
+                    "y": 24
+                  },
+                  "blur": 48
+                }
+              ],
+              "layout": "vertical",
+              "gap": 48,
+              "padding": 64,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "jg4zm",
+                  "name": "Email Group",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "l3CTd",
+                      "name": "Email Label",
+                      "fill": "$text-secondary",
+                      "content": "EMAIL OR APPLE ID",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 28,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jhLMD",
+                      "name": "Email Field",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": "$radius-lg",
+                      "gap": 24,
+                      "padding": [
+                        60,
+                        56
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "krsit",
+                          "name": "Mail Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "mail",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "P8mmm",
+                          "name": "Email Placeholder",
+                          "fill": "$text-muted",
+                          "content": "name@icloud.com",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 42,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "e3tiS",
+                  "name": "Password Group",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "E4tXGk",
+                      "name": "Pass Label",
+                      "fill": "$text-secondary",
+                      "content": "PASSWORD",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 28,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "i6TBc",
+                      "name": "Password Field",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": "$radius-lg",
+                      "gap": 24,
+                      "padding": [
+                        60,
+                        56
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "sDhoO",
+                          "name": "Lock Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "s3RnU",
+                          "name": "Pass Placeholder",
+                          "fill": "$text-muted",
+                          "content": "••••••••••••",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 42,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "c6KQh",
+                          "name": "Eye Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "eye",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "BM5e6",
+              "name": "Actions",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 40,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "R4tSjg",
+                  "name": "Sign In Button",
+                  "width": "fill_container",
+                  "fill": "$accent-primary",
+                  "cornerRadius": "$radius-lg",
+                  "padding": [
+                    56,
+                    64
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "MbQy1",
+                      "name": "Sign In Text",
+                      "fill": "$text-inverse",
+                      "content": "Sign In",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 45,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "UJsfB",
+                  "name": "Forgot Link",
+                  "fill": "$accent-primary",
+                  "content": "Forgot Apple ID or password?",
+                  "textAlign": "center",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 36,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "xrpiL",
+              "name": "Footer",
+              "width": "fill_container",
+              "gap": 12,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "L19sjN",
+                  "name": "Footer Text",
+                  "fill": "$text-secondary",
+                  "content": "Don't have an Apple ID?",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 33,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "BBr8p",
+                  "name": "Sign Up Link",
+                  "fill": "$accent-primary",
+                  "content": "Create yours now.",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 33,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "ntwEP",
+      "x": 1400,
+      "y": 0,
+      "name": "Create Account Screen - iPhone 16 Pro Max",
+      "clip": true,
+      "width": 1320,
+      "height": 2868,
+      "fill": {
+        "type": "gradient",
+        "gradientType": "linear",
+        "enabled": true,
+        "rotation": 180,
+        "size": {
+          "height": 1
+        },
+        "colors": [
+          {
+            "color": "#E0ECF8",
+            "position": 0
+          },
+          {
+            "color": "#F0E4F0",
+            "position": 0.5
+          },
+          {
+            "color": "#F8F0E4",
+            "position": 1
+          }
+        ]
+      },
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Dv93N",
+          "name": "Status Bar",
+          "width": "fill_container",
+          "height": 186,
+          "fill": "#00000000",
+          "padding": [
+            0,
+            72
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "u2FENc",
+              "name": "Time",
+              "fill": "$text-primary",
+              "content": "9:41",
+              "fontFamily": "$font-sans",
+              "fontSize": 45,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "XkHJL",
+              "name": "Status Icons",
+              "height": 54,
+              "gap": 24,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "Y4hNYu",
+                  "name": "Signal",
+                  "width": 48,
+                  "height": 36,
+                  "icon": "signal",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                },
+                {
+                  "type": "icon",
+                  "id": "Bpk2I",
+                  "name": "Wifi",
+                  "width": 42,
+                  "height": 36,
+                  "icon": "wifi",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                },
+                {
+                  "type": "icon",
+                  "id": "M1ktdA",
+                  "name": "Battery",
+                  "width": 66,
+                  "height": 36,
+                  "icon": "battery",
+                  "library": "lucide",
+                  "fill": "$text-primary"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "lvUYc",
+          "name": "Content",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 96,
+          "padding": [
+            420,
+            100,
+            360,
+            100
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "klzhi",
+              "name": "Logo Row",
+              "width": "fill_container",
+              "gap": 28,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "ayn4C",
+                  "name": "Logo Icon",
+                  "width": 96,
+                  "height": 96,
+                  "icon": "cloud",
+                  "library": "lucide",
+                  "fill": "$accent-primary"
+                },
+                {
+                  "type": "text",
+                  "id": "nOA5W",
+                  "name": "Brand",
+                  "fill": "$text-primary",
+                  "content": "Ownly",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 60,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "bnQ2Z",
+              "name": "Title",
+              "fill": "$text-primary",
+              "content": "Create Account",
+              "textAlign": "center",
+              "fontFamily": "$font-sans",
+              "fontSize": 90,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "hpVIV",
+              "name": "Subtitle",
+              "fill": "$text-secondary",
+              "content": "Create an account to get started",
+              "textAlign": "center",
+              "fontFamily": "$font-sans",
+              "fontSize": 42,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "hYVkP",
+              "name": "Glass Form",
+              "width": "fill_container",
+              "fill": "#FFFFFF99",
+              "cornerRadius": 60,
+              "stroke": "$glass-stroke",
+              "strokeWidth": 1,
+              "effect": [
+                {
+                  "type": "background_blur",
+                  "radius": 120
+                },
+                {
+                  "type": "shadow",
+                  "shadowType": "outer",
+                  "color": "#00000016",
+                  "offset": {
+                    "x": 0,
+                    "y": 24
+                  },
+                  "blur": 48
+                }
+              ],
+              "layout": "vertical",
+              "gap": 44,
+              "padding": 64,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VeKZr",
+                  "name": "Name Group",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "LZbrr",
+                      "name": "Name Label",
+                      "fill": "$text-secondary",
+                      "content": "FULL NAME",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 28,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "IMDXm",
+                      "name": "Name Field",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 24,
+                      "gap": 24,
+                      "padding": [
+                        60,
+                        56
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "ObOit",
+                          "name": "User Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "user",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "S0W7U",
+                          "name": "Name Placeholder",
+                          "fill": "$text-muted",
+                          "content": "Jane Appleseed",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 42,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "f5y9j",
+                  "name": "Email Group",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "lp34k",
+                      "name": "Email Label",
+                      "fill": "$text-secondary",
+                      "content": "EMAIL OR APPLE ID",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 28,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "T18yu",
+                      "name": "Email Field",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 24,
+                      "gap": 24,
+                      "padding": [
+                        60,
+                        56
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "X3J2wa",
+                          "name": "Mail Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "mail",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "d6xyRz",
+                          "name": "Email Placeholder",
+                          "fill": "$text-muted",
+                          "content": "name@icloud.com",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 42,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "n485i",
+                  "name": "Password Group",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "hH32W",
+                      "name": "Pass Label",
+                      "fill": "$text-secondary",
+                      "content": "PASSWORD",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 28,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CcFCk",
+                      "name": "Password Field",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 24,
+                      "gap": 24,
+                      "padding": [
+                        60,
+                        56
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "cwHvV",
+                          "name": "Lock Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "e5WfV9",
+                          "name": "Pass Placeholder",
+                          "fill": "$text-muted",
+                          "content": "••••••••••••",
+                          "fontFamily": "$font-sans",
+                          "fontSize": 42,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "QBf3P",
+                          "name": "Eye Icon",
+                          "width": 48,
+                          "height": 48,
+                          "icon": "eye",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "qcaA0",
+              "name": "Actions",
+              "width": "fill_container",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "r520T",
+                  "name": "Create Account Button",
+                  "width": "fill_container",
+                  "fill": "$accent-primary",
+                  "cornerRadius": 24,
+                  "padding": [
+                    56,
+                    64
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "RCOJC",
+                      "name": "Create Text",
+                      "fill": "$text-inverse",
+                      "content": "Create Account",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 45,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "C4AqXH",
+              "name": "Footer",
+              "width": "fill_container",
+              "gap": 12,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "F4rhy4",
+                  "name": "Footer Text",
+                  "fill": "$text-secondary",
+                  "content": "Already have an account?",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 33,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "DgO8y",
+                  "name": "Sign In Link",
+                  "fill": "$accent-primary",
+                  "content": "Sign in",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 33,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "accent-primary": {
+      "type": "color",
+      "value": "#2563EB"
+    },
+    "bg-inverse": {
+      "type": "color",
+      "value": "#0A0A0A"
+    },
+    "bg-primary": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "bg-secondary": {
+      "type": "color",
+      "value": "#F7F8FA"
+    },
+    "bg-system": {
+      "type": "color",
+      "value": "#F2F2F7"
+    },
+    "border-color": {
+      "type": "color",
+      "value": "#E5E7EB"
+    },
+    "font-sans": {
+      "type": "string",
+      "value": "Inter"
+    },
+    "glass-blur": {
+      "type": "number",
+      "value": 120
+    },
+    "glass-fill": {
+      "type": "color",
+      "value": "#FFFFFFB3"
+    },
+    "glass-stroke": {
+      "type": "color",
+      "value": "#0000001A"
+    },
+    "radius-2xl": {
+      "type": "number",
+      "value": 48
+    },
+    "radius-glass": {
+      "type": "number",
+      "value": 60
+    },
+    "radius-lg": {
+      "type": "number",
+      "value": 24
+    },
+    "radius-xl": {
+      "type": "number",
+      "value": 12
+    },
+    "status-height": {
+      "type": "number",
+      "value": 186
+    },
+    "text-inverse": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "text-muted": {
+      "type": "color",
+      "value": "#888888"
+    },
+    "text-primary": {
+      "type": "color",
+      "value": "#1A1A1A"
+    },
+    "text-secondary": {
+      "type": "color",
+      "value": "#666666"
+    }
+  }
+}

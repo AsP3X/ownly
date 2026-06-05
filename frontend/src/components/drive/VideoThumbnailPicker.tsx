@@ -1,15 +1,20 @@
 // Human: YouTube-style poster picker — scored options with large preview in editor mode.
-// Agent: FETCHES fetchFileThumbnails; PATCHES selectFileThumbnail; BLOB-URLS option previews.
+// Agent: FETCHES fetchFileThumbnails; PATCHES selectFileThumbnail; POSTS regenerateFileThumbnails on retry.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, RefreshCw } from "lucide-react";
 import type { FileItem, VideoThumbnailsResponse } from "@/api/client";
+import type { UploadPhase } from "@/lib/upload-manager";
 import {
+  fetchFile,
   fetchFileThumbnailBlob,
   fetchFileThumbnails,
   getErrorMessage,
+  regenerateFileThumbnails,
   selectFileThumbnail,
 } from "@/api/client";
+import { Button } from "@/components/ui/button";
+import { UploadProgressBar } from "@/components/drive/upload-batch-view";
 import { cn } from "@/lib/utils";
 
 type VideoThumbnailPickerProps = {
@@ -17,6 +22,8 @@ type VideoThumbnailPickerProps = {
   /** Human: Editor dialog uses light chrome; player variant kept for reuse if needed. */
   variant?: "editor" | "player";
   onSelected?: (selectedIndex: number) => void;
+  /** Human: Notifies parent when thumbnail job status changes (e.g. after regenerate). */
+  onFileUpdated?: (file: FileItem) => void;
 };
 
 type OptionPreview = {
@@ -24,17 +31,137 @@ type OptionPreview = {
   url: string;
 };
 
+// Human: True while the API row reports an active thumbnail background job.
+// Agent: READS video_thumbnail_status queued|processing.
+function isVideoThumbnailGenerating(file: FileItem): boolean {
+  const status = file.video_thumbnail_status;
+  return status === "queued" || status === "processing";
+}
+
+// Human: Upload-tray phase colors for the four thumbnail worker steps.
+// Agent: MAPS processing|encrypting|storing to Tailwind classes for percent + bar fill.
+function thumbnailPhaseStyles(phase: UploadPhase) {
+  if (phase === "storing") {
+    return {
+      icon: "text-emerald-600",
+      percent: "text-emerald-600",
+      meta: "text-emerald-600",
+    };
+  }
+  if (phase === "encrypting") {
+    return {
+      icon: "text-amber-600",
+      percent: "text-amber-600",
+      meta: "text-amber-600",
+    };
+  }
+  return {
+    icon: "text-fuchsia-700",
+    percent: "text-fuchsia-700",
+    meta: "text-fuchsia-700",
+  };
+}
+
+// Human: Map server percent (0–100) to the four user-facing thumbnail steps.
+// Agent: READS video_thumbnail_progress + status; RETURNS UploadPhase + label for UploadProgressBar.
+function mapVideoThumbnailProgress(
+  progress: number | undefined,
+  status: string | null | undefined,
+): {
+  phase: UploadPhase;
+  label: string;
+  percent: number;
+  indeterminate: boolean;
+} {
+  const pct = Math.min(100, Math.max(0, progress ?? 0));
+  const queued = status === "queued";
+
+  if (queued && pct <= 0) {
+    return {
+      phase: "processing",
+      label: "Grabbing objects",
+      percent: 0,
+      indeterminate: true,
+    };
+  }
+
+  if (pct < 35) {
+    return {
+      phase: "processing",
+      label: "Grabbing objects",
+      percent: Math.max(pct, 5),
+      indeterminate: false,
+    };
+  }
+  if (pct < 55) {
+    return {
+      phase: "processing",
+      label: "Converting to temp",
+      percent: pct,
+      indeterminate: false,
+    };
+  }
+  if (pct < 90) {
+    return {
+      phase: "encrypting",
+      label: "Extracting thumbnail",
+      percent: pct,
+      indeterminate: false,
+    };
+  }
+  return {
+    phase: "storing",
+    label: "Cleaning up",
+    percent: pct,
+    indeterminate: false,
+  };
+}
+
+// Human: Stepped progress UI while thumbnails generate — mirrors upload dialog layout.
+// Agent: READS file.video_thumbnail_progress; RENDERS UploadProgressBar + step label.
+function ThumbnailGenerationProgress({ file }: { file: FileItem }) {
+  const step = mapVideoThumbnailProgress(
+    file.video_thumbnail_progress,
+    file.video_thumbnail_status,
+  );
+  const styles = thumbnailPhaseStyles(step.phase);
+  const percentLabel = step.indeterminate ? "Working…" : `${step.percent}%`;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Loader2 className={cn("size-3 shrink-0 animate-spin", styles.icon)} aria-hidden />
+          <p className="text-sm font-semibold text-neutral-700">Generating thumbnails</p>
+        </div>
+        <span className={cn("shrink-0 text-[13px] font-semibold tabular-nums", styles.percent)}>
+          {percentLabel}
+        </span>
+      </div>
+      <UploadProgressBar
+        value={step.percent}
+        phase={step.phase}
+        indeterminate={step.indeterminate}
+        statusLabel={step.label}
+      />
+      <p className={cn("text-[11px] leading-tight", styles.meta)}>{step.label}</p>
+    </div>
+  );
+}
+
 /** Human: Horizontal strip for choosing among auto-generated video poster frames. */
 export function VideoThumbnailPicker({
   file,
   variant = "editor",
   onSelected,
+  onFileUpdated,
 }: VideoThumbnailPickerProps) {
   const objectUrlsRef = useRef<string[]>([]);
   const [manifest, setManifest] = useState<VideoThumbnailsResponse | null>(null);
   const [previews, setPreviews] = useState<OptionPreview[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState("");
 
   const revokePreviews = useCallback(() => {
@@ -43,6 +170,39 @@ export function VideoThumbnailPicker({
     }
     objectUrlsRef.current = [];
   }, []);
+
+  // Human: Poll file row while thumbnails generate so the picker can load options when ready.
+  // Agent: CALLS fetchFile on interval; STOPS when video_thumbnail_ready or failed/cancelled.
+  useEffect(() => {
+    if (file.video_thumbnail_ready || !isVideoThumbnailGenerating(file)) {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = () => {
+      void fetchFile(file.id)
+        .then(({ file: next }) => {
+          if (cancelled) return;
+          onFileUpdated?.(next);
+        })
+        .catch(() => {
+          // Human: Ignore transient poll errors — the user can retry regenerate manually.
+        });
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    file.id,
+    file.video_thumbnail_ready,
+    file.video_thumbnail_status,
+    file.video_thumbnail_progress,
+    onFileUpdated,
+  ]);
 
   // Human: Load manifest + option JPEGs when the picker mounts or the active file changes.
   // Agent: CALLS fetchFileThumbnails + fetchFileThumbnailBlob per option; REVOKES URLs on cleanup.
@@ -86,6 +246,20 @@ export function VideoThumbnailPicker({
     };
   }, [file.id, file.video_thumbnail_ready, revokePreviews]);
 
+  const handleRegenerate = useCallback(async () => {
+    if (regenerating || isVideoThumbnailGenerating(file)) return;
+    setRegenerating(true);
+    setError("");
+    try {
+      const { file: updated } = await regenerateFileThumbnails(file.id);
+      onFileUpdated?.(updated);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setRegenerating(false);
+    }
+  }, [file, onFileUpdated, regenerating]);
+
   const handleSelect = useCallback(
     async (index: number) => {
       if (!manifest || manifest.selected_index === index || savingIndex !== null) return;
@@ -109,11 +283,44 @@ export function VideoThumbnailPicker({
     return previews.find((preview) => preview.index === manifest.selected_index) ?? null;
   }, [manifest, previews]);
 
+  const generating = isVideoThumbnailGenerating(file);
+  const failed = file.video_thumbnail_status === "failed";
+  const cancelled = file.video_thumbnail_status === "cancelled";
+
   if (!file.video_thumbnail_ready) {
     return (
-      <p className="text-sm text-neutral-500">
-        Thumbnails are still generating. Try again in a moment.
-      </p>
+      <div className="flex flex-col gap-3">
+        {generating ? (
+          <ThumbnailGenerationProgress file={file} />
+        ) : (
+          <p className="text-sm text-neutral-500">
+            {failed
+              ? (file.video_thumbnail_error ?? "Thumbnail generation failed.")
+              : cancelled
+                ? "Thumbnail generation was cancelled."
+                : "Thumbnails are not available yet."}
+          </p>
+        )}
+        {error ? (
+          <p className="text-xs text-red-500" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit gap-2"
+          disabled={generating || regenerating}
+          onClick={() => void handleRegenerate()}
+        >
+          {regenerating || generating ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <RefreshCw className="size-4" aria-hidden />
+          )}
+          {generating ? "Generating…" : "Regenerate thumbnails"}
+        </Button>
+      </div>
     );
   }
 
@@ -228,6 +435,24 @@ export function VideoThumbnailPicker({
           <p className="mt-1 text-[11px] text-neutral-400">Scroll sideways to see all options.</p>
         ) : null}
       </div>
+
+      {isEditor ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-fit gap-2 text-neutral-500"
+          disabled={generating || regenerating}
+          onClick={() => void handleRegenerate()}
+        >
+          {regenerating || generating ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <RefreshCw className="size-4" aria-hidden />
+          )}
+          Regenerate thumbnails
+        </Button>
+      ) : null}
     </div>
   );
 }

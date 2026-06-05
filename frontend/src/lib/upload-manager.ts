@@ -84,6 +84,8 @@ type UploadBatchListener = (batch: UploadBatchSnapshot | null) => void;
 
 type UploadFileListener = (fileId: string) => void;
 
+type UploadFileRegisteredListener = (file: FileItem) => void;
+
 
 
 const MAX_CONCURRENT_UPLOADS = 3;
@@ -165,6 +167,8 @@ let restoreStarted = false;
 const batchListeners = new Set<UploadBatchListener>();
 
 const fileListeners = new Set<UploadFileListener>();
+
+const fileRegisteredListeners = new Set<UploadFileRegisteredListener>();
 
 const resumingItemIds = new Set<string>();
 
@@ -281,6 +285,22 @@ function notifyFileUploaded(fileId: string) {
   for (const listener of fileListeners) {
 
     listener(fileId);
+
+  }
+
+}
+
+
+
+// Human: Notify drive views as soon as the upload API returns a file row (before ingest finishes).
+
+// Agent: CALLS fileRegisteredListeners; USED by DrivePage to show processing badges on new rows.
+
+function notifyFileRegistered(file: FileItem) {
+
+  for (const listener of fileRegisteredListeners) {
+
+    listener(file);
 
   }
 
@@ -432,6 +452,10 @@ export function registerUploadServerFile(sessionId: string, file: FileItem) {
     ),
 
   );
+
+
+
+  notifyFileRegistered(file);
 
 
 
@@ -1127,6 +1151,24 @@ export function subscribeUploadFileComplete(listener: UploadFileListener) {
   return () => {
 
     fileListeners.delete(listener);
+
+  };
+
+}
+
+
+
+// Human: Subscribe when the server registers an uploaded file — before ingest completes.
+
+// Agent: CALLS listener with FileItem from POST /files/upload; USED by DrivePage silent refresh.
+
+export function subscribeUploadFileRegistered(listener: UploadFileRegisteredListener) {
+
+  fileRegisteredListeners.add(listener);
+
+  return () => {
+
+    fileRegisteredListeners.delete(listener);
 
   };
 

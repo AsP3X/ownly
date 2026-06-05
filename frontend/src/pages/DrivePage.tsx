@@ -60,7 +60,10 @@ import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
-import { subscribeUploadFileComplete } from "@/lib/upload-manager";
+import {
+  subscribeUploadFileComplete,
+  subscribeUploadFileRegistered,
+} from "@/lib/upload-manager";
 import { isFileProcessing } from "@/lib/file-processing";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useInstanceName } from "@/hooks/useInstanceName";
@@ -502,6 +505,17 @@ export default function DrivePage() {
     }
   }, [currentFolderId, folders.length, foldersLoadingMore, hasMoreFolders, loading]);
 
+  // Human: Refresh the drive listing when the server registers a new upload so row badges show ingest progress.
+  // Agent: SUBSCRIBES subscribeUploadFileRegistered; CALLS refresh silent on POST /files/upload response.
+  useEffect(() => {
+    return subscribeUploadFileRegistered(() => {
+      void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+        nav: activeNav,
+      });
+    });
+  }, [activeNav, query, refresh]);
+
   // Human: Refresh the drive listing as each file finishes uploading in the corner panel.
   // Agent: SUBSCRIBES upload-manager file events; CALLS refresh silent + dashboard stats.
   useEffect(() => {
@@ -911,6 +925,29 @@ export default function DrivePage() {
     );
   }
 
+  // Human: Sync thumbnail job fields into drive listings after regenerate or polling updates.
+  // Agent: MERGES video_thumbnail_* from API; UPDATES files, details, and preview video rows.
+  function handleVideoThumbnailUpdated(file: FileItem) {
+    const patch = (item: FileItem): FileItem =>
+      item.id === file.id
+        ? {
+            ...item,
+            video_thumbnail_ready: file.video_thumbnail_ready,
+            video_thumbnail_status: file.video_thumbnail_status,
+            video_thumbnail_error: file.video_thumbnail_error,
+            video_thumbnail_progress: file.video_thumbnail_progress,
+            video_thumbnail_selected_index: file.video_thumbnail_selected_index,
+          }
+        : item;
+    setFiles((current) => current.map(patch));
+    setPreviewVideo((current) => (current?.id === file.id ? patch(current) : current));
+    setDetailsTarget((current) =>
+      current?.kind === "file" && current.file.id === file.id
+        ? { kind: "file", file: patch(current.file) }
+        : current,
+    );
+  }
+
   // Human: Open the public link dialog for one file.
   // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
   function handleShareFile(file: FileItem) {
@@ -1291,6 +1328,7 @@ export default function DrivePage() {
           initialTab={detailsInitialTab}
           onShareChanged={handleShareChanged}
           onThumbnailSelected={handleVideoThumbnailSelected}
+          onThumbnailUpdated={handleVideoThumbnailUpdated}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}

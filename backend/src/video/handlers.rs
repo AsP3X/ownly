@@ -16,6 +16,14 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
+    files::{
+        handlers::{FileDto, FILE_COLUMNS},
+        recycle_bin::ACTIVE_FILES_SQL,
+    },
+    jobs::{
+        self,
+        model::{JobKind, VideoThumbnailPayload},
+    },
 };
 
 use super::thumbnail::VideoThumbnailManifest;
@@ -212,4 +220,100 @@ pub async fn select_thumbnail(
     .ok();
 
     Ok(Json(updated))
+}
+
+type RegenerateThumbnailRow = (
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+);
+
+// Human: Re-queue poster extraction when upload-time thumbnails failed or never finished.
+// Agent: POST /files/:id/thumbnails/regenerate; ENQUEUES VideoThumbnail job; AUDIT files.thumbnail.regenerate.
+pub async fn regenerate_thumbnails(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let row: Option<RegenerateThumbnailRow> = sqlx::query_as(
+        "SELECT storage_key, mime_type, name, video_thumbnail_status FROM files \
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (storage_key, mime_type, name, thumbnail_status) = row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    let is_generating = thumbnail_status.as_deref().is_some_and(|status| {
+        matches!(status, "queued" | "processing")
+    });
+    if is_generating
+        && jobs::find_active_job(&state.pool, JobKind::VideoThumbnail, "file", &id)
+            .await?
+            .is_some()
+    {
+        return Err(AppError::Conflict(
+            "video thumbnails are already being generated".into(),
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE files SET video_thumbnail_ready = false, video_thumbnail_status = 'queued', \
+         video_thumbnail_error = NULL, video_thumbnail_progress = 0 WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .execute(&state.pool)
+    .await?;
+
+    let payload = VideoThumbnailPayload {
+        file_id: id.clone(),
+        storage_key,
+        tmp_video: None,
+    };
+
+    jobs::enqueue_job(
+        &state.pool,
+        &claims.sub,
+        JobKind::VideoThumbnail,
+        &name,
+        Some("file"),
+        Some(&id),
+        serde_json::to_value(payload)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("thumbnail job payload: {e}")))?,
+    )
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.thumbnail.regenerate",
+        Some("file"),
+        Some(&id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
+    ))
+    .bind(&id)
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "file": file })))
 }

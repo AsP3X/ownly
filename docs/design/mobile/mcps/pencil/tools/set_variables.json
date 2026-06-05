@@ -1,0 +1,26 @@
+{
+  "name": "set_variables",
+  "description": "Update the variables and themes defined in this .pen file.\n\n- Each variable value MUST be an object with `type` (`color`, `number`, `string`, or `boolean`) and `value` fields. Passing a bare value like `\"#A3B59A\"` or `16` will fail.\n- Variable names are arbitrary strings and MUST NOT begin with a dollar sign. The `$` prefix is only used when referencing a variable from a property (e.g. `fill: \"$accent\"`).\n- Don't specify themes separately! If a variable is using theming, theme axes and values that aren't yet present in the document will be automatically registered.\n\nExample:\n```json\n{\n  \"accent\": {\"type\": \"color\", \"value\": \"#A3B59A\"},\n  \"spacing-unit\": {\"type\": \"number\", \"value\": 16},\n  \"font-heading\": {\"type\": \"string\", \"value\": \"Playfair Display\"}\n}\n```\n\nFor themed values, pass an array of `{value, theme}` entries:\n```json\n{\n  \"background\": {\"type\": \"color\", \"value\": [\n    {\"value\": \"#F8F5F0\", \"theme\": {\"mode\": \"light\"}},\n    {\"value\": \"#1A1A1A\", \"theme\": {\"mode\": \"dark\"}}\n  ]}\n}\n```",
+  "inputSchema": {
+    "properties": {
+      "filePath": {
+        "description": "An optional file path to access a .pen file.",
+        "type": "string"
+      },
+      "replace": {
+        "description": "By default, the variables are merged into the document's existing variable definitions. If you want to completely replace the document's existing variable definitions, pass `true` for this flag.",
+        "type": "boolean"
+      },
+      "variables": {
+        "description": "Follow the variable definition in the .pen file schema.",
+        "properties": {},
+        "type": "object"
+      }
+    },
+    "required": [
+      "filePath",
+      "variables"
+    ],
+    "type": "object"
+  }
+}

@@ -18,6 +18,8 @@ type VideoThumbnailEditorDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelected?: (file: FileItem, selectedIndex: number) => void;
+  /** Human: Notifies parent when thumbnail job status changes after regenerate. */
+  onFileUpdated?: (file: FileItem) => void;
 };
 
 /** Human: Full-screen-ish editor for choosing the drive grid poster on a video file. */
@@ -26,6 +28,7 @@ export function VideoThumbnailEditorDialog({
   open,
   onOpenChange,
   onSelected,
+  onFileUpdated,
 }: VideoThumbnailEditorDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -44,6 +47,7 @@ export function VideoThumbnailEditorDialog({
               variant="editor"
               file={file}
               onSelected={(selectedIndex) => onSelected?.(file, selectedIndex)}
+              onFileUpdated={onFileUpdated}
             />
           </div>
         ) : null}
