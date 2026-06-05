@@ -28,6 +28,8 @@ export function ProfileSummaryCard({
   lastPasswordResetAt,
 }: ProfileSummaryCardProps) {
   const storageLabel = `${formatBytes(storage.used_bytes)} of ${formatBytes(storage.quota_bytes)}`;
+  const encryptionKeysLabel =
+    storage.file_count > 0 ? `${storage.file_count} Keys Active` : "1 Key Active";
 
   return (
     <ProfileCard>
@@ -66,7 +68,7 @@ export function ProfileSummaryCard({
           <ProfileStatRow label="Storage Usage" value={storageLabel} />
           <ProfileStatRow
             label="Encryption Keys"
-            value="AES-256 Active"
+            value={encryptionKeysLabel}
             valueClassName="text-[#10B981]"
           />
           <ProfileStatRow

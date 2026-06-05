@@ -1,7 +1,8 @@
 // Human: Shared Tailwind primitives for the Account Settings & Security profile page.
 // Agent: RENDERS Pencil login-signup.pen card shells, form fields, and stat rows; no API calls.
 
-import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import { useState, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Human: White bordered card — Pencil radius-xl + border-color on profile panels. */
@@ -82,6 +83,45 @@ export function ProfileTextInput({
       readOnly={readOnly}
       {...props}
     />
+  );
+}
+
+/** Human: Password field with trailing eye toggle — Pencil Security Card input row. */
+export function ProfilePasswordInput({
+  id,
+  value,
+  onChange,
+  autoComplete,
+  "aria-invalid": ariaInvalid,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete?: string;
+  "aria-invalid"?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="relative flex h-11 w-full items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
+      <input
+        id={id}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete={autoComplete}
+        aria-invalid={ariaInvalid}
+        className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+      />
+      <button
+        type="button"
+        className="shrink-0 text-[#888888] transition-colors hover:text-[#666666]"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={visible ? "Hide password" : "Show password"}
+      >
+        {visible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+      </button>
+    </div>
   );
 }
 

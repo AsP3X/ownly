@@ -11,10 +11,17 @@ export type ProfileDetailsDraft = {
 const DETAILS_KEY_PREFIX = "ownly-profile-details-";
 const PASSWORD_CHANGED_KEY_PREFIX = "ownly-password-changed-at-";
 const PREFERENCES_KEY_PREFIX = "ownly-profile-preferences-";
+const MFA_KEY_PREFIX = "ownly-profile-mfa-enabled-";
 
 export type ProfilePreferences = {
   emailNotifications: boolean;
   securityAlerts: boolean;
+};
+
+export type ProfileSecurityDraft = {
+  currentPassword: string;
+  newPassword: string;
+  mfaEnabled: boolean;
 };
 
 function detailsKey(userId: string) {
@@ -50,6 +57,31 @@ export function writeProfileDetailsDraft(userId: string, draft: ProfileDetailsDr
 export function readPasswordChangedAt(userId: string): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(passwordChangedKey(userId));
+}
+
+// Human: Record password rotation time for the summary stat row.
+// Agent: WRITES ISO timestamp to localStorage after successful PATCH /me/password.
+export function writePasswordChangedAt(userId: string, iso: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(passwordChangedKey(userId), iso);
+}
+
+function mfaKey(userId: string) {
+  return `${MFA_KEY_PREFIX}${userId}`;
+}
+
+// Human: Load MFA toggle state saved from the Security card.
+// Agent: READS localStorage; RETURNS true when unset to mirror Pencil default-on toggle.
+export function readProfileMfaEnabled(userId: string): boolean {
+  if (typeof window === "undefined") return true;
+  const raw = window.localStorage.getItem(mfaKey(userId));
+  if (raw === null) return true;
+  return raw === "true";
+}
+
+export function writeProfileMfaEnabled(userId: string, enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(mfaKey(userId), enabled ? "true" : "false");
 }
 
 function preferencesKey(userId: string) {

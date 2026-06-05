@@ -1,12 +1,12 @@
 // Human: Section navigation card — Pencil Section Navigation with active blue row.
 // Agent: READS activeSection; EMITS onSelect; SCROLLS matching right-column cards.
 
-import { Bell, User } from "lucide-react";
+import { Bell, Lock, Monitor, User } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ProfileCard } from "@/components/profile/profile-ui";
 import { cn } from "@/lib/utils";
 
-export type ProfileSectionId = "details" | "preferences";
+export type ProfileSectionId = "details" | "security" | "sessions" | "preferences";
 
 type NavItem = {
   id: ProfileSectionId;
@@ -17,6 +17,8 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "details", label: "Profile Details", icon: User, targetId: "profile-details" },
+  { id: "security", label: "Security & Password", icon: Lock, targetId: "profile-security" },
+  { id: "sessions", label: "Authorized Sessions", icon: Monitor, targetId: "profile-sessions" },
   { id: "preferences", label: "Preferences", icon: Bell, targetId: "profile-preferences" },
 ];
 

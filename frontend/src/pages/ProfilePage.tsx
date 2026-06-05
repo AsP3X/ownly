@@ -1,15 +1,22 @@
 // Human: Account Settings — Pencil User Profile wireframe with drive shell.
-// Agent: CALLS fetchUserProfile; RENDERS /profile; Tailwind-only chrome.
+// Agent: CALLS fetchUserProfile + changeOwnPassword; RENDERS /profile; Tailwind-only chrome.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Save } from "lucide-react";
-import { fetchDashboard, fetchUserProfile, getErrorMessage } from "@/api/client";
+import {
+  changeOwnPassword,
+  fetchDashboard,
+  fetchUserProfile,
+  getErrorMessage,
+} from "@/api/client";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
 import { ProfilePersonalDetailsCard } from "@/components/profile/ProfilePersonalDetailsCard";
 import { ProfilePreferencesCard } from "@/components/profile/ProfilePreferencesCard";
 import { ProfileSectionNav, type ProfileSectionId } from "@/components/profile/ProfileSectionNav";
+import { ProfileSecurityCard } from "@/components/profile/ProfileSecurityCard";
+import { ProfileSessionsCard } from "@/components/profile/ProfileSessionsCard";
 import { ProfileSummaryCard } from "@/components/profile/ProfileSummaryCard";
 import { profilePrimaryButtonClassName } from "@/components/profile/profile-ui";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,12 +24,21 @@ import { buildDriveSearchParams } from "@/lib/app-location-state";
 import {
   readPasswordChangedAt,
   readProfileDetailsDraft,
+  readProfileMfaEnabled,
   readProfilePreferences,
+  writePasswordChangedAt,
   writeProfileDetailsDraft,
+  writeProfileMfaEnabled,
   writeProfilePreferences,
   type ProfileDetailsDraft,
+  type ProfileSecurityDraft,
 } from "@/lib/profile-details-storage";
 import { formatProfileLocationLabel } from "@/lib/profile-format";
+import {
+  readProfileRemoteSessions,
+  writeProfileRemoteSessions,
+  type ProfileSessionRow,
+} from "@/lib/profile-sessions-storage";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
 
@@ -45,9 +61,15 @@ export default function ProfilePage() {
     department: "",
     bio: "",
   });
+  const [securityDraft, setSecurityDraft] = useState<ProfileSecurityDraft>({
+    currentPassword: "",
+    newPassword: "",
+    mfaEnabled: true,
+  });
   const [preferences, setPreferences] = useState(() =>
     user?.id ? readProfilePreferences(user.id) : { emailNotifications: true, securityAlerts: true },
   );
+  const [remoteSessions, setRemoteSessions] = useState<ProfileSessionRow[]>([]);
   const [lastPasswordResetAt, setLastPasswordResetAt] = useState<string | null>(null);
 
   const displayName = useMemo(
@@ -73,7 +95,8 @@ export default function ProfilePage() {
       setUsedBytes(dashboardRes.used_bytes);
       setQuotaBytes(dashboardRes.quota_bytes);
 
-      const savedDraft = readProfileDetailsDraft(profileRes.user.id);
+      const userId = profileRes.user.id;
+      const savedDraft = readProfileDetailsDraft(userId);
       const derivedName = displayNameFromEmail(profileRes.user.email);
       setDetailsDraft({
         fullName: savedDraft?.fullName ?? derivedName,
@@ -81,8 +104,14 @@ export default function ProfilePage() {
         department: savedDraft?.department ?? "",
         bio: savedDraft?.bio ?? "",
       });
-      setPreferences(readProfilePreferences(profileRes.user.id));
-      setLastPasswordResetAt(readPasswordChangedAt(profileRes.user.id));
+      setPreferences(readProfilePreferences(userId));
+      setSecurityDraft({
+        currentPassword: "",
+        newPassword: "",
+        mfaEnabled: readProfileMfaEnabled(userId),
+      });
+      setRemoteSessions(readProfileRemoteSessions(userId));
+      setLastPasswordResetAt(readPasswordChangedAt(userId));
     } catch (err) {
       setLoadError(getErrorMessage(err));
     } finally {
@@ -109,7 +138,17 @@ export default function ProfilePage() {
     [navigate],
   );
 
-  const handleSaveAll = useCallback(() => {
+  const handleRevokeSession = useCallback(
+    (sessionId: string) => {
+      if (!profile) return;
+      const next = remoteSessions.filter((session) => session.id !== sessionId);
+      setRemoteSessions(next);
+      writeProfileRemoteSessions(profile.user.id, next);
+    },
+    [profile, remoteSessions],
+  );
+
+  const handleSaveAll = useCallback(async () => {
     if (!profile) return;
     setSaving(true);
     setSaveError("");
@@ -118,20 +157,42 @@ export default function ProfilePage() {
     try {
       writeProfileDetailsDraft(profile.user.id, detailsDraft);
       writeProfilePreferences(profile.user.id, preferences);
+      writeProfileMfaEnabled(profile.user.id, securityDraft.mfaEnabled);
+
+      const wantsPasswordChange =
+        securityDraft.currentPassword.length > 0 || securityDraft.newPassword.length > 0;
+
+      if (wantsPasswordChange) {
+        if (!securityDraft.currentPassword || !securityDraft.newPassword) {
+          throw new Error("Enter both current and new password to update your credentials.");
+        }
+        await changeOwnPassword(securityDraft.currentPassword, securityDraft.newPassword);
+        const changedAt = new Date().toISOString();
+        writePasswordChangedAt(profile.user.id, changedAt);
+        setLastPasswordResetAt(changedAt);
+        setSecurityDraft((current) => ({
+          ...current,
+          currentPassword: "",
+          newPassword: "",
+        }));
+      }
+
       setSaveSuccess("Profile changes saved.");
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [detailsDraft, preferences, profile]);
+  }, [detailsDraft, preferences, profile, securityDraft]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
       {/* Human: Mobile page title — desktop header lives inside scroll area per Pencil layout. */}
       <header className="shrink-0 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
         <h1 className="text-lg font-bold text-[#1A1A1A]">Account Settings & Security</h1>
-        <p className="text-xs text-[#666666]">Manage your personal details and preferences.</p>
+        <p className="text-xs text-[#666666]">
+          Manage your personal details, secure keys, active sessions, and preferences.
+        </p>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -160,12 +221,12 @@ export default function ProfilePage() {
               <div className="flex min-w-0 flex-col gap-1.5">
                 <h1 className="text-2xl font-bold text-[#1A1A1A]">Account Settings & Security</h1>
                 <p className="max-w-2xl text-sm text-[#666666]">
-                  Manage your personal details and preferences.
+                  Manage your personal details, secure keys, active sessions, and preferences.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={handleSaveAll}
+                onClick={() => void handleSaveAll()}
                 disabled={saving || loading || !profile}
                 className={profilePrimaryButtonClassName}
               >
@@ -215,6 +276,11 @@ export default function ProfilePage() {
                     draft={detailsDraft}
                     email={profile.user.email}
                     onChange={setDetailsDraft}
+                  />
+                  <ProfileSecurityCard draft={securityDraft} onChange={setSecurityDraft} />
+                  <ProfileSessionsCard
+                    remoteSessions={remoteSessions}
+                    onRevoke={handleRevokeSession}
                   />
                   <ProfilePreferencesCard preferences={preferences} onChange={setPreferences} />
                 </div>

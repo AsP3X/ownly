@@ -34,3 +34,11 @@ export function formatProfileLocationLabel(): string {
       .pop() ?? "";
   return shortTz ? `${city} (${shortTz})` : city;
 }
+
+// Human: Session metadata city line — Pencil "San Francisco, USA" without timezone suffix.
+// Agent: READS Intl timezone; RETURNS city + country placeholder for authorized session rows.
+export function formatProfileSessionLocationLabel(): string {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const city = timeZone.split("/").pop()?.replace(/_/g, " ") ?? timeZone;
+  return `${city}, USA`;
+}
