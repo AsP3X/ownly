@@ -42,6 +42,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
   type FileTypeFilter,
 } from "@/lib/utils-app";
@@ -91,6 +92,7 @@ type DriveCloudExplorerProps = {
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   /** Human: Opens the mobile action sheet when the row ⋯ control is used. */
   onOpenActions?: (target: MobileActionTarget) => void;
@@ -215,6 +217,7 @@ export function DriveCloudExplorer({
   onPreviewImage,
   onPreviewPdf,
   onPreviewText,
+  onPreviewSpreadsheet,
   onPreviewAudio,
   onOpenActions,
 }: DriveCloudExplorerProps) {
@@ -483,6 +486,7 @@ export function DriveCloudExplorer({
               const isVideo = file.mime_type?.startsWith("video/") ?? false;
               const isImage = isImageMime(file.mime_type);
               const isPdf = isPdfMime(file.mime_type);
+              const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
               const isAudio = isAudioMime(file.mime_type);
               const processing = isFileProcessing(file);
               const canPreviewVideo =
@@ -490,6 +494,8 @@ export function DriveCloudExplorer({
               const canPreviewImage =
                 isImage && onPreviewImage !== undefined && !processing;
               const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+              const canPreviewSpreadsheet =
+                isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
               const canPreviewText =
                 isTextCodePreviewMime(file.mime_type, file.name) &&
                 onPreviewText !== undefined &&
@@ -497,7 +503,12 @@ export function DriveCloudExplorer({
               const canPreviewAudio =
                 isAudio && onPreviewAudio !== undefined && !processing;
               const canPreview =
-                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
+                canPreviewVideo ||
+                canPreviewImage ||
+                canPreviewPdf ||
+                canPreviewSpreadsheet ||
+                canPreviewText ||
+                canPreviewAudio;
               const isSelected = selectionEnabled && selectedFileIds.has(file.id);
               const showImagePreview = isImage && !processing;
               const showVideoPreview = isVideo && file.video_thumbnail_ready;
@@ -582,6 +593,7 @@ export function DriveCloudExplorer({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}

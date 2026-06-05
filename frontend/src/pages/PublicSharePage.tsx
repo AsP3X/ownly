@@ -27,7 +27,7 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import {
   LazyPublicShareInlinePdf,
   LazyPublicShareInlineVideo,
@@ -93,6 +93,7 @@ export default function PublicSharePage() {
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
+  const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
 
   const [inlineStreamUrl, setInlineStreamUrl] = useState<string | null>(null);
@@ -505,6 +506,7 @@ export default function PublicSharePage() {
             onPreviewImage={(file) => setPreviewImage(file)}
             onPreviewPdf={(file) => setPreviewPdf(file)}
             onPreviewText={(file) => setPreviewText(file)}
+            onPreviewSpreadsheet={(file) => setPreviewSpreadsheet(file)}
             onPreviewAudio={(file) => setPreviewAudio(file)}
             allowDownload={!overview.block_download}
             onBulkDownload={(list) => void handleBulkDownload(list)}
@@ -689,6 +691,21 @@ export default function PublicSharePage() {
               if (!open) setPreviewText(null);
             },
             onFileChange: setPreviewText,
+            shareToken: token,
+            sharePassword: sharePassword,
+          }}
+        />
+      ) : null}
+
+      {previewSpreadsheet !== null ? (
+        <DynamicImportPreview
+          loader={loadExcelSpreadsheetDialog}
+          previewProps={{
+            file: previewSpreadsheet,
+            open: true,
+            onOpenChange: (open) => {
+              if (!open) setPreviewSpreadsheet(null);
+            },
             shareToken: token,
             sharePassword: sharePassword,
           }}

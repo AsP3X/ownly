@@ -19,7 +19,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +41,7 @@ type FileListViewProps = {
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
@@ -128,6 +129,7 @@ export function FileListView({
   onPreviewImage,
   onPreviewPdf,
   onPreviewText,
+  onPreviewSpreadsheet,
   onPreviewAudio,
   fileShareFlags = {},
   folderShareFlags = {},
@@ -298,18 +300,26 @@ export function FileListView({
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
             const isImage = isImageMime(file.mime_type);
             const isPdf = isPdfMime(file.mime_type);
+            const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
             const isAudio = isAudioMime(file.mime_type);
             const processing = isFileProcessing(file);
             const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
             const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+            const canPreviewSpreadsheet =
+              isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
             const canPreviewText =
               isTextCodePreviewMime(file.mime_type, file.name) &&
               onPreviewText !== undefined &&
               !processing;
             const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
             const canPreview =
-              canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
+              canPreviewVideo ||
+              canPreviewImage ||
+              canPreviewPdf ||
+              canPreviewSpreadsheet ||
+              canPreviewText ||
+              canPreviewAudio;
 
             return (
               <li
@@ -338,6 +348,7 @@ export function FileListView({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}

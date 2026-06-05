@@ -5,6 +5,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import type { AudioPreviewDialogProps } from "@/components/drive/AudioPreviewDialog";
 import type { ImagePreviewDialogProps } from "@/components/drive/ImagePreviewDialog";
 import type { PdfPreviewDialogProps } from "@/components/drive/PdfPreviewDialog";
+import type { ExcelSpreadsheetDialogProps } from "@/components/drive/ExcelSpreadsheetDialog";
 import type { TextCodeEditorDialogProps } from "@/components/drive/TextCodeEditorDialog";
 import type { VideoPreviewDialogProps } from "@/components/drive/VideoPreviewDialog";
 
@@ -68,6 +69,18 @@ export function loadPdfPreviewDialog(): Promise<ComponentType<PdfPreviewDialogPr
   return import("@/components/drive/PdfPreviewDialog").then((module) => {
     cachedPdfPreviewDialog = module.PdfPreviewDialog;
     return module.PdfPreviewDialog;
+  });
+}
+
+let cachedExcelSpreadsheetDialog: ComponentType<ExcelSpreadsheetDialogProps> | null = null;
+
+// Human: Load ExcelSpreadsheetDialog on first open — pulls xlsx chunk on demand.
+// Agent: dynamic import(); CACHES module singleton for faster reopen.
+export function loadExcelSpreadsheetDialog(): Promise<ComponentType<ExcelSpreadsheetDialogProps>> {
+  if (cachedExcelSpreadsheetDialog) return Promise.resolve(cachedExcelSpreadsheetDialog);
+  return import("@/components/drive/ExcelSpreadsheetDialog").then((module) => {
+    cachedExcelSpreadsheetDialog = module.ExcelSpreadsheetDialog;
+    return module.ExcelSpreadsheetDialog;
   });
 }
 

@@ -227,7 +227,28 @@ export function isTextCodePreviewMime(
   }
 
   const extension = (filename ?? "").split(".").pop()?.toLowerCase() ?? "";
+  if (isSpreadsheetPreviewMime(mimeType, filename)) return false;
   return TEXT_CODE_EXTENSIONS.has(extension);
+}
+
+const SPREADSHEET_EXTENSIONS = new Set(["xlsx", "xls", "xlsm", "xlsb", "ods"]);
+
+// Human: True when a stored file should open in the Excel spreadsheet preview dialog.
+// Agent: READS mime_type + filename; RETURNS true for Excel/ODS workbooks (not plain CSV).
+export function isSpreadsheetPreviewMime(
+  mimeType: string | null | undefined,
+  filename?: string | null,
+): boolean {
+  const mime = (mimeType ?? "").toLowerCase();
+  const extension = (filename ?? "").split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "csv") return false;
+  if (SPREADSHEET_EXTENSIONS.has(extension)) return true;
+  if (mime.includes("csv")) return false;
+  return (
+    mime.includes("spreadsheet") ||
+    mime.includes("excel") ||
+    (mime.includes("sheet") && !mime.includes("word"))
+  );
 }
 
 // Human: Folder-scoped text/code tabs for the editor dialog — same pattern as image gallery siblings.

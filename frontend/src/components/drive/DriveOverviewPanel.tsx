@@ -29,6 +29,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ type DriveOverviewPanelProps = {
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
 };
 
@@ -173,6 +175,7 @@ export function DriveOverviewPanel({
   onPreviewImage,
   onPreviewPdf,
   onPreviewText,
+  onPreviewSpreadsheet,
   onPreviewAudio,
 }: DriveOverviewPanelProps) {
   const usagePercent =
@@ -277,6 +280,7 @@ export function DriveOverviewPanel({
               const isVideo = file.mime_type?.startsWith("video/") ?? false;
               const isImage = isImageMime(file.mime_type);
               const isPdf = isPdfMime(file.mime_type);
+              const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
               const isAudio = isAudioMime(file.mime_type);
               const processing = isFileProcessing(file);
               const canPreviewVideo =
@@ -284,6 +288,8 @@ export function DriveOverviewPanel({
               const canPreviewImage =
                 isImage && onPreviewImage !== undefined && !processing;
               const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+              const canPreviewSpreadsheet =
+                isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
               const canPreviewText =
                 isTextCodePreviewMime(file.mime_type, file.name) &&
                 onPreviewText !== undefined &&
@@ -291,7 +297,12 @@ export function DriveOverviewPanel({
               const canPreviewAudio =
                 isAudio && onPreviewAudio !== undefined && !processing;
               const canPreview =
-                canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewText || canPreviewAudio;
+                canPreviewVideo ||
+                canPreviewImage ||
+                canPreviewPdf ||
+                canPreviewSpreadsheet ||
+                canPreviewText ||
+                canPreviewAudio;
 
               return (
                 <li
@@ -306,6 +317,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
@@ -314,6 +326,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}

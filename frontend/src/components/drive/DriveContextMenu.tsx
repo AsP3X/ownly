@@ -6,7 +6,7 @@ import { Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-react";
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
-import { isAudioMime, isPdfMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { isAudioMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,6 +37,7 @@ type DriveContextMenuProps = {
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
   onDeleteFolder: (folderId: string) => void;
@@ -93,6 +94,7 @@ export function DriveContextMenu({
   onPreviewImage,
   onPreviewPdf,
   onPreviewText,
+  onPreviewSpreadsheet,
   onPreviewAudio,
   onDelete,
   onDeleteFolder,
@@ -289,6 +291,16 @@ export function DriveContextMenu({
                   onClick={() => targetFile && onPreviewPdf?.(targetFile)}
                 >
                   View PDF
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing ||
+                    !isSpreadsheetPreviewMime(targetFile.mime_type, targetFile.name) ||
+                    !onPreviewSpreadsheet
+                  }
+                  onClick={() => targetFile && onPreviewSpreadsheet?.(targetFile)}
+                >
+                  Open spreadsheet
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={

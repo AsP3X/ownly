@@ -55,7 +55,7 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
@@ -74,6 +74,7 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
   sortFilesByName,
   userInitials,
@@ -203,6 +204,7 @@ export default function DrivePage() {
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
+  const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -814,6 +816,15 @@ export default function DrivePage() {
     setPreviewText(file);
   }
 
+  // Human: Open the Excel-style spreadsheet dialog for .xlsx/.xls/.ods workbooks.
+  // Agent: SETS previewSpreadsheet; ExcelSpreadsheetDialog FETCHES blob and PARSES via SheetJS.
+  function handlePreviewSpreadsheet(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isSpreadsheetPreviewMime(file.mime_type, file.name)) return;
+    recordFileAccess(file.id);
+    setPreviewSpreadsheet(file);
+  }
+
   // Human: Open the Aurora-style audio player for stored audio/* files.
   // Agent: SETS previewAudio; AudioPreviewDialog FETCHES blob URL and RENDERS transport UI.
   function handlePreviewAudio(file: FileItem) {
@@ -864,6 +875,17 @@ export default function DrivePage() {
     setFiles((current) =>
       current.map((item) => (item.id === previousId ? savedFile : item)),
     );
+    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      silent: true,
+      nav: activeNav,
+    });
+  }
+
+  function handleSpreadsheetFileSaved(previousId: string, savedFile: FileItem) {
+    setFiles((current) =>
+      current.map((item) => (item.id === previousId ? savedFile : item)),
+    );
+    setPreviewSpreadsheet(savedFile);
     void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
       silent: true,
       nav: activeNav,
@@ -1113,6 +1135,7 @@ export default function DrivePage() {
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
       onPreviewText={handlePreviewText}
+      onPreviewSpreadsheet={handlePreviewSpreadsheet}
       onPreviewAudio={handlePreviewAudio}
       onDelete={requestDeleteFile}
       onDeleteFolder={requestDeleteFolder}
@@ -1217,6 +1240,20 @@ export default function DrivePage() {
               },
               onFileChange: handleGalleryTextChange,
               onFileSaved: handleTextFileSaved,
+            }}
+          />
+        ) : null}
+        {previewSpreadsheet !== null ? (
+          <DynamicImportPreview
+            loader={loadExcelSpreadsheetDialog}
+            previewProps={{
+              file: previewSpreadsheet,
+              open: true,
+              onOpenChange: (open) => {
+                if (!open) setPreviewSpreadsheet(null);
+              },
+              onFileSaved: handleSpreadsheetFileSaved,
+              onShare: handleShareFile,
             }}
           />
         ) : null}
@@ -1473,6 +1510,7 @@ export default function DrivePage() {
                 onPreviewImage={handlePreviewImage}
                 onPreviewPdf={handlePreviewPdf}
                 onPreviewText={handlePreviewText}
+                onPreviewSpreadsheet={handlePreviewSpreadsheet}
                 onPreviewAudio={handlePreviewAudio}
               />
             ) : activeNav === "my-files" ? (
@@ -1524,6 +1562,7 @@ export default function DrivePage() {
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
                   onPreviewText={handlePreviewText}
+                  onPreviewSpreadsheet={handlePreviewSpreadsheet}
                   onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
                 />
