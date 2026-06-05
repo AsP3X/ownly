@@ -142,6 +142,16 @@ pub async fn load_node_snapshots(pool: &PgPool) -> Result<Vec<NodeSnapshot>, App
 
     let mut snapshots = Vec::with_capacity(records.len());
     for record in records {
+        // Human: Unreachable nodes must not receive uploads — a dead host looks empty (used_bytes=0).
+        // Agent: SKIPS node when /health fails; LOGS warn so ops can fix or disable the registry row.
+        if !storage_nodes::probe_reachable(&record.base_url).await {
+            tracing::warn!(
+                node_id = %record.id,
+                base_url = %record.base_url,
+                "storage node unreachable; excluding from placement"
+            );
+            continue;
+        }
         let used_bytes = storage_nodes::probe_logical_bytes(&record.base_url).await;
         snapshots.push(NodeSnapshot {
             id: record.id,

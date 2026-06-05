@@ -158,6 +158,20 @@ pub async fn register_setup_storage_node(
     Ok(())
 }
 
+// Human: Quick /health probe — placement skips nodes that fail this check.
+// Agent: READS GET /health; RETURNS false on transport or non-success status.
+pub(crate) async fn probe_reachable(base_url: &str) -> bool {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    match client.get(&health_url).send().await {
+        Ok(resp) if resp.status().is_success() => resp.json::<NosHealthBody>().await.is_ok(),
+        _ => false,
+    }
+}
+
 // Human: Fetch logical_bytes from Nebular /metrics — used for capacity-aware placement.
 // Agent: READS GET /metrics JSON; RETURNS 0 when unreachable.
 pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {

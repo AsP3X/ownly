@@ -368,7 +368,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("upload playlist: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_work_dir(&work_dir).await;
+                        discard_hls_output(&hls_output_dir).await;
                         return Err(msg);
                     }
                     current_step += 1;
@@ -393,7 +393,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("upload hls key: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_work_dir(&work_dir).await;
+                        discard_hls_output(&hls_output_dir).await;
                         return Err(msg);
                     }
                     current_step += 1;
@@ -418,7 +418,7 @@ pub async fn run_hls_encode_job(
                     {
                         let msg = format!("upload hls init: {e}");
                         mark_failed(&pool, &file_id, &msg).await;
-                        cleanup_work_dir(&work_dir).await;
+                        discard_hls_output(&hls_output_dir).await;
                         return Err(msg);
                     }
                     current_step += 1;
@@ -450,7 +450,7 @@ pub async fn run_hls_encode_job(
                                 Some(output.segment_count as i32),
                             )
                             .await;
-                            cleanup_work_dir(&work_dir).await;
+                            discard_hls_output(&hls_output_dir).await;
                             return Err(msg);
                         }
                     };
@@ -498,9 +498,7 @@ pub async fn run_hls_encode_job(
                 Err(e) => {
                     let msg = format!("ffmpeg transcode: {e}");
                     mark_failed(&pool, &file_id, &msg).await;
-                    // Human: Keep upload `source` for job retries — only drop partial ffmpeg output.
-                    // Agent: AVOIDS remove_dir_all(work_dir) so attempt 2+ still finds tmp_video.
-                    let _ = tokio::fs::remove_dir_all(&hls_output_dir).await;
+                    discard_hls_output(&hls_output_dir).await;
                     Err(msg)
                 }
             }
@@ -539,6 +537,12 @@ async fn cleanup_work_dir(work_dir: &Path) {
     if is_deletable_work_dir(work_dir) {
         let _ = tokio::fs::remove_dir_all(work_dir).await;
     }
+}
+
+// Human: Drop partial ffmpeg output while keeping the upload source for background job retries.
+// Agent: REMOVES hls_out only; PRESERVES tmp_video under work_dir for attempt 2+.
+async fn discard_hls_output(hls_output_dir: &Path) {
+    let _ = tokio::fs::remove_dir_all(hls_output_dir).await;
 }
 
 #[cfg(test)]

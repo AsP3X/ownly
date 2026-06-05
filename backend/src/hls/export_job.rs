@@ -17,7 +17,7 @@ use crate::hls::playlist::{
 use crate::hls::segment_crypto::{decrypt_hls_media_segment, segment_sequence_from_filename};
 use crate::storage::Storage;
 
-const EXPORT_OBJECT_KEY: &str = "export.mp4";
+pub(crate) const EXPORT_OBJECT_KEY: &str = "export.mp4";
 
 pub async fn mark_export_processing(pool: &PgPool, file_id: &str) {
     let _ = sqlx::query(
@@ -76,8 +76,10 @@ pub async fn run_hls_export_job(
         &storage_key,
         segment_count,
         &work_dir,
-        &pool,
-        &file_id,
+        Some(ExportProgress {
+            pool: &pool,
+            file_id: &file_id,
+        }),
     )
     .await
     {
@@ -149,13 +151,20 @@ pub async fn run_hls_export_job(
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
 }
 
+// Human: Optional export-job progress updates while downloading HLS objects for remux.
+struct ExportProgress<'a> {
+    pool: &'a PgPool,
+    file_id: &'a str,
+}
+
+// Human: Download and decrypt an HLS bundle into a local ffmpeg-friendly `stream.m3u8` tree.
+// Agent: READS playlist/key/init/segments from storage; WRITES decrypted segments + relative manifest.
 async fn prepare_hls_workdir(
     storage: &dyn Storage,
     storage_key: &str,
     segment_count: i32,
     work_dir: &Path,
-    pool: &PgPool,
-    file_id: &str,
+    progress: Option<ExportProgress<'_>>,
 ) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(work_dir).await?;
     let segments_dir = work_dir.join("segments");
@@ -212,9 +221,11 @@ async fn prepare_hls_workdir(
         tokio::fs::write(segments_dir.join(&resolved_name), &clear).await?;
         segment_files.push(segment_rel_path_for_export(name));
 
-        if count > 0 {
-            let pct = 5 + (((i + 1) as f64 / count as f64) * 34.0).round() as i32;
-            set_export_progress(pool, file_id, pct).await;
+        if let Some(ExportProgress { pool, file_id }) = progress {
+            if count > 0 {
+                let pct = 5 + (((i + 1) as f64 / count as f64) * 34.0).round() as i32;
+                set_export_progress(pool, file_id, pct).await;
+            }
         }
     }
 
@@ -239,6 +250,33 @@ async fn prepare_hls_workdir(
     tokio::fs::write(work_dir.join("stream.m3u8"), clear_playlist).await?;
 
     Ok(())
+}
+
+// Human: Download HLS artifacts and remux to one local MP4 for ffmpeg frame analysis.
+// Agent: CALLS prepare_hls_workdir + HlsEncoder::package_hls_to_mp4; RETURNS TempDir + source.mp4 path.
+pub(crate) async fn materialize_hls_mp4_for_ffmpeg(
+    storage: Arc<dyn Storage>,
+    storage_key: &str,
+    segment_count: i32,
+) -> Result<(tempfile::TempDir, std::path::PathBuf), String> {
+    let work_dir = tempfile::TempDir::new().map_err(|e| format!("temp dir create failed: {e}"))?;
+    prepare_hls_workdir(
+        storage.as_ref(),
+        storage_key,
+        segment_count,
+        work_dir.path(),
+        None,
+    )
+    .await
+    .map_err(|e| format!("fetch HLS bundle: {e}"))?;
+    let output_mp4 = work_dir.path().join("source.mp4");
+    HlsEncoder::package_hls_to_mp4(work_dir.path(), &output_mp4)
+        .await
+        .map_err(|e| format!("remux HLS for thumbnails: {e}"))?;
+    if !output_mp4.is_file() {
+        return Err("remux produced no MP4 file".into());
+    }
+    Ok((work_dir, output_mp4))
 }
 
 fn strip_aes128_tags(content: &str) -> String {

@@ -1,12 +1,16 @@
 // Human: Background video thumbnail job — score multiple poster frames and upload sidecars.
-// Agent: MUTATES files.video_thumbnail_*; READS spooled tmp_video; CALLS thumbnail extraction module.
+// Agent: MUTATES files.video_thumbnail_*; READS spooled tmp_video or Nebular source; CALLS thumbnail extraction.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::StreamExt;
 use sqlx::PgPool;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 
+use crate::files::zip_job::is_hls_stored_video;
+use crate::hls::export::export_cache_is_valid;
+use crate::hls::export_job::{materialize_hls_mp4_for_ffmpeg, run_hls_export_job, EXPORT_OBJECT_KEY};
 use crate::storage::Storage;
 
 use super::thumbnail::{build_and_upload_manifest, extract_thumbnail_options};
@@ -16,7 +20,8 @@ use super::thumbnail_manifest_storage_key;
 pub struct VideoThumbnailJob {
     pub file_id: String,
     pub storage_key: String,
-    pub tmp_video: PathBuf,
+    /// Human: Upload spool path when still on disk; None triggers download from Nebular.
+    pub tmp_video: Option<PathBuf>,
 }
 
 pub async fn mark_processing(pool: &PgPool, file_id: &str) {
@@ -80,15 +85,22 @@ pub async fn run_video_thumbnail_job(
         return Ok(());
     }
 
-    // Human: Copy the spooled upload before HLS cleanup may remove the shared work dir.
-    // Agent: READS tmp_video; WRITES private NamedTempFile; USES copy for ffmpeg input.
-    let local_copy = copy_video_to_temp(&job.tmp_video).await?;
+    // Human: Prefer upload spool when present; HLS-ready videos use export.mp4 or a local playlist.
+    // Agent: READS tmp_video OR HLS bundle OR raw storage_key; WRITES temp input for ffmpeg.
+    let local_copy = resolve_video_source(
+        &pool,
+        storage.clone(),
+        &job.file_id,
+        &job.storage_key,
+        job.tmp_video.as_deref(),
+    )
+    .await?;
 
     if is_thumbnail_cancelled(&pool, &job.file_id).await {
         return Ok(());
     }
 
-    let options = extract_thumbnail_options(local_copy.path()).await?;
+    let options = extract_thumbnail_options(local_copy.input_path()).await?;
     let manifest = build_and_upload_manifest(storage, &job.storage_key, options).await?;
     let manifest_key = thumbnail_manifest_storage_key(&job.storage_key);
 
@@ -105,6 +117,165 @@ pub async fn run_video_thumbnail_job(
     .map_err(|e| format!("files thumbnail ready update failed: {e}"))?;
 
     Ok(())
+}
+
+// Human: Worker-owned ffmpeg input — upload spool copy or remuxed scratch MP4.
+enum LocalVideoSource {
+    File(NamedTempFile),
+    Remuxed {
+        _work_dir: TempDir,
+        mp4: PathBuf,
+    },
+}
+
+impl LocalVideoSource {
+    fn input_path(&self) -> &Path {
+        match self {
+            Self::File(file) => file.path(),
+            Self::Remuxed { mp4, .. } => mp4.as_path(),
+        }
+    }
+}
+
+type ThumbnailSourceRow = (
+    Option<String>,
+    bool,
+    Option<i32>,
+    bool,
+    Option<i64>,
+);
+
+// Human: Pick upload spool, cached export MP4, local HLS playlist, or the raw storage object.
+// Agent: READS files row; HLS-ready rows never have a standalone blob at storage_key.
+async fn resolve_video_source(
+    pool: &PgPool,
+    storage: Arc<dyn Storage>,
+    file_id: &str,
+    storage_key: &str,
+    tmp_video: Option<&Path>,
+) -> Result<LocalVideoSource, String> {
+    if let Some(path) = tmp_video {
+        if path.exists() {
+            return copy_video_to_temp(path).await.map(LocalVideoSource::File);
+        }
+    }
+
+    let row: Option<ThumbnailSourceRow> = sqlx::query_as(
+        "SELECT mime_type, hls_ready, segment_count, download_export_ready, \
+         download_export_size_bytes FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("files row load failed: {e}"))?;
+
+    let Some((mime_type, hls_ready, segment_count, export_ready, export_size)) = row else {
+        return Err("file row not found for thumbnail source".into());
+    };
+
+    if is_hls_stored_video(&mime_type, hls_ready) {
+        return resolve_hls_video_source(
+            pool,
+            storage,
+            file_id,
+            storage_key,
+            segment_count.unwrap_or(0),
+            export_ready,
+            export_size,
+        )
+        .await;
+    }
+
+    download_source_to_temp(storage, storage_key)
+        .await
+        .map(LocalVideoSource::File)
+}
+
+// Human: HLS vault videos keep segments + sidecars — not the upload spool path at storage_key.
+// Agent: PREFERS cached export.mp4; ELSE remuxes segments locally; LAST runs full export job.
+async fn resolve_hls_video_source(
+    pool: &PgPool,
+    storage: Arc<dyn Storage>,
+    file_id: &str,
+    storage_key: &str,
+    segment_count: i32,
+    export_ready: bool,
+    export_size: Option<i64>,
+) -> Result<LocalVideoSource, String> {
+    if export_cache_is_valid(export_ready, export_size) {
+        let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
+        return download_source_to_temp(storage, &export_key)
+            .await
+            .map(LocalVideoSource::File);
+    }
+
+    if let Ok((work_dir, mp4)) =
+        materialize_hls_mp4_for_ffmpeg(storage.clone(), storage_key, segment_count).await
+    {
+        return Ok(LocalVideoSource::Remuxed {
+            _work_dir: work_dir,
+            mp4,
+        });
+    }
+
+    run_hls_export_job(
+        pool.clone(),
+        storage.clone(),
+        file_id.to_string(),
+        storage_key.to_string(),
+        segment_count,
+    )
+    .await;
+
+    let refreshed: Option<(bool, Option<i64>)> =
+        sqlx::query_as("SELECT download_export_ready, download_export_size_bytes FROM files WHERE id = $1")
+            .bind(file_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("files export row load failed: {e}"))?;
+
+    let Some((export_ready, export_size)) = refreshed else {
+        return Err("file row not found after export".into());
+    };
+    if !export_cache_is_valid(export_ready, export_size) {
+        return Err("video export is not ready for thumbnail regeneration".into());
+    }
+
+    let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
+    download_source_to_temp(storage, &export_key)
+        .await
+        .map(LocalVideoSource::File)
+}
+
+// Human: Stream the stored video object from Nebular into a temp file for ffmpeg analysis.
+// Agent: READS storage.get_stream; WRITES NamedTempFile; RETURNS handle for the duration of the job.
+async fn download_source_to_temp(
+    storage: Arc<dyn Storage>,
+    storage_key: &str,
+) -> Result<NamedTempFile, String> {
+    let (mut stream, _, _) = storage
+        .get_stream(storage_key)
+        .await
+        .map_err(|e| format!("storage download failed: {e}"))?;
+
+    let temp = NamedTempFile::new().map_err(|e| format!("temp file create failed: {e}"))?;
+    let path = temp.path().to_path_buf();
+    let mut file = tokio::fs::File::create(&path)
+        .await
+        .map_err(|e| format!("temp file open failed: {e}"))?;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("storage stream read failed: {e}"))?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+            .await
+            .map_err(|e| format!("temp file write failed: {e}"))?;
+    }
+
+    file.sync_all()
+        .await
+        .map_err(|e| format!("temp file flush failed: {e}"))?;
+
+    Ok(temp)
 }
 
 // Human: Duplicate the upload spool into a worker-owned temp file for safe parallel HLS ingest.
