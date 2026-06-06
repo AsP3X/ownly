@@ -296,8 +296,9 @@ pub async fn setup(
     headers: HeaderMap,
     Json(body): Json<SetupRequest>,
 ) -> Result<Json<SetupResponse>, AppError> {
+    // Human: Bootstrap secret gates setup — browser Sec-Fetch-Site is not required here (Compose zero-config).
+    // Agent: require_setup_token only; register/admin still use browser_guard (scripts can forge Sec-Fetch-* anyway).
     require_setup_token(&headers, &state)?;
-    crate::browser_guard::require_browser_user_creation(&headers)?;
     let target_url = body
         .database_url
         .as_deref()

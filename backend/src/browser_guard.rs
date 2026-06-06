@@ -1,5 +1,5 @@
-// Human: Reject non-browser API clients on routes that create user accounts.
-// Agent: READS Sec-Fetch-Site; CALLED from register, admin create_user, and setup before INSERT.
+// Human: Reject non-browser API clients on register and admin user creation (not POST /setup).
+// Agent: READS Sec-Fetch-Site; CALLED from register and admin create_user; setup uses X-Setup-Token only.
 
 use axum::http::HeaderMap;
 

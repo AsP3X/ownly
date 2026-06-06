@@ -167,8 +167,8 @@ async fn responses_include_request_id_header() {
     );
 }
 
-// Human: Setup completion should persist admin row and return auth payload when database is empty.
-// Agent: POST /api/v1/setup; EXPECT 200 + token; WRITES audit_logs setup.complete when DB clean.
+// Human: Setup completion should persist admin row without requiring Sec-Fetch-Site (Compose zero-config).
+// Agent: POST /api/v1/setup with X-Setup-Token only; EXPECT 200 + token; WRITES audit_logs setup.complete.
 #[tokio::test]
 async fn setup_creates_admin_and_returns_token_on_empty_database() {
     let database_url = match std::env::var("DATABASE_URL") {
@@ -220,7 +220,6 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
                 .uri("/api/v1/setup")
                 .header("content-type", "application/json")
                 .header("X-Setup-Token", "test-setup-token-at-least-32-chars!!")
-                .header("Sec-Fetch-Site", "same-origin")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
         )
