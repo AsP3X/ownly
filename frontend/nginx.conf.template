@@ -52,6 +52,13 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # Human: Preserve browser fetch metadata and Origin for user-creation guards on the API.
+        # Agent: FORWARDS Sec-Fetch-* and Origin; REQUIRED when an outer TLS proxy already stripped them.
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Sec-Fetch-Site $http_sec_fetch_site;
+        proxy_set_header Sec-Fetch-Mode $http_sec_fetch_mode;
+        proxy_set_header Sec-Fetch-Dest $http_sec_fetch_dest;
+        proxy_set_header Origin $http_origin;
         proxy_read_timeout ${NGINX_PROXY_READ_TIMEOUT};
         proxy_send_timeout ${NGINX_PROXY_READ_TIMEOUT};
         proxy_request_buffering off;
