@@ -1,5 +1,5 @@
-// Human: Reject cross-site scripts on register and admin user creation (not POST /setup).
-// Agent: READS Sec-Fetch-Site, Origin, Referer, Host, X-Forwarded-*; CALLED from register and admin create_user.
+// Human: Reject cross-site scripts on public registration (not POST /setup or admin invite).
+// Agent: READS Sec-Fetch-Site, Origin, Referer, Host, X-Forwarded-*; CALLED from register only.
 
 use axum::http::HeaderMap;
 

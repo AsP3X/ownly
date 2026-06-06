@@ -289,7 +289,8 @@ pub async fn create_user(
     Json(body): Json<CreateAdminUserRequest>,
 ) -> Result<Json<UserDto>, AppError> {
     require_admin(&claims)?;
-    crate::browser_guard::require_browser_user_creation(&headers)?;
+    // Human: Admin JWT + role gate is sufficient — no Sec-Fetch/Origin check (remote Compose / proxies).
+    // Agent: SKIPS browser_guard; register still enforces it; AUDIT admin.users.create unchanged.
 
     let email = body.email.trim().to_lowercase();
     if !email.contains('@') {
