@@ -149,10 +149,10 @@ export function PdfPreviewSurfaceMobile({
                 ref={documentAreaRef}
                 tabIndex={-1}
                 onScroll={handleDocumentScroll}
-                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [touch-action:pan-y]"
+                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none scroll-smooth [touch-action:pan-y] snap-y snap-mandatory"
               >
                 {numPages > 0 && scaledWidth ? (
-                  <div className="flex w-full flex-col items-stretch" style={{ gap: pageStackGapPx }}>
+                  <div className="flex w-full flex-col items-center">
                     {Array.from({ length: numPages }, (_, index) => {
                       const pageNumber = index + 1;
 
@@ -164,23 +164,34 @@ export function PdfPreviewSurfaceMobile({
                             if (node) pageRefs.current.set(pageNumber, node);
                             else pageRefs.current.delete(pageNumber);
                           }}
-                          className="w-full bg-white"
+                          className="box-border flex min-h-full w-full snap-center snap-always items-center justify-center py-1"
+                          style={
+                            pageStackGapPx > 0
+                              ? {
+                                  paddingTop: pageNumber === 1 ? 0 : pageStackGapPx / 2,
+                                  paddingBottom:
+                                    pageNumber === numPages ? 0 : pageStackGapPx / 2,
+                                }
+                              : undefined
+                          }
                         >
-                          <Page
-                            pageNumber={pageNumber}
-                            width={scaledWidth}
-                            renderAnnotationLayer
-                            renderTextLayer
-                            customTextRenderer={
-                              hasSearchQuery && searchMatches.length > 0 ? customTextRenderer : undefined
-                            }
-                            loading={
-                              <div className="flex min-h-[70dvh] w-full items-center justify-center bg-white">
-                                <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
-                              </div>
-                            }
-                            className={cn(loading && "opacity-70")}
-                          />
+                          <div className="max-w-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                            <Page
+                              pageNumber={pageNumber}
+                              width={scaledWidth}
+                              renderAnnotationLayer
+                              renderTextLayer
+                              customTextRenderer={
+                                hasSearchQuery && searchMatches.length > 0 ? customTextRenderer : undefined
+                              }
+                              loading={
+                                <div className="flex min-h-[50dvh] w-full items-center justify-center bg-white">
+                                  <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                                </div>
+                              }
+                              className={cn(loading && "opacity-70")}
+                            />
+                          </div>
                         </div>
                       );
                     })}

@@ -18,6 +18,8 @@ import {
   PDF_MAX_ZOOM,
   PDF_MIN_ZOOM,
   PDF_PAGE_AREA_PADDING_DESKTOP_PX,
+  PDF_PAGE_AREA_PADDING_X_MOBILE_PX,
+  PDF_PAGE_AREA_PADDING_Y_MOBILE_PX,
   PDF_PAGE_STACK_GAP_DESKTOP_PX,
   PDF_PAGE_STACK_GAP_MOBILE_PX,
   PDF_SEARCH_DEBOUNCE_MS,
@@ -50,10 +52,11 @@ function computeFitPageWidth(
   nativeHeight: number,
   containerWidth: number,
   containerHeight: number,
-  pageAreaPaddingPx: number,
+  paddingX: number,
+  paddingY: number,
 ): number {
-  const availableWidth = Math.max(containerWidth - pageAreaPaddingPx, 300);
-  const availableHeight = Math.max(containerHeight - pageAreaPaddingPx, 300);
+  const availableWidth = Math.max(containerWidth - paddingX, 200);
+  const availableHeight = Math.max(containerHeight - paddingY, 200);
   const widthScale = availableWidth / nativeWidth;
   const heightScale = availableHeight / nativeHeight;
   const fitScale = Math.min(widthScale, heightScale);
@@ -78,7 +81,8 @@ export function usePdfPreviewController(
   variant: PdfPreviewVariant,
 ) {
   const isDesktop = variant === "desktop";
-  const pageAreaPaddingPx = isDesktop ? PDF_PAGE_AREA_PADDING_DESKTOP_PX : 0;
+  const pageAreaPaddingX = isDesktop ? PDF_PAGE_AREA_PADDING_DESKTOP_PX : PDF_PAGE_AREA_PADDING_X_MOBILE_PX;
+  const pageAreaPaddingY = isDesktop ? PDF_PAGE_AREA_PADDING_DESKTOP_PX : PDF_PAGE_AREA_PADDING_Y_MOBILE_PX;
   const pageStackGapPx = isDesktop ? PDF_PAGE_STACK_GAP_DESKTOP_PX : PDF_PAGE_STACK_GAP_MOBILE_PX;
   const thumbnailWidth = isDesktop ? PDF_THUMBNAIL_WIDTH_DESKTOP : PDF_THUMBNAIL_WIDTH_MOBILE;
 
@@ -135,19 +139,14 @@ export function usePdfPreviewController(
     if (!open || !documentAreaNode || !pageNativeSize) return;
 
     const updateFitWidth = () => {
-      if (!isDesktop) {
-        const width = Math.max(documentAreaNode.clientWidth - pageAreaPaddingPx, 280);
-        setFitPageWidth(Math.round(pageNativeSize.width * (width / pageNativeSize.width)));
-        return;
-      }
-
       setFitPageWidth(
         computeFitPageWidth(
           pageNativeSize.width,
           pageNativeSize.height,
           documentAreaNode.clientWidth,
           documentAreaNode.clientHeight,
-          pageAreaPaddingPx,
+          pageAreaPaddingX,
+          pageAreaPaddingY,
         ),
       );
     };
@@ -156,7 +155,7 @@ export function usePdfPreviewController(
     const observer = new ResizeObserver(updateFitWidth);
     observer.observe(documentAreaNode);
     return () => observer.disconnect();
-  }, [open, documentAreaNode, pageNativeSize, isDesktop, pageAreaPaddingPx]);
+  }, [open, documentAreaNode, pageNativeSize, pageAreaPaddingX, pageAreaPaddingY]);
 
   useEffect(() => {
     if (!open || !file?.id) return;
@@ -195,9 +194,12 @@ export function usePdfPreviewController(
     (page: number) => {
       const clamped = clampPage(page, numPages);
       setCurrentPage(clamped);
-      pageRefs.current.get(clamped)?.scrollIntoView({ block: "start", behavior: "smooth" });
+      pageRefs.current.get(clamped)?.scrollIntoView({
+        block: isDesktop ? "start" : "center",
+        behavior: "smooth",
+      });
     },
-    [numPages],
+    [isDesktop, numPages],
   );
 
   const handleDocumentScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
