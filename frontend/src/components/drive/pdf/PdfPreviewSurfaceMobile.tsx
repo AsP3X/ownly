@@ -143,7 +143,7 @@ export function PdfPreviewSurfaceMobile({
               onLoadError={(loadError) => {
                 onDocumentLoadError(loadError.message || "Could not open this PDF.");
               }}
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
+              className="relative flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <div
                 ref={documentAreaRef}
@@ -197,6 +197,88 @@ export function PdfPreviewSurfaceMobile({
                   </div>
                 ) : null}
               </div>
+
+              {/* Human: Thumbnail drawer — shares the parent Document so pdf.js does not reload and blank the viewer. */}
+              {/* Agent: Absolute overlay inside Document; Page thumbnails reuse loaded pdfData without a nested Document. */}
+              {sidebarOpen ? (
+                <>
+                  <button
+                    type="button"
+                    className="absolute inset-0 z-40 bg-black/50"
+                    aria-label="Close page thumbnails"
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                  <aside
+                    id="pdf-mobile-thumbnail-drawer"
+                    className="absolute inset-y-0 left-0 z-50 flex w-[260px] max-w-[85vw] flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] shadow-[4px_0_24px_rgba(0,0,0,0.2)] pt-[max(56px,env(safe-area-inset-top))]"
+                  >
+                    <div className="flex shrink-0 items-center justify-between px-3 pb-3">
+                      <p className="text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
+                      <button
+                        type="button"
+                        onClick={() => setSidebarOpen(false)}
+                        aria-label="Close page thumbnails"
+                        className="rounded-md p-1 text-[#666666] hover:bg-[#E5E7EB]"
+                      >
+                        <PanelLeftClose className="size-4" aria-hidden />
+                      </button>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+                      {numPages > 0
+                        ? Array.from({ length: numPages }, (_, index) => {
+                            const pageNumber = index + 1;
+                            const isActive = pageNumber === currentPage;
+
+                            return (
+                              <button
+                                key={`mobile-thumb-${pageNumber}`}
+                                type="button"
+                                ref={(node) => {
+                                  if (node) thumbnailRefs.current.set(pageNumber, node);
+                                  else thumbnailRefs.current.delete(pageNumber);
+                                }}
+                                onClick={() => handleGoToPage(pageNumber)}
+                                aria-label={`Go to page ${pageNumber}`}
+                                aria-current={isActive ? "page" : undefined}
+                                className="mb-3 flex w-full flex-col items-center gap-1 last:mb-0"
+                              >
+                                <div
+                                  className={cn(
+                                    "flex w-[88px] items-center justify-center rounded border bg-white p-1.5 transition-colors",
+                                    isActive
+                                      ? "border-2 border-[#2563EB]"
+                                      : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
+                                  )}
+                                >
+                                  <Page
+                                    pageNumber={pageNumber}
+                                    width={thumbnailWidth}
+                                    renderAnnotationLayer={false}
+                                    renderTextLayer={false}
+                                    loading={
+                                      <div className="flex h-[114px] w-full items-center justify-center">
+                                        <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
+                                      </div>
+                                    }
+                                  />
+                                </div>
+                                <span
+                                  className={cn(
+                                    "text-[10px]",
+                                    isActive ? "font-bold text-[#2563EB]" : "text-[#666666]",
+                                  )}
+                                >
+                                  Page {pageNumber}
+                                </span>
+                              </button>
+                            );
+                          })
+                        : null}
+                    </div>
+                  </aside>
+                </>
+              ) : null}
             </Document>
           ) : null}
 
@@ -333,89 +415,6 @@ export function PdfPreviewSurfaceMobile({
                 </button>
               </div>
             </div>
-          ) : null}
-
-          {/* Human: Left thumbnail drawer — opened from page-count badge per Pencil sidebar state. */}
-          {sidebarOpen && pdfData && !error ? (
-            <>
-              <button
-                type="button"
-                className="absolute inset-0 z-40 bg-black/50"
-                aria-label="Close page thumbnails"
-                onClick={() => setSidebarOpen(false)}
-              />
-              <aside
-                id="pdf-mobile-thumbnail-drawer"
-                className="absolute inset-y-0 left-0 z-50 flex w-[260px] max-w-[85vw] flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] shadow-[4px_0_24px_rgba(0,0,0,0.2)] pt-[max(56px,env(safe-area-inset-top))]"
-              >
-                <div className="flex shrink-0 items-center justify-between px-3 pb-3">
-                  <p className="text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarOpen(false)}
-                    aria-label="Close page thumbnails"
-                    className="rounded-md p-1 text-[#666666] hover:bg-[#E5E7EB]"
-                  >
-                    <PanelLeftClose className="size-4" aria-hidden />
-                  </button>
-                </div>
-
-                <Document file={pdfData} loading={null} className="min-h-0 flex-1 overflow-hidden">
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
-                    {numPages > 0
-                      ? Array.from({ length: numPages }, (_, index) => {
-                          const pageNumber = index + 1;
-                          const isActive = pageNumber === currentPage;
-
-                          return (
-                            <button
-                              key={`mobile-thumb-${pageNumber}`}
-                              type="button"
-                              ref={(node) => {
-                                if (node) thumbnailRefs.current.set(pageNumber, node);
-                                else thumbnailRefs.current.delete(pageNumber);
-                              }}
-                              onClick={() => handleGoToPage(pageNumber)}
-                              aria-label={`Go to page ${pageNumber}`}
-                              aria-current={isActive ? "page" : undefined}
-                              className="mb-3 flex w-full flex-col items-center gap-1 last:mb-0"
-                            >
-                              <div
-                                className={cn(
-                                  "flex w-[88px] items-center justify-center rounded border bg-white p-1.5 transition-colors",
-                                  isActive
-                                    ? "border-2 border-[#2563EB]"
-                                    : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
-                                )}
-                              >
-                                <Page
-                                  pageNumber={pageNumber}
-                                  width={thumbnailWidth}
-                                  renderAnnotationLayer={false}
-                                  renderTextLayer={false}
-                                  loading={
-                                    <div className="flex h-[114px] w-full items-center justify-center">
-                                      <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
-                                    </div>
-                                  }
-                                />
-                              </div>
-                              <span
-                                className={cn(
-                                  "text-[10px]",
-                                  isActive ? "font-bold text-[#2563EB]" : "text-[#666666]",
-                                )}
-                              >
-                                Page {pageNumber}
-                              </span>
-                            </button>
-                          );
-                        })
-                      : null}
-                  </div>
-                </Document>
-              </aside>
-            </>
           ) : null}
         </div>
       </DialogContent>
