@@ -4,6 +4,7 @@
 pub mod executor;
 pub mod handlers;
 pub mod model;
+pub mod recovery;
 pub mod store;
 pub mod worker;
 
@@ -13,4 +14,5 @@ pub use store::{
     enqueue_job, find_active_job,
     list_user_jobs, recover_running_jobs_on_startup, recover_stale_jobs,
 };
+pub use recovery::{recover_stale_queued_jobs, recover_stuck_processing_jobs};
 pub use worker::{start_worker_pool, JobWorkerSettings};

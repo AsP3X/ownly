@@ -10,6 +10,7 @@ use crate::config::Config;
 use crate::AppState;
 
 use super::executor::execute_job;
+use super::recovery::recover_stuck_processing_jobs;
 use super::store::{
     claim_next_job, ensure_worker_released_job, recover_running_jobs_on_startup,
     recover_stale_jobs, touch_job_heartbeat,
@@ -38,7 +39,7 @@ impl From<&Config> for JobWorkerSettings {
 }
 
 /// Human: Start the background worker pool, periodic stale-lock sweeper, and startup recovery.
-// Agent: CALLS recover_stale_jobs once + on interval; SPAWNS worker_count claim loops.
+// Agent: CALLS recover_stale_jobs + recover_stuck_processing_jobs on interval; SPAWNS worker loops.
 pub fn start_worker_pool(state: Arc<AppState>, settings: JobWorkerSettings) {
     let recovery_state = state.clone();
     let stale_minutes = settings.stale_minutes;
@@ -69,6 +70,21 @@ pub fn start_worker_pool(state: Arc<AppState>, settings: JobWorkerSettings) {
                 tracing::error!(%error, "failed to recover stale background jobs at startup");
             }
         }
+
+        match recover_stuck_processing_jobs(&recovery_state.pool, stale_minutes).await {
+            Ok((queued_restarted, orphans_restarted)) if queued_restarted > 0 || orphans_restarted > 0 => {
+                tracing::info!(
+                    queued_restarted,
+                    orphans_restarted,
+                    stale_minutes,
+                    "restarted stuck processing jobs at worker pool startup"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(%error, "failed to restart stuck processing jobs at startup");
+            }
+        }
     });
 
     let sweep_state = state.clone();
@@ -88,6 +104,23 @@ pub fn start_worker_pool(state: Arc<AppState>, settings: JobWorkerSettings) {
                 Ok(_) => {}
                 Err(error) => {
                     tracing::error!(%error, "periodic stale job recovery failed");
+                }
+            }
+
+            match recover_stuck_processing_jobs(&sweep_state.pool, stale_minutes).await {
+                Ok((queued_restarted, orphans_restarted))
+                    if queued_restarted > 0 || orphans_restarted > 0 =>
+                {
+                    tracing::warn!(
+                        queued_restarted,
+                        orphans_restarted,
+                        stale_minutes,
+                        "periodic sweep restarted stuck queued/orphaned processing jobs"
+                    );
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(%error, "periodic stuck processing job recovery failed");
                 }
             }
         }
