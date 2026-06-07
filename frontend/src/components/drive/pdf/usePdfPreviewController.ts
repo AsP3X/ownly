@@ -20,6 +20,7 @@ import {
   PDF_PAGE_AREA_PADDING_DESKTOP_PX,
   PDF_PAGE_AREA_PADDING_X_MOBILE_PX,
   PDF_PAGE_AREA_PADDING_Y_MOBILE_PX,
+  PDF_MOBILE_NEXT_PAGE_PEEK_PX,
   PDF_PAGE_STACK_GAP_DESKTOP_PX,
   PDF_PAGE_STACK_GAP_MOBILE_PX,
   PDF_SEARCH_DEBOUNCE_MS,
@@ -139,6 +140,8 @@ export function usePdfPreviewController(
     if (!open || !documentAreaNode || !pageNativeSize) return;
 
     const updateFitWidth = () => {
+      const mobilePeekPx = isDesktop ? 0 : PDF_MOBILE_NEXT_PAGE_PEEK_PX;
+
       setFitPageWidth(
         computeFitPageWidth(
           pageNativeSize.width,
@@ -146,7 +149,7 @@ export function usePdfPreviewController(
           documentAreaNode.clientWidth,
           documentAreaNode.clientHeight,
           pageAreaPaddingX,
-          pageAreaPaddingY,
+          pageAreaPaddingY + mobilePeekPx,
         ),
       );
     };
@@ -155,7 +158,7 @@ export function usePdfPreviewController(
     const observer = new ResizeObserver(updateFitWidth);
     observer.observe(documentAreaNode);
     return () => observer.disconnect();
-  }, [open, documentAreaNode, pageNativeSize, pageAreaPaddingX, pageAreaPaddingY]);
+  }, [open, documentAreaNode, pageNativeSize, isDesktop, pageAreaPaddingX, pageAreaPaddingY]);
 
   // Human: Mobile opens at scrollTop 0 so page 1 is centered in the first viewport slot, not offset upward.
   // Agent: Runs when sizing is ready; desktop keeps native scroll position from zoom/resize handling.

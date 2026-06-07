@@ -1,7 +1,7 @@
 // Human: Mobile PDF viewer — Pencil MV Mobile Portrait PDF (full-bleed scroll, page badge, thumbnail drawer).
 // Agent: RENDERS react-pdf Document; READS PdfPreviewControllerViewModel; WRITES sidebarOpen locally.
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/utils-app";
+import { PDF_MOBILE_NEXT_PAGE_PEEK_PX } from "@/components/drive/pdf/pdf-preview-constants";
 import type { PdfPreviewControllerViewModel } from "@/components/drive/pdf/usePdfPreviewController";
 
 type PdfPreviewSurfaceMobileProps = {
@@ -148,7 +149,12 @@ export function PdfPreviewSurfaceMobile({
                 ref={documentAreaRef}
                 tabIndex={-1}
                 onScroll={handleDocumentScroll}
-                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none scroll-smooth [touch-action:pan-y] snap-y snap-proximity"
+                style={
+                  {
+                    "--pdf-mobile-page-peek": `${PDF_MOBILE_NEXT_PAGE_PEEK_PX}px`,
+                  } as CSSProperties
+                }
+                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain outline-none scroll-smooth [touch-action:pan-y] snap-y snap-mandatory"
               >
                 {numPages > 0 && scaledWidth ? (
                   Array.from({ length: numPages }, (_, index) => {
@@ -162,7 +168,7 @@ export function PdfPreviewSurfaceMobile({
                             if (node) pageRefs.current.set(pageNumber, node);
                             else pageRefs.current.delete(pageNumber);
                           }}
-                          className="box-border flex h-full w-full shrink-0 snap-start snap-always items-center justify-center px-3"
+                          className="box-border flex h-[calc(100%-var(--pdf-mobile-page-peek))] w-full shrink-0 snap-start snap-always items-center justify-center px-3"
                         >
                           <div className="max-w-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                             <Page

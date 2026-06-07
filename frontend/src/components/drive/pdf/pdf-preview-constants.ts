@@ -11,6 +11,8 @@ export const PDF_PAGE_AREA_PADDING_DESKTOP_PX = 72;
 export const PDF_PAGE_AREA_PADDING_X_MOBILE_PX = 24;
 // Human: Vertical inset so a fitted page clears floating top badge and bottom metadata bar.
 export const PDF_PAGE_AREA_PADDING_Y_MOBILE_PX = 88;
+// Human: Strip of the following page visible under the current page on mobile scroll stacks.
+export const PDF_MOBILE_NEXT_PAGE_PEEK_PX = 56;
 export const PDF_PAGE_STACK_GAP_DESKTOP_PX = 36;
 export const PDF_PAGE_STACK_GAP_MOBILE_PX = 8;
 export const PDF_SEARCH_DEBOUNCE_MS = 300;
