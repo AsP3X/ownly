@@ -41,7 +41,6 @@ export function ImagePreviewDialog({
     sharePassword,
     onDownload,
     onShare,
-    enableSwipeGallery: isNarrow,
   });
 
   const descriptionParts = [
@@ -79,8 +78,6 @@ export function ImagePreviewDialog({
             isNarrow ? "min-h-0 flex-1 flex-col" : "items-center justify-center",
           )}
           aria-label="Image gallery"
-          onTouchStart={vm.handleTouchStart}
-          onTouchEnd={vm.handleTouchEnd}
         >
           {isDesktop ? (
             <ImagePreviewSurfaceDesktop vm={vm} onDownload={onDownload} onShare={onShare} />

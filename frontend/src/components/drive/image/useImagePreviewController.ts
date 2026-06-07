@@ -1,4 +1,4 @@
-// Human: Image lightbox state — blob cache, gallery navigation, keyboard and swipe handlers.
+// Human: Image lightbox state — blob cache, gallery navigation, and keyboard handlers.
 // Agent: FETCHES preview blobs; REVOKES object URLs on close; WRITES view model for desktop/mobile surfaces.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -7,7 +7,10 @@ import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessag
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import { formatBytes } from "@/lib/utils-app";
 
-const SWIPE_THRESHOLD_PX = 48;
+export type ImagePreviewAdjacentUrls = {
+  previous: string | null;
+  next: string | null;
+};
 
 export type ImagePreviewControllerViewModel = {
   file: FileItem | null;
@@ -25,15 +28,10 @@ export type ImagePreviewControllerViewModel = {
   showShareAction: boolean;
   goPrevious: () => void;
   goNext: () => void;
+  adjacentUrls: ImagePreviewAdjacentUrls;
   handleDialogOpenChange: (open: boolean) => void;
   viewportRef: RefObject<HTMLDivElement | null>;
   handleContentKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
-  handleTouchStart: (event: React.TouchEvent<HTMLDivElement>) => void;
-  handleTouchEnd: (event: React.TouchEvent<HTMLDivElement>) => void;
-};
-
-type UseImagePreviewControllerOptions = ImagePreviewDialogProps & {
-  enableSwipeGallery: boolean;
 };
 
 export function useImagePreviewController({
@@ -46,20 +44,38 @@ export function useImagePreviewController({
   sharePassword,
   onDownload,
   onShare,
-  enableSwipeGallery,
-}: UseImagePreviewControllerOptions): ImagePreviewControllerViewModel {
+}: ImagePreviewDialogProps): ImagePreviewControllerViewModel {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
   const activeFileIdRef = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const swipeStartXRef = useRef<number | null>(null);
+  const [adjacentUrls, setAdjacentUrls] = useState<ImagePreviewAdjacentUrls>({
+    previous: null,
+    next: null,
+  });
 
   const currentIndex = useMemo(
     () => (file ? images.findIndex((item) => item.id === file.id) : -1),
     [file, images],
   );
+
+  const refreshAdjacentUrls = useCallback(() => {
+    if (currentIndex < 0) {
+      setAdjacentUrls({ previous: null, next: null });
+      return;
+    }
+
+    setAdjacentUrls({
+      previous:
+        currentIndex > 0 ? urlCacheRef.current.get(images[currentIndex - 1]!.id) ?? null : null,
+      next:
+        currentIndex < images.length - 1
+          ? urlCacheRef.current.get(images[currentIndex + 1]!.id) ?? null
+          : null,
+    });
+  }, [currentIndex, images]);
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
   const showGalleryNav = images.length > 1;
@@ -141,6 +157,10 @@ export function useImagePreviewController({
   }, [open, file, cacheBlobUrl, fetchPreviewBlob]);
 
   useEffect(() => {
+    refreshAdjacentUrls();
+  }, [refreshAdjacentUrls, displayUrl]);
+
+  useEffect(() => {
     if (!open || currentIndex < 0) return;
 
     const neighborIds = [images[currentIndex - 1]?.id, images[currentIndex + 1]?.id].filter(
@@ -155,12 +175,13 @@ export function useImagePreviewController({
       void fetchPreviewBlob(neighbor)
         .then((blob) => {
           cacheBlobUrl(neighborId, blob);
+          refreshAdjacentUrls();
         })
         .catch(() => {
           // Human: Preload failures are silent — the active slide loader still handles errors.
         });
     }
-  }, [open, currentIndex, images, cacheBlobUrl, fetchPreviewBlob]);
+  }, [open, currentIndex, images, cacheBlobUrl, fetchPreviewBlob, refreshAdjacentUrls]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;
@@ -222,28 +243,6 @@ export function useImagePreviewController({
     [goNext, goPrevious],
   );
 
-  const handleTouchStart = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      if (!enableSwipeGallery || !showGalleryNav) return;
-      swipeStartXRef.current = event.touches[0]?.clientX ?? null;
-    },
-    [enableSwipeGallery, showGalleryNav],
-  );
-
-  const handleTouchEnd = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      if (!enableSwipeGallery || !showGalleryNav || swipeStartXRef.current === null) return;
-      const endX = event.changedTouches[0]?.clientX;
-      if (endX === undefined) return;
-      const delta = endX - swipeStartXRef.current;
-      swipeStartXRef.current = null;
-      if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
-      if (delta > 0) goPrevious();
-      else goNext();
-    },
-    [enableSwipeGallery, goNext, goPrevious, showGalleryNav],
-  );
-
   const showInitialLoader = loading && !displayUrl;
   const showDownloadAction = Boolean(file && onDownload);
   const showShareAction = Boolean(file && onShare);
@@ -268,10 +267,9 @@ export function useImagePreviewController({
     showShareAction,
     goPrevious,
     goNext,
+    adjacentUrls,
     handleDialogOpenChange,
     viewportRef,
     handleContentKeyDown,
-    handleTouchStart,
-    handleTouchEnd,
   };
 }
