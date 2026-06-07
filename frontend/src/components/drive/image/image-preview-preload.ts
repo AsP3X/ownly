@@ -1,6 +1,9 @@
 // Human: Decode preview blobs into browser memory so carousel slides paint without a fetch/decode hitch.
 // Agent: WRITES warmedImages map; CALLS Image.decode once per file; CLEARS bitmap refs on session end.
 
+/** Human: Keep blob URLs for the active slide plus this many neighbors on each side. */
+export const PREVIEW_BLOB_CACHE_RADIUS = 4;
+
 const warmedImages = new Map<string, HTMLImageElement>();
 
 function releaseWarmImage(img: HTMLImageElement): void {
@@ -74,23 +77,60 @@ export function clearWarmedPreviewImages(): void {
   warmedImages.clear();
 }
 
-// Human: Priority order for gallery preload — current image first, then nearest neighbors outward.
-// Agent: READS images + anchorIndex; RETURNS FileItem[] sorted by distance from the active slide.
-export function orderGalleryForPreload<T extends { id: string }>(
-  images: readonly T[],
+// Human: File ids that should stay in the blob cache for a given anchor index.
+// Agent: READS gallery length + anchorIndex + radius; RETURNS Set of ids within the window.
+export function collectGalleryWindowFileIds<T extends { id: string }>(
+  gallery: readonly T[],
   anchorIndex: number,
-): T[] {
-  if (images.length <= 1) return [...images];
+  radius: number = PREVIEW_BLOB_CACHE_RADIUS,
+): Set<string> {
+  const keepIds = new Set<string>();
+  if (anchorIndex < 0 || gallery.length === 0) return keepIds;
 
-  const safeAnchor = anchorIndex >= 0 ? anchorIndex : 0;
-  return [...images].sort((left, right) => {
-    const leftIndex = images.indexOf(left);
-    const rightIndex = images.indexOf(right);
-    const leftDistance = Math.abs(leftIndex - safeAnchor);
-    const rightDistance = Math.abs(rightIndex - safeAnchor);
+  const start = Math.max(0, anchorIndex - radius);
+  const end = Math.min(gallery.length - 1, anchorIndex + radius);
+  for (let index = start; index <= end; index += 1) {
+    keepIds.add(gallery[index]!.id);
+  }
+  return keepIds;
+}
+
+// Human: Whether a gallery index sits inside the rolling blob cache window.
+// Agent: READS anchorIndex + radius; RETURNS true when index is within ±radius.
+export function isGalleryIndexInBlobWindow(
+  index: number,
+  anchorIndex: number,
+  radius: number = PREVIEW_BLOB_CACHE_RADIUS,
+): boolean {
+  if (index < 0 || anchorIndex < 0) return false;
+  return Math.abs(index - anchorIndex) <= radius;
+}
+
+// Human: Preload order for the rolling window around the anchor — nearest slides first.
+// Agent: READS gallery slice within ±radius; RETURNS items sorted by distance from anchorIndex.
+export function orderGalleryWindowForPreload<T extends { id: string }>(
+  gallery: readonly T[],
+  anchorIndex: number,
+  radius: number = PREVIEW_BLOB_CACHE_RADIUS,
+): T[] {
+  if (gallery.length === 0 || anchorIndex < 0) return [];
+
+  const start = Math.max(0, anchorIndex - radius);
+  const end = Math.min(gallery.length - 1, anchorIndex + radius);
+  const windowItems: { item: T; index: number }[] = [];
+
+  for (let index = start; index <= end; index += 1) {
+    windowItems.push({ item: gallery[index]!, index });
+  }
+
+  windowItems.sort((left, right) => {
+    const leftDistance = Math.abs(left.index - anchorIndex);
+    const rightDistance = Math.abs(right.index - anchorIndex);
     if (leftDistance !== rightDistance) return leftDistance - rightDistance;
-    return leftIndex - rightIndex;
+    return left.index - right.index;
   });
+
+  return windowItems.map((entry) => entry.item);
 }
 
 // Human: Fetch the full gallery with bounded parallelism; workers stop as soon as isActive is false.

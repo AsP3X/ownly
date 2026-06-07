@@ -1,5 +1,5 @@
 // Human: Image lightbox state — blob cache, gallery navigation, and keyboard handlers.
-// Agent: PRELOADS gallery blobs under a session token; REVOKES URLs and WARMED bitmaps on close/unmount.
+// Agent: ROLLING blob window around active slide; REVOKES distant blobs on navigation; WARMS prev/current/next only.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
@@ -7,7 +7,10 @@ import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessag
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
   clearWarmedPreviewImages,
-  orderGalleryForPreload,
+  collectGalleryWindowFileIds,
+  isGalleryIndexInBlobWindow,
+  orderGalleryWindowForPreload,
+  PREVIEW_BLOB_CACHE_RADIUS,
   preloadGalleryImages,
   retainWarmedPreviewImages,
   warmPreviewImage,
@@ -58,6 +61,7 @@ export function useImagePreviewController({
   const urlCacheRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
   const cacheSessionRef = useRef(0);
+  const preloadGenerationRef = useRef(0);
   const activeFileIdRef = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [adjacentUrls, setAdjacentUrls] = useState<ImagePreviewAdjacentUrls>({
@@ -81,6 +85,30 @@ export function useImagePreviewController({
     (session: number) => session === cacheSessionRef.current,
     [],
   );
+
+  const isFileInBlobCacheWindow = useCallback((fileId: string) => {
+    const index = currentIndexRef.current;
+    const gallery = imagesRef.current;
+    if (index < 0) return false;
+
+    const itemIndex = gallery.findIndex((item) => item.id === fileId);
+    return isGalleryIndexInBlobWindow(itemIndex, index, PREVIEW_BLOB_CACHE_RADIUS);
+  }, []);
+
+  // Human: Revoke blob URLs outside the rolling window so memory stays flat while swiping.
+  // Agent: READS urlCacheRef; REVOKES distant object URLs; PRUNES warmed bitmaps to the same window.
+  const evictBlobCacheOutsideWindow = useCallback((index: number, gallery: readonly FileItem[]) => {
+    const keepIds = collectGalleryWindowFileIds(gallery, index, PREVIEW_BLOB_CACHE_RADIUS);
+
+    for (const [fileId, url] of urlCacheRef.current.entries()) {
+      if (keepIds.has(fileId)) continue;
+      URL.revokeObjectURL(url);
+      urlCacheRef.current.delete(fileId);
+      inFlightRef.current.delete(fileId);
+    }
+
+    retainWarmedPreviewImages(Array.from(keepIds));
+  }, []);
 
   // Human: Only re-render carousel neighbors when prev/next blob URLs actually change.
   // Agent: READS urlCacheRef; COMPARES prior adjacentUrls; WRITES setAdjacentUrls when different.
@@ -111,39 +139,30 @@ export function useImagePreviewController({
     });
   }, []);
 
-  const retainWarmWindow = useCallback((index: number, gallery: readonly FileItem[]) => {
-    if (index < 0) {
-      retainWarmedPreviewImages([]);
-      return;
-    }
-
-    const keepIds = [
-      gallery[index]?.id,
-      gallery[index - 1]?.id,
-      gallery[index + 1]?.id,
-    ].filter((id): id is string => Boolean(id));
-    retainWarmedPreviewImages(keepIds);
-  }, []);
-
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
   const showGalleryNav = images.length > 1;
   const positionLabel =
     currentIndex >= 0 && images.length > 1 ? `${currentIndex + 1} of ${images.length}` : null;
 
-  const cacheBlobUrl = useCallback((fileId: string, blob: Blob, session: number) => {
-    if (!isCacheSessionActive(session)) return null;
+  const cacheBlobUrl = useCallback(
+    (fileId: string, blob: Blob, session: number) => {
+      if (!isCacheSessionActive(session)) return null;
+      if (!isFileInBlobCacheWindow(fileId)) return null;
 
-    const existing = urlCacheRef.current.get(fileId);
-    if (existing) return existing;
+      const existing = urlCacheRef.current.get(fileId);
+      if (existing) return existing;
 
-    const url = URL.createObjectURL(blob);
-    urlCacheRef.current.set(fileId, url);
-    return url;
-  }, [isCacheSessionActive]);
+      const url = URL.createObjectURL(blob);
+      urlCacheRef.current.set(fileId, url);
+      return url;
+    },
+    [isCacheSessionActive, isFileInBlobCacheWindow],
+  );
 
   const revokeAllCachedUrls = useCallback(() => {
     cacheSessionRef.current += 1;
+    preloadGenerationRef.current += 1;
 
     for (const url of urlCacheRef.current.values()) {
       URL.revokeObjectURL(url);
@@ -183,7 +202,7 @@ export function useImagePreviewController({
   );
 
   // Human: Fetch and optionally decode one preview — ignores results after session invalidation.
-  // Agent: READS cacheSessionRef; DEDUPES inFlightRef; WRITES blob URL only for active session.
+  // Agent: READS cacheSessionRef; DEDUPES inFlightRef; WRITES blob URL only inside the rolling window.
   const loadPreviewUrl = useCallback(
     async (item: FileItem, options?: { warm?: boolean; silent?: boolean }): Promise<string | null> => {
       const session = cacheSessionRef.current;
@@ -191,7 +210,7 @@ export function useImagePreviewController({
       const silent = options?.silent ?? false;
       const isActive = () => isCacheSessionActive(session);
 
-      if (!isActive()) return null;
+      if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
       const cachedUrl = urlCacheRef.current.get(item.id);
       if (cachedUrl) {
@@ -212,7 +231,7 @@ export function useImagePreviewController({
 
       const request = fetchPreviewBlob(item)
         .then(async (blob) => {
-          if (!isActive()) return null;
+          if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
           const url = cacheBlobUrl(item.id, blob, session);
           if (!url) return null;
@@ -240,11 +259,11 @@ export function useImagePreviewController({
       inFlightRef.current.set(item.id, request);
       return request;
     },
-    [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive],
+    [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow],
   );
 
-  // Human: Load the active slide with user-visible errors; warm and retain only the adjacent window.
-  // Agent: UPDATES displayUrl; WARMS prev/current/next; PRUNES warmed bitmaps after navigation.
+  // Human: Load the active slide with user-visible errors; evict distant blobs on each navigation.
+  // Agent: UPDATES displayUrl; WARMS prev/current/next; REVOKES blob URLs outside the rolling window.
   useEffect(() => {
     if (!open || !file?.id || currentIndex < 0) return;
 
@@ -255,6 +274,8 @@ export function useImagePreviewController({
     const nextItem = currentIndex < images.length - 1 ? images[currentIndex + 1]! : null;
 
     let cancelled = false;
+    evictBlobCacheOutsideWindow(currentIndex, images);
+
     const cachedCurrent = urlCacheRef.current.get(requestFileId);
     if (cachedCurrent) {
       setDisplayUrl(cachedCurrent);
@@ -266,7 +287,6 @@ export function useImagePreviewController({
     }
 
     refreshAdjacentUrlsIfChanged();
-    retainWarmWindow(currentIndex, images);
 
     void loadPreviewUrl(file)
       .then((url) => {
@@ -297,7 +317,6 @@ export function useImagePreviewController({
       nextItem ? loadPreviewUrl(nextItem, { silent: true, warm: true }) : Promise.resolve(null),
     ]).then(() => {
       if (cancelled || !isCacheSessionActive(session)) return;
-      retainWarmWindow(currentIndexRef.current, imagesRef.current);
       refreshAdjacentUrlsIfChanged();
     });
 
@@ -309,27 +328,35 @@ export function useImagePreviewController({
     file,
     currentIndex,
     images,
+    evictBlobCacheOutsideWindow,
     isCacheSessionActive,
     loadPreviewUrl,
     refreshAdjacentUrlsIfChanged,
-    retainWarmWindow,
   ]);
 
-  // Human: Background-fetch gallery blobs without decode; stop immediately when session ends.
-  // Agent: PARALLEL preloadGalleryImages with warm:false; REFRESHES adjacent URLs via rAF batching.
+  // Human: Prefetch only the rolling window around the active slide — never the entire folder.
+  // Agent: RESTARTS when currentIndex moves; STOPS stale workers via preloadGenerationRef; warm:false for background blobs.
   useEffect(() => {
-    if (!open || images.length === 0) return;
+    if (!open || images.length === 0 || currentIndex < 0) return;
 
     const session = cacheSessionRef.current;
-    const anchorIndex = currentIndexRef.current;
-    const orderedImages = orderGalleryForPreload(images, anchorIndex);
+    const preloadGeneration = preloadGenerationRef.current + 1;
+    preloadGenerationRef.current = preloadGeneration;
+    const orderedImages = orderGalleryWindowForPreload(
+      images,
+      currentIndex,
+      PREVIEW_BLOB_CACHE_RADIUS,
+    );
     let cacheRefreshFrame = 0;
+
+    const isPreloadActive = () =>
+      isCacheSessionActive(session) && preloadGenerationRef.current === preloadGeneration;
 
     const scheduleAdjacentRefresh = () => {
       if (cacheRefreshFrame !== 0) return;
       cacheRefreshFrame = window.requestAnimationFrame(() => {
         cacheRefreshFrame = 0;
-        if (!isCacheSessionActive(session)) return;
+        if (!isPreloadActive()) return;
         refreshAdjacentUrlsIfChanged();
       });
     };
@@ -337,14 +364,14 @@ export function useImagePreviewController({
     void preloadGalleryImages(
       orderedImages,
       async (item) => {
-        if (!isCacheSessionActive(session)) return;
+        if (!isPreloadActive()) return;
         await loadPreviewUrl(item, { silent: true, warm: false });
-        if (!isCacheSessionActive(session)) return;
+        if (!isPreloadActive()) return;
         scheduleAdjacentRefresh();
       },
       {
         concurrency: 2,
-        isActive: () => isCacheSessionActive(session),
+        isActive: isPreloadActive,
       },
     );
 
@@ -353,7 +380,7 @@ export function useImagePreviewController({
         window.cancelAnimationFrame(cacheRefreshFrame);
       }
     };
-  }, [open, images, isCacheSessionActive, loadPreviewUrl, refreshAdjacentUrlsIfChanged]);
+  }, [open, images, currentIndex, isCacheSessionActive, loadPreviewUrl, refreshAdjacentUrlsIfChanged]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;
