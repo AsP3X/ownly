@@ -54,7 +54,9 @@ type DriveCloudExplorerProps = {
   dragEnabled?: boolean;
   selectable?: boolean;
   selectedFileIds?: Set<string>;
-  onSelectedFileIdsChange?: (ids: Set<string>) => void;
+  onSelectedFileIdsChange?: (
+    ids: Set<string> | ((prev: Set<string>) => Set<string>),
+  ) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
   hasMoreFiles?: boolean;
@@ -214,7 +216,9 @@ export function DriveCloudExplorer({
     ghostPosition,
     getFileDragBindings,
   } = useExplorerTouchDrag({
-    enabled: dragEnabled,
+    // Human: Disable touch-drag while selecting so pointerdown does not lock list scroll.
+    // Agent: READS mobileSelectionMode; SKIPS scroll lock + long-press handlers during tap-select.
+    enabled: dragEnabled && !mobileSelectionMode,
     scrollElementRef: explorerScrollRef,
     onMoveFileToFolder,
     resolveFileFolderId,
@@ -289,15 +293,36 @@ export function DriveCloudExplorer({
 
   const toggleFileSelected = useCallback(
     (fileId: string, checked: boolean) => {
-      if (!selectionEnabled || selectedFileIds === undefined || !onSelectedFileIdsChange) {
+      if (!selectionEnabled || !onSelectedFileIdsChange) {
         return;
       }
-      const next = new Set(selectedFileIds);
-      if (checked) next.add(fileId);
-      else next.delete(fileId);
-      onSelectedFileIdsChange(next);
+      // Human: Functional update — rapid mobile taps must not rebuild from a stale Set snapshot.
+      // Agent: WRITES via onSelectedFileIdsChange updater; ADDS or REMOVES fileId from latest prev.
+      onSelectedFileIdsChange((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
     },
-    [onSelectedFileIdsChange, selectedFileIds, selectionEnabled],
+    [onSelectedFileIdsChange, selectionEnabled],
+  );
+
+  // Human: Tap-select on mobile — flip membership from the latest Set, not tile isSelected.
+  // Agent: READS prev.has(fileId); WRITES toggled Set via onSelectedFileIdsChange updater.
+  const flipFileSelected = useCallback(
+    (fileId: string) => {
+      if (!selectionEnabled || !onSelectedFileIdsChange) {
+        return;
+      }
+      onSelectedFileIdsChange((prev) => {
+        const next = new Set(prev);
+        if (next.has(fileId)) next.delete(fileId);
+        else next.add(fileId);
+        return next;
+      });
+    },
+    [onSelectedFileIdsChange, selectionEnabled],
   );
 
   // Human: Label for the touch drag ghost when multiple files are checked in selection mode.
@@ -519,9 +544,9 @@ export function DriveCloudExplorer({
                     isDragging={activeDraggingFileId === entry.file.id}
                     isArmedForTouchDrag={armedFileId === entry.file.id}
                     dragEnabled={dragEnabled}
-                    touchDragEnabled={touchDragEnabled}
+                    touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
                     getTouchDragBindings={
-                      touchDragEnabled
+                      touchDragEnabled && !mobileSelectionMode
                         ? () =>
                             getFileDragBindings(
                               entry.file.id,
@@ -530,6 +555,7 @@ export function DriveCloudExplorer({
                         : undefined
                     }
                     onToggleSelected={toggleFileSelected}
+                    onFlipFileSelected={mobileSelectionMode ? flipFileSelected : undefined}
                     onDragStart={handleFileDragStart}
                     onDragEnd={resetDragState}
                     onPreviewVideo={onPreviewVideo}

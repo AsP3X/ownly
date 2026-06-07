@@ -821,6 +821,20 @@ export default function DrivePage() {
     setMobileSelectionMode(false);
   }
 
+  // Human: Selection changes from explorer checkboxes/taps — supports functional updates for rapid taps.
+  // Agent: WRITES selectedFileIds; CLEARS mobileSelectionMode when the set becomes empty.
+  function handleSelectedFileIdsChange(
+    ids: Set<string> | ((prev: Set<string>) => Set<string>),
+  ) {
+    setSelectedFileIds((prev) => {
+      const next = typeof ids === "function" ? ids(prev) : ids;
+      if (next.size === 0) {
+        setMobileSelectionMode(false);
+      }
+      return next;
+    });
+  }
+
   // Human: Load folders for one level of the picker breadcrumb.
   // Agent: GET /folders?parent_id=; WRITES folderPickerFolders + loading flags.
   async function loadFolderPickerLevel(parentId: string | null) {
@@ -1727,12 +1741,7 @@ export default function DrivePage() {
                   dragEnabled={!isSearchingMyFiles}
                   selectable
                   selectedFileIds={selectedFileIds}
-                  onSelectedFileIdsChange={(ids) => {
-                    setSelectedFileIds(ids);
-                    if (ids.size === 0) {
-                      setMobileSelectionMode(false);
-                    }
-                  }}
+                  onSelectedFileIdsChange={handleSelectedFileIdsChange}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}

@@ -135,6 +135,8 @@ export type ExplorerFileGridTileProps = {
   touchDragEnabled?: boolean;
   getTouchDragBindings?: () => ExplorerTouchDragBindings;
   onToggleSelected: (fileId: string, checked: boolean) => void;
+  /** Human: Flip one file in/out of the selection using the latest Set (mobile tap-select). */
+  onFlipFileSelected?: (fileId: string) => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, fileId: string) => void;
   onDragEnd: () => void;
   onPreviewVideo?: (file: FileItem) => void;
@@ -188,6 +190,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   touchDragEnabled = false,
   getTouchDragBindings,
   onToggleSelected,
+  onFlipFileSelected,
   onDragStart,
   onDragEnd,
   onPreviewVideo,
@@ -313,7 +316,13 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           // Human: In mobile selection mode, a tile tap toggles its checkbox instead of previewing.
           // Agent: CALLS onToggleSelected; SKIPS preview handlers while mobileSelectionMode is true.
           if (mobileSelectionMode && selectionEnabled && !processing) {
-            onToggleSelected(file.id, !isSelected);
+            // Human: Flip from the authoritative Set — tile isSelected can lag one frame behind rapid taps.
+            // Agent: CALLS onFlipFileSelected when provided; FALLS BACK to onToggleSelected.
+            if (onFlipFileSelected) {
+              onFlipFileSelected(file.id);
+            } else {
+              onToggleSelected(file.id, !isSelected);
+            }
             return;
           }
           if (!canPreview) return;
