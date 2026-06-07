@@ -218,15 +218,33 @@ fn source_filename_for_format(format: SniffedImageFormat) -> &'static str {
     }
 }
 
-// Human: Optional ffmpeg demuxer name matching sniff_image_format.
-// Agent: RETURNS Some("-f") arg value; None lets ffmpeg probe from extension.
-fn ffmpeg_input_format_flag(format: SniffedImageFormat) -> Option<&'static str> {
+// Human: Ordered ffmpeg input strategies per sniffed container type.
+// Agent: RETURNS Auto first, then container-specific fallbacks (image2 for WebP).
+enum TranscodeAttempt {
+    Auto,
+    Demuxer(&'static str),
+    Image2Single,
+}
+
+fn transcode_attempts(format: SniffedImageFormat) -> Vec<TranscodeAttempt> {
     match format {
-        SniffedImageFormat::Gif => Some("gif"),
-        SniffedImageFormat::WebP => Some("webp"),
-        SniffedImageFormat::Png => Some("png"),
-        SniffedImageFormat::Jpeg => Some("image2"),
-        SniffedImageFormat::Unknown => None,
+        SniffedImageFormat::Gif => vec![
+            TranscodeAttempt::Auto,
+            TranscodeAttempt::Demuxer("gif"),
+        ],
+        SniffedImageFormat::WebP => vec![
+            TranscodeAttempt::Auto,
+            TranscodeAttempt::Image2Single,
+        ],
+        SniffedImageFormat::Png => vec![
+            TranscodeAttempt::Auto,
+            TranscodeAttempt::Demuxer("png"),
+        ],
+        SniffedImageFormat::Jpeg => vec![
+            TranscodeAttempt::Auto,
+            TranscodeAttempt::Demuxer("image2"),
+        ],
+        SniffedImageFormat::Unknown => vec![TranscodeAttempt::Auto],
     }
 }
 
@@ -294,26 +312,19 @@ async fn transcode_animation_to_mp4(
     input: &Path,
     source_format: SniffedImageFormat,
 ) -> Result<Vec<u8>, AppError> {
-    let mut last_error = String::from("no ffmpeg attempts were made");
+    let mut attempt_errors = Vec::new();
 
-    // Human: Prefer extension probing first — forced `-f gif` fails on mislabeled WebP/PNG rows.
-    // Agent: CALLS run_ffmpeg_animation_to_mp4 without demuxer hint, then with explicit `-f`.
-    let mut attempts: Vec<Option<&str>> = vec![None];
-    if let Some(explicit) = ffmpeg_input_format_flag(source_format) {
-        attempts.push(Some(explicit));
-    }
-
-    for force_format in attempts {
-        match run_ffmpeg_animation_to_mp4(input, force_format).await {
+    for attempt in transcode_attempts(source_format) {
+        match run_ffmpeg_animation_to_mp4(input, source_format, attempt).await {
             Ok(bytes) => return Ok(bytes),
-            Err(err) => last_error = err,
+            Err(err) => attempt_errors.push(err),
         }
     }
 
     tracing::error!(
         input = %input.display(),
         source_format = ?source_format,
-        last_error = %last_error,
+        attempt_errors = %attempt_errors.join(" | "),
         "gif preview ffmpeg transcode failed after all attempts"
     );
     Err(AppError::Internal(anyhow::anyhow!(
@@ -325,7 +336,8 @@ async fn transcode_animation_to_mp4(
 // Agent: SPAWNS ffmpeg into temp dir; RETURNS Err message tail when exit code is non-zero.
 async fn run_ffmpeg_animation_to_mp4(
     input: &Path,
-    force_format: Option<&str>,
+    source_format: SniffedImageFormat,
+    attempt: TranscodeAttempt,
 ) -> Result<Vec<u8>, String> {
     let work_dir = TempDir::new().map_err(|e| format!("temp dir create: {e}"))?;
     let output_path = work_dir.path().join("preview.mp4");
@@ -337,14 +349,35 @@ async fn run_ffmpeg_animation_to_mp4(
         .arg("-hide_banner")
         .arg("-loglevel")
         .arg("error");
-    if let Some(format) = force_format {
-        command.arg("-f").arg(format);
+
+    match attempt {
+        TranscodeAttempt::Auto => {
+            if matches!(
+                source_format,
+                SniffedImageFormat::Gif | SniffedImageFormat::WebP
+            ) {
+                // Human: Animated GIF/WebP uploads should loop in the MP4 preview output.
+                // Agent: SETS -ignore_loop 0 before `-i` when probing by file extension.
+                command.arg("-ignore_loop").arg("0");
+            }
+        }
+        TranscodeAttempt::Demuxer(format) => {
+            command.arg("-f").arg(format);
+            if format == "gif" {
+                command.arg("-ignore_loop").arg("0");
+            }
+        }
+        TranscodeAttempt::Image2Single => {
+            // Human: Fallback for WebP when extension probing fails on older ffmpeg builds.
+            // Agent: USES image2 single-file mode; READS one .webp path.
+            command
+                .arg("-f")
+                .arg("image2")
+                .arg("-pattern_type")
+                .arg("none");
+        }
     }
-    if force_format == Some("gif") {
-        // Human: Honor GIF loop metadata so animated previews keep looping in MP4 output.
-        // Agent: SETS -ignore_loop 0 before `-i` for gif demuxer inputs.
-        command.arg("-ignore_loop").arg("0");
-    }
+
     command
         .arg("-i")
         .arg(input)
@@ -388,8 +421,13 @@ async fn run_ffmpeg_animation_to_mp4(
 
     let status = child.wait().await.map_err(|e| format!("ffmpeg wait: {e}"))?;
     if !status.success() {
+        let attempt_label = match attempt {
+            TranscodeAttempt::Auto => "auto",
+            TranscodeAttempt::Demuxer(name) => name,
+            TranscodeAttempt::Image2Single => "image2",
+        };
         return Err(format!(
-            "exit={:?} format={force_format:?} stderr={}",
+            "attempt={attempt_label} exit={:?} stderr={}",
             status.code(),
             stderr_lines.join("\n")
         ));
@@ -435,5 +473,13 @@ mod tests {
         );
         assert_eq!(sniff_image_format(b"\xFF\xD8\xFF"), SniffedImageFormat::Jpeg);
         assert_eq!(sniff_image_format(b"NOTAFILE"), SniffedImageFormat::Unknown);
+    }
+
+    #[test]
+    fn transcode_attempts_for_webp_skips_webp_demuxer() {
+        let attempts = transcode_attempts(SniffedImageFormat::WebP);
+        assert_eq!(attempts.len(), 2);
+        assert!(matches!(attempts[0], TranscodeAttempt::Auto));
+        assert!(matches!(attempts[1], TranscodeAttempt::Image2Single));
     }
 }
