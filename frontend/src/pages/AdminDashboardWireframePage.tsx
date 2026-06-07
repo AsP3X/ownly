@@ -8,6 +8,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAdminUrlState } from "@/hooks/useAdminUrlState";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
+import { AdminMobileSidebarSheet } from "@/components/admin/AdminMobileSidebarSheet";
+import { ADMIN_NAV } from "@/components/admin/admin-nav";
 import { AdminSidebar, type AdminNavId } from "@/components/admin/AdminSidebar";
 import { AdminAuditLogsPanel } from "@/components/admin/console/AdminAuditLogsPanel";
 import { AdminKeyManagementPanel } from "@/components/admin/console/AdminKeyManagementPanel";
@@ -17,15 +19,6 @@ import { AdminSystemSettingsPanel } from "@/components/admin/console/AdminSystem
 import { AdminUsersSecurityPanel } from "@/components/admin/console/AdminUsersSecurityPanel";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { Button } from "@/components/ui/button";
-
-const MOBILE_NAV: { id: AdminNavId; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "users-security", label: "Users & Security" },
-  { id: "security-policies", label: "Security Policies" },
-  { id: "storage-nodes", label: "Storage Nodes" },
-  { id: "audit-logs", label: "Audit Logs" },
-  { id: "system-settings", label: "System Settings" },
-];
 
 // Human: Topbar status line per active admin screen (Pencil Topbar Instance descendants).
 // Agent: READS activeNav; RETURNS status string for DriveDesktopTopbar.
@@ -46,6 +39,7 @@ function statusTextForNav(activeNav: AdminNavId): string {
 export default function AdminDashboardWireframePage() {
   const { user, logout } = useAuth();
   const [activeNav, setActiveNav] = useState<AdminNavId>("overview");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // Human: Persist the active admin section in ?section= so reload stays on the same panel.
   // Agent: CALLS useAdminUrlState; WRITES ADMIN_SECTION_PARAM when sidebar changes.
   useAdminUrlState(activeNav, setActiveNav);
@@ -62,35 +56,43 @@ export default function AdminDashboardWireframePage() {
     [user?.email],
   );
   const roleLabel = userRoleLabel(user?.role);
+  const activeNavLabel =
+    ADMIN_NAV.find((item) => item.id === activeNav)?.label ?? "Overview";
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
+      <AdminMobileSidebarSheet
+        open={mobileSidebarOpen}
+        onOpenChange={setMobileSidebarOpen}
+        activeNav={activeNav}
+        onNavChange={setActiveNav}
+      />
+
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
         <AdminSidebar activeNav={activeNav} onNavChange={setActiveNav} />
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          {/* Human: Mobile admin chrome — hamburger opens drawer; title shows active section. */}
+          {/* Agent: lg:hidden only; CALLS setMobileSidebarOpen(true) on menu tap. */}
           <div className="flex items-center gap-2 border-b border-[#E5E7EB] bg-white px-4 py-2 lg:hidden">
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-[#666666] lg:hidden"
-              aria-label="Open section menu"
+              className="shrink-0 text-[#666666]"
+              aria-label="Open admin menu"
+              onClick={() => setMobileSidebarOpen(true)}
             >
               <Menu className="size-5" />
             </Button>
-            <select
-              className="min-w-0 flex-1 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
-              value={activeNav}
-              onChange={(e) => setActiveNav(e.target.value as AdminNavId)}
-              aria-label="Admin section"
-            >
-              {MOBILE_NAV.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-[#888888]">
+                Admin console
+              </p>
+              <h1 className="truncate text-lg font-semibold tracking-tight text-[#1A1A1A]">
+                {activeNavLabel}
+              </h1>
+            </div>
           </div>
 
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden">

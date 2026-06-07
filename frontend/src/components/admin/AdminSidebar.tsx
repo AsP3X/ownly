@@ -3,27 +3,14 @@
 
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import {
-  Cloud,
-  FileText,
-  LayoutDashboard,
-  Server,
-  Settings,
-  Shield,
-  Users,
-} from "lucide-react";
+import { Cloud } from "lucide-react";
 import { useAdminStorageMetrics } from "@/hooks/useAdminStorageMetrics";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
+import { ADMIN_NAV, type AdminNavId } from "@/components/admin/admin-nav";
 
-export type AdminNavId =
-  | "overview"
-  | "users-security"
-  | "security-policies"
-  | "storage-nodes"
-  | "audit-logs"
-  | "system-settings";
+export type { AdminNavId } from "@/components/admin/admin-nav";
 
 type AdminSidebarProps = {
   activeNav: AdminNavId;
@@ -107,23 +94,6 @@ function GlobalCapacityWidget({
     </div>
   );
 }
-
-const ADMIN_NAV: { id: AdminNavId; label: string; icon: ReactNode }[] = [
-  { id: "overview", label: "Overview", icon: <LayoutDashboard className="size-[18px]" strokeWidth={2} /> },
-  { id: "users-security", label: "Users & Security", icon: <Users className="size-[18px]" strokeWidth={2} /> },
-  {
-    id: "security-policies",
-    label: "Security Policies",
-    icon: <Shield className="size-[18px]" strokeWidth={2} />,
-  },
-  { id: "storage-nodes", label: "Storage Nodes", icon: <Server className="size-[18px]" strokeWidth={2} /> },
-  { id: "audit-logs", label: "Audit Logs", icon: <FileText className="size-[18px]" strokeWidth={2} /> },
-  {
-    id: "system-settings",
-    label: "System Settings",
-    icon: <Settings className="size-[18px]" strokeWidth={2} />,
-  },
-];
 
 /** Human: Left rail for /admin — matches Pencil Admin Sidebar on every console frame. */
 export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
