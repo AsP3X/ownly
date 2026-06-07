@@ -1,0 +1,3617 @@
+{
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\.githooks\\pre-commit": {
+    "mtime": 1780427800.1518896,
+    "ast_hash": "0c837941074ecc66ac12b420fe4bbee2",
+    "semantic_hash": "0c837941074ecc66ac12b420fe4bbee2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\001_init.sql": {
+    "mtime": 1779721080.6808999,
+    "ast_hash": "671259983a19c3767428a2db3e731ac3",
+    "semantic_hash": "671259983a19c3767428a2db3e731ac3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\002_video_hls.sql": {
+    "mtime": 1779721080.681909,
+    "ast_hash": "b6a21a207b8717496e28e899f4e6c086",
+    "semantic_hash": "b6a21a207b8717496e28e899f4e6c086"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\003_video_export.sql": {
+    "mtime": 1779721080.681909,
+    "ast_hash": "f9fdad0b1307a982ce1b0dc4c1fb4020",
+    "semantic_hash": "f9fdad0b1307a982ce1b0dc4c1fb4020"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\004_background_jobs.sql": {
+    "mtime": 1779726055.7963014,
+    "ast_hash": "6920d8b77b34e65c7240bf11435f02c4",
+    "semantic_hash": "6920d8b77b34e65c7240bf11435f02c4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\005_job_stale_lock_index.sql": {
+    "mtime": 1779726308.7681415,
+    "ast_hash": "25b916763add86e9b5d9d5e6c34ec8e1",
+    "semantic_hash": "25b916763add86e9b5d9d5e6c34ec8e1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\006_public_shares.sql": {
+    "mtime": 1779729689.2855532,
+    "ast_hash": "58f9bcecb3f6c5775d28309534b6db7d",
+    "semantic_hash": "58f9bcecb3f6c5775d28309534b6db7d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\007_files_search_index.sql": {
+    "mtime": 1779734989.837375,
+    "ast_hash": "d385389feaf2c0000fd766b271863ad1",
+    "semantic_hash": "d385389feaf2c0000fd766b271863ad1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\008_natural_sort.sql": {
+    "mtime": 1779735645.941854,
+    "ast_hash": "232b18990b210daa1898c1600083679f",
+    "semantic_hash": "232b18990b210daa1898c1600083679f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\009_recycle_bin.sql": {
+    "mtime": 1779815653.9911695,
+    "ast_hash": "b31dd6f73cc63932fd38b0e9a301d9da",
+    "semantic_hash": "b31dd6f73cc63932fd38b0e9a301d9da"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\010_public_share_settings.sql": {
+    "mtime": 1780183302.6376526,
+    "ast_hash": "fc0f3f19232008c4585c527b3bdace8e",
+    "semantic_hash": "fc0f3f19232008c4585c527b3bdace8e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\011_resource_user_shares.sql": {
+    "mtime": 1780183302.6542125,
+    "ast_hash": "f4561c8f0b772fc9cd5d8ded9c1a8b84",
+    "semantic_hash": "f4561c8f0b772fc9cd5d8ded9c1a8b84"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\012_audio_waveform.sql": {
+    "mtime": 1780227486.5869563,
+    "ast_hash": "fbf5524154ab866a746fe6f37133ee58",
+    "semantic_hash": "fbf5524154ab866a746fe6f37133ee58"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\013_storage_nodes.sql": {
+    "mtime": 1780245182.5825953,
+    "ast_hash": "7b07757b3aac5284e2f4fffae35deb7d",
+    "semantic_hash": "7b07757b3aac5284e2f4fffae35deb7d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\014_storage_nodes_standalone.sql": {
+    "mtime": 1780265233.5653098,
+    "ast_hash": "cd5bb86199ab1cf48e8bebed822c3761",
+    "semantic_hash": "cd5bb86199ab1cf48e8bebed822c3761"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\015_file_storage_placement.sql": {
+    "mtime": 1780431164.9556937,
+    "ast_hash": "af93adeab0b594861d50f1bd0158ef14",
+    "semantic_hash": "af93adeab0b594861d50f1bd0158ef14"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\016_video_thumbnails.sql": {
+    "mtime": 1780679287.9599037,
+    "ast_hash": "44c37a5196ab2dc05ff914db64c2ce4d",
+    "semantic_hash": "44c37a5196ab2dc05ff914db64c2ce4d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\017_video_thumbnail_progress.sql": {
+    "mtime": 1780684370.5284452,
+    "ast_hash": "cf4cd500dd68211e678c9f7acf7573e9",
+    "semantic_hash": "cf4cd500dd68211e678c9f7acf7573e9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\migrations\\postgres\\018_image_grid_thumbnails.sql": {
+    "mtime": 1780695306.6651168,
+    "ast_hash": "3d2e0ddbc1475037af42823915763336",
+    "semantic_hash": "3d2e0ddbc1475037af42823915763336"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\admin\\console.rs": {
+    "mtime": 1780828510.478044,
+    "ast_hash": "68e0ec3ebc7b82f5b33b06b5d396ead4",
+    "semantic_hash": "68e0ec3ebc7b82f5b33b06b5d396ead4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\admin\\handlers.rs": {
+    "mtime": 1780790538.57627,
+    "ast_hash": "66a7cb5364fe47650cb927955aee1e9c",
+    "semantic_hash": "66a7cb5364fe47650cb927955aee1e9c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\admin\\mod.rs": {
+    "mtime": 1780260512.2168372,
+    "ast_hash": "212000730856b001c41593419733c9c0",
+    "semantic_hash": "212000730856b001c41593419733c9c0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\admin\\storage_nodes.rs": {
+    "mtime": 1780682723.929988,
+    "ast_hash": "297345f2d8f2129eafeda91b8dfc3aec",
+    "semantic_hash": "297345f2d8f2129eafeda91b8dfc3aec"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\audio\\handlers.rs": {
+    "mtime": 1780227486.5879602,
+    "ast_hash": "b60070b5b2eaf892ed06f574d6b37048",
+    "semantic_hash": "b60070b5b2eaf892ed06f574d6b37048"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\audio\\mod.rs": {
+    "mtime": 1780227486.5879602,
+    "ast_hash": "787119805d19d2c4931749a69d5a11a7",
+    "semantic_hash": "787119805d19d2c4931749a69d5a11a7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\audio\\waveform.rs": {
+    "mtime": 1780227486.5879602,
+    "ast_hash": "8d4daa15196cf3ece2bfc1d013374822",
+    "semantic_hash": "8d4daa15196cf3ece2bfc1d013374822"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\audio\\waveform_job.rs": {
+    "mtime": 1780697473.9740636,
+    "ast_hash": "f2c63dc36f91971bf000acfb73076075",
+    "semantic_hash": "f2c63dc36f91971bf000acfb73076075"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\audit.rs": {
+    "mtime": 1780790512.8476932,
+    "ast_hash": "fce0b2de44943e7359acdf62733c06fd",
+    "semantic_hash": "fce0b2de44943e7359acdf62733c06fd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\auth\\handlers.rs": {
+    "mtime": 1780790509.7596717,
+    "ast_hash": "8d486bf51e46453d98d2cde7c33534db",
+    "semantic_hash": "8d486bf51e46453d98d2cde7c33534db"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\auth\\mod.rs": {
+    "mtime": 1780679287.9619026,
+    "ast_hash": "61e86ce3109c7708c2d8590d69e26421",
+    "semantic_hash": "61e86ce3109c7708c2d8590d69e26421"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\browser_guard.rs": {
+    "mtime": 1780790306.5811934,
+    "ast_hash": "413ee00b71dd2990e97964d43caca155",
+    "semantic_hash": "413ee00b71dd2990e97964d43caca155"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\config.rs": {
+    "mtime": 1780790506.347801,
+    "ast_hash": "85294e015b12b561472c8436c722f875",
+    "semantic_hash": "85294e015b12b561472c8436c722f875"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\crypto\\mod.rs": {
+    "mtime": 1780265233.572312,
+    "ast_hash": "d1ed293f68d91c4369c3a7de9d76b996",
+    "semantic_hash": "d1ed293f68d91c4369c3a7de9d76b996"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\db.rs": {
+    "mtime": 1780686491.007637,
+    "ast_hash": "ecbfa56e8422ae01993e4d1ac7389fb5",
+    "semantic_hash": "ecbfa56e8422ae01993e4d1ac7389fb5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\error.rs": {
+    "mtime": 1779732965.4876783,
+    "ast_hash": "0b0e617da2e4afa1b73d495c9a26ac48",
+    "semantic_hash": "0b0e617da2e4afa1b73d495c9a26ac48"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\bulk_download.rs": {
+    "mtime": 1779726172.3072581,
+    "ast_hash": "52f427d82a8e8cda47c1af77e79826ea",
+    "semantic_hash": "52f427d82a8e8cda47c1af77e79826ea"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\delete_config.rs": {
+    "mtime": 1780699221.6979842,
+    "ast_hash": "0a144710a0b8c144ec42b61e7664b519",
+    "semantic_hash": "0a144710a0b8c144ec42b61e7664b519"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\delete_job.rs": {
+    "mtime": 1780699247.9690988,
+    "ast_hash": "32d4c1536e0af70caef2a160b7448518",
+    "semantic_hash": "32d4c1536e0af70caef2a160b7448518"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\file_copy.rs": {
+    "mtime": 1780679287.963902,
+    "ast_hash": "9bc74f709eed87f1912115ae9d6d8e3e",
+    "semantic_hash": "9bc74f709eed87f1912115ae9d6d8e3e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\file_delete.rs": {
+    "mtime": 1780699350.4212227,
+    "ast_hash": "1e86163a71f25d9870c0ee2df7de553a",
+    "semantic_hash": "1e86163a71f25d9870c0ee2df7de553a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\folder_download.rs": {
+    "mtime": 1780790536.071937,
+    "ast_hash": "1bc5cd0306d92e39d0df74e0ef41f335",
+    "semantic_hash": "1bc5cd0306d92e39d0df74e0ef41f335"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\folders.rs": {
+    "mtime": 1780699248.7734058,
+    "ast_hash": "a6b5ba0b511f06dd70b4fc63319d21e9",
+    "semantic_hash": "a6b5ba0b511f06dd70b4fc63319d21e9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\handlers.rs": {
+    "mtime": 1780790535.0181334,
+    "ast_hash": "e9a59bd30c25e82250dd55f9c4ced1ee",
+    "semantic_hash": "e9a59bd30c25e82250dd55f9c4ced1ee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\listing.rs": {
+    "mtime": 1780695329.8550565,
+    "ast_hash": "b39d80f4280862f1cff9bd06a1b67f78",
+    "semantic_hash": "b39d80f4280862f1cff9bd06a1b67f78"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\mod.rs": {
+    "mtime": 1780699208.5558126,
+    "ast_hash": "0f822b35ee5556c03876984d2ed609a5",
+    "semantic_hash": "0f822b35ee5556c03876984d2ed609a5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\processing.rs": {
+    "mtime": 1780227486.5909598,
+    "ast_hash": "7023c0e88b86a7c7a192bf6d8a655420",
+    "semantic_hash": "7023c0e88b86a7c7a192bf6d8a655420"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\recycle_bin.rs": {
+    "mtime": 1780679287.964902,
+    "ast_hash": "eb121da03402e92cc2dee5b598f47a5f",
+    "semantic_hash": "eb121da03402e92cc2dee5b598f47a5f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\upload_validation.rs": {
+    "mtime": 1779818434.5929766,
+    "ast_hash": "88fbb601207e81657b42e04c5d158be5",
+    "semantic_hash": "88fbb601207e81657b42e04c5d158be5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\files\\zip_job.rs": {
+    "mtime": 1780790536.414722,
+    "ast_hash": "88e9e8fe6f481631999ee98f0ee1e309",
+    "semantic_hash": "88e9e8fe6f481631999ee98f0ee1e309"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\health.rs": {
+    "mtime": 1779721080.6844175,
+    "ast_hash": "d7d9788271548c1a597d9089847500e9",
+    "semantic_hash": "d7d9788271548c1a597d9089847500e9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\encode_job.rs": {
+    "mtime": 1780697562.072825,
+    "ast_hash": "b26bbc2fdcb95e8b1e6d2ff77fdf946f",
+    "semantic_hash": "b26bbc2fdcb95e8b1e6d2ff77fdf946f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\encoder.rs": {
+    "mtime": 1780437964.21616,
+    "ast_hash": "5f7441def5a81330d5109785812f6f65",
+    "semantic_hash": "5f7441def5a81330d5109785812f6f65"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\export.rs": {
+    "mtime": 1779813297.1947596,
+    "ast_hash": "35010b2601616eaab99da51ea307c2b4",
+    "semantic_hash": "35010b2601616eaab99da51ea307c2b4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\export_job.rs": {
+    "mtime": 1780684091.4808362,
+    "ast_hash": "95227ad2730b18fa8fabeb26c032339f",
+    "semantic_hash": "95227ad2730b18fa8fabeb26c032339f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\handlers.rs": {
+    "mtime": 1780790535.3580124,
+    "ast_hash": "437c3897c76145462a28cd374bf8d36c",
+    "semantic_hash": "437c3897c76145462a28cd374bf8d36c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\hardware.rs": {
+    "mtime": 1780437874.2669184,
+    "ast_hash": "f8f6502c24020f7ea4979dc294ca1971",
+    "semantic_hash": "f8f6502c24020f7ea4979dc294ca1971"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\key_store.rs": {
+    "mtime": 1780265233.5838249,
+    "ast_hash": "fd3e000412a6df26e98077ed439f00d2",
+    "semantic_hash": "fd3e000412a6df26e98077ed439f00d2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\mod.rs": {
+    "mtime": 1779813297.1957598,
+    "ast_hash": "241d79dd065dd6f6adc376c2cb007c4c",
+    "semantic_hash": "241d79dd065dd6f6adc376c2cb007c4c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\playlist.rs": {
+    "mtime": 1780686491.7299066,
+    "ast_hash": "4a21fd3e1fbfd6ba54b8cef0ea4fc8d4",
+    "semantic_hash": "4a21fd3e1fbfd6ba54b8cef0ea4fc8d4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\probe.rs": {
+    "mtime": 1779749011.2781568,
+    "ast_hash": "7514d165308f9ab4ba3cd0f923a47cb1",
+    "semantic_hash": "7514d165308f9ab4ba3cd0f923a47cb1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\regression.rs": {
+    "mtime": 1780686491.8756192,
+    "ast_hash": "3565befc61f23e7968386be62d14b10e",
+    "semantic_hash": "3565befc61f23e7968386be62d14b10e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\segment_crypto.rs": {
+    "mtime": 1780697458.0865462,
+    "ast_hash": "1f16e76b6fdd8f81840f7feebba73fda",
+    "semantic_hash": "1f16e76b6fdd8f81840f7feebba73fda"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\hls\\segment_upload.rs": {
+    "mtime": 1780435960.651416,
+    "ast_hash": "06b6cc927b90dc913ef02c48c1e830b0",
+    "semantic_hash": "06b6cc927b90dc913ef02c48c1e830b0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\image\\handlers.rs": {
+    "mtime": 1780698088.145035,
+    "ast_hash": "eb9131bf756345956ba281a1e5b0554b",
+    "semantic_hash": "eb9131bf756345956ba281a1e5b0554b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\image\\mod.rs": {
+    "mtime": 1780695306.8262784,
+    "ast_hash": "07dffe068e4b65700d9fc12c901a55b0",
+    "semantic_hash": "07dffe068e4b65700d9fc12c901a55b0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\image\\thumbnail.rs": {
+    "mtime": 1780695365.6886911,
+    "ast_hash": "b88a78d164456702e32d49f74a8305f6",
+    "semantic_hash": "b88a78d164456702e32d49f74a8305f6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\image\\thumbnail_job.rs": {
+    "mtime": 1780701710.568771,
+    "ast_hash": "939bdd9615fa2b7e0b41ba9f28d20625",
+    "semantic_hash": "939bdd9615fa2b7e0b41ba9f28d20625"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\executor.rs": {
+    "mtime": 1780697480.4831576,
+    "ast_hash": "7c990a35d19f3dfe6ec461b13821b0af",
+    "semantic_hash": "7c990a35d19f3dfe6ec461b13821b0af"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\handlers.rs": {
+    "mtime": 1779726085.4639068,
+    "ast_hash": "16a5aabfe3c940b149cb777487763493",
+    "semantic_hash": "16a5aabfe3c940b149cb777487763493"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\mod.rs": {
+    "mtime": 1780679287.966405,
+    "ast_hash": "e1dbd49d513e7b65ae810c5fed1ef562",
+    "semantic_hash": "e1dbd49d513e7b65ae810c5fed1ef562"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\model.rs": {
+    "mtime": 1780697467.7567413,
+    "ast_hash": "6bc8888d5c44672bd1ccdeccdac7e81e",
+    "semantic_hash": "6bc8888d5c44672bd1ccdeccdac7e81e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\store.rs": {
+    "mtime": 1780684380.677549,
+    "ast_hash": "0ef6e16a5c7499ed9a011463fb57ffba",
+    "semantic_hash": "0ef6e16a5c7499ed9a011463fb57ffba"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\jobs\\worker.rs": {
+    "mtime": 1779731362.3835523,
+    "ast_hash": "a2785598e30b72d67a08244ea64d825e",
+    "semantic_hash": "a2785598e30b72d67a08244ea64d825e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\lib.rs": {
+    "mtime": 1780828510.4845815,
+    "ast_hash": "5c0c47865642936436a103021b8824bd",
+    "semantic_hash": "5c0c47865642936436a103021b8824bd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\main.rs": {
+    "mtime": 1780686490.8334453,
+    "ast_hash": "504a0922be3e4bec048dc76862f381c5",
+    "semantic_hash": "504a0922be3e4bec048dc76862f381c5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\outbound_target.rs": {
+    "mtime": 1780790498.668196,
+    "ast_hash": "9c6c75d0db20bb6969e4ae32b5937c4f",
+    "semantic_hash": "9c6c75d0db20bb6969e4ae32b5937c4f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\rate_limit.rs": {
+    "mtime": 1780790512.6719127,
+    "ast_hash": "655567fc196196bd21a87ca910870c11",
+    "semantic_hash": "655567fc196196bd21a87ca910870c11"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\redact.rs": {
+    "mtime": 1779721080.6874175,
+    "ast_hash": "ac396a77b389c568be8fdb1349505ab6",
+    "semantic_hash": "ac396a77b389c568be8fdb1349505ab6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\request_tracking.rs": {
+    "mtime": 1779721080.688418,
+    "ast_hash": "c4baa1cf5cdf91cf4d75cf3123517855",
+    "semantic_hash": "c4baa1cf5cdf91cf4d75cf3123517855"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\setup\\handlers.rs": {
+    "mtime": 1780828510.4760404,
+    "ast_hash": "8aad0f39d7bedac591a04763d2c81f74",
+    "semantic_hash": "8aad0f39d7bedac591a04763d2c81f74"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\setup\\mod.rs": {
+    "mtime": 1780790505.5197806,
+    "ast_hash": "a6c253b05c899ba494cf06a4c6377608",
+    "semantic_hash": "a6c253b05c899ba494cf06a4c6377608"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\setup\\redact.rs": {
+    "mtime": 1780790499.740803,
+    "ast_hash": "47b59927a944884efa43cc7862f61b3f",
+    "semantic_hash": "47b59927a944884efa43cc7862f61b3f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\shares\\handlers.rs": {
+    "mtime": 1780790533.8260143,
+    "ast_hash": "453744090cb62602a721a0a92080b5be",
+    "semantic_hash": "453744090cb62602a721a0a92080b5be"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\shares\\mod.rs": {
+    "mtime": 1779729708.5598562,
+    "ast_hash": "71174181b65f04de5dbadd0f73316724",
+    "semantic_hash": "71174181b65f04de5dbadd0f73316724"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\shares\\store.rs": {
+    "mtime": 1780790526.2008522,
+    "ast_hash": "aa96abccf904ff152d1cffe3053e40f9",
+    "semantic_hash": "aa96abccf904ff152d1cffe3053e40f9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\gated.rs": {
+    "mtime": 1780702696.532913,
+    "ast_hash": "1044fad3c6839bf7e5671b53dd6ccbce",
+    "semantic_hash": "1044fad3c6839bf7e5671b53dd6ccbce"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\memory.rs": {
+    "mtime": 1780699230.8913765,
+    "ast_hash": "be6525b92b03aa7a7251c764fda61c42",
+    "semantic_hash": "be6525b92b03aa7a7251c764fda61c42"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\mod.rs": {
+    "mtime": 1780702696.7461443,
+    "ast_hash": "c62c7d9189170a88fa0df419cae4489d",
+    "semantic_hash": "c62c7d9189170a88fa0df419cae4489d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\nebula.rs": {
+    "mtime": 1780700428.8102589,
+    "ast_hash": "4208ff5fe68c0f340ac5abb3d7946843",
+    "semantic_hash": "4208ff5fe68c0f340ac5abb3d7946843"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\placement.rs": {
+    "mtime": 1780698088.7261312,
+    "ast_hash": "ce703b37368eb61347a899dd73aab49e",
+    "semantic_hash": "ce703b37368eb61347a899dd73aab49e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\put_gate.rs": {
+    "mtime": 1780702695.0849235,
+    "ast_hash": "cf4bbfa3f110696233f69f47689cc85d",
+    "semantic_hash": "cf4bbfa3f110696233f69f47689cc85d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\put_retry.rs": {
+    "mtime": 1780702697.3801062,
+    "ast_hash": "9b4746ef3a94cd6cd9648e9e232cdd76",
+    "semantic_hash": "9b4746ef3a94cd6cd9648e9e232cdd76"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\storage\\router.rs": {
+    "mtime": 1780699232.671166,
+    "ast_hash": "a8438eca64088f4021898bf62a2d1b55",
+    "semantic_hash": "a8438eca64088f4021898bf62a2d1b55"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\stream_ticket.rs": {
+    "mtime": 1779721080.6909256,
+    "ast_hash": "53fecd9d1226a9a073f39b8166f78474",
+    "semantic_hash": "53fecd9d1226a9a073f39b8166f78474"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\user_sessions.rs": {
+    "mtime": 1780236801.0222518,
+    "ast_hash": "21f6a37c1fa17d947c8397c86cbc8090",
+    "semantic_hash": "21f6a37c1fa17d947c8397c86cbc8090"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\video\\handlers.rs": {
+    "mtime": 1780698549.2429757,
+    "ast_hash": "ad5389f686b3be5b471d3af1f5fcfe9f",
+    "semantic_hash": "ad5389f686b3be5b471d3af1f5fcfe9f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\video\\mod.rs": {
+    "mtime": 1780679287.970549,
+    "ast_hash": "5aefa8179dbabef0a14394f80b115435",
+    "semantic_hash": "5aefa8179dbabef0a14394f80b115435"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\video\\thumbnail.rs": {
+    "mtime": 1780679287.970549,
+    "ast_hash": "649f4998931cf1a498c12b3e05d993f5",
+    "semantic_hash": "649f4998931cf1a498c12b3e05d993f5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\src\\video\\thumbnail_job.rs": {
+    "mtime": 1780684377.292772,
+    "ast_hash": "0d26d267324fce0d2915c9667e6e3416",
+    "semantic_hash": "0d26d267324fce0d2915c9667e6e3416"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\backend\\tests\\http_integration.rs": {
+    "mtime": 1780828510.494664,
+    "ast_hash": "c4d018cd3483b280d09f90dd16da2d39",
+    "semantic_hash": "c4d018cd3483b280d09f90dd16da2d39"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\add_comment_to_pending_review.json": {
+    "mtime": 1780511199.8930228,
+    "ast_hash": "6a599ab52753769de49de736e7ddaf25",
+    "semantic_hash": "6a599ab52753769de49de736e7ddaf25"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\add_issue_comment.json": {
+    "mtime": 1780511199.8930228,
+    "ast_hash": "25d5fa380d7e50ebfe5aadeb6ec0ca90",
+    "semantic_hash": "25d5fa380d7e50ebfe5aadeb6ec0ca90"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\add_reply_to_pull_request_comment.json": {
+    "mtime": 1780511199.8943968,
+    "ast_hash": "9e438e558be1c6066be5593e7e63bfeb",
+    "semantic_hash": "9e438e558be1c6066be5593e7e63bfeb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\create_branch.json": {
+    "mtime": 1780511199.8943968,
+    "ast_hash": "b4707d9ab6026d8470f4baabdd228b8d",
+    "semantic_hash": "b4707d9ab6026d8470f4baabdd228b8d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\create_or_update_file.json": {
+    "mtime": 1780511199.8953958,
+    "ast_hash": "1f3b66357428a5aa5da9672d5b3a0219",
+    "semantic_hash": "1f3b66357428a5aa5da9672d5b3a0219"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\create_pull_request.json": {
+    "mtime": 1780511199.8953958,
+    "ast_hash": "9326a027abf0274dd32fa55a37f89d2b",
+    "semantic_hash": "9326a027abf0274dd32fa55a37f89d2b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\create_repository.json": {
+    "mtime": 1780511199.8963966,
+    "ast_hash": "dd3675dd8a1ebe111bcc9cb1471d886b",
+    "semantic_hash": "dd3675dd8a1ebe111bcc9cb1471d886b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\delete_file.json": {
+    "mtime": 1780511199.8963966,
+    "ast_hash": "8029e62b67bd978f96b161fdd765f8aa",
+    "semantic_hash": "8029e62b67bd978f96b161fdd765f8aa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\fork_repository.json": {
+    "mtime": 1780511199.8963966,
+    "ast_hash": "ee58f01fa520555b5aa6fa37251d85c6",
+    "semantic_hash": "ee58f01fa520555b5aa6fa37251d85c6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_commit.json": {
+    "mtime": 1780511199.8963966,
+    "ast_hash": "36957409715adf545a4ea20e0246cd2c",
+    "semantic_hash": "36957409715adf545a4ea20e0246cd2c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_file_contents.json": {
+    "mtime": 1780511199.8979,
+    "ast_hash": "dbb0e906b89f32a56196c441c2f58761",
+    "semantic_hash": "dbb0e906b89f32a56196c441c2f58761"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_label.json": {
+    "mtime": 1780511199.898907,
+    "ast_hash": "c918c5695bac29039de1b63553330769",
+    "semantic_hash": "c918c5695bac29039de1b63553330769"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_latest_release.json": {
+    "mtime": 1780511199.8999064,
+    "ast_hash": "2c10455f20c41dda938aea693158a3a0",
+    "semantic_hash": "2c10455f20c41dda938aea693158a3a0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_me.json": {
+    "mtime": 1780511199.900906,
+    "ast_hash": "b56cc94d9bd66d29ff797c40993ad364",
+    "semantic_hash": "b56cc94d9bd66d29ff797c40993ad364"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_release_by_tag.json": {
+    "mtime": 1780511199.9020722,
+    "ast_hash": "db65651df622c1227a40b1b28ca26cb6",
+    "semantic_hash": "db65651df622c1227a40b1b28ca26cb6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_tag.json": {
+    "mtime": 1780511199.9020722,
+    "ast_hash": "81fa40be2d0b3fa341257e6c7b214c5c",
+    "semantic_hash": "81fa40be2d0b3fa341257e6c7b214c5c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_team_members.json": {
+    "mtime": 1780511199.9030776,
+    "ast_hash": "ad21226a5edbb48d3a906abe7318798f",
+    "semantic_hash": "ad21226a5edbb48d3a906abe7318798f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\get_teams.json": {
+    "mtime": 1780511199.903581,
+    "ast_hash": "46432b3ec11a76c5e0e7559ea95e26bc",
+    "semantic_hash": "46432b3ec11a76c5e0e7559ea95e26bc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\issue_read.json": {
+    "mtime": 1780511199.903581,
+    "ast_hash": "59a997f69913c245aad6f9abbdc73a5a",
+    "semantic_hash": "59a997f69913c245aad6f9abbdc73a5a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\issue_write.json": {
+    "mtime": 1780511199.903581,
+    "ast_hash": "c31d3438604700ec1c340f96698191c4",
+    "semantic_hash": "c31d3438604700ec1c340f96698191c4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_branches.json": {
+    "mtime": 1780511199.9045844,
+    "ast_hash": "1e2da27f25a2e1547bbdaa322c3dbf78",
+    "semantic_hash": "1e2da27f25a2e1547bbdaa322c3dbf78"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_commits.json": {
+    "mtime": 1780511199.9055874,
+    "ast_hash": "3b0dcbaf3491b4cb84a2ac8b09547419",
+    "semantic_hash": "3b0dcbaf3491b4cb84a2ac8b09547419"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_issue_types.json": {
+    "mtime": 1780511199.9055874,
+    "ast_hash": "e1b64ec45d07c06925fe7aac044929bf",
+    "semantic_hash": "e1b64ec45d07c06925fe7aac044929bf"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_issues.json": {
+    "mtime": 1780511199.9065852,
+    "ast_hash": "3e06162bba9a13c3c89ba38a4d948748",
+    "semantic_hash": "3e06162bba9a13c3c89ba38a4d948748"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_pull_requests.json": {
+    "mtime": 1780511199.9065852,
+    "ast_hash": "65ea2a0baf709f09daa88201f1e9d9eb",
+    "semantic_hash": "65ea2a0baf709f09daa88201f1e9d9eb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_releases.json": {
+    "mtime": 1780511199.9065852,
+    "ast_hash": "dce8e9369ecf18d581a4ae11ae36ec32",
+    "semantic_hash": "dce8e9369ecf18d581a4ae11ae36ec32"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_repository_collaborators.json": {
+    "mtime": 1780511199.9080896,
+    "ast_hash": "43747a37ab028b06572271ec34cfd81a",
+    "semantic_hash": "43747a37ab028b06572271ec34cfd81a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\list_tags.json": {
+    "mtime": 1780511199.9080896,
+    "ast_hash": "cf87a714e1b362b6a2a4fae5246a96ea",
+    "semantic_hash": "cf87a714e1b362b6a2a4fae5246a96ea"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\merge_pull_request.json": {
+    "mtime": 1780511199.9080896,
+    "ast_hash": "454f5109ce7c58780594af21f106db4b",
+    "semantic_hash": "454f5109ce7c58780594af21f106db4b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\pull_request_read.json": {
+    "mtime": 1780511199.9090958,
+    "ast_hash": "1b5e40eac8ad144607de4d4b3468848c",
+    "semantic_hash": "1b5e40eac8ad144607de4d4b3468848c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\pull_request_review_write.json": {
+    "mtime": 1780511199.9090958,
+    "ast_hash": "9ec44b15dfa96f273acd469fe2d2c868",
+    "semantic_hash": "9ec44b15dfa96f273acd469fe2d2c868"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\push_files.json": {
+    "mtime": 1780511199.9100957,
+    "ast_hash": "5793b246acb0672f50b83a428c15d16c",
+    "semantic_hash": "5793b246acb0672f50b83a428c15d16c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\request_copilot_review.json": {
+    "mtime": 1780511199.9100957,
+    "ast_hash": "8f8cbfa32654ba5f2508e58d40370c70",
+    "semantic_hash": "8f8cbfa32654ba5f2508e58d40370c70"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_code.json": {
+    "mtime": 1780511199.9110951,
+    "ast_hash": "5dd4698c696b19e6024aec84b43c7f18",
+    "semantic_hash": "5dd4698c696b19e6024aec84b43c7f18"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_commits.json": {
+    "mtime": 1780511199.9120946,
+    "ast_hash": "e2f6f114a3aa3b33081ec3a35494ce53",
+    "semantic_hash": "e2f6f114a3aa3b33081ec3a35494ce53"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_issues.json": {
+    "mtime": 1780511199.9125986,
+    "ast_hash": "0a06fa7049e84ffdf995ac1b39414190",
+    "semantic_hash": "0a06fa7049e84ffdf995ac1b39414190"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_pull_requests.json": {
+    "mtime": 1780511199.9131148,
+    "ast_hash": "50ca5ae2d9be2e2a7e984b1a61398d7c",
+    "semantic_hash": "50ca5ae2d9be2e2a7e984b1a61398d7c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_repositories.json": {
+    "mtime": 1780511199.9131148,
+    "ast_hash": "d4e29838bfd878cb4a113ff410f7f7ae",
+    "semantic_hash": "d4e29838bfd878cb4a113ff410f7f7ae"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\search_users.json": {
+    "mtime": 1780511199.9141207,
+    "ast_hash": "c5edbbfbbd190786ea92b6f90c683615",
+    "semantic_hash": "c5edbbfbbd190786ea92b6f90c683615"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\sub_issue_write.json": {
+    "mtime": 1780511199.91512,
+    "ast_hash": "1fa9e6f8f2d753f9b28198d4738d492c",
+    "semantic_hash": "1fa9e6f8f2d753f9b28198d4738d492c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\update_pull_request.json": {
+    "mtime": 1780511199.91512,
+    "ast_hash": "80867b22d885f8e8d83395c6744dd373",
+    "semantic_hash": "80867b22d885f8e8d83395c6744dd373"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\grok_com_github\\tools\\update_pull_request_branch.json": {
+    "mtime": 1780511199.9161208,
+    "ast_hash": "b33f86e47c459a8ebdf3583b8b90a817",
+    "semantic_hash": "b33f86e47c459a8ebdf3583b8b90a817"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\batch_design.json": {
+    "mtime": 1780511199.9174147,
+    "ast_hash": "d62ffc76cef03ef0a0c3fec74cf7c30e",
+    "semantic_hash": "d62ffc76cef03ef0a0c3fec74cf7c30e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\batch_get.json": {
+    "mtime": 1780511199.917936,
+    "ast_hash": "01dc2037cf34e50857996da12539642d",
+    "semantic_hash": "01dc2037cf34e50857996da12539642d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\export_nodes.json": {
+    "mtime": 1780511199.9184537,
+    "ast_hash": "cda34b91d4eeabd321689a71fc955557",
+    "semantic_hash": "cda34b91d4eeabd321689a71fc955557"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\get_editor_state.json": {
+    "mtime": 1780511199.9189713,
+    "ast_hash": "41c03ac432928924c5f17e7118440c77",
+    "semantic_hash": "41c03ac432928924c5f17e7118440c77"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\get_guidelines.json": {
+    "mtime": 1780511199.919488,
+    "ast_hash": "47ac1a94e9a3a7e417115e570b541f99",
+    "semantic_hash": "47ac1a94e9a3a7e417115e570b541f99"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\get_screenshot.json": {
+    "mtime": 1780511199.9200149,
+    "ast_hash": "5cce79110e99e407a003801f3689002c",
+    "semantic_hash": "5cce79110e99e407a003801f3689002c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\get_variables.json": {
+    "mtime": 1780511199.920557,
+    "ast_hash": "87cb0affc82f671d5b0da36f799d6b28",
+    "semantic_hash": "87cb0affc82f671d5b0da36f799d6b28"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\set_variables.json": {
+    "mtime": 1780511199.9210782,
+    "ast_hash": "e2e89177cbcfc7c1b1839097baec6187",
+    "semantic_hash": "e2e89177cbcfc7c1b1839097baec6187"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\mcps\\pencil\\tools\\snapshot_layout.json": {
+    "mtime": 1780511199.921595,
+    "ast_hash": "8e24b78408d410d4d49e00a3df42f3e0",
+    "semantic_hash": "8e24b78408d410d4d49e00a3df42f3e0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\print_topbar_component.py": {
+    "mtime": 1780230652.5183666,
+    "ast_hash": "69e0101408d75a4f6d6375c08633c0ee",
+    "semantic_hash": "69e0101408d75a4f6d6375c08633c0ee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\components.json": {
+    "mtime": 1779721080.6934302,
+    "ast_hash": "41a73129811d098fec1e6189f4d6a392",
+    "semantic_hash": "41a73129811d098fec1e6189f4d6a392"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\eslint.config.js": {
+    "mtime": 1779721080.694435,
+    "ast_hash": "75a0286de267d5393020e4439ed72f6a",
+    "semantic_hash": "75a0286de267d5393020e4439ed72f6a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\package.json": {
+    "mtime": 1780695686.4061935,
+    "ast_hash": "fb5620924b493fea6df43e12076f905d",
+    "semantic_hash": "fb5620924b493fea6df43e12076f905d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\public\\pdf.worker.min.js": {
+    "mtime": 1780695663.613856,
+    "ast_hash": "daf3628f39bb3fd351408e2d4336ee58",
+    "semantic_hash": "daf3628f39bb3fd351408e2d4336ee58"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\App.tsx": {
+    "mtime": 1780679287.9929247,
+    "ast_hash": "355ebf3ace2c6be77a841edb26ee9158",
+    "semantic_hash": "355ebf3ace2c6be77a841edb26ee9158"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\api\\client.ts": {
+    "mtime": 1780828510.494664,
+    "ast_hash": "f807be4f87daa8242ac6e6fdcb746fec",
+    "semantic_hash": "f807be4f87daa8242ac6e6fdcb746fec"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\RouteLoadingFallback.tsx": {
+    "mtime": 1780227486.6046143,
+    "ast_hash": "281b026d202e43428e56005d8b9e226c",
+    "semantic_hash": "281b026d202e43428e56005d8b9e226c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\AdminSidebar.tsx": {
+    "mtime": 1780333529.4859662,
+    "ast_hash": "8e2bc0a9df96c0d0fa93f984b138bdec",
+    "semantic_hash": "8e2bc0a9df96c0d0fa93f984b138bdec"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminActiveSessionsPanel.tsx": {
+    "mtime": 1780236441.1082885,
+    "ast_hash": "41c48e8572c07865b1bf639eeeb07ef0",
+    "semantic_hash": "41c48e8572c07865b1bf639eeeb07ef0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminAddStorageNodeDialog.tsx": {
+    "mtime": 1780828510.478044,
+    "ast_hash": "66fbc5090c3c1cc57af3e96e7402c774",
+    "semantic_hash": "66fbc5090c3c1cc57af3e96e7402c774"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminAuditLogsPanel.tsx": {
+    "mtime": 1780237332.730005,
+    "ast_hash": "40d1cc8580b83bf34175395df770c407",
+    "semantic_hash": "40d1cc8580b83bf34175395df770c407"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminDeleteUserDialog.tsx": {
+    "mtime": 1780236200.6303332,
+    "ast_hash": "0dfedc5930d3807c32a33a56d275f473",
+    "semantic_hash": "0dfedc5930d3807c32a33a56d275f473"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminEditStorageNodeDialog.tsx": {
+    "mtime": 1780265233.5534916,
+    "ast_hash": "c6f1432a9ca1628354b3c6b0afd33e11",
+    "semantic_hash": "c6f1432a9ca1628354b3c6b0afd33e11"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminEditUserDialogLayout.tsx": {
+    "mtime": 1780236213.174104,
+    "ast_hash": "e3c1c831d7571b10e448cabc66dc167a",
+    "semantic_hash": "e3c1c831d7571b10e448cabc66dc167a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminKeyManagementPanel.tsx": {
+    "mtime": 1780265233.5583057,
+    "ast_hash": "91df383f18c667e62a215a68302a1dcb",
+    "semantic_hash": "91df383f18c667e62a215a68302a1dcb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminOverviewPanel.tsx": {
+    "mtime": 1780237648.3036158,
+    "ast_hash": "5b65ccc8a8463d45fcfa84891864aa15",
+    "semantic_hash": "5b65ccc8a8463d45fcfa84891864aa15"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminStorageNodeDetailDialog.tsx": {
+    "mtime": 1780333529.4869664,
+    "ast_hash": "bfed96dff984b3f011af92d610a3ebab",
+    "semantic_hash": "bfed96dff984b3f011af92d610a3ebab"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminStorageNodesPanel.tsx": {
+    "mtime": 1780828510.477045,
+    "ast_hash": "ed658730798191331540f349ce426d11",
+    "semantic_hash": "ed658730798191331540f349ce426d11"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminSystemSettingsPanel.tsx": {
+    "mtime": 1780265233.5534916,
+    "ast_hash": "3173e16dee0bc65d7687eb83d22be729",
+    "semantic_hash": "3173e16dee0bc65d7687eb83d22be729"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminUserDialogs.tsx": {
+    "mtime": 1780236235.2836351,
+    "ast_hash": "c49176c1e4278deaae3d6ffd2f0f31c0",
+    "semantic_hash": "c49176c1e4278deaae3d6ffd2f0f31c0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\AdminUsersSecurityPanel.tsx": {
+    "mtime": 1780236216.9879985,
+    "ast_hash": "b916ec672a8936419be4b0d2476f3aa0",
+    "semantic_hash": "b916ec672a8936419be4b0d2476f3aa0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\admin\\console\\admin-console-ui.tsx": {
+    "mtime": 1780237314.2968502,
+    "ast_hash": "8d382db80feeabeaeef6fd696300cf0f",
+    "semantic_hash": "8d382db80feeabeaeef6fd696300cf0f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AccountNotActivatedDialog.tsx": {
+    "mtime": 1780679287.9939244,
+    "ast_hash": "7c906b5e4f2c48839846ceee9058fd3c",
+    "semantic_hash": "7c906b5e4f2c48839846ceee9058fd3c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthFooterLink.tsx": {
+    "mtime": 1780174099.062287,
+    "ast_hash": "4b0b6d35b8c3c9cd69616f0a7b4cf7d2",
+    "semantic_hash": "4b0b6d35b8c3c9cd69616f0a7b4cf7d2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthFormCard.tsx": {
+    "mtime": 1780174096.0110824,
+    "ast_hash": "8cb2f4d292507cbd2121576a624cbc34",
+    "semantic_hash": "8cb2f4d292507cbd2121576a624cbc34"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthIconField.tsx": {
+    "mtime": 1780174097.435236,
+    "ast_hash": "2a71b2d28f528d308a1ca42779978652",
+    "semantic_hash": "2a71b2d28f528d308a1ca42779978652"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthPageShell.tsx": {
+    "mtime": 1780174094.0863724,
+    "ast_hash": "5676ba3b448c5bf9ae8f9facc60880f8",
+    "semantic_hash": "5676ba3b448c5bf9ae8f9facc60880f8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthPasswordField.tsx": {
+    "mtime": 1780174098.523774,
+    "ast_hash": "46eb1ab9f29e46c14e76f4c3d9a2568a",
+    "semantic_hash": "46eb1ab9f29e46c14e76f4c3d9a2568a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\AuthSubmitButton.tsx": {
+    "mtime": 1780174099.6995118,
+    "ast_hash": "d39bb12e53da0a4ac09039f289410385",
+    "semantic_hash": "d39bb12e53da0a4ac09039f289410385"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\auth\\RegisterSuccessDialog.tsx": {
+    "mtime": 1780679287.9949255,
+    "ast_hash": "f9c77c0aa04845191aeab6929b19e1a3",
+    "semantic_hash": "f9c77c0aa04845191aeab6929b19e1a3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\AudioPreviewDialog.tsx": {
+    "mtime": 1780227486.6046143,
+    "ast_hash": "4f5492d68efbe8abbd85d454caf76b91",
+    "semantic_hash": "4f5492d68efbe8abbd85d454caf76b91"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\BulkActionsBar.tsx": {
+    "mtime": 1780265233.5534916,
+    "ast_hash": "821db6a7755279f600769a23d41374ef",
+    "semantic_hash": "821db6a7755279f600769a23d41374ef"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ConfirmBulkDeleteDialog.tsx": {
+    "mtime": 1780699260.7503443,
+    "ast_hash": "802eeedaed499a48e68268c088955bfc",
+    "semantic_hash": "802eeedaed499a48e68268c088955bfc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ConfirmDeleteDialog.tsx": {
+    "mtime": 1780699260.2420795,
+    "ast_hash": "a5786ea37343eb5e0d0bd5c5b2c68969",
+    "semantic_hash": "a5786ea37343eb5e0d0bd5c5b2c68969"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\CreateFolderDialog.tsx": {
+    "mtime": 1779721080.7006838,
+    "ast_hash": "c2398622707e7e60fe86a08a43d9e8b9",
+    "semantic_hash": "c2398622707e7e60fe86a08a43d9e8b9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DeleteJobProgress.tsx": {
+    "mtime": 1780699258.9506142,
+    "ast_hash": "491f319737c0955aee396f0e398d30e2",
+    "semantic_hash": "491f319737c0955aee396f0e398d30e2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DownloadTransferPanel.tsx": {
+    "mtime": 1779728344.5059302,
+    "ast_hash": "fc8637d0d98d797c5d73fe34c7f259ba",
+    "semantic_hash": "fc8637d0d98d797c5d73fe34c7f259ba"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveCloudExplorer.tsx": {
+    "mtime": 1780695433.1163714,
+    "ast_hash": "452181b083d621941125a5cb2835d7b8",
+    "semantic_hash": "452181b083d621941125a5cb2835d7b8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveContextMenu.tsx": {
+    "mtime": 1780828510.4760404,
+    "ast_hash": "92d445841097c08d30e5cea76d44e21a",
+    "semantic_hash": "92d445841097c08d30e5cea76d44e21a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveDesktopTopbar.tsx": {
+    "mtime": 1780679287.9969244,
+    "ast_hash": "74917250a80df0d589c5260c72eaf0fe",
+    "semantic_hash": "74917250a80df0d589c5260c72eaf0fe"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveOverviewPanel.tsx": {
+    "mtime": 1780679287.9979415,
+    "ast_hash": "04fd8c0aea88255c24efd9654f2b705e",
+    "semantic_hash": "04fd8c0aea88255c24efd9654f2b705e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveProfileMenu.tsx": {
+    "mtime": 1780679287.9984448,
+    "ast_hash": "5df2e962e25edd3b4aec533a9a4e4405",
+    "semantic_hash": "5df2e962e25edd3b4aec533a9a4e4405"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveProfileTrigger.tsx": {
+    "mtime": 1780234791.0085163,
+    "ast_hash": "adcccf0b9c44bee693755e2e1dcffaee",
+    "semantic_hash": "adcccf0b9c44bee693755e2e1dcffaee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\DriveSidebar.tsx": {
+    "mtime": 1780679287.9984448,
+    "ast_hash": "e541ebfdd6e92206deeb36e090d593d0",
+    "semantic_hash": "e541ebfdd6e92206deeb36e090d593d0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExcelSpreadsheetDialog.tsx": {
+    "mtime": 1780790306.5998023,
+    "ast_hash": "a86b771dee757c6865f37f43f3fcdf6f",
+    "semantic_hash": "a86b771dee757c6865f37f43f3fcdf6f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerGridTiles.tsx": {
+    "mtime": 1780790306.5998023,
+    "ast_hash": "59d827c97b0f0621580da975b92f06a4",
+    "semantic_hash": "59d827c97b0f0621580da975b92f06a4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerImageThumbnail.tsx": {
+    "mtime": 1780696371.4638965,
+    "ast_hash": "cb16ab751c9cc394add5ee95456a0805",
+    "semantic_hash": "cb16ab751c9cc394add5ee95456a0805"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerPdfThumbnail.tsx": {
+    "mtime": 1780694500.1137917,
+    "ast_hash": "30d9c3c008218c845eb90f1fdf0f62d9",
+    "semantic_hash": "30d9c3c008218c845eb90f1fdf0f62d9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerScrollProvider.tsx": {
+    "mtime": 1780694527.8393388,
+    "ast_hash": "774aafb0258b413f0577f07d0c163519",
+    "semantic_hash": "774aafb0258b413f0577f07d0c163519"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerSpreadsheetThumbnail.tsx": {
+    "mtime": 1780790306.6012163,
+    "ast_hash": "d922e463212f37226927d86b7c7d0e0c",
+    "semantic_hash": "d922e463212f37226927d86b7c7d0e0c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ExplorerVideoThumbnail.tsx": {
+    "mtime": 1780696372.8365085,
+    "ast_hash": "caf71c777c5a08ecbe5505446b338683",
+    "semantic_hash": "caf71c777c5a08ecbe5505446b338683"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\FileListView.tsx": {
+    "mtime": 1780828510.4760404,
+    "ast_hash": "531fe0fbb1f15c70882255d6c9398f95",
+    "semantic_hash": "531fe0fbb1f15c70882255d6c9398f95"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\FileProcessingBadge.tsx": {
+    "mtime": 1780265233.5653098,
+    "ast_hash": "a0a888a5b2bbe6cffe6dda4041655e2b",
+    "semantic_hash": "a0a888a5b2bbe6cffe6dda4041655e2b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\FolderPickerDialog.tsx": {
+    "mtime": 1779734183.6241505,
+    "ast_hash": "c4cf5e55c3e697f4f6c88d90f5f79ed2",
+    "semantic_hash": "c4cf5e55c3e697f4f6c88d90f5f79ed2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ImagePreviewDialog.tsx": {
+    "mtime": 1780791991.770859,
+    "ast_hash": "94b001cf05ddb8bd270baa9bb06b2feb",
+    "semantic_hash": "94b001cf05ddb8bd270baa9bb06b2feb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\MobileBottomNav.tsx": {
+    "mtime": 1780266088.930631,
+    "ast_hash": "bafdba534c813daee598583ee9a02438",
+    "semantic_hash": "bafdba534c813daee598583ee9a02438"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\MobileDriveHeader.tsx": {
+    "mtime": 1780679288.0009513,
+    "ast_hash": "966e1ec86d62f26d37cfbef5290a2df5",
+    "semantic_hash": "966e1ec86d62f26d37cfbef5290a2df5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\MobileFileActionsSheet.tsx": {
+    "mtime": 1779827185.6099496,
+    "ast_hash": "bc5ae942da2213afd131f65f69ae7a1d",
+    "semantic_hash": "bc5ae942da2213afd131f65f69ae7a1d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\MobileHomeSection.tsx": {
+    "mtime": 1780828510.4805562,
+    "ast_hash": "2abb9e7f406239d471e578f930196b66",
+    "semantic_hash": "2abb9e7f406239d471e578f930196b66"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\MobileSidebarSheet.tsx": {
+    "mtime": 1780266088.666759,
+    "ast_hash": "688421fe276dca80bc4b24e439440b2d",
+    "semantic_hash": "688421fe276dca80bc4b24e439440b2d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\PdfPreviewDialog.tsx": {
+    "mtime": 1780794690.6821928,
+    "ast_hash": "578ab87fe76efed7ce66a6da7e016f25",
+    "semantic_hash": "578ab87fe76efed7ce66a6da7e016f25"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\RecycleBinPanel.tsx": {
+    "mtime": 1780679288.0029554,
+    "ast_hash": "159aa850342b1e9fa23a5520a950240a",
+    "semantic_hash": "159aa850342b1e9fa23a5520a950240a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ResourceDetailsDialog.tsx": {
+    "mtime": 1780680123.0906942,
+    "ast_hash": "d75b8492548c7441c2ad1c1d9e7b27ab",
+    "semantic_hash": "d75b8492548c7441c2ad1c1d9e7b27ab"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ShareDialog.tsx": {
+    "mtime": 1780183302.6542125,
+    "ast_hash": "3c0b66fa37da2c519ef727c71e10c992",
+    "semantic_hash": "3c0b66fa37da2c519ef727c71e10c992"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\ShareLinksPanel.tsx": {
+    "mtime": 1779830978.4386835,
+    "ast_hash": "411f19c42ef43a56986a685c2be877d9",
+    "semantic_hash": "411f19c42ef43a56986a685c2be877d9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\SharedFilesPanel.tsx": {
+    "mtime": 1780266211.1205423,
+    "ast_hash": "7eb095f4b1ce23ddeb975b7d618462b1",
+    "semantic_hash": "7eb095f4b1ce23ddeb975b7d618462b1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\SharedIndicator.tsx": {
+    "mtime": 1779730322.24266,
+    "ast_hash": "12e8410c97a46db12f95dafb95f501f2",
+    "semantic_hash": "12e8410c97a46db12f95dafb95f501f2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\TextCodeEditorDialog.tsx": {
+    "mtime": 1780679288.0039568,
+    "ast_hash": "3ff47da824ed6cee9cc2dd0d25343720",
+    "semantic_hash": "3ff47da824ed6cee9cc2dd0d25343720"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\TransferPanelStack.tsx": {
+    "mtime": 1780177410.1788335,
+    "ast_hash": "55a2216e0125d4ceffad98b30a9b5dfd",
+    "semantic_hash": "55a2216e0125d4ceffad98b30a9b5dfd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\UploadDialog.tsx": {
+    "mtime": 1780434007.0550544,
+    "ast_hash": "e25b192b02729b7b294df52e712b12f0",
+    "semantic_hash": "e25b192b02729b7b294df52e712b12f0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\UploadDuplicateDialog.tsx": {
+    "mtime": 1779816849.9877026,
+    "ast_hash": "6de751ebce5a230f1904cae22afa3e60",
+    "semantic_hash": "6de751ebce5a230f1904cae22afa3e60"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\UploadTransferPanel.tsx": {
+    "mtime": 1780699934.34527,
+    "ast_hash": "232aa0fb1ead37cef5cf53b296167bb5",
+    "semantic_hash": "232aa0fb1ead37cef5cf53b296167bb5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\VideoPreviewDialog.tsx": {
+    "mtime": 1780701220.5560343,
+    "ast_hash": "d748fe1745e7fa1de49940ab902065c8",
+    "semantic_hash": "d748fe1745e7fa1de49940ab902065c8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\VideoThumbnailEditorDialog.tsx": {
+    "mtime": 1780680044.7026372,
+    "ast_hash": "46f7dbfa5b515c2d9a0d705db3832192",
+    "semantic_hash": "46f7dbfa5b515c2d9a0d705db3832192"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\VideoThumbnailPicker.tsx": {
+    "mtime": 1780684387.1685247,
+    "ast_hash": "5eaf7e33fb155c14708b7248c92b8eba",
+    "semantic_hash": "5eaf7e33fb155c14708b7248c92b8eba"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\AudioSeekBar.tsx": {
+    "mtime": 1780227486.6076136,
+    "ast_hash": "c5ee99ddab6c2ef9a09acbaee61910b2",
+    "semantic_hash": "c5ee99ddab6c2ef9a09acbaee61910b2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\LightAudioPlayer.tsx": {
+    "mtime": 1780227486.6076136,
+    "ast_hash": "2632755d121a9a3ac04cc8b7104b63cc",
+    "semantic_hash": "2632755d121a9a3ac04cc8b7104b63cc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\MobileAudioPlayerCard.tsx": {
+    "mtime": 1780227486.6076136,
+    "ast_hash": "810c4b9c4eafe8a0c50f48ba1d3ed3ed",
+    "semantic_hash": "810c4b9c4eafe8a0c50f48ba1d3ed3ed"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\MobileAudioPlayerSheet.tsx": {
+    "mtime": 1780227486.6086137,
+    "ast_hash": "16232582d56db1bdf39a5c94afa414f4",
+    "semantic_hash": "16232582d56db1bdf39a5c94afa414f4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\audio-buffered.ts": {
+    "mtime": 1779824680.2961159,
+    "ast_hash": "db6da838bc0717791099e2d3d0063d75",
+    "semantic_hash": "db6da838bc0717791099e2d3d0063d75"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\audio-seek-teardrop.tsx": {
+    "mtime": 1780178919.7405694,
+    "ast_hash": "e50d74d986e31b9eb5fe22ea75eafef2",
+    "semantic_hash": "e50d74d986e31b9eb5fe22ea75eafef2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\audio-time.ts": {
+    "mtime": 1779824680.2153375,
+    "ast_hash": "078a342ff139441d9440079fb7582599",
+    "semantic_hash": "078a342ff139441d9440079fb7582599"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\audio-waveform-bars.tsx": {
+    "mtime": 1780227486.6086137,
+    "ast_hash": "9ed3115a166348b198fbae77a1e80c35",
+    "semantic_hash": "9ed3115a166348b198fbae77a1e80c35"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\audio\\useAudioTransport.ts": {
+    "mtime": 1780227486.6086137,
+    "ast_hash": "991095ad5869bd0a901d201849472d79",
+    "semantic_hash": "991095ad5869bd0a901d201849472d79"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelConditionalFormatMenu.tsx": {
+    "mtime": 1780679288.0059555,
+    "ast_hash": "fce3f68005f8adb5c0bab1848bfe487f",
+    "semantic_hash": "fce3f68005f8adb5c0bab1848bfe487f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelCopilotSidebar.tsx": {
+    "mtime": 1780790306.6022215,
+    "ast_hash": "dd7dd1b7f6f9dfba78d00f6d2fdda1c5",
+    "semantic_hash": "dd7dd1b7f6f9dfba78d00f6d2fdda1c5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelDialogHeader.tsx": {
+    "mtime": 1780790306.6022215,
+    "ast_hash": "6fafc0171e0eb37366cf3f4195ed31ae",
+    "semantic_hash": "6fafc0171e0eb37366cf3f4195ed31ae"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelFormulaBar.tsx": {
+    "mtime": 1780679288.0059555,
+    "ast_hash": "301e0d8c27e82dd20b80e441f6444763",
+    "semantic_hash": "301e0d8c27e82dd20b80e441f6444763"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelSheetTabsBar.tsx": {
+    "mtime": 1780679288.0069551,
+    "ast_hash": "bbeb29c2f94603ef8d0b7688e9d8503b",
+    "semantic_hash": "bbeb29c2f94603ef8d0b7688e9d8503b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelSpreadsheetGrid.tsx": {
+    "mtime": 1780679288.0069551,
+    "ast_hash": "c91dcae12b330a8130e01f920f9cf32c",
+    "semantic_hash": "c91dcae12b330a8130e01f920f9cf32c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelSpreadsheetRibbon.tsx": {
+    "mtime": 1780679288.007955,
+    "ast_hash": "770669513c61eeec6a20988876758f1a",
+    "semantic_hash": "770669513c61eeec6a20988876758f1a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\ExcelStatusBar.tsx": {
+    "mtime": 1780679288.007955,
+    "ast_hash": "ab121da8d0c1cc034d2f04d9aa1590ce",
+    "semantic_hash": "ab121da8d0c1cc034d2f04d9aa1590ce"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\excel\\excel-dialog-scale.ts": {
+    "mtime": 1780790306.6032224,
+    "ast_hash": "d20e609f6c40f38c38e948cac36e2ce1",
+    "semantic_hash": "d20e609f6c40f38c38e948cac36e2ce1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\explorer-scroll-context.ts": {
+    "mtime": 1780694527.3257127,
+    "ast_hash": "3bc9569992d69a79bb47bbba64b205b3",
+    "semantic_hash": "3bc9569992d69a79bb47bbba64b205b3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\lazy-explorer-pdf-thumbnail.tsx": {
+    "mtime": 1780679288.007955,
+    "ast_hash": "bede7f25ad0e71db75c03b3d0d23c6a1",
+    "semantic_hash": "bede7f25ad0e71db75c03b3d0d23c6a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\lazy-explorer-spreadsheet-thumbnail.tsx": {
+    "mtime": 1780790306.6032224,
+    "ast_hash": "e64f09806bfc4b20a9adf7c7fee0f6de",
+    "semantic_hash": "e64f09806bfc4b20a9adf7c7fee0f6de"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\pdf\\PdfPreviewDialogDesktop.tsx": {
+    "mtime": 1780794662.5673964,
+    "ast_hash": "e3e7978df8f6cfb0ec98ae8f60f76149",
+    "semantic_hash": "e3e7978df8f6cfb0ec98ae8f60f76149"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\pdf\\PdfPreviewSurfaceMobile.tsx": {
+    "mtime": 1780794684.029252,
+    "ast_hash": "52c16ba1e26697e6e734653d571d59f6",
+    "semantic_hash": "52c16ba1e26697e6e734653d571d59f6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\pdf\\pdf-preview-constants.ts": {
+    "mtime": 1780794592.381937,
+    "ast_hash": "fef8625fb1ec0d217f42044adb5f5453",
+    "semantic_hash": "fef8625fb1ec0d217f42044adb5f5453"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\pdf\\pdf-preview-types.ts": {
+    "mtime": 1780794626.8653612,
+    "ast_hash": "c16ae6c6a4c82ce9fe0b9dae3fbdce5d",
+    "semantic_hash": "c16ae6c6a4c82ce9fe0b9dae3fbdce5d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\pdf\\usePdfPreviewController.ts": {
+    "mtime": 1780794694.6369808,
+    "ast_hash": "7bb74477dc6bfd81725c6e169445f119",
+    "semantic_hash": "7bb74477dc6bfd81725c6e169445f119"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\CodeEditorHeader.tsx": {
+    "mtime": 1780679288.0089557,
+    "ast_hash": "9dbe19661e11bab5593a927f77290f7a",
+    "semantic_hash": "9dbe19661e11bab5593a927f77290f7a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\CodeEditorStatusBar.tsx": {
+    "mtime": 1780679288.0089557,
+    "ast_hash": "5fa59ad93e09fbabf18b36c2a7fe7662",
+    "semantic_hash": "5fa59ad93e09fbabf18b36c2a7fe7662"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\CodeEditorSurface.tsx": {
+    "mtime": 1780679288.009956,
+    "ast_hash": "10e26675e19839359c27c9c021273e2d",
+    "semantic_hash": "10e26675e19839359c27c9c021273e2d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\EditorSearchPanel.tsx": {
+    "mtime": 1780679288.009956,
+    "ast_hash": "29dff2d37d105cceee60396dce7c1734",
+    "semantic_hash": "29dff2d37d105cceee60396dce7c1734"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\EditorSettingsPanel.tsx": {
+    "mtime": 1780679288.009956,
+    "ast_hash": "8092357efbcee4bf290cad5a66586f28",
+    "semantic_hash": "8092357efbcee4bf290cad5a66586f28"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\EditorThemeProvider.tsx": {
+    "mtime": 1780679288.009956,
+    "ast_hash": "0a929cbbda07b55d0fa07f43b2275f8e",
+    "semantic_hash": "0a929cbbda07b55d0fa07f43b2275f8e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\editorThemeContext.ts": {
+    "mtime": 1780679288.011459,
+    "ast_hash": "a701044ce86f079a7b605e5ff3dba6b7",
+    "semantic_hash": "a701044ce86f079a7b605e5ff3dba6b7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\text-code-editor\\useCodeEditorTheme.ts": {
+    "mtime": 1780679288.0120344,
+    "ast_hash": "640767e40048087688524e92a39308e3",
+    "semantic_hash": "640767e40048087688524e92a39308e3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\upload-batch-view.tsx": {
+    "mtime": 1780699928.4184082,
+    "ast_hash": "9499273fb03d1bebb57bd3c674bcb51f",
+    "semantic_hash": "9499273fb03d1bebb57bd3c674bcb51f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\VideoPlayerSurface.tsx": {
+    "mtime": 1780701242.0141091,
+    "ast_hash": "254187a7825f42e5a10456d4f09f0d6a",
+    "semantic_hash": "254187a7825f42e5a10456d4f09f0d6a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\VideoPlayerSurfaceMobile.tsx": {
+    "mtime": 1780265374.1406708,
+    "ast_hash": "00348b2a612489f04f67f011b312234d",
+    "semantic_hash": "00348b2a612489f04f67f011b312234d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\VideoSeekBar.tsx": {
+    "mtime": 1780184230.199383,
+    "ast_hash": "4d50d168fca5d99dd1e3c6e124a1ccfa",
+    "semantic_hash": "4d50d168fca5d99dd1e3c6e124a1ccfa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\useVideoTransport.ts": {
+    "mtime": 1780265382.5412555,
+    "ast_hash": "749dcfc7c6b08014d9a0666e8980d1a6",
+    "semantic_hash": "749dcfc7c6b08014d9a0666e8980d1a6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\video-dialog-viewport.ts": {
+    "mtime": 1780701241.1132927,
+    "ast_hash": "ddc4834b5c4b3fbfda6d8698591e1d4b",
+    "semantic_hash": "ddc4834b5c4b3fbfda6d8698591e1d4b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\video-fullscreen.ts": {
+    "mtime": 1780265357.98555,
+    "ast_hash": "966cfa4fc5da8f9177815bbb9c168711",
+    "semantic_hash": "966cfa4fc5da8f9177815bbb9c168711"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\drive\\video\\video-time.ts": {
+    "mtime": 1780183302.6446605,
+    "ast_hash": "7d2a95694ef7ad6913d1f70e3f95f492",
+    "semantic_hash": "7d2a95694ef7ad6913d1f70e3f95f492"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingBrandLogo.tsx": {
+    "mtime": 1780175643.8003798,
+    "ast_hash": "7140b0aada632f3dbacc6eefbc2a825c",
+    "semantic_hash": "7140b0aada632f3dbacc6eefbc2a825c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingCtaSection.tsx": {
+    "mtime": 1780175653.3841643,
+    "ast_hash": "85ea5ab205e7c5ca7ac72295b6fb9839",
+    "semantic_hash": "85ea5ab205e7c5ca7ac72295b6fb9839"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingFeaturesSection.tsx": {
+    "mtime": 1780175652.570345,
+    "ast_hash": "b05000657f16ca4d985c3cfc49344e21",
+    "semantic_hash": "b05000657f16ca4d985c3cfc49344e21"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingFooter.tsx": {
+    "mtime": 1780175965.479854,
+    "ast_hash": "874c337d758ab28cb7f52b634a497389",
+    "semantic_hash": "874c337d758ab28cb7f52b634a497389"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingHeader.tsx": {
+    "mtime": 1780175963.7549307,
+    "ast_hash": "22e9db57405ff51b838ba89033f20bc3",
+    "semantic_hash": "22e9db57405ff51b838ba89033f20bc3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingHero.tsx": {
+    "mtime": 1780175649.8637967,
+    "ast_hash": "53e0cfc30a978a2166dae620510781c1",
+    "semantic_hash": "53e0cfc30a978a2166dae620510781c1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\landing\\LandingProductMockup.tsx": {
+    "mtime": 1780175647.6687677,
+    "ast_hash": "39b5ab361790506a63f4c263b37c3825",
+    "semantic_hash": "39b5ab361790506a63f4c263b37c3825"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\marketing\\MarketingCtaSection.tsx": {
+    "mtime": 1780175960.9629374,
+    "ast_hash": "1ddf7fcae54344c46835a933e5d5f488",
+    "semantic_hash": "1ddf7fcae54344c46835a933e5d5f488"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\marketing\\MarketingHeroSection.tsx": {
+    "mtime": 1780175960.0348232,
+    "ast_hash": "8727100ba6649e6c865fd879b49faf16",
+    "semantic_hash": "8727100ba6649e6c865fd879b49faf16"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\marketing\\MarketingPageShell.tsx": {
+    "mtime": 1780175958.945783,
+    "ast_hash": "eda56b734d251fad98d1764419e56130",
+    "semantic_hash": "eda56b734d251fad98d1764419e56130"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfilePersonalDetailsCard.tsx": {
+    "mtime": 1780679288.0130386,
+    "ast_hash": "669991deba1ab35e91181f3d0797c5f7",
+    "semantic_hash": "669991deba1ab35e91181f3d0797c5f7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfilePreferencesCard.tsx": {
+    "mtime": 1780679288.0130386,
+    "ast_hash": "6b20108dab96c03498bd6e027cf91cd9",
+    "semantic_hash": "6b20108dab96c03498bd6e027cf91cd9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfileSectionNav.tsx": {
+    "mtime": 1780679288.013592,
+    "ast_hash": "962c25afc27077a504a602dd4210f49b",
+    "semantic_hash": "962c25afc27077a504a602dd4210f49b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfileSecurityCard.tsx": {
+    "mtime": 1780679288.013592,
+    "ast_hash": "851d14f8387a02d6a9045fc53c5be022",
+    "semantic_hash": "851d14f8387a02d6a9045fc53c5be022"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfileSessionsCard.tsx": {
+    "mtime": 1780679288.013592,
+    "ast_hash": "dafcaaf1433e141b015bfd39346c17ff",
+    "semantic_hash": "dafcaaf1433e141b015bfd39346c17ff"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\ProfileSummaryCard.tsx": {
+    "mtime": 1780679288.013592,
+    "ast_hash": "d5c4f001995e1d2025a447e79cda8380",
+    "semantic_hash": "d5c4f001995e1d2025a447e79cda8380"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\profile\\profile-ui.tsx": {
+    "mtime": 1780679288.013592,
+    "ast_hash": "19bca2b12729acda875e7bd0f5cefb35",
+    "semantic_hash": "19bca2b12729acda875e7bd0f5cefb35"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareCreatorInfoCard.tsx": {
+    "mtime": 1780227486.6096137,
+    "ast_hash": "1ca37c66994d3195a812b0159aaf3cc5",
+    "semantic_hash": "1ca37c66994d3195a812b0159aaf3cc5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareExplorer.tsx": {
+    "mtime": 1780679288.0150957,
+    "ast_hash": "06550bf5f208a359d714b9cbcef7c120",
+    "semantic_hash": "06550bf5f208a359d714b9cbcef7c120"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareHeader.tsx": {
+    "mtime": 1780227486.6106138,
+    "ast_hash": "f9f3b55d269768bd9f655592214a6f78",
+    "semantic_hash": "f9f3b55d269768bd9f655592214a6f78"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareInfoSheet.tsx": {
+    "mtime": 1780227486.6106138,
+    "ast_hash": "e0b6718c8c35e2f33b3c21007b194282",
+    "semantic_hash": "e0b6718c8c35e2f33b3c21007b194282"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareInlineAudio.tsx": {
+    "mtime": 1780227486.6106138,
+    "ast_hash": "c5ce8d005db2b45099ba1568892c5c6a",
+    "semantic_hash": "c5ce8d005db2b45099ba1568892c5c6a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareInlineImage.tsx": {
+    "mtime": 1780791991.7718613,
+    "ast_hash": "d3ae6fc5f4e53329af26fb3a97e3c131",
+    "semantic_hash": "d3ae6fc5f4e53329af26fb3a97e3c131"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareInlinePdf.tsx": {
+    "mtime": 1780266551.956439,
+    "ast_hash": "40d0c878b4a395b67d5dc4352ceb3734",
+    "semantic_hash": "40d0c878b4a395b67d5dc4352ceb3734"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareInlineVideo.tsx": {
+    "mtime": 1780183302.6542125,
+    "ast_hash": "eb83b361689af142345c35f248354684",
+    "semantic_hash": "eb83b361689af142345c35f248354684"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareMobileActionStack.tsx": {
+    "mtime": 1780227486.612117,
+    "ast_hash": "e194f86cc5bf319c1a048084e5f7e71d",
+    "semantic_hash": "e194f86cc5bf319c1a048084e5f7e71d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicSharePageLayout.tsx": {
+    "mtime": 1780227486.612117,
+    "ast_hash": "965c071232ee1dc08fc5bd3997cad5b8",
+    "semantic_hash": "965c071232ee1dc08fc5bd3997cad5b8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicSharePasswordGate.tsx": {
+    "mtime": 1780183302.6365063,
+    "ast_hash": "de2578306bd77d8aa832219cb5eebac9",
+    "semantic_hash": "de2578306bd77d8aa832219cb5eebac9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicSharePromoBanner.tsx": {
+    "mtime": 1780227486.613121,
+    "ast_hash": "6ccb1efd9caf41fabded92c90ce69950",
+    "semantic_hash": "6ccb1efd9caf41fabded92c90ce69950"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareSecurityBadge.tsx": {
+    "mtime": 1780227486.613121,
+    "ast_hash": "27d4c88d932ffc95bc577ed5b65549a5",
+    "semantic_hash": "27d4c88d932ffc95bc577ed5b65549a5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\PublicShareSidebar.tsx": {
+    "mtime": 1780227486.613121,
+    "ast_hash": "467f88bd6c0882a0923328a862b490ae",
+    "semantic_hash": "467f88bd6c0882a0923328a862b490ae"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\lazy-inline-previews.tsx": {
+    "mtime": 1780227486.613121,
+    "ast_hash": "30a5de5628af64eae6ebc3783f54c6d7",
+    "semantic_hash": "30a5de5628af64eae6ebc3783f54c6d7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\public-share\\public-share-file-styles.ts": {
+    "mtime": 1780183302.6522114,
+    "ast_hash": "1efb4b6cd0707093a589632b4d186433",
+    "semantic_hash": "1efb4b6cd0707093a589632b4d186433"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupActionsRow.tsx": {
+    "mtime": 1780175193.8279755,
+    "ast_hash": "30d032154f87d66425b083616b583902",
+    "semantic_hash": "30d032154f87d66425b083616b583902"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupConnectionUrlBox.tsx": {
+    "mtime": 1780175194.8974426,
+    "ast_hash": "d43ad6518d73d4e9407135e6c3e519c2",
+    "semantic_hash": "d43ad6518d73d4e9407135e6c3e519c2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupDbStatusBanner.tsx": {
+    "mtime": 1780175195.7824507,
+    "ast_hash": "54cde994f44eb88fb3cdceb61d7d092e",
+    "semantic_hash": "54cde994f44eb88fb3cdceb61d7d092e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupErrorBanner.tsx": {
+    "mtime": 1780175196.9582171,
+    "ast_hash": "f9b29e4cc4f6c25d72de91f11572603a",
+    "semantic_hash": "f9b29e4cc4f6c25d72de91f11572603a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupField.tsx": {
+    "mtime": 1780175191.8034768,
+    "ast_hash": "26a277a6067620383cc83f93c99b8c99",
+    "semantic_hash": "26a277a6067620383cc83f93c99b8c99"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupFormCard.tsx": {
+    "mtime": 1780175190.8334415,
+    "ast_hash": "d010173bb27dd62af8b32a1d38487252",
+    "semantic_hash": "d010173bb27dd62af8b32a1d38487252"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupHeader.tsx": {
+    "mtime": 1780250803.0765355,
+    "ast_hash": "84e3fbd585215df5c78250c8c3619d10",
+    "semantic_hash": "84e3fbd585215df5c78250c8c3619d10"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupNoticeBox.tsx": {
+    "mtime": 1780175194.3279283,
+    "ast_hash": "99918e923b056f39ae5e5ef8c87d2130",
+    "semantic_hash": "99918e923b056f39ae5e5ef8c87d2130"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupOutlineButton.tsx": {
+    "mtime": 1780251021.424762,
+    "ast_hash": "b1b5d114f5cc39e49ad4915b0975470f",
+    "semantic_hash": "b1b5d114f5cc39e49ad4915b0975470f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupPageShell.tsx": {
+    "mtime": 1780175188.0277524,
+    "ast_hash": "c69f46f49669f99485a8ffa39d6bc702",
+    "semantic_hash": "c69f46f49669f99485a8ffa39d6bc702"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupStorageNodeDialog.tsx": {
+    "mtime": 1780828510.477045,
+    "ast_hash": "8bcc7dcfa40808bdf2d93d8c0c4db5f7",
+    "semantic_hash": "8bcc7dcfa40808bdf2d93d8c0c4db5f7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\setup\\SetupToggleRow.tsx": {
+    "mtime": 1780236189.6585577,
+    "ast_hash": "28876e550b3f8891c9744a10a16d5ecd",
+    "semantic_hash": "28876e550b3f8891c9744a10a16d5ecd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\alert.tsx": {
+    "mtime": 1779721080.702182,
+    "ast_hash": "f021f4bb38892a00e3241a9d9b3b0c88",
+    "semantic_hash": "f021f4bb38892a00e3241a9d9b3b0c88"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\badge-variants.ts": {
+    "mtime": 1779721080.702182,
+    "ast_hash": "9c2eb7d095c00e8f6915535028d4fcbc",
+    "semantic_hash": "9c2eb7d095c00e8f6915535028d4fcbc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\badge.tsx": {
+    "mtime": 1779721080.702182,
+    "ast_hash": "65da4d21689faa3bbe5f3641cd27726b",
+    "semantic_hash": "65da4d21689faa3bbe5f3641cd27726b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\button-variants.ts": {
+    "mtime": 1779721080.702182,
+    "ast_hash": "7e825bf6478cfe9a362796a93f8f494c",
+    "semantic_hash": "7e825bf6478cfe9a362796a93f8f494c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\button.tsx": {
+    "mtime": 1779721080.702182,
+    "ast_hash": "11fa326a1e3434906fa84647b4ffddc7",
+    "semantic_hash": "11fa326a1e3434906fa84647b4ffddc7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\card.tsx": {
+    "mtime": 1779721080.703691,
+    "ast_hash": "8f76ff8792fcc170abb37369c0bae27a",
+    "semantic_hash": "8f76ff8792fcc170abb37369c0bae27a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\context-menu.tsx": {
+    "mtime": 1780179576.7566402,
+    "ast_hash": "581f18b74cb440154573077ba10b2284",
+    "semantic_hash": "581f18b74cb440154573077ba10b2284"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\dialog.tsx": {
+    "mtime": 1780177383.6507845,
+    "ast_hash": "199c7136b192729a262e23db1009b851",
+    "semantic_hash": "199c7136b192729a262e23db1009b851"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\input.tsx": {
+    "mtime": 1779721080.703691,
+    "ast_hash": "5c7e20e48722dffc870a15a40a4c81b6",
+    "semantic_hash": "5c7e20e48722dffc870a15a40a4c81b6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\label.tsx": {
+    "mtime": 1779721080.7046952,
+    "ast_hash": "846ea324a95e1784f9131d7684c16b4d",
+    "semantic_hash": "846ea324a95e1784f9131d7684c16b4d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\progress.tsx": {
+    "mtime": 1779721080.7046952,
+    "ast_hash": "e705ee735cfb38801f9730bfb41084ef",
+    "semantic_hash": "e705ee735cfb38801f9730bfb41084ef"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\separator.tsx": {
+    "mtime": 1779721080.7046952,
+    "ast_hash": "7b117afaf2d605e2eac090690475a5f3",
+    "semantic_hash": "7b117afaf2d605e2eac090690475a5f3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\sheet.tsx": {
+    "mtime": 1780227486.613121,
+    "ast_hash": "71776f16064da341940a937853a384af",
+    "semantic_hash": "71776f16064da341940a937853a384af"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\components\\ui\\switch.tsx": {
+    "mtime": 1779721080.7046952,
+    "ast_hash": "7c5e4f9ded33407347da555c6082d0a7",
+    "semantic_hash": "7c5e4f9ded33407347da555c6082d0a7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\context\\AuthContext.tsx": {
+    "mtime": 1780686496.6798043,
+    "ast_hash": "8a42ea3c17e826fa528fe8e129cc174f",
+    "semantic_hash": "8a42ea3c17e826fa528fe8e129cc174f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\context\\InstanceNameContext.tsx": {
+    "mtime": 1780679288.0161004,
+    "ast_hash": "8885dbdc10415807e4881b929b790eb3",
+    "semantic_hash": "8885dbdc10415807e4881b929b790eb3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\context\\auth-context.ts": {
+    "mtime": 1779721080.7056954,
+    "ast_hash": "eec36b67bd429b52c0bdb2547f4f6d81",
+    "semantic_hash": "eec36b67bd429b52c0bdb2547f4f6d81"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\context\\instance-name-context.ts": {
+    "mtime": 1780679288.0161004,
+    "ast_hash": "f1f515638cfd98e35bedfa075a8c79fe",
+    "semantic_hash": "f1f515638cfd98e35bedfa075a8c79fe"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useAdminStorageMetrics.ts": {
+    "mtime": 1780333529.487967,
+    "ast_hash": "979a2e7410a2b6dc455bb4854c8a59e1",
+    "semantic_hash": "979a2e7410a2b6dc455bb4854c8a59e1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useAdminUrlState.ts": {
+    "mtime": 1780679288.0161004,
+    "ast_hash": "49d86fa4f522204539791e5142ea5c90",
+    "semantic_hash": "49d86fa4f522204539791e5142ea5c90"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useAuth.ts": {
+    "mtime": 1779721080.7056954,
+    "ast_hash": "68927d1ae1c457864db0217b731852b5",
+    "semantic_hash": "68927d1ae1c457864db0217b731852b5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useDriveUrlState.ts": {
+    "mtime": 1780679288.017189,
+    "ast_hash": "7ca2d904f9b9a89d36ca73f5204b6555",
+    "semantic_hash": "7ca2d904f9b9a89d36ca73f5204b6555"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useExplorerGridThumbnail.ts": {
+    "mtime": 1780698089.1736667,
+    "ast_hash": "0a4501a92a85e315f77ffd5fccaa881d",
+    "semantic_hash": "0a4501a92a85e315f77ffd5fccaa881d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useExplorerScrollRoot.ts": {
+    "mtime": 1780694528.198153,
+    "ast_hash": "0217ddda7320fc3056c4569aced74e2f",
+    "semantic_hash": "0217ddda7320fc3056c4569aced74e2f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useExplorerTileVisible.ts": {
+    "mtime": 1780697025.9967434,
+    "ast_hash": "71ace5f2897bba7d7502f798e295cc5e",
+    "semantic_hash": "71ace5f2897bba7d7502f798e295cc5e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useInstanceName.ts": {
+    "mtime": 1780679288.017189,
+    "ast_hash": "8cda39777b51ff9081492ab39b783f63",
+    "semantic_hash": "8cda39777b51ff9081492ab39b783f63"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useIsDesktopExcelViewport.ts": {
+    "mtime": 1780790306.6032224,
+    "ast_hash": "eb7ed268b794d1ae8435839269cf2539",
+    "semantic_hash": "eb7ed268b794d1ae8435839269cf2539"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useNarrowVideoLayout.ts": {
+    "mtime": 1780185262.6269457,
+    "ast_hash": "f90affed440779b866ffa33cff711fba",
+    "semantic_hash": "f90affed440779b866ffa33cff711fba"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\hooks\\useVideoPlayerLayout.ts": {
+    "mtime": 1780184636.531243,
+    "ast_hash": "2aaf7c2e7950a0c8f078b391c039706f",
+    "semantic_hash": "2aaf7c2e7950a0c8f078b391c039706f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\account-activation.ts": {
+    "mtime": 1780679288.017189,
+    "ast_hash": "2d9406ad662d9f07d60009d00a861054",
+    "semantic_hash": "2d9406ad662d9f07d60009d00a861054"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\app-location-state.ts": {
+    "mtime": 1780679288.017189,
+    "ast_hash": "98669180d5010a39b74acc375a09ef9c",
+    "semantic_hash": "98669180d5010a39b74acc375a09ef9c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\confirm-dialog-layout.ts": {
+    "mtime": 1779726849.9438226,
+    "ast_hash": "5661ff63721768b3099cc7080a1f9629",
+    "semantic_hash": "5661ff63721768b3099cc7080a1f9629"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\delete-with-progress.ts": {
+    "mtime": 1780679288.018313,
+    "ast_hash": "df0becb777a3469b5d0cf46f71d7dc6b",
+    "semantic_hash": "df0becb777a3469b5d0cf46f71d7dc6b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\download-manager.ts": {
+    "mtime": 1779829169.1488872,
+    "ast_hash": "bc9b8d0cb94aa32b387c5ccb84fc37fd",
+    "semantic_hash": "bc9b8d0cb94aa32b387c5ccb84fc37fd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\drive-preferences.ts": {
+    "mtime": 1780686497.0635686,
+    "ast_hash": "264afa68d04028dc38202de8a2f8285f",
+    "semantic_hash": "264afa68d04028dc38202de8a2f8285f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\dynamic-import-preview.tsx": {
+    "mtime": 1780679288.018313,
+    "ast_hash": "388ff765a3267bd12bafd94181e08d7e",
+    "semantic_hash": "388ff765a3267bd12bafd94181e08d7e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\encryption-standards.ts": {
+    "mtime": 1780437888.0120137,
+    "ast_hash": "357053686da561d57a11996b13f751b2",
+    "semantic_hash": "357053686da561d57a11996b13f751b2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-file-list-updates.ts": {
+    "mtime": 1780695813.5013297,
+    "ast_hash": "2106037ab3236a81aa7d6c277a893ccd",
+    "semantic_hash": "2106037ab3236a81aa7d6c277a893ccd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail-cache.ts": {
+    "mtime": 1780697022.8481934,
+    "ast_hash": "ac5b7c4967f913d294972c54248de56b",
+    "semantic_hash": "ac5b7c4967f913d294972c54248de56b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail-loader.ts": {
+    "mtime": 1780698551.718598,
+    "ast_hash": "7c309eb43ad85fff698fc5c085d4bb70",
+    "semantic_hash": "7c309eb43ad85fff698fc5c085d4bb70"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail-prefetch.ts": {
+    "mtime": 1780697025.2263403,
+    "ast_hash": "586f5cb1c25834aca4078273dd8c807f",
+    "semantic_hash": "586f5cb1c25834aca4078273dd8c807f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail-queue.ts": {
+    "mtime": 1780697025.5804267,
+    "ast_hash": "bb2eabac1ee77908bf23fb423dfbc238",
+    "semantic_hash": "bb2eabac1ee77908bf23fb423dfbc238"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail-resize.ts": {
+    "mtime": 1780695444.2634077,
+    "ast_hash": "cd2664f686ac9e75cb18ce708de37d82",
+    "semantic_hash": "cd2664f686ac9e75cb18ce708de37d82"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\explorer-thumbnail.worker.ts": {
+    "mtime": 1780695444.2634077,
+    "ast_hash": "0295d9abc8a3821c6d45c5add42a2747",
+    "semantic_hash": "0295d9abc8a3821c6d45c5add42a2747"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\file-processing.ts": {
+    "mtime": 1780265233.5683136,
+    "ast_hash": "423b1303cf1b23677f94271e9f83ed63",
+    "semantic_hash": "423b1303cf1b23677f94271e9f83ed63"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\hls-player.ts": {
+    "mtime": 1779814998.6814923,
+    "ast_hash": "1579e96e2e6e1bb6461563383eae85c8",
+    "semantic_hash": "1579e96e2e6e1bb6461563383eae85c8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\instance-name.ts": {
+    "mtime": 1780265233.562308,
+    "ast_hash": "99358d5cf818477ed3861d070ad822d2",
+    "semantic_hash": "99358d5cf818477ed3861d070ad822d2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\lazy-named.ts": {
+    "mtime": 1780227486.6146238,
+    "ast_hash": "4ac7db68a59bab632b1d4697e298a861",
+    "semantic_hash": "4ac7db68a59bab632b1d4697e298a861"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\nebular-storage-docs.ts": {
+    "mtime": 1780437848.6025927,
+    "ast_hash": "752d286e9dcbe887c9fcc18f9eed1779",
+    "semantic_hash": "752d286e9dcbe887c9fcc18f9eed1779"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\pdf-search.ts": {
+    "mtime": 1780269363.3537948,
+    "ast_hash": "5ca4e00fee56c29b01aaee1a9acd9337",
+    "semantic_hash": "5ca4e00fee56c29b01aaee1a9acd9337"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\pdf-viewer.ts": {
+    "mtime": 1779819776.0965397,
+    "ast_hash": "6119843cae7530e91b754c8836657a93",
+    "semantic_hash": "6119843cae7530e91b754c8836657a93"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\prefetch-route-chunks.ts": {
+    "mtime": 1780679288.018313,
+    "ast_hash": "0b7a9ad28affdc4d7292c3f917e7c074",
+    "semantic_hash": "0b7a9ad28affdc4d7292c3f917e7c074"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\profile-details-storage.ts": {
+    "mtime": 1780679288.019313,
+    "ast_hash": "8aea9f98a521cc28e14a919cdac7bc85",
+    "semantic_hash": "8aea9f98a521cc28e14a919cdac7bc85"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\profile-format.ts": {
+    "mtime": 1780679288.019313,
+    "ast_hash": "3caa82027b69de4384549200682a5abd",
+    "semantic_hash": "3caa82027b69de4384549200682a5abd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\profile-sessions-storage.ts": {
+    "mtime": 1780679288.019313,
+    "ast_hash": "93a77c46516543f230177002a92167b7",
+    "semantic_hash": "93a77c46516543f230177002a92167b7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\public-share-download.ts": {
+    "mtime": 1780183302.6365063,
+    "ast_hash": "370bd650a418e343d6f9e548c7cd6d65",
+    "semantic_hash": "370bd650a418e343d6f9e548c7cd6d65"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\public-share-format.ts": {
+    "mtime": 1780183302.6416547,
+    "ast_hash": "f8cb0c0607dcd163d91bbf2f6825d19c",
+    "semantic_hash": "f8cb0c0607dcd163d91bbf2f6825d19c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\public-share-selection.ts": {
+    "mtime": 1780183302.6354985,
+    "ast_hash": "e5ef8a7263eb04386550ed0f300c1d47",
+    "semantic_hash": "e5ef8a7263eb04386550ed0f300c1d47"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\setup-status-cache.ts": {
+    "mtime": 1780686497.1271863,
+    "ast_hash": "dc84094280a1c8f67c4066f701a2354d",
+    "semantic_hash": "dc84094280a1c8f67c4066f701a2354d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\share-access.ts": {
+    "mtime": 1780183302.6365063,
+    "ast_hash": "c75b77c86cae7d3c08bf147cc2c9a2ff",
+    "semantic_hash": "c75b77c86cae7d3c08bf147cc2c9a2ff"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\shared-files-format.ts": {
+    "mtime": 1780266031.3058944,
+    "ast_hash": "2b3ca2361cb9a58a50ca1f57d7e8bf82",
+    "semantic_hash": "2b3ca2361cb9a58a50ca1f57d7e8bf82"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\cell-styles.ts": {
+    "mtime": 1780679288.020315,
+    "ast_hash": "743112d75e187baa5eca31948be2bd08",
+    "semantic_hash": "743112d75e187baa5eca31948be2bd08"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\cells.ts": {
+    "mtime": 1780679288.020315,
+    "ast_hash": "8464195b3abf6a79786cba83f7b8f6f8",
+    "semantic_hash": "8464195b3abf6a79786cba83f7b8f6f8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\cf-formula.ts": {
+    "mtime": 1780679288.0213127,
+    "ast_hash": "739bd2c70ac639fa1ac3c48e2cc0fd00",
+    "semantic_hash": "739bd2c70ac639fa1ac3c48e2cc0fd00"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\conditional-formatting.ts": {
+    "mtime": 1780679288.0218563,
+    "ast_hash": "ecc4e0fb9018aa041d4cbe4575b645c7",
+    "semantic_hash": "ecc4e0fb9018aa041d4cbe4575b645c7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\copilot.ts": {
+    "mtime": 1780679288.0218563,
+    "ast_hash": "c8d3c263b0d0a9ed6be377544a4b4c53",
+    "semantic_hash": "c8d3c263b0d0a9ed6be377544a4b4c53"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\dimensions.ts": {
+    "mtime": 1780679288.0218563,
+    "ast_hash": "581fd676e970a7f832ba6a352810c514",
+    "semantic_hash": "581fd676e970a7f832ba6a352810c514"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\grid.ts": {
+    "mtime": 1780679288.0218563,
+    "ast_hash": "1ad83cc9f1eb4f3ab762066f1a894f9d",
+    "semantic_hash": "1ad83cc9f1eb4f3ab762066f1a894f9d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\parse.ts": {
+    "mtime": 1780679288.0228603,
+    "ast_hash": "2a54df50b7ad9eb218c8808ea9c3b867",
+    "semantic_hash": "2a54df50b7ad9eb218c8808ea9c3b867"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\stats.ts": {
+    "mtime": 1780679288.0228603,
+    "ast_hash": "5a1aba85192b8690de00be010c75b4dd",
+    "semantic_hash": "5a1aba85192b8690de00be010c75b4dd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\types.ts": {
+    "mtime": 1780679288.0228603,
+    "ast_hash": "3260ec71dfe4822908a4afd9729ca4e1",
+    "semantic_hash": "3260ec71dfe4822908a4afd9729ca4e1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\spreadsheet\\xlsx-ooxml.ts": {
+    "mtime": 1780679288.02386,
+    "ast_hash": "460789451a3624523b381c868e8bce96",
+    "semantic_hash": "460789451a3624523b381c868e8bce96"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\text-code-editor\\highlight.tsx": {
+    "mtime": 1780679288.02386,
+    "ast_hash": "73de378e997e1f49627109191e915215",
+    "semantic_hash": "73de378e997e1f49627109191e915215"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\text-code-editor\\language.ts": {
+    "mtime": 1780679288.02486,
+    "ast_hash": "f6e240407c4f97d145e8757b0d26604f",
+    "semantic_hash": "f6e240407c4f97d145e8757b0d26604f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\text-code-editor\\search.ts": {
+    "mtime": 1780268126.959992,
+    "ast_hash": "21e986c9d59e3658f24583e9dab32c91",
+    "semantic_hash": "21e986c9d59e3658f24583e9dab32c91"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\text-code-editor\\theme.ts": {
+    "mtime": 1780679288.02486,
+    "ast_hash": "a8709048df25a758f8c22002fc4ed0a1",
+    "semantic_hash": "a8709048df25a758f8c22002fc4ed0a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\upload-conflicts.ts": {
+    "mtime": 1779816875.5440328,
+    "ast_hash": "149fe52fdaee3b9b1afd0a0a4ab6fb7b",
+    "semantic_hash": "149fe52fdaee3b9b1afd0a0a4ab6fb7b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\upload-manager.ts": {
+    "mtime": 1780702704.7760582,
+    "ast_hash": "c32460a123cd7136efa18b7eea6dd30f",
+    "semantic_hash": "c32460a123cd7136efa18b7eea6dd30f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\upload-pipeline.ts": {
+    "mtime": 1780702704.9431753,
+    "ast_hash": "56c5b614c5210e1d55c338d374658ad6",
+    "semantic_hash": "56c5b614c5210e1d55c338d374658ad6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\upload-storage-capacity.ts": {
+    "mtime": 1780433939.1876526,
+    "ast_hash": "fb9c1c5c144c53dafb90e2a4ac9eaf36",
+    "semantic_hash": "fb9c1c5c144c53dafb90e2a4ac9eaf36"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\utils-app.ts": {
+    "mtime": 1780828510.4760404,
+    "ast_hash": "ad611ca2e8299ca041130494004c11d5",
+    "semantic_hash": "ad611ca2e8299ca041130494004c11d5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\lib\\utils.ts": {
+    "mtime": 1779721080.7076955,
+    "ast_hash": "e36ba0ac761014f09c24ea929e36a174",
+    "semantic_hash": "e36ba0ac761014f09c24ea929e36a174"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\main.tsx": {
+    "mtime": 1779721080.7076955,
+    "ast_hash": "ca10e9484314c4ccbb59175bc89b06a2",
+    "semantic_hash": "ca10e9484314c4ccbb59175bc89b06a2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\AdminDashboardWireframePage.tsx": {
+    "mtime": 1780679288.0258596,
+    "ast_hash": "0855d6c52b4ce2aae60079fe48f35433",
+    "semantic_hash": "0855d6c52b4ce2aae60079fe48f35433"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\DrivePage.tsx": {
+    "mtime": 1780697042.0857427,
+    "ast_hash": "9a2409c8bf20d74d174e69749bd849a6",
+    "semantic_hash": "9a2409c8bf20d74d174e69749bd849a6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\FaqPage.tsx": {
+    "mtime": 1780265233.5653098,
+    "ast_hash": "bcfbd181e69689b0f6cc1fdc497b5fa7",
+    "semantic_hash": "bcfbd181e69689b0f6cc1fdc497b5fa7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\FeaturesPage.tsx": {
+    "mtime": 1780437905.8614626,
+    "ast_hash": "7371a1af30f9d98869569e7f2032bb36",
+    "semantic_hash": "7371a1af30f9d98869569e7f2032bb36"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\LandingPage.tsx": {
+    "mtime": 1780175966.0100782,
+    "ast_hash": "237ef13cc07f89c5cae1dc1292d19c4f",
+    "semantic_hash": "237ef13cc07f89c5cae1dc1292d19c4f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\LoginPage.tsx": {
+    "mtime": 1780679288.027363,
+    "ast_hash": "8843e53be881cb5df80edb70c5b654fa",
+    "semantic_hash": "8843e53be881cb5df80edb70c5b654fa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\NebularOsSpecsPage.tsx": {
+    "mtime": 1780437900.507624,
+    "ast_hash": "ea5383c9117fe78b263c8aef40084656",
+    "semantic_hash": "ea5383c9117fe78b263c8aef40084656"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\NotFoundPage.tsx": {
+    "mtime": 1780679288.027363,
+    "ast_hash": "feeccede19a57774def63a97f68ab24a",
+    "semantic_hash": "feeccede19a57774def63a97f68ab24a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\PricingPage.tsx": {
+    "mtime": 1780437901.1164298,
+    "ast_hash": "2044f9da55e5db15e5d295b0b3838d33",
+    "semantic_hash": "2044f9da55e5db15e5d295b0b3838d33"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\ProfilePage.tsx": {
+    "mtime": 1780679288.0279899,
+    "ast_hash": "0c2ad84c2f506186c673fa719a86d3ba",
+    "semantic_hash": "0c2ad84c2f506186c673fa719a86d3ba"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\PublicSharePage.tsx": {
+    "mtime": 1780790723.181192,
+    "ast_hash": "49c80b7de9b6c4b744d5dbc154ca435e",
+    "semantic_hash": "49c80b7de9b6c4b744d5dbc154ca435e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\RegisterPage.tsx": {
+    "mtime": 1780679288.0295055,
+    "ast_hash": "77eaf1b9347cfde11a208fb84fbfd0b7",
+    "semantic_hash": "77eaf1b9347cfde11a208fb84fbfd0b7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\SecurityPage.tsx": {
+    "mtime": 1780437903.5283449,
+    "ast_hash": "79281e5d133e316e41dc9a31de3bfda5",
+    "semantic_hash": "79281e5d133e316e41dc9a31de3bfda5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\SettingsPage.tsx": {
+    "mtime": 1780679288.0295055,
+    "ast_hash": "a87e6d1a22a86db657b839406cbe1333",
+    "semantic_hash": "a87e6d1a22a86db657b839406cbe1333"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\SetupPage.tsx": {
+    "mtime": 1780828510.477045,
+    "ast_hash": "14e1340f1755410887fb0bd73709097f",
+    "semantic_hash": "14e1340f1755410887fb0bd73709097f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\pages\\StorageSpecsPage.tsx": {
+    "mtime": 1780686498.3213787,
+    "ast_hash": "a531a93d98c0bcb2894194977eb35d99",
+    "semantic_hash": "a531a93d98c0bcb2894194977eb35d99"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\tsconfig.app.json": {
+    "mtime": 1779721080.7087524,
+    "ast_hash": "415a097210dfe4b674ef2786cfdb6dfb",
+    "semantic_hash": "415a097210dfe4b674ef2786cfdb6dfb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\tsconfig.json": {
+    "mtime": 1779721080.7097516,
+    "ast_hash": "852c3a5df14a4b43ac28e9554ebedf4a",
+    "semantic_hash": "852c3a5df14a4b43ac28e9554ebedf4a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\tsconfig.node.json": {
+    "mtime": 1779721080.7097516,
+    "ast_hash": "1cd4c6b260b0dccbad5bc0a25029f390",
+    "semantic_hash": "1cd4c6b260b0dccbad5bc0a25029f390"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\vite.config.test.ts": {
+    "mtime": 1780679288.0305057,
+    "ast_hash": "ad1c7f35f8d299eac3de258150988ffe",
+    "semantic_hash": "ad1c7f35f8d299eac3de258150988ffe"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\vite.config.ts": {
+    "mtime": 1780679288.0305057,
+    "ast_hash": "be59b26733e5f335bcbd9fed747440e9",
+    "semantic_hash": "be59b26733e5f335bcbd9fed747440e9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\init-env.sh": {
+    "mtime": 1780686504.739604,
+    "ast_hash": "0363f8cb7098124b70754ea09573856f",
+    "semantic_hash": "0363f8cb7098124b70754ea09573856f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\AppState.swift": {
+    "mtime": 1780686517.9181998,
+    "ast_hash": "65b57f2f3b1035ec52fae3d7ba807e99",
+    "semantic_hash": "65b57f2f3b1035ec52fae3d7ba807e99"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\ContentView.swift": {
+    "mtime": 1780686517.9192076,
+    "ast_hash": "d1df2340f273c0e20550db16867a2ce1",
+    "semantic_hash": "d1df2340f273c0e20550db16867a2ce1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\MainTab.swift": {
+    "mtime": 1779813297.2007596,
+    "ast_hash": "438005ccf133c5bcdeea87332c1c30e8",
+    "semantic_hash": "438005ccf133c5bcdeea87332c1c30e8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\OwnlyApp.swift": {
+    "mtime": 1780686517.9202075,
+    "ast_hash": "b99cb50f5513a30c0fd24f1bb4ae92d9",
+    "semantic_hash": "b99cb50f5513a30c0fd24f1bb4ae92d9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\RootView.swift": {
+    "mtime": 1780686517.921206,
+    "ast_hash": "09dc7e34fdb9c90c87664c584d563e13",
+    "semantic_hash": "09dc7e34fdb9c90c87664c584d563e13"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\App\\SplashView.swift": {
+    "mtime": 1780686517.922204,
+    "ast_hash": "fd7b3620b548ca74be4174f03aec23ef",
+    "semantic_hash": "fd7b3620b548ca74be4174f03aec23ef"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Assets.xcassets\\AccentColor.colorset\\Contents.json": {
+    "mtime": 1779742771.4176633,
+    "ast_hash": "717410c2ec60638dbad0179db85de523",
+    "semantic_hash": "717410c2ec60638dbad0179db85de523"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Assets.xcassets\\AppIcon.appiconset\\Contents.json": {
+    "mtime": 1779742771.241014,
+    "ast_hash": "3fea4acf7bf98e859a3a8794b04eaf8b",
+    "semantic_hash": "3fea4acf7bf98e859a3a8794b04eaf8b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Assets.xcassets\\Contents.json": {
+    "mtime": 1779742770.9631267,
+    "ast_hash": "788c7c19fd10833acb82f96c0eaaaf00",
+    "semantic_hash": "788c7c19fd10833acb82f96c0eaaaf00"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\AuthFlowController.swift": {
+    "mtime": 1780686517.9312267,
+    "ast_hash": "8f27c99fff7d517c39fdb2193b44a1ea",
+    "semantic_hash": "8f27c99fff7d517c39fdb2193b44a1ea"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\AuthModels.swift": {
+    "mtime": 1780686517.9322238,
+    "ast_hash": "d06c329f2e6c0e772231235b12cd5969",
+    "semantic_hash": "d06c329f2e6c0e772231235b12cd5969"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\AuthService.swift": {
+    "mtime": 1780686517.9322238,
+    "ast_hash": "110ef95de3fc514d631d3f2ab832c8da",
+    "semantic_hash": "110ef95de3fc514d631d3f2ab832c8da"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\AuthTokenStorage.swift": {
+    "mtime": 1780686517.9332268,
+    "ast_hash": "de97b4b281c8dea1233e5b4e6b7554a6",
+    "semantic_hash": "de97b4b281c8dea1233e5b4e6b7554a6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\LoginView.swift": {
+    "mtime": 1780686517.9347343,
+    "ast_hash": "35d0cf0f62f16d95d5401879d98ac09f",
+    "semantic_hash": "35d0cf0f62f16d95d5401879d98ac09f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\RegisterView.swift": {
+    "mtime": 1780686517.9347343,
+    "ast_hash": "aca7a3c4a5f53b3e33312d1b3fc7cdee",
+    "semantic_hash": "aca7a3c4a5f53b3e33312d1b3fc7cdee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Auth\\UserProfileStorage.swift": {
+    "mtime": 1780686517.936253,
+    "ast_hash": "502fa16a538d410723c505a2f2296556",
+    "semantic_hash": "502fa16a538d410723c505a2f2296556"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\API\\DriveModels.swift": {
+    "mtime": 1780686517.9377687,
+    "ast_hash": "4283f99229c6499877a744d0e8269425",
+    "semantic_hash": "4283f99229c6499877a744d0e8269425"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\API\\DriveService.swift": {
+    "mtime": 1780686517.939289,
+    "ast_hash": "1a6e15d069486321d238196f77570eb5",
+    "semantic_hash": "1a6e15d069486321d238196f77570eb5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\API\\OwnlyJSON.swift": {
+    "mtime": 1780686517.9402888,
+    "ast_hash": "7cbb16d6cf4c89318fc054f47f69a33c",
+    "semantic_hash": "7cbb16d6cf4c89318fc054f47f69a33c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\API\\UploadService.swift": {
+    "mtime": 1780686517.9412947,
+    "ast_hash": "73eebc48370221faa523a79b7665997b",
+    "semantic_hash": "73eebc48370221faa523a79b7665997b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\AppIdentity.swift": {
+    "mtime": 1780686517.9448104,
+    "ast_hash": "cb16b4c500506dd030e7dd86379b928f",
+    "semantic_hash": "cb16b4c500506dd030e7dd86379b928f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\Network\\ConnectivityMonitor.swift": {
+    "mtime": 1780686517.9433002,
+    "ast_hash": "99e705e0a8455eaf74ffa8cb38b9c4a6",
+    "semantic_hash": "99e705e0a8455eaf74ffa8cb38b9c4a6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Core\\OrientationLock.swift": {
+    "mtime": 1780686517.9448104,
+    "ast_hash": "b18c54154ed70def120a7a3eaa73fee3",
+    "semantic_hash": "b18c54154ed70def120a7a3eaa73fee3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Design\\LiquidGlassTabBar.swift": {
+    "mtime": 1780686517.9473355,
+    "ast_hash": "01b6b8ef2e53f5de596fe87f5a06aca9",
+    "semantic_hash": "01b6b8ef2e53f5de596fe87f5a06aca9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Design\\OwnlyDesign.swift": {
+    "mtime": 1780686517.9493353,
+    "ast_hash": "c3aaea2477fca20cde995fb41762ee2e",
+    "semantic_hash": "c3aaea2477fca20cde995fb41762ee2e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveConnectionErrorView.swift": {
+    "mtime": 1779813297.207254,
+    "ast_hash": "af3c4e00e50b8f0ec19bdab10d23b5c0",
+    "semantic_hash": "af3c4e00e50b8f0ec19bdab10d23b5c0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveExplorerHeader.swift": {
+    "mtime": 1779813297.2087572,
+    "ast_hash": "18dac69a319ef785ed652800e4e245bf",
+    "semantic_hash": "18dac69a319ef785ed652800e4e245bf"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveExplorerStyle.swift": {
+    "mtime": 1780686517.9519336,
+    "ast_hash": "81acb5a3bf7e8d2e03f826ee62194ed6",
+    "semantic_hash": "81acb5a3bf7e8d2e03f826ee62194ed6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveFavouritesStore.swift": {
+    "mtime": 1780686517.952934,
+    "ast_hash": "8fec59de7fd2154e7bcfe51abcb808f6",
+    "semantic_hash": "8fec59de7fd2154e7bcfe51abcb808f6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveItemActionSheets.swift": {
+    "mtime": 1779813297.209761,
+    "ast_hash": "17f57056129713987dd568000e4cb6c1",
+    "semantic_hash": "17f57056129713987dd568000e4cb6c1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveTopLevelCache.swift": {
+    "mtime": 1780686517.956442,
+    "ast_hash": "095e6da09bb3cdb2c9c5f0eb51a4eaee",
+    "semantic_hash": "095e6da09bb3cdb2c9c5f0eb51a4eaee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\DriveViewModel.swift": {
+    "mtime": 1779813297.209761,
+    "ast_hash": "53d0faa214cffadbb13fe970a67c6d6d",
+    "semantic_hash": "53d0faa214cffadbb13fe970a67c6d6d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\FileExplorerListView.swift": {
+    "mtime": 1779813297.209761,
+    "ast_hash": "f31833ccb2391544e93719440d8fd4b0",
+    "semantic_hash": "f31833ccb2391544e93719440d8fd4b0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\FileFormatting.swift": {
+    "mtime": 1779813297.2107618,
+    "ast_hash": "4d2d4493f4fb5522a81291eff99ae9e6",
+    "semantic_hash": "4d2d4493f4fb5522a81291eff99ae9e6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\FileTypeIconView.swift": {
+    "mtime": 1779813297.2107618,
+    "ast_hash": "18a8b1234db4089439ac82c18ecdabfe",
+    "semantic_hash": "18a8b1234db4089439ac82c18ecdabfe"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\FilesView.swift": {
+    "mtime": 1780686517.960455,
+    "ast_hash": "a56907ab01f761ac63574f9424b66662",
+    "semantic_hash": "a56907ab01f761ac63574f9424b66662"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Files\\RecentFilesCardView.swift": {
+    "mtime": 1780686517.9629622,
+    "ast_hash": "6f82cfd7b24c6e6be9f704fc1c591d29",
+    "semantic_hash": "6f82cfd7b24c6e6be9f704fc1c591d29"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Settings\\MainSettingsView.swift": {
+    "mtime": 1780686517.9649718,
+    "ast_hash": "1f832d0bd1c0cf9f9d57f2b924b7b784",
+    "semantic_hash": "1f832d0bd1c0cf9f9d57f2b924b7b784"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Upload\\UploadFilePicker.swift": {
+    "mtime": 1780686517.9649718,
+    "ast_hash": "d8deb18b5cac662b2e5a9799e0dfcf27",
+    "semantic_hash": "d8deb18b5cac662b2e5a9799e0dfcf27"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Upload\\UploadManager.swift": {
+    "mtime": 1780686517.9664764,
+    "ast_hash": "125da43c2c9bae14b45414b73151390e",
+    "semantic_hash": "125da43c2c9bae14b45414b73151390e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Upload\\UploadModels.swift": {
+    "mtime": 1779813297.2131035,
+    "ast_hash": "8b31e7239edd963bb5d91cf28c2418f1",
+    "semantic_hash": "8b31e7239edd963bb5d91cf28c2418f1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Upload\\UploadTransferViews.swift": {
+    "mtime": 1779813297.2131035,
+    "ast_hash": "28a9fc51df69bbf33dd9c39e04873aa2",
+    "semantic_hash": "28a9fc51df69bbf33dd9c39e04873aa2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Video\\OwnlyAVPlayerView.swift": {
+    "mtime": 1780686517.9685044,
+    "ast_hash": "2fe3aeacf0207cf98a0eb1b1668cf1f5",
+    "semantic_hash": "2fe3aeacf0207cf98a0eb1b1668cf1f5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Video\\VideoPlayerView.swift": {
+    "mtime": 1780686517.9705114,
+    "ast_hash": "28ead50a5471d9b234e9db338496e8b2",
+    "semantic_hash": "28ead50a5471d9b234e9db338496e8b2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Features\\Video\\VideoPlayerViewModel.swift": {
+    "mtime": 1779813297.2141037,
+    "ast_hash": "d8830a094d53c562b0a6278465b75544",
+    "semantic_hash": "d8830a094d53c562b0a6278465b75544"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Settings\\ServerConfig.swift": {
+    "mtime": 1780686517.9725132,
+    "ast_hash": "6b049a75214593367f6e7a64d5af375e",
+    "semantic_hash": "6b049a75214593367f6e7a64d5af375e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Settings\\ServerConfigView.swift": {
+    "mtime": 1780686517.974512,
+    "ast_hash": "8c2f3bc74ae42c00e6bf4375892e740d",
+    "semantic_hash": "8c2f3bc74ae42c00e6bf4375892e740d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Settings\\TenantHealthChecker.swift": {
+    "mtime": 1780686517.974512,
+    "ast_hash": "5199fc46dafa3acc2d4edb0d5f4f12dd",
+    "semantic_hash": "5199fc46dafa3acc2d4edb0d5f4f12dd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\Ownly\\Settings\\TenantStatusView.swift": {
+    "mtime": 1780686517.9763038,
+    "ast_hash": "40904571f85861f0d8a5fc784be08ff6",
+    "semantic_hash": "40904571f85861f0d8a5fc784be08ff6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\migrations\\001_nos_object_index.sql": {
+    "mtime": 1780437713.9618864,
+    "ast_hash": "077ede01a6bcfb246bbc5792251f71a4",
+    "semantic_hash": "077ede01a6bcfb246bbc5792251f71a4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\auth.rs": {
+    "mtime": 1780700359.827367,
+    "ast_hash": "26e6abf3689ef21bafe961ca4bd04753",
+    "semantic_hash": "26e6abf3689ef21bafe961ca4bd04753"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\assigned.rs": {
+    "mtime": 1780700359.8283656,
+    "ast_hash": "6597a18c5ef6a16796f30f3a95addbf8",
+    "semantic_hash": "6597a18c5ef6a16796f30f3a95addbf8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\assignment.rs": {
+    "mtime": 1780437713.963886,
+    "ast_hash": "97fb1e0e3e1ff94301bc10ad7518b6b8",
+    "semantic_hash": "97fb1e0e3e1ff94301bc10ad7518b6b8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\auth.rs": {
+    "mtime": 1780437713.9643936,
+    "ast_hash": "47b82db1e90178a6159317f3e0caeea6",
+    "semantic_hash": "47b82db1e90178a6159317f3e0caeea6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\backend.rs": {
+    "mtime": 1780700359.8283656,
+    "ast_hash": "b376267fc605e817996f98366fa7b44f",
+    "semantic_hash": "b376267fc605e817996f98366fa7b44f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\config.rs": {
+    "mtime": 1780437713.9653957,
+    "ast_hash": "48890d4988c221621862ad6045d8fc67",
+    "semantic_hash": "48890d4988c221621862ad6045d8fc67"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\config_api.rs": {
+    "mtime": 1780437713.9653957,
+    "ast_hash": "1dd6ad8aa4dfbeb0d75bcfc9c2777631",
+    "semantic_hash": "1dd6ad8aa4dfbeb0d75bcfc9c2777631"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\forward.rs": {
+    "mtime": 1780700359.829367,
+    "ast_hash": "e74b25798a481caaaf3ac005d7a1c6b2",
+    "semantic_hash": "e74b25798a481caaaf3ac005d7a1c6b2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\mod.rs": {
+    "mtime": 1780437713.9663956,
+    "ast_hash": "e736170213a9cd542fc8a36d7b4c5529",
+    "semantic_hash": "e736170213a9cd542fc8a36d7b4c5529"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\peer.rs": {
+    "mtime": 1780437713.9673955,
+    "ast_hash": "ce4aeaea919aec4b725782330b3d94a6",
+    "semantic_hash": "ce4aeaea919aec4b725782330b3d94a6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\read_repair.rs": {
+    "mtime": 1780437713.9673955,
+    "ast_hash": "aab2673c9031935ea6ffcb2b0c79d788",
+    "semantic_hash": "aab2673c9031935ea6ffcb2b0c79d788"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\reload.rs": {
+    "mtime": 1780437713.9673955,
+    "ast_hash": "ab6336b80e3176a2bbb0dc81020cc1c2",
+    "semantic_hash": "ab6336b80e3176a2bbb0dc81020cc1c2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicate.rs": {
+    "mtime": 1780437713.9683943,
+    "ast_hash": "93f39229d53854f0cea5c78e1fcb7921",
+    "semantic_hash": "93f39229d53854f0cea5c78e1fcb7921"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicated\\apply.rs": {
+    "mtime": 1780437713.9683943,
+    "ast_hash": "8debfe2fecb6c925ed2f9b6ade1e2eb7",
+    "semantic_hash": "8debfe2fecb6c925ed2f9b6ade1e2eb7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicated\\backend.rs": {
+    "mtime": 1780700359.829367,
+    "ast_hash": "3a9c59b816df069e7ce44691bccbb1ca",
+    "semantic_hash": "3a9c59b816df069e7ce44691bccbb1ca"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicated\\log.rs": {
+    "mtime": 1780429195.3095498,
+    "ast_hash": "ec8976bce24b9d8bca1c33a8828d7ba2",
+    "semantic_hash": "ec8976bce24b9d8bca1c33a8828d7ba2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicated\\mod.rs": {
+    "mtime": 1780429195.3095498,
+    "ast_hash": "8b996bc67e42d33243c56c0f34a36f68",
+    "semantic_hash": "8b996bc67e42d33243c56c0f34a36f68"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\replicated\\worker.rs": {
+    "mtime": 1780437713.9693959,
+    "ast_hash": "0cb813d81a35cf153aef1f2a670f6450",
+    "semantic_hash": "0cb813d81a35cf153aef1f2a670f6450"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\routes.rs": {
+    "mtime": 1780437713.9703948,
+    "ast_hash": "4eb18249fa1b7b10d547c38b03b955b9",
+    "semantic_hash": "4eb18249fa1b7b10d547c38b03b955b9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\standalone.rs": {
+    "mtime": 1780700359.830367,
+    "ast_hash": "bb6e65fb04643e85ff234f56020873f1",
+    "semantic_hash": "bb6e65fb04643e85ff234f56020873f1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\cluster\\store.rs": {
+    "mtime": 1780437713.9703948,
+    "ast_hash": "9790589390e6042979bd91062514bbb5",
+    "semantic_hash": "9790589390e6042979bd91062514bbb5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\config.rs": {
+    "mtime": 1780700359.8313653,
+    "ast_hash": "8ee97f423e79ecb5948ad064dc1b2e11",
+    "semantic_hash": "8ee97f423e79ecb5948ad064dc1b2e11"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\lib.rs": {
+    "mtime": 1780429195.312058,
+    "ast_hash": "fa6ce233fe98f5bd4553dc804e5a2a7d",
+    "semantic_hash": "fa6ce233fe98f5bd4553dc804e5a2a7d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\main.rs": {
+    "mtime": 1780700359.8313653,
+    "ast_hash": "d6997146d1019da9c44ed42d6e152baa",
+    "semantic_hash": "d6997146d1019da9c44ed42d6e152baa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\middleware\\metrics_auth.rs": {
+    "mtime": 1780429195.3131146,
+    "ast_hash": "a14078e5319a4674f5ec0282b0d0930d",
+    "semantic_hash": "a14078e5319a4674f5ec0282b0d0930d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\middleware\\mod.rs": {
+    "mtime": 1780700359.832365,
+    "ast_hash": "9d160c23abe278ba76f4094bc9c433da",
+    "semantic_hash": "9d160c23abe278ba76f4094bc9c433da"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\middleware\\rate_limit.rs": {
+    "mtime": 1780700359.832365,
+    "ast_hash": "32619f6bb37b0344b48d8f0fb423f3fd",
+    "semantic_hash": "32619f6bb37b0344b48d8f0fb423f3fd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\middleware\\upload_budget.rs": {
+    "mtime": 1780700359.8333676,
+    "ast_hash": "961d42475a90c8008dce2a50d1e08d99",
+    "semantic_hash": "961d42475a90c8008dce2a50d1e08d99"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\observability.rs": {
+    "mtime": 1780700359.834365,
+    "ast_hash": "8d9df5aeca63aca6bf3b7a5724cd5192",
+    "semantic_hash": "8d9df5aeca63aca6bf3b7a5724cd5192"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\batch.rs": {
+    "mtime": 1780700359.834365,
+    "ast_hash": "acbba988a54a02c2e31780cd4db4acbd",
+    "semantic_hash": "acbba988a54a02c2e31780cd4db4acbd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\bucket.rs": {
+    "mtime": 1780700359.834365,
+    "ast_hash": "2eaea8a19261368d2202e4adaad13984",
+    "semantic_hash": "2eaea8a19261368d2202e4adaad13984"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\capabilities.rs": {
+    "mtime": 1780700359.8353858,
+    "ast_hash": "194f65131cfac4b41362b059e9c2506f",
+    "semantic_hash": "194f65131cfac4b41362b059e9c2506f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\errors.rs": {
+    "mtime": 1780437713.9737525,
+    "ast_hash": "6a5a4987214971c3b42ac03925e4bfb8",
+    "semantic_hash": "6a5a4987214971c3b42ac03925e4bfb8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\health.rs": {
+    "mtime": 1780437713.974814,
+    "ast_hash": "53a80b0def4a646eeaa3bf1558513978",
+    "semantic_hash": "53a80b0def4a646eeaa3bf1558513978"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\helpers.rs": {
+    "mtime": 1780429195.3161204,
+    "ast_hash": "f3d236eb9a701837c662d29ac1e281d3",
+    "semantic_hash": "f3d236eb9a701837c662d29ac1e281d3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\maintenance.rs": {
+    "mtime": 1780700359.8353858,
+    "ast_hash": "ea80272dda0c1c32fa88a828c48a9fee",
+    "semantic_hash": "ea80272dda0c1c32fa88a828c48a9fee"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\metrics.rs": {
+    "mtime": 1780700359.8363888,
+    "ast_hash": "1de02639cd8984907ca0764f633d89cc",
+    "semantic_hash": "1de02639cd8984907ca0764f633d89cc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\mod.rs": {
+    "mtime": 1780700359.8363888,
+    "ast_hash": "feb097fe49893dc835094978a1d0ff4c",
+    "semantic_hash": "feb097fe49893dc835094978a1d0ff4c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\multipart.rs": {
+    "mtime": 1780437713.976331,
+    "ast_hash": "dc693a005d3bc6caea0f560d1a0498a9",
+    "semantic_hash": "dc693a005d3bc6caea0f560d1a0498a9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\routes\\object.rs": {
+    "mtime": 1780437713.976331,
+    "ast_hash": "ae184156db4789c37267d8658cc66260",
+    "semantic_hash": "ae184156db4789c37267d8658cc66260"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\s3_compat\\mod.rs": {
+    "mtime": 1780429195.3171206,
+    "ast_hash": "23a1f0a4df2ec0fa42872b207f08d0db",
+    "semantic_hash": "23a1f0a4df2ec0fa42872b207f08d0db"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\s3_compat\\xml.rs": {
+    "mtime": 1780429195.31812,
+    "ast_hash": "692ac44dbf9feae309327cf584405b4a",
+    "semantic_hash": "692ac44dbf9feae309327cf584405b4a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\server.rs": {
+    "mtime": 1780700359.8373897,
+    "ast_hash": "b376cc0453e2e7efccd6b449c3875c1f",
+    "semantic_hash": "b376cc0453e2e7efccd6b449c3875c1f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\blob_finalize.rs": {
+    "mtime": 1780437713.977336,
+    "ast_hash": "ad652a8857a544ce0a405f58bdd89c31",
+    "semantic_hash": "ad652a8857a544ce0a405f58bdd89c31"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\blob_ops.rs": {
+    "mtime": 1780429195.3191204,
+    "ast_hash": "76bbd9dc1deedb4b32770cee5b5167e6",
+    "semantic_hash": "76bbd9dc1deedb4b32770cee5b5167e6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\blocks.rs": {
+    "mtime": 1780437713.977336,
+    "ast_hash": "a3b236b01252020ad316c871faa4c33f",
+    "semantic_hash": "a3b236b01252020ad316c871faa4c33f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\compression.rs": {
+    "mtime": 1780437713.9783342,
+    "ast_hash": "0b9b9304bc35b3bcfee0b5d434b257b4",
+    "semantic_hash": "0b9b9304bc35b3bcfee0b5d434b257b4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\dict_store.rs": {
+    "mtime": 1780437713.9793353,
+    "ast_hash": "0211a7d21660e9eadc50157d2df88773",
+    "semantic_hash": "0211a7d21660e9eadc50157d2df88773"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\engine.rs": {
+    "mtime": 1780700359.8373897,
+    "ast_hash": "c76b00d0a3cbf4f568581a5978071a55",
+    "semantic_hash": "c76b00d0a3cbf4f568581a5978071a55"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\error.rs": {
+    "mtime": 1780437713.980336,
+    "ast_hash": "a282eb80f55263161d57521870ef90d7",
+    "semantic_hash": "a282eb80f55263161d57521870ef90d7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\maintenance.rs": {
+    "mtime": 1780437713.9813366,
+    "ast_hash": "ee5a570f8ffeee370442728e8dc4f815",
+    "semantic_hash": "ee5a570f8ffeee370442728e8dc4f815"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\metadata_backend.rs": {
+    "mtime": 1780437713.9813366,
+    "ast_hash": "5d3eea64ce84c020abf470580952aacd",
+    "semantic_hash": "5d3eea64ce84c020abf470580952aacd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\metadata_mode.rs": {
+    "mtime": 1780700359.8383896,
+    "ast_hash": "b4af35c47d4c5079fbab72ba7082432a",
+    "semantic_hash": "b4af35c47d4c5079fbab72ba7082432a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\mod.rs": {
+    "mtime": 1780700359.8383896,
+    "ast_hash": "a62fcff3a98480c40e705f0107b20c29",
+    "semantic_hash": "a62fcff3a98480c40e705f0107b20c29"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\multipart.rs": {
+    "mtime": 1780437713.9823363,
+    "ast_hash": "0b3da907661a20175a325904f1f0d2a1",
+    "semantic_hash": "0b3da907661a20175a325904f1f0d2a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\object_meta.rs": {
+    "mtime": 1780700359.8393898,
+    "ast_hash": "8eccbab8cdc864bb29e4ffb72d24d363",
+    "semantic_hash": "8eccbab8cdc864bb29e4ffb72d24d363"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\precondition.rs": {
+    "mtime": 1780429195.3221912,
+    "ast_hash": "bcbc9290bcbf6ef712fb0a2f452d012d",
+    "semantic_hash": "bcbc9290bcbf6ef712fb0a2f452d012d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\range.rs": {
+    "mtime": 1780429195.3221912,
+    "ast_hash": "4432d8bfdf8933d1d34dcc608a5e5191",
+    "semantic_hash": "4432d8bfdf8933d1d34dcc608a5e5191"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\reconcile.rs": {
+    "mtime": 1780700359.8393898,
+    "ast_hash": "06d7dda233617cb97bf7eec5b62e49a1",
+    "semantic_hash": "06d7dda233617cb97bf7eec5b62e49a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\streaming.rs": {
+    "mtime": 1780437713.9838398,
+    "ast_hash": "d9d2d1312edd99e87cd23207290414c3",
+    "semantic_hash": "d9d2d1312edd99e87cd23207290414c3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\src\\storage\\types.rs": {
+    "mtime": 1780700359.8393898,
+    "ast_hash": "311e52bd6b2dc5fd1ba693bded06571f",
+    "semantic_hash": "311e52bd6b2dc5fd1ba693bded06571f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\tests\\cluster_integration.rs": {
+    "mtime": 1780700359.8408952,
+    "ast_hash": "412465e122510e39e92ad3c5d3f0e760",
+    "semantic_hash": "412465e122510e39e92ad3c5d3f0e760"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\tests\\integration.rs": {
+    "mtime": 1780700359.8418996,
+    "ast_hash": "865b6cf9c6df4e20beade4bd9de445cb",
+    "semantic_hash": "865b6cf9c6df4e20beade4bd9de445cb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\tests\\postgres_metadata.rs": {
+    "mtime": 1780700359.8418996,
+    "ast_hash": "36b557305663213abe4fd2fdcb900b08",
+    "semantic_hash": "36b557305663213abe4fd2fdcb900b08"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\check-api-deployment.sh": {
+    "mtime": 1780679288.0315053,
+    "ast_hash": "fe8bf577b744832fc9fbaa84b07189b5",
+    "semantic_hash": "fe8bf577b744832fc9fbaa84b07189b5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\compose-dev-down.sh": {
+    "mtime": 1780686504.2475493,
+    "ast_hash": "a13febefd753f619b1faaec21309ac57",
+    "semantic_hash": "a13febefd753f619b1faaec21309ac57"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\compose-up.sh": {
+    "mtime": 1780679288.0315053,
+    "ast_hash": "e6b0c4364e047e16943e6a6fef2f64e7",
+    "semantic_hash": "e6b0c4364e047e16943e6a6fef2f64e7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\install-git-hooks.sh": {
+    "mtime": 1780427800.1553984,
+    "ast_hash": "34086ba06d6271c46aabbb552a0732a1",
+    "semantic_hash": "34086ba06d6271c46aabbb552a0732a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\install-requirements.sh": {
+    "mtime": 1780679288.0326743,
+    "ast_hash": "33d5e6c43136ac1b410deda3aeee87f6",
+    "semantic_hash": "33d5e6c43136ac1b410deda3aeee87f6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\nebular-export-patch.sh": {
+    "mtime": 1780427800.1553984,
+    "ast_hash": "b0f9dbfe9220b66bc17aa69bfaca4c44",
+    "semantic_hash": "b0f9dbfe9220b66bc17aa69bfaca4c44"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\probe-api-authenticated.sh": {
+    "mtime": 1780679288.0326743,
+    "ast_hash": "9b661136d700776d255e11faba7de310",
+    "semantic_hash": "9b661136d700776d255e11faba7de310"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\__init__.py": {
+    "mtime": 1780686759.0551717,
+    "ast_hash": "1a356a40edaee467d917b6fc63412a43",
+    "semantic_hash": "1a356a40edaee467d917b6fc63412a43"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main.py": {
+    "mtime": 1780686759.0551717,
+    "ast_hash": "eeb60e4f283d34375c1f96d47b19440f",
+    "semantic_hash": "eeb60e4f283d34375c1f96d47b19440f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec002.py": {
+    "mtime": 1780686759.0566752,
+    "ast_hash": "ecdeca4ca436e660067e413cff1314f7",
+    "semantic_hash": "ecdeca4ca436e660067e413cff1314f7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec003.py": {
+    "mtime": 1780686759.05768,
+    "ast_hash": "d6f9a93f24e7508bc22428ac7f09a336",
+    "semantic_hash": "d6f9a93f24e7508bc22428ac7f09a336"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec004.py": {
+    "mtime": 1780686759.0581844,
+    "ast_hash": "0e7ddf7220de2d3d24a7fd95c9c4bc00",
+    "semantic_hash": "0e7ddf7220de2d3d24a7fd95c9c4bc00"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec005.py": {
+    "mtime": 1780686759.0591784,
+    "ast_hash": "9dda61d74d59dc41b352f50a331add61",
+    "semantic_hash": "9dda61d74d59dc41b352f50a331add61"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec006.py": {
+    "mtime": 1780686759.059683,
+    "ast_hash": "2f3e0f3b00b36db5d76d0ae89d3600be",
+    "semantic_hash": "2f3e0f3b00b36db5d76d0ae89d3600be"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec007.py": {
+    "mtime": 1780686759.060765,
+    "ast_hash": "d6774cd3bce4cf1843f38fa84ac4a4c4",
+    "semantic_hash": "d6774cd3bce4cf1843f38fa84ac4a4c4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec008.py": {
+    "mtime": 1780686759.061292,
+    "ast_hash": "f8e79f03a0286ac740e4e22e865c4d39",
+    "semantic_hash": "f8e79f03a0286ac740e4e22e865c4d39"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec009.py": {
+    "mtime": 1780686759.0618236,
+    "ast_hash": "b4918b6b08bb10e720b425dc4b37731a",
+    "semantic_hash": "b4918b6b08bb10e720b425dc4b37731a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec010.py": {
+    "mtime": 1780686759.062335,
+    "ast_hash": "cc826546a9587604004b801992615637",
+    "semantic_hash": "cc826546a9587604004b801992615637"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec011.py": {
+    "mtime": 1780686759.0634143,
+    "ast_hash": "cb0b8ee3b88119f3cbd4a78fcef6c0e7",
+    "semantic_hash": "cb0b8ee3b88119f3cbd4a78fcef6c0e7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\audit_main_sec012.py": {
+    "mtime": 1780686759.063968,
+    "ast_hash": "cc47df10d4bea7bbf0498ef3dcaf89cf",
+    "semantic_hash": "cc47df10d4bea7bbf0498ef3dcaf89cf"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec002.py": {
+    "mtime": 1780686759.0650196,
+    "ast_hash": "1a707dc9b5bfd90636c8106812626332",
+    "semantic_hash": "1a707dc9b5bfd90636c8106812626332"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec003.py": {
+    "mtime": 1780686759.065539,
+    "ast_hash": "704e2fb63cd240e2ec2104c3db22b869",
+    "semantic_hash": "704e2fb63cd240e2ec2104c3db22b869"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec004.py": {
+    "mtime": 1780686759.0660605,
+    "ast_hash": "d0c919c7ce5a140832bce651812d28cc",
+    "semantic_hash": "d0c919c7ce5a140832bce651812d28cc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec007.py": {
+    "mtime": 1780686759.06657,
+    "ast_hash": "25a68056a77358ec4af626edf78af102",
+    "semantic_hash": "25a68056a77358ec4af626edf78af102"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec009.py": {
+    "mtime": 1780686759.0670903,
+    "ast_hash": "fce5900c2525dd98919f4b35289b7413",
+    "semantic_hash": "fce5900c2525dd98919f4b35289b7413"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\bootstrap_sec011.py": {
+    "mtime": 1780686759.0676103,
+    "ast_hash": "4569aca1c3733d7dcd462a49500072a4",
+    "semantic_hash": "4569aca1c3733d7dcd462a49500072a4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\compare.py": {
+    "mtime": 1780686759.0681252,
+    "ast_hash": "3295bc65cfa97a969b710061f5f9b29b",
+    "semantic_hash": "3295bc65cfa97a969b710061f5f9b29b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config.py": {
+    "mtime": 1780686759.0686429,
+    "ast_hash": "061095b427e6a4a80187850e0224a0bd",
+    "semantic_hash": "061095b427e6a4a80187850e0224a0bd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec002.py": {
+    "mtime": 1780686759.0691655,
+    "ast_hash": "f0a42f80b77f9b3e02851c60bf4569c2",
+    "semantic_hash": "f0a42f80b77f9b3e02851c60bf4569c2"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec003.py": {
+    "mtime": 1780686759.0701957,
+    "ast_hash": "a93f40048a84c31b3c78e1bd87fac458",
+    "semantic_hash": "a93f40048a84c31b3c78e1bd87fac458"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec004.py": {
+    "mtime": 1780686759.0707595,
+    "ast_hash": "2ae9484132feb914a1cb450269840984",
+    "semantic_hash": "2ae9484132feb914a1cb450269840984"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec005.py": {
+    "mtime": 1780686759.0712762,
+    "ast_hash": "2fa2baf6be8f0e232f9c487597a162aa",
+    "semantic_hash": "2fa2baf6be8f0e232f9c487597a162aa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec006.py": {
+    "mtime": 1780686759.0718658,
+    "ast_hash": "2302d320f538ef85070035dbd97bad86",
+    "semantic_hash": "2302d320f538ef85070035dbd97bad86"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec007.py": {
+    "mtime": 1780686759.0723987,
+    "ast_hash": "519d8e2c33155a26d1725144974b3ee6",
+    "semantic_hash": "519d8e2c33155a26d1725144974b3ee6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec008.py": {
+    "mtime": 1780686759.0734382,
+    "ast_hash": "4a7545939f3f43cfac665b8042e38d5a",
+    "semantic_hash": "4a7545939f3f43cfac665b8042e38d5a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec009.py": {
+    "mtime": 1780686759.0739563,
+    "ast_hash": "d8a683aaaecc4ffed069d5b2b27c2045",
+    "semantic_hash": "d8a683aaaecc4ffed069d5b2b27c2045"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec010.py": {
+    "mtime": 1780686759.074474,
+    "ast_hash": "cc7f29d2d776e29266856f3bf7c049d5",
+    "semantic_hash": "cc7f29d2d776e29266856f3bf7c049d5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec011.py": {
+    "mtime": 1780686759.074474,
+    "ast_hash": "ea547369b4a97f806f9ecf57c8f0d014",
+    "semantic_hash": "ea547369b4a97f806f9ecf57c8f0d014"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\config_sec012.py": {
+    "mtime": 1780686759.0749898,
+    "ast_hash": "8bb33b0be965eac77197721024a2e5e5",
+    "semantic_hash": "8bb33b0be965eac77197721024a2e5e5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants.py": {
+    "mtime": 1780686759.0755079,
+    "ast_hash": "455581981e36751abd47513bc1c5b84b",
+    "semantic_hash": "455581981e36751abd47513bc1c5b84b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec002.py": {
+    "mtime": 1780686759.076023,
+    "ast_hash": "e68a57bba5cde03b21dda89a240a11c1",
+    "semantic_hash": "e68a57bba5cde03b21dda89a240a11c1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec003.py": {
+    "mtime": 1780686759.0765314,
+    "ast_hash": "89ff8074845238d64cc46c1bfea5c40b",
+    "semantic_hash": "89ff8074845238d64cc46c1bfea5c40b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec004.py": {
+    "mtime": 1780686759.0765314,
+    "ast_hash": "ccafea5f6ec2953fec566b633c568653",
+    "semantic_hash": "ccafea5f6ec2953fec566b633c568653"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec005.py": {
+    "mtime": 1780686759.0765314,
+    "ast_hash": "a1740a623622da1ce0d647b389df4339",
+    "semantic_hash": "a1740a623622da1ce0d647b389df4339"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec006.py": {
+    "mtime": 1780686759.0765314,
+    "ast_hash": "f8f4438b23109b25f47a116b8ece6e2e",
+    "semantic_hash": "f8f4438b23109b25f47a116b8ece6e2e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec007.py": {
+    "mtime": 1780686759.0780387,
+    "ast_hash": "46bdb37330e54656c0dc672f76640e2d",
+    "semantic_hash": "46bdb37330e54656c0dc672f76640e2d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec008.py": {
+    "mtime": 1780686759.0780387,
+    "ast_hash": "ef9b15d665f8ca51532b7ac550d489ff",
+    "semantic_hash": "ef9b15d665f8ca51532b7ac550d489ff"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec009.py": {
+    "mtime": 1780686759.0790424,
+    "ast_hash": "caab6ee9694c4b8857cfbb92486d578d",
+    "semantic_hash": "caab6ee9694c4b8857cfbb92486d578d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec010.py": {
+    "mtime": 1780686759.0790424,
+    "ast_hash": "60bb795ea619d22edb091034eb18836e",
+    "semantic_hash": "60bb795ea619d22edb091034eb18836e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec011.py": {
+    "mtime": 1780686759.0805464,
+    "ast_hash": "f7b9524b32011dcef340542bf83d383c",
+    "semantic_hash": "f7b9524b32011dcef340542bf83d383c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\constants_sec012.py": {
+    "mtime": 1780686759.0805464,
+    "ast_hash": "1f4cd1fb45613cd18716d135092606f8",
+    "semantic_hash": "1f4cd1fb45613cd18716d135092606f8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\env_file.py": {
+    "mtime": 1780686759.0815504,
+    "ast_hash": "83762fca8c81a972d688bbe02685c916",
+    "semantic_hash": "83762fca8c81a972d688bbe02685c916"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence.py": {
+    "mtime": 1780686759.0815504,
+    "ast_hash": "9bf6b4968afda91b926d82f07d362a53",
+    "semantic_hash": "9bf6b4968afda91b926d82f07d362a53"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec002.py": {
+    "mtime": 1780686759.0825515,
+    "ast_hash": "cfb6977e215e9843f71a84eb10770e5f",
+    "semantic_hash": "cfb6977e215e9843f71a84eb10770e5f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec003.py": {
+    "mtime": 1780686759.0825515,
+    "ast_hash": "d3a53be96f9eb2c3f936f2a82c15dd07",
+    "semantic_hash": "d3a53be96f9eb2c3f936f2a82c15dd07"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec004.py": {
+    "mtime": 1780686759.0835507,
+    "ast_hash": "8d6e8e135da2805d8575afe0b3aa5149",
+    "semantic_hash": "8d6e8e135da2805d8575afe0b3aa5149"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec005.py": {
+    "mtime": 1780686759.0835507,
+    "ast_hash": "9e212ad311266ebfe59878a75cee5adf",
+    "semantic_hash": "9e212ad311266ebfe59878a75cee5adf"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec006.py": {
+    "mtime": 1780686759.0845506,
+    "ast_hash": "598813c26e529a1a6a9a2f18afb7582f",
+    "semantic_hash": "598813c26e529a1a6a9a2f18afb7582f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec007.py": {
+    "mtime": 1780686759.0845506,
+    "ast_hash": "69c8676b7b1a4a8fef7bdf22a04c7da5",
+    "semantic_hash": "69c8676b7b1a4a8fef7bdf22a04c7da5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec008.py": {
+    "mtime": 1780686759.0845506,
+    "ast_hash": "557f4c77edc8532b79ff11c6f1495616",
+    "semantic_hash": "557f4c77edc8532b79ff11c6f1495616"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec009.py": {
+    "mtime": 1780686759.0855503,
+    "ast_hash": "7d538470fb1ff5fc35bd113aeba5f638",
+    "semantic_hash": "7d538470fb1ff5fc35bd113aeba5f638"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec010.py": {
+    "mtime": 1780686759.0855503,
+    "ast_hash": "47ee8c4e0686826e37c11da8fc4ba0b1",
+    "semantic_hash": "47ee8c4e0686826e37c11da8fc4ba0b1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec011.py": {
+    "mtime": 1780686759.086637,
+    "ast_hash": "97c12b049f930625245c102ff5789317",
+    "semantic_hash": "97c12b049f930625245c102ff5789317"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\evidence_sec012.py": {
+    "mtime": 1780686759.086637,
+    "ast_hash": "bd3c4f106d728b987849f2821f0d4954",
+    "semantic_hash": "bd3c4f106d728b987849f2821f0d4954"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics.py": {
+    "mtime": 1780686759.0876412,
+    "ast_hash": "f3848b13ae80beb0e1bcf4df0498f83a",
+    "semantic_hash": "f3848b13ae80beb0e1bcf4df0498f83a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec002.py": {
+    "mtime": 1780686759.0876412,
+    "ast_hash": "5a1635fc7bfe06f8aaf0b4c951926ab9",
+    "semantic_hash": "5a1635fc7bfe06f8aaf0b4c951926ab9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec003.py": {
+    "mtime": 1780686759.0886436,
+    "ast_hash": "5c72132971571257ba87e075d3b550aa",
+    "semantic_hash": "5c72132971571257ba87e075d3b550aa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec004.py": {
+    "mtime": 1780686759.0896418,
+    "ast_hash": "60d3aff9f242fa6437cf47c05f3d2ec9",
+    "semantic_hash": "60d3aff9f242fa6437cf47c05f3d2ec9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec005.py": {
+    "mtime": 1780686759.0896418,
+    "ast_hash": "7e1f5ee57c3544bb01471b283272d468",
+    "semantic_hash": "7e1f5ee57c3544bb01471b283272d468"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec006.py": {
+    "mtime": 1780686759.090646,
+    "ast_hash": "855bde5652c14508559bc7c26d808bc3",
+    "semantic_hash": "855bde5652c14508559bc7c26d808bc3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec007.py": {
+    "mtime": 1780686759.090646,
+    "ast_hash": "4f6851f7aff9abd16d3f1790f5682469",
+    "semantic_hash": "4f6851f7aff9abd16d3f1790f5682469"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec008.py": {
+    "mtime": 1780686759.090646,
+    "ast_hash": "82080e4858abebb4f24e1b45229883cf",
+    "semantic_hash": "82080e4858abebb4f24e1b45229883cf"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec009.py": {
+    "mtime": 1780686759.0916457,
+    "ast_hash": "b5253171d7a260287d59058c9ef8e30c",
+    "semantic_hash": "b5253171d7a260287d59058c9ef8e30c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec010.py": {
+    "mtime": 1780686759.0916457,
+    "ast_hash": "c6bc0cbd024486a07a5a881b7a16499e",
+    "semantic_hash": "c6bc0cbd024486a07a5a881b7a16499e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec011.py": {
+    "mtime": 1780686759.092646,
+    "ast_hash": "ace33febc099faeae9465063117dc0e0",
+    "semantic_hash": "ace33febc099faeae9465063117dc0e0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\heuristics_sec012.py": {
+    "mtime": 1780686759.092646,
+    "ast_hash": "cf16591f2a89a0eeb34017d6654f853f",
+    "semantic_hash": "cf16591f2a89a0eeb34017d6654f853f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\http_client.py": {
+    "mtime": 1780686759.0936658,
+    "ast_hash": "fcb162a6e4ec271b24f8511002d64a02",
+    "semantic_hash": "fcb162a6e4ec271b24f8511002d64a02"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\jwt_sec012.py": {
+    "mtime": 1780828510.478044,
+    "ast_hash": "450e9c204b18aabe5334ba0eaa6eee35",
+    "semantic_hash": "450e9c204b18aabe5334ba0eaa6eee35"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\models.py": {
+    "mtime": 1780686759.0936658,
+    "ast_hash": "7022d8bdbea362c4a246ddcb71316539",
+    "semantic_hash": "7022d8bdbea362c4a246ddcb71316539"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\redact.py": {
+    "mtime": 1780686759.094666,
+    "ast_hash": "4731ed9a8de19774dd57e1714554a256",
+    "semantic_hash": "4731ed9a8de19774dd57e1714554a256"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report.py": {
+    "mtime": 1780686759.094666,
+    "ast_hash": "5520311e3c263b9e31af0a367ffd0242",
+    "semantic_hash": "5520311e3c263b9e31af0a367ffd0242"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec002.py": {
+    "mtime": 1780686759.0956652,
+    "ast_hash": "b9896523c9433890aa446a1fb53686d1",
+    "semantic_hash": "b9896523c9433890aa446a1fb53686d1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec003.py": {
+    "mtime": 1780686759.0956652,
+    "ast_hash": "3794b96d38fba7bc0f7cf471fe342f6b",
+    "semantic_hash": "3794b96d38fba7bc0f7cf471fe342f6b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec004.py": {
+    "mtime": 1780686759.0956652,
+    "ast_hash": "7ac4cf71868b6772f1bcaec75e185047",
+    "semantic_hash": "7ac4cf71868b6772f1bcaec75e185047"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec005.py": {
+    "mtime": 1780686759.096667,
+    "ast_hash": "fe7e0c074528bcd186f8771c6b2f135e",
+    "semantic_hash": "fe7e0c074528bcd186f8771c6b2f135e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec006.py": {
+    "mtime": 1780686759.097777,
+    "ast_hash": "0dff1434720d86ad0ed82d7647004d81",
+    "semantic_hash": "0dff1434720d86ad0ed82d7647004d81"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec007.py": {
+    "mtime": 1780686759.097777,
+    "ast_hash": "27a9b8f88d51faf59160e08e0d5eb020",
+    "semantic_hash": "27a9b8f88d51faf59160e08e0d5eb020"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec008.py": {
+    "mtime": 1780686759.097777,
+    "ast_hash": "fb1206662150f7d8ca5e549f731a52b7",
+    "semantic_hash": "fb1206662150f7d8ca5e549f731a52b7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec009.py": {
+    "mtime": 1780686759.098778,
+    "ast_hash": "3a4b7b65993ff3c2f48e763502cd46bd",
+    "semantic_hash": "3a4b7b65993ff3c2f48e763502cd46bd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec010.py": {
+    "mtime": 1780686759.098778,
+    "ast_hash": "98b1cbd3e8e27ee820bd264ab4fdb2f9",
+    "semantic_hash": "98b1cbd3e8e27ee820bd264ab4fdb2f9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec011.py": {
+    "mtime": 1780686759.098778,
+    "ast_hash": "6009f166c04efc3de4413860ba6d095a",
+    "semantic_hash": "6009f166c04efc3de4413860ba6d095a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\report_sec012.py": {
+    "mtime": 1780686759.1002808,
+    "ast_hash": "f4283f3f461442f44f00af17db1b4d4c",
+    "semantic_hash": "f4283f3f461442f44f00af17db1b4d4c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec001.py": {
+    "mtime": 1780686759.1002808,
+    "ast_hash": "bf26c71ebb4c9bd4537c6821def87c8e",
+    "semantic_hash": "bf26c71ebb4c9bd4537c6821def87c8e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec002.py": {
+    "mtime": 1780686759.1012843,
+    "ast_hash": "0984bccad1e5aa802a24907cd83066f9",
+    "semantic_hash": "0984bccad1e5aa802a24907cd83066f9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec003.py": {
+    "mtime": 1780686759.1012843,
+    "ast_hash": "54ab89bc26388ae430694a28c6115ef0",
+    "semantic_hash": "54ab89bc26388ae430694a28c6115ef0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec004.py": {
+    "mtime": 1780686759.1022859,
+    "ast_hash": "b1f2e54090898d82c81e47cb75491877",
+    "semantic_hash": "b1f2e54090898d82c81e47cb75491877"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec005.py": {
+    "mtime": 1780686759.1022859,
+    "ast_hash": "5011b5a90810ebae38358d43a0953682",
+    "semantic_hash": "5011b5a90810ebae38358d43a0953682"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec006.py": {
+    "mtime": 1780686759.1032853,
+    "ast_hash": "a0fa2abc927e86a8aea107c521a20a7c",
+    "semantic_hash": "a0fa2abc927e86a8aea107c521a20a7c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec007.py": {
+    "mtime": 1780686759.1032853,
+    "ast_hash": "80fd1ae1a7569dd941a2b2e6d328842c",
+    "semantic_hash": "80fd1ae1a7569dd941a2b2e6d328842c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec008.py": {
+    "mtime": 1780686759.1042852,
+    "ast_hash": "7c791db9197df4549856dadd95b4f8ea",
+    "semantic_hash": "7c791db9197df4549856dadd95b4f8ea"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec009.py": {
+    "mtime": 1780686759.1052852,
+    "ast_hash": "93f945a7c714df9bfc754b703d41f5ae",
+    "semantic_hash": "93f945a7c714df9bfc754b703d41f5ae"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec010.py": {
+    "mtime": 1780686759.1052852,
+    "ast_hash": "c547ce61d52e7ce6ba590396e5b81a25",
+    "semantic_hash": "c547ce61d52e7ce6ba590396e5b81a25"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec011.py": {
+    "mtime": 1780686759.1064498,
+    "ast_hash": "e4def3c5f926b722ddd0ae32a1f60c51",
+    "semantic_hash": "e4def3c5f926b722ddd0ae32a1f60c51"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\runner_sec012.py": {
+    "mtime": 1780686759.1064498,
+    "ast_hash": "16faeb5fd44fd453a2fb647e143c7015",
+    "semantic_hash": "16faeb5fd44fd453a2fb647e143c7015"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif.py": {
+    "mtime": 1780686759.1074543,
+    "ast_hash": "b53ccb2e4cd30daf041df7fc90b8e46b",
+    "semantic_hash": "b53ccb2e4cd30daf041df7fc90b8e46b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec002.py": {
+    "mtime": 1780686759.1074543,
+    "ast_hash": "08f6291cba1398a5792f14a982586ea1",
+    "semantic_hash": "08f6291cba1398a5792f14a982586ea1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec003.py": {
+    "mtime": 1780686759.1084535,
+    "ast_hash": "58ef46c665f3e55500774a3c13eca3a7",
+    "semantic_hash": "58ef46c665f3e55500774a3c13eca3a7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec004.py": {
+    "mtime": 1780686759.1084535,
+    "ast_hash": "8031ebdbcdf505a1a0ab99919bf0172b",
+    "semantic_hash": "8031ebdbcdf505a1a0ab99919bf0172b"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec005.py": {
+    "mtime": 1780686759.1084535,
+    "ast_hash": "a2daa2ac57301548bcb2a5c7ab8f07b6",
+    "semantic_hash": "a2daa2ac57301548bcb2a5c7ab8f07b6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec006.py": {
+    "mtime": 1780686759.1084535,
+    "ast_hash": "64b627b7fbd1cafaa76f4cebd8c6aacc",
+    "semantic_hash": "64b627b7fbd1cafaa76f4cebd8c6aacc"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec007.py": {
+    "mtime": 1780686759.110153,
+    "ast_hash": "4247382d4048d98c13b7aeb97f14ac6e",
+    "semantic_hash": "4247382d4048d98c13b7aeb97f14ac6e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec008.py": {
+    "mtime": 1780686759.110153,
+    "ast_hash": "99f480ab65d12d19d14e212cf4097f0d",
+    "semantic_hash": "99f480ab65d12d19d14e212cf4097f0d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec009.py": {
+    "mtime": 1780686759.1111565,
+    "ast_hash": "e2aeca29a82a04e3163f6efe6cf71ea9",
+    "semantic_hash": "e2aeca29a82a04e3163f6efe6cf71ea9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec010.py": {
+    "mtime": 1780686759.1111565,
+    "ast_hash": "4ddb191495ff90b23101ca35ba558d79",
+    "semantic_hash": "4ddb191495ff90b23101ca35ba558d79"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec011.py": {
+    "mtime": 1780686759.1111565,
+    "ast_hash": "7da887db5f5bf75f1a73804772b7d7b3",
+    "semantic_hash": "7da887db5f5bf75f1a73804772b7d7b3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\lib\\sarif_sec012.py": {
+    "mtime": 1780686759.1111565,
+    "ast_hash": "2108f82bdfbe151b8418b7484ca970a9",
+    "semantic_hash": "2108f82bdfbe151b8418b7484ca970a9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec001_setup_info_disclosure.py": {
+    "mtime": 1780686759.1126597,
+    "ast_hash": "9fa4b06051fa990ce1c4e4231f858723",
+    "semantic_hash": "9fa4b06051fa990ce1c4e4231f858723"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec002_stale_jwt_admin_role.py": {
+    "mtime": 1780686759.1126597,
+    "ast_hash": "a416f705771b117e12e03ffe62d7e65d",
+    "semantic_hash": "a416f705771b117e12e03ffe62d7e65d"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec003_public_share_soft_delete.py": {
+    "mtime": 1780686759.113664,
+    "ast_hash": "82db051acc04ac8929accf213305e2e5",
+    "semantic_hash": "82db051acc04ac8929accf213305e2e5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec004_authenticated_trash_download.py": {
+    "mtime": 1780686759.113664,
+    "ast_hash": "7ca58b3f44987f22b918f05024c1b882",
+    "semantic_hash": "7ca58b3f44987f22b918f05024c1b882"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec005_setup_bootstrap_race.py": {
+    "mtime": 1780686759.1146636,
+    "ast_hash": "e4e89d1637e2d2666c45708eb3370024",
+    "semantic_hash": "e4e89d1637e2d2666c45708eb3370024"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec006_rate_limit_forwarded_headers.py": {
+    "mtime": 1780686759.1146636,
+    "ast_hash": "11e687e254949d84353c8e7e38b96d02",
+    "semantic_hash": "11e687e254949d84353c8e7e38b96d02"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec008_setup_storage_ssrf.py": {
+    "mtime": 1780686759.1156638,
+    "ast_hash": "dbb134e03968c01260651d04961b1bff",
+    "semantic_hash": "dbb134e03968c01260651d04961b1bff"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec010_setup_database_ssrf.py": {
+    "mtime": 1780686759.1171672,
+    "ast_hash": "fc7e3e24588d353e6c4387f096c90321",
+    "semantic_hash": "fc7e3e24588d353e6c4387f096c90321"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec011_trash_zip_download.py": {
+    "mtime": 1780686759.1171672,
+    "ast_hash": "a8f76ba5ff3673553b035195fcece897",
+    "semantic_hash": "a8f76ba5ff3673553b035195fcece897"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\sec012_unauthenticated_admin_creation.py": {
+    "mtime": 1780686759.1171672,
+    "ast_hash": "018032ded7853e14de2bf9727884e4d8",
+    "semantic_hash": "018032ded7853e14de2bf9727884e4d8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_compare.py": {
+    "mtime": 1780686759.1171672,
+    "ast_hash": "40939484ae8f0b9b941126cab726e251",
+    "semantic_hash": "40939484ae8f0b9b941126cab726e251"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec002.py": {
+    "mtime": 1780686759.118678,
+    "ast_hash": "49ed320c0a06fb87d43731d015b718d5",
+    "semantic_hash": "49ed320c0a06fb87d43731d015b718d5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec003.py": {
+    "mtime": 1780686759.118678,
+    "ast_hash": "3d4ae993ca19b7b7624185875d4ae0b8",
+    "semantic_hash": "3d4ae993ca19b7b7624185875d4ae0b8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec004.py": {
+    "mtime": 1780686759.118678,
+    "ast_hash": "15bc9610bdf1cb9c87d01472700f4028",
+    "semantic_hash": "15bc9610bdf1cb9c87d01472700f4028"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec005.py": {
+    "mtime": 1780686759.1196835,
+    "ast_hash": "2e75ad3dd620cca3fda7c0b59efacb40",
+    "semantic_hash": "2e75ad3dd620cca3fda7c0b59efacb40"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec006.py": {
+    "mtime": 1780686759.1196835,
+    "ast_hash": "0ca811f64e9c87a0aeca808e4a7442ef",
+    "semantic_hash": "0ca811f64e9c87a0aeca808e4a7442ef"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec007.py": {
+    "mtime": 1780686759.1206877,
+    "ast_hash": "bad207d054eaf7ada17841f7fb647f90",
+    "semantic_hash": "bad207d054eaf7ada17841f7fb647f90"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec008.py": {
+    "mtime": 1780686759.1206877,
+    "ast_hash": "fe9962cd846e7a196bb2311458e0cc16",
+    "semantic_hash": "fe9962cd846e7a196bb2311458e0cc16"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec009.py": {
+    "mtime": 1780686759.1216881,
+    "ast_hash": "b940899df5b94f4f3c2af6cf9cc91ae8",
+    "semantic_hash": "b940899df5b94f4f3c2af6cf9cc91ae8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec010.py": {
+    "mtime": 1780686759.1226902,
+    "ast_hash": "9d0e58e2a78013d72873406f16aded9e",
+    "semantic_hash": "9d0e58e2a78013d72873406f16aded9e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec011.py": {
+    "mtime": 1780686759.1231937,
+    "ast_hash": "6996e290cac7394d74a58002c1e02a12",
+    "semantic_hash": "6996e290cac7394d74a58002c1e02a12"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_config_sec012.py": {
+    "mtime": 1780686759.1231937,
+    "ast_hash": "596dd8c568803cde3f9c697908d32f2a",
+    "semantic_hash": "596dd8c568803cde3f9c697908d32f2a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_env_file.py": {
+    "mtime": 1780686759.1241994,
+    "ast_hash": "4275bf540b74fa4cc83d7d61c10611f4",
+    "semantic_hash": "4275bf540b74fa4cc83d7d61c10611f4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics.py": {
+    "mtime": 1780686759.1241994,
+    "ast_hash": "3b0a84192cd6c856c625c1ca74348f01",
+    "semantic_hash": "3b0a84192cd6c856c625c1ca74348f01"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec002.py": {
+    "mtime": 1780686759.125198,
+    "ast_hash": "4717af51ced45a1d4044013ea5f20a62",
+    "semantic_hash": "4717af51ced45a1d4044013ea5f20a62"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec003.py": {
+    "mtime": 1780686759.125198,
+    "ast_hash": "d54153c061e04948051e2ded022e6ba4",
+    "semantic_hash": "d54153c061e04948051e2ded022e6ba4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec004.py": {
+    "mtime": 1780686759.1261983,
+    "ast_hash": "9b791c5cc20e1d5f891e0d6058614aa6",
+    "semantic_hash": "9b791c5cc20e1d5f891e0d6058614aa6"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec005.py": {
+    "mtime": 1780686759.1261983,
+    "ast_hash": "5063861a74974fc2c11d3898f7f4b1ce",
+    "semantic_hash": "5063861a74974fc2c11d3898f7f4b1ce"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec006.py": {
+    "mtime": 1780686759.1261983,
+    "ast_hash": "5fffde8543a95a56a90f00fdbe2228a1",
+    "semantic_hash": "5fffde8543a95a56a90f00fdbe2228a1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec007.py": {
+    "mtime": 1780686759.1272986,
+    "ast_hash": "e246b71f42504e605dff07e7c1786942",
+    "semantic_hash": "e246b71f42504e605dff07e7c1786942"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec008.py": {
+    "mtime": 1780686759.1272986,
+    "ast_hash": "3761d9adfb1beada26825af2d6f9b8c4",
+    "semantic_hash": "3761d9adfb1beada26825af2d6f9b8c4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec009.py": {
+    "mtime": 1780686759.1282992,
+    "ast_hash": "989bdb181a7178e1d4d3b3ae6f6493c0",
+    "semantic_hash": "989bdb181a7178e1d4d3b3ae6f6493c0"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec010.py": {
+    "mtime": 1780686759.1282992,
+    "ast_hash": "a3791b7fa1f3d4d25a349e3f5fc009ca",
+    "semantic_hash": "a3791b7fa1f3d4d25a349e3f5fc009ca"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec011.py": {
+    "mtime": 1780686759.1282992,
+    "ast_hash": "bea4918b37bad5c95e968b01c4e05f1c",
+    "semantic_hash": "bea4918b37bad5c95e968b01c4e05f1c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_heuristics_sec012.py": {
+    "mtime": 1780686759.1292982,
+    "ast_hash": "f7ca11dc1db471b14fd0121f10c8e0fd",
+    "semantic_hash": "f7ca11dc1db471b14fd0121f10c8e0fd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_jwt_sec012.py": {
+    "mtime": 1780686759.1303003,
+    "ast_hash": "82c626d3de13b62c548b13eb643137e4",
+    "semantic_hash": "82c626d3de13b62c548b13eb643137e4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_prompt_policy.py": {
+    "mtime": 1780686759.1303003,
+    "ast_hash": "ff969636eb88004cd07605578c7a0209",
+    "semantic_hash": "ff969636eb88004cd07605578c7a0209"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_redact.py": {
+    "mtime": 1780828510.494664,
+    "ast_hash": "10e0f44f93d27a51fc96a5d3d944997c",
+    "semantic_hash": "10e0f44f93d27a51fc96a5d3d944997c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_runner_sec012_jwt_forgery.py": {
+    "mtime": 1780686759.1322987,
+    "ast_hash": "adcb0f039ded2121cd60a7fadabadeef",
+    "semantic_hash": "adcb0f039ded2121cd60a7fadabadeef"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\tests\\test_runner_sec012_placeholders.py": {
+    "mtime": 1780686759.1328785,
+    "ast_hash": "afe116a50cdf6ffd38c03d176e2d2acd",
+    "semantic_hash": "afe116a50cdf6ffd38c03d176e2d2acd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\setup-test-env.sh": {
+    "mtime": 1780679288.059093,
+    "ast_hash": "db7257850974ace7eb0d0eb9e22308b5",
+    "semantic_hash": "db7257850974ace7eb0d0eb9e22308b5"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\storage-audit.py": {
+    "mtime": 1780679288.0600986,
+    "ast_hash": "49b9858ded0277174b447ba62b446e59",
+    "semantic_hash": "49b9858ded0277174b447ba62b446e59"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\sync_image_viewer_pencil_design.py": {
+    "mtime": 1780792193.9099233,
+    "ast_hash": "415c932958ae3b5ba9260c3e25f1c532",
+    "semantic_hash": "415c932958ae3b5ba9260c3e25f1c532"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\README.md": {
+    "mtime": 1780686503.9673727,
+    "ast_hash": "9010adb374bc6088d5f6f91d20e04905",
+    "semantic_hash": "9010adb374bc6088d5f6f91d20e04905"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docker-compose.gpu.yml": {
+    "mtime": 1779813297.1987596,
+    "ast_hash": "d3e88c81bef2685588c93393b60fafae",
+    "semantic_hash": "d3e88c81bef2685588c93393b60fafae"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docker-compose.rep.yml": {
+    "mtime": 1780686501.0536973,
+    "ast_hash": "22a13e5240450b006737f56ce5dbdc9a",
+    "semantic_hash": "22a13e5240450b006737f56ce5dbdc9a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docker-compose.yml": {
+    "mtime": 1780790557.096529,
+    "ast_hash": "0a10d7a03390ee7f26def0f436743192",
+    "semantic_hash": "0a10d7a03390ee7f26def0f436743192"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\nebular-os-storage-metadata-prompt.md": {
+    "mtime": 1780431444.1467178,
+    "ast_hash": "f138628f17e0177a5c319f8d1f70b1fa",
+    "semantic_hash": "f138628f17e0177a5c319f8d1f70b1fa"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\storage-disk-tuning.md": {
+    "mtime": 1780686510.4865258,
+    "ast_hash": "c1edad0c250859544b18891fa53cc0ab",
+    "semantic_hash": "c1edad0c250859544b18891fa53cc0ab"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\superpowers\\specs\\2026-05-25-atomic-permissions-design.md": {
+    "mtime": 1780686510.7256556,
+    "ast_hash": "207b4d6257888fd487dfa5dbc3d3bca1",
+    "semantic_hash": "207b4d6257888fd487dfa5dbc3d3bca1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\README.md": {
+    "mtime": 1779721080.6934302,
+    "ast_hash": "1fd1975c826313d9af82af3562df872f",
+    "semantic_hash": "1fd1975c826313d9af82af3562df872f"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\index.html": {
+    "mtime": 1780265233.5513256,
+    "ast_hash": "4e2d3c03f0d9a0de0fea86e956b19a35",
+    "semantic_hash": "4e2d3c03f0d9a0de0fea86e956b19a35"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\ios\\README.md": {
+    "mtime": 1780686517.9803257,
+    "ast_hash": "ec5b26c35076fec4acf879fbf7d44281",
+    "semantic_hash": "ec5b26c35076fec4acf879fbf7d44281"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\.github\\workflows\\ci.yml": {
+    "mtime": 1780429195.2977092,
+    "ast_hash": "d248d37839d87002a9a0b27336fbf8b8",
+    "semantic_hash": "d248d37839d87002a9a0b27336fbf8b8"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\.github\\workflows\\release.yml": {
+    "mtime": 1780437713.9577565,
+    "ast_hash": "eeaa868f720756072ceb5bcdfbf2ec19",
+    "semantic_hash": "eeaa868f720756072ceb5bcdfbf2ec19"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\AGENTS.md": {
+    "mtime": 1780429195.298709,
+    "ast_hash": "af85ab15478d6ca93c4906eec5a5e0eb",
+    "semantic_hash": "af85ab15478d6ca93c4906eec5a5e0eb"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\COMMERCIAL-LICENSE.md": {
+    "mtime": 1780429195.298709,
+    "ast_hash": "405eaa981b7164040b3e5adc7ba02ca9",
+    "semantic_hash": "405eaa981b7164040b3e5adc7ba02ca9"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\README.md": {
+    "mtime": 1780437713.960886,
+    "ast_hash": "44d9543655e863d069e027d1181b7d46",
+    "semantic_hash": "44d9543655e863d069e027d1181b7d46"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\changelog.md": {
+    "mtime": 1780437713.960886,
+    "ast_hash": "c9de4e10dc6ae8c63054f8f8d0888ac4",
+    "semantic_hash": "c9de4e10dc6ae8c63054f8f8d0888ac4"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\docker-compose.yml": {
+    "mtime": 1780429195.3017507,
+    "ast_hash": "40305f2b5435448937a4acf7887de8a7",
+    "semantic_hash": "40305f2b5435448937a4acf7887de8a7"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\docs\\openapi.yaml": {
+    "mtime": 1780700359.827367,
+    "ast_hash": "504313539b89eea4d6cc01743c965b7c",
+    "semantic_hash": "504313539b89eea4d6cc01743c965b7c"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\docs\\plans\\cluster-modes.md": {
+    "mtime": 1780429195.3030443,
+    "ast_hash": "2b7ce3b3d7d91cd719b6ac77be9f2017",
+    "semantic_hash": "2b7ce3b3d7d91cd719b6ac77be9f2017"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\nebular-os\\docs\\superpowers\\plans\\2026-05-20-phase2-storage-platform.md": {
+    "mtime": 1780429195.3040452,
+    "ast_hash": "5d0951557a28f1815aa74bcc8f85a45e",
+    "semantic_hash": "5d0951557a28f1815aa74bcc8f85a45e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\requirements.txt": {
+    "mtime": 1780679288.0336735,
+    "ast_hash": "9f0d2656d71bd179b1e75032e311e124",
+    "semantic_hash": "9f0d2656d71bd179b1e75032e311e124"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\scripts\\security-audit\\README.md": {
+    "mtime": 1780679288.0346737,
+    "ast_hash": "cb5aded22fa596356bb29cd4255b944a",
+    "semantic_hash": "cb5aded22fa596356bb29cd4255b944a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\security-audit.md": {
+    "mtime": 1780790735.0620499,
+    "ast_hash": "159e76860c0b7395dc9ed0fd18b965fd",
+    "semantic_hash": "159e76860c0b7395dc9ed0fd18b965fd"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\images\\generated-1780181263181.png": {
+    "mtime": 1780181263.1816823,
+    "ast_hash": "b5eb1a4a3dccf5fe99ad7927a9b9919e",
+    "semantic_hash": "b5eb1a4a3dccf5fe99ad7927a9b9919e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\bi8Au.png": {
+    "mtime": 1780512023.013627,
+    "ast_hash": "6cf5dffc524d175eeae857782bf9609e",
+    "semantic_hash": "6cf5dffc524d175eeae857782bf9609e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\docs\\design\\mobile\\ntwEP.png": {
+    "mtime": 1780512171.911149,
+    "ast_hash": "5a7ead8f26929d4e69eeb59f5136fba3",
+    "semantic_hash": "5a7ead8f26929d4e69eeb59f5136fba3"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\public\\favicon.svg": {
+    "mtime": 1780679287.9929247,
+    "ast_hash": "9e6d791aa1ec46cf49e98f1eb78d451e",
+    "semantic_hash": "9e6d791aa1ec46cf49e98f1eb78d451e"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\public\\icons.svg": {
+    "mtime": 1779721080.69644,
+    "ast_hash": "21c7473c592c67dc87223d49892c8f0a",
+    "semantic_hash": "21c7473c592c67dc87223d49892c8f0a"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\assets\\hero.png": {
+    "mtime": 1779721080.698441,
+    "ast_hash": "aead493361b27e7510691c5d7072dfc1",
+    "semantic_hash": "aead493361b27e7510691c5d7072dfc1"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\assets\\react.svg": {
+    "mtime": 1779721080.6994424,
+    "ast_hash": "f0402b67b6ce880f65666bb49e841696",
+    "semantic_hash": "f0402b67b6ce880f65666bb49e841696"
+  },
+  "C:\\Users\\asp3x\\Documents\\Development\\ownly\\frontend\\src\\assets\\vite.svg": {
+    "mtime": 1779721080.6994424,
+    "ast_hash": "6d5180a782d64c8cf51ba01c2a2184d8",
+    "semantic_hash": "6d5180a782d64c8cf51ba01c2a2184d8"
+  }
+}
