@@ -1,9 +1,12 @@
-// Human: iOS GIF preview — native ImageDecoder or gifuct canvas; MP4 video when WebKit blocks both.
-// Agent: READS byteSource; CALLS startIosGifPlayback; NEVER uses captureStream (broken on iOS WebKit).
+// Human: iOS GIF preview — server MP4 first, then client transcode; never uses broken captureStream.
+// Agent: READS preview-animation URL or byteSource; PLAYS muted video or CALLS startIosGifPlayback.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { startIosGifPlayback } from "@/components/drive/image/animated-gif-playback";
-import { isAppleTouchDevice } from "@/components/drive/image/image-preview-gif";
+import {
+  isAppleTouchDevice,
+  isServerGifAnimationPreviewUrl,
+} from "@/components/drive/image/image-preview-gif";
 
 type AnimatedGifCanvasProps = {
   /** Human: Preferred on iOS — avoids fetch(blob:) and duplicate stream requests. */
@@ -38,8 +41,54 @@ async function loadGifArrayBuffer(
   return response.arrayBuffer();
 }
 
-// Human: Animated GIF surface for iOS — canvas frame loop or transcoded MP4, not native <img>.
-// Agent: MOUNTS canvas or video; STARTS startIosGifPlayback when bytes are ready.
+type ServerGifVideoProps = {
+  url: string;
+  alt: string;
+  fitStyle: CSSProperties;
+  className?: string;
+  onNaturalSize?: (width: number, height: number) => void;
+};
+
+// Human: Play ffmpeg-generated MP4 from the API — primary iOS WebKit GIF workaround.
+// Agent: MOUNTS muted looping video; READS natural size from loadedmetadata.
+function ServerGifVideo({ url, alt, fitStyle, className, onNaturalSize }: ServerGifVideoProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = true;
+    video.playsInline = true;
+    video.loop = true;
+    void video.play().catch(() => undefined);
+  }, [url]);
+
+  return (
+    <video
+      ref={videoRef}
+      role="img"
+      aria-label={alt}
+      style={fitStyle}
+      className={className}
+      src={url}
+      autoPlay
+      muted
+      loop
+      playsInline
+      disablePictureInPicture
+      controls={false}
+      onLoadedMetadata={(event) => {
+        const video = event.currentTarget;
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          onNaturalSize?.(video.videoWidth, video.videoHeight);
+        }
+      }}
+    />
+  );
+}
+
+// Human: Animated GIF surface for iOS — server MP4, client MP4 transcode, or canvas loops.
+// Agent: MOUNTS video/canvas; STARTS playback when bytes or preview-animation URL are ready.
 export function AnimatedGifCanvas({
   byteSource,
   fileId,
@@ -49,21 +98,55 @@ export function AnimatedGifCanvas({
   className,
   onNaturalSize,
 }: AnimatedGifCanvasProps) {
+  if (isServerGifAnimationPreviewUrl(url)) {
+    return (
+      <ServerGifVideo
+        url={url}
+        alt={alt}
+        fitStyle={fitStyle}
+        className={className}
+        onNaturalSize={onNaturalSize}
+      />
+    );
+  }
+
+  return (
+    <ClientGifPlayback
+      byteSource={byteSource}
+      fileId={fileId}
+      url={url}
+      alt={alt}
+      fitStyle={fitStyle}
+      className={className}
+      onNaturalSize={onNaturalSize}
+    />
+  );
+}
+
+type ClientGifPlaybackProps = AnimatedGifCanvasProps;
+
+// Human: Client-side GIF decode when server MP4 is unavailable (share links, offline dev).
+// Agent: CALLS startIosGifPlayback; FALLBACK img only off iOS.
+function ClientGifPlayback({
+  byteSource,
+  fileId,
+  url,
+  alt,
+  fitStyle,
+  className,
+  onNaturalSize,
+}: ClientGifPlaybackProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [isPreparing, setIsPreparing] = useState(true);
-  const [waitingForBytes, setWaitingForBytes] = useState(
-    isAppleTouchDevice() && !byteSource,
-  );
+  const waitingForBytes = isAppleTouchDevice() && !byteSource;
 
   useEffect(() => {
-    if (isAppleTouchDevice() && !byteSource) {
-      setWaitingForBytes(true);
+    if (waitingForBytes) {
       return;
     }
-    setWaitingForBytes(false);
     setIsPreparing(true);
 
     let cancelled = false;
@@ -129,9 +212,9 @@ export function AnimatedGifCanvas({
       }
       setVideoUrl(null);
     };
-  }, [byteSource, fileId, url, onNaturalSize]);
+  }, [byteSource, fileId, url, onNaturalSize, waitingForBytes]);
 
-  if (loadError) {
+  if (loadError && !isAppleTouchDevice()) {
     return (
       <img
         src={url}
@@ -142,6 +225,14 @@ export function AnimatedGifCanvas({
         loading="eager"
         decoding="sync"
       />
+    );
+  }
+
+  if (loadError && isAppleTouchDevice()) {
+    return (
+      <p className="px-4 text-center text-sm text-white/70" role="status">
+        Could not play this animated image on iOS.
+      </p>
     );
   }
 

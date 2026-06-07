@@ -8,6 +8,7 @@ pub mod file_copy;
 pub mod file_delete;
 pub mod folder_download;
 pub mod folders;
+pub mod gif_preview;
 pub mod handlers;
 pub mod listing;
 pub mod processing;

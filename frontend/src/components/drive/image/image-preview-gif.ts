@@ -159,6 +159,12 @@ export function shouldTranscodeGifToMp4Fallback(): boolean {
   return isAppleTouchDevice();
 }
 
+// Human: True when the preview URL points at the server-generated GIF→MP4 ticket stream.
+// Agent: READS href string; SKIPS client-side transcode in AnimatedGifCanvas.
+export function isServerGifAnimationPreviewUrl(url: string): boolean {
+  return url.includes("/preview-animation");
+}
+
 // Human: Async wrapper — scans the full file when small, otherwise the first chunk then full file if inconclusive.
 // Agent: READS source bytes; CALLS isAnimatedGifBytes; handles missing mime types via magic header.
 export async function isAnimatedGifBlob(source: Blob): Promise<boolean> {

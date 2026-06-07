@@ -2056,6 +2056,18 @@ export async function fetchFilePreviewUrl(id: string) {
   }>;
 }
 
+// Human: Ticket MP4 URL for animated GIF preview — iOS WebKit plays video reliably when GIF img is frozen.
+// Agent: GET /files/:id/preview-animation-url; RETURNS /preview-animation?ticket= same-origin href.
+export async function fetchFileGifAnimationPreviewUrl(
+  file: FileItem,
+): Promise<{ url: string; revokeOnClose: boolean }> {
+  const preview = await apiFetch(`/files/${file.id}/preview-animation-url`) as {
+    url: string;
+    expires_in_seconds: number;
+  };
+  return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
+}
+
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
 }

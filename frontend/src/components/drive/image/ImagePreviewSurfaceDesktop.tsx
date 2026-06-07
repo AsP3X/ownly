@@ -3,6 +3,11 @@
 
 import { ChevronLeft, ChevronRight, Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { AnimatedGifCanvas } from "@/components/drive/image/AnimatedGifCanvas";
+import {
+  isGifPreviewFile,
+  shouldUseGifCanvasPlayback,
+} from "@/components/drive/image/image-preview-gif";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { DialogClose } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -32,7 +37,11 @@ export function ImagePreviewSurfaceDesktop({
     showShareAction,
     goPrevious,
     goNext,
+    getPreviewGifBlob,
   } = vm;
+
+  const useIosGifPlayback =
+    Boolean(file && displayUrl && isGifPreviewFile(file) && shouldUseGifCanvasPlayback());
 
   return (
     <div className="flex w-full items-center justify-center gap-3 sm:gap-4">
@@ -57,12 +66,27 @@ export function ImagePreviewSurfaceDesktop({
           ) : null}
 
           {displayUrl ? (
-            <img
-              src={displayUrl}
-              alt={file?.name ?? "Image preview"}
-              className="max-h-[min(900px,105dvh)] w-full object-contain"
-              draggable={false}
-            />
+            useIosGifPlayback ? (
+              <AnimatedGifCanvas
+                url={displayUrl}
+                fileId={file?.id}
+                byteSource={file ? getPreviewGifBlob(file.id) : null}
+                alt={file?.name ?? "Image preview"}
+                fitStyle={{
+                  maxHeight: "min(900px, 105dvh)",
+                  width: "100%",
+                  objectFit: "contain",
+                }}
+                className="max-h-[min(900px,105dvh)] w-full object-contain"
+              />
+            ) : (
+              <img
+                src={displayUrl}
+                alt={file?.name ?? "Image preview"}
+                className="max-h-[min(900px,105dvh)] w-full object-contain"
+                draggable={false}
+              />
+            )
           ) : null}
 
           {showInitialLoader ? (

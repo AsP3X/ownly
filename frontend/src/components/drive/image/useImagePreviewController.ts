@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { FileItem } from "@/api/client";
 import {
   fetchFileBlobForPreview,
+  fetchFileGifAnimationPreviewUrl,
   fetchFileStreamUrlForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
@@ -319,7 +320,7 @@ export function useImagePreviewController({
       const isActive = () => isCacheSessionActive(session);
       const isMobilePreview = Boolean(previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0);
       const isGif = isGifPreviewFile(item);
-      const needsIosGifBytes = isMobilePreview && isGif && shouldUseGifCanvasPlayback();
+      const needsIosGifWorkaround = isGif && shouldUseGifCanvasPlayback() && !shareToken;
 
       if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
@@ -338,9 +339,21 @@ export function useImagePreviewController({
             return null;
           }
 
-          // Human: Same-origin stream bytes keep GIF animation on mobile — skip blob + worker downscale.
-          // Agent: HTTP GET /files/:id/stream?ticket=; SKIPPED on iOS where canvas needs raw bytes cached.
-          if (isMobilePreview && isGif && !shareToken && !needsIosGifBytes) {
+          // Human: Server ffmpeg MP4 is the primary iOS WebKit workaround for animated GIFs.
+          // Agent: GET /files/:id/preview-animation-url; FALLBACK to blob + client transcode.
+          if (needsIosGifWorkaround) {
+            try {
+              const animation = await fetchFileGifAnimationPreviewUrl(item);
+              if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
+              return cachePreviewUrl(item.id, animation.url, animation.revokeOnClose, session);
+            } catch {
+              // Human: Server transcode may fail when ffmpeg is unavailable — use client path below.
+            }
+          }
+
+          // Human: Same-origin stream bytes keep GIF animation on Android mobile — skip downscale.
+          // Agent: HTTP GET /files/:id/stream?ticket=; SKIPPED on iOS (uses MP4 workaround above).
+          if (isMobilePreview && isGif && !shareToken && !needsIosGifWorkaround) {
             try {
               const stream = await fetchFileStreamUrlForPreview(item);
               if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
@@ -359,9 +372,13 @@ export function useImagePreviewController({
           if (isMobilePreview && isGif) {
             const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
             rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
-            if (needsIosGifBytes) {
+            if (needsIosGifWorkaround) {
               cacheGifBlob(item.id, displayBlob, session);
             }
+          } else if (needsIosGifWorkaround && isGif) {
+            const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
+            rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
+            cacheGifBlob(item.id, displayBlob, session);
           } else if (isMobilePreview) {
             const prepared = await preparePreviewDisplayBlob(
               displayBlob,

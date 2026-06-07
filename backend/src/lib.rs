@@ -331,6 +331,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(hls::handlers::stream_file),
         )
         .route(
+            "/api/v1/files/{id}/preview-animation",
+            get(files::gif_preview::stream_gif_preview_animation),
+        )
+        .route(
             "/api/v1/files/{id}/hls/manifest.m3u8",
             get(hls::handlers::get_hls_manifest),
         )
@@ -478,6 +482,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/{id}/preview-url",
             get(files::handlers::preview_url),
+        )
+        .route(
+            "/api/v1/files/{id}/preview-animation-url",
+            get(files::gif_preview::preview_animation_url),
         )
         .route(
             "/api/v1/files/{id}/waveform",
