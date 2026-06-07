@@ -245,11 +245,12 @@ export function PdfPreviewSurfaceMobile({
                               >
                                 <div
                                   className={cn(
-                                    "flex w-[88px] items-center justify-center rounded border bg-white p-1.5 transition-colors",
+                                    "flex items-center justify-center rounded border bg-white p-1.5 transition-colors",
                                     isActive
                                       ? "border-2 border-[#2563EB]"
                                       : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
                                   )}
+                                  style={{ width: thumbnailWidth }}
                                 >
                                   <Page
                                     pageNumber={pageNumber}
@@ -257,7 +258,10 @@ export function PdfPreviewSurfaceMobile({
                                     renderAnnotationLayer={false}
                                     renderTextLayer={false}
                                     loading={
-                                      <div className="flex h-[114px] w-full items-center justify-center">
+                                      <div
+                                        className="flex w-full items-center justify-center"
+                                        style={{ height: Math.round(thumbnailWidth * 1.295) }}
+                                      >
                                         <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
                                       </div>
                                     }
