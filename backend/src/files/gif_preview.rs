@@ -11,8 +11,8 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::StreamExt;
-use tempfile::NamedTempFile;
-use tokio::io::AsyncWriteExt;
+use tempfile::TempDir;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::{
@@ -158,11 +158,9 @@ async fn generate_and_store_gif_preview(
     gif_storage_key: &str,
     preview_key: &str,
 ) -> Result<(), AppError> {
-    let gif_temp = download_storage_object_to_temp(storage.clone(), gif_storage_key).await?;
-    let mp4_temp = transcode_gif_file_with_ffmpeg(gif_temp.path()).await?;
-    let mp4_bytes = tokio::fs::read(mp4_temp.path())
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("read preview mp4: {e}")))?;
+    let (gif_dir, gif_path) = download_storage_object_to_temp(storage.clone(), gif_storage_key).await?;
+    let mp4_bytes = transcode_gif_file_with_ffmpeg(&gif_path).await?;
+    drop(gif_dir);
 
     if mp4_bytes.len() < 128 {
         return Err(AppError::Internal(anyhow::anyhow!(
@@ -178,21 +176,22 @@ async fn generate_and_store_gif_preview(
     Ok(())
 }
 
-// Human: Persist one storage object to a temp file for ffmpeg input.
-// Agent: READS get_stream; WRITES NamedTempFile on local disk.
+// Human: Persist one storage object to a temp dir as source.gif for ffmpeg probing.
+// Agent: READS get_stream; WRITES work_dir/source.gif; RETURNS dir handle + path.
 async fn download_storage_object_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
-) -> Result<NamedTempFile, AppError> {
+) -> Result<(TempDir, PathBuf), AppError> {
+    let work_dir = TempDir::new()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
+    let gif_path = work_dir.path().join("source.gif");
+
     let (mut stream, _, _) = storage
         .get_stream(storage_key)
         .await
         .map_err(|e| AppError::Storage(e.to_string()))?;
 
-    let temp = NamedTempFile::new()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp file create: {e}")))?;
-    let path = temp.path().to_path_buf();
-    let mut file = tokio::fs::File::create(&path)
+    let mut file = tokio::fs::File::create(&gif_path)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp file open: {e}")))?;
 
@@ -206,27 +205,43 @@ async fn download_storage_object_to_temp(
     file.sync_all()
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp flush: {e}")))?;
+    drop(file);
 
-    Ok(temp)
+    let size = tokio::fs::metadata(&gif_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp stat: {e}")))?
+        .len();
+    if size < 6 {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "gif preview source object is empty or truncated ({size} bytes)"
+        )));
+    }
+
+    Ok((work_dir, gif_path))
 }
 
 // Human: Run ffmpeg to produce a browser-friendly H.264 MP4 from an animated GIF file.
-// Agent: SPAWNS ffmpeg with yuv420p + faststart; RETURNS temp output path.
-async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<NamedTempFile, AppError> {
-    let output = NamedTempFile::new()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp mp4 create: {e}")))?;
+// Agent: SPAWNS ffmpeg into an isolated temp dir; LOGS stderr tail on failure; RETURNS mp4 bytes.
+async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<Vec<u8>, AppError> {
+    let work_dir = TempDir::new()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
+    let output_path = work_dir.path().join("preview.mp4");
 
-    let output_path: PathBuf = output.path().to_path_buf();
-
-    let status = Command::new("ffmpeg")
+    let mut child = Command::new("ffmpeg")
         .arg("-y")
+        .arg("-nostdin")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-f")
+        .arg("gif")
         .arg("-i")
         .arg(input)
         .args([
-            "-f",
-            "mp4",
             "-c:v",
             "libx264",
+            "-preset",
+            "fast",
             "-movflags",
             "+faststart",
             "-pix_fmt",
@@ -238,17 +253,54 @@ async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<NamedTempFile, A
         .arg(&output_path)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .status()
-        .await
+        .spawn()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg spawn: {e}")))?;
 
+    let mut stderr_lines = Vec::new();
+    if let Some(stderr) = child.stderr.take() {
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        while reader
+            .read_line(&mut line)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg stderr read: {e}")))?
+            > 0
+        {
+            let trimmed = line.trim_end().to_string();
+            if !trimmed.is_empty() {
+                stderr_lines.push(trimmed);
+                if stderr_lines.len() > 24 {
+                    let drain = stderr_lines.len() - 24;
+                    stderr_lines.drain(0..drain);
+                }
+            }
+            line.clear();
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg wait: {e}")))?;
+
     if !status.success() {
+        let stderr_tail = stderr_lines.join("\n");
+        tracing::error!(
+            exit_code = ?status.code(),
+            input = %input.display(),
+            ffmpeg_stderr = %stderr_tail,
+            "gif preview ffmpeg transcode failed"
+        );
         return Err(AppError::Internal(anyhow::anyhow!(
             "ffmpeg gif preview transcode failed"
         )));
     }
 
-    Ok(output)
+    let mp4_bytes = tokio::fs::read(&output_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("read preview mp4: {e}")))?;
+
+    Ok(mp4_bytes)
 }
 
 #[cfg(test)]
