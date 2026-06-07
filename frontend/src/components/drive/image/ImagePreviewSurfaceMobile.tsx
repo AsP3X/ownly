@@ -8,7 +8,11 @@ import {
   MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE,
   resolveMobileViewportFitStyle,
 } from "@/components/drive/image/image-preview-layout";
-import { isGifPreviewFile } from "@/components/drive/image/image-preview-gif";
+import { AnimatedGifCanvas } from "@/components/drive/image/AnimatedGifCanvas";
+import {
+  isGifPreviewFile,
+  shouldUseGifCanvasPlayback,
+} from "@/components/drive/image/image-preview-gif";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { useMobileImagePinchZoom } from "@/components/drive/image/useMobileImagePinchZoom";
 import { DialogClose } from "@/components/ui/dialog";
@@ -118,6 +122,25 @@ function MobileViewportFitImage({
     setLoadedNatural({ width: img.naturalWidth, height: img.naturalHeight });
   }, []);
 
+  const handleCanvasNaturalSize = useCallback((width: number, height: number) => {
+    setLoadedNatural({ width, height });
+  }, []);
+
+  const resolvedStyle =
+    naturalWidth > 0 && naturalHeight > 0 ? fitStyle : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
+
+  if (isAnimatedGif && shouldUseGifCanvasPlayback()) {
+    return (
+      <AnimatedGifCanvas
+        url={url}
+        alt={alt}
+        fitStyle={resolvedStyle}
+        className="block max-h-full max-w-full"
+        onNaturalSize={handleCanvasNaturalSize}
+      />
+    );
+  }
+
   return (
     <img
       key={isAnimatedGif ? url : undefined}
@@ -126,7 +149,7 @@ function MobileViewportFitImage({
       loading="eager"
       decoding={isAnimatedGif ? "sync" : "async"}
       onLoad={handleImageLoad}
-      style={naturalWidth > 0 && naturalHeight > 0 ? fitStyle : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE}
+      style={resolvedStyle}
       className="block max-h-full max-w-full"
       draggable={false}
     />

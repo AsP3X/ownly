@@ -134,6 +134,19 @@ export function isGifPreviewFile(file: {
   return (file.name ?? "").toLowerCase().endsWith(".gif");
 }
 
+// Human: iOS Safari freezes animated <img> inside modals — canvas playback is required there.
+// Agent: READS userAgent + maxTouchPoints; RETURNS true for iPhone/iPad/iPadOS desktop UA.
+export function shouldUseGifCanvasPlayback(): boolean {
+  if (typeof navigator === "undefined") return false;
+
+  const ua = navigator.userAgent;
+  const isAppleMobile = /iPad|iPhone|iPod/.test(ua);
+  const isIpadDesktopUa =
+    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+
+  return isAppleMobile || isIpadDesktopUa;
+}
+
 // Human: Async wrapper — scans the full file when small, otherwise the first chunk then full file if inconclusive.
 // Agent: READS source bytes; CALLS isAnimatedGifBytes; handles missing mime types via magic header.
 export async function isAnimatedGifBlob(source: Blob): Promise<boolean> {

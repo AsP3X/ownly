@@ -54,15 +54,15 @@ export function ImagePreviewDialog({
   return (
     <Dialog open={open} onOpenChange={vm.handleDialogOpenChange}>
       <DialogContent
+        motionlessPopup={isNarrow}
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
-            ? "!fixed inset-0 top-0 left-0 flex h-[100svh] max-h-[100svh] w-full !max-w-none translate-none transform-none rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh data-open:animate-none data-closed:animate-none"
+            ? "h-[100svh] max-h-[100svh] w-full min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
         )}
         overlayClassName={cn(
-          "bg-[#0A0A10]/80 backdrop-blur-2xl",
-          isNarrow && "bg-[#0A0A10]/95 backdrop-blur-[24px]",
+          isNarrow ? "bg-[#0A0A10]/95" : "bg-[#0A0A10]/80 backdrop-blur-2xl",
         )}
         showCloseButton={false}
         onKeyDown={vm.handleContentKeyDown}
