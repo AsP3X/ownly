@@ -228,59 +228,6 @@ export function DriveContextMenu({
               </p>
             ) : null}
 
-            {/* Human: Videos — Open plays in-browser; Edit opens details (thumbnail picker lives there). */}
-            {targetIsVideo ? (
-              <>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing || !targetFile.hls_ready || !onPreviewVideo
-                  }
-                  onClick={() => onPreviewVideo?.(targetFile)}
-                >
-                  Open
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={targetProcessing}
-                  onClick={() => onDetailsFile(targetFile)}
-                >
-                  Edit
-                </ContextMenuItem>
-              </>
-            ) : (
-              <ContextMenuItem
-                disabled={targetProcessing}
-                onClick={() => onDetailsFile(targetFile)}
-              >
-                Open
-              </ContextMenuItem>
-            )}
-
-            <ContextMenuSub>
-              <ContextMenuSubTrigger disabled={targetProcessing}>Share…</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
-                  disabled={targetProcessing}
-                  onClick={() => onShareFile(targetFile)}
-                >
-                  Copy link
-                </ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-
-            <ContextMenuItem
-              disabled={targetProcessing}
-              onClick={() => onDownload(targetFile)}
-            >
-              Download
-            </ContextMenuItem>
-
-            <ContextMenuItem
-              disabled={targetProcessing}
-              onClick={() => onToggleFavourite(targetFile.id)}
-            >
-              {targetFavourited ? "Remove from favourites" : "Add to favourites"}
-            </ContextMenuItem>
-
             {enableMobileSelectActions && onEnterMobileSelection ? (
               <ContextMenuItem
                 disabled={targetProcessing}
@@ -293,6 +240,36 @@ export function DriveContextMenu({
                 Select
               </ContextMenuItem>
             ) : null}
+
+            {/* Human: Mobile file menu order — Select, Open, Open with, Download, Favourites, Delete. */}
+            {/* Agent: Videos Open previews in-browser; desktop keeps Edit below Open for thumbnail picker. */}
+            {targetIsVideo ? (
+              <>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing || !targetFile.hls_ready || !onPreviewVideo
+                  }
+                  onClick={() => onPreviewVideo?.(targetFile)}
+                >
+                  Open
+                </ContextMenuItem>
+                {!enableMobileSelectActions ? (
+                  <ContextMenuItem
+                    disabled={targetProcessing}
+                    onClick={() => onDetailsFile(targetFile)}
+                  >
+                    Edit
+                  </ContextMenuItem>
+                ) : null}
+              </>
+            ) : (
+              <ContextMenuItem
+                disabled={targetProcessing}
+                onClick={() => onDetailsFile(targetFile)}
+              >
+                Open
+              </ContextMenuItem>
+            )}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger disabled={targetProcessing}>Open with…</ContextMenuSubTrigger>
@@ -358,6 +335,32 @@ export function DriveContextMenu({
                   onClick={() => targetFile && onPreviewAudio?.(targetFile)}
                 >
                   Play audio
+                </ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onDownload(targetFile)}
+            >
+              Download
+            </ContextMenuItem>
+
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onToggleFavourite(targetFile.id)}
+            >
+              {targetFavourited ? "Remove from favourites" : "Add to favourites"}
+            </ContextMenuItem>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger disabled={targetProcessing}>Share…</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <ContextMenuItem
+                  disabled={targetProcessing}
+                  onClick={() => onShareFile(targetFile)}
+                >
+                  Copy link
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>

@@ -1584,6 +1584,12 @@ export default function DrivePage() {
           onShareFolder={handleShareFolder}
           onDetailsFile={handleDetailsFile}
           onDetailsFolder={handleDetailsFolder}
+          onPreviewVideo={handlePreviewVideo}
+          onPreviewImage={handlePreviewImage}
+          onPreviewPdf={handlePreviewPdf}
+          onPreviewText={handlePreviewText}
+          onPreviewSpreadsheet={handlePreviewSpreadsheet}
+          onPreviewAudio={handlePreviewAudio}
           onCopyToFolder={handleOpenFolderPicker}
           onMoveToFolder={handleOpenFolderPicker}
           selectedFileIds={selectedFileIds}
