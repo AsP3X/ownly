@@ -40,6 +40,7 @@ export function ImagePreviewSurfaceDesktop({
     goNext,
     getPreviewGifBlob,
     getPreviewDimensions,
+    resolveGifAnimationPreviewUrl,
   } = vm;
 
   const useIosGifPlayback =
@@ -90,6 +91,8 @@ export function ImagePreviewSurfaceDesktop({
                 alt={file?.name ?? "Image preview"}
                 fitStyle={iosGifFitStyle}
                 className="max-h-[min(900px,105dvh)] w-full object-contain"
+                enableServerAnimation
+                resolveAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
               />
             ) : (
               <img

@@ -88,6 +88,9 @@ type MobileViewportFitImageProps = {
   containerSize: ContainerSize;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
+  resolveGifAnimationPreviewUrl: ImagePreviewControllerViewModel["resolveGifAnimationPreviewUrl"];
+  /** Human: When false, show static poster only — avoids ffmpeg for off-screen carousel neighbors. */
+  enableServerAnimation?: boolean;
   /** Human: GIF frames freeze under async decode on some mobile browsers — use sync for animated sources. */
   isAnimatedGif?: boolean;
 };
@@ -101,6 +104,8 @@ function MobileViewportFitImage({
   containerSize,
   getPreviewDimensions,
   getPreviewGifBlob,
+  resolveGifAnimationPreviewUrl,
+  enableServerAnimation = true,
   isAnimatedGif = false,
 }: MobileViewportFitImageProps) {
   const [loadedNatural, setLoadedNatural] = useState<{ width: number; height: number } | null>(null);
@@ -157,6 +162,8 @@ function MobileViewportFitImage({
         fitStyle={animatedMediaStyle}
         className="block object-contain"
         onNaturalSize={hasStableDimensions ? undefined : handleCanvasNaturalSize}
+        enableServerAnimation={enableServerAnimation}
+        resolveAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
       />
     );
   }
@@ -205,6 +212,9 @@ type ImageGallerySlideProps = {
   file?: FileItem | null;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
+  resolveGifAnimationPreviewUrl: ImagePreviewControllerViewModel["resolveGifAnimationPreviewUrl"];
+  /** Human: Only the centered slide starts server MP4 transcode — neighbors stay on static posters. */
+  enableServerAnimation?: boolean;
   showLoader?: boolean;
   enablePinchZoom?: boolean;
   onZoomActiveChange?: (active: boolean) => void;
@@ -220,6 +230,8 @@ function ImageGallerySlide({
   file,
   getPreviewDimensions,
   getPreviewGifBlob,
+  resolveGifAnimationPreviewUrl,
+  enableServerAnimation = false,
   showLoader = false,
   enablePinchZoom = false,
   onZoomActiveChange,
@@ -255,6 +267,8 @@ function ImageGallerySlide({
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
               getPreviewGifBlob={getPreviewGifBlob}
+              resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+              enableServerAnimation={enableServerAnimation}
               isAnimatedGif={isAnimatedGif}
             />
           ) : showLoader ? (
@@ -274,6 +288,7 @@ type StaticImageStageProps = {
   showInitialLoader: boolean;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
+  resolveGifAnimationPreviewUrl: ImagePreviewControllerViewModel["resolveGifAnimationPreviewUrl"];
   onCancelPendingTap?: () => void;
 };
 
@@ -286,6 +301,7 @@ function StaticImageStage({
   showInitialLoader,
   getPreviewDimensions,
   getPreviewGifBlob,
+  resolveGifAnimationPreviewUrl,
   onCancelPendingTap,
 }: StaticImageStageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -317,6 +333,8 @@ function StaticImageStage({
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
               getPreviewGifBlob={getPreviewGifBlob}
+              resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+              enableServerAnimation
               isAnimatedGif={isAnimatedGif}
             />
           ) : null}
@@ -379,6 +397,7 @@ export function ImagePreviewSurfaceMobile({
     nextFile,
     getPreviewDimensions,
     getPreviewGifBlob,
+    resolveGifAnimationPreviewUrl,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -794,6 +813,8 @@ export function ImagePreviewSurfaceMobile({
                   file={previousFile}
                   getPreviewDimensions={getPreviewDimensions}
                   getPreviewGifBlob={getPreviewGifBlob}
+                  resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+                  enableServerAnimation={false}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
@@ -805,6 +826,8 @@ export function ImagePreviewSurfaceMobile({
                   file={file}
                   getPreviewDimensions={getPreviewDimensions}
                   getPreviewGifBlob={getPreviewGifBlob}
+                  resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+                  enableServerAnimation
                   showLoader={showInitialLoader}
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
@@ -819,6 +842,8 @@ export function ImagePreviewSurfaceMobile({
                   file={nextFile}
                   getPreviewDimensions={getPreviewDimensions}
                   getPreviewGifBlob={getPreviewGifBlob}
+                  resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+                  enableServerAnimation={false}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>
@@ -855,6 +880,7 @@ export function ImagePreviewSurfaceMobile({
           showInitialLoader={showInitialLoader}
           getPreviewDimensions={getPreviewDimensions}
           getPreviewGifBlob={getPreviewGifBlob}
+          resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
           onCancelPendingTap={cancelPendingTapNav}
         />
       )}

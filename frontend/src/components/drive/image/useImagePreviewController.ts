@@ -55,6 +55,11 @@ export type ImagePreviewControllerViewModel = {
   getPreviewDimensions: (fileId: string | undefined) => { width: number; height: number } | null;
   /** Human: Raw GIF bytes for iOS canvas/video playback — avoids re-fetching stream URLs. */
   getPreviewGifBlob: (fileId: string | undefined) => Blob | null;
+  /** Human: Ticket URL for preview-animation — fetched only when the slide is active. */
+  resolveGifAnimationPreviewUrl: (
+    fileId: string,
+    signal?: AbortSignal,
+  ) => Promise<string | null>;
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
@@ -105,6 +110,7 @@ export function useImagePreviewController({
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, CachedPreviewUrl>>(new Map());
   const gifBlobCacheRef = useRef<Map<string, Blob>>(new Map());
+  const animationUrlCacheRef = useRef<Map<string, string>>(new Map());
   const previewDimensionsRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const [previewDimensionsRevision, setPreviewDimensionsRevision] = useState(0);
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
@@ -174,6 +180,7 @@ export function useImagePreviewController({
         revokeCachedPreviewUrl(entry);
         urlCacheRef.current.delete(fileId);
         gifBlobCacheRef.current.delete(fileId);
+        animationUrlCacheRef.current.delete(fileId);
         previewDimensionsRef.current.delete(fileId);
       }
       setPreviewDimensionsRevision((value) => value + 1);
@@ -248,6 +255,34 @@ export function useImagePreviewController({
     return gifBlobCacheRef.current.get(fileId) ?? null;
   }, []);
 
+  // Human: Resolve preview-animation ticket URL without downloading the MP4 (no ffmpeg until video src loads).
+  // Agent: READS animationUrlCacheRef; FETCHES preview-animation-url only when the active slide requests it.
+  const resolveGifAnimationPreviewUrl = useCallback(
+    async (fileId: string, signal?: AbortSignal): Promise<string | null> => {
+      const cached = animationUrlCacheRef.current.get(fileId);
+      if (cached) return cached;
+
+      const item = imagesRef.current.find((entry) => entry.id === fileId);
+      if (!item || !isGifPreviewFile(item)) return null;
+
+      try {
+        const animation = shareToken
+          ? await fetchPublicShareGifAnimationPreviewUrl(
+              shareToken,
+              item,
+              sharePassword,
+            )
+          : await fetchFileGifAnimationPreviewUrl(item);
+        if (signal?.aborted) return null;
+        animationUrlCacheRef.current.set(fileId, animation.url);
+        return animation.url;
+      } catch {
+        return null;
+      }
+    },
+    [sharePassword, shareToken],
+  );
+
   const cacheGifBlob = useCallback(
     (fileId: string, blob: Blob, session: number) => {
       if (!isCacheSessionActive(session)) return;
@@ -281,6 +316,7 @@ export function useImagePreviewController({
     }
     urlCacheRef.current.clear();
     gifBlobCacheRef.current.clear();
+    animationUrlCacheRef.current.clear();
     previewDimensionsRef.current.clear();
     setPreviewDimensionsRevision((value) => value + 1);
     activeFileIdRef.current = null;
@@ -340,8 +376,8 @@ export function useImagePreviewController({
             return null;
           }
 
-          // Human: iOS animated preview — cache bytes, then open preview-animation while loader covers transcode.
-          // Agent: WRITES gifBlob cache; RETURNS preview-animation URL; AnimatedGifCanvas shows server loader.
+          // Human: iOS animated preview — cache bytes for static poster; defer ffmpeg until active slide mounts video.
+          // Agent: WRITES gifBlob cache; RETURNS blob URL; preview-animation ticket fetched in AnimatedGifCanvas.
           if (needsIosGifWorkaround) {
             const blob = await fetchPreviewBlob(item, controller.signal);
             if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
@@ -350,25 +386,6 @@ export function useImagePreviewController({
             const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
             rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
             cacheGifBlob(item.id, displayBlob, session);
-
-            try {
-              const animation = shareToken
-                ? await fetchPublicShareGifAnimationPreviewUrl(
-                    shareToken,
-                    item,
-                    sharePassword,
-                  )
-                : await fetchFileGifAnimationPreviewUrl(item);
-              if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
-              return cachePreviewUrl(
-                item.id,
-                animation.url,
-                animation.revokeOnClose,
-                session,
-              );
-            } catch {
-              // Human: Server transcode unavailable — client ImageDecoder path uses cached blob below.
-            }
 
             return cacheBlobUrl(item.id, displayBlob, session);
           }
@@ -620,6 +637,7 @@ export function useImagePreviewController({
     displayUrl: resolvedDisplayUrl,
     getPreviewDimensions,
     getPreviewGifBlob,
+    resolveGifAnimationPreviewUrl,
     error,
     loading,
     showInitialLoader: resolvedShowInitialLoader,

@@ -1,8 +1,7 @@
-// Human: iOS GIF preview — server MP4 first, then client transcode; never uses broken captureStream.
-// Agent: READS preview-animation URL or byteSource; PLAYS muted video or CALLS startIosGifPlayback.
+// Human: iOS GIF preview — static poster first, server MP4 on active slide, client fallback last.
+// Agent: READS byteSource poster; FETCHES preview-animation only when enableServerAnimation; PLAYS video.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Loader2 } from "lucide-react";
 import { startIosGifPlayback } from "@/components/drive/image/animated-gif-playback";
 import { withAnimatedPreviewContainFit } from "@/components/drive/image/image-preview-layout";
 import {
@@ -22,13 +21,51 @@ type AnimatedGifCanvasProps = {
   byteSource?: Blob | ArrayBuffer | null;
   /** Human: Cache key for MP4 transcode reuse across carousel swipes. */
   fileId?: string;
-  /** Human: Fallback when bytes are not cached (public share or legacy paths). */
+  /** Human: Blob object URL for the static poster while server MP4 is generated. */
   url: string;
   alt: string;
   fitStyle: CSSProperties;
   className?: string;
   onNaturalSize?: (width: number, height: number) => void;
+  /** Human: When false, show the static poster only (carousel neighbors — no ffmpeg). */
+  enableServerAnimation?: boolean;
+  /** Human: Resolve ticket URL for preview-animation; does not download the MP4 body. */
+  resolveAnimationPreviewUrl?: (
+    fileId: string,
+    signal?: AbortSignal,
+  ) => Promise<string | null>;
 };
+
+// Human: Build an object URL for the first GIF/WebP frame shown while MP4 transcode runs.
+// Agent: READS byteSource; FALLBACK to existing blob display URL from the preview cache.
+function usePosterObjectUrl(
+  byteSource: Blob | ArrayBuffer | null | undefined,
+  fallbackUrl: string,
+): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(() =>
+    fallbackUrl.startsWith("blob:") ? fallbackUrl : null,
+  );
+
+  useEffect(() => {
+    if (byteSource instanceof Blob) {
+      const nextUrl = URL.createObjectURL(byteSource);
+      setObjectUrl(nextUrl);
+      return () => URL.revokeObjectURL(nextUrl);
+    }
+    if (byteSource instanceof ArrayBuffer) {
+      const nextUrl = URL.createObjectURL(new Blob([byteSource]));
+      setObjectUrl(nextUrl);
+      return () => URL.revokeObjectURL(nextUrl);
+    }
+    if (fallbackUrl.startsWith("blob:")) {
+      setObjectUrl(fallbackUrl);
+      return;
+    }
+    setObjectUrl(null);
+  }, [byteSource, fallbackUrl]);
+
+  return objectUrl;
+}
 
 // Human: Resolve GIF bytes from an in-memory blob or a same-origin / blob URL fetch.
 // Agent: READS byteSource first; FETCHES url with credentials when bytes are missing.
@@ -53,52 +90,57 @@ async function loadGifArrayBuffer(
   return response.arrayBuffer();
 }
 
-type GifPreviewProcessingLoaderProps = {
-  label?: string;
+type StaticGifPosterProps = {
+  posterUrl: string;
+  alt: string;
+  fitStyle: CSSProperties;
+  className?: string;
 };
 
-// Human: Centered spinner while iOS waits on server MP4 transcode or client decode.
-// Agent: ABSOLUTE overlay; RENDERS Loader2; COVERS ServerGifVideo and ClientGifPlayback.
-function GifPreviewProcessingLoader({
-  label = "Preparing animation…",
-}: GifPreviewProcessingLoaderProps) {
+// Human: Static first frame for iOS while server ffmpeg transcode runs in the background.
+// Agent: RENDERS img with sync decode; SAME layout box as the eventual MP4 surface.
+function StaticGifPoster({ posterUrl, alt, fitStyle, className }: StaticGifPosterProps) {
+  const mediaStyle = resolveAnimatedMediaStyle(fitStyle);
+
   return (
-    <div
-      className="absolute inset-0 z-10 flex items-center justify-center"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
-      <span className="sr-only">{label}</span>
-    </div>
+    <img
+      src={posterUrl}
+      alt={alt}
+      style={mediaStyle}
+      className={cn(className, "block object-contain")}
+      draggable={false}
+      loading="eager"
+      decoding="sync"
+    />
   );
 }
 
 type ServerGifVideoProps = {
-  url: string;
+  animationUrl: string;
+  posterUrl: string | null;
   alt: string;
   fitStyle: CSSProperties;
   className?: string;
-  onNaturalSize?: (width: number, height: number) => void;
   onFailed?: () => void;
 };
 
-// Human: Play ffmpeg-generated MP4 from the API — primary iOS WebKit GIF workaround.
-// Agent: MOUNTS muted looping video; SHOWS loader until canplay; CALLS onFailed on error.
+// Human: Play ffmpeg-generated MP4 — poster stays visible until the stream can play.
+// Agent: SETS video src on mount (starts server transcode); HIDES poster on canplay/playing.
 function ServerGifVideo({
-  url,
+  animationUrl,
+  posterUrl,
   alt,
   fitStyle,
   className,
   onFailed,
-}: Omit<ServerGifVideoProps, "onNaturalSize">) {
+}: ServerGifVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStyle = withAnimatedPreviewContainFit(fitStyle, 0, 0);
   const [isVideoReady, setIsVideoReady] = useState(false);
 
   useEffect(() => {
     setIsVideoReady(false);
-  }, [url]);
+  }, [animationUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -132,17 +174,29 @@ function ServerGifVideo({
       video.removeEventListener("playing", markReady);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [url, onFailed]);
+  }, [animationUrl, onFailed]);
 
   return (
     <div className="relative" style={mediaStyle}>
+      {posterUrl && !isVideoReady ? (
+        <StaticGifPoster
+          posterUrl={posterUrl}
+          alt={alt}
+          fitStyle={fitStyle}
+          className={cn(className, "absolute inset-0 size-full")}
+        />
+      ) : null}
       <video
         ref={videoRef}
         role="img"
         aria-label={alt}
         style={{ objectFit: "contain" }}
-        className={cn(className, "block size-full")}
-        src={url}
+        className={cn(
+          className,
+          "block size-full",
+          !isVideoReady && posterUrl ? "opacity-0" : "opacity-100",
+        )}
+        src={animationUrl}
         autoPlay
         muted
         loop
@@ -154,13 +208,17 @@ function ServerGifVideo({
         controls={false}
         onError={() => onFailed?.()}
       />
-      {!isVideoReady ? <GifPreviewProcessingLoader /> : null}
+      {!isVideoReady ? (
+        <span className="sr-only" aria-live="polite">
+          Preparing animation…
+        </span>
+      ) : null}
     </div>
   );
 }
 
-// Human: Animated GIF surface for iOS — server MP4, client MP4 transcode, or canvas loops.
-// Agent: MOUNTS video/canvas; STARTS playback when bytes or preview-animation URL are ready.
+// Human: Animated GIF surface for iOS — static poster, lazy server MP4, or client decode fallback.
+// Agent: SKIPS preview-animation fetch unless enableServerAnimation; AVOIDS ffmpeg on prefetch slides.
 export function AnimatedGifCanvas({
   byteSource,
   fileId,
@@ -169,15 +227,65 @@ export function AnimatedGifCanvas({
   fitStyle,
   className,
   onNaturalSize,
+  enableServerAnimation = true,
+  resolveAnimationPreviewUrl,
 }: AnimatedGifCanvasProps) {
+  const posterUrl = usePosterObjectUrl(byteSource, url);
+  const [animationUrl, setAnimationUrl] = useState<string | null>(
+    enableServerAnimation && isServerGifAnimationPreviewUrl(url) ? url : null,
+  );
   const [serverVideoFailed, setServerVideoFailed] = useState(false);
-  const useServerVideo =
-    isServerGifAnimationPreviewUrl(url) && !serverVideoFailed;
 
-  if (useServerVideo) {
+  useEffect(() => {
+    setServerVideoFailed(false);
+    setAnimationUrl(
+      enableServerAnimation && isServerGifAnimationPreviewUrl(url) ? url : null,
+    );
+  }, [enableServerAnimation, fileId, url]);
+
+  useEffect(() => {
+    if (
+      !enableServerAnimation ||
+      !fileId ||
+      !resolveAnimationPreviewUrl ||
+      serverVideoFailed ||
+      animationUrl
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void resolveAnimationPreviewUrl(fileId, controller.signal).then((nextUrl) => {
+      if (!controller.signal.aborted && nextUrl) {
+        setAnimationUrl(nextUrl);
+      }
+    });
+
+    return () => controller.abort();
+  }, [
+    animationUrl,
+    enableServerAnimation,
+    fileId,
+    resolveAnimationPreviewUrl,
+    serverVideoFailed,
+  ]);
+
+  if (!enableServerAnimation) {
+    return posterUrl ? (
+      <StaticGifPoster
+        posterUrl={posterUrl}
+        alt={alt}
+        fitStyle={fitStyle}
+        className={className}
+      />
+    ) : null;
+  }
+
+  if (animationUrl && !serverVideoFailed) {
     return (
       <ServerGifVideo
-        url={url}
+        animationUrl={animationUrl}
+        posterUrl={posterUrl}
         alt={alt}
         fitStyle={fitStyle}
         className={className}
@@ -186,11 +294,28 @@ export function AnimatedGifCanvas({
     );
   }
 
+  if (!serverVideoFailed && posterUrl) {
+    return (
+      <>
+        <StaticGifPoster
+          posterUrl={posterUrl}
+          alt={alt}
+          fitStyle={fitStyle}
+          className={className}
+        />
+        <span className="sr-only" aria-live="polite">
+          Preparing animation…
+        </span>
+      </>
+    );
+  }
+
   return (
     <ClientGifPlayback
       byteSource={byteSource}
       fileId={fileId}
       url={url}
+      posterUrl={posterUrl}
       alt={alt}
       fitStyle={fitStyle}
       className={className}
@@ -202,14 +327,16 @@ export function AnimatedGifCanvas({
 
 type ClientGifPlaybackProps = AnimatedGifCanvasProps & {
   preferByteSource?: boolean;
+  posterUrl?: string | null;
 };
 
 // Human: Client-side GIF decode when server MP4 is unavailable (share links, offline dev).
-// Agent: CALLS startIosGifPlayback; FALLBACK img only off iOS.
+// Agent: CALLS startIosGifPlayback; KEEPS static poster visible until client MP4 plays.
 function ClientGifPlayback({
   byteSource,
   fileId,
   url,
+  posterUrl,
   alt,
   fitStyle,
   className,
@@ -305,7 +432,14 @@ function ClientGifPlayback({
   }, [byteSource, fileId, url, onNaturalSize, waitingForBytes, preferByteSource]);
 
   if (loadError && !isAppleTouchDevice()) {
-    return (
+    return posterUrl ? (
+      <StaticGifPoster
+        posterUrl={posterUrl}
+        alt={alt}
+        fitStyle={fitStyle}
+        className={className}
+      />
+    ) : (
       <img
         src={url}
         alt={alt}
@@ -326,13 +460,20 @@ function ClientGifPlayback({
     );
   }
 
-  const showProcessingLoader =
-    waitingForBytes ||
-    isPreparing ||
-    (Boolean(videoUrl) && !clientVideoReady && !loadError);
+  const showPoster =
+    Boolean(posterUrl) &&
+    (waitingForBytes || isPreparing || (Boolean(videoUrl) && !clientVideoReady));
 
   return (
     <div className="relative" style={mediaStyle}>
+      {showPoster && posterUrl ? (
+        <StaticGifPoster
+          posterUrl={posterUrl}
+          alt={alt}
+          fitStyle={fitStyle}
+          className={cn(className, "absolute inset-0 size-full")}
+        />
+      ) : null}
       <canvas
         ref={canvasRef}
         role="img"
@@ -350,6 +491,7 @@ function ClientGifPlayback({
         style={{
           objectFit: "contain",
           display: videoUrl ? undefined : "none",
+          opacity: clientVideoReady || !posterUrl ? 1 : 0,
         }}
         className={cn(className, "block size-full")}
         src={videoUrl ?? undefined}
@@ -362,7 +504,11 @@ function ClientGifPlayback({
         controls={false}
         onPlaying={() => setClientVideoReady(true)}
       />
-      {showProcessingLoader ? <GifPreviewProcessingLoader /> : null}
+      {waitingForBytes || isPreparing ? (
+        <span className="sr-only" aria-live="polite">
+          Preparing animated image…
+        </span>
+      ) : null}
     </div>
   );
 }
