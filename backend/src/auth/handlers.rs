@@ -335,10 +335,6 @@ pub async fn profile(
         sqlx::query_as("SELECT value FROM app_settings WHERE key = 'instance_name'")
             .fetch_optional(&state.pool)
             .await?;
-    let quota_gb: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM app_settings WHERE key = 'default_storage_quota_gb'")
-            .fetch_optional(&state.pool)
-            .await?;
 
     let stats: (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE user_id = $1",
@@ -347,10 +343,7 @@ pub async fn profile(
     .fetch_one(&state.pool)
     .await?;
 
-    let quota_bytes = quota_gb
-        .and_then(|(value,)| value.parse::<i64>().ok())
-        .unwrap_or(50)
-        .saturating_mul(1024 * 1024 * 1024);
+    let quota_bytes = crate::quota::resolve_user_quota_bytes(&state.pool, &claims.sub).await?;
 
     Ok(Json(UserProfileResponse {
         user: UserProfileDto {

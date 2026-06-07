@@ -1395,10 +1395,6 @@ pub async fn dashboard_summary(
         sqlx::query_as("SELECT value FROM app_settings WHERE key = 'instance_name'")
             .fetch_optional(&state.pool)
             .await?;
-    let quota_gb: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM app_settings WHERE key = 'default_storage_quota_gb'")
-            .fetch_optional(&state.pool)
-            .await?;
 
     // Human: SUM(bigint) returns NUMERIC in Postgres — cast to BIGINT so sqlx can decode into i64.
     // Agent: READS files for user; RETURNS (file_count, used_bytes) as i64 pair for dashboard JSON.
@@ -1409,10 +1405,8 @@ pub async fn dashboard_summary(
     .fetch_one(&state.pool)
     .await?;
 
-    let quota_bytes = quota_gb
-        .and_then(|(v,)| v.parse::<i64>().ok())
-        .unwrap_or(50)
-        .saturating_mul(1024 * 1024 * 1024);
+    let quota_bytes =
+        crate::quota::resolve_user_quota_bytes(&state.pool, &claims.sub).await?;
 
     // Human: Network-wide free space for upload preflight — same probe as RouterStorage placement.
     // Agent: READS storage_nodes + Nebular metrics; SUM remaining; MIN with user quota for effective_remaining_bytes.

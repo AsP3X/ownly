@@ -29,6 +29,7 @@ type AdminUserListRow = (
     bool,
     i64,
     i64,
+    Option<i32>,
     Option<DateTime<Utc>>,
     DateTime<Utc>,
     DateTime<Utc>,
@@ -68,6 +69,7 @@ pub struct AdminUserRow {
     pub enabled: bool,
     pub storage_bytes: i64,
     pub file_count: i64,
+    pub quota_bytes: i64,
     pub last_active_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -121,6 +123,7 @@ pub struct UpdateAdminUserRequest {
     pub role: Option<String>,
     pub enabled: Option<bool>,
     pub password: Option<String>,
+    pub storage_quota_gb: Option<u32>,
 }
 
 // Human: Load every account with storage totals and latest audit activity for the directory table.
@@ -135,6 +138,7 @@ pub async fn list_users(
         "SELECT u.id, u.email, u.role, u.enabled, \
             COALESCE(SUM(CASE WHEN f.deleted_at IS NULL THEN f.size_bytes ELSE 0 END), 0)::BIGINT AS storage_bytes, \
             COALESCE(SUM(CASE WHEN f.deleted_at IS NULL THEN 1 ELSE 0 END), 0)::BIGINT AS file_count, \
+            u.storage_quota_gb, \
             la.last_active_at, u.created_at, u.updated_at \
          FROM users u \
          LEFT JOIN files f ON f.user_id = u.id \
@@ -144,11 +148,13 @@ pub async fn list_users(
             WHERE user_id IS NOT NULL \
             GROUP BY user_id \
          ) la ON la.user_id = u.id \
-         GROUP BY u.id, u.email, u.role, u.enabled, la.last_active_at, u.created_at, u.updated_at \
+         GROUP BY u.id, u.email, u.role, u.enabled, u.storage_quota_gb, la.last_active_at, u.created_at, u.updated_at \
          ORDER BY u.created_at ASC",
     )
     .fetch_all(&state.pool)
     .await?;
+
+    let default_quota_bytes = crate::quota::load_default_quota_bytes(&state.pool).await?;
 
     let mut enabled_count = 0_i64;
     let mut admin_count = 0_i64;
@@ -162,6 +168,7 @@ pub async fn list_users(
                 enabled,
                 storage_bytes,
                 file_count,
+                storage_quota_gb,
                 last_active_at,
                 created_at,
                 updated_at,
@@ -172,6 +179,9 @@ pub async fn list_users(
                 if role == "admin" {
                     admin_count += 1;
                 }
+                let quota_bytes = storage_quota_gb
+                    .map(|gb| (gb as i64).max(1).saturating_mul(1024 * 1024 * 1024))
+                    .unwrap_or(default_quota_bytes);
                 AdminUserRow {
                     id,
                     email,
@@ -179,6 +189,7 @@ pub async fn list_users(
                     enabled,
                     storage_bytes,
                     file_count,
+                    quota_bytes,
                     last_active_at,
                     created_at,
                     updated_at,
@@ -193,15 +204,6 @@ pub async fn list_users(
     } else {
         (enabled_count as f64 / total as f64) * 100.0
     };
-
-    let quota_gb: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM app_settings WHERE key = 'default_storage_quota_gb'")
-            .fetch_optional(&state.pool)
-            .await?;
-    let default_quota_bytes = quota_gb
-        .and_then(|(value,)| value.parse::<i64>().ok())
-        .unwrap_or(50)
-        .saturating_mul(1024 * 1024 * 1024);
 
     Ok(Json(AdminUsersListResponse {
         users,
@@ -357,17 +359,27 @@ pub async fn update_user(
 ) -> Result<Json<UserDto>, AppError> {
     require_admin(&claims)?;
 
-    if body.role.is_none() && body.enabled.is_none() && body.password.is_none() {
+    if body.role.is_none()
+        && body.enabled.is_none()
+        && body.password.is_none()
+        && body.storage_quota_gb.is_none()
+    {
         return Err(AppError::BadRequest("no fields to update".into()));
     }
 
-    let existing: Option<(String, String, bool)> =
-        sqlx::query_as("SELECT email, role, enabled FROM users WHERE id = $1")
-            .bind(&user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let existing: Option<(String, String, bool, i64)> = sqlx::query_as(
+        "SELECT u.email, u.role, u.enabled, \
+            COALESCE(SUM(CASE WHEN f.deleted_at IS NULL THEN f.size_bytes ELSE 0 END), 0)::BIGINT \
+         FROM users u \
+         LEFT JOIN files f ON f.user_id = u.id \
+         WHERE u.id = $1 \
+         GROUP BY u.email, u.role, u.enabled",
+    )
+    .bind(&user_id)
+    .fetch_optional(&state.pool)
+    .await?;
 
-    let (_email, current_role, current_enabled) = existing.ok_or(AppError::NotFound)?;
+    let (_email, current_role, current_enabled, storage_bytes) = existing.ok_or(AppError::NotFound)?;
 
     let new_role = if let Some(role) = body.role.as_deref() {
         Some(normalize_role(role)?)
@@ -417,6 +429,18 @@ pub async fn update_user(
             .await?;
     }
 
+    let mut quota_updated = false;
+    if let Some(quota_gb) = body.storage_quota_gb {
+        let quota_gb = quota_gb.max(1);
+        crate::quota::validate_quota_gb_for_usage(quota_gb, storage_bytes)?;
+        sqlx::query("UPDATE users SET storage_quota_gb = $1, updated_at = now() WHERE id = $2")
+            .bind(quota_gb as i32)
+            .bind(&user_id)
+            .execute(&state.pool)
+            .await?;
+        quota_updated = true;
+    }
+
     let password_reset = body
         .password
         .as_ref()
@@ -463,6 +487,8 @@ pub async fn update_user(
             "role": updated.1,
             "enabled": updated.2,
             "password_reset": password_reset,
+            "storage_quota_gb": body.storage_quota_gb,
+            "quota_updated": quota_updated,
         })),
         &headers,
     )

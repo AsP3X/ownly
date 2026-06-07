@@ -39,7 +39,6 @@ export function AdminUsersSecurityPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AdminUsersListResponse | null>(null);
-  const defaultQuotaBytes = data?.instance.default_quota_bytes ?? 50 * 1024 * 1024 * 1024;
   const [roles, setRoles] = useState<AdminRoleRow[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageUser, setManageUser] = useState<AdminUserRow | null>(null);
@@ -236,7 +235,6 @@ export function AdminUsersSecurityPanel() {
         }}
         user={manageUser}
         currentUserId={currentUser?.id}
-        defaultQuotaBytes={defaultQuotaBytes}
         onSaved={() => void loadDirectory(true)}
       />
       <AdminDeleteUserDialog

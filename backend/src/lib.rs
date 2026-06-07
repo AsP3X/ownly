@@ -32,6 +32,7 @@ pub mod files;
 pub mod hls;
 pub mod health;
 pub mod jobs;
+pub mod quota;
 pub mod stream_ticket;
 pub mod rate_limit;
 pub mod redact;

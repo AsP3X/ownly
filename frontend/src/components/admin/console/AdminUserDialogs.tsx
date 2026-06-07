@@ -170,7 +170,6 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
 type ManageProps = DialogBaseProps & {
   user: AdminUserRow | null;
   currentUserId?: string;
-  defaultQuotaBytes: number;
 };
 
 type ManageView = "edit" | "sessions";
@@ -179,26 +178,26 @@ type ManageView = "edit" | "sessions";
 function AdminManageUserForm({
   user,
   currentUserId,
-  defaultQuotaBytes,
   onClose,
   onSaved,
 }: {
   user: AdminUserRow;
   currentUserId?: string;
-  defaultQuotaBytes: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [view, setView] = useState<ManageView>("edit");
   const [roleTier, setRoleTier] = useState<AdminUserRoleTier>(() => adminUserRoleTierFromApi(user.role));
   const [enabled, setEnabled] = useState(user.enabled);
+  const initialQuotaGb = Math.max(1, Math.round(user.quota_bytes / (1024 * 1024 * 1024)));
+  const [quotaGb, setQuotaGb] = useState(initialQuotaGb);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isSelf = currentUserId === user.id;
   const apiRole = adminUserRoleTierToApi(roleTier);
   const storedRole = normalizeAdminUserRole(user.role);
-  const quotaGb = Math.round(defaultQuotaBytes / (1024 * 1024 * 1024));
+  const quotaBytes = quotaGb * 1024 * 1024 * 1024;
   const sessionSubtitle = user.last_active_at
     ? "1 device currently authorized to access"
     : "No recent sign-in activity recorded";
@@ -207,9 +206,14 @@ function AdminManageUserForm({
     setSubmitting(true);
     setError(null);
     try {
-      const body: { role?: string; enabled?: boolean } = {};
+      const body: {
+        role?: string;
+        enabled?: boolean;
+        storage_quota_gb?: number;
+      } = {};
       if (apiRole !== storedRole) body.role = apiRole;
       if (enabled !== user.enabled) body.enabled = enabled;
+      if (quotaGb !== initialQuotaGb) body.storage_quota_gb = quotaGb;
       if (Object.keys(body).length === 0) {
         onClose();
         return;
@@ -259,7 +263,8 @@ function AdminManageUserForm({
         <AdminEditUserStorageSection
           quotaGb={quotaGb}
           usedBytes={user.storage_bytes}
-          quotaBytes={defaultQuotaBytes}
+          quotaBytes={quotaBytes}
+          onQuotaGbChange={setQuotaGb}
         />
         <AdminEditUserSessionsRow
           subtitle={sessionSubtitle}
@@ -287,7 +292,6 @@ export function AdminManageUserDialog({
   onSaved,
   user,
   currentUserId,
-  defaultQuotaBytes,
 }: ManageProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -301,7 +305,6 @@ export function AdminManageUserDialog({
             key={user.id}
             user={user}
             currentUserId={currentUserId}
-            defaultQuotaBytes={defaultQuotaBytes}
             onClose={() => onOpenChange(false)}
             onSaved={onSaved}
           />

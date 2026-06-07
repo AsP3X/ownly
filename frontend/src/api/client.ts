@@ -286,6 +286,7 @@ export type AdminUserRow = {
   enabled: boolean;
   storage_bytes: number;
   file_count: number;
+  quota_bytes: number;
   last_active_at: string | null;
   created_at: string;
   updated_at: string;
@@ -342,7 +343,7 @@ export async function createAdminUser(body: {
 // Agent: PATCH /admin/users/:id; WRITES users; AUDIT admin.users.update server-side.
 export async function updateAdminUser(
   userId: string,
-  body: { role?: string; enabled?: boolean; password?: string },
+  body: { role?: string; enabled?: boolean; password?: string; storage_quota_gb?: number },
 ) {
   return apiFetch(`/admin/users/${userId}`, {
     method: "PATCH",
