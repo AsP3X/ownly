@@ -10,7 +10,7 @@ export const PDF_THUMBNAIL_WIDTH_MOBILE = 88;
 export const PDF_PAGE_AREA_PADDING_DESKTOP_PX = 72;
 export const PDF_PAGE_AREA_PADDING_X_MOBILE_PX = 24;
 // Human: Vertical inset so a fitted page clears floating top badge and bottom metadata bar.
-export const PDF_PAGE_AREA_PADDING_Y_MOBILE_PX = 112;
+export const PDF_PAGE_AREA_PADDING_Y_MOBILE_PX = 88;
 export const PDF_PAGE_STACK_GAP_DESKTOP_PX = 36;
 export const PDF_PAGE_STACK_GAP_MOBILE_PX = 8;
 export const PDF_SEARCH_DEBOUNCE_MS = 300;

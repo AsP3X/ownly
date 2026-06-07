@@ -157,6 +157,13 @@ export function usePdfPreviewController(
     return () => observer.disconnect();
   }, [open, documentAreaNode, pageNativeSize, pageAreaPaddingX, pageAreaPaddingY]);
 
+  // Human: Mobile opens at scrollTop 0 so page 1 is centered in the first viewport slot, not offset upward.
+  // Agent: Runs when sizing is ready; desktop keeps native scroll position from zoom/resize handling.
+  useEffect(() => {
+    if (!open || isDesktop || !documentAreaNode || numPages === 0 || fitPageWidth === undefined) return;
+    documentAreaNode.scrollTop = 0;
+  }, [open, isDesktop, documentAreaNode, numPages, fitPageWidth, file?.id]);
+
   useEffect(() => {
     if (!open || !file?.id) return;
 
@@ -194,12 +201,14 @@ export function usePdfPreviewController(
     (page: number) => {
       const clamped = clampPage(page, numPages);
       setCurrentPage(clamped);
+      // Human: Mobile slots are exactly one viewport tall — align slot top so centered page fills the screen.
+      // Agent: block "start" avoids snap-center overscroll that hid the top of page 1 on load.
       pageRefs.current.get(clamped)?.scrollIntoView({
-        block: isDesktop ? "start" : "center",
+        block: "start",
         behavior: "smooth",
       });
     },
-    [isDesktop, numPages],
+    [numPages],
   );
 
   const handleDocumentScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
