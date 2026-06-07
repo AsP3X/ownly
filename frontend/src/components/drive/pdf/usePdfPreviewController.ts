@@ -533,10 +533,10 @@ export function usePdfPreviewController(
   }, [open, isDesktop]);
 
   useEffect(() => {
-    if (!open || numPages === 0) return;
+    if (!open || numPages === 0 || !isDesktop) return;
     const activeThumb = thumbnailRefs.current.get(currentPage);
     activeThumb?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [open, currentPage, numPages]);
+  }, [open, currentPage, numPages, isDesktop]);
 
   const effectiveZoom = isDesktop ? zoom : PDF_DEFAULT_ZOOM;
   const scaledWidth = fitPageWidth ? Math.round(fitPageWidth * effectiveZoom) : undefined;

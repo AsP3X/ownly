@@ -1,7 +1,7 @@
 // Human: Mobile PDF viewer — Pencil MV Mobile Portrait PDF (full-bleed scroll, page badge, thumbnail drawer).
 // Agent: RENDERS react-pdf Document; READS PdfPreviewControllerViewModel; WRITES sidebarOpen locally.
 
-import { useCallback, useState, type CSSProperties } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -46,6 +46,8 @@ export function PdfPreviewSurfaceMobile({
   onDocumentLoadError,
 }: PdfPreviewSurfaceMobileProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const thumbnailListRef = useRef<HTMLDivElement>(null);
+  const sidebarScrollBehaviorRef = useRef<ScrollBehavior>("auto");
 
   const {
     file,
@@ -86,6 +88,43 @@ export function PdfPreviewSurfaceMobile({
     },
     [goToPage],
   );
+
+  // Human: Keep the active page thumbnail centered in the drawer list when it opens or the page changes.
+  // Agent: READS thumbnailListRef + thumbnailRefs; SCROLLS sidebar container (drawer mounts thumbs lazily).
+  const scrollActiveThumbnailIntoView = useCallback(
+    (behavior: ScrollBehavior) => {
+      const list = thumbnailListRef.current;
+      const activeThumb = thumbnailRefs.current.get(currentPage);
+      if (!list || !activeThumb) return;
+
+      const listRect = list.getBoundingClientRect();
+      const thumbRect = activeThumb.getBoundingClientRect();
+      const targetScrollTop =
+        list.scrollTop +
+        (thumbRect.top - listRect.top) -
+        (list.clientHeight - thumbRect.height) / 2;
+
+      list.scrollTo({ top: Math.max(0, targetScrollTop), behavior });
+    },
+    [currentPage, thumbnailRefs],
+  );
+
+  useLayoutEffect(() => {
+    if (!sidebarOpen || numPages === 0) return;
+
+    const behavior = sidebarScrollBehaviorRef.current;
+    sidebarScrollBehaviorRef.current = "smooth";
+
+    const frameId = requestAnimationFrame(() => {
+      scrollActiveThumbnailIntoView(behavior);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [sidebarOpen, currentPage, numPages, scrollActiveThumbnailIntoView]);
+
+  const handleOpenSidebar = useCallback(() => {
+    sidebarScrollBehaviorRef.current = "auto";
+    setSidebarOpen(true);
+  }, []);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -224,7 +263,7 @@ export function PdfPreviewSurfaceMobile({
                       </button>
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+                    <div ref={thumbnailListRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
                       {numPages > 0
                         ? Array.from({ length: numPages }, (_, index) => {
                             const pageNumber = index + 1;
@@ -257,6 +296,11 @@ export function PdfPreviewSurfaceMobile({
                                     width={thumbnailWidth}
                                     renderAnnotationLayer={false}
                                     renderTextLayer={false}
+                                    onRenderSuccess={
+                                      isActive
+                                        ? () => scrollActiveThumbnailIntoView("auto")
+                                        : undefined
+                                    }
                                     loading={
                                       <div
                                         className="flex w-full items-center justify-center"
@@ -300,7 +344,7 @@ export function PdfPreviewSurfaceMobile({
           <div className="absolute inset-x-0 top-0 z-30 flex items-start justify-end gap-2 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
             <button
               type="button"
-              onClick={() => setSidebarOpen(true)}
+              onClick={handleOpenSidebar}
               aria-expanded={sidebarOpen}
               aria-controls="pdf-mobile-thumbnail-drawer"
               aria-label={`Page ${pageCountLabel}. Open page thumbnails.`}
