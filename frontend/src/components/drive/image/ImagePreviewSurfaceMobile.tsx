@@ -11,6 +11,10 @@ import {
 } from "@/components/drive/image/image-preview-layout";
 import { AnimatedGifCanvas } from "@/components/drive/image/AnimatedGifCanvas";
 import {
+  GifPreviewBottomBarProgress,
+  type GifPreviewProcessingState,
+} from "@/components/drive/image/gif-preview-progress";
+import {
   isGifPreviewFile,
   shouldUseGifCanvasPlayback,
 } from "@/components/drive/image/image-preview-gif";
@@ -93,6 +97,7 @@ type MobileViewportFitImageProps = {
   enableServerAnimation?: boolean;
   /** Human: GIF frames freeze under async decode on some mobile browsers — use sync for animated sources. */
   isAnimatedGif?: boolean;
+  onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
 };
 
 // Human: Size image to touch viewport edges — width-first, or height-first when width would clip vertically.
@@ -107,6 +112,7 @@ function MobileViewportFitImage({
   resolveGifAnimationPreviewUrl,
   enableServerAnimation = true,
   isAnimatedGif = false,
+  onGifPreviewProcessingChange,
 }: MobileViewportFitImageProps) {
   const [loadedNatural, setLoadedNatural] = useState<{ width: number; height: number } | null>(null);
   const cachedNatural = fileId ? getPreviewDimensions(fileId) : null;
@@ -165,6 +171,7 @@ function MobileViewportFitImage({
         onNaturalSize={hasStableDimensions ? undefined : handleCanvasNaturalSize}
         enableServerAnimation={enableServerAnimation}
         resolveAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+        onGifPreviewProcessingChange={onGifPreviewProcessingChange}
       />
     );
   }
@@ -220,6 +227,7 @@ type ImageGallerySlideProps = {
   enablePinchZoom?: boolean;
   onZoomActiveChange?: (active: boolean) => void;
   onCancelPendingTap?: () => void;
+  onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
 };
 
 // Human: One carousel panel — width-fit or height-fit so edges touch without cropping.
@@ -237,6 +245,7 @@ function ImageGallerySlide({
   enablePinchZoom = false,
   onZoomActiveChange,
   onCancelPendingTap,
+  onGifPreviewProcessingChange,
 }: ImageGallerySlideProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(stageRef);
@@ -271,6 +280,7 @@ function ImageGallerySlide({
               resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
               enableServerAnimation={enableServerAnimation}
               isAnimatedGif={isAnimatedGif}
+              onGifPreviewProcessingChange={onGifPreviewProcessingChange}
             />
           ) : showLoader ? (
             <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
@@ -291,6 +301,7 @@ type StaticImageStageProps = {
   getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
   resolveGifAnimationPreviewUrl: ImagePreviewControllerViewModel["resolveGifAnimationPreviewUrl"];
   onCancelPendingTap?: () => void;
+  onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
 };
 
 // Human: Single-image layout when the folder has only one image (no carousel track).
@@ -304,6 +315,7 @@ function StaticImageStage({
   getPreviewGifBlob,
   resolveGifAnimationPreviewUrl,
   onCancelPendingTap,
+  onGifPreviewProcessingChange,
 }: StaticImageStageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(stageRef);
@@ -337,6 +349,7 @@ function StaticImageStage({
               resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
               enableServerAnimation
               isAnimatedGif={isAnimatedGif}
+              onGifPreviewProcessingChange={onGifPreviewProcessingChange}
             />
           ) : null}
         </div>
@@ -412,6 +425,19 @@ export function ImagePreviewSurfaceMobile({
   const suppressFileChangeResetRef = useRef(false);
   const centerZoomActiveRef = useRef(false);
   const tapNavTimerRef = useRef<number | null>(null);
+  const [gifPreviewProcessing, setGifPreviewProcessing] =
+    useState<GifPreviewProcessingState | null>(null);
+
+  const handleGifPreviewProcessingChange = useCallback(
+    (state: GifPreviewProcessingState | null) => {
+      setGifPreviewProcessing(state);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setGifPreviewProcessing(null);
+  }, [file?.id]);
 
   const cancelPendingTapNav = useCallback(() => {
     if (tapNavTimerRef.current !== null) {
@@ -833,6 +859,7 @@ export function ImagePreviewSurfaceMobile({
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
                   onCancelPendingTap={cancelPendingTapNav}
+                  onGifPreviewProcessingChange={handleGifPreviewProcessingChange}
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
@@ -883,6 +910,7 @@ export function ImagePreviewSurfaceMobile({
           getPreviewGifBlob={getPreviewGifBlob}
           resolveGifAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
           onCancelPendingTap={cancelPendingTapNav}
+          onGifPreviewProcessingChange={handleGifPreviewProcessingChange}
         />
       )}
 
@@ -909,16 +937,26 @@ export function ImagePreviewSurfaceMobile({
         </div>
       </div>
 
-      {/* Human: Bottom metadata bar — filename, size, download/share (Pencil Translucent Bottom Bar). */}
+      {/* Human: Bottom metadata bar — filename, size, download/share; GIF transcode progress centered. */}
       {file ? (
-        <div className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-between px-5 pb-[max(28px,env(safe-area-inset-bottom))] pt-3">
-          <div className="min-w-0 flex-1 pr-4">
-            <p className="truncate text-[13px] font-bold text-white">{file.name}</p>
-            <p className="text-[11px] text-[#FFFFFF99]">{sizeLabel}</p>
-          </div>
+        <div className="absolute inset-x-0 bottom-0 z-30 px-5 pb-[max(28px,env(safe-area-inset-bottom))] pt-3">
+          <div className="relative flex items-center justify-between">
+            <div className="min-w-0 flex-1 pr-4">
+              <p className="truncate text-[13px] font-bold text-white">{file.name}</p>
+              <p className="text-[11px] text-[#FFFFFF99]">{sizeLabel}</p>
+            </div>
 
-          {(showDownloadAction || showShareAction) && (
-            <div className="flex shrink-0 items-center gap-5">
+            {gifPreviewProcessing?.active ? (
+              <div
+                className="pointer-events-none absolute left-1/2 top-1/2 w-[min(200px,calc(100%-11rem))] -translate-x-1/2 -translate-y-1/2"
+                aria-hidden={false}
+              >
+                <GifPreviewBottomBarProgress progress={gifPreviewProcessing.progress} />
+              </div>
+            ) : null}
+
+            {(showDownloadAction || showShareAction) && (
+              <div className="flex shrink-0 items-center gap-5">
               {showDownloadAction ? (
                 <button
                   type="button"
@@ -942,6 +980,7 @@ export function ImagePreviewSurfaceMobile({
               ) : null}
             </div>
           )}
+          </div>
         </div>
       ) : null}
     </div>

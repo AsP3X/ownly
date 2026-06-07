@@ -1,9 +1,14 @@
 // Human: Desktop image lightbox card — Pencil MV Desktop Image Viewer with flanking gallery chevrons.
 // Agent: READS ImagePreviewControllerViewModel; RENDERS DialogClose, bottom metadata bar, optional actions.
 
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { AnimatedGifCanvas } from "@/components/drive/image/AnimatedGifCanvas";
+import {
+  GifPreviewBottomBarProgress,
+  type GifPreviewProcessingState,
+} from "@/components/drive/image/gif-preview-progress";
 import {
   isGifPreviewFile,
   shouldUseGifCanvasPlayback,
@@ -45,6 +50,20 @@ export function ImagePreviewSurfaceDesktop({
 
   const useIosGifPlayback =
     Boolean(file && displayUrl && isGifPreviewFile(file) && shouldUseGifCanvasPlayback());
+
+  const [gifPreviewProcessing, setGifPreviewProcessing] =
+    useState<GifPreviewProcessingState | null>(null);
+
+  const handleGifPreviewProcessingChange = useCallback(
+    (state: GifPreviewProcessingState | null) => {
+      setGifPreviewProcessing(state);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setGifPreviewProcessing(null);
+  }, [file?.id]);
 
   const gifNatural = file ? getPreviewDimensions(file.id) : null;
   const iosGifFitStyle =
@@ -94,6 +113,7 @@ export function ImagePreviewSurfaceDesktop({
                 className="max-h-[min(900px,105dvh)] w-full object-contain"
                 enableServerAnimation
                 resolveAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+                onGifPreviewProcessingChange={handleGifPreviewProcessingChange}
               />
             ) : (
               <img
@@ -135,11 +155,18 @@ export function ImagePreviewSurfaceDesktop({
           </DialogClose>
 
           {file ? (
-            <div className="absolute inset-x-0 bottom-0 z-20 flex h-16 items-center justify-between bg-black/60 px-5">
-              <p className="min-w-0 truncate text-sm font-bold text-white">{photoInfoLabel}</p>
+            <div className="absolute inset-x-0 bottom-0 z-20 h-16 bg-black/60 px-5">
+              <div className="relative flex h-full items-center justify-between">
+                <p className="min-w-0 truncate text-sm font-bold text-white">{photoInfoLabel}</p>
 
-              {(showDownloadAction || showShareAction) && (
-                <div className="flex shrink-0 items-center gap-4">
+                {gifPreviewProcessing?.active ? (
+                  <div className="pointer-events-none absolute left-1/2 top-1/2 w-[min(200px,calc(100%-12rem))] -translate-x-1/2 -translate-y-1/2">
+                    <GifPreviewBottomBarProgress progress={gifPreviewProcessing.progress} />
+                  </div>
+                ) : null}
+
+                {(showDownloadAction || showShareAction) && (
+                  <div className="flex shrink-0 items-center gap-4">
                   {showDownloadAction ? (
                     <button
                       type="button"
@@ -163,6 +190,7 @@ export function ImagePreviewSurfaceDesktop({
                   ) : null}
                 </div>
               )}
+              </div>
             </div>
           ) : null}
         </div>
