@@ -52,13 +52,14 @@ export function ImagePreviewSurfaceMobile({
   const isLetterbox = imageFit === "letterbox";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-black">
-      {/* Human: Image stage — full-bleed vertical or centered letterbox band per Pencil. */}
+    <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+      {/* Human: Image stage — full-bleed vertical or viewport-centered letterbox band per Pencil. */}
+      {/* Agent: OUTER flex centers letterbox; vertical branch uses absolute inset-0 for full bleed. */}
       <div
         className={cn(
           "relative flex w-full items-center justify-center bg-black",
           isLetterbox
-            ? "mx-auto aspect-[390/220] min-h-[180px] max-h-[min(220px,42dvh)] max-w-[min(100%,390px)] flex-1 self-center"
+            ? "aspect-[390/220] w-full max-h-[min(220px,42dvh)] min-h-[180px] max-w-[min(100%,390px)] shrink-0"
             : "absolute inset-0",
         )}
       >

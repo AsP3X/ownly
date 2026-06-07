@@ -3,10 +3,8 @@
 
 import type { ImageFitMode } from "@/components/drive/image/image-preview-types";
 
-/** Human: Pencil letterbox band targets ~390×220 — wide images above this ratio letterbox on mobile. */
-const LETTERBOX_ASPECT_THRESHOLD = 1.25;
-
+/** Human: Any landscape image uses the centered letterbox band; portrait/square stays full-bleed vertical. */
 export function resolveImageFitMode(naturalWidth: number, naturalHeight: number): ImageFitMode {
   if (naturalWidth <= 0 || naturalHeight <= 0) return "vertical";
-  return naturalWidth / naturalHeight > LETTERBOX_ASPECT_THRESHOLD ? "letterbox" : "vertical";
+  return naturalWidth > naturalHeight ? "letterbox" : "vertical";
 }
