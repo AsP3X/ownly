@@ -86,6 +86,7 @@ type MobileViewportFitImageProps = {
   fileId?: string;
   containerSize: ContainerSize;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
+  getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
   /** Human: GIF frames freeze under async decode on some mobile browsers — use sync for animated sources. */
   isAnimatedGif?: boolean;
 };
@@ -98,6 +99,7 @@ function MobileViewportFitImage({
   fileId,
   containerSize,
   getPreviewDimensions,
+  getPreviewGifBlob,
   isAnimatedGif = false,
 }: MobileViewportFitImageProps) {
   const [loadedNatural, setLoadedNatural] = useState<{ width: number; height: number } | null>(null);
@@ -132,6 +134,7 @@ function MobileViewportFitImage({
   if (isAnimatedGif && shouldUseGifCanvasPlayback()) {
     return (
       <AnimatedGifCanvas
+        byteSource={fileId ? getPreviewGifBlob(fileId) : null}
         url={url}
         alt={alt}
         fitStyle={resolvedStyle}
@@ -184,6 +187,7 @@ type ImageGallerySlideProps = {
   fileId?: string;
   file?: FileItem | null;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
+  getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
   showLoader?: boolean;
   enablePinchZoom?: boolean;
   onZoomActiveChange?: (active: boolean) => void;
@@ -198,6 +202,7 @@ function ImageGallerySlide({
   fileId,
   file,
   getPreviewDimensions,
+  getPreviewGifBlob,
   showLoader = false,
   enablePinchZoom = false,
   onZoomActiveChange,
@@ -232,6 +237,7 @@ function ImageGallerySlide({
               fileId={fileId}
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
+              getPreviewGifBlob={getPreviewGifBlob}
               isAnimatedGif={isAnimatedGif}
             />
           ) : showLoader ? (
@@ -250,6 +256,7 @@ type StaticImageStageProps = {
   loading: boolean;
   showInitialLoader: boolean;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
+  getPreviewGifBlob: ImagePreviewControllerViewModel["getPreviewGifBlob"];
   onCancelPendingTap?: () => void;
 };
 
@@ -261,6 +268,7 @@ function StaticImageStage({
   loading,
   showInitialLoader,
   getPreviewDimensions,
+  getPreviewGifBlob,
   onCancelPendingTap,
 }: StaticImageStageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -291,6 +299,7 @@ function StaticImageStage({
               fileId={file?.id}
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
+              getPreviewGifBlob={getPreviewGifBlob}
               isAnimatedGif={isAnimatedGif}
             />
           ) : null}
@@ -352,6 +361,7 @@ export function ImagePreviewSurfaceMobile({
     previousFile,
     nextFile,
     getPreviewDimensions,
+    getPreviewGifBlob,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -766,6 +776,7 @@ export function ImagePreviewSurfaceMobile({
                   fileId={previousFile?.id}
                   file={previousFile}
                   getPreviewDimensions={getPreviewDimensions}
+                  getPreviewGifBlob={getPreviewGifBlob}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
@@ -776,6 +787,7 @@ export function ImagePreviewSurfaceMobile({
                   fileId={file?.id}
                   file={file}
                   getPreviewDimensions={getPreviewDimensions}
+                  getPreviewGifBlob={getPreviewGifBlob}
                   showLoader={showInitialLoader}
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
@@ -789,6 +801,7 @@ export function ImagePreviewSurfaceMobile({
                   fileId={nextFile?.id}
                   file={nextFile}
                   getPreviewDimensions={getPreviewDimensions}
+                  getPreviewGifBlob={getPreviewGifBlob}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>
@@ -824,6 +837,7 @@ export function ImagePreviewSurfaceMobile({
           loading={loading}
           showInitialLoader={showInitialLoader}
           getPreviewDimensions={getPreviewDimensions}
+          getPreviewGifBlob={getPreviewGifBlob}
           onCancelPendingTap={cancelPendingTapNav}
         />
       )}

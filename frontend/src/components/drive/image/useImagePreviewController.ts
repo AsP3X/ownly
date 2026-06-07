@@ -22,6 +22,7 @@ import { preparePreviewDisplayBlob } from "@/components/drive/image/image-previe
 import {
   isGifPreviewFile,
   readImageNaturalDimensions,
+  shouldUseGifCanvasPlayback,
 } from "@/components/drive/image/image-preview-gif";
 import { formatBytes } from "@/lib/utils-app";
 
@@ -50,6 +51,8 @@ export type ImagePreviewControllerViewModel = {
   displayUrl: string | null;
   /** Human: Original pixel dimensions from the source file — recorded during mobile downscale. */
   getPreviewDimensions: (fileId: string | undefined) => { width: number; height: number } | null;
+  /** Human: Raw GIF bytes for iOS canvas/video playback — avoids re-fetching stream URLs. */
+  getPreviewGifBlob: (fileId: string | undefined) => Blob | null;
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
@@ -99,6 +102,7 @@ export function useImagePreviewController({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, CachedPreviewUrl>>(new Map());
+  const gifBlobCacheRef = useRef<Map<string, Blob>>(new Map());
   const previewDimensionsRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const [previewDimensionsRevision, setPreviewDimensionsRevision] = useState(0);
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
@@ -167,6 +171,7 @@ export function useImagePreviewController({
         if (keepIds.has(fileId)) continue;
         revokeCachedPreviewUrl(entry);
         urlCacheRef.current.delete(fileId);
+        gifBlobCacheRef.current.delete(fileId);
         previewDimensionsRef.current.delete(fileId);
       }
       setPreviewDimensionsRevision((value) => value + 1);
@@ -236,6 +241,20 @@ export function useImagePreviewController({
     [isCacheSessionActive, isFileInBlobCacheWindow],
   );
 
+  const getPreviewGifBlob = useCallback((fileId: string | undefined) => {
+    if (!fileId) return null;
+    return gifBlobCacheRef.current.get(fileId) ?? null;
+  }, []);
+
+  const cacheGifBlob = useCallback(
+    (fileId: string, blob: Blob, session: number) => {
+      if (!isCacheSessionActive(session)) return;
+      if (!isFileInBlobCacheWindow(fileId)) return;
+      gifBlobCacheRef.current.set(fileId, blob);
+    },
+    [isCacheSessionActive, isFileInBlobCacheWindow],
+  );
+
   const cacheBlobUrl = useCallback(
     (fileId: string, blob: Blob, session: number) => {
       if (!isCacheSessionActive(session)) return null;
@@ -259,6 +278,7 @@ export function useImagePreviewController({
       revokeCachedPreviewUrl(entry);
     }
     urlCacheRef.current.clear();
+    gifBlobCacheRef.current.clear();
     previewDimensionsRef.current.clear();
     setPreviewDimensionsRevision((value) => value + 1);
     activeFileIdRef.current = null;
@@ -299,6 +319,7 @@ export function useImagePreviewController({
       const isActive = () => isCacheSessionActive(session);
       const isMobilePreview = Boolean(previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0);
       const isGif = isGifPreviewFile(item);
+      const needsIosGifBytes = isMobilePreview && isGif && shouldUseGifCanvasPlayback();
 
       if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
@@ -318,8 +339,8 @@ export function useImagePreviewController({
           }
 
           // Human: Same-origin stream bytes keep GIF animation on mobile — skip blob + worker downscale.
-          // Agent: HTTP GET /files/:id/stream?ticket=; FALLBACK to blob path on failure.
-          if (isMobilePreview && isGif && !shareToken) {
+          // Agent: HTTP GET /files/:id/stream?ticket=; SKIPPED on iOS where canvas needs raw bytes cached.
+          if (isMobilePreview && isGif && !shareToken && !needsIosGifBytes) {
             try {
               const stream = await fetchFileStreamUrlForPreview(item);
               if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
@@ -338,6 +359,9 @@ export function useImagePreviewController({
           if (isMobilePreview && isGif) {
             const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
             rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
+            if (needsIosGifBytes) {
+              cacheGifBlob(item.id, displayBlob, session);
+            }
           } else if (isMobilePreview) {
             const prepared = await preparePreviewDisplayBlob(
               displayBlob,
@@ -367,6 +391,7 @@ export function useImagePreviewController({
     },
     [
       cacheBlobUrl,
+      cacheGifBlob,
       cachePreviewUrl,
       fetchPreviewBlob,
       isCacheSessionActive,
@@ -561,6 +586,7 @@ export function useImagePreviewController({
     nextFile,
     displayUrl: resolvedDisplayUrl,
     getPreviewDimensions,
+    getPreviewGifBlob,
     error,
     loading,
     showInitialLoader: resolvedShowInitialLoader,

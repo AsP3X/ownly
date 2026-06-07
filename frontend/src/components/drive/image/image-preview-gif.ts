@@ -134,9 +134,9 @@ export function isGifPreviewFile(file: {
   return (file.name ?? "").toLowerCase().endsWith(".gif");
 }
 
-// Human: iOS Safari freezes animated <img> inside modals — canvas playback is required there.
-// Agent: READS userAgent + maxTouchPoints; RETURNS true for iPhone/iPad/iPadOS desktop UA.
-export function shouldUseGifCanvasPlayback(): boolean {
+// Human: Detect iPhone/iPad/iPadOS Safari WebKit — animated <img> is unreliable there (esp. iOS 26).
+// Agent: READS userAgent + maxTouchPoints; RETURNS true for Apple touch devices.
+export function isAppleTouchDevice(): boolean {
   if (typeof navigator === "undefined") return false;
 
   const ua = navigator.userAgent;
@@ -145,6 +145,18 @@ export function shouldUseGifCanvasPlayback(): boolean {
     navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 
   return isAppleMobile || isIpadDesktopUa;
+}
+
+// Human: iOS Safari freezes animated <img> inside modals — canvas playback is required there.
+// Agent: ALIAS isAppleTouchDevice for mobile preview surfaces.
+export function shouldUseGifCanvasPlayback(): boolean {
+  return isAppleTouchDevice();
+}
+
+// Human: iOS 26 often blocks native GIF animation in browsers — mirror canvas frames through <video>.
+// Agent: RETURNS true on Apple touch WebKit; USED by AnimatedGifCanvas captureStream path.
+export function shouldUseGifVideoPlayback(): boolean {
+  return isAppleTouchDevice();
 }
 
 // Human: Async wrapper — scans the full file when small, otherwise the first chunk then full file if inconclusive.
