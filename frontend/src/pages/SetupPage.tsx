@@ -35,6 +35,7 @@ import {
   DEFAULT_POSTGRES_URL,
   DOCKER_POSTGRES_DEFAULTS,
   parsePostgresUrl,
+  redactPostgresUrl,
   type PostgresConnectionFields,
 } from "@/lib/utils-app";
 
@@ -405,7 +406,7 @@ export default function SetupPage() {
                 value={postgresFields.database}
                 onChange={(e) => handlePostgresFieldChange("database", e.target.value)}
               />
-              <SetupConnectionUrlBox url={databaseUrl} />
+              <SetupConnectionUrlBox url={redactPostgresUrl(databaseUrl)} />
               <SetupOutlineButton onClick={() => void handleTestDatabase()} disabled={dbTesting}>
                 {dbTesting ? "Testing…" : "Test connection"}
               </SetupOutlineButton>

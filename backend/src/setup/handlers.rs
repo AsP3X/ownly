@@ -188,15 +188,15 @@ pub async fn test_setup_database(
 ) -> Result<Json<DatabaseTestResponse>, AppError> {
     require_setup_token(&headers, &state)?;
     ensure_not_complete(&state).await?;
-    let url = body.database_url.trim();
+    let url = redact::resolve_setup_database_url(body.database_url.trim(), &state.database_url);
     if url.is_empty() {
         return Err(AppError::BadRequest("database_url is required".into()));
     }
-    let driver = db::driver_from_url(url)
+    let driver = db::driver_from_url(url.as_str())
         .ok_or_else(|| AppError::BadRequest("unsupported database_url scheme".into()))?
         .to_string();
-    outbound_target::validate_database_connection_url(url)?;
-    db::test_connection(url).await.map_err(|_| {
+    outbound_target::validate_database_connection_url(url.as_str())?;
+    db::test_connection(url.as_str()).await.map_err(|_| {
         AppError::BadRequest(
             "could not connect to database; check host, credentials, and network".into(),
         )
@@ -318,12 +318,13 @@ pub async fn setup(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(state.database_url.as_str());
+        .map(|submitted| redact::resolve_setup_database_url(submitted, &state.database_url))
+        .unwrap_or_else(|| state.database_url.clone());
 
-    if db::driver_from_url(target_url).is_none() {
+    if db::driver_from_url(target_url.as_str()).is_none() {
         return Err(AppError::BadRequest("unsupported database_url scheme".into()));
     }
-    outbound_target::validate_database_connection_url(target_url)?;
+    outbound_target::validate_database_connection_url(target_url.as_str())?;
 
     let (
         storage_node_id,
@@ -332,11 +333,11 @@ pub async fn setup(
         storage_capacity_bytes,
     ) = resolve_setup_storage_node(&body, &state)?;
 
-    let use_startup_pool = urls_equivalent(target_url, &state.database_url);
+    let use_startup_pool = urls_equivalent(&target_url, &state.database_url);
     let setup_pool = if use_startup_pool {
         state.pool.clone()
     } else {
-        db::init_pool(target_url).await.map_err(|_| {
+        db::init_pool(target_url.as_str()).await.map_err(|_| {
             AppError::BadRequest(
                 "could not connect to configured database; test the connection first".into(),
             )
@@ -419,7 +420,7 @@ pub async fn setup(
                 "false"
             },
         ),
-        ("database_url", target_url),
+        ("database_url", target_url.as_str()),
         ("object_storage_bucket", bucket),
         ("default_storage_quota_gb", &quota_gb.to_string()),
         ("storage_mode", state.storage_mode.as_str()),
@@ -502,7 +503,7 @@ pub async fn setup(
         configured_database_url: if use_startup_pool {
             None
         } else {
-            Some(target_url.to_string())
+            Some(target_url)
         },
         configured_object_storage_url: if storage_matches_startup {
             None

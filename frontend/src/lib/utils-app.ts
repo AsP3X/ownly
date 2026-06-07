@@ -376,20 +376,42 @@ export const DOCKER_POSTGRES_DEFAULTS = {
 
 export type PostgresConnectionFields = typeof DOCKER_POSTGRES_DEFAULTS;
 
+// Human: Placeholder the API uses when redacting DATABASE_URL for the setup wizard (SEC-001).
+// Agent: MUST NOT be treated as a real password when parsing setup/database responses.
+export const REDACTED_DATABASE_PASSWORD = "***";
+
 export function buildPostgresUrl(fields: PostgresConnectionFields): string {
   const { host, port, user, password, database } = fields;
   return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
+}
+
+// Human: Mask credentials in the read-only connection URL preview on the database setup step.
+// Agent: DISPLAYS user:***@host; NEVER echoes the typed password in the wizard UI.
+export function redactPostgresUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") return url;
+    if (!parsed.username) return url;
+    const port = parsed.port || "5432";
+    const database = parsed.pathname.replace(/^\//, "");
+    return `postgres://${parsed.username}:${REDACTED_DATABASE_PASSWORD}@${parsed.hostname}:${port}/${database}`;
+  } catch {
+    return url;
+  }
 }
 
 export function parsePostgresUrl(url: string): PostgresConnectionFields | null {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") return null;
+    const password = decodeURIComponent(parsed.password);
     return {
       host: parsed.hostname,
       port: parsed.port || "5432",
       user: decodeURIComponent(parsed.username),
-      password: decodeURIComponent(parsed.password),
+      // Human: setup/database returns a redacted URL — empty password means "use server config".
+      // Agent: IGNORES REDACTED_DATABASE_PASSWORD so test/setup can resolve via API env DATABASE_URL.
+      password: password === REDACTED_DATABASE_PASSWORD ? "" : password,
       database: parsed.pathname.replace(/^\//, ""),
     };
   } catch {
