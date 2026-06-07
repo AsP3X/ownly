@@ -1,0 +1,213 @@
+// Human: Background janitor for Ownly scratch files under the OS temp directory.
+// Agent: READS std::env::temp_dir; DELETES ownly-prefixed entries idle longer than 2 minutes.
+
+use std::path::Path;
+use std::time::{Duration, SystemTime};
+
+use tempfile::TempDir;
+use tracing::{debug, info, warn};
+
+/// Human: Scratch files and work dirs are removed after this idle window.
+/// Agent: COMPARES latest access/modify activity; USED by sweep and tests.
+pub const TEMP_IDLE_MAX_AGE: Duration = Duration::from_secs(2 * 60);
+
+/// Human: How often the janitor scans the temp root between sweeps.
+/// Agent: HALF the idle TTL so entries are removed soon after they expire.
+const TEMP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Human: Prefix for animated-preview transcode scratch directories.
+/// Agent: WRITTEN by gif_preview; MATCHED by is_ownly_temp_entry.
+pub const GIF_PREVIEW_TEMP_PREFIX: &str = "ownly_gif_preview_";
+
+const OWNLY_TEMP_PREFIXES: &[&str] = &[
+    "ownly_upload_",
+    "ownly_hls_",
+    GIF_PREVIEW_TEMP_PREFIX,
+    "mv_export_",
+    "mv_folder_zip_",
+    "mv_bulk_zip_",
+    "mv_public_share_zip_",
+];
+
+// Human: Create a tempfile directory tagged for the idle janitor.
+// Agent: CALLS tempfile::Builder::prefix; RETURNS TempDir under std::env::temp_dir().
+pub fn create_ownly_temp_dir(prefix: &str) -> std::io::Result<TempDir> {
+    tempfile::Builder::new().prefix(prefix).tempdir()
+}
+
+// Human: True when the entry name belongs to Ownly scratch space.
+// Agent: PREFIX match only; DOES NOT inspect file contents.
+pub fn is_ownly_temp_entry(name: &str) -> bool {
+    OWNLY_TEMP_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+
+// Human: Guard against deleting the OS temp root itself.
+// Agent: TRUE for strict children of std::env::temp_dir().
+pub fn is_deletable_temp_path(path: &Path) -> bool {
+    let temp_root = std::env::temp_dir();
+    path.starts_with(&temp_root) && path != temp_root.as_path()
+}
+
+// Human: Most recent access or modify time for a file or directory tree.
+// Agent: RECURSES directories; RETURNS max(accessed, modified) across self and descendants.
+pub fn latest_activity(path: &Path) -> std::io::Result<SystemTime> {
+    let meta = std::fs::metadata(path)?;
+    let mut latest = meta.modified().ok();
+    if let Ok(accessed) = meta.accessed() {
+        latest = Some(match latest {
+            Some(current) if current > accessed => current,
+            _ => accessed,
+        });
+    }
+
+    if meta.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let child_latest = latest_activity(&entry.path())?;
+            latest = Some(match latest {
+                Some(current) if current > child_latest => current,
+                _ => child_latest,
+            });
+        }
+    }
+
+    latest.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("no activity timestamp for {}", path.display()),
+        )
+    })
+}
+
+// Human: True when neither this path nor any descendant was touched recently.
+// Agent: READS latest_activity; COMPARES elapsed time to TEMP_IDLE_MAX_AGE.
+pub fn is_idle_temp_path(path: &Path, max_idle: Duration) -> bool {
+    let Ok(latest) = latest_activity(path) else {
+        return false;
+    };
+    latest
+        .elapsed()
+        .map(|elapsed| elapsed >= max_idle)
+        .unwrap_or(false)
+}
+
+// Human: Remove one idle Ownly temp entry when safe.
+// Agent: SKIPS active paths; CALLS remove_dir_all or remove_file.
+async fn remove_idle_entry(path: &Path, max_idle: Duration) -> bool {
+    if !is_deletable_temp_path(path) {
+        return false;
+    }
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !is_ownly_temp_entry(name) {
+        return false;
+    }
+    if !is_idle_temp_path(path, max_idle) {
+        return false;
+    }
+
+    let result = if path.is_dir() {
+        tokio::fs::remove_dir_all(path).await
+    } else {
+        tokio::fs::remove_file(path).await
+    };
+
+    match result {
+        Ok(()) => {
+            debug!(path = %path.display(), "removed idle temp entry");
+            true
+        }
+        Err(error) => {
+            warn!(path = %path.display(), %error, "failed to remove idle temp entry");
+            false
+        }
+    }
+}
+
+// Human: Scan the OS temp root and delete expired Ownly scratch entries.
+// Agent: READS direct children only; RETURNS count removed.
+pub async fn sweep_idle_temp_files(max_idle: Duration) -> u32 {
+    let temp_root = std::env::temp_dir();
+    let mut removed = 0u32;
+
+    let mut read_dir = match tokio::fs::read_dir(&temp_root).await {
+        Ok(dir) => dir,
+        Err(error) => {
+            warn!(temp_root = %temp_root.display(), %error, "temp cleanup read_dir failed");
+            return 0;
+        }
+    };
+
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        if remove_idle_entry(&entry.path(), max_idle).await {
+            removed += 1;
+        }
+    }
+
+    removed
+}
+
+// Human: Spawn a periodic task that purges idle Ownly temp scratch files.
+// Agent: CALLED from run(); LOOPS sweep_idle_temp_files every TEMP_CLEANUP_INTERVAL.
+pub fn start_temp_janitor() {
+    tokio::spawn(async move {
+        loop {
+            let removed = sweep_idle_temp_files(TEMP_IDLE_MAX_AGE).await;
+            if removed > 0 {
+                info!(removed, "idle temp cleanup completed");
+            }
+            tokio::time::sleep(TEMP_CLEANUP_INTERVAL).await;
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::thread;
+    use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn ownly_prefixes_are_recognized() {
+        assert!(is_ownly_temp_entry("ownly_upload_abc"));
+        assert!(is_ownly_temp_entry("ownly_gif_preview_xyz"));
+        assert!(!is_ownly_temp_entry(".tmpRandom"));
+        assert!(!is_ownly_temp_entry("other_app_cache"));
+    }
+
+    #[test]
+    fn temp_root_is_never_deletable() {
+        assert!(!is_deletable_temp_path(std::env::temp_dir().as_path()));
+    }
+
+    #[test]
+    fn idle_detection_uses_latest_tree_activity() {
+        let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX).expect("temp dir");
+        let path = work_dir.path().to_path_buf();
+        let keep_alive = path.clone();
+        std::mem::forget(work_dir);
+
+        assert!(!is_idle_temp_path(&path, TEMP_IDLE_MAX_AGE));
+
+        thread::sleep(Duration::from_millis(100));
+        assert!(is_idle_temp_path(&path, Duration::from_millis(50)));
+
+        fs::write(path.join("frame.png"), b"x").expect("write frame");
+        assert!(!is_idle_temp_path(&path, Duration::from_millis(50)));
+
+        let _ = fs::remove_dir_all(&keep_alive);
+    }
+
+    #[test]
+    fn latest_activity_falls_back_when_timestamps_missing() {
+        let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX).expect("temp dir");
+        let path = work_dir.path().join("source.bin");
+        fs::write(&path, b"data").expect("write source");
+        let latest = latest_activity(&path).expect("latest activity");
+        assert!(latest > UNIX_EPOCH);
+    }
+}

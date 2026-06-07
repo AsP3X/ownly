@@ -14,6 +14,8 @@ use axum::{
 use tokio::sync::Mutex;
 use futures_util::StreamExt;
 use tempfile::TempDir;
+
+use crate::temp_cleanup::{create_ownly_temp_dir, GIF_PREVIEW_TEMP_PREFIX};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
@@ -467,7 +469,7 @@ async fn download_storage_object_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
 ) -> Result<(TempDir, PathBuf, SniffedImageFormat), AppError> {
-    let work_dir = TempDir::new()
+    let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
     let staging_path = work_dir.path().join("source.staging");
 
@@ -827,7 +829,8 @@ async fn composite_webp_frames_on_canvas(
 // Human: Animated WebP → PNG sequence via webpmux/dwebp, then ffmpeg H.264 MP4.
 // Agent: SPAWNS webpmux per frame; CALLS ffmpeg on frame_%04d.png; RETURNS mp4 bytes.
 async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
-    let work_dir = TempDir::new().map_err(|e| format!("temp dir create: {e}"))?;
+    let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
+        .map_err(|e| format!("temp dir create: {e}"))?;
     let frames_dir = work_dir.path().join("frames");
     tokio::fs::create_dir_all(&frames_dir)
         .await
@@ -977,7 +980,8 @@ async fn run_ffmpeg_animation_to_mp4(
     attempt: TranscodeAttempt,
     fixed_canvas: Option<(u32, u32)>,
 ) -> Result<Vec<u8>, String> {
-    let work_dir = TempDir::new().map_err(|e| format!("temp dir create: {e}"))?;
+    let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
+        .map_err(|e| format!("temp dir create: {e}"))?;
     let output_path = work_dir.path().join("preview.mp4");
 
     let mut command = Command::new("ffmpeg");

@@ -41,6 +41,7 @@ pub mod secrets;
 pub mod setup;
 pub mod shares;
 pub mod storage;
+pub mod temp_cleanup;
 pub mod user_sessions;
 
 use config::Config;
@@ -690,6 +691,7 @@ pub async fn run() -> anyhow::Result<()> {
     let state = create_app_state(&config).await?;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
     files::recycle_bin::start_recycle_bin_purger(state.clone());
+    temp_cleanup::start_temp_janitor();
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
