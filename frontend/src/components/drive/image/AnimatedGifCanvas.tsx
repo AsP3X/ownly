@@ -174,6 +174,11 @@ function ServerGifVideo({
       video.removeEventListener("canplay", markReady);
       video.removeEventListener("playing", markReady);
       document.removeEventListener("visibilitychange", onVisibility);
+      // Human: Drop in-flight preview-animation fetch when swiping away or unmounting.
+      // Agent: CLEARS src + load(); ABORTS browser media download without leaving ffmpeg work queued client-side.
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
     };
   }, [animationUrl, onFailed]);
 
@@ -186,6 +191,7 @@ function ServerGifVideo({
         style={mediaStyle}
         className={cn(className, "block object-contain")}
         src={animationUrl}
+        preload="none"
         autoPlay
         muted
         loop
@@ -218,6 +224,7 @@ function ServerGifVideo({
           isVideoReady ? "opacity-100" : "opacity-0",
         )}
         src={animationUrl}
+        preload="none"
         autoPlay
         muted
         loop

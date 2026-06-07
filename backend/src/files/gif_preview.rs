@@ -268,17 +268,27 @@ pub async fn stream_gif_preview_animation(
         return Err(AppError::NotFound);
     }
 
-    let (stream, mp4_size) = open_gif_preview_stream(
-        &state,
-        &storage_key,
-        size_bytes.max(0) as u64,
-    )
-    .await?;
-    let headers = preview_mp4_headers(mp4_size)?;
+    let source_size_bytes = size_bytes.max(0) as u64;
+    let storage = state.storage.clone();
 
+    // Human: HEAD must not transcode — only report cached sidecar metadata when already ready.
+    // Agent: READS cached_sidecar_is_fresh; RETURNS 404 on miss; SKIPS open_gif_preview_stream/ffmpeg.
     if method == Method::HEAD {
+        if !cached_sidecar_is_fresh(&storage, &storage_key, source_size_bytes).await? {
+            return Err(AppError::NotFound);
+        }
+        let preview_key = gif_preview_object_key(&storage_key);
+        let (_, mp4_size, _) = storage
+            .get_stream(&preview_key)
+            .await
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        let headers = preview_mp4_headers(mp4_size)?;
         return Ok((StatusCode::OK, headers).into_response());
     }
+
+    let (stream, mp4_size) =
+        open_gif_preview_stream(&state, &storage_key, source_size_bytes).await?;
+    let headers = preview_mp4_headers(mp4_size)?;
 
     Ok((headers, Body::from_stream(stream)).into_response())
 }
@@ -358,13 +368,23 @@ async fn cached_sidecar_is_fresh(
     }
 
     let (meta_version, stored_size) = read_sidecar_meta(storage, &meta_key).await?;
-    if meta_version != GIF_PREVIEW_META_VERSION || stored_size != source_size_bytes {
-        return Ok(true);
+    if !sidecar_meta_matches_source(meta_version, stored_size, source_size_bytes) {
+        let _ = storage.delete(&preview_key).await;
+        let _ = storage.delete(&meta_key).await;
+        return Ok(false);
     }
 
-    let _ = storage.delete(&preview_key).await;
-    let _ = storage.delete(&meta_key).await;
-    Ok(false)
+    Ok(true)
+}
+
+// Human: True when sidecar meta version and recorded source size still match the live object.
+// Agent: PURE check; USED by cached_sidecar_is_fresh before returning cache hit.
+fn sidecar_meta_matches_source(
+    meta_version: u32,
+    stored_size: u64,
+    source_size_bytes: u64,
+) -> bool {
+    meta_version == GIF_PREVIEW_META_VERSION && stored_size == source_size_bytes
 }
 
 // Human: Parse versioned `.ownly-gif-preview.meta` (`version\\nsource_size`).
@@ -1225,5 +1245,12 @@ mod tests {
         let filter = preview_mp4_video_filter(Some((480, 270)));
         assert!(filter.contains("pad=480:270"));
         assert!(filter.contains("setsar=1"));
+    }
+
+    #[test]
+    fn sidecar_meta_matches_source_requires_version_and_size() {
+        assert!(sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION, 1024, 1024));
+        assert!(!sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION - 1, 1024, 1024));
+        assert!(!sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION, 1024, 2048));
     }
 }
