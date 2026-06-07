@@ -3,10 +3,17 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { startIosGifPlayback } from "@/components/drive/image/animated-gif-playback";
+import { withAnimatedPreviewContainFit } from "@/components/drive/image/image-preview-layout";
 import {
   isAppleTouchDevice,
   isServerGifAnimationPreviewUrl,
 } from "@/components/drive/image/image-preview-gif";
+
+// Human: Normalize fit styles so video/canvas never stretch when parent passes width/height percentages.
+// Agent: MERGES fitStyle; FORCES objectFit contain on every animated preview surface.
+function resolveAnimatedMediaStyle(fitStyle: CSSProperties): CSSProperties {
+  return withAnimatedPreviewContainFit(fitStyle, 0, 0);
+}
 
 type AnimatedGifCanvasProps = {
   /** Human: Preferred on iOS — avoids fetch(blob:) and duplicate stream requests. */
@@ -64,6 +71,8 @@ function ServerGifVideo({
   onFailed,
 }: ServerGifVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStyle = resolveAnimatedMediaStyle(fitStyle);
+  const reportedNaturalSizeRef = useRef(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -98,7 +107,7 @@ function ServerGifVideo({
       ref={videoRef}
       role="img"
       aria-label={alt}
-      style={fitStyle}
+      style={mediaStyle}
       className={className}
       src={url}
       autoPlay
@@ -112,7 +121,9 @@ function ServerGifVideo({
       controls={false}
       onLoadedMetadata={(event) => {
         const video = event.currentTarget;
+        if (reportedNaturalSizeRef.current) return;
         if (video.videoWidth > 0 && video.videoHeight > 0) {
+          reportedNaturalSizeRef.current = true;
           onNaturalSize?.(video.videoWidth, video.videoHeight);
         }
       }}
@@ -181,6 +192,7 @@ function ClientGifPlayback({
 }: ClientGifPlaybackProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStyle = resolveAnimatedMediaStyle(fitStyle);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [isPreparing, setIsPreparing] = useState(true);
@@ -266,7 +278,7 @@ function ClientGifPlayback({
       <img
         src={url}
         alt={alt}
-        style={fitStyle}
+        style={mediaStyle}
         className={className}
         draggable={false}
         loading="eager"
@@ -290,7 +302,7 @@ function ClientGifPlayback({
         role="img"
         aria-label={alt}
         style={{
-          ...fitStyle,
+          ...mediaStyle,
           display: videoUrl ? "none" : undefined,
         }}
         className={className}
@@ -305,7 +317,7 @@ function ClientGifPlayback({
         role="img"
         aria-label={alt}
         style={{
-          ...fitStyle,
+          ...mediaStyle,
           display: videoUrl ? undefined : "none",
         }}
         className={className}
@@ -314,6 +326,7 @@ function ClientGifPlayback({
         muted
         loop
         playsInline
+        {...({ "webkit-playsinline": "true" } as Record<string, string>)}
         disablePictureInPicture
         controls={false}
       />

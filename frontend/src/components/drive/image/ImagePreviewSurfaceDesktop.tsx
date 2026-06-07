@@ -8,6 +8,7 @@ import {
   isGifPreviewFile,
   shouldUseGifCanvasPlayback,
 } from "@/components/drive/image/image-preview-gif";
+import { withAnimatedPreviewContainFit } from "@/components/drive/image/image-preview-layout";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { DialogClose } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -38,10 +39,22 @@ export function ImagePreviewSurfaceDesktop({
     goPrevious,
     goNext,
     getPreviewGifBlob,
+    getPreviewDimensions,
   } = vm;
 
   const useIosGifPlayback =
     Boolean(file && displayUrl && isGifPreviewFile(file) && shouldUseGifCanvasPlayback());
+
+  const gifNatural = file ? getPreviewDimensions(file.id) : null;
+  const iosGifFitStyle = withAnimatedPreviewContainFit(
+    {
+      maxHeight: "min(900px, 105dvh)",
+      width: "100%",
+      objectFit: "contain",
+    },
+    gifNatural?.width ?? 0,
+    gifNatural?.height ?? 0,
+  );
 
   return (
     <div className="flex w-full items-center justify-center gap-3 sm:gap-4">
@@ -72,11 +85,7 @@ export function ImagePreviewSurfaceDesktop({
                 fileId={file?.id}
                 byteSource={file ? getPreviewGifBlob(file.id) : null}
                 alt={file?.name ?? "Image preview"}
-                fitStyle={{
-                  maxHeight: "min(900px, 105dvh)",
-                  width: "100%",
-                  objectFit: "contain",
-                }}
+                fitStyle={iosGifFitStyle}
                 className="max-h-[min(900px,105dvh)] w-full object-contain"
               />
             ) : (

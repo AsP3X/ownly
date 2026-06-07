@@ -3,15 +3,17 @@
 
 import type { CSSProperties } from "react";
 
-/** Human: Default before dimensions are known — prefer width contact once metadata arrives. */
+/** Human: Default before dimensions are known — letterbox inside the flex stage without stretching. */
 export const MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE: CSSProperties = {
-  width: "100%",
+  width: "auto",
   height: "auto",
+  maxWidth: "100%",
   maxHeight: "100%",
+  objectFit: "contain",
 };
 
-// Human: Pick width-fit (touch left/right) or height-fit (touch top/bottom) from aspect ratio vs viewport.
-// Agent: READS naturalWidth/Height + containerWidth/Height; RETURNS CSSProperties for centered flex img.
+// Human: Fit media inside the mobile stage with one stable contain strategy (no width/height mode flip).
+// Agent: READS natural + container size; RETURNS max-bounded auto sizing for img, video, and canvas.
 export function resolveMobileViewportFitStyle(
   naturalWidth: number,
   naturalHeight: number,
@@ -22,14 +24,30 @@ export function resolveMobileViewportFitStyle(
     return MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
   }
 
-  const heightIfFullWidth = naturalHeight * (containerWidth / naturalWidth);
-  if (heightIfFullWidth <= containerHeight) {
-    // Human: Scaling to viewport width keeps the full image visible — touch left and right edges.
-    // Agent: UPSCALES small images to w-full; centers vertically when shorter than the viewport.
-    return { width: "100%", height: "auto", maxHeight: "100%" };
-  }
+  // Human: iOS Safari chrome resize used to flip width-fit vs height-fit and stretch video/canvas axes.
+  // Agent: USES object-fit contain + max bounds; PRESERVES aspect ratio for animated MP4/canvas paths.
+  return {
+    width: "auto",
+    height: "auto",
+    maxWidth: "100%",
+    maxHeight: "100%",
+    objectFit: "contain",
+    aspectRatio: `${naturalWidth} / ${naturalHeight}`,
+  };
+}
 
-  // Human: Full width would clip vertically — fit height instead so top and bottom touch the viewport.
-  // Agent: USES h-full + w-auto; MAY pillarbox horizontally; NEVER crops top/bottom.
-  return { height: "100%", width: "auto", maxWidth: "100%" };
+// Human: Merge letterbox fit with stable contain rules for animated GIF/WebP video and canvas surfaces.
+// Agent: SPREADS fitStyle; FORCES objectFit contain; SETS aspectRatio when natural size is known.
+export function withAnimatedPreviewContainFit(
+  fitStyle: CSSProperties,
+  naturalWidth: number,
+  naturalHeight: number,
+): CSSProperties {
+  return {
+    ...fitStyle,
+    objectFit: "contain",
+    ...(naturalWidth > 0 && naturalHeight > 0
+      ? { aspectRatio: `${naturalWidth} / ${naturalHeight}` }
+      : {}),
+  };
 }

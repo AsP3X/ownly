@@ -16,6 +16,13 @@ type DrawFrame = {
 
 const mp4Cache = new Map<string, Blob>();
 
+// Human: H.264 encoders require even frame sizes — round down without changing aspect ratio much.
+// Agent: USED before VideoEncoder.configure and canvas sizing for client MP4 transcodes.
+function evenEncodeDimension(value: number): number {
+  const rounded = Math.max(2, Math.round(value));
+  return rounded - (rounded % 2);
+}
+
 function sleep(ms: number, isCancelled: () => boolean): Promise<void> {
   return new Promise((resolve) => {
     if (isCancelled()) {
@@ -182,8 +189,8 @@ async function startImageDecoderCanvasPlayback(
     return { stop: () => decoder.close() };
   }
 
-  canvas.width = first.image.displayWidth;
-  canvas.height = first.image.displayHeight;
+  canvas.width = evenEncodeDimension(first.image.displayWidth);
+  canvas.height = evenEncodeDimension(first.image.displayHeight);
   onNaturalSize?.(canvas.width, canvas.height);
   first.image.close();
 
@@ -199,7 +206,7 @@ async function startImageDecoderCanvasPlayback(
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(result.image, 0, 0);
+      ctx.drawImage(result.image, 0, 0, canvas.width, canvas.height);
       const delayMs = Math.max(20, (result.image.duration ?? 100_000) / 1000);
       result.image.close();
 
@@ -229,9 +236,9 @@ function startCanvasDrawLoop(
   onNaturalSize: ((width: number, height: number) => void) | undefined,
   isCancelled: () => boolean,
 ): GifPlaybackHandle {
-  canvas.width = width;
-  canvas.height = height;
-  onNaturalSize?.(width, height);
+  canvas.width = evenEncodeDimension(width);
+  canvas.height = evenEncodeDimension(height);
+  onNaturalSize?.(canvas.width, canvas.height);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) {
@@ -242,9 +249,19 @@ function startCanvasDrawLoop(
   let timeoutId = 0;
   let running = true;
 
+  const composeCanvas = document.createElement("canvas");
+  composeCanvas.width = width;
+  composeCanvas.height = height;
+  const composeCtx = composeCanvas.getContext("2d");
+  if (!composeCtx) {
+    throw new Error("no compose canvas context");
+  }
+
   const render = () => {
     if (!running || isCancelled()) return;
-    frames[frameIndex]!.draw(ctx, width, height);
+    frames[frameIndex]!.draw(composeCtx, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(composeCanvas, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
     const delayMs = frames[frameIndex]!.delayMs;
     frameIndex = (frameIndex + 1) % frames.length;
     timeoutId = window.setTimeout(render, delayMs);
@@ -273,10 +290,21 @@ export async function transcodeGifToMp4(
   }
 
   const { width, height, frames } = parseGifuctDrawFrames(buffer);
-  onNaturalSize?.(width, height);
+  const encodeWidth = evenEncodeDimension(width);
+  const encodeHeight = evenEncodeDimension(height);
+  onNaturalSize?.(encodeWidth, encodeHeight);
+
+  const composeCanvas = document.createElement("canvas");
+  composeCanvas.width = width;
+  composeCanvas.height = height;
+  const composeCtx = composeCanvas.getContext("2d");
+  if (!composeCtx) {
+    throw new Error("no compose canvas context");
+  }
+
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = encodeWidth;
+  canvas.height = encodeHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("no canvas context");
@@ -285,7 +313,7 @@ export async function transcodeGifToMp4(
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: "avc", width, height },
+    video: { codec: "avc", width: encodeWidth, height: encodeHeight },
     fastStart: "in-memory",
   });
 
@@ -300,14 +328,16 @@ export async function transcodeGifToMp4(
 
   encoder.configure({
     codec: "avc1.42001f",
-    width,
-    height,
+    width: encodeWidth,
+    height: encodeHeight,
     bitrate: 1_000_000,
   });
 
   let timestampUs = 0;
   for (let index = 0; index < frames.length; index += 1) {
-    frames[index]!.draw(ctx, width, height);
+    frames[index]!.draw(composeCtx, width, height);
+    ctx.clearRect(0, 0, encodeWidth, encodeHeight);
+    ctx.drawImage(composeCanvas, 0, 0, width, height, 0, 0, encodeWidth, encodeHeight);
     const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
     encoder.encode(videoFrame, { keyFrame: index === 0 || index % 30 === 0 });
     videoFrame.close();
@@ -347,14 +377,14 @@ async function transcodeViaImageDecoderToMp4(
   }
 
   const first = await decoder.decode({ frameIndex: 0 });
-  const width = first.image.displayWidth;
-  const height = first.image.displayHeight;
+  const encodeWidth = evenEncodeDimension(first.image.displayWidth);
+  const encodeHeight = evenEncodeDimension(first.image.displayHeight);
   first.image.close();
-  onNaturalSize?.(width, height);
+  onNaturalSize?.(encodeWidth, encodeHeight);
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = encodeWidth;
+  canvas.height = encodeHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     decoder.close();
@@ -364,7 +394,7 @@ async function transcodeViaImageDecoderToMp4(
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: "avc", width, height },
+    video: { codec: "avc", width: encodeWidth, height: encodeHeight },
     fastStart: "in-memory",
   });
 
@@ -379,16 +409,26 @@ async function transcodeViaImageDecoderToMp4(
 
   encoder.configure({
     codec: "avc1.42001f",
-    width,
-    height,
+    width: encodeWidth,
+    height: encodeHeight,
     bitrate: 1_000_000,
   });
 
   let timestampUs = 0;
   for (let index = 0; index < track.frameCount; index += 1) {
     const result = await decoder.decode({ frameIndex: index });
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(result.image, 0, 0);
+    ctx.clearRect(0, 0, encodeWidth, encodeHeight);
+    ctx.drawImage(
+      result.image,
+      0,
+      0,
+      result.image.displayWidth,
+      result.image.displayHeight,
+      0,
+      0,
+      encodeWidth,
+      encodeHeight,
+    );
     const delayMs = Math.max(20, (result.image.duration ?? 100_000) / 1000);
     result.image.close();
 

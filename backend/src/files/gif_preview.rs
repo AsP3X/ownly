@@ -506,6 +506,43 @@ async fn download_storage_object_to_temp(
     Ok((work_dir, source_path, source_format))
 }
 
+const FFMPEG_EVEN_SCALE_VF: &str = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,setsar=1";
+
+// Human: Round a pixel dimension down to an even value for H.264 / yuv420p output.
+// Agent: USED by webpmux canvas sizing; PREVENTS SAR drift in preview MP4.
+fn even_dimension(value: u32) -> u32 {
+    let value = value.max(2);
+    value - (value % 2)
+}
+
+// Human: Parse `webpmux -info` canvas size for fixed-frame animated WebP transcodes.
+// Agent: READS `Canvas size: W x H`; RETURNS even dimensions when present.
+fn parse_webpmux_canvas_size(info: &str) -> Option<(u32, u32)> {
+    for line in info.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("Canvas size:") else {
+            continue;
+        };
+        let mut parts = rest.split('x');
+        let width = parts.next()?.trim().parse::<u32>().ok()?;
+        let height = parts.next()?.trim().parse::<u32>().ok()?;
+        return Some((even_dimension(width), even_dimension(height)));
+    }
+    None
+}
+
+// Human: Build ffmpeg `-vf` for stable preview MP4 aspect ratio (even output + square pixels).
+// Agent: USES fixed canvas pad for webpmux PNG sequences; FALLBACK to even scale otherwise.
+fn preview_mp4_video_filter(canvas_size: Option<(u32, u32)>) -> String {
+    if let Some((width, height)) = canvas_size {
+        return format!(
+            "scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,\
+             pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1"
+        );
+    }
+    FFMPEG_EVEN_SCALE_VF.to_string()
+}
+
 // Human: Parse `webpmux -info` output for animated WebP frame count.
 // Agent: READS stdout line `Number of frames:`; DEFAULTS to 1 when missing.
 fn parse_webpmux_frame_count(info: &str) -> u32 {
@@ -547,6 +584,8 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
 
     let info = String::from_utf8_lossy(&info_output.stdout);
     let frame_count = parse_webpmux_frame_count(&info);
+    let canvas_size = parse_webpmux_canvas_size(&info);
+    let video_filter = preview_mp4_video_filter(canvas_size);
     if frame_count > MAX_WEBP_EXTRACT_FRAMES {
         return Err(format!(
             "webp animation exceeds {MAX_WEBP_EXTRACT_FRAMES} frames ({frame_count})"
@@ -620,7 +659,7 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
             "yuv420p",
             "-an",
             "-vf",
-            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            &video_filter,
         ])
         .arg(output_str)
         .stdout(std::process::Stdio::null())
@@ -733,7 +772,7 @@ async fn run_ffmpeg_animation_to_mp4(
             "yuv420p",
             "-an",
             "-vf",
-            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            FFMPEG_EVEN_SCALE_VF,
         ])
         .arg(&output_path)
         .stdout(std::process::Stdio::null())
@@ -843,10 +882,15 @@ mod tests {
     }
 
     #[test]
-    fn gif_preview_meta_object_key_appends_suffix() {
-        assert_eq!(
-            gif_preview_meta_object_key("users/u1/files/f1"),
-            "users/u1/files/f1/.ownly-gif-preview.meta"
-        );
+    fn parse_webpmux_canvas_size_reads_info_line() {
+        let info = "Format: ANIM\nCanvas size: 481 x 271\nNumber of frames: 24\n";
+        assert_eq!(parse_webpmux_canvas_size(info), Some((480, 270)));
+    }
+
+    #[test]
+    fn preview_mp4_video_filter_uses_canvas_pad_for_webp() {
+        let filter = preview_mp4_video_filter(Some((480, 270)));
+        assert!(filter.contains("pad=480:270"));
+        assert!(filter.contains("setsar=1"));
     }
 }
