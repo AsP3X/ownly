@@ -1224,34 +1224,31 @@ export function subscribeUploadFileRegistered(listener: UploadFileRegisteredList
 
 
 
+export type UploadBatchEntry = {
+  file: File;
+  /** Target folder for this row — falls back to the batch default when omitted. */
+  folderId?: string | null;
+};
+
 // Human: Map picked files into queued upload rows for the active batch.
 
 // Agent: WRITES per-item folderId so later batches can target a different folder than the first.
 
-function queuedItemsFromFiles(files: File[], folderId: string | null): InternalUploadItem[] {
-
-  return files.map((file) => ({
-
+function queuedItemsFromEntries(
+  entries: UploadBatchEntry[],
+  defaultFolderId: string | null,
+): InternalUploadItem[] {
+  return entries.map(({ file, folderId }) => ({
     id: createClientId(),
-
     localFile: file,
-
     fileName: file.name,
-
     fileSize: file.size,
-
     mimeType: file.type,
-
-    folderId,
-
+    folderId: folderId ?? defaultFolderId,
     status: "queued" as const,
-
     progress: 0,
-
     phase: "uploading" as const,
-
   }));
-
 }
 
 
@@ -1260,13 +1257,10 @@ function queuedItemsFromFiles(files: File[], folderId: string | null): InternalU
 
 // Agent: APPENDS when a batch is already uploading; REPLACES completed/cleared batches; CALLS pumpUploadQueue.
 
-export function startUploadBatch(files: File[], folderId: string | null) {
+export function startUploadBatch(entries: UploadBatchEntry[], defaultFolderId: string | null) {
+  if (entries.length === 0) return;
 
-  if (files.length === 0) return;
-
-
-
-  const newItems = queuedItemsFromFiles(files, folderId);
+  const newItems = queuedItemsFromEntries(entries, defaultFolderId);
 
 
 
@@ -1290,7 +1284,7 @@ export function startUploadBatch(files: File[], folderId: string | null) {
 
     status: "uploading",
 
-    folderId,
+    folderId: defaultFolderId,
 
     items: newItems,
 

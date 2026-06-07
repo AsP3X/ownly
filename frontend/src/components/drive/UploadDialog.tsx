@@ -1,8 +1,8 @@
-// Human: File picker modal — select files then hand off to the floating upload transfer panel.
-// Agent: WRITES startUploadBatch; CHECKS upload conflicts; RESTORES recycle matches on Continue.
+// Human: File picker modal — select files or an entire folder, then hand off to the upload transfer panel.
+// Agent: WRITES startUploadBatch; CHECKS upload conflicts; CREATES folder tree for directory picks.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
+import { FileText, FolderUp, Upload, X } from "lucide-react";
 import { UploadConflictDialog } from "@/components/drive/UploadDuplicateDialog";
 import {
   checkUploadNameDuplicates,
@@ -15,7 +15,14 @@ import {
   buildSmartContinueLabel,
   buildUploadConflictPlan,
 } from "@/lib/upload-conflicts";
-import { startUploadBatch, subscribeUploadBatch } from "@/lib/upload-manager";
+import {
+  ensureFolderUploadStructure,
+  folderUploadDisplayPath,
+  getFileRelativePath,
+  isFolderUploadSelection,
+  parseFolderUploadSelection,
+} from "@/lib/upload-folder-structure";
+import { startUploadBatch, subscribeUploadBatch, type UploadBatchEntry } from "@/lib/upload-manager";
 import { applyStorageWarningsInOrder } from "@/lib/upload-storage-capacity";
 import { createClientId, formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -110,7 +117,9 @@ export function UploadDialog({
   onLibraryChanged,
 }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [folderUploadRootName, setFolderUploadRootName] = useState<string | null>(null);
   const [activeUploadBatch, setActiveUploadBatch] = useState(false);
   const [checkingConflicts, setCheckingConflicts] = useState(false);
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -175,9 +184,30 @@ export function UploadDialog({
   }, [open, onRefreshStorageLimits]);
 
   const addPendingFiles = useCallback(
-    (selected: FileList | null) => {
+    (selected: FileList | null, fromFolderPicker = false) => {
       if (!selected?.length) return;
       setStorageSkipNotice("");
+
+      if (fromFolderPicker) {
+        const parsed = parseFolderUploadSelection(Array.from(selected));
+        if (!parsed) {
+          setConflictCheckError("Could not read the selected folder. Try choosing it again.");
+          if (folderInputRef.current) folderInputRef.current.value = "";
+          return;
+        }
+        setFolderUploadRootName(parsed.rootFolderName);
+        setPendingFiles((prev) => {
+          const withoutFolderRows = prev.filter((item) => !getFileRelativePath(item.file));
+          const incoming = parsed.entries.map(({ file }) => ({
+            id: createClientId(),
+            file,
+          }));
+          return withStorageWarnings([...withoutFolderRows, ...incoming], effectiveRemainingBytes);
+        });
+        if (folderInputRef.current) folderInputRef.current.value = "";
+        return;
+      }
+
       setPendingFiles((prev) => {
         const incoming = Array.from(selected).map((file) => ({
           id: createClientId(),
@@ -192,16 +222,24 @@ export function UploadDialog({
 
   function removePendingFile(id: string) {
     setStorageSkipNotice("");
-    setPendingFiles((prev) =>
-      withStorageWarnings(
+    setPendingFiles((prev) => {
+      const next = withStorageWarnings(
         prev.filter((item) => item.id !== id),
         effectiveRemainingBytes,
-      ),
-    );
+      );
+      if (!next.some((item) => getFileRelativePath(item.file))) {
+        setFolderUploadRootName(null);
+      }
+      return next;
+    });
   }
 
   function openFilePicker() {
     fileInputRef.current?.click();
+  }
+
+  function openFolderPicker() {
+    folderInputRef.current?.click();
   }
 
   function resetConflictState() {
@@ -215,20 +253,54 @@ export function UploadDialog({
   function handleOpenChange(next: boolean) {
     if (!next) {
       setPendingFiles([]);
+      setFolderUploadRootName(null);
       resetConflictState();
     }
     onOpenChange(next);
   }
 
   // Human: Queue files in upload-manager and close the picker after conflict resolution.
-  // Agent: CALLS startUploadBatch when files remain; CLEARS pending state; CLOSES dialogs.
-  function beginUpload(files: File[]) {
+  // Agent: CALLS startUploadBatch when files remain; CREATES folder tree for directory picks; CLOSES dialogs.
+  async function beginUpload(entries: UploadBatchEntry[]) {
+    if (entries.length === 0) {
+      resetConflictState();
+      setPendingFiles([]);
+      setFolderUploadRootName(null);
+      onOpenChange(false);
+      return;
+    }
+
+    const files = entries.map((entry) => entry.file);
+    if (isFolderUploadSelection(files)) {
+      try {
+        const parsed = parseFolderUploadSelection(files);
+        if (parsed) {
+          const folderMap = await ensureFolderUploadStructure(parsed, folderId);
+          onLibraryChanged?.();
+          resetConflictState();
+          setPendingFiles([]);
+          setFolderUploadRootName(null);
+          onOpenChange(false);
+          startUploadBatch(
+            parsed.entries.map(({ file, relativeDir }) => ({
+              file,
+              folderId: folderMap.get(relativeDir),
+            })),
+            folderId,
+          );
+          return;
+        }
+      } catch (error) {
+        setConflictCheckError(getErrorMessage(error));
+        return;
+      }
+    }
+
     resetConflictState();
     setPendingFiles([]);
+    setFolderUploadRootName(null);
     onOpenChange(false);
-    if (files.length > 0) {
-      startUploadBatch(files, folderId);
-    }
+    startUploadBatch(entries, folderId);
   }
 
   // Human: Restore recycle-bin rows and upload the remaining pending files per user choice.
@@ -255,7 +327,7 @@ export function UploadDialog({
         });
         onLibraryChanged?.();
       }
-      beginUpload(plan.uploadFiles);
+      await beginUpload(plan.uploadFiles.map((file) => ({ file })));
     } catch (error) {
       setConflictCheckError(getErrorMessage(error));
       setConflictDialogOpen(false);
@@ -311,7 +383,7 @@ export function UploadDialog({
         setConflictDialogOpen(true);
         return;
       }
-      beginUpload(uploadable.map((item) => item.file));
+      await beginUpload(uploadable.map((item) => ({ file: item.file })));
     } catch (error) {
       setConflictCheckError(getErrorMessage(error));
     } finally {
@@ -360,8 +432,8 @@ export function UploadDialog({
               Upload files
             </DialogTitle>
             <DialogDescription className="min-w-0 text-sm leading-snug break-words text-[#666666]">
-              Choose files to add to your library. Upload progress appears in the panel at the
-              bottom-right so you can keep browsing.
+              Choose files or an entire folder to add to your library. Upload progress appears in
+              the panel at the bottom-right so you can keep browsing.
             </DialogDescription>
           </div>
 
@@ -372,7 +444,15 @@ export function UploadDialog({
             type="file"
             multiple
             className="hidden"
-            onChange={(event) => addPendingFiles(event.target.files)}
+            onChange={(event) => addPendingFiles(event.target.files, false)}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            {...({ webkitdirectory: "", directory: "" } as InputHTMLAttributes<HTMLInputElement>)}
+            onChange={(event) => addPendingFiles(event.target.files, true)}
           />
 
           {activeUploadBatch ? (
@@ -402,24 +482,47 @@ export function UploadDialog({
             </p>
           ) : null}
 
+          {folderUploadRootName ? (
+            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]">
+              Folder <span className="font-semibold">{folderUploadRootName}</span> will be created
+              here with its contents and subfolders preserved.
+            </p>
+          ) : null}
+
           {pendingFiles.length === 0 ? (
-            <button
-              type="button"
-              onClick={openFilePicker}
-              className={cn(
-                "flex w-full shrink-0 flex-col items-center gap-3 rounded-xl border border-[#E5E7EB] px-4 py-6 text-center transition",
-                "hover:border-[#2563EB]/40 hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
-              )}
-            >
-              <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
-                <Upload className="size-5 text-[#2563EB]" aria-hidden />
-              </div>
-              <span className="text-[15px] font-bold text-[#1A1A1A]">Browse files</span>
-              <span className="text-[13px] text-[#888888]">Single or multiple files</span>
-            </button>
+            <div className="grid shrink-0 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={openFilePicker}
+                className={cn(
+                  "flex w-full flex-col items-center gap-3 rounded-xl border border-[#E5E7EB] px-4 py-6 text-center transition",
+                  "hover:border-[#2563EB]/40 hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                )}
+              >
+                <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
+                  <Upload className="size-5 text-[#2563EB]" aria-hidden />
+                </div>
+                <span className="text-[15px] font-bold text-[#1A1A1A]">Browse files</span>
+                <span className="text-[13px] text-[#888888]">Single or multiple files</span>
+              </button>
+              <button
+                type="button"
+                onClick={openFolderPicker}
+                className={cn(
+                  "flex w-full flex-col items-center gap-3 rounded-xl border border-[#E5E7EB] px-4 py-6 text-center transition",
+                  "hover:border-[#2563EB]/40 hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                )}
+              >
+                <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
+                  <FolderUp className="size-5 text-[#2563EB]" aria-hidden />
+                </div>
+                <span className="text-[15px] font-bold text-[#1A1A1A]">Browse folder</span>
+                <span className="text-[13px] text-[#888888]">Upload an entire folder</span>
+              </button>
+            </div>
           ) : (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-              <div className="flex shrink-0 items-center justify-between gap-2 text-xs text-[#666666]">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-[#666666]">
                 <span className="font-semibold text-[#1A1A1A]">
                   {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"} selected
                 </span>
@@ -428,7 +531,14 @@ export function UploadDialog({
                   onClick={openFilePicker}
                   className="shrink-0 font-semibold text-[#2563EB] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                 >
-                  Add more
+                  Add files
+                </button>
+                <button
+                  type="button"
+                  onClick={openFolderPicker}
+                  className="shrink-0 font-semibold text-[#2563EB] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                >
+                  Add folder
                 </button>
               </div>
               <ul
@@ -439,7 +549,7 @@ export function UploadDialog({
                 {pendingFiles.map((item) => (
                   <PendingFileRow
                     key={item.id}
-                    name={item.file.name}
+                    name={folderUploadDisplayPath(item.file, folderUploadRootName)}
                     sizeBytes={item.file.size}
                     storageWarning={item.storageWarning}
                     onRemove={() => removePendingFile(item.id)}
