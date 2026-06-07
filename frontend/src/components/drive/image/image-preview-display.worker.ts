@@ -1,7 +1,7 @@
 // Human: Off-main-thread downscale for mobile image preview carousel display blobs.
 // Agent: RECEIVES ArrayBuffer + maxEdgePx; RETURNS JPEG/PNG bytes and source natural dimensions.
 
-import { isAnimatedGifBytes } from "@/components/drive/image/image-preview-gif";
+import { isAnimatedGifBytes, isGifMimeType } from "@/components/drive/image/image-preview-gif";
 
 const PREVIEW_JPEG_QUALITY = 0.88;
 const GIF_SCAN_BYTES = 512 * 1024;
@@ -46,7 +46,11 @@ async function resizeForPreviewDisplay(
   resized: boolean;
 }> {
   const scanLength = Math.min(buffer.byteLength, GIF_SCAN_BYTES);
-  if (isAnimatedGifBytes(new Uint8Array(buffer.slice(0, scanLength)))) {
+  const mime = mimeType || "application/octet-stream";
+  if (
+    isGifMimeType(mime) ||
+    isAnimatedGifBytes(new Uint8Array(buffer.slice(0, scanLength)))
+  ) {
     const sourceBlob = new Blob([buffer], { type: mimeType || "application/octet-stream" });
     const bitmap = await createImageBitmap(sourceBlob);
     try {
