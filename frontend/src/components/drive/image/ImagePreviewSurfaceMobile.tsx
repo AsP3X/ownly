@@ -50,6 +50,23 @@ function snapDurationMs(distancePx: number): number {
   return Math.min(GALLERY_SNAP_MAX_MS, Math.max(GALLERY_SNAP_MIN_MS, Math.abs(distancePx) * 0.42));
 }
 
+// Human: Viewport-fixed top/bottom scrim — stays visible while the carousel track moves underneath.
+// Agent: RENDERS above gallery track (z-20); below top/bottom chrome (z-30); pointer-events-none.
+function MobileImageViewportScrim() {
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[120px] bg-gradient-to-b from-[#000000CC] to-transparent"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[120px] bg-gradient-to-t from-[#000000CC] to-transparent"
+        aria-hidden
+      />
+    </>
+  );
+}
+
 type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
@@ -125,21 +142,6 @@ function ImageGallerySlide({
             <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
           ) : null}
         </div>
-
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-[#000000CC] to-transparent",
-            isLetterbox ? "h-14" : "h-[120px]",
-          )}
-          aria-hidden
-        />
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#000000CC] to-transparent",
-            isLetterbox ? "h-[72px]" : "h-[120px]",
-          )}
-          aria-hidden
-        />
       </div>
     </div>
   );
@@ -214,48 +216,35 @@ function StaticImageStage({
             />
           ) : null}
         </div>
-
-        {error ? (
-          <p
-            className="absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400"
-            role="alert"
-          >
-            {error}
-          </p>
-        ) : null}
-
-        {showInitialLoader ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
-            <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
-            <span className="sr-only">Loading image…</span>
-          </div>
-        ) : null}
-
-        {loading && displayUrl ? (
-          <div
-            className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
-            aria-live="polite"
-          >
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            Loading…
-          </div>
-        ) : null}
-
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#000000CC] to-transparent",
-            isLetterbox ? "h-14" : "h-[120px]",
-          )}
-          aria-hidden
-        />
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#000000CC] to-transparent",
-            isLetterbox ? "h-[72px]" : "h-[120px]",
-          )}
-          aria-hidden
-        />
       </div>
+
+      <MobileImageViewportScrim />
+
+      {error ? (
+        <p
+          className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      {showInitialLoader ? (
+        <div className="absolute inset-0 z-25 flex items-center justify-center bg-black/80">
+          <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
+          <span className="sr-only">Loading image…</span>
+        </div>
+      ) : null}
+
+      {loading && displayUrl ? (
+        <div
+          className="pointer-events-none absolute right-3 top-3 z-25 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
+          aria-live="polite"
+        >
+          <Loader2 className="size-3.5 animate-spin" aria-hidden />
+          Loading…
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -656,9 +645,11 @@ export function ImagePreviewSurfaceMobile({
             </div>
           ) : null}
 
+          <MobileImageViewportScrim />
+
           {error ? (
             <p
-              className="pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+              className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-red-400"
               role="alert"
             >
               {error}
@@ -667,7 +658,7 @@ export function ImagePreviewSurfaceMobile({
 
           {loading && displayUrl ? (
             <div
-              className="pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
+              className="pointer-events-none absolute right-3 top-3 z-25 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
               aria-live="polite"
             >
               <Loader2 className="size-3.5 animate-spin" aria-hidden />
