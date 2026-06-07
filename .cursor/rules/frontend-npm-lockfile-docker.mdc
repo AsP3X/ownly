@@ -1,0 +1,51 @@
+---
+description: Frontend package-lock.json must be Linux-complete for Docker npm ci
+globs: frontend/package*.json
+alwaysApply: false
+---
+
+# Frontend npm lockfile (Docker / Alpine)
+
+The production frontend image runs `npm ci` on **`node:22-alpine`** (`frontend/Dockerfile`). A lockfile produced only on **Windows** can omit Linux optional dependencies and break Compose builds with:
+
+```text
+Missing: @emnapi/core@1.10.0 from lock file
+Missing: @emnapi/runtime@1.10.0 from lock file
+```
+
+Those packages are required for Rolldown/Tailwind WASM bindings used during the Docker build.
+
+## Mandatory when changing frontend dependencies
+
+Applies whenever you **add, remove, or bump** npm packages, or commit changes to `frontend/package.json` or `frontend/package-lock.json`.
+
+1. **Do not** commit a Windows-only `npm install` lockfile as the final artifact.
+2. **Regenerate the lockfile inside Alpine** (from repo root):
+
+```bash
+docker run --rm -v "./frontend:/app" -w /app node:22-alpine npm install
+```
+
+On Windows PowerShell, if bind-mount fails, use an absolute path with forward slashes, e.g. `C:/Users/you/ownly/frontend:/app`.
+
+3. **Verify Docker build** before claiming the change is done:
+
+```bash
+docker build -f frontend/Dockerfile frontend
+```
+
+4. **Sanity-check the lockfile** includes resolved optional entries (not only references):
+
+- `node_modules/@emnapi/core`
+- `node_modules/@emnapi/runtime`
+
+## Agent checklist (before commit)
+
+- [ ] Lockfile regenerated via `node:22-alpine npm install` (not Windows-only).
+- [ ] `docker build -f frontend/Dockerfile frontend` succeeds (`npm ci` step passes).
+- [ ] `npm run build` still passes locally if you changed application code.
+
+## Anti-patterns
+
+- Running `npm install` on Windows and committing `package-lock.json` without the Alpine refresh above.
+- Skipping Docker verification because `npm ci` passed on the host OS.
