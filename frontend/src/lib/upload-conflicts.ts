@@ -5,6 +5,7 @@ import type { UploadNameDuplicate, UploadRecycleMatch } from "@/api/client";
 
 export type PendingUploadFile = {
   file: File;
+  contentHash?: string;
 };
 
 export type UploadConflictPlan = {
@@ -51,15 +52,15 @@ export function buildSmartContinueLabel(
 }
 
 // Human: Split a pending batch into recycle restores, skipped duplicates, and uploads.
-// Agent: DEDUPES restore ids; SKIPS restorable recycle matches from upload list when enabled.
+// Agent: DEDUPES restore ids; SKIPS rows whose content hash already exists when enabled.
 export function buildUploadConflictPlan(
   pendingFiles: PendingUploadFile[],
   duplicates: UploadNameDuplicate[],
   recycleMatches: UploadRecycleMatch[],
   options: { skipDuplicates: boolean; restoreRecycle: boolean },
 ): UploadConflictPlan {
-  const duplicateNames = options.skipDuplicates
-    ? new Set(duplicates.map((entry) => entry.upload_name))
+  const duplicateHashes = options.skipDuplicates
+    ? new Set(duplicates.map((entry) => entry.upload_content_hash))
     : new Set<string>();
 
   const restoreFileIds: string[] = [];
@@ -68,7 +69,7 @@ export function buildUploadConflictPlan(
   let skipDuplicateCount = 0;
 
   for (const item of pendingFiles) {
-    if (duplicateNames.has(item.file.name)) {
+    if (item.contentHash && duplicateHashes.has(item.contentHash)) {
       skipDuplicateCount += 1;
       continue;
     }
@@ -87,7 +88,7 @@ export function buildUploadConflictPlan(
 
   const uploadFiles = pendingFiles
     .filter((item) => {
-      if (duplicateNames.has(item.file.name)) {
+      if (item.contentHash && duplicateHashes.has(item.contentHash)) {
         return false;
       }
       if (!options.restoreRecycle) {

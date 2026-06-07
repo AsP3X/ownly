@@ -166,6 +166,8 @@ pub struct UploadCheckCandidateInput {
     pub name: String,
     #[serde(alias = "sizeBytes", deserialize_with = "upload_validation::deserialize_upload_size_bytes")]
     pub size_bytes: i64,
+    #[serde(alias = "contentHash")]
+    pub content_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,7 +264,7 @@ pub async fn batch_files(
 }
 
 // Human: Detect active-library duplicates and exact recycle-bin matches before uploading bytes.
-// Agent: POST files[]; VALIDATES filenames; READS listing checks globally; AUDIT exempt (read-only preflight).
+// Agent: POST files[]; VALIDATES filenames + content hashes; READS listing checks globally; AUDIT exempt (read-only preflight).
 pub async fn check_upload_names(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -305,22 +307,34 @@ pub async fn check_upload_names(
             ),
             other => other,
         })?;
+        let content_hash =
+            upload_validation::normalize_content_hash(&file.content_hash).map_err(|error| match error {
+                AppError::Validation(message, fields) => AppError::validation(
+                    message,
+                    serde_json::json!({
+                        "files": {
+                            index.to_string(): fields,
+                        }
+                    }),
+                ),
+                other => other,
+            })?;
         candidates.push(listing::UploadCheckCandidate {
             name,
             size_bytes: size_bytes as i64,
+            content_hash,
         });
     }
 
     let normalized = listing::normalize_upload_check_candidates(candidates);
     if normalized.is_empty() {
         return Err(AppError::BadRequest(
-            "at least one valid filename is required".into(),
+            "at least one valid upload candidate is required".into(),
         ));
     }
 
-    let upload_names: Vec<String> = normalized.iter().map(|file| file.name.clone()).collect();
     let duplicates =
-        listing::check_upload_name_duplicates(&state.pool, &claims.sub, upload_names).await?;
+        listing::check_upload_content_hash_duplicates(&state.pool, &claims.sub, &normalized).await?;
     let recycle_matches =
         listing::check_upload_recycle_matches(&state.pool, &claims.sub, &normalized).await?;
     Ok(Json(CheckUploadNamesResponse {
@@ -602,6 +616,19 @@ pub async fn upload_file(
         _ => mime,
     };
 
+    let ReceivedUploadBody::DiskSpool {
+        ref tmp_path,
+        size_bytes,
+        ..
+    } = &received_body;
+    if *size_bytes == 0 {
+        return Err(AppError::BadRequest("file is required".into()));
+    }
+
+    // Human: Persist the SHA-256 digest of uploaded bytes for content-based duplicate detection.
+    // Agent: READS spooled tmp_path; WRITES content_hash on every files INSERT below.
+    let content_hash = crate::files::content_hash::hash_file_sha256(tmp_path).await?;
+
     let storage_put_started = Instant::now();
     let db_started = Instant::now();
 
@@ -636,10 +663,10 @@ pub async fn upload_file(
             .await?;
 
             let _: FileDto = sqlx::query_as(&format!(
-                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
                  storage_node_id, duration_seconds, hls_encode_status, conversion_progress, \
                  video_thumbnail_status) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'queued', 0, 'queued') \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, 'queued', 0, 'queued') \
                  RETURNING {FILE_COLUMNS}"
             ))
             .bind(&file_id)
@@ -649,6 +676,7 @@ pub async fn upload_file(
             .bind(&storage_key)
             .bind(&mime)
             .bind(size_bytes as i64)
+            .bind(&content_hash)
             .bind(&storage_node_id)
             .fetch_one(&state.pool)
             .await?;
@@ -762,9 +790,9 @@ pub async fn upload_file(
 
             if is_audio {
                 let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
                      audio_encode_status, conversion_progress) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', 0) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0) \
                      RETURNING {FILE_COLUMNS}"
                 ))
                 .bind(&file_id)
@@ -774,6 +802,7 @@ pub async fn upload_file(
                 .bind(&storage_key)
                 .bind(&mime)
                 .bind(size_bytes as i64)
+                .bind(&content_hash)
                 .fetch_one(&state.pool)
                 .await?;
 
@@ -805,9 +834,9 @@ pub async fn upload_file(
                 file
             } else if is_image {
                 let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
                      image_thumbnail_status) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued') \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued') \
                      RETURNING {FILE_COLUMNS}"
                 ))
                 .bind(&file_id)
@@ -817,6 +846,7 @@ pub async fn upload_file(
                 .bind(&storage_key)
                 .bind(&mime)
                 .bind(size_bytes as i64)
+                .bind(&content_hash)
                 .fetch_one(&state.pool)
                 .await?;
 
@@ -848,8 +878,8 @@ pub async fn upload_file(
                 file
             } else {
                 let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {FILE_COLUMNS}"
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {FILE_COLUMNS}"
                 ))
                 .bind(&file_id)
                 .bind(&claims.sub)
@@ -858,6 +888,7 @@ pub async fn upload_file(
                 .bind(&storage_key)
                 .bind(&mime)
                 .bind(size_bytes as i64)
+                .bind(&content_hash)
                 .fetch_one(&state.pool)
                 .await?;
                 cleanup_upload_work_dir(&work_dir).await;
@@ -1172,7 +1203,7 @@ pub async fn copy_file(
     Json(body): Json<CopyFileRequest>,
 ) -> Result<Json<CopyFileResponse>, AppError> {
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
-        "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
+        "SELECT storage_key, segment_count, name, mime_type, size_bytes, content_hash, hls_ready, \
          hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
          audio_waveform_ready, audio_encode_status, audio_waveform_key, \
          video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
@@ -1228,12 +1259,12 @@ pub async fn copy_file(
         .map(|_| crate::video::thumbnail_manifest_storage_key(&new_storage_key));
 
     let file: FileDto = sqlx::query_as(&format!(
-        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
          duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
          segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key, \
          video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
          video_thumbnail_selected_index) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -1243,6 +1274,7 @@ pub async fn copy_file(
     .bind(&new_storage_key)
     .bind(&source.mime_type)
     .bind(source.size_bytes)
+    .bind(&source.content_hash)
     .bind(source.duration_seconds)
     .bind(source.hls_ready)
     .bind(&source.hls_encode_status)

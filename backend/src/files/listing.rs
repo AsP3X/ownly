@@ -372,7 +372,7 @@ pub async fn list_owned_folders(
     })
 }
 
-// Human: One library row that already uses the filename the user wants to upload.
+// Human: One library row whose stored content hash matches a pending upload.
 // Agent: SERIALIZED in check-upload-names response; folder_name from LEFT JOIN folders.
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct UploadNameDuplicateMatch {
@@ -383,20 +383,22 @@ pub struct UploadNameDuplicateMatch {
     pub size_bytes: i64,
 }
 
-// Human: Incoming upload filename mapped to every owned library row with the same name.
+// Human: Incoming upload content hash mapped to every owned library row with the same digest.
 // Agent: GROUPED from flat SQL rows; upload_name preserves client casing for display.
 #[derive(Debug, serde::Serialize)]
 pub struct UploadNameDuplicate {
     pub upload_name: String,
+    pub upload_content_hash: String,
     pub existing: Vec<UploadNameDuplicateMatch>,
 }
 
 // Human: One proposed upload row sent from the browser before queueing bytes.
-// Agent: READS name + size_bytes; USED for recycle-bin exact matching.
+// Agent: READS name, size_bytes, and content_hash; USED for recycle-bin exact matching.
 #[derive(Debug, Clone)]
 pub struct UploadCheckCandidate {
     pub name: String,
     pub size_bytes: i64,
+    pub content_hash: String,
 }
 
 // Human: Trashed library row that exactly matches a pending upload (name + byte size).
@@ -422,7 +424,7 @@ pub struct UploadRecycleMatch {
 }
 
 // Human: Dedupe and bound upload preflight candidates from the file picker.
-// Agent: TRIMS names; DEDUPES by (name, size_bytes); CAPS at MAX_BATCH_IDS.
+// Agent: TRIMS names; DEDUPES by content_hash; CAPS at MAX_BATCH_IDS.
 pub fn normalize_upload_check_candidates(
     files: Vec<UploadCheckCandidate>,
 ) -> Vec<UploadCheckCandidate> {
@@ -435,75 +437,104 @@ pub fn normalize_upload_check_candidates(
         if !normalized
             .iter()
             .any(|existing: &UploadCheckCandidate| {
-                existing.name == name && existing.size_bytes == file.size_bytes
+                existing.content_hash == file.content_hash
             })
         {
             normalized.push(UploadCheckCandidate {
                 name: name.to_string(),
                 size_bytes: file.size_bytes,
+                content_hash: file.content_hash.clone(),
             });
         }
     }
     normalized.into_iter().take(MAX_BATCH_IDS).collect()
 }
 
-// Human: Find owned active files whose display name exactly matches any proposed upload filename.
+// Human: Find owned active files whose stored content hash matches a pending upload digest.
 // Agent: READS files + folders globally (any folder_id); RETURNS grouped duplicates only.
-pub async fn check_upload_name_duplicates(
+pub async fn check_upload_content_hash_duplicates(
     pool: &PgPool,
     user_id: &str,
-    upload_names: Vec<String>,
+    candidates: &[UploadCheckCandidate],
 ) -> Result<Vec<UploadNameDuplicate>, AppError> {
-    let mut unique_names: Vec<String> = Vec::new();
-    for name in upload_names {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if !unique_names.iter().any(|existing| existing == trimmed) {
-            unique_names.push(trimmed.to_string());
-        }
-    }
-
-    if unique_names.is_empty() {
+    if candidates.is_empty() {
         return Ok(Vec::new());
     }
 
-    let names: Vec<String> = unique_names.into_iter().take(MAX_BATCH_IDS).collect();
+    let mut unique_hashes: Vec<String> = Vec::new();
+    for candidate in candidates {
+        if candidate.content_hash.is_empty() {
+            continue;
+        }
+        if !unique_hashes
+            .iter()
+            .any(|existing| existing == &candidate.content_hash)
+        {
+            unique_hashes.push(candidate.content_hash.clone());
+        }
+    }
+
+    if unique_hashes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let hashes: Vec<String> = unique_hashes.into_iter().take(MAX_BATCH_IDS).collect();
 
     // Human: Static SQL avoids format placeholders leaking into Postgres when the predicate is table-qualified.
     // Agent: READS active files globally; active filter must stay aligned with recycle_bin::F_ACTIVE_FILES_SQL.
-    const CHECK_UPLOAD_NAME_DUPLICATES_SQL: &str = "\
-        SELECT f.id, f.name, f.folder_id, f.size_bytes, fo.name AS folder_name \
+    const CHECK_UPLOAD_CONTENT_HASH_DUPLICATES_SQL: &str = "\
+        SELECT f.id, f.name, f.folder_id, f.size_bytes, fo.name AS folder_name, f.content_hash \
         FROM files f \
         LEFT JOIN folders fo ON fo.id = f.folder_id AND fo.user_id = f.user_id \
-        WHERE f.user_id = $1 AND f.deleted_at IS NULL AND f.name = ANY($2::text[]) \
+        WHERE f.user_id = $1 AND f.deleted_at IS NULL AND f.content_hash = ANY($2::text[]) \
         ORDER BY natural_sort_key(f.name) ASC, lower(f.name) ASC, fo.name NULLS FIRST";
-    let rows: Vec<UploadNameDuplicateMatch> = sqlx::query_as(CHECK_UPLOAD_NAME_DUPLICATES_SQL)
-        .bind(user_id)
-        .bind(&names)
-        .fetch_all(pool)
-        .await?;
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    struct UploadContentHashDuplicateMatch {
+        id: String,
+        name: String,
+        folder_id: Option<String>,
+        folder_name: Option<String>,
+        size_bytes: i64,
+        content_hash: String,
+    }
+
+    let rows: Vec<UploadContentHashDuplicateMatch> =
+        sqlx::query_as(CHECK_UPLOAD_CONTENT_HASH_DUPLICATES_SQL)
+            .bind(user_id)
+            .bind(&hashes)
+            .fetch_all(pool)
+            .await?;
 
     if rows.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut by_name: std::collections::BTreeMap<String, Vec<UploadNameDuplicateMatch>> =
+    let mut by_hash: std::collections::BTreeMap<String, Vec<UploadNameDuplicateMatch>> =
         std::collections::BTreeMap::new();
     for row in rows {
-        by_name.entry(row.name.clone()).or_default().push(row);
+        by_hash
+            .entry(row.content_hash.clone())
+            .or_default()
+            .push(UploadNameDuplicateMatch {
+                id: row.id,
+                name: row.name,
+                folder_id: row.folder_id,
+                folder_name: row.folder_name,
+                size_bytes: row.size_bytes,
+            });
     }
 
-    let duplicates = names
-        .into_iter()
-        .filter_map(|upload_name| {
-            by_name.get(&upload_name).map(|existing| UploadNameDuplicate {
-                upload_name: upload_name.clone(),
-                existing: existing.clone(),
-            })
-        })
-        .collect();
+    let mut duplicates = Vec::new();
+    for candidate in candidates {
+        let Some(existing) = by_hash.get(&candidate.content_hash) else {
+            continue;
+        };
+        duplicates.push(UploadNameDuplicate {
+            upload_name: candidate.name.clone(),
+            upload_content_hash: candidate.content_hash.clone(),
+            existing: existing.clone(),
+        });
+    }
 
     Ok(duplicates)
 }

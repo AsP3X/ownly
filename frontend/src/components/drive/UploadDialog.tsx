@@ -15,6 +15,7 @@ import {
   buildSmartContinueLabel,
   buildUploadConflictPlan,
 } from "@/lib/upload-conflicts";
+import { buildUploadCheckCandidates } from "@/lib/file-content-hash";
 import {
   ensureFolderUploadStructure,
   folderUploadDisplayPath,
@@ -36,6 +37,8 @@ import {
 type PendingFile = {
   id: string;
   file: File;
+  /** Human: SHA-256 digest computed before duplicate preflight. */
+  contentHash?: string;
   /** Human: Set when the file exceeds remaining library quota — row stays selectable with a warning. */
   storageWarning?: string | null;
 };
@@ -337,7 +340,7 @@ export function UploadDialog({
   }
 
   // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
-  // Agent: POST checkUploadNameDuplicates; OPENS UploadConflictDialog when any matches exist.
+  // Agent: HASHES pending files; POST checkUploadNameDuplicates; OPENS UploadConflictDialog when matches exist.
   async function handleStartUpload() {
     if (checkingConflicts) return;
 
@@ -370,13 +373,22 @@ export function UploadDialog({
         );
       }
 
-      const files = uploadable.map((item) => ({
-        name: item.file.name,
-        // Human: Force an integer byte size so JSON always includes size_bytes for the API contract.
-        // Agent: AVOIDS omitted/NaN sizes that trigger Axum JSON 422 on check-upload-names.
-        size_bytes: Math.max(0, Math.floor(Number(item.file.size) || 0)),
+      const candidates = await buildUploadCheckCandidates(
+        uploadable.map((item) => item.file),
+      );
+      const hashedUploadable = uploadable.map((item, index) => ({
+        ...item,
+        contentHash: candidates[index]?.content_hash ?? "",
       }));
-      const { duplicates, recycle_matches } = await checkUploadNameDuplicates(files);
+
+      setPendingFiles((prev) =>
+        prev.map((item) => {
+          const match = hashedUploadable.find((candidate) => candidate.id === item.id);
+          return match ? { ...item, contentHash: match.contentHash } : item;
+        }),
+      );
+
+      const { duplicates, recycle_matches } = await checkUploadNameDuplicates(candidates);
       if (duplicates.length > 0 || recycle_matches.length > 0) {
         setDuplicateMatches(duplicates);
         setRecycleMatches(recycle_matches);

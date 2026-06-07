@@ -906,6 +906,7 @@ export type UploadNameDuplicateMatch = {
 
 export type UploadNameDuplicate = {
   upload_name: string;
+  upload_content_hash: string;
   existing: UploadNameDuplicateMatch[];
 };
 
@@ -928,10 +929,11 @@ export type UploadRecycleMatch = {
 export type UploadCheckCandidate = {
   name: string;
   size_bytes: number;
+  content_hash: string;
 };
 
 // Human: Detect active-library duplicates and exact recycle-bin matches before uploading bytes.
-// Agent: POST /files/check-upload-names; READS globally; MATCHES recycle rows by name + size_bytes.
+// Agent: POST /files/check-upload-names; READS globally; MATCHES active rows by content_hash.
 export async function checkUploadNameDuplicates(files: UploadCheckCandidate[]) {
   return apiFetch("/files/check-upload-names", {
     method: "POST",

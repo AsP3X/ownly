@@ -460,8 +460,8 @@ async fn public_share_download_is_scoped_to_shared_file_only() {
         .ok();
 }
 
-// Human: Upload duplicate detection should find owned files by exact name across every folder.
-// Agent: POST /api/v1/files/check-upload-names; EXPECT duplicates for existing names only.
+// Human: Upload duplicate detection should find owned files by content hash across every folder.
+// Agent: POST /api/v1/files/check-upload-names; EXPECT duplicates for matching content_hash only.
 #[tokio::test]
 async fn check_upload_names_finds_library_duplicates_globally() {
     let database_url = match std::env::var("DATABASE_URL") {
@@ -509,12 +509,13 @@ async fn check_upload_names_finds_library_duplicates_globally() {
     .expect("insert folder");
 
     sqlx::query(
-        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes) \
-         VALUES ($1, $2, $3, 'report.pdf', 'storage/report', 'application/pdf', 2048)",
+        "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash) \
+         VALUES ($1, $2, $3, 'report.pdf', 'storage/report', 'application/pdf', 2048, $4)",
     )
     .bind(&existing_file_id)
     .bind(&user_id)
     .bind(&folder_id)
+    .bind("5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8")
     .execute(&state.pool)
     .await
     .expect("insert file");
@@ -532,8 +533,16 @@ async fn check_upload_names_finds_library_duplicates_globally() {
     let app = create_router(state.clone());
     let body = json!({
         "files": [
-            { "name": "report.pdf", "size_bytes": 2048 },
-            { "name": "new-file.txt", "size_bytes": 128 }
+            {
+                "name": "renamed-report.pdf",
+                "size_bytes": 4096,
+                "content_hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+            },
+            {
+                "name": "new-file.txt",
+                "size_bytes": 128,
+                "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
         ]
     });
 
@@ -554,7 +563,11 @@ async fn check_upload_names_finds_library_duplicates_globally() {
     let json = response_json(response).await;
     let duplicates = json["duplicates"].as_array().expect("duplicates array");
     assert_eq!(duplicates.len(), 1);
-    assert_eq!(duplicates[0]["upload_name"], "report.pdf");
+    assert_eq!(duplicates[0]["upload_name"], "renamed-report.pdf");
+    assert_eq!(
+        duplicates[0]["upload_content_hash"],
+        "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+    );
     assert_eq!(duplicates[0]["existing"][0]["id"], existing_file_id);
     assert_eq!(duplicates[0]["existing"][0]["folder_name"], "Archive");
     let recycle_matches = json["recycle_matches"].as_array().expect("recycle_matches array");
@@ -649,8 +662,16 @@ async fn check_upload_names_finds_exact_recycle_bin_matches() {
     let app = create_router(state.clone());
     let body = json!({
         "files": [
-            { "name": "report.pdf", "size_bytes": 2048 },
-            { "name": "report.pdf", "size_bytes": 4096 }
+            {
+                "name": "report.pdf",
+                "size_bytes": 2048,
+                "content_hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+            },
+            {
+                "name": "report.pdf",
+                "size_bytes": 4096,
+                "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
         ]
     });
 
@@ -744,7 +765,11 @@ async fn check_upload_names_accepts_html_documents() {
     let app = create_router(state.clone());
     let body = json!({
         "files": [
-            { "name": "notes/page.html", "size_bytes": 4096 }
+            {
+                "name": "notes/page.html",
+                "size_bytes": 4096,
+                "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
         ]
     });
 

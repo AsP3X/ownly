@@ -15,6 +15,7 @@ pub struct CopyFileSourceRow {
     pub name: String,
     pub mime_type: Option<String>,
     pub size_bytes: i64,
+    pub content_hash: Option<String>,
     pub hls_ready: bool,
     pub hls_encode_status: Option<String>,
     pub hls_encode_error: Option<String>,

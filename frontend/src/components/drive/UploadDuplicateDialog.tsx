@@ -60,11 +60,11 @@ function conflictDialogDescription(duplicateCount: number, recycleCount: number)
       : "These files exactly match items in your recycle bin. Continue restores them to their original locations instead of uploading again.";
   }
   return duplicateCount === 1
-    ? "This filename already exists somewhere in your library. Continue skips it, or upload everything anyway."
-    : "These filenames already exist somewhere in your library. Continue skips the duplicates, or upload everything anyway.";
+    ? "This file has the same content as something already in your library. Continue skips it, or upload everything anyway."
+    : "These files have the same content as items already in your library. Continue skips the duplicates, or upload everything anyway.";
 }
 
-// Human: Confirmation modal for recycle-bin restores and/or active-library duplicate names.
+// Human: Confirmation modal for recycle-bin restores and/or active-library duplicate content.
 // Agent: LISTS both conflict types; WRITES onContinue, onUploadAnyway, or onCancel from footer.
 export function UploadConflictDialog({
   open,
@@ -139,14 +139,14 @@ export function UploadConflictDialog({
               <Alert className="border-amber-200 bg-amber-50 text-amber-950">
                 <AlertTriangle className="size-4 text-amber-600" aria-hidden />
                 <AlertDescription className="text-sm text-amber-950">
-                  Active-library duplicate checks apply across your entire library, not just the
-                  current folder.
+                  Active-library duplicate checks compare file content across your entire library,
+                  not just the current folder.
                 </AlertDescription>
               </Alert>
 
               <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-neutral-200">
                 {duplicates.map((entry) => (
-                  <li key={entry.upload_name} className="px-3 py-2.5">
+                  <li key={entry.upload_content_hash} className="px-3 py-2.5">
                     <p className="truncate text-sm font-medium text-neutral-900">
                       {entry.upload_name}
                     </p>

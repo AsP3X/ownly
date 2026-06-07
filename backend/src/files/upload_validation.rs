@@ -11,6 +11,10 @@ use crate::error::AppError;
 /// Agent: MATCHES folders::normalize_folder_name cap; REJECTS longer client names.
 pub const MAX_UPLOAD_FILENAME_LEN: usize = 255;
 
+/// Human: SHA-256 digests are stored and compared as 64 lowercase hex characters.
+/// Agent: MATCHES content_hash::hash_file_sha256 output and browser preflight hashing.
+pub const CONTENT_HASH_HEX_LEN: usize = 64;
+
 /// Human: Accept JSON numbers or numeric strings for upload byte sizes from browser clients.
 /// Agent: DESERIALIZES u64/i64/f64/string; REJECTS negative, fractional, or missing values at handler layer.
 pub fn deserialize_upload_size_bytes<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -115,6 +119,30 @@ pub fn normalize_upload_filename(name: &str) -> Result<String, AppError> {
     Ok(basename.to_string())
 }
 
+// Human: Normalize a client-supplied SHA-256 content hash for duplicate preflight checks.
+// Agent: TRIMS; LOWERCASES; REJECTS non-hex or wrong-length values.
+pub fn normalize_content_hash(content_hash: &str) -> Result<String, AppError> {
+    let normalized = content_hash.trim().to_ascii_lowercase();
+    if normalized.len() != CONTENT_HASH_HEX_LEN {
+        return Err(AppError::validation(
+            "content_hash must be a 64-character SHA-256 hex digest",
+            serde_json::json!({ "content_hash": "invalid_length" }),
+        ));
+    }
+
+    if !normalized
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(AppError::validation(
+            "content_hash must be a hexadecimal SHA-256 digest",
+            serde_json::json!({ "content_hash": "invalid_characters" }),
+        ));
+    }
+
+    Ok(normalized)
+}
+
 // Human: Validate a declared upload size after JSON parsing.
 // Agent: REJECTS negative values; CASTS to u64 for recycle-bin exact matching.
 pub fn normalize_upload_size_bytes(size_bytes: i64) -> Result<u64, AppError> {
@@ -129,7 +157,9 @@ pub fn normalize_upload_size_bytes(size_bytes: i64) -> Result<u64, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_upload_filename, normalize_upload_size_bytes};
+    use super::{
+        normalize_content_hash, normalize_upload_filename, normalize_upload_size_bytes,
+    };
 
     // Human: REGRESSION — HTML documents must pass filename normalization.
     // Agent: ASSERTS .html basename is preserved without extension blocking.
@@ -158,5 +188,18 @@ mod tests {
     fn normalize_upload_size_bytes_rejects_negative_values() {
         assert!(normalize_upload_size_bytes(-1).is_err());
         assert_eq!(normalize_upload_size_bytes(0).expect("zero"), 0);
+    }
+
+    #[test]
+    fn normalize_content_hash_accepts_lowercase_sha256() {
+        let digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let normalized = normalize_content_hash(digest).expect("empty sha256");
+        assert_eq!(normalized, digest);
+    }
+
+    #[test]
+    fn normalize_content_hash_rejects_invalid_values() {
+        assert!(normalize_content_hash("not-a-hash").is_err());
+        assert!(normalize_content_hash("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").is_err());
     }
 }
