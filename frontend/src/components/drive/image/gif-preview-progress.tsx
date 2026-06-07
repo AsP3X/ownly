@@ -1,14 +1,13 @@
 // Human: Progress UI while iOS GIF preview waits on server ffmpeg or client decode.
-// Agent: RENDERS native progress in top chrome; HOOK merges buffer bytes with paced transcode estimate.
+// Agent: RENDERS native progress in top chrome; MONOTONIC percent; ALIGNED to 60s server timeout.
 
 import { useEffect, useState, type CSSProperties, type RefObject } from "react";
 import { cn } from "@/lib/utils";
-
-const TRANSCODE_PROGRESS_CAP = 88;
-const TRANSCODE_PROGRESS_START = 6;
-/** Human: After the estimate plateaus, creep slowly toward completion so the bar does not look frozen. */
-const TRANSCODE_PLATEAU_ESCAPE_MS = 45_000;
-const TRANSCODE_PLATEAU_MAX = 97;
+import {
+  estimateServerTranscodeProgress,
+  estimateTicketResolveProgress,
+  TRANSCODE_PROGRESS_START,
+} from "@/components/drive/image/gif-preview-timing";
 
 export type GifPreviewProcessingState = {
   active: boolean;
@@ -16,47 +15,61 @@ export type GifPreviewProcessingState = {
   label?: string;
 };
 
+export type GifPreviewProgressPhase =
+  | "idle"
+  | "ticket"
+  | "server"
+  | "client"
+  | "complete";
+
 // Human: Pace progress while ffmpeg runs server-side (no byte events until the MP4 stream starts).
-// Agent: EXPONENTIAL ease toward TRANSCODE_PROGRESS_CAP; STOPS when complete is true.
-function useTranscodeEstimateProgress(active: boolean, complete: boolean): number | null {
-  const [estimate, setEstimate] = useState<number | null>(active ? TRANSCODE_PROGRESS_START : null);
+// Agent: LINEAR over GIF_SERVER_TRANSCODE_TIMEOUT_MS.
+function useServerTranscodeEstimate(active: boolean, complete: boolean): number | null {
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
-    if (!active) {
-      setEstimate(null);
-      return;
-    }
-    if (complete) {
-      setEstimate(100);
+    if (!active || complete) {
+      setElapsedMs(0);
       return;
     }
 
-    setEstimate(TRANSCODE_PROGRESS_START);
     const started = Date.now();
+    setElapsedMs(0);
     const timer = window.setInterval(() => {
-      const elapsed = Date.now() - started;
-      const eased =
-        TRANSCODE_PROGRESS_START +
-        (TRANSCODE_PROGRESS_CAP - TRANSCODE_PROGRESS_START) * (1 - Math.exp(-elapsed / 9000));
-      let next = Math.min(TRANSCODE_PROGRESS_CAP, eased);
-      if (elapsed > TRANSCODE_PLATEAU_ESCAPE_MS) {
-        const plateauElapsed = elapsed - TRANSCODE_PLATEAU_ESCAPE_MS;
-        const creep =
-          (TRANSCODE_PLATEAU_MAX - TRANSCODE_PROGRESS_CAP) *
-          (1 - Math.exp(-plateauElapsed / 120_000));
-        next = Math.min(TRANSCODE_PLATEAU_MAX, TRANSCODE_PROGRESS_CAP + creep);
-      }
-      setEstimate(next);
-    }, 160);
+      setElapsedMs(Date.now() - started);
+    }, 200);
 
     return () => window.clearInterval(timer);
   }, [active, complete]);
 
-  return complete ? 100 : estimate;
+  return estimateServerTranscodeProgress(active && !complete, elapsedMs);
 }
 
-// Human: Read HTMLMediaElement.buffered ranges once the preview-animation response begins streaming.
-// Agent: LISTENS progress/loadedmetadata; RETURNS 0–99 percent downloaded.
+// Human: Short ramp while fetching preview-animation ticket (no ffmpeg yet).
+// Agent: CAPS at TICKET_RESOLVE_PROGRESS_CAP.
+function useTicketResolveEstimate(active: boolean): number | null {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setElapsedMs(0);
+      return;
+    }
+
+    const started = Date.now();
+    setElapsedMs(0);
+    const timer = window.setInterval(() => {
+      setElapsedMs(Date.now() - started);
+    }, 120);
+
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  return estimateTicketResolveProgress(active, elapsedMs);
+}
+
+// Human: Read HTMLMediaElement.buffered ranges once the preview-animation response streams.
+// Agent: LISTENS progress/loadedmetadata/playing; RETURNS 0–99 percent downloaded.
 function useVideoBufferProgress(
   videoRef: RefObject<HTMLVideoElement | null> | undefined,
   active: boolean,
@@ -82,11 +95,13 @@ function useVideoBufferProgress(
 
     video.addEventListener("progress", update);
     video.addEventListener("loadedmetadata", update);
+    video.addEventListener("playing", update);
     update();
 
     return () => {
       video.removeEventListener("progress", update);
       video.removeEventListener("loadedmetadata", update);
+      video.removeEventListener("playing", update);
     };
   }, [active, videoRef]);
 
@@ -94,39 +109,50 @@ function useVideoBufferProgress(
 }
 
 type GifPreviewProcessingProgressOptions = {
-  active: boolean;
-  complete: boolean;
+  phase: GifPreviewProgressPhase;
   videoRef?: RefObject<HTMLVideoElement | null>;
   /** Human: False when MP4 sidecar is already in object storage (stream only, no ffmpeg). */
-  transcodePending?: boolean;
+  serverPreviewReady?: boolean;
 };
 
-// Human: Combined progress — estimate until bytes arrive, then buffer percent.
-// Agent: READS useTranscodeEstimateProgress + optional video buffer; RETURNS null when inactive.
+// Human: Combined progress for ticket resolve, server transcode, and client decode phases.
+// Agent: PICKS phase hook + optional buffer; NEVER decreases within a session.
 export function useGifPreviewProcessingProgress({
-  active,
-  complete,
+  phase,
   videoRef,
-  transcodePending = true,
+  serverPreviewReady = false,
 }: GifPreviewProcessingProgressOptions): number | null {
-  const estimate = useTranscodeEstimateProgress(
-    active && transcodePending,
-    complete,
+  const ticketEstimate = useTicketResolveEstimate(phase === "ticket");
+  const serverEstimate = useServerTranscodeEstimate(
+    phase === "server" && !serverPreviewReady,
+    phase === "complete",
   );
+  const clientEstimate = useServerTranscodeEstimate(phase === "client", phase === "complete");
   const bufferPercent = useVideoBufferProgress(
     videoRef,
-    Boolean(active && videoRef && !complete),
+    phase === "server" || phase === "client",
   );
 
-  if (!active) return null;
-  if (complete) return 100;
+  if (phase === "idle" || phase === "complete") return phase === "complete" ? 100 : null;
 
-  if (bufferPercent !== null) {
-    if (!transcodePending) return bufferPercent;
-    return Math.max(estimate ?? TRANSCODE_PROGRESS_START, bufferPercent);
+  let raw: number | null = null;
+  if (phase === "ticket") {
+    raw = ticketEstimate;
+  } else if (phase === "server") {
+    if (serverPreviewReady) {
+      raw = bufferPercent ?? ticketEstimate ?? TRANSCODE_PROGRESS_START;
+    } else {
+      raw = bufferPercent !== null
+        ? Math.max(serverEstimate ?? TRANSCODE_PROGRESS_START, bufferPercent)
+        : serverEstimate;
+    }
+  } else if (phase === "client") {
+    raw = bufferPercent !== null
+      ? Math.max(clientEstimate ?? TRANSCODE_PROGRESS_START, bufferPercent)
+      : clientEstimate;
   }
 
-  return transcodePending ? estimate : null;
+  return raw;
 }
 
 type GifPreviewBottomBarProgressProps = {
@@ -167,42 +193,38 @@ export function GifPreviewBottomBarProgress({
 }
 
 type GifPreviewProcessingReporterProps = {
-  active: boolean;
-  complete: boolean;
+  phase: GifPreviewProgressPhase;
   videoRef?: RefObject<HTMLVideoElement | null>;
-  /** Human: False when cached MP4 sidecar streams without server ffmpeg. */
-  transcodePending?: boolean;
+  serverPreviewReady?: boolean;
   label?: string;
   onChange?: (state: GifPreviewProcessingState | null) => void;
 };
 
 // Human: Lift GIF transcode progress to the preview top bar without overlaying the image.
-// Agent: CALLS useGifPreviewProcessingProgress; WRITES onChange when active/complete/progress shifts.
+// Agent: CALLS useGifPreviewProcessingProgress; WRITES onChange when phase/progress shifts.
 export function GifPreviewProcessingReporter({
-  active,
-  complete,
+  phase,
   videoRef,
-  transcodePending = true,
+  serverPreviewReady = false,
   label = "Preparing animation…",
   onChange,
 }: GifPreviewProcessingReporterProps) {
   const progress = useGifPreviewProcessingProgress({
-    active: active && !complete,
-    complete,
+    phase,
     videoRef,
-    transcodePending,
+    serverPreviewReady,
   });
 
   useEffect(() => {
     if (!onChange) return;
 
-    if (!active || complete) {
+    if (phase === "idle" || phase === "complete") {
       onChange(null);
       return;
     }
 
     onChange({ active: true, progress, label });
-  }, [active, complete, label, onChange, progress]);
+  }, [phase, label, onChange, progress]);
 
   return null;
 }
@@ -245,3 +267,5 @@ export function GifPosterLayout({
     </div>
   );
 }
+
+export { GIF_SERVER_TRANSCODE_CLIENT_TIMEOUT_MS } from "@/components/drive/image/gif-preview-timing";

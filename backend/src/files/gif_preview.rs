@@ -51,7 +51,7 @@ const MAX_WEBP_EXTRACT_FRAMES: u32 = 480;
 
 /// Human: Kill ffmpeg/webpmux work that exceeds this wall time so hung jobs cannot run forever.
 /// Agent: USED by run_ffmpeg_animation_to_mp4 and transcode_webp_via_webpmux wrappers.
-const GIF_PREVIEW_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const GIF_PREVIEW_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(60);
 
 // Human: Per-storage-key mutex so concurrent first opens share one ffmpeg transcode.
 // Agent: WRITES HashMap of Arc<Mutex<()>>; TRACKS active scratch dirs for temp janitor exclusion.

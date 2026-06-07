@@ -1,13 +1,15 @@
 // Human: iOS GIF preview — static poster first, server MP4 on active slide, client fallback last.
-// Agent: READS byteSource poster; FETCHES preview-animation only when enableServerAnimation; PLAYS video.
+// Agent: ONE progress reporter; POSTER until video `playing`; RETRIES server once before client fallback.
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { startIosGifPlayback } from "@/components/drive/image/animated-gif-playback";
 import {
   GifPosterLayout,
   GifPreviewProcessingReporter,
   type GifPreviewProcessingState,
+  type GifPreviewProgressPhase,
 } from "@/components/drive/image/gif-preview-progress";
+import { GIF_SERVER_TRANSCODE_CLIENT_TIMEOUT_MS } from "@/components/drive/image/gif-preview-timing";
 import { withAnimatedPreviewContainFit } from "@/components/drive/image/image-preview-layout";
 import {
   isAppleTouchDevice,
@@ -76,6 +78,37 @@ function usePosterObjectUrl(
   return objectUrl;
 }
 
+// Human: Never drop the top-bar percent when switching ticket → server → client phases.
+// Agent: READS child reporter updates; WRITES floored progress to parent chrome.
+function useMonotonicGifPreviewReporter(
+  onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void,
+  resetKey?: string,
+) {
+  const floorRef = useRef(0);
+
+  useEffect(() => {
+    floorRef.current = 0;
+  }, [resetKey]);
+
+  return useCallback(
+    (state: GifPreviewProcessingState | null) => {
+      if (!onGifPreviewProcessingChange) return;
+      if (!state) {
+        onGifPreviewProcessingChange(null);
+        return;
+      }
+      if (state.progress === null) {
+        onGifPreviewProcessingChange(state);
+        return;
+      }
+      const floored = Math.max(floorRef.current, state.progress);
+      floorRef.current = floored;
+      onGifPreviewProcessingChange({ ...state, progress: floored });
+    },
+    [onGifPreviewProcessingChange],
+  );
+}
+
 // Human: Resolve GIF bytes from an in-memory blob or a same-origin / blob URL fetch.
 // Agent: READS byteSource first; FETCHES url with credentials when bytes are missing.
 async function loadGifArrayBuffer(
@@ -124,75 +157,54 @@ function StaticGifPoster({ posterUrl, alt, fitStyle, className }: StaticGifPoste
   );
 }
 
-/** Human: Align with backend GIF_PREVIEW_TRANSCODE_TIMEOUT plus client buffer slack. */
-const SERVER_GIF_TRANSCODE_CLIENT_TIMEOUT_MS = 10 * 60 * 1000 + 45_000;
-
 type ServerGifVideoProps = {
   animationUrl: string;
-  /** Human: MP4 sidecar already in object storage — skip ffmpeg progress UI. */
-  serverPreviewReady: boolean;
   posterUrl: string | null;
   alt: string;
   fitStyle: CSSProperties;
   className?: string;
+  videoRef: RefObject<HTMLVideoElement | null>;
   onFailed?: () => void;
-  onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
-  onServerPreviewCached?: () => void;
+  onPlaying?: () => void;
 };
 
-// Human: Play ffmpeg-generated MP4 — static poster until playback starts; progress in top bar.
-// Agent: SETS video src on mount (starts server transcode); HIDES poster when canplay/playing.
+// Human: Play ffmpeg-generated MP4 — poster stays until `playing` (not `canplay`) to avoid black flashes.
+// Agent: SETS video src on mount; CALLS onPlaying when frames are actually rendering.
 function ServerGifVideo({
   animationUrl,
-  serverPreviewReady,
   posterUrl,
   alt,
   fitStyle,
   className,
+  videoRef,
   onFailed,
-  onGifPreviewProcessingChange,
-  onServerPreviewCached,
+  onPlaying,
 }: ServerGifVideoProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const onFailedRef = useRef(onFailed);
-  const onCachedRef = useRef(onServerPreviewCached);
+  const onPlayingRef = useRef(onPlaying);
   const mediaStyle = withAnimatedPreviewContainFit(fitStyle, 0, 0);
-  const [isVideoReady, setIsVideoReady] = useState(false);
-  const processingActive = !isVideoReady;
-  const showTranscodeProgress = processingActive && !serverPreviewReady;
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     onFailedRef.current = onFailed;
-    onCachedRef.current = onServerPreviewCached;
-  }, [onFailed, onServerPreviewCached]);
+    onPlayingRef.current = onPlaying;
+  }, [onFailed, onPlaying]);
 
   useEffect(() => {
-    setIsVideoReady(false);
+    setIsPlaying(false);
   }, [animationUrl]);
-
-  // Human: Abort client wait when server ffmpeg exceeds the backend transcode timeout window.
-  // Agent: CALLS onFailed; FALLBACK to client decode path in AnimatedGifCanvas.
-  useEffect(() => {
-    if (!showTranscodeProgress) return;
-
-    const timeoutId = window.setTimeout(() => {
-      onFailedRef.current?.();
-    }, SERVER_GIF_TRANSCODE_CLIENT_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [animationUrl, showTranscodeProgress]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const markReady = () => {
-      setIsVideoReady(true);
-      onCachedRef.current?.();
+    const markPlaying = () => {
+      setIsPlaying(true);
+      onPlayingRef.current?.();
     };
 
     // Human: iOS may block first autoplay — retry on canplay and when tab becomes visible again.
-    // Agent: CALLS muted play(); IGNORES early reject while MP4 transcode/buffer is in flight.
+    // Agent: CALLS muted play(); ONLY markPlaying on `playing` so poster hides with real frames.
     const tryPlay = () => {
       video.muted = true;
       video.playsInline = true;
@@ -202,8 +214,7 @@ function ServerGifVideo({
 
     tryPlay();
     video.addEventListener("canplay", tryPlay);
-    video.addEventListener("canplay", markReady);
-    video.addEventListener("playing", markReady);
+    video.addEventListener("playing", markPlaying);
     const onVisibility = () => {
       if (document.visibilityState === "visible" && video.paused) {
         tryPlay();
@@ -213,84 +224,63 @@ function ServerGifVideo({
 
     return () => {
       video.removeEventListener("canplay", tryPlay);
-      video.removeEventListener("canplay", markReady);
-      video.removeEventListener("playing", markReady);
+      video.removeEventListener("playing", markPlaying);
       document.removeEventListener("visibilitychange", onVisibility);
-      // Human: Pause when the slide unmounts; keep src until DOM removal so ffmpeg stream is not aborted mid-flight.
-      // Agent: CALLS pause(); AVOIDS removeAttribute('src') which cancels preview-animation GET on parent re-renders.
       video.pause();
     };
-  }, [animationUrl]);
+  }, [animationUrl, videoRef]);
 
   if (!posterUrl) {
     return (
-      <>
-        <GifPreviewProcessingReporter
-          active={showTranscodeProgress}
-          complete={isVideoReady}
-          videoRef={videoRef}
-          transcodePending={!serverPreviewReady}
-          onChange={onGifPreviewProcessingChange}
-        />
-        <video
-          ref={videoRef}
-          role="img"
-          aria-label={alt}
-          style={mediaStyle}
-          className={cn(className, "block object-contain")}
-          src={animationUrl}
-          preload="auto"
-          autoPlay
-          muted
-          loop
-          playsInline
-          {...({ "webkit-playsinline": "true" } as Record<string, string>)}
-          disablePictureInPicture
-          controls={false}
-          onError={() => onFailedRef.current?.()}
-        />
-      </>
+      <video
+        ref={videoRef}
+        role="img"
+        aria-label={alt}
+        style={mediaStyle}
+        className={cn(className, "block object-contain")}
+        src={animationUrl}
+        preload="auto"
+        autoPlay
+        muted
+        loop
+        playsInline
+        {...({ "webkit-playsinline": "true" } as Record<string, string>)}
+        disablePictureInPicture
+        controls={false}
+        onError={() => onFailedRef.current?.()}
+      />
     );
   }
 
   return (
-    <>
-      <GifPreviewProcessingReporter
-        active={showTranscodeProgress}
-        complete={isVideoReady}
-        videoRef={videoRef}
-        transcodePending={!serverPreviewReady}
-        onChange={onGifPreviewProcessingChange}
+    <GifPosterLayout
+      posterUrl={posterUrl}
+      alt={alt}
+      fitStyle={mediaStyle}
+      className={className}
+      showPoster={!isPlaying}
+    >
+      <video
+        ref={videoRef}
+        role="img"
+        aria-label={alt}
+        style={{ objectFit: "contain" }}
+        className={cn(
+          "absolute inset-0 block size-full",
+          isPlaying ? "opacity-100" : "opacity-0",
+        )}
+        src={animationUrl}
+        preload="auto"
+        autoPlay
+        muted
+        loop
+        playsInline
+        {...({ "webkit-playsinline": "true" } as Record<string, string>)}
+        disablePictureInPicture
+        controls={false}
+        onError={() => onFailedRef.current?.()}
       />
-      <GifPosterLayout
-        posterUrl={posterUrl}
-        alt={alt}
-        fitStyle={mediaStyle}
-        className={className}
-        showPoster={!isVideoReady}
-      >
-        <video
-          ref={videoRef}
-          role="img"
-          aria-label={alt}
-          style={{ objectFit: "contain" }}
-          className={cn(
-            "absolute inset-0 block size-full",
-            isVideoReady ? "opacity-100" : "opacity-0",
-          )}
-          src={animationUrl}
-          preload="auto"
-          autoPlay
-          muted
-          loop
-          playsInline
-          {...({ "webkit-playsinline": "true" } as Record<string, string>)}
-          disablePictureInPicture
-          controls={false}
-          onError={() => onFailedRef.current?.()}
-        />
-      </GifPosterLayout>
-    </>
+    </GifPosterLayout>
   );
 }
 
@@ -310,29 +300,54 @@ export function AnimatedGifCanvas({
   onServerPreviewCached,
 }: AnimatedGifCanvasProps) {
   const posterUrl = usePosterObjectUrl(byteSource, url);
+  const serverVideoRef = useRef<HTMLVideoElement>(null);
+  const clientVideoRef = useRef<HTMLVideoElement>(null);
+  const reportProgress = useMonotonicGifPreviewReporter(
+    onGifPreviewProcessingChange,
+    `${fileId ?? ""}:${url}:${enableServerAnimation}`,
+  );
+
   const [animationUrl, setAnimationUrl] = useState<string | null>(null);
   const [serverPreviewReady, setServerPreviewReady] = useState(false);
   const [serverVideoFailed, setServerVideoFailed] = useState(false);
+  const [serverRetryCount, setServerRetryCount] = useState(0);
   const [ticketFetchSettled, setTicketFetchSettled] = useState(!enableServerAnimation);
+  const [serverPlaybackStarted, setServerPlaybackStarted] = useState(false);
+  const [clientPlaybackStarted, setClientPlaybackStarted] = useState(false);
+  const [useClientFallback, setUseClientFallback] = useState(false);
 
   const handleServerVideoFailed = useCallback(() => {
+    if (serverRetryCount < 1) {
+      setServerRetryCount((count) => count + 1);
+      setAnimationUrl(null);
+      setServerPlaybackStarted(false);
+      setTicketFetchSettled(false);
+      setServerVideoFailed(false);
+      return;
+    }
     setServerVideoFailed(true);
-  }, []);
+    setUseClientFallback(true);
+  }, [serverRetryCount]);
 
   useEffect(() => {
     setServerVideoFailed(false);
+    setUseClientFallback(false);
     setAnimationUrl(null);
     setServerPreviewReady(false);
+    setServerPlaybackStarted(false);
+    setClientPlaybackStarted(false);
+    setServerRetryCount(0);
     setTicketFetchSettled(!enableServerAnimation);
-    onGifPreviewProcessingChange?.(null);
-  }, [enableServerAnimation, fileId, onGifPreviewProcessingChange, url]);
+    reportProgress(null);
+  }, [enableServerAnimation, fileId, reportProgress, url]);
 
   useEffect(() => {
     if (
       !enableServerAnimation ||
       !fileId ||
       !resolveAnimationPreviewUrl ||
-      serverVideoFailed
+      serverVideoFailed ||
+      useClientFallback
     ) {
       return;
     }
@@ -347,7 +362,7 @@ export function AnimatedGifCanvas({
         setAnimationUrl(resolved.url);
         setServerPreviewReady(resolved.ready);
       } else {
-        setServerVideoFailed(true);
+        setUseClientFallback(true);
       }
       setTicketFetchSettled(true);
     });
@@ -356,7 +371,61 @@ export function AnimatedGifCanvas({
       cancelled = true;
       controller.abort();
     };
-  }, [enableServerAnimation, fileId, resolveAnimationPreviewUrl, serverVideoFailed]);
+  }, [
+    enableServerAnimation,
+    fileId,
+    resolveAnimationPreviewUrl,
+    serverRetryCount,
+    serverVideoFailed,
+    useClientFallback,
+  ]);
+
+  const waitingForServerTranscode =
+    enableServerAnimation &&
+    !useClientFallback &&
+    Boolean(animationUrl) &&
+    !serverPlaybackStarted;
+
+  useEffect(() => {
+    if (!waitingForServerTranscode || serverPreviewReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      handleServerVideoFailed();
+    }, GIF_SERVER_TRANSCODE_CLIENT_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    animationUrl,
+    handleServerVideoFailed,
+    serverPreviewReady,
+    waitingForServerTranscode,
+  ]);
+
+  let progressPhase: GifPreviewProgressPhase = "idle";
+  if (enableServerAnimation && !serverPlaybackStarted && !clientPlaybackStarted) {
+    if (!ticketFetchSettled) {
+      progressPhase = "ticket";
+    } else if (!useClientFallback && animationUrl) {
+      progressPhase = "server";
+    } else if (useClientFallback) {
+      progressPhase = "client";
+    }
+  } else if (serverPlaybackStarted || clientPlaybackStarted) {
+    progressPhase = "complete";
+  }
+
+  const activeVideoRef =
+    !useClientFallback && animationUrl ? serverVideoRef : clientVideoRef;
+
+  const progressReporter =
+    progressPhase !== "idle" && progressPhase !== "complete" ? (
+      <GifPreviewProcessingReporter
+        phase={progressPhase}
+        videoRef={activeVideoRef}
+        serverPreviewReady={serverPreviewReady}
+        onChange={reportProgress}
+      />
+    ) : null;
 
   if (!enableServerAnimation) {
     return posterUrl ? (
@@ -369,33 +438,33 @@ export function AnimatedGifCanvas({
     ) : null;
   }
 
-  if (animationUrl && !serverVideoFailed) {
+  if (animationUrl && !useClientFallback) {
     return (
-      <ServerGifVideo
-        animationUrl={animationUrl}
-        serverPreviewReady={serverPreviewReady}
-        posterUrl={posterUrl}
-        alt={alt}
-        fitStyle={fitStyle}
-        className={className}
-        onFailed={handleServerVideoFailed}
-        onGifPreviewProcessingChange={onGifPreviewProcessingChange}
-        onServerPreviewCached={() => {
-          setServerPreviewReady(true);
-          if (fileId) onServerPreviewCached?.(fileId);
-        }}
-      />
+      <>
+        {progressReporter}
+        <ServerGifVideo
+          animationUrl={animationUrl}
+          posterUrl={posterUrl}
+          alt={alt}
+          fitStyle={fitStyle}
+          className={className}
+          videoRef={serverVideoRef}
+          onFailed={handleServerVideoFailed}
+          onPlaying={() => {
+            setServerPlaybackStarted(true);
+            setServerPreviewReady(true);
+            if (fileId) onServerPreviewCached?.(fileId);
+            reportProgress(null);
+          }}
+        />
+      </>
     );
   }
 
-  if (!serverVideoFailed && posterUrl && !animationUrl) {
+  if (!useClientFallback && posterUrl && !animationUrl) {
     return (
       <>
-        <GifPreviewProcessingReporter
-          active={!ticketFetchSettled}
-          complete={false}
-          onChange={onGifPreviewProcessingChange}
-        />
+        {progressReporter}
         <StaticGifPoster
           posterUrl={posterUrl}
           alt={alt}
@@ -406,29 +475,49 @@ export function AnimatedGifCanvas({
     );
   }
 
-  return (
-    <ClientGifPlayback
-      byteSource={byteSource}
-      fileId={fileId}
-      url={url}
-      posterUrl={posterUrl}
-      alt={alt}
-      fitStyle={fitStyle}
-      className={className}
-      onNaturalSize={onNaturalSize}
-      preferByteSource={serverVideoFailed}
-      onGifPreviewProcessingChange={onGifPreviewProcessingChange}
-    />
-  );
+  if (useClientFallback) {
+    return (
+      <>
+        {progressReporter}
+        <ClientGifPlayback
+          byteSource={byteSource}
+          fileId={fileId}
+          url={url}
+          posterUrl={posterUrl}
+          alt={alt}
+          fitStyle={fitStyle}
+          className={className}
+          onNaturalSize={onNaturalSize}
+          preferByteSource
+          videoRef={clientVideoRef}
+          onPlaybackStarted={() => {
+            setClientPlaybackStarted(true);
+            reportProgress(null);
+          }}
+        />
+      </>
+    );
+  }
+
+  return null;
 }
 
-type ClientGifPlaybackProps = AnimatedGifCanvasProps & {
-  preferByteSource?: boolean;
+type ClientGifPlaybackProps = {
+  byteSource?: Blob | ArrayBuffer | null;
+  fileId?: string;
+  url: string;
   posterUrl?: string | null;
+  alt: string;
+  fitStyle: CSSProperties;
+  className?: string;
+  onNaturalSize?: (width: number, height: number) => void;
+  preferByteSource?: boolean;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  onPlaybackStarted?: () => void;
 };
 
 // Human: Client-side GIF decode when server MP4 is unavailable (share links, offline dev).
-// Agent: CALLS startIosGifPlayback; KEEPS static poster visible until client MP4 plays.
+// Agent: CALLS startIosGifPlayback; KEEPS static poster visible until playback actually starts.
 function ClientGifPlayback({
   byteSource,
   fileId,
@@ -439,28 +528,31 @@ function ClientGifPlayback({
   className,
   onNaturalSize,
   preferByteSource = false,
-  onGifPreviewProcessingChange,
+  videoRef,
+  onPlaybackStarted,
 }: ClientGifPlaybackProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStyle = resolveAnimatedMediaStyle(fitStyle);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [isPreparing, setIsPreparing] = useState(true);
-  const [clientVideoReady, setClientVideoReady] = useState(false);
+  const [playbackStarted, setPlaybackStarted] = useState(false);
+  const onPlaybackStartedRef = useRef(onPlaybackStarted);
+
+  useEffect(() => {
+    onPlaybackStartedRef.current = onPlaybackStarted;
+  }, [onPlaybackStarted]);
+
   const waitingForBytes =
     isAppleTouchDevice() && !byteSource && (preferByteSource || !isServerGifAnimationPreviewUrl(url));
 
   useEffect(() => {
-    setClientVideoReady(false);
+    setPlaybackStarted(false);
   }, [byteSource, fileId, url, preferByteSource]);
 
   useEffect(() => {
     if (waitingForBytes) {
       return;
     }
-    setIsPreparing(true);
-
     let cancelled = false;
     let playbackHandle: { stop: () => void } | null = null;
     let objectUrl: string | null = null;
@@ -489,7 +581,6 @@ function ClientGifPlayback({
             }
             objectUrl = nextUrl;
             setVideoUrl(nextUrl);
-            setIsPreparing(false);
             const video = videoRef.current;
             if (video) {
               video.src = nextUrl;
@@ -508,11 +599,19 @@ function ClientGifPlayback({
 
         playbackHandle = handle;
         setLoadError(false);
-        setIsPreparing(false);
+
+        // Human: Canvas loops draw async — mark started on the next frame so poster stays until pixels land.
+        // Agent: AVOIDS black flash when server fallback uses gifuct/ImageDecoder canvas path.
+        if (!objectUrl) {
+          requestAnimationFrame(() => {
+            if (cancelled) return;
+            setPlaybackStarted(true);
+            onPlaybackStartedRef.current?.();
+          });
+        }
       } catch {
         if (!cancelled) {
           setLoadError(true);
-          setIsPreparing(false);
         }
       }
     }
@@ -527,7 +626,12 @@ function ClientGifPlayback({
       }
       setVideoUrl(null);
     };
-  }, [byteSource, fileId, url, onNaturalSize, waitingForBytes, preferByteSource]);
+  }, [byteSource, fileId, onNaturalSize, preferByteSource, url, videoRef, waitingForBytes]);
+
+  const markVideoPlaying = useCallback(() => {
+    setPlaybackStarted(true);
+    onPlaybackStartedRef.current?.();
+  }, []);
 
   if (loadError && !isAppleTouchDevice()) {
     return posterUrl ? (
@@ -558,82 +662,58 @@ function ClientGifPlayback({
     );
   }
 
-  const showPoster =
-    Boolean(posterUrl) &&
-    (waitingForBytes || isPreparing || (Boolean(videoUrl) && !clientVideoReady));
+  const showPoster = Boolean(posterUrl) && !playbackStarted;
 
-  const showProcessing =
-    waitingForBytes || isPreparing || (Boolean(videoUrl) && !clientVideoReady);
-
-  if (posterUrl && showProcessing) {
+  if (posterUrl) {
     return (
-      <>
-        <GifPreviewProcessingReporter
-          active={showProcessing}
-          complete={clientVideoReady}
-          videoRef={videoRef}
-          onChange={onGifPreviewProcessingChange}
+      <GifPosterLayout
+        posterUrl={posterUrl}
+        alt={alt}
+        fitStyle={mediaStyle}
+        className={className}
+        showPoster={showPoster}
+      >
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={alt}
+          style={{
+            objectFit: "contain",
+            opacity: playbackStarted && !videoUrl ? 1 : 0,
+          }}
+          className="absolute inset-0 block size-full"
         />
-        <GifPosterLayout
-          posterUrl={posterUrl}
-          alt={alt}
-          fitStyle={mediaStyle}
-          className={className}
-          showPoster={showPoster && !clientVideoReady}
-        >
-          <canvas
-            ref={canvasRef}
-            role="img"
-            aria-label={alt}
-            style={{
-              objectFit: "contain",
-              display: videoUrl ? "none" : undefined,
-            }}
-            className="absolute inset-0 block size-full"
-          />
-          <video
-            ref={videoRef}
-            role="img"
-            aria-label={alt}
-            style={{
-              objectFit: "contain",
-              display: videoUrl ? undefined : "none",
-              opacity: clientVideoReady ? 1 : 0,
-            }}
-            className="absolute inset-0 block size-full"
-            src={videoUrl ?? undefined}
-            autoPlay
-            muted
-            loop
-            playsInline
-            {...({ "webkit-playsinline": "true" } as Record<string, string>)}
-            disablePictureInPicture
-            controls={false}
-            onPlaying={() => setClientVideoReady(true)}
-          />
-        </GifPosterLayout>
-      </>
+        <video
+          ref={videoRef}
+          role="img"
+          aria-label={alt}
+          style={{
+            objectFit: "contain",
+            display: videoUrl ? "block" : "none",
+            opacity: playbackStarted ? 1 : 0,
+          }}
+          className="absolute inset-0 block size-full"
+          src={videoUrl ?? undefined}
+          autoPlay
+          muted
+          loop
+          playsInline
+          {...({ "webkit-playsinline": "true" } as Record<string, string>)}
+          disablePictureInPicture
+          controls={false}
+          onPlaying={markVideoPlaying}
+        />
+      </GifPosterLayout>
     );
   }
 
   return (
     <div className="relative" style={mediaStyle}>
-      {showPoster && posterUrl ? (
-        <StaticGifPoster
-          posterUrl={posterUrl}
-          alt={alt}
-          fitStyle={fitStyle}
-          className={cn(className, "absolute inset-0 size-full")}
-        />
-      ) : null}
       <canvas
         ref={canvasRef}
         role="img"
         aria-label={alt}
-        style={{
-          objectFit: "contain",
-          display: videoUrl ? "none" : undefined,
-        }}
+        style={{ objectFit: "contain" }}
         className={cn(className, "block size-full")}
       />
       <video
@@ -642,8 +722,7 @@ function ClientGifPlayback({
         aria-label={alt}
         style={{
           objectFit: "contain",
-          display: videoUrl ? undefined : "none",
-          opacity: clientVideoReady || !posterUrl ? 1 : 0,
+          display: videoUrl ? "block" : "none",
         }}
         className={cn(className, "block size-full")}
         src={videoUrl ?? undefined}
@@ -654,13 +733,8 @@ function ClientGifPlayback({
         {...({ "webkit-playsinline": "true" } as Record<string, string>)}
         disablePictureInPicture
         controls={false}
-        onPlaying={() => setClientVideoReady(true)}
+        onPlaying={markVideoPlaying}
       />
-      {waitingForBytes || isPreparing ? (
-        <span className="sr-only" aria-live="polite">
-          Preparing animated image…
-        </span>
-      ) : null}
     </div>
   );
 }
