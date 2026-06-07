@@ -59,7 +59,7 @@ Install Git hooks (blocks accidental commits under `nebular-os/`):
 
 **Nebular changes** belong in [AsP3X/nebular-os](https://github.com/AsP3X/nebular-os). To export local submodule diffs for upstream: `./scripts/nebular-export-patch.sh`.
 
-Pinned submodule commit (update with `git add nebular-os` after checkout): see `git rev-parse :nebular-os` (currently tracks upstream `master`; no `v0.1.0` tag on the remote yet).
+Pinned submodule commit (update with `git add nebular-os` after checkout): see `git rev-parse :nebular-os` (pin to a release tag such as `v0.1.4` for flat encoded blob paths).
 
 ## Quick start (Docker)
 
