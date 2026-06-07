@@ -278,6 +278,7 @@ export function ImagePreviewSurfaceMobile({
     adjacentUrls,
     previousFile,
     nextFile,
+    getPreviewDimensions,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -323,9 +324,15 @@ export function ImagePreviewSurfaceMobile({
   const getFitModeForFile = useCallback(
     (fileId: string | undefined): ImageFitMode => {
       if (!fileId) return "vertical";
-      return fitCacheRef.current.get(fileId) ?? "vertical";
+      const cached = fitCacheRef.current.get(fileId);
+      if (cached) return cached;
+      const dimensions = getPreviewDimensions(fileId);
+      if (dimensions) {
+        return resolveImageFitMode(dimensions.width, dimensions.height);
+      }
+      return "vertical";
     },
-    [fitRevision],
+    [fitRevision, getPreviewDimensions],
   );
 
   const rememberFitModeForFile = useCallback((fileId: string, mode: ImageFitMode) => {
@@ -357,6 +364,17 @@ export function ImagePreviewSurfaceMobile({
     },
     [nextFile, rememberFitModeForFile],
   );
+
+  // Human: Apply letterbox vs vertical from downscaled metadata before the carousel img decodes.
+  // Agent: READS getPreviewDimensions; WRITES fitCacheRef when source dimensions arrive from the controller.
+  useEffect(() => {
+    for (const item of [file, previousFile, nextFile]) {
+      if (!item?.id) continue;
+      const dimensions = getPreviewDimensions(item.id);
+      if (!dimensions) continue;
+      rememberFitModeForFile(item.id, resolveImageFitMode(dimensions.width, dimensions.height));
+    }
+  }, [file, previousFile, nextFile, getPreviewDimensions, rememberFitModeForFile]);
 
   const swipeCommitThresholdPx =
     containerWidth > 0

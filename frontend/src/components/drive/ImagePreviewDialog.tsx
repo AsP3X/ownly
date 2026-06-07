@@ -5,6 +5,7 @@ import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
 import { ImagePreviewSurfaceDesktop } from "@/components/drive/image/ImagePreviewSurfaceDesktop";
 import { ImagePreviewSurfaceMobile } from "@/components/drive/image/ImagePreviewSurfaceMobile";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
+import { resolvePreviewDisplayMaxEdgePx } from "@/components/drive/image/image-preview-display-resize";
 import { useImagePreviewController } from "@/components/drive/image/useImagePreviewController";
 import {
   Dialog,
@@ -41,6 +42,7 @@ export function ImagePreviewDialog({
     sharePassword,
     onDownload,
     onShare,
+    previewDisplayMaxEdgePx: isNarrow ? resolvePreviewDisplayMaxEdgePx() : null,
   });
 
   const descriptionParts = [

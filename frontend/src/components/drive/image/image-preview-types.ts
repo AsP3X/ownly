@@ -16,6 +16,8 @@ export type ImagePreviewDialogProps = {
   onDownload?: (file: FileItem) => void;
   /** Human: Optional share action — hidden on anonymous public share views. */
   onShare?: (file: FileItem) => void;
+  /** Human: When set, preview blobs are downscaled to this max edge (mobile carousel). */
+  previewDisplayMaxEdgePx?: number | null;
 };
 
 export type ImageFitMode = "vertical" | "letterbox";

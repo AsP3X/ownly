@@ -13,6 +13,7 @@ import {
   orderGalleryLoadSequence,
   PREVIEW_BLOB_CACHE_RADIUS,
 } from "@/components/drive/image/image-preview-preload";
+import { preparePreviewDisplayBlob } from "@/components/drive/image/image-preview-display-resize";
 import { formatBytes } from "@/lib/utils-app";
 
 export type ImagePreviewAdjacentUrls = {
@@ -25,6 +26,8 @@ export type ImagePreviewControllerViewModel = {
   previousFile: FileItem | null;
   nextFile: FileItem | null;
   displayUrl: string | null;
+  /** Human: Original pixel dimensions for letterbox layout — available before img decode on mobile. */
+  getPreviewDimensions: (fileId: string | undefined) => { width: number; height: number } | null;
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
@@ -58,11 +61,14 @@ export function useImagePreviewController({
   sharePassword,
   onDownload,
   onShare,
+  previewDisplayMaxEdgePx = null,
 }: ImagePreviewDialogProps): ImagePreviewControllerViewModel {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
+  const previewDimensionsRef = useRef<Map<string, { width: number; height: number }>>(new Map());
+  const [previewDimensionsRevision, setPreviewDimensionsRevision] = useState(0);
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
   const fetchAbortRef = useRef<Map<string, AbortController>>(new Map());
   const cacheSessionRef = useRef(0);
@@ -129,7 +135,9 @@ export function useImagePreviewController({
         if (keepIds.has(fileId)) continue;
         URL.revokeObjectURL(url);
         urlCacheRef.current.delete(fileId);
+        previewDimensionsRef.current.delete(fileId);
       }
+      setPreviewDimensionsRevision((value) => value + 1);
     },
     [abortFetchForFile],
   );
@@ -169,6 +177,19 @@ export function useImagePreviewController({
   const positionLabel =
     currentIndex >= 0 && images.length > 1 ? `${currentIndex + 1} of ${images.length}` : null;
 
+  const rememberPreviewDimensions = useCallback((fileId: string, width: number, height: number) => {
+    if (width <= 0 || height <= 0) return;
+    const existing = previewDimensionsRef.current.get(fileId);
+    if (existing?.width === width && existing.height === height) return;
+    previewDimensionsRef.current.set(fileId, { width, height });
+    setPreviewDimensionsRevision((value) => value + 1);
+  }, []);
+
+  const getPreviewDimensions = useCallback((fileId: string | undefined) => {
+    if (!fileId) return null;
+    return previewDimensionsRef.current.get(fileId) ?? null;
+  }, [previewDimensionsRevision]);
+
   const cacheBlobUrl = useCallback(
     (fileId: string, blob: Blob, session: number) => {
       if (!isCacheSessionActive(session)) return null;
@@ -192,6 +213,8 @@ export function useImagePreviewController({
       URL.revokeObjectURL(url);
     }
     urlCacheRef.current.clear();
+    previewDimensionsRef.current.clear();
+    setPreviewDimensionsRevision((value) => value + 1);
     activeFileIdRef.current = null;
     setDisplayUrl(null);
     setError("");
@@ -221,8 +244,8 @@ export function useImagePreviewController({
     [shareToken, sharePassword],
   );
 
-  // Human: Fetch one preview blob with abort support — carousel imgs decode; no duplicate warm layer.
-  // Agent: READS fetchAbortRef; DEDUPES inFlightRef; WRITES blob URL only inside the rolling window.
+  // Human: Fetch, optionally downscale for mobile, then cache a display blob URL for carousel imgs.
+  // Agent: CALLS preparePreviewDisplayBlob when previewDisplayMaxEdgePx set; STORES source dimensions for fit layout.
   const loadPreviewUrl = useCallback(
     async (item: FileItem, options?: { silent?: boolean }): Promise<string | null> => {
       const session = cacheSessionRef.current;
@@ -241,9 +264,22 @@ export function useImagePreviewController({
       fetchAbortRef.current.set(item.id, controller);
 
       const request = fetchPreviewBlob(item, controller.signal)
-        .then((blob) => {
+        .then(async (blob) => {
           if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
-          return cacheBlobUrl(item.id, blob, session);
+
+          let displayBlob = blob;
+          if (previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0) {
+            const prepared = await preparePreviewDisplayBlob(
+              blob,
+              previewDisplayMaxEdgePx,
+              controller.signal,
+            );
+            if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
+            displayBlob = prepared.blob;
+            rememberPreviewDimensions(item.id, prepared.naturalWidth, prepared.naturalHeight);
+          }
+
+          return cacheBlobUrl(item.id, displayBlob, session);
         })
         .catch((err) => {
           if (isAbortError(err)) return null;
@@ -260,7 +296,7 @@ export function useImagePreviewController({
       inFlightRef.current.set(item.id, request);
       return request;
     },
-    [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow],
+    [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow, previewDisplayMaxEdgePx, rememberPreviewDimensions],
   );
 
   // Human: Enforce NNCAXACNN — prefetch leading +1/+2 before evicting trailing C→N on each navigation.
@@ -444,6 +480,7 @@ export function useImagePreviewController({
     previousFile,
     nextFile,
     displayUrl: resolvedDisplayUrl,
+    getPreviewDimensions,
     error,
     loading,
     showInitialLoader: resolvedShowInitialLoader,
