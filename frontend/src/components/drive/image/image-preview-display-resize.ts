@@ -1,6 +1,11 @@
 // Human: Viewport-aware downscale for mobile image preview — keeps decode cost off the swipe path.
 // Agent: PREFERS dedicated worker; FALLBACK main-thread createImageBitmap; RETURNS display blob + source dimensions.
 
+import {
+  isAnimatedGifBlob,
+  readImageNaturalDimensions,
+} from "@/components/drive/image/image-preview-gif";
+
 export type PreviewDisplayImage = {
   blob: Blob;
   naturalWidth: number;
@@ -244,7 +249,18 @@ export async function preparePreviewDisplayBlob(
   maxEdgePx: number,
   signal?: AbortSignal,
 ): Promise<PreviewDisplayImage> {
-  if (!source.type.startsWith("image/") || maxEdgePx <= 0) {
+  if (maxEdgePx <= 0) {
+    return { blob: source, naturalWidth: 0, naturalHeight: 0 };
+  }
+
+  // Human: Canvas downscale captures only the first GIF frame — keep animated blobs intact.
+  // Agent: SKIPS worker/canvas when isAnimatedGifBlob; STILL READS natural dimensions for mobile fit.
+  if (await isAnimatedGifBlob(source)) {
+    const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(source);
+    return { blob: source, naturalWidth, naturalHeight };
+  }
+
+  if (!source.type.startsWith("image/")) {
     return { blob: source, naturalWidth: 0, naturalHeight: 0 };
   }
 
