@@ -301,13 +301,13 @@ async fn cached_sidecar_is_fresh(
         .await
         .map_err(|e| AppError::Storage(e.to_string()))?
     {
-        // Human: Legacy sidecars written before meta tracking — treat as usable.
-        // Agent: SKIPS invalidation when meta object is absent.
-        return Ok(true);
+        // Human: Legacy sidecars without versioned meta must regenerate with compositing fixes.
+        // Agent: RETURNS false so open_gif_preview_stream rebuilds the MP4 sidecar.
+        return Ok(false);
     }
 
-    let stored_size = read_sidecar_source_size(storage, &meta_key).await?;
-    if stored_size == source_size_bytes {
+    let (meta_version, stored_size) = read_sidecar_meta(storage, &meta_key).await?;
+    if meta_version != GIF_PREVIEW_META_VERSION || stored_size != source_size_bytes {
         return Ok(true);
     }
 
@@ -316,12 +316,12 @@ async fn cached_sidecar_is_fresh(
     Ok(false)
 }
 
-// Human: Parse the ASCII u64 stored in `.ownly-gif-preview.meta`.
-// Agent: READS small object from storage; RETURNS 0 when unreadable.
-async fn read_sidecar_source_size(
+// Human: Parse versioned `.ownly-gif-preview.meta` (`version\\nsource_size`).
+// Agent: READS sidecar meta object; RETURNS (version, size) or defaults when malformed.
+async fn read_sidecar_meta(
     storage: &Arc<dyn Storage>,
     meta_key: &str,
-) -> Result<u64, AppError> {
+) -> Result<(u32, u64), AppError> {
     let (mut stream, _, _) = storage
         .get_stream(meta_key)
         .await
@@ -332,7 +332,20 @@ async fn read_sidecar_source_size(
         bytes.extend_from_slice(&chunk);
     }
     let text = String::from_utf8_lossy(&bytes);
-    Ok(text.trim().parse().unwrap_or(0))
+    let mut lines = text.lines();
+    let version = lines
+        .next()
+        .and_then(|line| line.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    let size = lines
+        .next()
+        .and_then(|line| line.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    Ok((version, size))
+}
+
+fn format_sidecar_meta(source_size_bytes: u64) -> String {
+    format!("{GIF_PREVIEW_META_VERSION}\n{source_size_bytes}")
 }
 
 // Human: Download GIF bytes, transcode with ffmpeg, upload MP4 sidecar to object storage.
@@ -364,7 +377,7 @@ async fn generate_and_store_gif_preview(
         .put(
             &meta_key,
             "text/plain",
-            source_size_bytes.to_string().into_bytes(),
+            format_sidecar_meta(source_size_bytes).into_bytes(),
         )
         .await
         .map_err(|e| AppError::Storage(e.to_string()))?;
@@ -508,6 +521,20 @@ async fn download_storage_object_to_temp(
 
 const FFMPEG_EVEN_SCALE_VF: &str = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,setsar=1";
 
+/// Human: Bump when preview MP4 encoding logic changes so stale sidecars regenerate.
+/// Agent: WRITTEN to `.ownly-gif-preview.meta` line 1; READ by cached_sidecar_is_fresh.
+const GIF_PREVIEW_META_VERSION: u32 = 2;
+
+// Human: Per-frame metadata from `webpmux -info` for animated WebP compositing.
+// Agent: READS x/y offsets + dispose/blend; DRIVES canvas overlay loop before ffmpeg MP4.
+#[derive(Debug, Clone)]
+struct WebpFrameMeta {
+    x_offset: u32,
+    y_offset: u32,
+    dispose: String,
+    blend: bool,
+}
+
 // Human: Round a pixel dimension down to an even value for H.264 / yuv420p output.
 // Agent: USED by webpmux canvas sizing; PREVENTS SAR drift in preview MP4.
 fn even_dimension(value: u32) -> u32 {
@@ -560,6 +587,243 @@ fn parse_webpmux_frame_count(info: &str) -> u32 {
     1
 }
 
+// Human: Parse the animated WebP frame table from `webpmux -info` output.
+// Agent: READS width/height/x_offset/y_offset/dispose/blend per frame row.
+fn parse_webpmux_frame_table(info: &str) -> Vec<WebpFrameMeta> {
+    let mut frames = Vec::new();
+    for line in info.lines() {
+        let trimmed = line.trim();
+        let Some(first_char) = trimmed.chars().next() else {
+            continue;
+        };
+        if !first_char.is_ascii_digit() {
+            continue;
+        }
+        let Some((_, rest)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let tokens: Vec<&str> = rest.split_whitespace().collect();
+        if tokens.len() < 8 {
+            continue;
+        }
+        let Ok(width) = tokens[0].parse::<u32>() else {
+            continue;
+        };
+        let Ok(height) = tokens[1].parse::<u32>() else {
+            continue;
+        };
+        let Ok(x_offset) = tokens[3].parse::<u32>() else {
+            continue;
+        };
+        let Ok(y_offset) = tokens[4].parse::<u32>() else {
+            continue;
+        };
+        let _ = (width, height);
+        frames.push(WebpFrameMeta {
+            x_offset,
+            y_offset,
+            dispose: tokens[6].to_ascii_lowercase(),
+            blend: matches!(tokens[7].to_ascii_lowercase().as_str(), "yes" | "blend"),
+        });
+    }
+    frames
+}
+
+// Human: Read GIF logical screen dimensions from the file header bytes.
+// Agent: READS bytes 6–9 little-endian; USED to lock ffmpeg output canvas size for GIF MP4.
+fn probe_gif_logical_screen(head: &[u8]) -> Option<(u32, u32)> {
+    if sniff_image_format(head) != SniffedImageFormat::Gif || head.len() < 10 {
+        return None;
+    }
+    let width = u16::from_le_bytes([head[6], head[7]]) as u32;
+    let height = u16::from_le_bytes([head[8], head[9]]) as u32;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some((even_dimension(width), even_dimension(height)))
+}
+
+// Human: Create a transparent RGBA PNG canvas via ffmpeg lavfi for WebP frame compositing.
+// Agent: SPAWNS ffmpeg color source; WRITES canvas PNG at canvas_w x canvas_h.
+async fn create_transparent_canvas_png(path: &Path, canvas_w: u32, canvas_h: u32) -> Result<(), String> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "canvas path invalid".to_string())?;
+    let color = format!("color=c=0x00000000:s={canvas_w}x{canvas_h}:d=1");
+    let status = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-nostdin")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .args(["-f", "lavfi", "-i"])
+        .arg(&color)
+        .args(["-frames:v", "1", "-pix_fmt", "rgba"])
+        .arg(path_str)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .await
+        .map_err(|e| format!("ffmpeg canvas spawn: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "ffmpeg transparent canvas failed exit={:?}",
+            status.code()
+        ))
+    }
+}
+
+// Human: Overlay one PNG patch onto a canvas PNG at the animated WebP frame offset.
+// Agent: SPAWNS ffmpeg overlay filter; WRITES composited PNG for MP4 frame input.
+async fn ffmpeg_overlay_png(
+    canvas: &Path,
+    patch: &Path,
+    output: &Path,
+    x_offset: u32,
+    y_offset: u32,
+    blend: bool,
+) -> Result<(), String> {
+    let canvas_str = canvas
+        .to_str()
+        .ok_or_else(|| "canvas path invalid".to_string())?;
+    let patch_str = patch
+        .to_str()
+        .ok_or_else(|| "patch path invalid".to_string())?;
+    let output_str = output
+        .to_str()
+        .ok_or_else(|| "overlay output path invalid".to_string())?;
+    let filter = if blend {
+        format!("[0][1]overlay={x_offset}:{y_offset}:format=auto")
+    } else {
+        format!("[0][1]overlay={x_offset}:{y_offset}:format=rgb")
+    };
+    let status = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-nostdin")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .args(["-i", canvas_str, "-i", patch_str, "-filter_complex"])
+        .arg(&filter)
+        .args(["-frames:v", "1"])
+        .arg(output_str)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .await
+        .map_err(|e| format!("ffmpeg overlay spawn: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "ffmpeg overlay failed exit={:?}",
+            status.code()
+        ))
+    }
+}
+
+// Human: Composite animated WebP patches onto a fixed canvas before MP4 encode.
+// Agent: READS webpmux frame table; OVERLAYs each patch at x/y; HANDLES dispose modes.
+async fn composite_webp_frames_on_canvas(
+    frames_dir: &Path,
+    input: &Path,
+    canvas_size: (u32, u32),
+    frame_metas: &[WebpFrameMeta],
+) -> Result<(), String> {
+    let input_str = input
+        .to_str()
+        .ok_or_else(|| "webp input path invalid".to_string())?;
+    let mut canvas_path = frames_dir.join("canvas_current.png");
+    create_transparent_canvas_png(&canvas_path, canvas_size.0, canvas_size.1).await?;
+    let mut restore_previous: Option<PathBuf> = None;
+    let mut pending_restore = false;
+
+    for (frame_index, meta) in frame_metas.iter().enumerate() {
+        let frame_number = frame_index + 1;
+        if pending_restore {
+            if let Some(previous) = restore_previous.as_ref() {
+                let restored = frames_dir.join(format!("canvas_restore_{frame_number:04}.png"));
+                tokio::fs::copy(previous, &restored)
+                    .await
+                    .map_err(|e| format!("restore canvas copy: {e}"))?;
+                canvas_path = restored;
+            }
+            pending_restore = false;
+        }
+
+        let backup_path = frames_dir.join(format!("canvas_backup_{frame_number:04}.png"));
+        tokio::fs::copy(&canvas_path, &backup_path)
+            .await
+            .map_err(|e| format!("canvas backup copy: {e}"))?;
+
+        let frame_webp = frames_dir.join(format!("frame_{frame_number}.webp"));
+        let patch_png = frames_dir.join(format!("patch_{frame_number:04}.png"));
+        let mux_status = Command::new("webpmux")
+            .args([
+                "-get",
+                "frame",
+                &frame_number.to_string(),
+                input_str,
+                "-o",
+                frame_webp
+                    .to_str()
+                    .ok_or_else(|| "webp frame path invalid".to_string())?,
+            ])
+            .status()
+            .await
+            .map_err(|e| format!("webpmux get frame {frame_number}: {e}"))?;
+        if !mux_status.success() {
+            return Err(format!("webpmux get frame {frame_number} failed"));
+        }
+
+        let dwebp_status = Command::new("dwebp")
+            .args([
+                frame_webp
+                    .to_str()
+                    .ok_or_else(|| "webp frame path invalid".to_string())?,
+                "-o",
+                patch_png
+                    .to_str()
+                    .ok_or_else(|| "patch png path invalid".to_string())?,
+            ])
+            .status()
+            .await
+            .map_err(|e| format!("dwebp frame {frame_number}: {e}"))?;
+        if !dwebp_status.success() {
+            return Err(format!("dwebp frame {frame_number} failed"));
+        }
+
+        let composited = frames_dir.join(format!("frame_{frame_number:04}.png"));
+        ffmpeg_overlay_png(
+            &canvas_path,
+            &patch_png,
+            &composited,
+            meta.x_offset,
+            meta.y_offset,
+            meta.blend,
+        )
+        .await?;
+        canvas_path = composited;
+
+        match meta.dispose.as_str() {
+            "background" => {
+                let cleared = frames_dir.join(format!("canvas_clear_{frame_number:04}.png"));
+                create_transparent_canvas_png(&cleared, canvas_size.0, canvas_size.1).await?;
+                canvas_path = cleared;
+            }
+            "previous" => {
+                restore_previous = Some(backup_path);
+                pending_restore = true;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
 // Human: Animated WebP → PNG sequence via webpmux/dwebp, then ffmpeg H.264 MP4.
 // Agent: SPAWNS webpmux per frame; CALLS ffmpeg on frame_%04d.png; RETURNS mp4 bytes.
 async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
@@ -584,52 +848,27 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
 
     let info = String::from_utf8_lossy(&info_output.stdout);
     let frame_count = parse_webpmux_frame_count(&info);
-    let canvas_size = parse_webpmux_canvas_size(&info);
-    let video_filter = preview_mp4_video_filter(canvas_size);
+    let canvas_size = parse_webpmux_canvas_size(&info)
+        .ok_or_else(|| "webpmux canvas size missing".to_string())?;
     if frame_count > MAX_WEBP_EXTRACT_FRAMES {
         return Err(format!(
             "webp animation exceeds {MAX_WEBP_EXTRACT_FRAMES} frames ({frame_count})"
         ));
     }
 
-    for frame_index in 1..=frame_count {
-        let frame_webp = frames_dir.join(format!("frame_{frame_index}.webp"));
-        let frame_png = frames_dir.join(format!("frame_{frame_index:04}.png"));
-        let input_str = input
-            .to_str()
-            .ok_or_else(|| "webp input path invalid".to_string())?;
-        let webp_out = frame_webp
-            .to_str()
-            .ok_or_else(|| "webp frame path invalid".to_string())?;
-        let png_out = frame_png
-            .to_str()
-            .ok_or_else(|| "png frame path invalid".to_string())?;
-
-        let mux_status = Command::new("webpmux")
-            .args([
-                "-get",
-                "frame",
-                &frame_index.to_string(),
-                input_str,
-                "-o",
-                webp_out,
-            ])
-            .status()
-            .await
-            .map_err(|e| format!("webpmux get frame {frame_index}: {e}"))?;
-        if !mux_status.success() {
-            return Err(format!("webpmux get frame {frame_index} failed"));
-        }
-
-        let dwebp_status = Command::new("dwebp")
-            .args([webp_out, "-o", png_out])
-            .status()
-            .await
-            .map_err(|e| format!("dwebp frame {frame_index}: {e}"))?;
-        if !dwebp_status.success() {
-            return Err(format!("dwebp frame {frame_index} failed"));
-        }
+    let mut frame_metas = parse_webpmux_frame_table(&info);
+    if frame_metas.is_empty() {
+        frame_metas = (0..frame_count)
+            .map(|_| WebpFrameMeta {
+                x_offset: 0,
+                y_offset: 0,
+                dispose: "none".to_string(),
+                blend: true,
+            })
+            .collect();
     }
+
+    composite_webp_frames_on_canvas(&frames_dir, input, canvas_size, &frame_metas).await?;
 
     let output_path = work_dir.path().join("preview.mp4");
     let input_pattern = frames_dir.join("frame_%04d.png");
@@ -639,6 +878,10 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
     let output_str = output_path
         .to_str()
         .ok_or_else(|| "mp4 output path invalid".to_string())?;
+    let setsar_only = format!(
+        "scale={}:{}:flags=neighbor,setsar=1",
+        canvas_size.0, canvas_size.1
+    );
 
     let status = Command::new("ffmpeg")
         .arg("-y")
@@ -659,7 +902,7 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
             "yuv420p",
             "-an",
             "-vf",
-            &video_filter,
+            &setsar_only,
         ])
         .arg(output_str)
         .stdout(std::process::Stdio::null())
@@ -686,12 +929,13 @@ async fn transcode_animation_to_mp4(
     input: &Path,
     source_format: SniffedImageFormat,
 ) -> Result<Vec<u8>, AppError> {
+    let fixed_canvas = read_fixed_canvas_size(input, source_format).await;
     let mut attempt_errors = Vec::new();
 
     for attempt in transcode_attempts(source_format) {
         let result = match attempt {
             TranscodeAttempt::WebpmuxFrames => transcode_webp_via_webpmux(input).await,
-            _ => run_ffmpeg_animation_to_mp4(input, source_format, attempt).await,
+            _ => run_ffmpeg_animation_to_mp4(input, source_format, attempt, fixed_canvas).await,
         };
         match result {
             Ok(bytes) => return Ok(bytes),
@@ -710,12 +954,28 @@ async fn transcode_animation_to_mp4(
     )))
 }
 
+// Human: Probe a fixed output canvas size so ffmpeg keeps every GIF frame on the same grid.
+// Agent: READS GIF logical screen from header bytes; RETURNS even dimensions when known.
+async fn read_fixed_canvas_size(
+    input: &Path,
+    source_format: SniffedImageFormat,
+) -> Option<(u32, u32)> {
+    if source_format != SniffedImageFormat::Gif {
+        return None;
+    }
+    let mut head = [0u8; 10];
+    let mut file = tokio::fs::File::open(input).await.ok()?;
+    let read_len = file.read(&mut head).await.ok()?;
+    probe_gif_logical_screen(&head[..read_len])
+}
+
 // Human: Single ffmpeg invocation for GIF/WebP/PNG/JPEG → H.264 MP4 preview output.
 // Agent: SPAWNS ffmpeg into temp dir; RETURNS Err message tail when exit code is non-zero.
 async fn run_ffmpeg_animation_to_mp4(
     input: &Path,
     source_format: SniffedImageFormat,
     attempt: TranscodeAttempt,
+    fixed_canvas: Option<(u32, u32)>,
 ) -> Result<Vec<u8>, String> {
     let work_dir = TempDir::new().map_err(|e| format!("temp dir create: {e}"))?;
     let output_path = work_dir.path().join("preview.mp4");
@@ -760,6 +1020,10 @@ async fn run_ffmpeg_animation_to_mp4(
         command.arg("-vsync").arg("vfr");
     }
 
+    let video_filter = fixed_canvas
+        .map(|size| preview_mp4_video_filter(Some(size)))
+        .unwrap_or_else(|| FFMPEG_EVEN_SCALE_VF.to_string());
+
     command
         .args([
             "-c:v",
@@ -772,7 +1036,7 @@ async fn run_ffmpeg_animation_to_mp4(
             "yuv420p",
             "-an",
             "-vf",
-            FFMPEG_EVEN_SCALE_VF,
+            &video_filter,
         ])
         .arg(&output_path)
         .stdout(std::process::Stdio::null())
@@ -885,6 +1149,22 @@ mod tests {
     fn parse_webpmux_canvas_size_reads_info_line() {
         let info = "Format: ANIM\nCanvas size: 481 x 271\nNumber of frames: 24\n";
         assert_eq!(parse_webpmux_canvas_size(info), Some((480, 270)));
+    }
+
+    #[test]
+    fn parse_webpmux_frame_table_reads_offsets() {
+        let info = "No.: width height alpha x_offset y_offset duration dispose blend\n\
+             1: 200 200 yes 50 30 100 none yes\n";
+        let frames = parse_webpmux_frame_table(info);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].x_offset, 50);
+        assert_eq!(frames[0].y_offset, 30);
+    }
+
+    #[test]
+    fn probe_gif_logical_screen_reads_header() {
+        let head = *b"GIF89a\x40\x01\xE0\x00";
+        assert_eq!(probe_gif_logical_screen(&head), Some((320, 224)));
     }
 
     #[test]

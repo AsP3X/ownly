@@ -12,8 +12,27 @@ export const MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE: CSSProperties = {
   objectFit: "contain",
 };
 
+// Human: Compute display pixel size that fits the container while preserving aspect ratio.
+// Agent: READS natural + container dimensions; RETURNS rounded width/height in CSS pixels.
+export function resolveMobileViewportFitPixels(
+  naturalWidth: number,
+  naturalHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): { width: number; height: number } | null {
+  if (naturalWidth <= 0 || naturalHeight <= 0 || containerWidth <= 0 || containerHeight <= 0) {
+    return null;
+  }
+
+  const scale = Math.min(containerWidth / naturalWidth, containerHeight / naturalHeight);
+  return {
+    width: Math.max(1, Math.round(naturalWidth * scale)),
+    height: Math.max(1, Math.round(naturalHeight * scale)),
+  };
+}
+
 // Human: Fit media inside the mobile stage with one stable contain strategy (no width/height mode flip).
-// Agent: READS natural + container size; RETURNS max-bounded auto sizing for img, video, and canvas.
+// Agent: READS natural + container size; RETURNS max-bounded auto sizing for static images.
 export function resolveMobileViewportFitStyle(
   naturalWidth: number,
   naturalHeight: number,
@@ -24,20 +43,45 @@ export function resolveMobileViewportFitStyle(
     return MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
   }
 
-  // Human: iOS Safari chrome resize used to flip width-fit vs height-fit and stretch video/canvas axes.
-  // Agent: USES object-fit contain + max bounds; PRESERVES aspect ratio for animated MP4/canvas paths.
   return {
     width: "auto",
     height: "auto",
     maxWidth: "100%",
     maxHeight: "100%",
     objectFit: "contain",
-    aspectRatio: `${naturalWidth} / ${naturalHeight}`,
+  };
+}
+
+// Human: Fixed pixel box for animated MP4/canvas — prevents iOS layout reflow during playback.
+// Agent: CALLS resolveMobileViewportFitPixels; SETS explicit width/height + objectFit contain.
+export function resolveStableAnimatedPreviewStyle(
+  naturalWidth: number,
+  naturalHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): CSSProperties {
+  const pixels = resolveMobileViewportFitPixels(
+    naturalWidth,
+    naturalHeight,
+    containerWidth,
+    containerHeight,
+  );
+  if (!pixels) {
+    return MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
+  }
+
+  return {
+    width: pixels.width,
+    height: pixels.height,
+    maxWidth: "100%",
+    maxHeight: "100%",
+    objectFit: "contain",
+    flexShrink: 0,
   };
 }
 
 // Human: Merge letterbox fit with stable contain rules for animated GIF/WebP video and canvas surfaces.
-// Agent: SPREADS fitStyle; FORCES objectFit contain; SETS aspectRatio when natural size is known.
+// Agent: SPREADS fitStyle; FORCES objectFit contain on every animated preview surface.
 export function withAnimatedPreviewContainFit(
   fitStyle: CSSProperties,
   naturalWidth: number,
@@ -46,6 +90,7 @@ export function withAnimatedPreviewContainFit(
   return {
     ...fitStyle,
     objectFit: "contain",
+    flexShrink: 0,
     ...(naturalWidth > 0 && naturalHeight > 0
       ? { aspectRatio: `${naturalWidth} / ${naturalHeight}` }
       : {}),

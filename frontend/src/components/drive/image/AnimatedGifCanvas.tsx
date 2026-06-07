@@ -67,12 +67,10 @@ function ServerGifVideo({
   alt,
   fitStyle,
   className,
-  onNaturalSize,
   onFailed,
-}: ServerGifVideoProps) {
+}: Omit<ServerGifVideoProps, "onNaturalSize">) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaStyle = resolveAnimatedMediaStyle(fitStyle);
-  const reportedNaturalSizeRef = useRef(false);
+  const mediaStyle = withAnimatedPreviewContainFit(fitStyle, 0, 0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -119,14 +117,6 @@ function ServerGifVideo({
       {...({ "webkit-playsinline": "true" } as Record<string, string>)}
       disablePictureInPicture
       controls={false}
-      onLoadedMetadata={(event) => {
-        const video = event.currentTarget;
-        if (reportedNaturalSizeRef.current) return;
-        if (video.videoWidth > 0 && video.videoHeight > 0) {
-          reportedNaturalSizeRef.current = true;
-          onNaturalSize?.(video.videoWidth, video.videoHeight);
-        }
-      }}
       onError={() => onFailed?.()}
     />
   );
@@ -154,7 +144,6 @@ export function AnimatedGifCanvas({
         alt={alt}
         fitStyle={fitStyle}
         className={className}
-        onNaturalSize={onNaturalSize}
         onFailed={() => setServerVideoFailed(true)}
       />
     );

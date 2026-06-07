@@ -7,7 +7,7 @@ import type { FileItem } from "@/api/client";
 import {
   MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE,
   resolveMobileViewportFitStyle,
-  withAnimatedPreviewContainFit,
+  resolveStableAnimatedPreviewStyle,
 } from "@/components/drive/image/image-preview-layout";
 import { AnimatedGifCanvas } from "@/components/drive/image/AnimatedGifCanvas";
 import {
@@ -136,11 +136,16 @@ function MobileViewportFitImage({
 
   const resolvedStyle =
     naturalWidth > 0 && naturalHeight > 0 ? fitStyle : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
-  const animatedMediaStyle = withAnimatedPreviewContainFit(
-    resolvedStyle,
-    naturalWidth,
-    naturalHeight,
-  );
+  const animatedMediaStyle =
+    naturalWidth > 0 && naturalHeight > 0
+      ? resolveStableAnimatedPreviewStyle(
+          naturalWidth,
+          naturalHeight,
+          containerSize.width,
+          containerSize.height,
+        )
+      : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
+  const hasStableDimensions = naturalWidth > 0 && naturalHeight > 0;
 
   if (isAnimatedGif && shouldUseGifCanvasPlayback()) {
     return (
@@ -150,8 +155,8 @@ function MobileViewportFitImage({
         url={url}
         alt={alt}
         fitStyle={animatedMediaStyle}
-        className="block max-h-full max-w-full object-contain"
-        onNaturalSize={handleCanvasNaturalSize}
+        className="block object-contain"
+        onNaturalSize={hasStableDimensions ? undefined : handleCanvasNaturalSize}
       />
     );
   }
