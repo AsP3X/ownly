@@ -1,25 +1,50 @@
 // Human: Decode preview blobs into browser memory so carousel slides paint without a fetch/decode hitch.
-// Agent: WRITES warmedImages map; CALLS Image.decode when available; CLEARS all entries when the viewer closes.
+// Agent: WRITES warmedImages map; CALLS Image.decode once per file; CLEARS bitmap refs on session end.
 
 const warmedImages = new Map<string, HTMLImageElement>();
 
-// Human: Load and decode an object URL, retaining the Image node so the bitmap stays resident.
-// Agent: READS warmedImages cache; WRITES entry keyed by fileId; RESOLVES when decode completes.
-export function warmPreviewImage(fileId: string, objectUrl: string): Promise<void> {
+function releaseWarmImage(img: HTMLImageElement): void {
+  img.onload = null;
+  img.onerror = null;
+  img.src = "";
+}
+
+// Human: Load and decode an object URL once, retaining the Image node until pruned or cleared.
+// Agent: READS warmedImages; SKIPS repeat decode; CALLS isActive before/after async work.
+export function warmPreviewImage(
+  fileId: string,
+  objectUrl: string,
+  isActive?: () => boolean,
+): Promise<void> {
+  if (isActive && !isActive()) {
+    return Promise.resolve();
+  }
+
   const cached = warmedImages.get(fileId);
   if (cached && cached.src === objectUrl && cached.complete && cached.naturalWidth > 0) {
-    if (typeof cached.decode === "function") {
-      return cached.decode().catch(() => undefined);
-    }
     return Promise.resolve();
+  }
+
+  if (cached) {
+    releaseWarmImage(cached);
+    warmedImages.delete(fileId);
   }
 
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
+      if (isActive && !isActive()) {
+        releaseWarmImage(img);
+        resolve();
+        return;
+      }
+
       warmedImages.set(fileId, img);
       if (typeof img.decode === "function") {
-        void img.decode().then(() => resolve()).catch(() => resolve());
+        void img
+          .decode()
+          .then(() => resolve())
+          .catch(() => resolve());
         return;
       }
       resolve();
@@ -29,9 +54,23 @@ export function warmPreviewImage(fileId: string, objectUrl: string): Promise<voi
   });
 }
 
+// Human: Drop decoded bitmap refs outside the active swipe window to cap memory use.
+// Agent: DELETES warmedImages entries not in keepFileIds; RELEASES img.src for evicted entries.
+export function retainWarmedPreviewImages(keepFileIds: readonly string[]): void {
+  const keep = new Set(keepFileIds);
+  for (const [fileId, img] of warmedImages.entries()) {
+    if (keep.has(fileId)) continue;
+    releaseWarmImage(img);
+    warmedImages.delete(fileId);
+  }
+}
+
 // Human: Clear every warmed preview when the viewer closes.
-// Agent: DELETES all warmedImages entries.
+// Agent: RELEASES img.src; DELETES all warmedImages entries.
 export function clearWarmedPreviewImages(): void {
+  for (const img of warmedImages.values()) {
+    releaseWarmImage(img);
+  }
   warmedImages.clear();
 }
 
@@ -54,20 +93,21 @@ export function orderGalleryForPreload<T extends { id: string }>(
   });
 }
 
-// Human: Fetch the full gallery with bounded parallelism so every slide is ready before swiping.
-// Agent: CALLS loadItem for each ordered image; STOPS when signal aborts.
+// Human: Fetch the full gallery with bounded parallelism; workers stop as soon as isActive is false.
+// Agent: CALLS loadItem for each ordered image; CHECKS isActive before and after each await.
 export async function preloadGalleryImages<T extends { id: string }>(
   orderedImages: readonly T[],
   loadItem: (item: T) => Promise<unknown>,
-  options?: { concurrency?: number; signal?: AbortSignal },
+  options?: { concurrency?: number; isActive?: () => boolean },
 ): Promise<void> {
   const concurrency = Math.max(1, options?.concurrency ?? 6);
-  if (orderedImages.length === 0 || options?.signal?.aborted) return;
+  const isActive = options?.isActive ?? (() => true);
+  if (orderedImages.length === 0 || !isActive()) return;
 
   let cursor = 0;
 
   async function worker() {
-    while (!options?.signal?.aborted) {
+    while (isActive()) {
       const index = cursor;
       cursor += 1;
       if (index >= orderedImages.length) return;
