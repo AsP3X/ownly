@@ -1,5 +1,5 @@
 // Human: My Cloud file explorer — breadcrumbs, search/action bar, folder + file grids per Pencil wireframe.
-// Agent: TAILWIND-only layout; SUPPORTS folder navigation, search, type filters, drag-drop, selection, previews.
+// Agent: TAILWIND-only layout; SUPPORTS folder navigation, search, type filters, HTML5 + touch drag-drop, selection, previews.
 
 import {
   useCallback,
@@ -26,6 +26,7 @@ import {
   type ExplorerGridEntry,
 } from "@/components/drive/ExplorerGridTiles";
 import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
+import { useExplorerTouchDrag } from "@/components/drive/useExplorerTouchDrag";
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
@@ -189,6 +190,29 @@ export function DriveCloudExplorer({
   const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+
+  const resolveFileFolderId = useCallback(
+    (fileId: string) => fileById.get(fileId)?.folder_id,
+    [fileById],
+  );
+
+  const {
+    touchDragEnabled,
+    draggingFileId: touchDraggingFileId,
+    armedFileId,
+    dropTargetFolderId: touchDropTargetFolderId,
+    ghostLabel,
+    ghostPosition,
+    getFileDragBindings,
+  } = useExplorerTouchDrag({
+    enabled: dragEnabled,
+    scrollElementRef: explorerScrollRef,
+    onMoveFileToFolder,
+    resolveFileFolderId,
+  });
+
+  const activeDraggingFileId = draggingFileId ?? touchDraggingFileId;
+  const activeDropTargetFolderId = dropTargetFolderId ?? touchDropTargetFolderId;
   const selectionEnabled =
     selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
   // Human: When any file is selected, keep checkmarks visible on all tiles for easier multi-select.
@@ -445,7 +469,7 @@ export function DriveCloudExplorer({
                     key={`folder-${entry.folder.id}`}
                     folder={entry.folder}
                     shareFlags={folderShareFlags[entry.folder.id]}
-                    isDropTarget={dropTargetFolderId === entry.folder.id}
+                    isDropTarget={activeDropTargetFolderId === entry.folder.id}
                     dragEnabled={dragEnabled && !isSearching}
                     onOpenFolder={onOpenFolder}
                     onDragEnter={handleFolderDragEnter}
@@ -461,8 +485,15 @@ export function DriveCloudExplorer({
                     selectionEnabled={selectionEnabled}
                     isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
                     hasActiveSelection={hasActiveSelection}
-                    isDragging={draggingFileId === entry.file.id}
+                    isDragging={activeDraggingFileId === entry.file.id}
+                    isArmedForTouchDrag={armedFileId === entry.file.id}
                     dragEnabled={dragEnabled}
+                    touchDragEnabled={touchDragEnabled}
+                    getTouchDragBindings={
+                      touchDragEnabled
+                        ? () => getFileDragBindings(entry.file.id, entry.file.name)
+                        : undefined
+                    }
                     onToggleSelected={toggleFileSelected}
                     onDragStart={handleFileDragStart}
                     onDragEnd={resetDragState}
@@ -479,6 +510,17 @@ export function DriveCloudExplorer({
             </div>
           </ExplorerScrollProvider>
         )}
+        {ghostPosition && ghostLabel ? (
+          <div
+            data-explorer-touch-drag-ghost
+            className="pointer-events-none fixed z-[80] flex max-w-[min(72vw,16rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl border border-blue-300 bg-white/95 px-3 py-2 text-sm font-semibold text-[#1A1A1A] shadow-lg shadow-blue-500/20"
+            style={{ left: ghostPosition.x, top: ghostPosition.y }}
+            aria-hidden
+          >
+            <FileIcon className="size-4 shrink-0 text-[#2563EB]" />
+            <span className="truncate">{ghostLabel}</span>
+          </div>
+        ) : null}
         <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
         {!isSearching && hasMoreFolders && loadingMoreFolders ? (
           <p className="text-center text-xs text-[#666666]">Loading more folders…</p>

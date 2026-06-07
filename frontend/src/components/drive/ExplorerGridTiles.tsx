@@ -33,6 +33,7 @@ import {
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
+import type { ExplorerTouchDragBindings } from "@/components/drive/useExplorerTouchDrag";
 import { cn } from "@/lib/utils";
 
 // Human: Browser skips layout/paint for off-screen tiles without JS scroll handlers.
@@ -127,7 +128,10 @@ export type ExplorerFileGridTileProps = {
   isSelected: boolean;
   hasActiveSelection: boolean;
   isDragging: boolean;
+  isArmedForTouchDrag?: boolean;
   dragEnabled: boolean;
+  touchDragEnabled?: boolean;
+  getTouchDragBindings?: () => ExplorerTouchDragBindings;
   onToggleSelected: (fileId: string, checked: boolean) => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, fileId: string) => void;
   onDragEnd: () => void;
@@ -160,7 +164,9 @@ function explorerFileGridTilePropsEqual(
     prev.isSelected === next.isSelected &&
     prev.hasActiveSelection === next.hasActiveSelection &&
     prev.isDragging === next.isDragging &&
-    prev.dragEnabled === next.dragEnabled
+    prev.isArmedForTouchDrag === next.isArmedForTouchDrag &&
+    prev.dragEnabled === next.dragEnabled &&
+    prev.touchDragEnabled === next.touchDragEnabled
   );
 }
 
@@ -173,7 +179,10 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   isSelected,
   hasActiveSelection,
   isDragging,
+  isArmedForTouchDrag = false,
   dragEnabled,
+  touchDragEnabled = false,
+  getTouchDragBindings,
   onToggleSelected,
   onDragStart,
   onDragEnd,
@@ -215,6 +224,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   // Agent: full PDF preview remains on tile click via onPreviewPdf; SKIPS live PDF thumbnail in grid.
   const showThumbnailPreview =
     showImagePreview || showVideoPreview || showSpreadsheetPreview;
+  const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
 
   return (
     <div
@@ -229,6 +239,8 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         canPreview && isSelected && "hover:bg-blue-100/50",
         processing && "opacity-80",
         isDragging && "opacity-50",
+        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
+        touchDragEnabled && "touch-manipulation",
       )}
     >
       {selectionEnabled ? (
@@ -285,10 +297,15 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       ) : null}
       <button
         type="button"
-        draggable={dragEnabled && !processing}
+        draggable={dragEnabled && !processing && !touchDragEnabled}
         onDragStart={(event) => onDragStart(event, file.id)}
         onDragEnd={onDragEnd}
+        onPointerDown={touchDragBindings?.onPointerDown}
+        onPointerMove={touchDragBindings?.onPointerMove}
+        onPointerUp={touchDragBindings?.onPointerUp}
+        onPointerCancel={touchDragBindings?.onPointerCancel}
         onClick={() => {
+          if (touchDragBindings?.consumeSuppressedClick()) return;
           if (!canPreview) return;
           if (canPreviewVideo) onPreviewVideo!(file);
           else if (canPreviewImage) onPreviewImage!(file);
