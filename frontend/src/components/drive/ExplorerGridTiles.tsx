@@ -1,7 +1,7 @@
 // Human: Memoized folder and file tiles for the My Cloud explorer grid.
 // Agent: EXTRACTED from DriveCloudExplorer; RENDERS previews, selection, drag-drop; MEMO avoids full-grid re-renders.
 
-import { memo, type ChangeEvent, type DragEvent } from "react";
+import { memo, useRef, type ChangeEvent, type DragEvent, type PointerEvent } from "react";
 import {
   Check,
   FileIcon,
@@ -135,8 +135,8 @@ export type ExplorerFileGridTileProps = {
   touchDragEnabled?: boolean;
   getTouchDragBindings?: () => ExplorerTouchDragBindings;
   onToggleSelected: (fileId: string, checked: boolean) => void;
-  /** Human: Flip one file in/out of the selection using the latest Set (mobile tap-select). */
-  onFlipFileSelected?: (fileId: string) => void;
+  /** Human: Mobile tap-select toggle backed by DrivePage's synchronous selection ref. */
+  onTapToggleFileSelection?: (fileId: string) => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, fileId: string) => void;
   onDragEnd: () => void;
   onPreviewVideo?: (file: FileItem) => void;
@@ -190,7 +190,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   touchDragEnabled = false,
   getTouchDragBindings,
   onToggleSelected,
-  onFlipFileSelected,
+  onTapToggleFileSelection,
   onDragStart,
   onDragEnd,
   onPreviewVideo,
@@ -232,6 +232,40 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const showThumbnailPreview =
     showImagePreview || showVideoPreview || showSpreadsheetPreview;
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
+  // Human: Track tap start so scroll gestures on a tile do not toggle selection.
+  // Agent: READS pointer down/up delta; CALLS onTapToggleFileSelection only within MOBILE_TAP_SLOP_PX.
+  const mobileTapStartRef = useRef<{ x: number; y: number } | null>(null);
+  const MOBILE_TAP_SLOP_PX = 10;
+
+  function handleTilePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (mobileSelectionMode && selectionEnabled && !processing) {
+      mobileTapStartRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    touchDragBindings?.onPointerDown(event);
+  }
+
+  function handleTilePointerUp(event: PointerEvent<HTMLButtonElement>) {
+    if (mobileSelectionMode && selectionEnabled && !processing) {
+      const start = mobileTapStartRef.current;
+      mobileTapStartRef.current = null;
+      if (!start || !onTapToggleFileSelection) return;
+      const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      if (distance <= MOBILE_TAP_SLOP_PX) {
+        onTapToggleFileSelection(file.id);
+      }
+      return;
+    }
+    touchDragBindings?.onPointerUp(event);
+  }
+
+  function handleTilePointerCancel(event: PointerEvent<HTMLButtonElement>) {
+    if (mobileSelectionMode) {
+      mobileTapStartRef.current = null;
+      return;
+    }
+    touchDragBindings?.onPointerCancel(event);
+  }
 
   return (
     <div
@@ -257,6 +291,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             isSelected || hasActiveSelection || mobileSelectionMode
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+            // Human: Mobile tap-select uses one pointer handler on the tile — ignore checkbox hits.
+            // Agent: APPLIES pointer-events-none while mobileSelectionMode to avoid double toggles.
+            mobileSelectionMode && "pointer-events-none",
           )}
         >
           <input
@@ -307,24 +344,15 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         draggable={dragEnabled && !processing && !touchDragEnabled}
         onDragStart={(event) => onDragStart(event, file.id)}
         onDragEnd={onDragEnd}
-        onPointerDown={touchDragBindings?.onPointerDown}
+        onPointerDown={handleTilePointerDown}
         onPointerMove={touchDragBindings?.onPointerMove}
-        onPointerUp={touchDragBindings?.onPointerUp}
-        onPointerCancel={touchDragBindings?.onPointerCancel}
+        onPointerUp={handleTilePointerUp}
+        onPointerCancel={handleTilePointerCancel}
         onClick={() => {
-          if (touchDragBindings?.consumeSuppressedClick()) return;
-          // Human: In mobile selection mode, a tile tap toggles its checkbox instead of previewing.
-          // Agent: CALLS onToggleSelected; SKIPS preview handlers while mobileSelectionMode is true.
           if (mobileSelectionMode && selectionEnabled && !processing) {
-            // Human: Flip from the authoritative Set — tile isSelected can lag one frame behind rapid taps.
-            // Agent: CALLS onFlipFileSelected when provided; FALLS BACK to onToggleSelected.
-            if (onFlipFileSelected) {
-              onFlipFileSelected(file.id);
-            } else {
-              onToggleSelected(file.id, !isSelected);
-            }
             return;
           }
+          if (touchDragBindings?.consumeSuppressedClick()) return;
           if (!canPreview) return;
           if (canPreviewVideo) onPreviewVideo!(file);
           else if (canPreviewImage) onPreviewImage!(file);
@@ -335,7 +363,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         }}
         className={cn(
           "flex h-full w-full flex-col gap-1.5 text-center",
-          touchDragBindings && "touch-none select-none",
+          touchDragBindings && !mobileSelectionMode && "touch-none select-none",
           showThumbnailPreview
             ? "min-h-[148px] items-stretch p-2"
             : "min-h-[108px] items-center justify-center px-2.5 py-3.5",

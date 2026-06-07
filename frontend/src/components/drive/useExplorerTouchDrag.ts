@@ -11,10 +11,10 @@ import {
 } from "react";
 
 const DESKTOP_MIN_WIDTH_PX = 1024;
-const LONG_PRESS_MS = 320;
-/** Human: Minimum hold before movement can arm drag without waiting for the full long-press timer. */
-const EARLY_ARM_HOLD_MS = 220;
-const DRAG_START_PX = 6;
+const LONG_PRESS_MS = 400;
+/** Human: Finger movement before long-press arms — treat as list scroll, not drag. */
+const SCROLL_CANCEL_PX = 12;
+const DRAG_START_PX = 8;
 const AUTO_SCROLL_EDGE_PX = 72;
 const AUTO_SCROLL_MAX_SPEED = 18;
 
@@ -113,6 +113,8 @@ export function useExplorerTouchDrag({
   const pointerDownAtRef = useRef(0);
   const gestureScrollBlockedRef = useRef(false);
   const gestureScrollHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const sessionElementRef = useRef<HTMLElement | null>(null);
+  const pendingPointerMoveHandlerRef = useRef<((event: PointerEvent) => void) | null>(null);
 
   const touchDragEnabled =
     enabled && !isDesktopViewport && onMoveFileToFolder !== undefined;
@@ -175,6 +177,15 @@ export function useExplorerTouchDrag({
     gestureScrollBlockedRef.current = false;
   }, []);
 
+  // Human: Stop tracking finger movement once the user scrolls or the session ends.
+  // Agent: REMOVES document pointermove listener registered during pending long-press.
+  const clearPendingPointerTracking = useCallback(() => {
+    const handler = pendingPointerMoveHandlerRef.current;
+    if (!handler) return;
+    document.removeEventListener("pointermove", handler, { capture: true });
+    pendingPointerMoveHandlerRef.current = null;
+  }, []);
+
   const resetSession = useCallback(() => {
     const wasDragging = draggingRef.current;
     clearLongPressTimer();
@@ -188,6 +199,8 @@ export function useExplorerTouchDrag({
     lastPointerRef.current = null;
     dragAnchorRef.current = null;
     pointerDownAtRef.current = 0;
+    sessionElementRef.current = null;
+    clearPendingPointerTracking();
     unblockGestureScroll();
     setTouchScrollLocked(false);
     setArmedFileId(null);
@@ -206,6 +219,7 @@ export function useExplorerTouchDrag({
     clearLongPressTimer,
     onDragSessionActiveChange,
     setTouchScrollLocked,
+    clearPendingPointerTracking,
     stopAutoScrollLoop,
     unblockGestureScroll,
   ]);
@@ -273,8 +287,28 @@ export function useExplorerTouchDrag({
       armedRef.current = true;
       dragAnchorRef.current = anchor;
       setArmedFileId(sessionFileIdRef.current);
+      const element = sessionElementRef.current;
+      const pointerId = activePointerIdRef.current;
+      if (element && pointerId !== null && !element.hasPointerCapture(pointerId)) {
+        element.setPointerCapture(pointerId);
+      }
     },
     [],
+  );
+
+  // Human: Abort a pending long-press when the finger moves like a scroll gesture.
+  // Agent: READS pointer delta from pointerStartRef; CALLS resetSession when > SCROLL_CANCEL_PX.
+  const cancelPendingSessionIfScrolling = useCallback(
+    (clientX: number, clientY: number) => {
+      if (armedRef.current || draggingRef.current) return false;
+      const start = pointerStartRef.current;
+      if (!start || !sessionFileIdRef.current) return false;
+      const distance = Math.hypot(clientX - start.x, clientY - start.y);
+      if (distance <= SCROLL_CANCEL_PX) return false;
+      resetSession();
+      return true;
+    },
+    [resetSession],
   );
 
   const completeDrag = useCallback(() => {
@@ -333,10 +367,12 @@ export function useExplorerTouchDrag({
         if (!event.isPrimary) return;
 
         clearLongPressTimer();
+        clearPendingPointerTracking();
         activePointerIdRef.current = event.pointerId;
         pointerStartRef.current = { x: event.clientX, y: event.clientY };
         sessionFileIdRef.current = fileId;
         sessionFileNameRef.current = fileName;
+        sessionElementRef.current = event.currentTarget;
         suppressNextClickRef.current = false;
         armedRef.current = false;
         draggingRef.current = false;
@@ -347,21 +383,27 @@ export function useExplorerTouchDrag({
         setGhostPosition(null);
 
         pointerDownAtRef.current = Date.now();
-        setTouchScrollLocked(true);
-        blockGestureScroll();
-        document.body.style.touchAction = "none";
-
-        event.currentTarget.setPointerCapture(event.pointerId);
-
         lastPointerRef.current = { x: event.clientX, y: event.clientY };
+
+        // Human: Track movement at document level — finger can leave the tile while scrolling.
+        // Agent: LISTENS pointermove capture; CALLS cancelPendingSessionIfScrolling before drag arms.
+        const onPendingPointerMove = (moveEvent: PointerEvent) => {
+          if (activePointerIdRef.current !== moveEvent.pointerId) return;
+          lastPointerRef.current = { x: moveEvent.clientX, y: moveEvent.clientY };
+          cancelPendingSessionIfScrolling(moveEvent.clientX, moveEvent.clientY);
+        };
+        pendingPointerMoveHandlerRef.current = onPendingPointerMove;
+        document.addEventListener("pointermove", onPendingPointerMove, { capture: true });
 
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTimerRef.current = null;
           if (activePointerIdRef.current !== event.pointerId) return;
+          if (!sessionFileIdRef.current) return;
           const anchor = lastPointerRef.current ?? {
             x: event.clientX,
             y: event.clientY,
           };
+          clearPendingPointerTracking();
           armDragSession(anchor);
         }, LONG_PRESS_MS);
       },
@@ -379,27 +421,18 @@ export function useExplorerTouchDrag({
 
         lastPointerRef.current = { x: event.clientX, y: event.clientY };
 
+        if (cancelPendingSessionIfScrolling(event.clientX, event.clientY)) {
+          return;
+        }
+
+        if (armedRef.current || draggingRef.current) {
+          event.preventDefault();
+        }
+
         const distanceFromStart = Math.hypot(
           event.clientX - start.x,
           event.clientY - start.y,
         );
-
-        // Human: After a short hold, movement arms drag immediately so press-and-drag-up feels natural.
-        // Agent: CLEARS long-press timer; CALLS armDragSession when hold >= EARLY_ARM_HOLD_MS and moved.
-        if (
-          !armedRef.current &&
-          !draggingRef.current &&
-          longPressTimerRef.current !== null &&
-          distanceFromStart > DRAG_START_PX &&
-          Date.now() - pointerDownAtRef.current >= EARLY_ARM_HOLD_MS
-        ) {
-          clearLongPressTimer();
-          armDragSession({ x: event.clientX, y: event.clientY });
-        }
-
-        if (sessionFileIdRef.current) {
-          event.preventDefault();
-        }
 
         const anchor = dragAnchorRef.current;
         const distanceFromAnchor = anchor
@@ -407,6 +440,9 @@ export function useExplorerTouchDrag({
           : distanceFromStart;
 
         if (armedRef.current && !draggingRef.current && distanceFromAnchor > DRAG_START_PX) {
+          clearPendingPointerTracking();
+          blockGestureScroll();
+          setTouchScrollLocked(true);
           beginActiveDrag(event.clientX, event.clientY);
           startAutoScrollLoop();
         }
@@ -446,7 +482,9 @@ export function useExplorerTouchDrag({
       armDragSession,
       beginActiveDrag,
       blockGestureScroll,
+      cancelPendingSessionIfScrolling,
       clearLongPressTimer,
+      clearPendingPointerTracking,
       completeDrag,
       resetSession,
       setTouchScrollLocked,

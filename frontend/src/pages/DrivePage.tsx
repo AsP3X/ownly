@@ -205,6 +205,9 @@ export default function DrivePage() {
   const [folderPreviewError, setFolderPreviewError] = useState("");
   const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(() => new Set());
+  // Human: Synchronous mirror of selectedFileIds — mobile taps read/write this between React commits.
+  // Agent: WRITES on every selection mutation; READ by handleTapToggleFileSelection before setState.
+  const selectedFileIdsRef = useRef<Set<string>>(new Set());
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [folderPickerFiles, setFolderPickerFiles] = useState<FileItem[]>([]);
   const [folderPickerStack, setFolderPickerStack] = useState<FolderPickerCrumb[]>([]);
@@ -366,8 +369,21 @@ export default function DrivePage() {
     );
     setSelectedFileIds((prev) => {
       const next = new Set([...prev].filter((id) => validIds.has(id)));
-      return next.size === prev.size ? prev : next;
+      if (next.size === prev.size) return prev;
+      selectedFileIdsRef.current = next;
+      return next;
     });
+  }
+
+  // Human: Publish a new selection Set to React state and the synchronous ref together.
+  // Agent: WRITES selectedFileIdsRef + setSelectedFileIds; CLEARS mobileSelectionMode when empty.
+  function commitFileSelection(next: Set<string>) {
+    const committed = new Set(next);
+    selectedFileIdsRef.current = committed;
+    setSelectedFileIds(committed);
+    if (committed.size === 0) {
+      setMobileSelectionMode(false);
+    }
   }
 
   const refresh = useCallback(
@@ -393,7 +409,7 @@ export default function DrivePage() {
           setHasMoreFolders(false);
           setFileShareFlags({});
           setFolderShareFlags({});
-          setSelectedFileIds(new Set());
+          clearFileSelectionState();
           try {
             const data = await fetchRecycleBin();
             setRecycleBinData(data);
@@ -414,7 +430,7 @@ export default function DrivePage() {
           setHasMoreFolders(false);
           setFileShareFlags({});
           setFolderShareFlags({});
-          setSelectedFileIds(new Set());
+          clearFileSelectionState();
           setRecycleBinData(null);
           setRecycleBinError("");
           return;
@@ -661,7 +677,8 @@ export default function DrivePage() {
 
   function openFolder(folder: FolderItem) {
     setActiveNav("my-files");
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
+    setMobileSelectionMode(false);
     // Human: Ignore repeat opens when double-click fires after the first click already navigated.
     // Agent: SKIPS push when folder is already the current breadcrumb leaf.
     setFolderStack((prev) => {
@@ -671,7 +688,8 @@ export default function DrivePage() {
   }
 
   function goToFolderIndex(index: number) {
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
+    setMobileSelectionMode(false);
     if (index < 0) {
       setFolderStack([]);
       return;
@@ -807,32 +825,42 @@ export default function DrivePage() {
     if (!file || isFileProcessing(file)) return;
 
     setMobileSelectionMode(true);
-    setSelectedFileIds((prev) => {
-      const next = new Set(prev);
-      next.add(fileId);
-      return next;
-    });
+    const next = new Set(selectedFileIdsRef.current);
+    next.add(fileId);
+    commitFileSelection(next);
+  }
+
+  // Human: Mobile tap-select — flip one file using the ref so rapid taps never drop prior picks.
+  // Agent: READS selectedFileIdsRef; WRITES commitFileSelection with toggled membership.
+  function handleTapToggleFileSelection(fileId: string) {
+    const next = new Set(selectedFileIdsRef.current);
+    if (next.has(fileId)) next.delete(fileId);
+    else next.add(fileId);
+    commitFileSelection(next);
+  }
+
+  // Human: Reset the selection Set in React state and the synchronous ref together.
+  // Agent: WRITES empty Set to selectedFileIdsRef + setSelectedFileIds.
+  function clearFileSelectionState() {
+    selectedFileIdsRef.current = new Set();
+    setSelectedFileIds(new Set());
   }
 
   // Human: Clear browser multi-select and exit mobile selection mode together.
   // Agent: WRITES empty selectedFileIds; WRITES mobileSelectionMode false.
   function handleClearBrowserSelection() {
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
     setMobileSelectionMode(false);
   }
 
-  // Human: Selection changes from explorer checkboxes/taps — supports functional updates for rapid taps.
-  // Agent: WRITES selectedFileIds; CLEARS mobileSelectionMode when the set becomes empty.
+  // Human: Selection changes from explorer checkboxes — always merges from selectedFileIdsRef.
+  // Agent: WRITES commitFileSelection; SUPPORTS functional updater for desktop checkbox paths.
   function handleSelectedFileIdsChange(
     ids: Set<string> | ((prev: Set<string>) => Set<string>),
   ) {
-    setSelectedFileIds((prev) => {
-      const next = typeof ids === "function" ? ids(prev) : ids;
-      if (next.size === 0) {
-        setMobileSelectionMode(false);
-      }
-      return next;
-    });
+    const next =
+      typeof ids === "function" ? ids(selectedFileIdsRef.current) : new Set(ids);
+    commitFileSelection(next);
   }
 
   // Human: Load folders for one level of the picker breadcrumb.
@@ -896,7 +924,7 @@ export default function DrivePage() {
       await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
-      setSelectedFileIds(new Set());
+      clearFileSelectionState();
       closeFolderPicker();
     } catch (err) {
       const message = getErrorMessage(err);
@@ -928,7 +956,7 @@ export default function DrivePage() {
       await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
-      setSelectedFileIds(new Set());
+      clearFileSelectionState();
       closeFolderPicker();
     } catch (err) {
       const message = getErrorMessage(err);
@@ -1174,7 +1202,7 @@ export default function DrivePage() {
       }
       enqueueBulkDownload(selectedFiles);
     }
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
   }
 
   // Human: Favourite all selected files, or remove favourites when every selected file is starred.
@@ -1191,7 +1219,7 @@ export default function DrivePage() {
       }
     }
     setFavouriteIds(new Set(getFavouriteFileIds()));
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
   }
 
   // Human: Open bulk delete confirmation for the current checkbox selection.
@@ -1214,7 +1242,7 @@ export default function DrivePage() {
       removeFilePreferences(fileId);
     }
     setFavouriteIds(new Set(getFavouriteFileIds()));
-    setSelectedFileIds(new Set());
+    clearFileSelectionState();
     setBulkDeleteItems([]);
     void refreshDashboard();
     void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
@@ -1266,13 +1294,12 @@ export default function DrivePage() {
   // Human: Add every visible, selectable file to the current bulk selection.
   // Agent: MERGES selectableBrowserFileIds into selectedFileIds Set.
   const handleSelectAllBrowserFiles = useCallback(() => {
-    setSelectedFileIds((prev) => {
-      const next = new Set(prev);
-      for (const fileId of selectableBrowserFileIds) {
-        next.add(fileId);
-      }
-      return next.size === prev.size ? prev : next;
-    });
+    const next = new Set(selectedFileIdsRef.current);
+    for (const fileId of selectableBrowserFileIds) {
+      next.add(fileId);
+    }
+    if (next.size === selectedFileIdsRef.current.size) return;
+    commitFileSelection(next);
   }, [selectableBrowserFileIds]);
 
   const visibleFolders = useMemo(
@@ -1758,6 +1785,7 @@ export default function DrivePage() {
                   onCreateFolder={() => setCreateFolderDialogOpen(true)}
                   onUpload={() => setUploadDialogOpen(true)}
                   mobileSelectionMode={mobileSelectionMode}
+                  onTapToggleFileSelection={handleTapToggleFileSelection}
                   onMoveFileToFolder={(fileId, folderId) =>
                     void handleExplorerMoveToFolder(fileId, folderId)
                   }

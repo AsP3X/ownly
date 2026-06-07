@@ -87,6 +87,8 @@ type DriveCloudExplorerProps = {
   onExplorerTouchScrollLockChange?: (locked: boolean) => void;
   /** Human: Mobile tap-to-select mode — tile taps toggle selection instead of opening previews. */
   mobileSelectionMode?: boolean;
+  /** Human: Authoritative mobile tap toggle — reads/writes the synchronous selection ref in DrivePage. */
+  onTapToggleFileSelection?: (fileId: string) => void;
 };
 
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
@@ -189,6 +191,7 @@ export function DriveCloudExplorer({
   onExplorerDragActiveChange,
   onExplorerTouchScrollLockChange,
   mobileSelectionMode = false,
+  onTapToggleFileSelection,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -302,23 +305,6 @@ export function DriveCloudExplorer({
         const next = new Set(prev);
         if (checked) next.add(fileId);
         else next.delete(fileId);
-        return next;
-      });
-    },
-    [onSelectedFileIdsChange, selectionEnabled],
-  );
-
-  // Human: Tap-select on mobile — flip membership from the latest Set, not tile isSelected.
-  // Agent: READS prev.has(fileId); WRITES toggled Set via onSelectedFileIdsChange updater.
-  const flipFileSelected = useCallback(
-    (fileId: string) => {
-      if (!selectionEnabled || !onSelectedFileIdsChange) {
-        return;
-      }
-      onSelectedFileIdsChange((prev) => {
-        const next = new Set(prev);
-        if (next.has(fileId)) next.delete(fileId);
-        else next.add(fileId);
         return next;
       });
     },
@@ -555,7 +541,9 @@ export function DriveCloudExplorer({
                         : undefined
                     }
                     onToggleSelected={toggleFileSelected}
-                    onFlipFileSelected={mobileSelectionMode ? flipFileSelected : undefined}
+                    onTapToggleFileSelection={
+                      mobileSelectionMode ? onTapToggleFileSelection : undefined
+                    }
                     onDragStart={handleFileDragStart}
                     onDragEnd={resetDragState}
                     onPreviewVideo={onPreviewVideo}
