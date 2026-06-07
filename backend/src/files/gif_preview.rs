@@ -1,9 +1,10 @@
 // Human: iOS WebKit GIF workaround — cache a looping H.264 MP4 sidecar for ticket-gated preview streams.
 // Agent: READS GIF from storage; SPAWNS ffmpeg; WRITES {storage_key}/.ownly-gif-preview.mp4; STREAMS mp4.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     body::Body,
@@ -27,6 +28,7 @@ use crate::{
     stream_ticket,
     AppState,
 };
+use serde::Serialize;
 use sqlx::PgPool;
 
 /// Human: Sidecar object name for a cached GIF→MP4 preview (one per uploaded GIF blob).
@@ -47,10 +49,21 @@ pub const GIF_PREVIEW_META_SUFFIX: &str = ".ownly-gif-preview.meta";
 /// Agent: REJECTS transcode when webpmux reports more frames than this limit.
 const MAX_WEBP_EXTRACT_FRAMES: u32 = 480;
 
+/// Human: Kill ffmpeg/webpmux work that exceeds this wall time so hung jobs cannot run forever.
+/// Agent: USED by run_ffmpeg_animation_to_mp4 and transcode_webp_via_webpmux wrappers.
+const GIF_PREVIEW_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 // Human: Per-storage-key mutex so concurrent first opens share one ffmpeg transcode.
-// Agent: WRITES HashMap of Arc<Mutex<()>>; CALLED from open_gif_preview_stream.
+// Agent: WRITES HashMap of Arc<Mutex<()>>; TRACKS active scratch dirs for temp janitor exclusion.
 pub struct GifPreviewTranscodeLocks {
     inner: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    active_scratch_dirs: Mutex<HashSet<PathBuf>>,
+}
+
+impl Default for GifPreviewTranscodeLocks {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GifPreviewTranscodeLocks {
@@ -59,6 +72,7 @@ impl GifPreviewTranscodeLocks {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
+            active_scratch_dirs: Mutex::new(HashSet::new()),
         }
     }
 
@@ -69,6 +83,27 @@ impl GifPreviewTranscodeLocks {
         map.entry(storage_key.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
+    }
+
+    // Human: Mark a scratch directory in-use so the idle temp janitor will not delete it mid-transcode.
+    // Agent: CALLED when ownly_gif_preview_* work dirs are created; CLEARED on transcode completion.
+    pub async fn register_scratch_dir(&self, path: &Path) {
+        self.active_scratch_dirs
+            .lock()
+            .await
+            .insert(path.to_path_buf());
+    }
+
+    // Human: Release a scratch directory after ffmpeg finishes or aborts.
+    // Agent: CALLED from generate_and_store finally paths; ALLOWS janitor to remove idle dirs later.
+    pub async fn unregister_scratch_dir(&self, path: &Path) {
+        self.active_scratch_dirs.lock().await.remove(path);
+    }
+
+    // Human: True when the temp janitor must skip this ownly_gif_preview_* path.
+    // Agent: READ by temp_cleanup::remove_temp_entry; MATCHES exact registered work dir paths.
+    pub async fn is_scratch_dir_in_use(&self, path: &Path) -> bool {
+        self.active_scratch_dirs.lock().await.contains(path)
     }
 }
 
@@ -91,8 +126,8 @@ pub fn qualifies_for_animated_preview(mime_type: &str) -> bool {
     mime.contains("gif") || mime == "image/webp"
 }
 
-// Human: Admin maintenance — delete cached iOS replay MP4/meta sidecars for active GIF/WebP files.
-// Agent: READS files.storage_key; DELETE storage objects; RETURNS count of delete attempts.
+// Human: Admin maintenance only — delete cached iOS replay MP4/meta sidecars from object storage.
+// Agent: READS files.storage_key; DELETE storage objects; NEVER called by the idle temp janitor.
 pub async fn purge_all_cached_preview_sidecars(
     pool: &PgPool,
     storage: Arc<dyn Storage>,
@@ -211,27 +246,52 @@ fn preview_mp4_headers(size: u64) -> Result<HeaderMap, AppError> {
     ]))
 }
 
+/// Human: Ticket URL for preview-animation plus whether the MP4 sidecar is already in object storage.
+/// Agent: SERIALIZED by preview_animation_url handlers; `ready` avoids client-side ffmpeg polling.
+#[derive(Debug, Serialize)]
+pub struct PreviewAnimationUrlResponse {
+    pub url: String,
+    pub expires_in_seconds: u64,
+    /// Human: True when `.ownly-gif-preview.mp4` is cached — GET streams without re-transcoding.
+    /// Agent: READ from preview_sidecar_is_ready; FALSE on first open until ffmpeg finishes.
+    pub ready: bool,
+}
+
+// Human: True when a cached MP4 sidecar in object storage matches the live source object.
+// Agent: READS storage exists + meta; DOES NOT transcode or download source bytes.
+pub async fn preview_sidecar_is_ready(
+    storage: &Arc<dyn Storage>,
+    storage_key: &str,
+    source_size_bytes: u64,
+) -> Result<bool, AppError> {
+    cached_sidecar_is_fresh(storage, storage_key, source_size_bytes).await
+}
+
 // Human: Return a same-origin ticket URL for the MP4 animated preview (iOS WebKit workaround).
-// Agent: GET protected; CALLS stream_ticket::generate_ticket; GIF mime only.
+// Agent: GET protected; CALLS stream_ticket::generate_ticket; REPORTS object-storage sidecar readiness.
 pub async fn preview_animation_url(
     State(state): State<Arc<AppState>>,
     axum::Extension(claims): axum::Extension<crate::auth::Claims>,
     AxumPath(id): AxumPath<String>,
-) -> Result<axum::Json<crate::files::handlers::DownloadUrlResponse>, AppError> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "SELECT storage_key, mime_type FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+) -> Result<axum::Json<PreviewAnimationUrlResponse>, AppError> {
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT storage_key, mime_type, size_bytes FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (_storage_key, mime_type) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, mime_type, size_bytes) = row.ok_or(AppError::NotFound)?;
     if !qualifies_for_animated_preview(&mime_type) {
         return Err(AppError::BadRequest(
             "animated preview is only available for GIF and animated WebP images".into(),
         ));
     }
+
+    let source_size_bytes = size_bytes.max(0) as u64;
+    let ready =
+        preview_sidecar_is_ready(&state.storage, &storage_key, source_size_bytes).await?;
 
     let ticket = stream_ticket::generate_ticket(
         &id,
@@ -240,9 +300,10 @@ pub async fn preview_animation_url(
         state.url_expiry_seconds,
     );
     let encoded = encode_query_component(&ticket);
-    Ok(axum::Json(crate::files::handlers::DownloadUrlResponse {
+    Ok(axum::Json(PreviewAnimationUrlResponse {
         url: format!("/api/v1/files/{id}/preview-animation?ticket={encoded}"),
         expires_in_seconds: state.url_expiry_seconds,
+        ready,
     }))
 }
 
@@ -274,7 +335,7 @@ pub async fn stream_gif_preview_animation(
     // Human: HEAD must not transcode — only report cached sidecar metadata when already ready.
     // Agent: READS cached_sidecar_is_fresh; RETURNS 404 on miss; SKIPS open_gif_preview_stream/ffmpeg.
     if method == Method::HEAD {
-        if !cached_sidecar_is_fresh(&storage, &storage_key, source_size_bytes).await? {
+        if !preview_sidecar_is_ready(&storage, &storage_key, source_size_bytes).await? {
             return Err(AppError::NotFound);
         }
         let preview_key = gif_preview_object_key(&storage_key);
@@ -330,6 +391,7 @@ pub async fn open_gif_preview_stream(
         gif_storage_key,
         &preview_key,
         source_size_bytes,
+        &state.gif_preview_transcode_locks,
     )
     .await?;
 
@@ -426,10 +488,17 @@ async fn generate_and_store_gif_preview(
     gif_storage_key: &str,
     preview_key: &str,
     source_size_bytes: u64,
+    transcode_locks: &GifPreviewTranscodeLocks,
 ) -> Result<(), AppError> {
     let (gif_dir, source_path, source_format) =
-        download_storage_object_to_temp(storage.clone(), gif_storage_key).await?;
-    let mp4_bytes = transcode_animation_to_mp4(&source_path, source_format).await?;
+        download_storage_object_to_temp(storage.clone(), gif_storage_key, transcode_locks).await?;
+    let source_scratch = gif_dir.path().to_path_buf();
+    let mp4_bytes =
+        transcode_animation_to_mp4(&source_path, source_format, transcode_locks).await;
+    transcode_locks
+        .unregister_scratch_dir(&source_scratch)
+        .await;
+    let mp4_bytes = mp4_bytes?;
     drop(gif_dir);
 
     if mp4_bytes.len() < 128 {
@@ -537,9 +606,13 @@ fn transcode_attempts(format: SniffedImageFormat) -> Vec<TranscodeAttempt> {
 async fn download_storage_object_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
+    transcode_locks: &GifPreviewTranscodeLocks,
 ) -> Result<(TempDir, PathBuf, SniffedImageFormat), AppError> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
+    transcode_locks
+        .register_scratch_dir(work_dir.path())
+        .await;
     let staging_path = work_dir.path().join("source.staging");
 
     let (mut stream, _, _) = storage
@@ -897,9 +970,46 @@ async fn composite_webp_frames_on_canvas(
 
 // Human: Animated WebP → PNG sequence via webpmux/dwebp, then ffmpeg H.264 MP4.
 // Agent: SPAWNS webpmux per frame; CALLS ffmpeg on frame_%04d.png; RETURNS mp4 bytes.
-async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
+async fn transcode_webp_via_webpmux(
+    input: &Path,
+    transcode_locks: &GifPreviewTranscodeLocks,
+) -> Result<Vec<u8>, String> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| format!("temp dir create: {e}"))?;
+    transcode_locks
+        .register_scratch_dir(work_dir.path())
+        .await;
+    let transcode_result = transcode_webp_via_webpmux_inner(input, &work_dir).await;
+    transcode_locks
+        .unregister_scratch_dir(work_dir.path())
+        .await;
+    transcode_result
+}
+
+// Human: Animated WebP frame extraction and ffmpeg mux — wrapped for scratch registration and timeout.
+// Agent: CALLS webpmux/dwebp per frame; SPAWNS ffmpeg; RETURNS mp4 bytes or Err on timeout.
+async fn transcode_webp_via_webpmux_inner(
+    input: &Path,
+    work_dir: &TempDir,
+) -> Result<Vec<u8>, String> {
+    match tokio::time::timeout(
+        GIF_PREVIEW_TRANSCODE_TIMEOUT,
+        transcode_webp_via_webpmux_work(input, work_dir),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "webp preview transcode timed out after {} seconds",
+            GIF_PREVIEW_TRANSCODE_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+async fn transcode_webp_via_webpmux_work(
+    input: &Path,
+    work_dir: &TempDir,
+) -> Result<Vec<u8>, String> {
     let frames_dir = work_dir.path().join("frames");
     tokio::fs::create_dir_all(&frames_dir)
         .await
@@ -1000,14 +1110,26 @@ async fn transcode_webp_via_webpmux(input: &Path) -> Result<Vec<u8>, String> {
 async fn transcode_animation_to_mp4(
     input: &Path,
     source_format: SniffedImageFormat,
+    transcode_locks: &GifPreviewTranscodeLocks,
 ) -> Result<Vec<u8>, AppError> {
     let fixed_canvas = read_fixed_canvas_size(input, source_format).await;
     let mut attempt_errors = Vec::new();
 
     for attempt in transcode_attempts(source_format) {
         let result = match attempt {
-            TranscodeAttempt::WebpmuxFrames => transcode_webp_via_webpmux(input).await,
-            _ => run_ffmpeg_animation_to_mp4(input, source_format, attempt, fixed_canvas).await,
+            TranscodeAttempt::WebpmuxFrames => {
+                transcode_webp_via_webpmux(input, transcode_locks).await
+            }
+            _ => {
+                run_ffmpeg_animation_to_mp4(
+                    input,
+                    source_format,
+                    attempt,
+                    fixed_canvas,
+                    transcode_locks,
+                )
+                .await
+            }
         };
         match result {
             Ok(bytes) => return Ok(bytes),
@@ -1042,15 +1164,40 @@ async fn read_fixed_canvas_size(
 }
 
 // Human: Single ffmpeg invocation for GIF/WebP/PNG/JPEG → H.264 MP4 preview output.
-// Agent: SPAWNS ffmpeg into temp dir; RETURNS Err message tail when exit code is non-zero.
+// Agent: SPAWNS ffmpeg into protected temp dir; KILLS child on timeout; RETURNS mp4 bytes or Err.
 async fn run_ffmpeg_animation_to_mp4(
     input: &Path,
     source_format: SniffedImageFormat,
     attempt: TranscodeAttempt,
     fixed_canvas: Option<(u32, u32)>,
+    transcode_locks: &GifPreviewTranscodeLocks,
 ) -> Result<Vec<u8>, String> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| format!("temp dir create: {e}"))?;
+    transcode_locks
+        .register_scratch_dir(work_dir.path())
+        .await;
+    let transcode_result = run_ffmpeg_animation_to_mp4_inner(
+        input,
+        source_format,
+        attempt,
+        fixed_canvas,
+        &work_dir,
+    )
+    .await;
+    transcode_locks
+        .unregister_scratch_dir(work_dir.path())
+        .await;
+    transcode_result
+}
+
+async fn run_ffmpeg_animation_to_mp4_inner(
+    input: &Path,
+    source_format: SniffedImageFormat,
+    attempt: TranscodeAttempt,
+    fixed_canvas: Option<(u32, u32)>,
+    work_dir: &TempDir,
+) -> Result<Vec<u8>, String> {
     let output_path = work_dir.path().join("preview.mp4");
 
     let mut command = Command::new("ffmpeg");
@@ -1119,31 +1266,50 @@ async fn run_ffmpeg_animation_to_mp4(
         .spawn()
         .map_err(|e| format!("ffmpeg spawn: {e}"))?;
 
+    let attempt_label = match attempt {
+        TranscodeAttempt::WebpmuxFrames => "webpmux",
+        TranscodeAttempt::Auto => "auto",
+        TranscodeAttempt::Demuxer(name) => name,
+        TranscodeAttempt::WebpVariableFps => "webp-vfr",
+    };
+
     let mut stderr_lines = Vec::new();
-    if let Some(stderr) = child.stderr.take() {
-        let mut reader = BufReader::new(stderr);
-        let mut line = String::new();
-        while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-            let trimmed = line.trim_end().to_string();
-            if !trimmed.is_empty() {
-                stderr_lines.push(trimmed);
-                if stderr_lines.len() > 24 {
-                    let drain = stderr_lines.len() - 24;
-                    stderr_lines.drain(0..drain);
+    let status = tokio::select! {
+        _ = tokio::time::sleep(GIF_PREVIEW_TRANSCODE_TIMEOUT) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            tracing::warn!(
+                input = %input.display(),
+                attempt = attempt_label,
+                timeout_secs = GIF_PREVIEW_TRANSCODE_TIMEOUT.as_secs(),
+                "gif preview ffmpeg timed out"
+            );
+            return Err(format!(
+                "attempt={attempt_label} timed out after {} seconds",
+                GIF_PREVIEW_TRANSCODE_TIMEOUT.as_secs()
+            ));
+        }
+        exit = async {
+            if let Some(stderr) = child.stderr.take() {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                    let trimmed = line.trim_end().to_string();
+                    if !trimmed.is_empty() {
+                        stderr_lines.push(trimmed);
+                        if stderr_lines.len() > 24 {
+                            let drain = stderr_lines.len() - 24;
+                            stderr_lines.drain(0..drain);
+                        }
+                    }
+                    line.clear();
                 }
             }
-            line.clear();
-        }
-    }
+            child.wait().await
+        } => exit.map_err(|e| format!("ffmpeg wait: {e}"))?,
+    };
 
-    let status = child.wait().await.map_err(|e| format!("ffmpeg wait: {e}"))?;
     if !status.success() {
-        let attempt_label = match attempt {
-            TranscodeAttempt::WebpmuxFrames => "webpmux",
-            TranscodeAttempt::Auto => "auto",
-            TranscodeAttempt::Demuxer(name) => name,
-            TranscodeAttempt::WebpVariableFps => "webp-vfr",
-        };
         return Err(format!(
             "attempt={attempt_label} exit={:?} stderr={}",
             status.code(),

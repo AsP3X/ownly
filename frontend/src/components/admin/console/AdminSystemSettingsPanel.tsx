@@ -261,7 +261,7 @@ export function AdminSystemSettingsPanel() {
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow
                   title="iOS GIF Preview Cleanup"
-                  description="Manage ffmpeg scratch directories and cached MP4 sidecars created when animated GIFs are transcoded for iOS Safari replay."
+                  description="Manage ffmpeg scratch directories on the API host. Cached MP4 sidecars in object storage are kept until you run manual cleanup below."
                 >
                   <div className="flex flex-col gap-4">
                     <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
@@ -276,9 +276,11 @@ export function AdminSystemSettingsPanel() {
                       Automatically purge idle GIF preview scratch files after 2 minutes
                     </label>
                     <p className="text-xs text-[#888888]">
-                      Scratch dirs use the <code className="text-[11px]">ownly_gif_preview_</code>{" "}
-                      prefix under the API host temp directory. Active transcodes are never removed
-                      while frames are still being written.
+                      Only API-host scratch dirs with the{" "}
+                      <code className="text-[11px]">ownly_gif_preview_</code> prefix are affected.
+                      Object-storage preview MP4s ({" "}
+                      <code className="text-[11px]">.ownly-gif-preview.mp4</code>) are not removed by
+                      this timer. Active transcodes are skipped until ffmpeg finishes or times out.
                     </p>
                     <AdminConsoleOutlineButton
                       onClick={() => void handleCleanupGifPreviewTemp()}

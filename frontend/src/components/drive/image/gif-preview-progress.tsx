@@ -1,11 +1,14 @@
 // Human: Progress UI while iOS GIF preview waits on server ffmpeg or client decode.
-// Agent: RENDERS native progress in bottom chrome; HOOK merges buffer bytes with paced transcode estimate.
+// Agent: RENDERS native progress in top chrome; HOOK merges buffer bytes with paced transcode estimate.
 
 import { useEffect, useState, type CSSProperties, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 const TRANSCODE_PROGRESS_CAP = 88;
 const TRANSCODE_PROGRESS_START = 6;
+/** Human: After the estimate plateaus, creep slowly toward completion so the bar does not look frozen. */
+const TRANSCODE_PLATEAU_ESCAPE_MS = 45_000;
+const TRANSCODE_PLATEAU_MAX = 97;
 
 export type GifPreviewProcessingState = {
   active: boolean;
@@ -32,10 +35,18 @@ function useTranscodeEstimateProgress(active: boolean, complete: boolean): numbe
     const started = Date.now();
     const timer = window.setInterval(() => {
       const elapsed = Date.now() - started;
-      const next =
+      const eased =
         TRANSCODE_PROGRESS_START +
         (TRANSCODE_PROGRESS_CAP - TRANSCODE_PROGRESS_START) * (1 - Math.exp(-elapsed / 9000));
-      setEstimate(Math.min(TRANSCODE_PROGRESS_CAP, next));
+      let next = Math.min(TRANSCODE_PROGRESS_CAP, eased);
+      if (elapsed > TRANSCODE_PLATEAU_ESCAPE_MS) {
+        const plateauElapsed = elapsed - TRANSCODE_PLATEAU_ESCAPE_MS;
+        const creep =
+          (TRANSCODE_PLATEAU_MAX - TRANSCODE_PROGRESS_CAP) *
+          (1 - Math.exp(-plateauElapsed / 120_000));
+        next = Math.min(TRANSCODE_PLATEAU_MAX, TRANSCODE_PROGRESS_CAP + creep);
+      }
+      setEstimate(next);
     }, 160);
 
     return () => window.clearInterval(timer);
@@ -86,6 +97,8 @@ type GifPreviewProcessingProgressOptions = {
   active: boolean;
   complete: boolean;
   videoRef?: RefObject<HTMLVideoElement | null>;
+  /** Human: False when MP4 sidecar is already in object storage (stream only, no ffmpeg). */
+  transcodePending?: boolean;
 };
 
 // Human: Combined progress — estimate until bytes arrive, then buffer percent.
@@ -94,8 +107,12 @@ export function useGifPreviewProcessingProgress({
   active,
   complete,
   videoRef,
+  transcodePending = true,
 }: GifPreviewProcessingProgressOptions): number | null {
-  const estimate = useTranscodeEstimateProgress(active, complete);
+  const estimate = useTranscodeEstimateProgress(
+    active && transcodePending,
+    complete,
+  );
   const bufferPercent = useVideoBufferProgress(
     videoRef,
     Boolean(active && videoRef && !complete),
@@ -105,10 +122,11 @@ export function useGifPreviewProcessingProgress({
   if (complete) return 100;
 
   if (bufferPercent !== null) {
+    if (!transcodePending) return bufferPercent;
     return Math.max(estimate ?? TRANSCODE_PROGRESS_START, bufferPercent);
   }
 
-  return estimate;
+  return transcodePending ? estimate : null;
 }
 
 type GifPreviewBottomBarProgressProps = {
@@ -117,8 +135,8 @@ type GifPreviewBottomBarProgressProps = {
   className?: string;
 };
 
-// Human: Compact progress strip for the preview bottom metadata bar (non-blocking).
-// Agent: RENDERS native progress centered in bottom chrome; pointer-events-none.
+// Human: Compact progress strip for the preview top chrome (non-blocking).
+// Agent: RENDERS native progress centered between page indicator and close; pointer-events-none.
 export function GifPreviewBottomBarProgress({
   progress,
   label = "Preparing animation…",
@@ -152,16 +170,19 @@ type GifPreviewProcessingReporterProps = {
   active: boolean;
   complete: boolean;
   videoRef?: RefObject<HTMLVideoElement | null>;
+  /** Human: False when cached MP4 sidecar streams without server ffmpeg. */
+  transcodePending?: boolean;
   label?: string;
   onChange?: (state: GifPreviewProcessingState | null) => void;
 };
 
-// Human: Lift GIF transcode progress to the preview bottom bar without overlaying the image.
+// Human: Lift GIF transcode progress to the preview top bar without overlaying the image.
 // Agent: CALLS useGifPreviewProcessingProgress; WRITES onChange when active/complete/progress shifts.
 export function GifPreviewProcessingReporter({
   active,
   complete,
   videoRef,
+  transcodePending = true,
   label = "Preparing animation…",
   onChange,
 }: GifPreviewProcessingReporterProps) {
@@ -169,6 +190,7 @@ export function GifPreviewProcessingReporter({
     active: active && !complete,
     complete,
     videoRef,
+    transcodePending,
   });
 
   useEffect(() => {

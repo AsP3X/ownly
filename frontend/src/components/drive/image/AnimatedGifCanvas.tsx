@@ -38,9 +38,11 @@ type AnimatedGifCanvasProps = {
   resolveAnimationPreviewUrl?: (
     fileId: string,
     signal?: AbortSignal,
-  ) => Promise<string | null>;
-  /** Human: Lift transcode progress to the preview bottom bar (non-blocking). */
+  ) => Promise<{ url: string; ready: boolean } | null>;
+  /** Human: Lift transcode progress to the preview top bar (non-blocking). */
   onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
+  /** Human: Called once server MP4 playback succeeds so sidecar reuse is known in-session. */
+  onServerPreviewCached?: (fileId: string) => void;
 };
 
 // Human: Build an object URL for the first GIF/WebP frame shown while MP4 transcode runs.
@@ -122,45 +124,72 @@ function StaticGifPoster({ posterUrl, alt, fitStyle, className }: StaticGifPoste
   );
 }
 
+/** Human: Align with backend GIF_PREVIEW_TRANSCODE_TIMEOUT plus client buffer slack. */
+const SERVER_GIF_TRANSCODE_CLIENT_TIMEOUT_MS = 10 * 60 * 1000 + 45_000;
+
 type ServerGifVideoProps = {
   animationUrl: string;
+  /** Human: MP4 sidecar already in object storage — skip ffmpeg progress UI. */
+  serverPreviewReady: boolean;
   posterUrl: string | null;
   alt: string;
   fitStyle: CSSProperties;
   className?: string;
   onFailed?: () => void;
   onGifPreviewProcessingChange?: (state: GifPreviewProcessingState | null) => void;
+  onServerPreviewCached?: () => void;
 };
 
-// Human: Play ffmpeg-generated MP4 — static poster until playback starts; progress in bottom bar.
+// Human: Play ffmpeg-generated MP4 — static poster until playback starts; progress in top bar.
 // Agent: SETS video src on mount (starts server transcode); HIDES poster when canplay/playing.
 function ServerGifVideo({
   animationUrl,
+  serverPreviewReady,
   posterUrl,
   alt,
   fitStyle,
   className,
   onFailed,
   onGifPreviewProcessingChange,
+  onServerPreviewCached,
 }: ServerGifVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const onFailedRef = useRef(onFailed);
+  const onCachedRef = useRef(onServerPreviewCached);
   const mediaStyle = withAnimatedPreviewContainFit(fitStyle, 0, 0);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const processingActive = !isVideoReady;
+  const showTranscodeProgress = processingActive && !serverPreviewReady;
 
   useEffect(() => {
     onFailedRef.current = onFailed;
-  }, [onFailed]);
+    onCachedRef.current = onServerPreviewCached;
+  }, [onFailed, onServerPreviewCached]);
 
   useEffect(() => {
     setIsVideoReady(false);
   }, [animationUrl]);
 
+  // Human: Abort client wait when server ffmpeg exceeds the backend transcode timeout window.
+  // Agent: CALLS onFailed; FALLBACK to client decode path in AnimatedGifCanvas.
+  useEffect(() => {
+    if (!showTranscodeProgress) return;
+
+    const timeoutId = window.setTimeout(() => {
+      onFailedRef.current?.();
+    }, SERVER_GIF_TRANSCODE_CLIENT_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [animationUrl, showTranscodeProgress]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const markReady = () => setIsVideoReady(true);
+    const markReady = () => {
+      setIsVideoReady(true);
+      onCachedRef.current?.();
+    };
 
     // Human: iOS may block first autoplay — retry on canplay and when tab becomes visible again.
     // Agent: CALLS muted play(); IGNORES early reject while MP4 transcode/buffer is in flight.
@@ -193,15 +222,14 @@ function ServerGifVideo({
     };
   }, [animationUrl]);
 
-  const processingActive = !isVideoReady;
-
   if (!posterUrl) {
     return (
       <>
         <GifPreviewProcessingReporter
-          active={processingActive}
+          active={showTranscodeProgress}
           complete={isVideoReady}
           videoRef={videoRef}
+          transcodePending={!serverPreviewReady}
           onChange={onGifPreviewProcessingChange}
         />
         <video
@@ -228,9 +256,10 @@ function ServerGifVideo({
   return (
     <>
       <GifPreviewProcessingReporter
-        active={processingActive}
+        active={showTranscodeProgress}
         complete={isVideoReady}
         videoRef={videoRef}
+        transcodePending={!serverPreviewReady}
         onChange={onGifPreviewProcessingChange}
       />
       <GifPosterLayout
@@ -278,9 +307,11 @@ export function AnimatedGifCanvas({
   enableServerAnimation = true,
   resolveAnimationPreviewUrl,
   onGifPreviewProcessingChange,
+  onServerPreviewCached,
 }: AnimatedGifCanvasProps) {
   const posterUrl = usePosterObjectUrl(byteSource, url);
   const [animationUrl, setAnimationUrl] = useState<string | null>(null);
+  const [serverPreviewReady, setServerPreviewReady] = useState(false);
   const [serverVideoFailed, setServerVideoFailed] = useState(false);
   const [ticketFetchSettled, setTicketFetchSettled] = useState(!enableServerAnimation);
 
@@ -291,6 +322,7 @@ export function AnimatedGifCanvas({
   useEffect(() => {
     setServerVideoFailed(false);
     setAnimationUrl(null);
+    setServerPreviewReady(false);
     setTicketFetchSettled(!enableServerAnimation);
     onGifPreviewProcessingChange?.(null);
   }, [enableServerAnimation, fileId, onGifPreviewProcessingChange, url]);
@@ -309,10 +341,11 @@ export function AnimatedGifCanvas({
     const controller = new AbortController();
     setTicketFetchSettled(false);
 
-    void resolveAnimationPreviewUrl(fileId, controller.signal).then((nextUrl) => {
+    void resolveAnimationPreviewUrl(fileId, controller.signal).then((resolved) => {
       if (cancelled || controller.signal.aborted) return;
-      if (nextUrl) {
-        setAnimationUrl(nextUrl);
+      if (resolved) {
+        setAnimationUrl(resolved.url);
+        setServerPreviewReady(resolved.ready);
       } else {
         setServerVideoFailed(true);
       }
@@ -340,12 +373,17 @@ export function AnimatedGifCanvas({
     return (
       <ServerGifVideo
         animationUrl={animationUrl}
+        serverPreviewReady={serverPreviewReady}
         posterUrl={posterUrl}
         alt={alt}
         fitStyle={fitStyle}
         className={className}
         onFailed={handleServerVideoFailed}
         onGifPreviewProcessingChange={onGifPreviewProcessingChange}
+        onServerPreviewCached={() => {
+          setServerPreviewReady(true);
+          if (fileId) onServerPreviewCached?.(fileId);
+        }}
       />
     );
   }

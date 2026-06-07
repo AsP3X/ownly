@@ -853,7 +853,9 @@ pub async fn cleanup_gif_preview_temp(
 ) -> Result<Json<CleanupGifPreviewTempResponse>, AppError> {
     require_admin(&claims)?;
 
-    let temp_dirs_removed = temp_cleanup::sweep_gif_preview_temp_files().await;
+    let temp_dirs_removed =
+        temp_cleanup::sweep_gif_preview_temp_files(Some(state.gif_preview_transcode_locks.as_ref()))
+            .await;
     let storage_objects_removed =
         gif_preview::purge_all_cached_preview_sidecars(&state.pool, state.storage.clone())
             .await?;

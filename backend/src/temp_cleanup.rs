@@ -1,5 +1,6 @@
 // Human: Background janitor for Ownly scratch files under the OS temp directory.
 // Agent: READS std::env::temp_dir; DELETES ownly-prefixed entries idle longer than 2 minutes.
+// NOTE: Object-storage MP4 sidecars (`.ownly-gif-preview.mp4`) are never touched here — only API-host scratch dirs.
 
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -104,12 +105,13 @@ pub fn is_idle_temp_path(path: &Path, max_idle: Duration) -> bool {
 }
 
 // Human: Remove one Ownly temp entry when idle (or immediately when forced).
-// Agent: SKIPS non-ownly paths; OPTIONAL gif-preview gating; CALLS remove_dir_all/remove_file.
+// Agent: SKIPS non-ownly paths, active gif transcodes, and object storage; CALLS remove_dir_all/remove_file.
 async fn remove_temp_entry(
     path: &Path,
     max_idle: Duration,
     force: bool,
     include_gif_preview: bool,
+    gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
 ) -> bool {
     if !is_deletable_temp_path(path) {
         return false;
@@ -122,6 +124,13 @@ async fn remove_temp_entry(
     }
     if is_gif_preview_temp_entry(name) && !include_gif_preview {
         return false;
+    }
+    if is_gif_preview_temp_entry(name) {
+        if let Some(locks) = gif_preview_locks {
+            if locks.is_scratch_dir_in_use(path).await {
+                return false;
+            }
+        }
     }
     if !force && !is_idle_temp_path(path, max_idle) {
         return false;
@@ -146,8 +155,12 @@ async fn remove_temp_entry(
 }
 
 // Human: Scan the OS temp root and delete expired Ownly scratch entries.
-// Agent: READS direct children only; RETURNS count removed; SKIPS gif preview when disabled.
-pub async fn sweep_idle_temp_files(max_idle: Duration, include_gif_preview: bool) -> u32 {
+// Agent: READS direct children only; SKIPS in-flight gif preview dirs; NEVER deletes object-storage sidecars.
+pub async fn sweep_idle_temp_files(
+    max_idle: Duration,
+    include_gif_preview: bool,
+    gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
+) -> u32 {
     let temp_root = std::env::temp_dir();
     let mut removed = 0u32;
 
@@ -160,7 +173,15 @@ pub async fn sweep_idle_temp_files(max_idle: Duration, include_gif_preview: bool
     };
 
     while let Ok(Some(entry)) = read_dir.next_entry().await {
-        if remove_temp_entry(&entry.path(), max_idle, false, include_gif_preview).await {
+        if remove_temp_entry(
+            &entry.path(),
+            max_idle,
+            false,
+            include_gif_preview,
+            gif_preview_locks,
+        )
+        .await
+        {
             removed += 1;
         }
     }
@@ -168,9 +189,11 @@ pub async fn sweep_idle_temp_files(max_idle: Duration, include_gif_preview: bool
     removed
 }
 
-// Human: Admin command — delete every iOS GIF preview ffmpeg scratch dir under the OS temp root.
-// Agent: FORCE remove ownly_gif_preview_* children; RETURNS count removed; IGNORES idle TTL.
-pub async fn sweep_gif_preview_temp_files() -> u32 {
+// Human: Admin command — delete idle iOS GIF preview ffmpeg scratch dirs under the OS temp root.
+// Agent: FORCE remove ownly_gif_preview_* children except active transcodes; IGNORES object storage.
+pub async fn sweep_gif_preview_temp_files(
+    gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
+) -> u32 {
     let temp_root = std::env::temp_dir();
     let mut removed = 0u32;
 
@@ -190,7 +213,7 @@ pub async fn sweep_gif_preview_temp_files() -> u32 {
         if !is_gif_preview_temp_entry(name) {
             continue;
         }
-        if remove_temp_entry(&path, TEMP_IDLE_MAX_AGE, true, true).await {
+        if remove_temp_entry(&path, TEMP_IDLE_MAX_AGE, true, true, gif_preview_locks).await {
             removed += 1;
         }
     }
@@ -220,8 +243,12 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
             let include_gif_preview =
                 gif_preview_temp_auto_cleanup_enabled(&state.pool).await;
 
-            let removed =
-                sweep_idle_temp_files(TEMP_IDLE_MAX_AGE, include_gif_preview).await;
+            let removed = sweep_idle_temp_files(
+                TEMP_IDLE_MAX_AGE,
+                include_gif_preview,
+                Some(state.gif_preview_transcode_locks.as_ref()),
+            )
+            .await;
             if removed > 0 {
                 info!(removed, include_gif_preview, "idle temp cleanup completed");
             }

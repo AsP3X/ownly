@@ -46,6 +46,7 @@ export function ImagePreviewSurfaceDesktop({
     getPreviewGifBlob,
     getPreviewDimensions,
     resolveGifAnimationPreviewUrl,
+    markGifAnimationPreviewCached,
   } = vm;
 
   const useIosGifPlayback =
@@ -113,6 +114,7 @@ export function ImagePreviewSurfaceDesktop({
                 className="max-h-[min(900px,105dvh)] w-full object-contain"
                 enableServerAnimation
                 resolveAnimationPreviewUrl={resolveGifAnimationPreviewUrl}
+                onServerPreviewCached={markGifAnimationPreviewCached}
                 onGifPreviewProcessingChange={handleGifPreviewProcessingChange}
               />
             ) : (
@@ -142,6 +144,15 @@ export function ImagePreviewSurfaceDesktop({
             </div>
           ) : null}
 
+          {gifPreviewProcessing?.active ? (
+            <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-20">
+              <GifPreviewBottomBarProgress
+                className="w-[min(220px,100%)]"
+                progress={gifPreviewProcessing.progress}
+              />
+            </div>
+          ) : null}
+
           <DialogClose
             render={
               <button
@@ -156,14 +167,8 @@ export function ImagePreviewSurfaceDesktop({
 
           {file ? (
             <div className="absolute inset-x-0 bottom-0 z-20 h-16 bg-black/60 px-5">
-              <div className="relative flex h-full items-center justify-between">
+              <div className="flex h-full items-center justify-between">
                 <p className="min-w-0 truncate text-sm font-bold text-white">{photoInfoLabel}</p>
-
-                {gifPreviewProcessing?.active ? (
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 w-[min(200px,calc(100%-12rem))] -translate-x-1/2 -translate-y-1/2">
-                    <GifPreviewBottomBarProgress progress={gifPreviewProcessing.progress} />
-                  </div>
-                ) : null}
 
                 {(showDownloadAction || showShareAction) && (
                   <div className="flex shrink-0 items-center gap-4">

@@ -59,7 +59,9 @@ export type ImagePreviewControllerViewModel = {
   resolveGifAnimationPreviewUrl: (
     fileId: string,
     signal?: AbortSignal,
-  ) => Promise<string | null>;
+  ) => Promise<{ url: string; ready: boolean } | null>;
+  /** Human: After first ffmpeg run, mark the MP4 sidecar cached for carousel revisits. */
+  markGifAnimationPreviewCached: (fileId: string) => void;
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
@@ -110,7 +112,9 @@ export function useImagePreviewController({
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, CachedPreviewUrl>>(new Map());
   const gifBlobCacheRef = useRef<Map<string, Blob>>(new Map());
-  const animationUrlCacheRef = useRef<Map<string, string>>(new Map());
+  const animationUrlCacheRef = useRef<
+    Map<string, { url: string; ready: boolean }>
+  >(new Map());
   const previewDimensionsRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const [previewDimensionsRevision, setPreviewDimensionsRevision] = useState(0);
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
@@ -258,7 +262,10 @@ export function useImagePreviewController({
   // Human: Resolve preview-animation ticket URL without downloading the MP4 (no ffmpeg until video src loads).
   // Agent: READS animationUrlCacheRef; FETCHES preview-animation-url only when the active slide requests it.
   const resolveGifAnimationPreviewUrl = useCallback(
-    async (fileId: string, signal?: AbortSignal): Promise<string | null> => {
+    async (
+      fileId: string,
+      signal?: AbortSignal,
+    ): Promise<{ url: string; ready: boolean } | null> => {
       const cached = animationUrlCacheRef.current.get(fileId);
       if (cached) return cached;
 
@@ -274,14 +281,21 @@ export function useImagePreviewController({
             )
           : await fetchFileGifAnimationPreviewUrl(item);
         if (signal?.aborted) return null;
-        animationUrlCacheRef.current.set(fileId, animation.url);
-        return animation.url;
+        const resolved = { url: animation.url, ready: animation.ready };
+        animationUrlCacheRef.current.set(fileId, resolved);
+        return resolved;
       } catch {
         return null;
       }
     },
     [sharePassword, shareToken],
   );
+
+  const markGifAnimationPreviewCached = useCallback((fileId: string) => {
+    const cached = animationUrlCacheRef.current.get(fileId);
+    if (!cached || cached.ready) return;
+    animationUrlCacheRef.current.set(fileId, { ...cached, ready: true });
+  }, []);
 
   const cacheGifBlob = useCallback(
     (fileId: string, blob: Blob, session: number) => {
@@ -645,6 +659,7 @@ export function useImagePreviewController({
     getPreviewDimensions,
     getPreviewGifBlob,
     resolveGifAnimationPreviewUrl,
+    markGifAnimationPreviewCached,
     error,
     loading,
     showInitialLoader: resolvedShowInitialLoader,

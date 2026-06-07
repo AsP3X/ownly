@@ -1182,24 +1182,29 @@ pub async fn public_share_preview_animation_url(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
-) -> Result<Json<crate::files::handlers::DownloadUrlResponse>, AppError> {
+) -> Result<Json<gif_preview::PreviewAnimationUrlResponse>, AppError> {
     let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
-    let row: Option<(String, i64)> = sqlx::query_as(
-        "SELECT mime_type, size_bytes FROM files WHERE id = $1 AND user_id = $2",
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT storage_key, mime_type, size_bytes FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&file_id)
     .bind(&share.user_id)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (mime_type, _size_bytes) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, mime_type, size_bytes) = row.ok_or(AppError::NotFound)?;
     if !qualifies_for_animated_preview(&mime_type) {
         return Err(AppError::BadRequest(
             "animated preview is only available for GIF and animated WebP images".into(),
         ));
     }
+
+    let source_size_bytes = size_bytes.max(0) as u64;
+    let ready =
+        gif_preview::preview_sidecar_is_ready(&state.storage, &storage_key, source_size_bytes)
+            .await?;
 
     let ticket = stream_ticket::generate_ticket(
         &file_id,
@@ -1208,11 +1213,12 @@ pub async fn public_share_preview_animation_url(
         state.url_expiry_seconds,
     );
     let encoded = encode_query_component(&ticket);
-    Ok(Json(crate::files::handlers::DownloadUrlResponse {
+    Ok(Json(gif_preview::PreviewAnimationUrlResponse {
         url: format!(
             "/api/v1/public/shares/{token}/files/{file_id}/preview-animation?ticket={encoded}"
         ),
         expires_in_seconds: state.url_expiry_seconds,
+        ready,
     }))
 }
 
@@ -1244,17 +1250,28 @@ pub async fn public_share_preview_animation(
         return Err(AppError::NotFound);
     }
 
-    let (stream, mp4_size) = gif_preview::open_gif_preview_stream(
-        &state,
-        &storage_key,
-        size_bytes.max(0) as u64,
-    )
-    .await?;
-    let response_headers = gif_preview::preview_mp4_headers_for_size(mp4_size)?;
+    let source_size_bytes = size_bytes.max(0) as u64;
+    let storage = state.storage.clone();
 
+    // Human: HEAD must not transcode — only report cached sidecar metadata when already ready.
+    // Agent: READS preview_sidecar_is_ready; RETURNS 404 on miss; SKIPS open_gif_preview_stream/ffmpeg.
     if method == Method::HEAD {
+        if !gif_preview::preview_sidecar_is_ready(&storage, &storage_key, source_size_bytes).await?
+        {
+            return Err(AppError::NotFound);
+        }
+        let preview_key = gif_preview::gif_preview_object_key(&storage_key);
+        let (_, mp4_size, _) = storage
+            .get_stream(&preview_key)
+            .await
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        let response_headers = gif_preview::preview_mp4_headers_for_size(mp4_size)?;
         return Ok((StatusCode::OK, response_headers).into_response());
     }
+
+    let (stream, mp4_size) =
+        gif_preview::open_gif_preview_stream(&state, &storage_key, source_size_bytes).await?;
+    let response_headers = gif_preview::preview_mp4_headers_for_size(mp4_size)?;
 
     Ok((response_headers, Body::from_stream(stream)).into_response())
 }

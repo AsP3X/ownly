@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type DragEvent,
   type RefObject,
 } from "react";
@@ -91,8 +92,56 @@ type DriveCloudExplorerProps = {
   onTapToggleFileSelection?: (fileId: string) => void;
 };
 
+/** Human: Collapse deep folder trails on viewports below Tailwind `lg`. */
+const MOBILE_BREADCRUMB_COLLAPSE_DEPTH = 2;
+
+// Human: Match Tailwind lg breakpoint for mobile-only breadcrumb behavior.
+// Agent: READS matchMedia (max-width: 1023px); SUBSCRIBES to viewport resize.
+function useMaxLgViewport(): boolean {
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const mediaQuery = window.matchMedia("(max-width: 1023px)");
+      mediaQuery.addEventListener("change", onStoreChange);
+      return () => mediaQuery.removeEventListener("change", onStoreChange);
+    },
+    () => window.matchMedia("(max-width: 1023px)").matches,
+    () => false,
+  );
+}
+
+type ExplorerBreadcrumbCrumbProps = {
+  label: string;
+  isCurrent: boolean;
+  onClick: () => void;
+  className?: string;
+};
+
+// Human: One tappable breadcrumb segment with mobile truncation for long folder names.
+// Agent: RENDERS button; TRUNCATES label below lg; SETS title tooltip to full name.
+function ExplorerBreadcrumbCrumb({
+  label,
+  isCurrent,
+  onClick,
+  className,
+}: ExplorerBreadcrumbCrumbProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className={cn(
+        "shrink-0 transition-colors hover:text-[#2563EB] max-lg:max-w-[9.5rem] max-lg:truncate",
+        isCurrent ? "font-bold text-[#1A1A1A]" : "text-[#888888]",
+        className,
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
-// Agent: CALLS parent navigation handlers; BOLDS the current leaf crumb.
+// Agent: CALLS parent navigation handlers; SCROLLS horizontally on mobile; COLLAPSES deep paths.
 function ExplorerBreadcrumbs({
   folderStack,
   onNavigateHome,
@@ -104,46 +153,71 @@ function ExplorerBreadcrumbs({
   onNavigateMyCloudRoot: () => void;
   onGoToFolderIndex: (index: number) => void;
 }) {
+  const isMobile = useMaxLgViewport();
+
+  const shouldCollapse =
+    isMobile && folderStack.length > MOBILE_BREADCRUMB_COLLAPSE_DEPTH;
+
+  const visibleFolderCrumbs = useMemo(() => {
+    if (!shouldCollapse) {
+      return folderStack.map((crumb, index) => ({ crumb, index }));
+    }
+    return folderStack.slice(-2).map((crumb, offset) => ({
+      crumb,
+      index: folderStack.length - 2 + offset,
+    }));
+  }, [folderStack, shouldCollapse]);
+
+  const collapsedJumpIndex = shouldCollapse ? folderStack.length - 3 : -1;
+  const collapsedJumpLabel =
+    collapsedJumpIndex >= 0 ? folderStack[collapsedJumpIndex]?.name : null;
+
   return (
     <nav
-      className="flex flex-wrap items-center gap-2 text-sm"
+      className={cn(
+        "flex items-center gap-1.5 text-xs lg:flex-wrap lg:gap-2 lg:text-sm",
+        "max-lg:-mx-1 max-lg:overflow-x-auto max-lg:pb-0.5",
+        "max-lg:[scrollbar-width:none] max-lg:[&::-webkit-scrollbar]:hidden",
+      )}
       aria-label="Folder path"
     >
-      <button
-        type="button"
+      <ExplorerBreadcrumbCrumb
+        label="Home"
+        isCurrent={false}
         onClick={onNavigateHome}
-        className="text-[#888888] transition-colors hover:text-[#2563EB]"
-      >
-        Home
-      </button>
-      <ChevronRight className="size-3.5 text-[#888888]" aria-hidden />
-      <button
-        type="button"
+      />
+      <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
+      <ExplorerBreadcrumbCrumb
+        label="My Cloud"
+        isCurrent={folderStack.length === 0}
         onClick={onNavigateMyCloudRoot}
-        className={cn(
-          "transition-colors hover:text-[#2563EB]",
-          folderStack.length === 0
-            ? "font-bold text-[#1A1A1A]"
-            : "text-[#888888]",
-        )}
-      >
-        My Cloud
-      </button>
-      {folderStack.map((crumb, index) => (
-        <span key={crumb.id} className="flex items-center gap-2">
-          <ChevronRight className="size-3.5 text-[#888888]" aria-hidden />
+      />
+      {shouldCollapse ? (
+        <>
+          <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
           <button
             type="button"
-            onClick={() => onGoToFolderIndex(index)}
-            className={cn(
-              "transition-colors hover:text-[#2563EB]",
-              index === folderStack.length - 1
-                ? "font-bold text-[#1A1A1A]"
-                : "text-[#888888]",
-            )}
+            onClick={() => onGoToFolderIndex(collapsedJumpIndex)}
+            title={collapsedJumpLabel ?? "Show earlier folders"}
+            aria-label={
+              collapsedJumpLabel
+                ? `Go to ${collapsedJumpLabel}`
+                : "Show earlier folders"
+            }
+            className="shrink-0 px-0.5 text-[#888888] transition-colors hover:text-[#2563EB]"
           >
-            {crumb.name}
+            …
           </button>
+        </>
+      ) : null}
+      {visibleFolderCrumbs.map(({ crumb, index }) => (
+        <span key={crumb.id} className="flex shrink-0 items-center gap-1.5 lg:gap-2">
+          <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
+          <ExplorerBreadcrumbCrumb
+            label={crumb.name}
+            isCurrent={index === folderStack.length - 1}
+            onClick={() => onGoToFolderIndex(index)}
+          />
         </span>
       ))}
     </nav>

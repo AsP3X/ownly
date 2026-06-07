@@ -2072,16 +2072,28 @@ export async function fetchFilePreviewUrl(id: string) {
   }>;
 }
 
+export type GifAnimationPreviewUrl = {
+  url: string;
+  revokeOnClose: boolean;
+  /** Human: MP4 sidecar already in object storage — stream without server ffmpeg. */
+  ready: boolean;
+};
+
 // Human: Ticket MP4 URL for animated GIF preview — iOS WebKit plays video reliably when GIF img is frozen.
-// Agent: GET /files/:id/preview-animation-url; RETURNS /preview-animation?ticket= same-origin href.
+// Agent: GET /files/:id/preview-animation-url; RETURNS ticket href + object-storage sidecar readiness.
 export async function fetchFileGifAnimationPreviewUrl(
   file: FileItem,
-): Promise<{ url: string; revokeOnClose: boolean }> {
+): Promise<GifAnimationPreviewUrl> {
   const preview = await apiFetch(`/files/${file.id}/preview-animation-url`) as {
     url: string;
     expires_in_seconds: number;
+    ready?: boolean;
   };
-  return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
+  return {
+    url: resolveSameOriginStreamUrl(preview.url),
+    revokeOnClose: false,
+    ready: preview.ready ?? false,
+  };
 }
 
 // Human: Ticket MP4 URL for animated preview inside a password-protected public share.
@@ -2090,15 +2102,20 @@ export async function fetchPublicShareGifAnimationPreviewUrl(
   token: string,
   file: FileItem,
   sharePassword?: string | null,
-): Promise<{ url: string; revokeOnClose: boolean }> {
+): Promise<GifAnimationPreviewUrl> {
   const preview = await apiFetch(
     `/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(file.id)}/preview-animation-url`,
     { headers: publicShareRequestHeaders(sharePassword) },
   ) as {
     url: string;
     expires_in_seconds: number;
+    ready?: boolean;
   };
-  return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
+  return {
+    url: resolveSameOriginStreamUrl(preview.url),
+    revokeOnClose: false,
+    ready: preview.ready ?? false,
+  };
 }
 
 // Human: Check whether a server preview-animation URL is ready without downloading the MP4 body.
