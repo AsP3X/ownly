@@ -16,6 +16,11 @@ type ImagePreviewSurfaceMobileProps = {
   onShare?: (file: FileItem) => void;
 };
 
+// Human: Pencil mobile gallery chevrons — transparent fill with ~80% background blur (glass).
+// Agent: bg-transparent + backdrop-blur-2xl; border only for edge definition on photo backgrounds.
+const MOBILE_GALLERY_NAV_BUTTON_CLASS =
+  "flex size-11 items-center justify-center rounded-full border border-[#FFFFFF33] bg-transparent text-white backdrop-blur-2xl transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30";
+
 export function ImagePreviewSurfaceMobile({
   vm,
   onDownload,
@@ -150,7 +155,10 @@ export function ImagePreviewSurfaceMobile({
             disabled={!hasPrevious}
             onClick={goPrevious}
             aria-label="Previous image"
-            className="absolute left-2 top-1/2 z-30 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#FFFFFF1A] text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+            className={cn(
+              "absolute left-2 top-1/2 z-30 -translate-y-1/2",
+              MOBILE_GALLERY_NAV_BUTTON_CLASS,
+            )}
           >
             <ChevronLeft className="size-[22px]" aria-hidden />
           </button>
@@ -159,7 +167,10 @@ export function ImagePreviewSurfaceMobile({
             disabled={!hasNext}
             onClick={goNext}
             aria-label="Next image"
-            className="absolute right-2 top-1/2 z-30 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#FFFFFF1A] text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+            className={cn(
+              "absolute right-2 top-1/2 z-30 -translate-y-1/2",
+              MOBILE_GALLERY_NAV_BUTTON_CLASS,
+            )}
           >
             <ChevronRight className="size-[22px]" aria-hidden />
           </button>
