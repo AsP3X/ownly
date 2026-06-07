@@ -2,7 +2,7 @@
 // Agent: READS ImagePreviewControllerViewModel; SWITCHES vertical vs letterbox from loaded image aspect ratio.
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Loader2, Share2, X } from "lucide-react";
+import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
 import type { ImageFitMode } from "@/components/drive/image/image-preview-types";
@@ -15,11 +15,6 @@ type ImagePreviewSurfaceMobileProps = {
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
 };
-
-// Human: Apple-style frosted glass — samples the image beneath via backdrop-filter blur + saturate.
-// Agent: No position class here — parent overlay supplies absolute side placement; avoids cn() overriding absolute.
-const MOBILE_GALLERY_NAV_BUTTON_CLASS =
-  "flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/[0.1] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.18)] backdrop-blur-[24px] backdrop-saturate-[180%] transition-[background-color,transform] hover:bg-white/[0.16] active:scale-95 active:bg-white/[0.2] disabled:pointer-events-none disabled:opacity-30 supports-[backdrop-filter]:bg-white/[0.08]";
 
 export function ImagePreviewSurfaceMobile({
   vm,
@@ -147,29 +142,25 @@ export function ImagePreviewSurfaceMobile({
         </div>
       </div>
 
-      {/* Human: Side gallery chevrons — frosted glass over the image stage (samples pixels below). */}
-      {/* Agent: Full-bleed flex row keeps chevrons on left/right and vertically centered in the viewport. */}
+      {/* Human: Invisible left/right tap zones — previous on the left half, next on the right half. */}
+      {/* Agent: z-20 sits under top/bottom chrome (z-30); swipe still handled on the dialog viewport. */}
       {showGalleryNav ? (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-between px-2">
+        <>
           <button
             type="button"
             disabled={!hasPrevious}
             onClick={goPrevious}
             aria-label="Previous image"
-            className={cn("pointer-events-auto", MOBILE_GALLERY_NAV_BUTTON_CLASS)}
-          >
-            <ChevronLeft className="size-[22px]" aria-hidden />
-          </button>
+            className="absolute inset-y-0 left-0 z-20 w-1/2 appearance-none border-0 bg-transparent p-0 disabled:pointer-events-none"
+          />
           <button
             type="button"
             disabled={!hasNext}
             onClick={goNext}
             aria-label="Next image"
-            className={cn("pointer-events-auto", MOBILE_GALLERY_NAV_BUTTON_CLASS)}
-          >
-            <ChevronRight className="size-[22px]" aria-hidden />
-          </button>
-        </div>
+            className="absolute inset-y-0 right-0 z-20 w-1/2 appearance-none border-0 bg-transparent p-0 disabled:pointer-events-none"
+          />
+        </>
       ) : null}
 
       {/* Human: Bottom metadata bar — filename, size, download/share (Pencil Translucent Bottom Bar). */}
