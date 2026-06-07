@@ -4,8 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { MOBILE_IMAGE_LETTERBOX_STAGE_CLASS, resolveImageFitFromElement, resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
-import type { ImageFitMode } from "@/components/drive/image/image-preview-types";
+import { MOBILE_IMAGE_VIEWPORT_FIT_CLASS } from "@/components/drive/image/image-preview-layout";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { useMobileImagePinchZoom } from "@/components/drive/image/useMobileImagePinchZoom";
 import { DialogClose } from "@/components/ui/dialog";
@@ -72,76 +71,46 @@ function MobileImageViewportScrim() {
 type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
-  fitMode: ImageFitMode;
-  onFitModeChange: (mode: ImageFitMode) => void;
   showLoader?: boolean;
   enablePinchZoom?: boolean;
   onZoomActiveChange?: (active: boolean) => void;
   onCancelPendingTap?: () => void;
 };
 
-// Human: One carousel panel — same vertical / letterbox layout as the active slide.
-// Agent: READS url; WRITES fitMode via onLoad; optional PINCH-ZOOM when enablePinchZoom on center slide.
+// Human: One carousel panel — width-first fit touches left/right unless height would overflow.
+// Agent: READS url; RENDERS MOBILE_IMAGE_VIEWPORT_FIT_CLASS; optional PINCH-ZOOM on center slide.
 function ImageGallerySlide({
   url,
   alt,
-  fitMode,
-  onFitModeChange,
   showLoader = false,
   enablePinchZoom = false,
   onZoomActiveChange,
   onCancelPendingTap,
 }: ImageGallerySlideProps) {
-  const isLetterbox = fitMode === "letterbox";
-
   const pinchZoom = useMobileImagePinchZoom({
     resetKey: enablePinchZoom ? (url ?? "empty") : "gallery-slide-no-zoom",
     onCancelPendingTap: enablePinchZoom ? onCancelPendingTap : undefined,
     onZoomActiveChange: enablePinchZoom ? onZoomActiveChange : undefined,
   });
 
-  const handleImageLoad = useCallback(
-    (event: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = event.currentTarget;
-      onFitModeChange(resolveImageFitMode(img.naturalWidth, img.naturalHeight));
-    },
-    [onFitModeChange],
-  );
-
-  const handleImageRef = useCallback(
-    (node: HTMLImageElement | null) => {
-      const fit = resolveImageFitFromElement(node);
-      if (fit) onFitModeChange(fit);
-    },
-    [onFitModeChange],
-  );
-
   return (
     <div className="relative flex h-full w-full items-center justify-center bg-black">
-      {/* Human: Letterbox uses a centered band; vertical fills the full slide behind the flex host. */}
-      {/* Agent: OUTER flex host READS h-full; INNER stage SWITCHES letterbox band vs absolute inset-0. */}
-      <div
-        className={cn(
-          "relative overflow-hidden",
-          isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
-        )}
-      >
+      <div className="absolute inset-0 overflow-hidden">
         <div
           ref={pinchZoom.layerRef}
-          className={cn("size-full origin-center", enablePinchZoom && "touch-none")}
+          className={cn(
+            "flex size-full items-center justify-center origin-center",
+            enablePinchZoom && "touch-none",
+          )}
           {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
         >
           {url ? (
-            // Human: Blobs are prefetched in the controller — async decode keeps touch handling responsive.
-            // Agent: READS warmed blob URL; RENDERS with eager load but without sync main-thread decode.
             <img
-              ref={handleImageRef}
               src={url}
               alt={alt}
               loading="eager"
               decoding="async"
-              onLoad={handleImageLoad}
-              className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+              className={MOBILE_IMAGE_VIEWPORT_FIT_CLASS}
               draggable={false}
             />
           ) : showLoader ? (
@@ -159,8 +128,6 @@ type StaticImageStageProps = {
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
-  imageFit: ImageFitMode;
-  onResolveFitFromImage: (img: HTMLImageElement) => void;
   onCancelPendingTap?: () => void;
 };
 
@@ -171,53 +138,27 @@ function StaticImageStage({
   error,
   loading,
   showInitialLoader,
-  imageFit,
-  onResolveFitFromImage,
   onCancelPendingTap,
 }: StaticImageStageProps) {
-  const isLetterbox = imageFit === "letterbox";
-
   const pinchZoom = useMobileImagePinchZoom({
     resetKey: displayUrl ?? file?.id ?? "static-empty",
     onCancelPendingTap,
   });
 
-  const handleImageLoad = useCallback(
-    (event: React.SyntheticEvent<HTMLImageElement>) => {
-      onResolveFitFromImage(event.currentTarget);
-    },
-    [onResolveFitFromImage],
-  );
-
-  const handleImageRef = useCallback(
-    (node: HTMLImageElement | null) => {
-      if (!node?.complete || node.naturalWidth <= 0) return;
-      onResolveFitFromImage(node);
-    },
-    [onResolveFitFromImage],
-  );
-
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black">
-      <div
-        className={cn(
-          "relative overflow-hidden",
-          isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
-        )}
-      >
+      <div className="absolute inset-0 overflow-hidden">
         <div
           ref={pinchZoom.layerRef}
-          className="size-full origin-center touch-none"
+          className="flex size-full origin-center touch-none items-center justify-center"
           {...pinchZoom.touchHandlers}
         >
           {displayUrl ? (
             <img
               key={displayUrl}
-              ref={handleImageRef}
               src={displayUrl}
               alt={file?.name ?? "Image preview"}
-              onLoad={handleImageLoad}
-              className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+              className={MOBILE_IMAGE_VIEWPORT_FIT_CLASS}
               draggable={false}
             />
           ) : null}
@@ -278,7 +219,6 @@ export function ImagePreviewSurfaceMobile({
     adjacentUrls,
     previousFile,
     nextFile,
-    getPreviewDimensions,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -315,66 +255,6 @@ export function ImagePreviewSurfaceMobile({
   }, [cancelPendingTapNav]);
 
   const [containerWidth, setContainerWidth] = useState(0);
-  const [staticFit, setStaticFit] = useState<ImageFitMode>("vertical");
-  // Human: Remember letterbox vs vertical per file so swipes do not rescale when a slide becomes center.
-  // Agent: WRITES on img load in any carousel panel; READS when file id moves between prev/center/next slots.
-  const fitCacheRef = useRef<Map<string, ImageFitMode>>(new Map());
-  const [fitRevision, setFitRevision] = useState(0);
-
-  const getFitModeForFile = useCallback(
-    (fileId: string | undefined): ImageFitMode => {
-      if (!fileId) return "vertical";
-      const cached = fitCacheRef.current.get(fileId);
-      if (cached) return cached;
-      const dimensions = getPreviewDimensions(fileId);
-      if (dimensions) {
-        return resolveImageFitMode(dimensions.width, dimensions.height);
-      }
-      return "vertical";
-    },
-    [fitRevision, getPreviewDimensions],
-  );
-
-  const rememberFitModeForFile = useCallback((fileId: string, mode: ImageFitMode) => {
-    if (fitCacheRef.current.get(fileId) === mode) return;
-    fitCacheRef.current.set(fileId, mode);
-    setFitRevision((value) => value + 1);
-  }, []);
-
-  const handlePreviousFitModeChange = useCallback(
-    (mode: ImageFitMode) => {
-      if (!previousFile) return;
-      rememberFitModeForFile(previousFile.id, mode);
-    },
-    [previousFile, rememberFitModeForFile],
-  );
-
-  const handleCenterFitModeChange = useCallback(
-    (mode: ImageFitMode) => {
-      if (!file?.id) return;
-      rememberFitModeForFile(file.id, mode);
-    },
-    [file?.id, rememberFitModeForFile],
-  );
-
-  const handleNextFitModeChange = useCallback(
-    (mode: ImageFitMode) => {
-      if (!nextFile) return;
-      rememberFitModeForFile(nextFile.id, mode);
-    },
-    [nextFile, rememberFitModeForFile],
-  );
-
-  // Human: Apply letterbox vs vertical from downscaled metadata before the carousel img decodes.
-  // Agent: READS getPreviewDimensions; WRITES fitCacheRef when source dimensions arrive from the controller.
-  useEffect(() => {
-    for (const item of [file, previousFile, nextFile]) {
-      if (!item?.id) continue;
-      const dimensions = getPreviewDimensions(item.id);
-      if (!dimensions) continue;
-      rememberFitModeForFile(item.id, resolveImageFitMode(dimensions.width, dimensions.height));
-    }
-  }, [file, previousFile, nextFile, getPreviewDimensions, rememberFitModeForFile]);
 
   const swipeCommitThresholdPx =
     containerWidth > 0
@@ -495,14 +375,6 @@ export function ImagePreviewSurfaceMobile({
     pendingCommitRef.current = null;
     recenterTrack();
   }, [file?.id, containerWidth, showGalleryNav, recenterTrack]);
-
-  const resolveStaticFit = useCallback((img: HTMLImageElement) => {
-    setStaticFit(resolveImageFitMode(img.naturalWidth, img.naturalHeight));
-  }, []);
-
-  useEffect(() => {
-    setStaticFit("vertical");
-  }, [file?.id]);
 
   const applyEdgeResistance = useCallback(
     (nextX: number) => {
@@ -756,8 +628,6 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={adjacentUrls.previous}
                   alt={previousFile?.name ?? "Previous image"}
-                  fitMode={getFitModeForFile(previousFile?.id)}
-                  onFitModeChange={handlePreviousFitModeChange}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
@@ -765,8 +635,6 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={displayUrl}
                   alt={file?.name ?? "Image preview"}
-                  fitMode={getFitModeForFile(file?.id)}
-                  onFitModeChange={handleCenterFitModeChange}
                   showLoader={showInitialLoader}
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
@@ -777,8 +645,6 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={adjacentUrls.next}
                   alt={nextFile?.name ?? "Next image"}
-                  fitMode={getFitModeForFile(nextFile?.id)}
-                  onFitModeChange={handleNextFitModeChange}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>
@@ -813,8 +679,6 @@ export function ImagePreviewSurfaceMobile({
           error={error}
           loading={loading}
           showInitialLoader={showInitialLoader}
-          imageFit={staticFit}
-          onResolveFitFromImage={resolveStaticFit}
           onCancelPendingTap={cancelPendingTapNav}
         />
       )}

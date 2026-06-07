@@ -19,5 +19,3 @@ export type ImagePreviewDialogProps = {
   /** Human: When set, preview blobs are downscaled to this max edge (mobile carousel). */
   previewDisplayMaxEdgePx?: number | null;
 };
-
-export type ImageFitMode = "vertical" | "letterbox";

@@ -26,7 +26,7 @@ export type ImagePreviewControllerViewModel = {
   previousFile: FileItem | null;
   nextFile: FileItem | null;
   displayUrl: string | null;
-  /** Human: Original pixel dimensions for letterbox layout — available before img decode on mobile. */
+  /** Human: Original pixel dimensions from the source file — recorded during mobile downscale. */
   getPreviewDimensions: (fileId: string | undefined) => { width: number; height: number } | null;
   error: string;
   loading: boolean;
