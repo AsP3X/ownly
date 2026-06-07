@@ -1,0 +1,13 @@
+// Human: Shared PDF viewer tuning — desktop matches Pencil Ownly Explorer PDF Viewer scale.
+// Agent: READ by usePdfPreviewController; desktop vs mobile padding/gap differ for fit-to-viewport.
+
+export const PDF_MIN_ZOOM = 0.5;
+export const PDF_MAX_ZOOM = 5;
+export const PDF_ZOOM_STEP = 0.05;
+export const PDF_DEFAULT_ZOOM = 1;
+export const PDF_THUMBNAIL_WIDTH_DESKTOP = 126;
+export const PDF_THUMBNAIL_WIDTH_MOBILE = 88;
+export const PDF_PAGE_AREA_PADDING_DESKTOP_PX = 72;
+export const PDF_PAGE_STACK_GAP_DESKTOP_PX = 36;
+export const PDF_PAGE_STACK_GAP_MOBILE_PX = 8;
+export const PDF_SEARCH_DEBOUNCE_MS = 300;
