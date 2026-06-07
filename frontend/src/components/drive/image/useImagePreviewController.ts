@@ -1,10 +1,15 @@
 // Human: Image lightbox state — blob cache, gallery navigation, and keyboard handlers.
-// Agent: FETCHES preview blobs; REVOKES object URLs on close; WRITES view model for desktop/mobile surfaces.
+// Agent: FETCHES preview blobs; WARMS prev/current/next in memory; REVOKES object URLs on close.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
+import {
+  clearWarmedPreviewImages,
+  retainWarmedPreviewImages,
+  warmPreviewImage,
+} from "@/components/drive/image/image-preview-preload";
 import { formatBytes } from "@/lib/utils-app";
 
 export type ImagePreviewAdjacentUrls = {
@@ -49,6 +54,7 @@ export function useImagePreviewController({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
+  const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
   const activeFileIdRef = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [adjacentUrls, setAdjacentUrls] = useState<ImagePreviewAdjacentUrls>({
@@ -76,6 +82,7 @@ export function useImagePreviewController({
           : null,
     });
   }, [currentIndex, images]);
+
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
   const showGalleryNav = images.length > 1;
@@ -95,10 +102,13 @@ export function useImagePreviewController({
       URL.revokeObjectURL(url);
     }
     urlCacheRef.current.clear();
+    inFlightRef.current.clear();
+    clearWarmedPreviewImages();
     activeFileIdRef.current = null;
     setDisplayUrl(null);
     setError("");
     setLoading(false);
+    setAdjacentUrls({ previous: null, next: null });
   }, []);
 
   const handleDialogOpenChange = useCallback(
@@ -117,30 +127,89 @@ export function useImagePreviewController({
     [shareToken, sharePassword],
   );
 
+  // Human: Fetch, cache, and decode one preview — dedupes concurrent requests for the same file id.
+  // Agent: READS urlCacheRef and inFlightRef; WRITES blob URL + warmPreviewImage; THROWS on active slide when silent is false.
+  const loadPreviewUrl = useCallback(
+    async (item: FileItem, options?: { warm?: boolean; silent?: boolean }): Promise<string | null> => {
+      const warm = options?.warm ?? true;
+      const silent = options?.silent ?? false;
+      const cachedUrl = urlCacheRef.current.get(item.id);
+      if (cachedUrl) {
+        if (warm) {
+          try {
+            await warmPreviewImage(item.id, cachedUrl);
+          } catch {
+            // Human: Warm failures are non-fatal — the carousel img can still decode on mount.
+          }
+        }
+        return cachedUrl;
+      }
+
+      const existingRequest = inFlightRef.current.get(item.id);
+      if (existingRequest) {
+        return existingRequest;
+      }
+
+      const request = fetchPreviewBlob(item)
+        .then(async (blob) => {
+          const url = cacheBlobUrl(item.id, blob);
+          if (warm) {
+            try {
+              await warmPreviewImage(item.id, url);
+            } catch {
+              // Human: Warm failures are non-fatal — the carousel img can still decode on mount.
+            }
+          }
+          return url;
+        })
+        .catch((err) => {
+          if (silent) return null;
+          throw err;
+        })
+        .finally(() => {
+          inFlightRef.current.delete(item.id);
+        });
+
+      inFlightRef.current.set(item.id, request);
+      return request;
+    },
+    [cacheBlobUrl, fetchPreviewBlob],
+  );
+
+  // Human: Keep current plus immediate neighbors fetched and decoded while the viewer is open.
+  // Agent: PARALLEL ensurePreviewUrl for center/prev/next; UPDATES displayUrl + adjacentUrls; RETAINS warmed bitmap window.
   useEffect(() => {
-    if (!open || !file?.id) return;
+    if (!open || !file?.id || currentIndex < 0) return;
 
     activeFileIdRef.current = file.id;
     const requestFileId = file.id;
-
-    const cached = urlCacheRef.current.get(requestFileId);
-    if (cached) {
-      setDisplayUrl(cached);
-      setError("");
-      setLoading(false);
-      return;
-    }
+    const prevItem = currentIndex > 0 ? images[currentIndex - 1]! : null;
+    const nextItem = currentIndex < images.length - 1 ? images[currentIndex + 1]! : null;
 
     let cancelled = false;
-    setLoading(true);
-    setError("");
+    const cachedCurrent = urlCacheRef.current.get(requestFileId);
+    if (cachedCurrent) {
+      setDisplayUrl(cachedCurrent);
+      setError("");
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setError("");
+    }
 
-    void fetchPreviewBlob(file)
-      .then((blob) => {
-        if (cancelled) return;
-        const url = cacheBlobUrl(requestFileId, blob);
-        if (activeFileIdRef.current !== requestFileId) return;
-        setDisplayUrl(url);
+    const retainIds = [requestFileId, prevItem?.id, nextItem?.id].filter(
+      (id): id is string => Boolean(id),
+    );
+    retainWarmedPreviewImages(retainIds);
+    refreshAdjacentUrls();
+
+    void loadPreviewUrl(file)
+      .then((url) => {
+        if (cancelled || activeFileIdRef.current !== requestFileId) return;
+        if (url) {
+          setDisplayUrl(url);
+          setError("");
+        }
       })
       .catch((err) => {
         if (cancelled || activeFileIdRef.current !== requestFileId) return;
@@ -151,37 +220,19 @@ export function useImagePreviewController({
         setLoading(false);
       });
 
+    void Promise.all([
+      prevItem ? loadPreviewUrl(prevItem, { silent: true }) : Promise.resolve(null),
+      nextItem ? loadPreviewUrl(nextItem, { silent: true }) : Promise.resolve(null),
+    ]).then(() => {
+      if (cancelled) return;
+      retainWarmedPreviewImages(retainIds);
+      refreshAdjacentUrls();
+    });
+
     return () => {
       cancelled = true;
     };
-  }, [open, file, cacheBlobUrl, fetchPreviewBlob]);
-
-  useEffect(() => {
-    refreshAdjacentUrls();
-  }, [refreshAdjacentUrls, displayUrl]);
-
-  useEffect(() => {
-    if (!open || currentIndex < 0) return;
-
-    const neighborIds = [images[currentIndex - 1]?.id, images[currentIndex + 1]?.id].filter(
-      (id): id is string => Boolean(id),
-    );
-
-    for (const neighborId of neighborIds) {
-      if (urlCacheRef.current.has(neighborId)) continue;
-      const neighbor = images.find((item) => item.id === neighborId);
-      if (!neighbor) continue;
-
-      void fetchPreviewBlob(neighbor)
-        .then((blob) => {
-          cacheBlobUrl(neighborId, blob);
-          refreshAdjacentUrls();
-        })
-        .catch(() => {
-          // Human: Preload failures are silent — the active slide loader still handles errors.
-        });
-    }
-  }, [open, currentIndex, images, cacheBlobUrl, fetchPreviewBlob, refreshAdjacentUrls]);
+  }, [open, file, currentIndex, images, loadPreviewUrl, refreshAdjacentUrls]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;
