@@ -19,6 +19,10 @@ const TEMP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 /// Agent: WRITTEN by gif_preview; MATCHED by is_ownly_temp_entry.
 pub const GIF_PREVIEW_TEMP_PREFIX: &str = "ownly_gif_preview_";
 
+/// Human: app_settings key — when true, the janitor purges idle ownly_gif_preview_* scratch dirs.
+/// Agent: READ by start_temp_janitor; WRITTEN by admin settings PATCH; DEFAULT true when unset.
+pub const GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY: &str = "gif_preview_temp_auto_cleanup";
+
 const OWNLY_TEMP_PREFIXES: &[&str] = &[
     "ownly_upload_",
     "ownly_hls_",
@@ -41,6 +45,12 @@ pub fn is_ownly_temp_entry(name: &str) -> bool {
     OWNLY_TEMP_PREFIXES
         .iter()
         .any(|prefix| name.starts_with(prefix))
+}
+
+// Human: True when a temp entry was created for iOS GIF/WebP preview ffmpeg transcode.
+// Agent: PREFIX match on GIF_PREVIEW_TEMP_PREFIX; USED by admin cleanup and janitor gating.
+pub fn is_gif_preview_temp_entry(name: &str) -> bool {
+    name.starts_with(GIF_PREVIEW_TEMP_PREFIX)
 }
 
 // Human: Guard against deleting the OS temp root itself.
@@ -93,9 +103,14 @@ pub fn is_idle_temp_path(path: &Path, max_idle: Duration) -> bool {
         .unwrap_or(false)
 }
 
-// Human: Remove one idle Ownly temp entry when safe.
-// Agent: SKIPS active paths; CALLS remove_dir_all or remove_file.
-async fn remove_idle_entry(path: &Path, max_idle: Duration) -> bool {
+// Human: Remove one Ownly temp entry when idle (or immediately when forced).
+// Agent: SKIPS non-ownly paths; OPTIONAL gif-preview gating; CALLS remove_dir_all/remove_file.
+async fn remove_temp_entry(
+    path: &Path,
+    max_idle: Duration,
+    force: bool,
+    include_gif_preview: bool,
+) -> bool {
     if !is_deletable_temp_path(path) {
         return false;
     }
@@ -105,7 +120,10 @@ async fn remove_idle_entry(path: &Path, max_idle: Duration) -> bool {
     if !is_ownly_temp_entry(name) {
         return false;
     }
-    if !is_idle_temp_path(path, max_idle) {
+    if is_gif_preview_temp_entry(name) && !include_gif_preview {
+        return false;
+    }
+    if !force && !is_idle_temp_path(path, max_idle) {
         return false;
     }
 
@@ -117,19 +135,19 @@ async fn remove_idle_entry(path: &Path, max_idle: Duration) -> bool {
 
     match result {
         Ok(()) => {
-            debug!(path = %path.display(), "removed idle temp entry");
+            debug!(path = %path.display(), force, "removed temp entry");
             true
         }
         Err(error) => {
-            warn!(path = %path.display(), %error, "failed to remove idle temp entry");
+            warn!(path = %path.display(), %error, "failed to remove temp entry");
             false
         }
     }
 }
 
 // Human: Scan the OS temp root and delete expired Ownly scratch entries.
-// Agent: READS direct children only; RETURNS count removed.
-pub async fn sweep_idle_temp_files(max_idle: Duration) -> u32 {
+// Agent: READS direct children only; RETURNS count removed; SKIPS gif preview when disabled.
+pub async fn sweep_idle_temp_files(max_idle: Duration, include_gif_preview: bool) -> u32 {
     let temp_root = std::env::temp_dir();
     let mut removed = 0u32;
 
@@ -142,7 +160,7 @@ pub async fn sweep_idle_temp_files(max_idle: Duration) -> u32 {
     };
 
     while let Ok(Some(entry)) = read_dir.next_entry().await {
-        if remove_idle_entry(&entry.path(), max_idle).await {
+        if remove_temp_entry(&entry.path(), max_idle, false, include_gif_preview).await {
             removed += 1;
         }
     }
@@ -150,14 +168,62 @@ pub async fn sweep_idle_temp_files(max_idle: Duration) -> u32 {
     removed
 }
 
+// Human: Admin command — delete every iOS GIF preview ffmpeg scratch dir under the OS temp root.
+// Agent: FORCE remove ownly_gif_preview_* children; RETURNS count removed; IGNORES idle TTL.
+pub async fn sweep_gif_preview_temp_files() -> u32 {
+    let temp_root = std::env::temp_dir();
+    let mut removed = 0u32;
+
+    let mut read_dir = match tokio::fs::read_dir(&temp_root).await {
+        Ok(dir) => dir,
+        Err(error) => {
+            warn!(temp_root = %temp_root.display(), %error, "gif preview temp cleanup read_dir failed");
+            return 0;
+        }
+    };
+
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !is_gif_preview_temp_entry(name) {
+            continue;
+        }
+        if remove_temp_entry(&path, TEMP_IDLE_MAX_AGE, true, true).await {
+            removed += 1;
+        }
+    }
+
+    removed
+}
+
+// Human: Read whether idle gif preview scratch dirs should be purged automatically.
+// Agent: READS app_settings gif_preview_temp_auto_cleanup; DEFAULT true when missing.
+async fn gif_preview_temp_auto_cleanup_enabled(pool: &sqlx::PgPool) -> bool {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM app_settings WHERE key = $1")
+            .bind(GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    row.map(|(value,)| value.eq_ignore_ascii_case("true") || value == "1")
+        .unwrap_or(true)
+}
+
 // Human: Spawn a periodic task that purges idle Ownly temp scratch files.
-// Agent: CALLED from run(); LOOPS sweep_idle_temp_files every TEMP_CLEANUP_INTERVAL.
-pub fn start_temp_janitor() {
+// Agent: CALLED from run(); READS gif_preview_temp_auto_cleanup setting each sweep.
+pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
     tokio::spawn(async move {
         loop {
-            let removed = sweep_idle_temp_files(TEMP_IDLE_MAX_AGE).await;
+            let include_gif_preview =
+                gif_preview_temp_auto_cleanup_enabled(&state.pool).await;
+
+            let removed =
+                sweep_idle_temp_files(TEMP_IDLE_MAX_AGE, include_gif_preview).await;
             if removed > 0 {
-                info!(removed, "idle temp cleanup completed");
+                info!(removed, include_gif_preview, "idle temp cleanup completed");
             }
             tokio::time::sleep(TEMP_CLEANUP_INTERVAL).await;
         }
@@ -175,6 +241,8 @@ mod tests {
     fn ownly_prefixes_are_recognized() {
         assert!(is_ownly_temp_entry("ownly_upload_abc"));
         assert!(is_ownly_temp_entry("ownly_gif_preview_xyz"));
+        assert!(is_gif_preview_temp_entry("ownly_gif_preview_xyz"));
+        assert!(!is_gif_preview_temp_entry("ownly_upload_abc"));
         assert!(!is_ownly_temp_entry(".tmpRandom"));
         assert!(!is_ownly_temp_entry("other_app_cache"));
     }

@@ -19,6 +19,8 @@ use crate::{
     auth::handlers::Claims,
     crypto,
     error::AppError,
+    files::gif_preview,
+    temp_cleanup::{self, GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY},
     AppState,
 };
 
@@ -108,6 +110,9 @@ fn audit_description(action: &str, resource_type: Option<&str>, resource_id: Opt
         "admin.sessions.revoke" => "Administrator revoked a user session".into(),
         "admin.sessions.revoke_others" => "Administrator revoked other user sessions".into(),
         "admin.settings.update" => "Administrator updated system settings".into(),
+        "admin.gif_preview_temp.cleanup" => {
+            "Administrator purged iOS GIF preview scratch files and cached MP4 sidecars".into()
+        }
         "files.upload" => "File uploaded to storage".into(),
         "files.delete" => "File deleted".into(),
         other => {
@@ -584,6 +589,8 @@ pub struct AdminSettingsResponse {
     pub maintenance_mode: bool,
     pub default_onboarding_role: String,
     pub enforce_mfa_on_admin_login: bool,
+    /// Human: When enabled, idle ownly_gif_preview_* ffmpeg scratch dirs are purged automatically.
+    pub gif_preview_temp_auto_cleanup: bool,
     pub smtp: AdminSmtpSettings,
     pub notification_rules: AdminNotificationRules,
 }
@@ -607,6 +614,13 @@ pub struct AdminSettingsPatch {
     pub notification_storage_offline: Option<bool>,
     pub notification_audit_violations: Option<bool>,
     pub notification_quota_alerts: Option<bool>,
+    pub gif_preview_temp_auto_cleanup: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CleanupGifPreviewTempResponse {
+    pub temp_dirs_removed: u32,
+    pub storage_objects_removed: u32,
 }
 
 fn notification_rules_from_json(raw: Option<String>) -> AdminNotificationRules {
@@ -644,6 +658,10 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         .and_then(|v| v.parse().ok())
         .unwrap_or(50)
         .max(1);
+    let gif_preview_temp_auto_cleanup = parse_bool_setting(
+        read_setting(&state.pool, GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY).await,
+        true,
+    );
 
     let smtp_password_set = read_setting(&state.pool, "smtp_password")
         .await
@@ -659,6 +677,7 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         maintenance_mode,
         default_onboarding_role,
         enforce_mfa_on_admin_login,
+        gif_preview_temp_auto_cleanup,
         smtp: AdminSmtpSettings {
             host: read_setting(&state.pool, "smtp_host")
                 .await
@@ -760,6 +779,14 @@ pub async fn patch_settings(
         )
         .await?;
     }
+    if let Some(v) = body.gif_preview_temp_auto_cleanup {
+        upsert_setting(
+            &state.pool,
+            GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY,
+            if v { "true" } else { "false" },
+        )
+        .await?;
+    }
     if let Some(v) = body.smtp_host.as_ref() {
         upsert_setting(&state.pool, "smtp_host", v.trim()).await?;
     }
@@ -815,6 +842,41 @@ pub async fn patch_settings(
     .ok();
 
     Ok(Json(load_settings_response(&state).await?))
+}
+
+// Human: Admin command — purge iOS GIF replay scratch dirs and cached MP4 sidecars immediately.
+// Agent: POST /api/v1/admin/maintenance/cleanup-gif-preview-temp; AUDIT admin.gif_preview_temp.cleanup.
+pub async fn cleanup_gif_preview_temp(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<CleanupGifPreviewTempResponse>, AppError> {
+    require_admin(&claims)?;
+
+    let temp_dirs_removed = temp_cleanup::sweep_gif_preview_temp_files().await;
+    let storage_objects_removed =
+        gif_preview::purge_all_cached_preview_sidecars(&state.pool, state.storage.clone())
+            .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "admin.gif_preview_temp.cleanup",
+        Some("instance"),
+        Some(&claims.sub),
+        Some(serde_json::json!({
+            "temp_dirs_removed": temp_dirs_removed,
+            "storage_objects_removed": storage_objects_removed,
+        })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(CleanupGifPreviewTempResponse {
+        temp_dirs_removed,
+        storage_objects_removed,
+    }))
 }
 
 #[derive(Debug, Serialize)]

@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use tokio::sync::Mutex;
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use tempfile::TempDir;
 
 use crate::temp_cleanup::{create_ownly_temp_dir, GIF_PREVIEW_TEMP_PREFIX};
@@ -21,11 +21,13 @@ use tokio::process::Command;
 
 use crate::{
     error::AppError,
+    files::delete_config::DELETE_BLOB_CONCURRENCY,
     hls::handlers::{encode_query_component, TicketParams},
     storage::Storage,
     stream_ticket,
     AppState,
 };
+use sqlx::PgPool;
 
 /// Human: Sidecar object name for a cached GIF→MP4 preview (one per uploaded GIF blob).
 /// Agent: APPENDED under the file storage_key; NOT shown as a separate drive row.
@@ -87,6 +89,53 @@ pub fn is_gif_mime(mime_type: &str) -> bool {
 pub fn qualifies_for_animated_preview(mime_type: &str) -> bool {
     let mime = mime_type.to_ascii_lowercase();
     mime.contains("gif") || mime == "image/webp"
+}
+
+// Human: Admin maintenance — delete cached iOS replay MP4/meta sidecars for active GIF/WebP files.
+// Agent: READS files.storage_key; DELETE storage objects; RETURNS count of delete attempts.
+pub async fn purge_all_cached_preview_sidecars(
+    pool: &PgPool,
+    storage: Arc<dyn Storage>,
+) -> Result<u32, AppError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT storage_key FROM files \
+         WHERE deleted_at IS NULL \
+           AND (lower(mime_type) LIKE '%gif%' OR lower(mime_type) = 'image/webp')",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let keys: Vec<String> = rows
+        .into_iter()
+        .flat_map(|(storage_key,)| {
+            [
+                gif_preview_object_key(&storage_key),
+                gif_preview_meta_object_key(&storage_key),
+            ]
+        })
+        .collect();
+
+    let removed = stream::iter(keys)
+        .map(|key| {
+            let storage = storage.clone();
+            async move {
+                if !storage.exists(&key).await.unwrap_or(false) {
+                    return 0u32;
+                }
+                match storage.delete(&key).await {
+                    Ok(()) => 1,
+                    Err(error) => {
+                        tracing::warn!(key = %key, %error, "failed to delete gif preview sidecar");
+                        0
+                    }
+                }
+            }
+        })
+        .buffer_unordered(DELETE_BLOB_CONCURRENCY)
+        .fold(0u32, |acc, count| async move { acc.saturating_add(count) })
+        .await;
+
+    Ok(removed)
 }
 
 // Human: Read the first bytes of an upload temp file for magic-byte MIME reconciliation.

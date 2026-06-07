@@ -2,12 +2,14 @@
 // Agent: READS preview-animation URL or byteSource; PLAYS muted video or CALLS startIosGifPlayback.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Loader2 } from "lucide-react";
 import { startIosGifPlayback } from "@/components/drive/image/animated-gif-playback";
 import { withAnimatedPreviewContainFit } from "@/components/drive/image/image-preview-layout";
 import {
   isAppleTouchDevice,
   isServerGifAnimationPreviewUrl,
 } from "@/components/drive/image/image-preview-gif";
+import { cn } from "@/lib/utils";
 
 // Human: Normalize fit styles so video/canvas never stretch when parent passes width/height percentages.
 // Agent: MERGES fitStyle; FORCES objectFit contain on every animated preview surface.
@@ -51,6 +53,27 @@ async function loadGifArrayBuffer(
   return response.arrayBuffer();
 }
 
+type GifPreviewProcessingLoaderProps = {
+  label?: string;
+};
+
+// Human: Centered spinner while iOS waits on server MP4 transcode or client decode.
+// Agent: ABSOLUTE overlay; RENDERS Loader2; COVERS ServerGifVideo and ClientGifPlayback.
+function GifPreviewProcessingLoader({
+  label = "Preparing animation…",
+}: GifPreviewProcessingLoaderProps) {
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
 type ServerGifVideoProps = {
   url: string;
   alt: string;
@@ -61,7 +84,7 @@ type ServerGifVideoProps = {
 };
 
 // Human: Play ffmpeg-generated MP4 from the API — primary iOS WebKit GIF workaround.
-// Agent: MOUNTS muted looping video; CALLS onFailed when the ticket stream is not playable.
+// Agent: MOUNTS muted looping video; SHOWS loader until canplay; CALLS onFailed on error.
 function ServerGifVideo({
   url,
   alt,
@@ -71,10 +94,17 @@ function ServerGifVideo({
 }: Omit<ServerGifVideoProps, "onNaturalSize">) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStyle = withAnimatedPreviewContainFit(fitStyle, 0, 0);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+
+  useEffect(() => {
+    setIsVideoReady(false);
+  }, [url]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    const markReady = () => setIsVideoReady(true);
 
     // Human: iOS may block first autoplay — retry on canplay and when tab becomes visible again.
     // Agent: CALLS muted play(); INVOKES onFailed when playback stays blocked.
@@ -87,6 +117,8 @@ function ServerGifVideo({
 
     tryPlay();
     video.addEventListener("canplay", tryPlay);
+    video.addEventListener("canplay", markReady);
+    video.addEventListener("playing", markReady);
     const onVisibility = () => {
       if (document.visibilityState === "visible" && video.paused) {
         tryPlay();
@@ -96,29 +128,34 @@ function ServerGifVideo({
 
     return () => {
       video.removeEventListener("canplay", tryPlay);
+      video.removeEventListener("canplay", markReady);
+      video.removeEventListener("playing", markReady);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [url, onFailed]);
 
   return (
-    <video
-      ref={videoRef}
-      role="img"
-      aria-label={alt}
-      style={mediaStyle}
-      className={className}
-      src={url}
-      autoPlay
-      muted
-      loop
-      playsInline
-      // Human: Legacy WebKit attribute — some iOS builds still require it alongside playsInline.
-      // Agent: SETS webkit-playsinline for Safari animated preview reliability.
-      {...({ "webkit-playsinline": "true" } as Record<string, string>)}
-      disablePictureInPicture
-      controls={false}
-      onError={() => onFailed?.()}
-    />
+    <div className="relative" style={mediaStyle}>
+      <video
+        ref={videoRef}
+        role="img"
+        aria-label={alt}
+        style={{ objectFit: "contain" }}
+        className={cn(className, "block size-full")}
+        src={url}
+        autoPlay
+        muted
+        loop
+        playsInline
+        // Human: Legacy WebKit attribute — some iOS builds still require it alongside playsInline.
+        // Agent: SETS webkit-playsinline for Safari animated preview reliability.
+        {...({ "webkit-playsinline": "true" } as Record<string, string>)}
+        disablePictureInPicture
+        controls={false}
+        onError={() => onFailed?.()}
+      />
+      {!isVideoReady ? <GifPreviewProcessingLoader /> : null}
+    </div>
   );
 }
 
@@ -185,8 +222,13 @@ function ClientGifPlayback({
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [isPreparing, setIsPreparing] = useState(true);
+  const [clientVideoReady, setClientVideoReady] = useState(false);
   const waitingForBytes =
     isAppleTouchDevice() && !byteSource && (preferByteSource || !isServerGifAnimationPreviewUrl(url));
+
+  useEffect(() => {
+    setClientVideoReady(false);
+  }, [byteSource, fileId, url, preferByteSource]);
 
   useEffect(() => {
     if (waitingForBytes) {
@@ -284,32 +326,32 @@ function ClientGifPlayback({
     );
   }
 
+  const showProcessingLoader =
+    waitingForBytes ||
+    isPreparing ||
+    (Boolean(videoUrl) && !clientVideoReady && !loadError);
+
   return (
-    <>
+    <div className="relative" style={mediaStyle}>
       <canvas
         ref={canvasRef}
         role="img"
         aria-label={alt}
         style={{
-          ...mediaStyle,
+          objectFit: "contain",
           display: videoUrl ? "none" : undefined,
         }}
-        className={className}
+        className={cn(className, "block size-full")}
       />
-      {waitingForBytes || isPreparing ? (
-        <span className="sr-only" aria-live="polite">
-          Preparing animated image…
-        </span>
-      ) : null}
       <video
         ref={videoRef}
         role="img"
         aria-label={alt}
         style={{
-          ...mediaStyle,
+          objectFit: "contain",
           display: videoUrl ? undefined : "none",
         }}
-        className={className}
+        className={cn(className, "block size-full")}
         src={videoUrl ?? undefined}
         autoPlay
         muted
@@ -318,7 +360,9 @@ function ClientGifPlayback({
         {...({ "webkit-playsinline": "true" } as Record<string, string>)}
         disablePictureInPicture
         controls={false}
+        onPlaying={() => setClientVideoReady(true)}
       />
-    </>
+      {showProcessingLoader ? <GifPreviewProcessingLoader /> : null}
+    </div>
   );
 }

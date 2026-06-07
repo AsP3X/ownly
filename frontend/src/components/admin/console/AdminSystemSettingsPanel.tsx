@@ -2,7 +2,7 @@
 // Agent: CALLS fetchAdminSettings/updateAdminSettings; RENDERS editable General / Security / SMTP tabs.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import {
   ENCRYPTION_SUMMARY,
@@ -13,6 +13,7 @@ import {
   SYMMETRIC_CIPHER,
 } from "@/lib/encryption-standards";
 import {
+  cleanupGifPreviewTempFiles,
   fetchAdminSettings,
   getErrorMessage,
   updateAdminSettings,
@@ -21,6 +22,7 @@ import {
 } from "@/api/client";
 import {
   AdminConsoleField,
+  AdminConsoleOutlineButton,
   AdminConsolePageHeader,
   AdminConsolePrimaryButton,
   AdminConsoleSettingsPanel,
@@ -39,6 +41,8 @@ export function AdminSystemSettingsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [smtpPasswordDraft, setSmtpPasswordDraft] = useState("");
+  const [cleaningGifPreviewTemp, setCleaningGifPreviewTemp] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +80,7 @@ export function AdminSystemSettingsPanel() {
       maintenance_mode: form.maintenance_mode,
       default_onboarding_role: form.default_onboarding_role,
       enforce_mfa_on_admin_login: form.enforce_mfa_on_admin_login,
+      gif_preview_temp_auto_cleanup: form.gif_preview_temp_auto_cleanup,
       smtp_host: form.smtp.host,
       smtp_port: form.smtp.port,
       smtp_from: form.smtp.from_address,
@@ -95,6 +100,37 @@ export function AdminSystemSettingsPanel() {
       setError(getErrorMessage(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Human: Run immediate purge of iOS GIF replay scratch dirs and cached MP4 sidecars.
+  // Agent: POST cleanup-gif-preview-temp; SHOWS counts in cleanupMessage.
+  async function handleCleanupGifPreviewTemp() {
+    if (
+      !window.confirm(
+        "Remove all iOS GIF preview scratch directories and cached MP4 sidecars now? " +
+          "Sidecars rebuild on the next preview open.",
+      )
+    ) {
+      return;
+    }
+
+    setCleaningGifPreviewTemp(true);
+    setError(null);
+    setCleanupMessage(null);
+    try {
+      const result = await cleanupGifPreviewTempFiles();
+      setCleanupMessage(
+        `Cleanup complete — removed ${result.temp_dirs_removed} scratch director${
+          result.temp_dirs_removed === 1 ? "y" : "ies"
+        } and ${result.storage_objects_removed} cached preview object${
+          result.storage_objects_removed === 1 ? "" : "s"
+        }.`,
+      );
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setCleaningGifPreviewTemp(false);
     }
   }
 
@@ -123,6 +159,11 @@ export function AdminSystemSettingsPanel() {
       {savedMessage ? (
         <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
           {savedMessage}
+        </p>
+      ) : null}
+      {cleanupMessage ? (
+        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {cleanupMessage}
         </p>
       ) : null}
 
@@ -216,6 +257,40 @@ export function AdminSystemSettingsPanel() {
                       />
                       Require account activation before first sign-in
                     </label>
+                  </div>
+                </AdminConsoleSettingsRow>
+                <AdminConsoleSettingsRow
+                  title="iOS GIF Preview Cleanup"
+                  description="Manage ffmpeg scratch directories and cached MP4 sidecars created when animated GIFs are transcoded for iOS Safari replay."
+                >
+                  <div className="flex flex-col gap-4">
+                    <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                      <input
+                        type="checkbox"
+                        checked={form.gif_preview_temp_auto_cleanup}
+                        onChange={(e) =>
+                          patchForm({ gif_preview_temp_auto_cleanup: e.target.checked })
+                        }
+                        className="size-4 rounded border-[#E5E7EB]"
+                      />
+                      Automatically purge idle GIF preview scratch files after 2 minutes
+                    </label>
+                    <p className="text-xs text-[#888888]">
+                      Scratch dirs use the <code className="text-[11px]">ownly_gif_preview_</code>{" "}
+                      prefix under the API host temp directory. Active transcodes are never removed
+                      while frames are still being written.
+                    </p>
+                    <AdminConsoleOutlineButton
+                      onClick={() => void handleCleanupGifPreviewTemp()}
+                      disabled={cleaningGifPreviewTemp || saving || loading}
+                    >
+                      {cleaningGifPreviewTemp ? (
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                      ) : (
+                        <Trash2 className="size-4 shrink-0" aria-hidden />
+                      )}
+                      Clean up GIF preview files now
+                    </AdminConsoleOutlineButton>
                   </div>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow

@@ -623,6 +623,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(admin::console::get_settings).patch(admin::console::patch_settings),
         )
         .route(
+            "/api/v1/admin/maintenance/cleanup-gif-preview-temp",
+            post(admin::console::cleanup_gif_preview_temp),
+        )
+        .route(
             "/api/v1/admin/security",
             get(admin::console::security_overview),
         )
@@ -691,7 +695,7 @@ pub async fn run() -> anyhow::Result<()> {
     let state = create_app_state(&config).await?;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
     files::recycle_bin::start_recycle_bin_purger(state.clone());
-    temp_cleanup::start_temp_janitor();
+    temp_cleanup::start_temp_janitor(state.clone());
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;

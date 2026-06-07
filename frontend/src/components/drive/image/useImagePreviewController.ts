@@ -10,7 +10,6 @@ import {
   fetchPublicShareBlobForPreview,
   fetchPublicShareGifAnimationPreviewUrl,
   getErrorMessage,
-  probeServerGifAnimationPreviewUrl,
 } from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
@@ -341,8 +340,8 @@ export function useImagePreviewController({
             return null;
           }
 
-          // Human: iOS animated preview — cache source bytes first, then use server MP4 only when stream is ready.
-          // Agent: WRITES gifBlob cache; PROBES preview-animation; FALLBACK blob URL + client transcode.
+          // Human: iOS animated preview — cache bytes, then open preview-animation while loader covers transcode.
+          // Agent: WRITES gifBlob cache; RETURNS preview-animation URL; AnimatedGifCanvas shows server loader.
           if (needsIosGifWorkaround) {
             const blob = await fetchPreviewBlob(item, controller.signal);
             if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
@@ -360,19 +359,13 @@ export function useImagePreviewController({
                     sharePassword,
                   )
                 : await fetchFileGifAnimationPreviewUrl(item);
-              const probeReady = await probeServerGifAnimationPreviewUrl(
-                animation.url,
-                shareToken ? sharePassword : null,
-              );
               if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
-              if (probeReady) {
-                return cachePreviewUrl(
-                  item.id,
-                  animation.url,
-                  animation.revokeOnClose,
-                  session,
-                );
-              }
+              return cachePreviewUrl(
+                item.id,
+                animation.url,
+                animation.revokeOnClose,
+                session,
+              );
             } catch {
               // Human: Server transcode unavailable — client ImageDecoder path uses cached blob below.
             }

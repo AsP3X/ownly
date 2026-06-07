@@ -578,6 +578,8 @@ export type AdminSettingsResponse = {
   maintenance_mode: boolean;
   default_onboarding_role: string;
   enforce_mfa_on_admin_login: boolean;
+  /** Human: Auto-purge idle ownly_gif_preview_* ffmpeg scratch dirs on the API host. */
+  gif_preview_temp_auto_cleanup: boolean;
   smtp: {
     host: string;
     port: string;
@@ -602,6 +604,7 @@ export type AdminSettingsPatch = Partial<{
   maintenance_mode: boolean;
   default_onboarding_role: string;
   enforce_mfa_on_admin_login: boolean;
+  gif_preview_temp_auto_cleanup: boolean;
   smtp_host: string;
   smtp_port: string;
   smtp_from: string;
@@ -626,6 +629,19 @@ export async function updateAdminSettings(body: AdminSettingsPatch) {
     method: "PATCH",
     body: JSON.stringify(body),
   }) as Promise<AdminSettingsResponse>;
+}
+
+export type CleanupGifPreviewTempResponse = {
+  temp_dirs_removed: number;
+  storage_objects_removed: number;
+};
+
+// Human: Admin command — purge iOS GIF replay ffmpeg scratch and cached MP4 sidecars now.
+// Agent: POST /admin/maintenance/cleanup-gif-preview-temp; AUDIT admin.gif_preview_temp.cleanup.
+export async function cleanupGifPreviewTempFiles() {
+  return apiFetch("/admin/maintenance/cleanup-gif-preview-temp", {
+    method: "POST",
+  }) as Promise<CleanupGifPreviewTempResponse>;
 }
 
 export type AdminSecurityOverviewResponse = {
