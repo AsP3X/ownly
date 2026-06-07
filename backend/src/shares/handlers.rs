@@ -4,7 +4,7 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
     Extension, Json,
 };
@@ -19,6 +19,7 @@ use crate::{
     files::{
         file_copy::{copy_storage_artifacts, unique_name_in_folder, CopyFileSourceRow},
         folders::{ensure_folder_owned, FolderDto},
+        gif_preview::{self, qualifies_for_animated_preview},
         handlers::{FileDto, FILE_COLUMNS},
         processing::ensure_file_not_processing,
         zip_job::{
@@ -27,7 +28,8 @@ use crate::{
         },
     },
     hls::handlers::{
-        build_playlist_for_playback, open_hls_segment, resolve_hls_aes_key, HlsPlaybackRow,
+        build_playlist_for_playback, encode_query_component, open_hls_segment,
+        resolve_hls_aes_key, HlsPlaybackRow,
     },
     rate_limit,
     shares::store::{
@@ -38,6 +40,7 @@ use crate::{
         resolve_active_share, sharer_email,
         verify_share_password, ShareRecord, SHARE_RECORD_COLUMNS,
     },
+    stream_ticket,
     AppState,
 };
 
@@ -1171,6 +1174,89 @@ pub async fn public_share_download(
         body,
     )
         .into_response())
+}
+
+// Human: Return a ticket URL for server-transcoded animated preview MP4 inside a public share.
+// Agent: resolve_public_share; GIF/WebP mime only; EMITS share-scoped preview-animation href.
+pub async fn public_share_preview_animation_url(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, file_id)): Path<(String, String)>,
+) -> Result<Json<crate::files::handlers::DownloadUrlResponse>, AppError> {
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
+    load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+
+    let row: Option<(String, i64)> = sqlx::query_as(
+        "SELECT mime_type, size_bytes FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&file_id)
+    .bind(&share.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, _size_bytes) = row.ok_or(AppError::NotFound)?;
+    if !qualifies_for_animated_preview(&mime_type) {
+        return Err(AppError::BadRequest(
+            "animated preview is only available for GIF and animated WebP images".into(),
+        ));
+    }
+
+    let ticket = stream_ticket::generate_ticket(
+        &file_id,
+        &share.user_id,
+        &state.signing_secret,
+        state.url_expiry_seconds,
+    );
+    let encoded = encode_query_component(&ticket);
+    Ok(Json(crate::files::handlers::DownloadUrlResponse {
+        url: format!(
+            "/api/v1/public/shares/{token}/files/{file_id}/preview-animation?ticket={encoded}"
+        ),
+        expires_in_seconds: state.url_expiry_seconds,
+    }))
+}
+
+// Human: Ticket-gated MP4 animated preview stream for shared GIF/WebP files (iOS WebKit).
+// Agent: validate_ticket; CALLS gif_preview::open_gif_preview_stream; SUPPORTS HEAD probe.
+pub async fn public_share_preview_animation(
+    method: Method,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, file_id)): Path<(String, String)>,
+    Query(params): Query<crate::hls::handlers::TicketParams>,
+) -> Result<Response, AppError> {
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
+    load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+
+    let ticket = params.ticket.ok_or(AppError::Unauthorized)?;
+    stream_ticket::validate_ticket(&ticket, &file_id, &state.signing_secret)?;
+
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT storage_key, mime_type, size_bytes FROM files WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&file_id)
+    .bind(&share.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (storage_key, mime_type, size_bytes) = row.ok_or(AppError::NotFound)?;
+    if !qualifies_for_animated_preview(&mime_type) {
+        return Err(AppError::NotFound);
+    }
+
+    let (stream, mp4_size) = gif_preview::open_gif_preview_stream(
+        &state,
+        &storage_key,
+        size_bytes.max(0) as u64,
+    )
+    .await?;
+    let response_headers = gif_preview::preview_mp4_headers_for_size(mp4_size)?;
+
+    if method == Method::HEAD {
+        return Ok((StatusCode::OK, response_headers).into_response());
+    }
+
+    Ok((response_headers, Body::from_stream(stream)).into_response())
 }
 
 // Human: Return HLS playlist URL for a video inside a public share (when ready).

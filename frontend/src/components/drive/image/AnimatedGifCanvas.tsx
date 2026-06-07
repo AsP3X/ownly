@@ -33,6 +33,9 @@ async function loadGifArrayBuffer(
   if (byteSource instanceof Blob) {
     return byteSource.arrayBuffer();
   }
+  if (!url) {
+    throw new Error("gif bytes unavailable");
+  }
 
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
   if (!response.ok) {
@@ -47,21 +50,48 @@ type ServerGifVideoProps = {
   fitStyle: CSSProperties;
   className?: string;
   onNaturalSize?: (width: number, height: number) => void;
+  onFailed?: () => void;
 };
 
 // Human: Play ffmpeg-generated MP4 from the API — primary iOS WebKit GIF workaround.
-// Agent: MOUNTS muted looping video; READS natural size from loadedmetadata.
-function ServerGifVideo({ url, alt, fitStyle, className, onNaturalSize }: ServerGifVideoProps) {
+// Agent: MOUNTS muted looping video; CALLS onFailed when the ticket stream is not playable.
+function ServerGifVideo({
+  url,
+  alt,
+  fitStyle,
+  className,
+  onNaturalSize,
+  onFailed,
+}: ServerGifVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = true;
-    video.playsInline = true;
-    video.loop = true;
-    void video.play().catch(() => undefined);
-  }, [url]);
+
+    // Human: iOS may block first autoplay — retry on canplay and when tab becomes visible again.
+    // Agent: CALLS muted play(); INVOKES onFailed when playback stays blocked.
+    const tryPlay = () => {
+      video.muted = true;
+      video.playsInline = true;
+      video.loop = true;
+      void video.play().catch(() => onFailed?.());
+    };
+
+    tryPlay();
+    video.addEventListener("canplay", tryPlay);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && video.paused) {
+        tryPlay();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      video.removeEventListener("canplay", tryPlay);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [url, onFailed]);
 
   return (
     <video
@@ -75,6 +105,9 @@ function ServerGifVideo({ url, alt, fitStyle, className, onNaturalSize }: Server
       muted
       loop
       playsInline
+      // Human: Legacy WebKit attribute — some iOS builds still require it alongside playsInline.
+      // Agent: SETS webkit-playsinline for Safari animated preview reliability.
+      {...({ "webkit-playsinline": "true" } as Record<string, string>)}
       disablePictureInPicture
       controls={false}
       onLoadedMetadata={(event) => {
@@ -83,6 +116,7 @@ function ServerGifVideo({ url, alt, fitStyle, className, onNaturalSize }: Server
           onNaturalSize?.(video.videoWidth, video.videoHeight);
         }
       }}
+      onError={() => onFailed?.()}
     />
   );
 }
@@ -98,7 +132,11 @@ export function AnimatedGifCanvas({
   className,
   onNaturalSize,
 }: AnimatedGifCanvasProps) {
-  if (isServerGifAnimationPreviewUrl(url)) {
+  const [serverVideoFailed, setServerVideoFailed] = useState(false);
+  const useServerVideo =
+    isServerGifAnimationPreviewUrl(url) && !serverVideoFailed;
+
+  if (useServerVideo) {
     return (
       <ServerGifVideo
         url={url}
@@ -106,6 +144,7 @@ export function AnimatedGifCanvas({
         fitStyle={fitStyle}
         className={className}
         onNaturalSize={onNaturalSize}
+        onFailed={() => setServerVideoFailed(true)}
       />
     );
   }
@@ -119,11 +158,14 @@ export function AnimatedGifCanvas({
       fitStyle={fitStyle}
       className={className}
       onNaturalSize={onNaturalSize}
+      preferByteSource={serverVideoFailed}
     />
   );
 }
 
-type ClientGifPlaybackProps = AnimatedGifCanvasProps;
+type ClientGifPlaybackProps = AnimatedGifCanvasProps & {
+  preferByteSource?: boolean;
+};
 
 // Human: Client-side GIF decode when server MP4 is unavailable (share links, offline dev).
 // Agent: CALLS startIosGifPlayback; FALLBACK img only off iOS.
@@ -135,13 +177,15 @@ function ClientGifPlayback({
   fitStyle,
   className,
   onNaturalSize,
+  preferByteSource = false,
 }: ClientGifPlaybackProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [isPreparing, setIsPreparing] = useState(true);
-  const waitingForBytes = isAppleTouchDevice() && !byteSource;
+  const waitingForBytes =
+    isAppleTouchDevice() && !byteSource && (preferByteSource || !isServerGifAnimationPreviewUrl(url));
 
   useEffect(() => {
     if (waitingForBytes) {
@@ -158,7 +202,10 @@ function ClientGifPlayback({
       if (!canvas) return;
 
       try {
-        const buffer = await loadGifArrayBuffer(byteSource, url);
+        const buffer = await loadGifArrayBuffer(
+          byteSource,
+          preferByteSource ? "" : url,
+        );
         if (cancelled) return;
 
         const handle = await startIosGifPlayback({
@@ -212,7 +259,7 @@ function ClientGifPlayback({
       }
       setVideoUrl(null);
     };
-  }, [byteSource, fileId, url, onNaturalSize, waitingForBytes]);
+  }, [byteSource, fileId, url, onNaturalSize, waitingForBytes, preferByteSource]);
 
   if (loadError && !isAppleTouchDevice()) {
     return (

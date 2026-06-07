@@ -585,6 +585,23 @@ pub async fn upload_file(
         content_type
     };
 
+    // Human: Reconcile image Content-Type with magic bytes before storage PUT (WebP-as-GIF uploads).
+    // Agent: READS tmp_path header; CALLS gif_preview::reconcile_upload_image_mime for non-video spools.
+    let mime = match &received_body {
+        ReceivedUploadBody::DiskSpool {
+            tmp_path,
+            is_video: false,
+            ..
+        } => {
+            if let Ok(head) = crate::files::gif_preview::read_file_magic_head(tmp_path).await {
+                crate::files::gif_preview::reconcile_upload_image_mime(&head, &mime)
+            } else {
+                mime
+            }
+        }
+        _ => mime,
+    };
+
     let storage_put_started = Instant::now();
     let db_started = Instant::now();
 

@@ -8,7 +8,9 @@ import {
   fetchFileGifAnimationPreviewUrl,
   fetchFileStreamUrlForPreview,
   fetchPublicShareBlobForPreview,
+  fetchPublicShareGifAnimationPreviewUrl,
   getErrorMessage,
+  probeServerGifAnimationPreviewUrl,
 } from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
@@ -320,7 +322,7 @@ export function useImagePreviewController({
       const isActive = () => isCacheSessionActive(session);
       const isMobilePreview = Boolean(previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0);
       const isGif = isGifPreviewFile(item);
-      const needsIosGifWorkaround = isGif && shouldUseGifCanvasPlayback() && !shareToken;
+      const needsIosGifWorkaround = isGif && shouldUseGifCanvasPlayback();
 
       if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
@@ -339,16 +341,43 @@ export function useImagePreviewController({
             return null;
           }
 
-          // Human: Server ffmpeg MP4 is the primary iOS WebKit workaround for animated GIFs.
-          // Agent: GET /files/:id/preview-animation-url; FALLBACK to blob + client transcode.
+          // Human: iOS animated preview — cache source bytes first, then use server MP4 only when stream is ready.
+          // Agent: WRITES gifBlob cache; PROBES preview-animation; FALLBACK blob URL + client transcode.
           if (needsIosGifWorkaround) {
+            const blob = await fetchPreviewBlob(item, controller.signal);
+            if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
+
+            const displayBlob = normalizePreviewBlob(blob, item.mime_type);
+            const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
+            rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
+            cacheGifBlob(item.id, displayBlob, session);
+
             try {
-              const animation = await fetchFileGifAnimationPreviewUrl(item);
+              const animation = shareToken
+                ? await fetchPublicShareGifAnimationPreviewUrl(
+                    shareToken,
+                    item,
+                    sharePassword,
+                  )
+                : await fetchFileGifAnimationPreviewUrl(item);
+              const probeReady = await probeServerGifAnimationPreviewUrl(
+                animation.url,
+                shareToken ? sharePassword : null,
+              );
               if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
-              return cachePreviewUrl(item.id, animation.url, animation.revokeOnClose, session);
+              if (probeReady) {
+                return cachePreviewUrl(
+                  item.id,
+                  animation.url,
+                  animation.revokeOnClose,
+                  session,
+                );
+              }
             } catch {
-              // Human: Server transcode may fail when ffmpeg is unavailable — use client path below.
+              // Human: Server transcode unavailable — client ImageDecoder path uses cached blob below.
             }
+
+            return cacheBlobUrl(item.id, displayBlob, session);
           }
 
           // Human: Same-origin stream bytes keep GIF animation on Android mobile — skip downscale.
@@ -372,13 +401,6 @@ export function useImagePreviewController({
           if (isMobilePreview && isGif) {
             const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
             rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
-            if (needsIosGifWorkaround) {
-              cacheGifBlob(item.id, displayBlob, session);
-            }
-          } else if (needsIosGifWorkaround && isGif) {
-            const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
-            rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
-            cacheGifBlob(item.id, displayBlob, session);
           } else if (isMobilePreview) {
             const prepared = await preparePreviewDisplayBlob(
               displayBlob,
@@ -416,6 +438,7 @@ export function useImagePreviewController({
       previewDisplayMaxEdgePx,
       rememberPreviewDimensions,
       shareToken,
+      sharePassword,
     ],
   );
 

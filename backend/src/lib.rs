@@ -94,6 +94,9 @@ pub struct AppState {
     pub hls_hardware: hls::hardware::HlsHardwareEncode,
     /// Human: `nebular` or `ownly` — where object index metadata is authoritative.
     pub storage_metadata_mode: String,
+    /// Human: Serialize ffmpeg sidecar generation per storage_key on cache miss.
+    /// Agent: READ by gif_preview::open_gif_preview_stream; WRITES per-key Mutex map.
+    pub gif_preview_transcode_locks: Arc<files::gif_preview::GifPreviewTranscodeLocks>,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -116,6 +119,7 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
         .allow_origin(AllowOrigin::list(origins))
         .allow_methods([
             Method::GET,
+            Method::HEAD,
             Method::POST,
             Method::PUT,
             Method::PATCH,
@@ -223,6 +227,7 @@ async fn build_app_state(
         max_upload_bytes: config.max_upload_bytes,
         hls_hardware,
         storage_metadata_mode: config.storage_metadata_mode.clone(),
+        gif_preview_transcode_locks: Arc::new(files::gif_preview::GifPreviewTranscodeLocks::new()),
     }))
 }
 
@@ -332,7 +337,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/files/{id}/preview-animation",
-            get(files::gif_preview::stream_gif_preview_animation),
+            get(files::gif_preview::stream_gif_preview_animation)
+                .head(files::gif_preview::stream_gif_preview_animation),
         )
         .route(
             "/api/v1/files/{id}/hls/manifest.m3u8",
@@ -361,6 +367,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/public/shares/{token}/files/{file_id}",
             get(shares::handlers::public_share_file),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/preview-animation-url",
+            get(shares::handlers::public_share_preview_animation_url),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/preview-animation",
+            get(shares::handlers::public_share_preview_animation)
+                .head(shares::handlers::public_share_preview_animation),
         )
         .route(
             "/api/v1/public/shares/{token}/files/{file_id}/download",

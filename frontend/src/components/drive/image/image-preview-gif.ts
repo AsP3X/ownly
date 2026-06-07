@@ -157,8 +157,11 @@ export function isGifPreviewFile(file: {
   mime_type?: string | null;
   name?: string | null;
 }): boolean {
-  if (isGifMimeType(file.mime_type ?? "")) return true;
-  return (file.name ?? "").toLowerCase().endsWith(".gif");
+  const mime = (file.mime_type ?? "").toLowerCase();
+  if (isGifMimeType(mime)) return true;
+  if (mime === "image/webp") return true;
+  const name = (file.name ?? "").toLowerCase();
+  return name.endsWith(".gif") || name.endsWith(".webp");
 }
 
 // Human: Detect iPhone/iPad/iPadOS Safari WebKit — animated <img> is unreliable there (esp. iOS 26).

@@ -156,6 +156,7 @@ services:
       # Agent: envsubst in nginx.conf.template; NGINX_PROXY_READ_TIMEOUT for multi-GB uploads.
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       NGINX_PROXY_READ_TIMEOUT: ${NGINX_PROXY_READ_TIMEOUT:-3600s}
+      NGINX_PROXY_CONNECT_TIMEOUT: ${NGINX_PROXY_CONNECT_TIMEOUT:-120s}
     ports:
       - "8080:80"
     depends_on:

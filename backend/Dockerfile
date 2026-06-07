@@ -16,7 +16,7 @@ FROM debian:bookworm-slim
 
 # Human: debian:bookworm-slim omits /tmp; video HLS ingest spools uploads via std::env::temp_dir().
 # Agent: WRITES scratch files under /tmp (mv_upload_*, ownly_hls_*, mv_export_*).
-RUN apt-get update && apt-get install -y libssl3 ca-certificates ffmpeg libwebp7 && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y libssl3 ca-certificates ffmpeg libwebp7 webp && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /tmp && chmod 1777 /tmp
 
 WORKDIR /app

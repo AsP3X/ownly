@@ -2068,6 +2068,50 @@ export async function fetchFileGifAnimationPreviewUrl(
   return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
 }
 
+// Human: Ticket MP4 URL for animated preview inside a password-protected public share.
+// Agent: GET /public/shares/:token/files/:id/preview-animation-url; RETURNS share-scoped preview href.
+export async function fetchPublicShareGifAnimationPreviewUrl(
+  token: string,
+  file: FileItem,
+  sharePassword?: string | null,
+): Promise<{ url: string; revokeOnClose: boolean }> {
+  const preview = await apiFetch(
+    `/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(file.id)}/preview-animation-url`,
+    { headers: publicShareRequestHeaders(sharePassword) },
+  ) as {
+    url: string;
+    expires_in_seconds: number;
+  };
+  return { url: resolveSameOriginStreamUrl(preview.url), revokeOnClose: false };
+}
+
+// Human: Check whether a server preview-animation URL is ready without downloading the MP4 body.
+// Agent: HTTP HEAD (or Range 0-0 fallback); READS content-type for video/*.
+export async function probeServerGifAnimationPreviewUrl(
+  url: string,
+  sharePassword?: string | null,
+): Promise<boolean> {
+  const headers = publicShareRequestHeaders(sharePassword);
+  let response = await fetch(url, {
+    method: "HEAD",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers,
+  });
+  if (response.status === 405 || response.status === 501) {
+    response = await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        ...headers,
+        Range: "bytes=0-0",
+      },
+    });
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  return response.ok && contentType.includes("video");
+}
+
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
 }
