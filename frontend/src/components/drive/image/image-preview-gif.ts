@@ -153,9 +153,9 @@ export function shouldUseGifCanvasPlayback(): boolean {
   return isAppleTouchDevice();
 }
 
-// Human: iOS 26 often blocks native GIF animation in browsers — mirror canvas frames through <video>.
-// Agent: RETURNS true on Apple touch WebKit; USED by AnimatedGifCanvas captureStream path.
-export function shouldUseGifVideoPlayback(): boolean {
+// Human: iOS 26 blocks native GIF in browsers — MP4 transcode is the last-resort preview path.
+// Agent: RETURNS true on Apple touch devices; USED when canvas decode loops fail.
+export function shouldTranscodeGifToMp4Fallback(): boolean {
   return isAppleTouchDevice();
 }
 

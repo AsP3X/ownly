@@ -135,6 +135,7 @@ function MobileViewportFitImage({
     return (
       <AnimatedGifCanvas
         byteSource={fileId ? getPreviewGifBlob(fileId) : null}
+        fileId={fileId}
         url={url}
         alt={alt}
         fitStyle={resolvedStyle}
