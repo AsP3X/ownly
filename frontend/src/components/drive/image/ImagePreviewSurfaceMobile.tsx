@@ -1,8 +1,7 @@
 // Human: Mobile image lightbox — Pencil MV Mobile Portrait Image Vertical / Letterbox full-bleed overlay.
 // Agent: READS ImagePreviewControllerViewModel; SWIPES horizontal carousel with elastic snap; TAP halves navigate.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { flushSync } from "react-dom";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
@@ -19,8 +18,11 @@ const EDGE_DRAG_RESISTANCE = 0.35;
 /** Human: Short tap vs drag — below this movement, treat release as a left/right tap zone. */
 const TAP_MAX_MOVEMENT_PX = 10;
 const TAP_MAX_DURATION_MS = 350;
-const GALLERY_SNAP_TRANSITION_MS = 280;
-const GALLERY_SNAP_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+const GALLERY_SNAP_EASING = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
+const GALLERY_SNAP_MIN_MS = 200;
+const GALLERY_SNAP_MAX_MS = 360;
+/** Human: Fast horizontal flicks commit even below the distance threshold. */
+const FLICK_VELOCITY_PX_MS = 0.35;
 
 type ImagePreviewSurfaceMobileProps = {
   vm: ImagePreviewControllerViewModel;
@@ -39,6 +41,11 @@ type TouchPoint = {
   clientX: number;
   clientY: number;
 };
+
+// Human: Scale snap duration to the remaining travel distance for a more natural deceleration.
+function snapDurationMs(distancePx: number): number {
+  return Math.min(GALLERY_SNAP_MAX_MS, Math.max(GALLERY_SNAP_MIN_MS, Math.abs(distancePx) * 0.42));
+}
 
 type ImageGallerySlideProps = {
   url: string | null;
@@ -216,6 +223,8 @@ export function ImagePreviewSurfaceMobile({
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const trackPositionRef = useRef(0);
   const touchSessionRef = useRef<TouchSession | null>(null);
   const isHorizontalSwipeRef = useRef<boolean | null>(null);
   const pendingCommitRef = useRef<"previous" | "next" | null>(null);
@@ -224,8 +233,6 @@ export function ImagePreviewSurfaceMobile({
   const pendingFitModeRef = useRef<ImageFitMode | null>(null);
 
   const [containerWidth, setContainerWidth] = useState(0);
-  const [trackX, setTrackX] = useState(0);
-  const [enableTransition, setEnableTransition] = useState(true);
   const [centerFit, setCenterFit] = useState<ImageFitMode>("vertical");
   const [prevFit, setPrevFit] = useState<ImageFitMode>("vertical");
   const [nextFit, setNextFit] = useState<ImageFitMode>("vertical");
@@ -235,6 +242,37 @@ export function ImagePreviewSurfaceMobile({
     containerWidth > 0
       ? Math.min(containerWidth * SWIPE_COMMIT_THRESHOLD_RATIO, SWIPE_COMMIT_THRESHOLD_MAX_PX)
       : SWIPE_COMMIT_THRESHOLD_MAX_PX;
+
+  // Human: Drive transform on the DOM during gestures — avoids React re-renders every touchmove frame.
+  // Agent: WRITES trackRef.style.transform; READS trackPositionRef for snap targets and commit logic.
+  const applyTrackTransform = useCallback(
+    (nextX: number, options?: { animate?: boolean; durationMs?: number }) => {
+      const track = trackRef.current;
+      if (!track) return;
+
+      const roundedX = Math.round(nextX);
+      const previousX = trackPositionRef.current;
+      trackPositionRef.current = roundedX;
+
+      if (options?.animate) {
+        const duration = options.durationMs ?? snapDurationMs(roundedX - previousX);
+        track.style.transition = `transform ${duration}ms ${GALLERY_SNAP_EASING}`;
+      } else {
+        track.style.transition = "none";
+      }
+
+      track.style.transform = `translate3d(${roundedX}px, 0, 0)`;
+    },
+    [],
+  );
+
+  const recenterTrack = useCallback(
+    (options?: { animate?: boolean; durationMs?: number }) => {
+      if (containerWidth <= 0) return;
+      applyTrackTransform(-containerWidth, options);
+    },
+    [applyTrackTransform, containerWidth],
+  );
 
   // Human: Measure the swipe viewport so each carousel panel is exactly one screen width.
   useEffect(() => {
@@ -250,30 +288,26 @@ export function ImagePreviewSurfaceMobile({
     return () => observer.disconnect();
   }, [showGalleryNav]);
 
-  // Human: Recenter the track on tap/keyboard navigation; swipe commits handle layout in transitionEnd.
-  // Agent: useLayoutEffect RUNS before paint; SKIPS when suppressFileChangeResetRef marks a swipe commit.
+  // Human: Recenter the track when the active file or viewport width changes.
+  // Agent: useLayoutEffect RUNS before paint; swipe commits set suppressFileChangeResetRef first.
   useLayoutEffect(() => {
     if (!showGalleryNav || containerWidth <= 0) return;
 
     if (suppressFileChangeResetRef.current) {
       suppressFileChangeResetRef.current = false;
       pendingCommitRef.current = null;
-      setEnableTransition(false);
-      setTrackX(-containerWidth);
+      recenterTrack();
       if (pendingFitModeRef.current) {
         setCenterFit(pendingFitModeRef.current);
         pendingFitModeRef.current = null;
       }
-      requestAnimationFrame(() => setEnableTransition(true));
       return;
     }
 
     pendingCommitRef.current = null;
-    setEnableTransition(false);
-    setTrackX(-containerWidth);
+    recenterTrack();
     setCenterFit("vertical");
-    requestAnimationFrame(() => setEnableTransition(true));
-  }, [file?.id, containerWidth, showGalleryNav]);
+  }, [file?.id, containerWidth, showGalleryNav, recenterTrack]);
 
   const handleStaticImageLoad = useCallback((event: React.SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget;
@@ -305,12 +339,11 @@ export function ImagePreviewSurfaceMobile({
       touchSessionRef.current = null;
       if (!session || !showGalleryNav || containerWidth <= 0) return;
 
-      setEnableTransition(true);
-
       const deltaX = touch.clientX - session.startX;
       const deltaY = touch.clientY - session.startY;
       const elapsed = Date.now() - session.startTime;
       const rest = -containerWidth;
+      const velocityX = deltaX / Math.max(elapsed, 1);
 
       if (
         !cancelled &&
@@ -327,35 +360,57 @@ export function ImagePreviewSurfaceMobile({
             goNext();
           }
         }
-        setTrackX(rest);
+        recenterTrack({
+          animate: true,
+          durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
+        });
         isHorizontalSwipeRef.current = null;
         return;
       }
 
       if (isHorizontalSwipeRef.current === false || cancelled) {
-        setTrackX(rest);
+        recenterTrack({
+          animate: true,
+          durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
+        });
         isHorizontalSwipeRef.current = null;
         return;
       }
 
-      if (deltaX < -swipeCommitThresholdPx && hasNext) {
+      const commitNext =
+        hasNext && (deltaX < -swipeCommitThresholdPx || velocityX < -FLICK_VELOCITY_PX_MS);
+      const commitPrevious =
+        hasPrevious && (deltaX > swipeCommitThresholdPx || velocityX > FLICK_VELOCITY_PX_MS);
+
+      if (commitNext) {
         pendingCommitRef.current = "next";
-        setTrackX(-2 * containerWidth);
-      } else if (deltaX > swipeCommitThresholdPx && hasPrevious) {
+        applyTrackTransform(-2 * containerWidth, {
+          animate: true,
+          durationMs: snapDurationMs(Math.abs(-2 * containerWidth - trackPositionRef.current)),
+        });
+      } else if (commitPrevious) {
         pendingCommitRef.current = "previous";
-        setTrackX(0);
+        applyTrackTransform(0, {
+          animate: true,
+          durationMs: snapDurationMs(Math.abs(trackPositionRef.current)),
+        });
       } else {
-        setTrackX(rest);
+        recenterTrack({
+          animate: true,
+          durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
+        });
       }
 
       isHorizontalSwipeRef.current = null;
     },
     [
+      applyTrackTransform,
       containerWidth,
       goNext,
       goPrevious,
       hasNext,
       hasPrevious,
+      recenterTrack,
       showGalleryNav,
       swipeCommitThresholdPx,
     ],
@@ -371,12 +426,12 @@ export function ImagePreviewSurfaceMobile({
         startX: touch.clientX,
         startY: touch.clientY,
         startTime: Date.now(),
-        startTrackX: trackX,
+        startTrackX: trackPositionRef.current,
       };
       isHorizontalSwipeRef.current = null;
-      setEnableTransition(false);
+      applyTrackTransform(trackPositionRef.current);
     },
-    [containerWidth, showGalleryNav, trackX],
+    [applyTrackTransform, containerWidth, showGalleryNav],
   );
 
   const handleTouchMove = useCallback(
@@ -399,9 +454,9 @@ export function ImagePreviewSurfaceMobile({
       if (isHorizontalSwipeRef.current !== true) return;
 
       event.preventDefault();
-      setTrackX(applyEdgeResistance(session.startTrackX + deltaX));
+      applyTrackTransform(applyEdgeResistance(session.startTrackX + deltaX));
     },
-    [applyEdgeResistance, containerWidth, showGalleryNav],
+    [applyEdgeResistance, applyTrackTransform, containerWidth, showGalleryNav],
   );
 
   const handleTouchEnd = useCallback(
@@ -422,8 +477,11 @@ export function ImagePreviewSurfaceMobile({
     [finishTouchSession],
   );
 
-  const handleTrackTransitionEnd = useCallback(
-    (event: React.TransitionEvent<HTMLDivElement>) => {
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || !showGalleryNav) return;
+
+    const handleTrackTransitionEnd = (event: TransitionEvent) => {
       if (event.propertyName !== "transform") return;
 
       const commit = pendingCommitRef.current;
@@ -431,30 +489,24 @@ export function ImagePreviewSurfaceMobile({
 
       pendingCommitRef.current = null;
       suppressFileChangeResetRef.current = true;
-      setEnableTransition(false);
 
-      // Human: Apply the new slide URLs before recentering — otherwise trackX jumps back to the old center image.
-      // Agent: flushSync CALLS goNext/goPrevious; layout effect recenters trackX after resolved URLs paint.
-      flushSync(() => {
-        if (commit === "next") {
-          pendingFitModeRef.current = nextFit;
-          goNext();
-        } else {
-          pendingFitModeRef.current = prevFit;
-          goPrevious();
-        }
-      });
-    },
-    [containerWidth, goNext, goPrevious, nextFit, prevFit],
-  );
+      // Human: Defer index change to the next frame so the snap animation fully completes before DOM swap.
+      // Agent: CALLS goNext/goPrevious; layout effect recenters track after resolved URLs render.
+      if (commit === "next") {
+        pendingFitModeRef.current = nextFit;
+        goNext();
+      } else {
+        pendingFitModeRef.current = prevFit;
+        goPrevious();
+      }
+    };
 
-  const trackStyle: CSSProperties = {
-    width: containerWidth > 0 ? containerWidth * 3 : "300%",
-    transform: `translate3d(${trackX}px, 0, 0)`,
-    transition: enableTransition
-      ? `transform ${GALLERY_SNAP_TRANSITION_MS}ms ${GALLERY_SNAP_EASING}`
-      : "none",
-  };
+    track.addEventListener("transitionend", handleTrackTransitionEnd);
+    return () => track.removeEventListener("transitionend", handleTrackTransitionEnd);
+  }, [containerWidth, goNext, goPrevious, nextFit, prevFit, showGalleryNav]);
+
+  const trackWidthStyle =
+    containerWidth > 0 ? { width: containerWidth * 3 } : { width: "300%" as const };
 
   return (
     <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
@@ -470,9 +522,9 @@ export function ImagePreviewSurfaceMobile({
         >
           {containerWidth > 0 ? (
             <div
-              className="flex h-full will-change-transform"
-              style={trackStyle}
-              onTransitionEnd={handleTrackTransitionEnd}
+              ref={trackRef}
+              className="flex h-full [backface-visibility:hidden] [transform:translate3d(0,0,0)] [will-change:transform]"
+              style={trackWidthStyle}
             >
               <div style={{ width: containerWidth }} className="h-full shrink-0">
                 <ImageGallerySlide
