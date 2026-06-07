@@ -57,7 +57,7 @@ export function ImagePreviewDialog({
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
-            ? "!fixed inset-0 top-0 left-0 flex h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+            ? "!fixed inset-0 top-0 left-0 flex h-[100svh] max-h-[100svh] w-full !max-w-none translate-none transform-none rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh data-open:animate-none data-closed:animate-none"
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center overflow-visible p-4 sm:max-w-[1440px]",
         )}
         overlayClassName={cn(

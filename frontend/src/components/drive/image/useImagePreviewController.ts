@@ -3,7 +3,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
-import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
+import {
+  fetchFileBlobForPreview,
+  fetchFileStreamUrlForPreview,
+  fetchPublicShareBlobForPreview,
+  getErrorMessage,
+} from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
   buildGalleryLoadPlan,
@@ -14,12 +19,29 @@ import {
   PREVIEW_BLOB_CACHE_RADIUS,
 } from "@/components/drive/image/image-preview-preload";
 import { preparePreviewDisplayBlob } from "@/components/drive/image/image-preview-display-resize";
+import {
+  isGifPreviewFile,
+  readImageNaturalDimensions,
+} from "@/components/drive/image/image-preview-gif";
 import { formatBytes } from "@/lib/utils-app";
 
 export type ImagePreviewAdjacentUrls = {
   previous: string | null;
   next: string | null;
 };
+
+type CachedPreviewUrl = {
+  url: string;
+  revokeOnClose: boolean;
+};
+
+// Human: Only revoke object URLs — stream URLs are plain HTTP and must not go through revokeObjectURL.
+// Agent: READS revokeOnClose + blob: prefix; CALLS URL.revokeObjectURL when appropriate.
+function revokeCachedPreviewUrl(entry: CachedPreviewUrl) {
+  if (entry.revokeOnClose && entry.url.startsWith("blob:")) {
+    URL.revokeObjectURL(entry.url);
+  }
+}
 
 export type ImagePreviewControllerViewModel = {
   file: FileItem | null;
@@ -76,7 +98,7 @@ export function useImagePreviewController({
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const urlCacheRef = useRef<Map<string, string>>(new Map());
+  const urlCacheRef = useRef<Map<string, CachedPreviewUrl>>(new Map());
   const previewDimensionsRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const [previewDimensionsRevision, setPreviewDimensionsRevision] = useState(0);
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
@@ -141,9 +163,9 @@ export function useImagePreviewController({
         if (!keepIds.has(fileId)) abortFetchForFile(fileId);
       }
 
-      for (const [fileId, url] of urlCacheRef.current.entries()) {
+      for (const [fileId, entry] of urlCacheRef.current.entries()) {
         if (keepIds.has(fileId)) continue;
-        URL.revokeObjectURL(url);
+        revokeCachedPreviewUrl(entry);
         urlCacheRef.current.delete(fileId);
         previewDimensionsRef.current.delete(fileId);
       }
@@ -165,10 +187,10 @@ export function useImagePreviewController({
     }
 
     const nextPrevious =
-      index > 0 ? urlCacheRef.current.get(gallery[index - 1]!.id) ?? null : null;
+      index > 0 ? urlCacheRef.current.get(gallery[index - 1]!.id)?.url ?? null : null;
     const nextNext =
       index < gallery.length - 1
-        ? urlCacheRef.current.get(gallery[index + 1]!.id) ?? null
+        ? urlCacheRef.current.get(gallery[index + 1]!.id)?.url ?? null
         : null;
 
     setAdjacentUrls((previous) => {
@@ -200,16 +222,30 @@ export function useImagePreviewController({
     return previewDimensionsRef.current.get(fileId) ?? null;
   }, [previewDimensionsRevision]);
 
+  const cachePreviewUrl = useCallback(
+    (fileId: string, url: string, revokeOnClose: boolean, session: number) => {
+      if (!isCacheSessionActive(session)) return null;
+      if (!isFileInBlobCacheWindow(fileId)) return null;
+
+      const existing = urlCacheRef.current.get(fileId);
+      if (existing) return existing.url;
+
+      urlCacheRef.current.set(fileId, { url, revokeOnClose });
+      return url;
+    },
+    [isCacheSessionActive, isFileInBlobCacheWindow],
+  );
+
   const cacheBlobUrl = useCallback(
     (fileId: string, blob: Blob, session: number) => {
       if (!isCacheSessionActive(session)) return null;
       if (!isFileInBlobCacheWindow(fileId)) return null;
 
       const existing = urlCacheRef.current.get(fileId);
-      if (existing) return existing;
+      if (existing) return existing.url;
 
       const url = URL.createObjectURL(blob);
-      urlCacheRef.current.set(fileId, url);
+      urlCacheRef.current.set(fileId, { url, revokeOnClose: true });
       return url;
     },
     [isCacheSessionActive, isFileInBlobCacheWindow],
@@ -219,8 +255,8 @@ export function useImagePreviewController({
     cacheSessionRef.current += 1;
     abortAllFetches();
 
-    for (const url of urlCacheRef.current.values()) {
-      URL.revokeObjectURL(url);
+    for (const entry of urlCacheRef.current.values()) {
+      revokeCachedPreviewUrl(entry);
     }
     urlCacheRef.current.clear();
     previewDimensionsRef.current.clear();
@@ -254,18 +290,20 @@ export function useImagePreviewController({
     [shareToken, sharePassword],
   );
 
-  // Human: Fetch, optionally downscale for mobile, then cache a display blob URL for carousel imgs.
-  // Agent: CALLS preparePreviewDisplayBlob when previewDisplayMaxEdgePx set; STORES source dimensions for fit layout.
+  // Human: Fetch, optionally downscale for mobile, then cache a display URL for carousel imgs.
+  // Agent: MOBILE GIFs use ticket stream URL (no canvas); other images CALL preparePreviewDisplayBlob.
   const loadPreviewUrl = useCallback(
     async (item: FileItem, options?: { silent?: boolean }): Promise<string | null> => {
       const session = cacheSessionRef.current;
       const silent = options?.silent ?? false;
       const isActive = () => isCacheSessionActive(session);
+      const isMobilePreview = Boolean(previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0);
+      const isGif = isGifPreviewFile(item);
 
       if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
-      const cachedUrl = urlCacheRef.current.get(item.id);
-      if (cachedUrl) return cachedUrl;
+      const cached = urlCacheRef.current.get(item.id);
+      if (cached) return cached.url;
 
       const existingRequest = inFlightRef.current.get(item.id);
       if (existingRequest) return existingRequest;
@@ -273,15 +311,37 @@ export function useImagePreviewController({
       const controller = new AbortController();
       fetchAbortRef.current.set(item.id, controller);
 
-      const request = fetchPreviewBlob(item, controller.signal)
-        .then(async (blob) => {
+      const request = (async () => {
+        try {
+          if (controller.signal.aborted || !isActive() || !isFileInBlobCacheWindow(item.id)) {
+            return null;
+          }
+
+          // Human: Same-origin stream bytes keep GIF animation on mobile — skip blob + worker downscale.
+          // Agent: HTTP GET /files/:id/stream?ticket=; FALLBACK to blob path on failure.
+          if (isMobilePreview && isGif && !shareToken) {
+            try {
+              const stream = await fetchFileStreamUrlForPreview(item);
+              if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
+              return cachePreviewUrl(item.id, stream.url, stream.revokeOnClose, session);
+            } catch {
+              // Human: Stream ticket may fail for some rows — fall through to blob download below.
+              // Agent: FALLBACK fetchPreviewBlob path.
+            }
+          }
+
+          const blob = await fetchPreviewBlob(item, controller.signal);
           if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
           let displayBlob = normalizePreviewBlob(blob, item.mime_type);
-          if (previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0) {
+
+          if (isMobilePreview && isGif) {
+            const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(displayBlob);
+            rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
+          } else if (isMobilePreview) {
             const prepared = await preparePreviewDisplayBlob(
-              blob,
-              previewDisplayMaxEdgePx,
+              displayBlob,
+              previewDisplayMaxEdgePx!,
               controller.signal,
             );
             if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
@@ -290,23 +350,31 @@ export function useImagePreviewController({
           }
 
           return cacheBlobUrl(item.id, displayBlob, session);
-        })
-        .catch((err) => {
+        } catch (err) {
           if (isAbortError(err)) return null;
           if (silent) return null;
           throw err;
-        })
-        .finally(() => {
+        } finally {
           fetchAbortRef.current.delete(item.id);
           if (isCacheSessionActive(session)) {
             inFlightRef.current.delete(item.id);
           }
-        });
+        }
+      })();
 
       inFlightRef.current.set(item.id, request);
       return request;
     },
-    [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow, previewDisplayMaxEdgePx, rememberPreviewDimensions],
+    [
+      cacheBlobUrl,
+      cachePreviewUrl,
+      fetchPreviewBlob,
+      isCacheSessionActive,
+      isFileInBlobCacheWindow,
+      previewDisplayMaxEdgePx,
+      rememberPreviewDimensions,
+      shareToken,
+    ],
   );
 
   // Human: Enforce NNCAXACNN — prefetch leading +1/+2 before evicting trailing C→N on each navigation.
@@ -326,7 +394,7 @@ export function useImagePreviewController({
 
     const cachedCurrent = urlCacheRef.current.get(requestFileId);
     if (cachedCurrent) {
-      setDisplayUrl(cachedCurrent);
+      setDisplayUrl(cachedCurrent.url);
       setError("");
       setLoading(false);
     } else {
@@ -465,7 +533,7 @@ export function useImagePreviewController({
   const sizeLabel = file ? formatBytes(file.size_bytes) : "";
 
   const resolvedDisplayUrl = file?.id
-    ? (urlCacheRef.current.get(file.id) ?? displayUrl)
+    ? (urlCacheRef.current.get(file.id)?.url ?? displayUrl)
     : displayUrl;
 
   const resolvedAdjacentUrls = useMemo((): ImagePreviewAdjacentUrls => {
@@ -475,10 +543,12 @@ export function useImagePreviewController({
 
     return {
       previous:
-        currentIndex > 0 ? urlCacheRef.current.get(images[currentIndex - 1]!.id) ?? null : null,
+        currentIndex > 0
+          ? urlCacheRef.current.get(images[currentIndex - 1]!.id)?.url ?? null
+          : null,
       next:
         currentIndex < images.length - 1
-          ? urlCacheRef.current.get(images[currentIndex + 1]!.id) ?? null
+          ? urlCacheRef.current.get(images[currentIndex + 1]!.id)?.url ?? null
           : null,
     };
   }, [currentIndex, images, adjacentUrls, displayUrl]);

@@ -124,6 +124,16 @@ export function isGifMimeType(mimeType: string): boolean {
   return mimeType.toLowerCase().includes("gif");
 }
 
+// Human: True when the drive row should use the GIF preview path (mime or .gif extension).
+// Agent: READS FileItem.mime_type + name; used to skip mobile downscale and pick stream URLs.
+export function isGifPreviewFile(file: {
+  mime_type?: string | null;
+  name?: string | null;
+}): boolean {
+  if (isGifMimeType(file.mime_type ?? "")) return true;
+  return (file.name ?? "").toLowerCase().endsWith(".gif");
+}
+
 // Human: Async wrapper — scans the full file when small, otherwise the first chunk then full file if inconclusive.
 // Agent: READS source bytes; CALLS isAnimatedGifBytes; handles missing mime types via magic header.
 export async function isAnimatedGifBlob(source: Blob): Promise<boolean> {

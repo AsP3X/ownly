@@ -8,6 +8,7 @@ import {
   MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE,
   resolveMobileViewportFitStyle,
 } from "@/components/drive/image/image-preview-layout";
+import { isGifPreviewFile } from "@/components/drive/image/image-preview-gif";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { useMobileImagePinchZoom } from "@/components/drive/image/useMobileImagePinchZoom";
 import { DialogClose } from "@/components/ui/dialog";
@@ -81,6 +82,8 @@ type MobileViewportFitImageProps = {
   fileId?: string;
   containerSize: ContainerSize;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
+  /** Human: GIF frames freeze under async decode on some mobile browsers — use sync for animated sources. */
+  isAnimatedGif?: boolean;
 };
 
 // Human: Size image to touch viewport edges — width-first, or height-first when width would clip vertically.
@@ -91,6 +94,7 @@ function MobileViewportFitImage({
   fileId,
   containerSize,
   getPreviewDimensions,
+  isAnimatedGif = false,
 }: MobileViewportFitImageProps) {
   const [loadedNatural, setLoadedNatural] = useState<{ width: number; height: number } | null>(null);
   const cachedNatural = fileId ? getPreviewDimensions(fileId) : null;
@@ -116,10 +120,11 @@ function MobileViewportFitImage({
 
   return (
     <img
+      key={isAnimatedGif ? url : undefined}
       src={url}
       alt={alt}
       loading="eager"
-      decoding="async"
+      decoding={isAnimatedGif ? "sync" : "async"}
       onLoad={handleImageLoad}
       style={naturalWidth > 0 && naturalHeight > 0 ? fitStyle : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE}
       className="block max-h-full max-w-full"
@@ -154,6 +159,7 @@ type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
   fileId?: string;
+  file?: FileItem | null;
   getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   showLoader?: boolean;
   enablePinchZoom?: boolean;
@@ -167,6 +173,7 @@ function ImageGallerySlide({
   url,
   alt,
   fileId,
+  file,
   getPreviewDimensions,
   showLoader = false,
   enablePinchZoom = false,
@@ -175,11 +182,13 @@ function ImageGallerySlide({
 }: ImageGallerySlideProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(stageRef);
+  const isAnimatedGif = file ? isGifPreviewFile(file) : false;
+  const allowPinchZoom = enablePinchZoom && !isAnimatedGif;
 
   const pinchZoom = useMobileImagePinchZoom({
-    resetKey: enablePinchZoom ? (url ?? "empty") : "gallery-slide-no-zoom",
-    onCancelPendingTap: enablePinchZoom ? onCancelPendingTap : undefined,
-    onZoomActiveChange: enablePinchZoom ? onZoomActiveChange : undefined,
+    resetKey: allowPinchZoom ? (url ?? "empty") : "gallery-slide-no-zoom",
+    onCancelPendingTap: allowPinchZoom ? onCancelPendingTap : undefined,
+    onZoomActiveChange: allowPinchZoom ? onZoomActiveChange : undefined,
   });
 
   return (
@@ -189,9 +198,9 @@ function ImageGallerySlide({
           ref={pinchZoom.layerRef}
           className={cn(
             "flex size-full items-center justify-center origin-center",
-            enablePinchZoom && "touch-none",
+            allowPinchZoom && "touch-none",
           )}
-          {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
+          {...(allowPinchZoom ? pinchZoom.touchHandlers : {})}
         >
           {url ? (
             <MobileViewportFitImage
@@ -200,6 +209,7 @@ function ImageGallerySlide({
               fileId={fileId}
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
+              isAnimatedGif={isAnimatedGif}
             />
           ) : showLoader ? (
             <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
@@ -233,9 +243,11 @@ function StaticImageStage({
   const stageRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(stageRef);
 
+  const isAnimatedGif = file ? isGifPreviewFile(file) : false;
+
   const pinchZoom = useMobileImagePinchZoom({
-    resetKey: displayUrl ?? file?.id ?? "static-empty",
-    onCancelPendingTap,
+    resetKey: isAnimatedGif ? "static-gif-no-zoom" : (displayUrl ?? file?.id ?? "static-empty"),
+    onCancelPendingTap: isAnimatedGif ? undefined : onCancelPendingTap,
   });
 
   return (
@@ -243,8 +255,11 @@ function StaticImageStage({
       <div ref={stageRef} className="absolute inset-0 overflow-hidden">
         <div
           ref={pinchZoom.layerRef}
-          className="flex size-full origin-center touch-none items-center justify-center"
-          {...pinchZoom.touchHandlers}
+          className={cn(
+            "flex size-full origin-center items-center justify-center",
+            !isAnimatedGif && "touch-none",
+          )}
+          {...(!isAnimatedGif ? pinchZoom.touchHandlers : {})}
         >
           {displayUrl ? (
             <MobileViewportFitImage
@@ -253,6 +268,7 @@ function StaticImageStage({
               fileId={file?.id}
               containerSize={containerSize}
               getPreviewDimensions={getPreviewDimensions}
+              isAnimatedGif={isAnimatedGif}
             />
           ) : null}
         </div>
@@ -725,6 +741,7 @@ export function ImagePreviewSurfaceMobile({
                   url={adjacentUrls.previous}
                   alt={previousFile?.name ?? "Previous image"}
                   fileId={previousFile?.id}
+                  file={previousFile}
                   getPreviewDimensions={getPreviewDimensions}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
@@ -734,6 +751,7 @@ export function ImagePreviewSurfaceMobile({
                   url={displayUrl}
                   alt={file?.name ?? "Image preview"}
                   fileId={file?.id}
+                  file={file}
                   getPreviewDimensions={getPreviewDimensions}
                   showLoader={showInitialLoader}
                   enablePinchZoom
@@ -746,6 +764,7 @@ export function ImagePreviewSurfaceMobile({
                   url={adjacentUrls.next}
                   alt={nextFile?.name ?? "Next image"}
                   fileId={nextFile?.id}
+                  file={nextFile}
                   getPreviewDimensions={getPreviewDimensions}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
