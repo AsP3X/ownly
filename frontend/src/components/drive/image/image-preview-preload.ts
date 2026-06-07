@@ -1,5 +1,5 @@
 // Human: Decode preview blobs into browser memory so carousel slides paint without a fetch/decode hitch.
-// Agent: WRITES warmedImages map; CALLS Image.decode when available; RETURNS after bitmap is ready.
+// Agent: WRITES warmedImages map; CALLS Image.decode when available; CLEARS all entries when the viewer closes.
 
 const warmedImages = new Map<string, HTMLImageElement>();
 
@@ -29,19 +29,54 @@ export function warmPreviewImage(fileId: string, objectUrl: string): Promise<voi
   });
 }
 
-// Human: Drop decoded bitmap refs when the lightbox closes or slides leave the adjacent window.
-// Agent: DELETES warmedImages entries not listed in keepFileIds; CALL on dialog close with empty keep list.
-export function retainWarmedPreviewImages(keepFileIds: readonly string[]): void {
-  const keep = new Set(keepFileIds);
-  for (const fileId of warmedImages.keys()) {
-    if (!keep.has(fileId)) {
-      warmedImages.delete(fileId);
-    }
-  }
-}
-
 // Human: Clear every warmed preview when the viewer closes.
 // Agent: DELETES all warmedImages entries.
 export function clearWarmedPreviewImages(): void {
   warmedImages.clear();
+}
+
+// Human: Priority order for gallery preload — current image first, then nearest neighbors outward.
+// Agent: READS images + anchorIndex; RETURNS FileItem[] sorted by distance from the active slide.
+export function orderGalleryForPreload<T extends { id: string }>(
+  images: readonly T[],
+  anchorIndex: number,
+): T[] {
+  if (images.length <= 1) return [...images];
+
+  const safeAnchor = anchorIndex >= 0 ? anchorIndex : 0;
+  return [...images].sort((left, right) => {
+    const leftIndex = images.indexOf(left);
+    const rightIndex = images.indexOf(right);
+    const leftDistance = Math.abs(leftIndex - safeAnchor);
+    const rightDistance = Math.abs(rightIndex - safeAnchor);
+    if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+    return leftIndex - rightIndex;
+  });
+}
+
+// Human: Fetch the full gallery with bounded parallelism so every slide is ready before swiping.
+// Agent: CALLS loadItem for each ordered image; STOPS when signal aborts.
+export async function preloadGalleryImages<T extends { id: string }>(
+  orderedImages: readonly T[],
+  loadItem: (item: T) => Promise<unknown>,
+  options?: { concurrency?: number; signal?: AbortSignal },
+): Promise<void> {
+  const concurrency = Math.max(1, options?.concurrency ?? 6);
+  if (orderedImages.length === 0 || options?.signal?.aborted) return;
+
+  let cursor = 0;
+
+  async function worker() {
+    while (!options?.signal?.aborted) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= orderedImages.length) return;
+
+      await loadItem(orderedImages[index]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, orderedImages.length) }, () => worker()),
+  );
 }

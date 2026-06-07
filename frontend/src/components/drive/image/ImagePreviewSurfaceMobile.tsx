@@ -130,10 +130,14 @@ function ImageGallerySlide({
           {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
         >
           {url ? (
+            // Human: Eager sync decode — adjacent slides were pre-warmed in the controller before swipe.
+            // Agent: READS warmed blob URL; RENDERS without lazy-load deferral on carousel panels.
             <img
               ref={handleImageRef}
               src={url}
               alt={alt}
+              loading="eager"
+              decoding="sync"
               onLoad={handleImageLoad}
               className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
               draggable={false}

@@ -1,5 +1,5 @@
 // Human: Image lightbox state — blob cache, gallery navigation, and keyboard handlers.
-// Agent: FETCHES preview blobs; WARMS prev/current/next in memory; REVOKES object URLs on close.
+// Agent: PRELOADS entire gallery on open; WARMS decoded bitmaps; REVOKES object URLs on close.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
@@ -7,7 +7,8 @@ import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessag
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
   clearWarmedPreviewImages,
-  retainWarmedPreviewImages,
+  orderGalleryForPreload,
+  preloadGalleryImages,
   warmPreviewImage,
 } from "@/components/drive/image/image-preview-preload";
 import { formatBytes } from "@/lib/utils-app";
@@ -53,6 +54,7 @@ export function useImagePreviewController({
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [cacheRevision, setCacheRevision] = useState(0);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
   const activeFileIdRef = useRef<string | null>(null);
@@ -66,22 +68,34 @@ export function useImagePreviewController({
     () => (file ? images.findIndex((item) => item.id === file.id) : -1),
     [file, images],
   );
+  const currentIndexRef = useRef(currentIndex);
+  const imagesRef = useRef(images);
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+    imagesRef.current = images;
+  }, [currentIndex, images]);
+
+  const bumpCacheRevision = useCallback(() => {
+    setCacheRevision((revision) => revision + 1);
+  }, []);
 
   const refreshAdjacentUrls = useCallback(() => {
-    if (currentIndex < 0) {
+    const index = currentIndexRef.current;
+    const gallery = imagesRef.current;
+    if (index < 0) {
       setAdjacentUrls({ previous: null, next: null });
       return;
     }
 
     setAdjacentUrls({
-      previous:
-        currentIndex > 0 ? urlCacheRef.current.get(images[currentIndex - 1]!.id) ?? null : null,
+      previous: index > 0 ? urlCacheRef.current.get(gallery[index - 1]!.id) ?? null : null,
       next:
-        currentIndex < images.length - 1
-          ? urlCacheRef.current.get(images[currentIndex + 1]!.id) ?? null
+        index < gallery.length - 1
+          ? urlCacheRef.current.get(gallery[index + 1]!.id) ?? null
           : null,
     });
-  }, [currentIndex, images]);
+  }, []);
 
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
@@ -108,6 +122,7 @@ export function useImagePreviewController({
     setDisplayUrl(null);
     setError("");
     setLoading(false);
+    setCacheRevision(0);
     setAdjacentUrls({ previous: null, next: null });
   }, []);
 
@@ -176,15 +191,13 @@ export function useImagePreviewController({
     [cacheBlobUrl, fetchPreviewBlob],
   );
 
-  // Human: Keep current plus immediate neighbors fetched and decoded while the viewer is open.
-  // Agent: PARALLEL ensurePreviewUrl for center/prev/next; UPDATES displayUrl + adjacentUrls; RETAINS warmed bitmap window.
+  // Human: Load the active slide with user-visible errors while the gallery preloader runs in parallel.
+  // Agent: UPDATES displayUrl + loading for file.id; REFRESHES adjacentUrls after cache hits.
   useEffect(() => {
     if (!open || !file?.id || currentIndex < 0) return;
 
     activeFileIdRef.current = file.id;
     const requestFileId = file.id;
-    const prevItem = currentIndex > 0 ? images[currentIndex - 1]! : null;
-    const nextItem = currentIndex < images.length - 1 ? images[currentIndex + 1]! : null;
 
     let cancelled = false;
     const cachedCurrent = urlCacheRef.current.get(requestFileId);
@@ -197,10 +210,6 @@ export function useImagePreviewController({
       setError("");
     }
 
-    const retainIds = [requestFileId, prevItem?.id, nextItem?.id].filter(
-      (id): id is string => Boolean(id),
-    );
-    retainWarmedPreviewImages(retainIds);
     refreshAdjacentUrls();
 
     void loadPreviewUrl(file)
@@ -209,6 +218,7 @@ export function useImagePreviewController({
         if (url) {
           setDisplayUrl(url);
           setError("");
+          bumpCacheRevision();
         }
       })
       .catch((err) => {
@@ -218,21 +228,38 @@ export function useImagePreviewController({
       .finally(() => {
         if (cancelled || activeFileIdRef.current !== requestFileId) return;
         setLoading(false);
+        refreshAdjacentUrls();
       });
-
-    void Promise.all([
-      prevItem ? loadPreviewUrl(prevItem, { silent: true }) : Promise.resolve(null),
-      nextItem ? loadPreviewUrl(nextItem, { silent: true }) : Promise.resolve(null),
-    ]).then(() => {
-      if (cancelled) return;
-      retainWarmedPreviewImages(retainIds);
-      refreshAdjacentUrls();
-    });
 
     return () => {
       cancelled = true;
     };
-  }, [open, file, currentIndex, images, loadPreviewUrl, refreshAdjacentUrls]);
+  }, [open, file, currentIndex, loadPreviewUrl, refreshAdjacentUrls, bumpCacheRevision]);
+
+  // Human: Preload every gallery image once per open so swipes never wait on network/decode.
+  // Agent: PARALLEL preloadGalleryImages; PRIORITY anchor slide then neighbors; DOES NOT restart on navigation.
+  useEffect(() => {
+    if (!open || images.length === 0) return;
+
+    const controller = new AbortController();
+    const anchorIndex = currentIndexRef.current;
+    const orderedImages = orderGalleryForPreload(images, anchorIndex);
+
+    void preloadGalleryImages(
+      orderedImages,
+      async (item) => {
+        await loadPreviewUrl(item, { silent: true });
+        if (controller.signal.aborted) return;
+        refreshAdjacentUrls();
+        bumpCacheRevision();
+      },
+      { concurrency: 6, signal: controller.signal },
+    );
+
+    return () => {
+      controller.abort();
+    };
+  }, [open, images, loadPreviewUrl, refreshAdjacentUrls, bumpCacheRevision]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;
@@ -320,7 +347,7 @@ export function useImagePreviewController({
           ? urlCacheRef.current.get(images[currentIndex + 1]!.id) ?? null
           : null,
     };
-  }, [currentIndex, images, adjacentUrls, displayUrl]);
+  }, [currentIndex, images, adjacentUrls, displayUrl, cacheRevision]);
 
   const resolvedShowInitialLoader = loading && !resolvedDisplayUrl;
 
