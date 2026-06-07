@@ -46,7 +46,7 @@ export function ImagePreviewDialog({
   const descriptionParts = [
     vm.photoInfoLabel,
     vm.positionLabel,
-    isNarrow ? "Swipe left or right to change images." : "Use arrow keys or side buttons to browse.",
+    isNarrow ? "Pinch to zoom; swipe left or right to change images." : "Use arrow keys or side buttons to browse.",
   ].filter(Boolean);
 
   return (

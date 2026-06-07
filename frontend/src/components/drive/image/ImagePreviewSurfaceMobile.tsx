@@ -1,5 +1,5 @@
 // Human: Mobile image lightbox — Pencil MV Mobile Portrait Image Vertical / Letterbox full-bleed overlay.
-// Agent: READS ImagePreviewControllerViewModel; SWIPES horizontal carousel with elastic snap; TAP halves navigate.
+// Agent: READS ImagePreviewControllerViewModel; SWIPES carousel; PINCH-ZOOM on active slide via useMobileImagePinchZoom.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Loader2, Share2, X } from "lucide-react";
@@ -7,6 +7,7 @@ import type { FileItem } from "@/api/client";
 import { MOBILE_IMAGE_LETTERBOX_STAGE_CLASS, resolveImageFitFromElement, resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
 import type { ImageFitMode } from "@/components/drive/image/image-preview-types";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
+import { useMobileImagePinchZoom } from "@/components/drive/image/useMobileImagePinchZoom";
 import { DialogClose } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,8 @@ const GALLERY_SNAP_MIN_MS = 200;
 const GALLERY_SNAP_MAX_MS = 360;
 /** Human: Fast horizontal flicks commit even below the distance threshold. */
 const FLICK_VELOCITY_PX_MS = 0.35;
+/** Human: Delay left/right tap navigation so double-tap-to-zoom can cancel it. */
+const TAP_NAV_DELAY_MS = 320;
 
 type ImagePreviewSurfaceMobileProps = {
   vm: ImagePreviewControllerViewModel;
@@ -53,18 +56,30 @@ type ImageGallerySlideProps = {
   fitMode: ImageFitMode;
   onFitModeChange: (mode: ImageFitMode) => void;
   showLoader?: boolean;
+  enablePinchZoom?: boolean;
+  onZoomActiveChange?: (active: boolean) => void;
+  onCancelPendingTap?: () => void;
 };
 
 // Human: One carousel panel — same vertical / letterbox layout as the active slide.
-// Agent: READS url; WRITES fitMode via onLoad when this panel's image dimensions are known.
+// Agent: READS url; WRITES fitMode via onLoad; optional PINCH-ZOOM when enablePinchZoom on center slide.
 function ImageGallerySlide({
   url,
   alt,
   fitMode,
   onFitModeChange,
   showLoader = false,
+  enablePinchZoom = false,
+  onZoomActiveChange,
+  onCancelPendingTap,
 }: ImageGallerySlideProps) {
   const isLetterbox = fitMode === "letterbox";
+
+  const pinchZoom = useMobileImagePinchZoom({
+    resetKey: enablePinchZoom ? (url ?? "empty") : "gallery-slide-no-zoom",
+    onCancelPendingTap: enablePinchZoom ? onCancelPendingTap : undefined,
+    onZoomActiveChange: enablePinchZoom ? onZoomActiveChange : undefined,
+  });
 
   const handleImageLoad = useCallback(
     (event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -88,22 +103,28 @@ function ImageGallerySlide({
       {/* Agent: OUTER flex host READS h-full; INNER stage SWITCHES letterbox band vs absolute inset-0. */}
       <div
         className={cn(
-          "relative",
+          "relative overflow-hidden",
           isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
         )}
       >
-        {url ? (
-          <img
-            ref={handleImageRef}
-            src={url}
-            alt={alt}
-            onLoad={handleImageLoad}
-            className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
-            draggable={false}
-          />
-        ) : showLoader ? (
-          <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
-        ) : null}
+        <div
+          ref={pinchZoom.layerRef}
+          className={cn("size-full origin-center", enablePinchZoom && "touch-none")}
+          {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
+        >
+          {url ? (
+            <img
+              ref={handleImageRef}
+              src={url}
+              alt={alt}
+              onLoad={handleImageLoad}
+              className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+              draggable={false}
+            />
+          ) : showLoader ? (
+            <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
+          ) : null}
+        </div>
 
         <div
           className={cn(
@@ -132,6 +153,7 @@ type StaticImageStageProps = {
   showInitialLoader: boolean;
   imageFit: ImageFitMode;
   onResolveFitFromImage: (img: HTMLImageElement) => void;
+  onCancelPendingTap?: () => void;
 };
 
 // Human: Single-image layout when the folder has only one image (no carousel track).
@@ -143,8 +165,14 @@ function StaticImageStage({
   showInitialLoader,
   imageFit,
   onResolveFitFromImage,
+  onCancelPendingTap,
 }: StaticImageStageProps) {
   const isLetterbox = imageFit === "letterbox";
+
+  const pinchZoom = useMobileImagePinchZoom({
+    resetKey: displayUrl ?? file?.id ?? "static-empty",
+    onCancelPendingTap,
+  });
 
   const handleImageLoad = useCallback(
     (event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -165,21 +193,27 @@ function StaticImageStage({
     <div className="absolute inset-0 flex items-center justify-center bg-black">
       <div
         className={cn(
-          "relative",
+          "relative overflow-hidden",
           isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
         )}
       >
-        {displayUrl ? (
-          <img
-            key={displayUrl}
-            ref={handleImageRef}
-            src={displayUrl}
-            alt={file?.name ?? "Image preview"}
-            onLoad={handleImageLoad}
-            className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
-            draggable={false}
-          />
-        ) : null}
+        <div
+          ref={pinchZoom.layerRef}
+          className="size-full origin-center touch-none"
+          {...pinchZoom.touchHandlers}
+        >
+          {displayUrl ? (
+            <img
+              key={displayUrl}
+              ref={handleImageRef}
+              src={displayUrl}
+              alt={file?.name ?? "Image preview"}
+              onLoad={handleImageLoad}
+              className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+              draggable={false}
+            />
+          ) : null}
+        </div>
 
         {error ? (
           <p
@@ -258,6 +292,23 @@ export function ImagePreviewSurfaceMobile({
   // Human: Hold file-change reset until the swipe commit layout pass recenters the track.
   const suppressFileChangeResetRef = useRef(false);
   const pendingFitModeRef = useRef<ImageFitMode | null>(null);
+  const centerZoomActiveRef = useRef(false);
+  const tapNavTimerRef = useRef<number | null>(null);
+
+  const cancelPendingTapNav = useCallback(() => {
+    if (tapNavTimerRef.current !== null) {
+      window.clearTimeout(tapNavTimerRef.current);
+      tapNavTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCenterZoomActiveChange = useCallback((active: boolean) => {
+    centerZoomActiveRef.current = active;
+  }, []);
+
+  useEffect(() => {
+    return () => cancelPendingTapNav();
+  }, [cancelPendingTapNav]);
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [centerFit, setCenterFit] = useState<ImageFitMode>("vertical");
@@ -320,6 +371,8 @@ export function ImagePreviewSurfaceMobile({
   useLayoutEffect(() => {
     if (!showGalleryNav || containerWidth <= 0) return;
 
+    centerZoomActiveRef.current = false;
+
     if (suppressFileChangeResetRef.current) {
       suppressFileChangeResetRef.current = false;
       pendingCommitRef.current = null;
@@ -364,6 +417,7 @@ export function ImagePreviewSurfaceMobile({
       const session = touchSessionRef.current;
       touchSessionRef.current = null;
       if (!session || !showGalleryNav || containerWidth <= 0) return;
+      if (centerZoomActiveRef.current) return;
 
       const deltaX = touch.clientX - session.startX;
       const deltaY = touch.clientY - session.startY;
@@ -377,15 +431,18 @@ export function ImagePreviewSurfaceMobile({
         Math.abs(deltaY) < TAP_MAX_MOVEMENT_PX &&
         elapsed < TAP_MAX_DURATION_MS
       ) {
-        const rect = galleryRef.current?.getBoundingClientRect();
-        if (rect) {
+        cancelPendingTapNav();
+        tapNavTimerRef.current = window.setTimeout(() => {
+          tapNavTimerRef.current = null;
+          const rect = galleryRef.current?.getBoundingClientRect();
+          if (!rect) return;
           const tapX = touch.clientX - rect.left;
           if (tapX < rect.width / 2) {
             if (hasPrevious) goPrevious();
           } else if (hasNext) {
             goNext();
           }
-        }
+        }, TAP_NAV_DELAY_MS);
         recenterTrack({
           animate: true,
           durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
@@ -431,6 +488,7 @@ export function ImagePreviewSurfaceMobile({
     },
     [
       applyTrackTransform,
+      cancelPendingTapNav,
       containerWidth,
       goNext,
       goPrevious,
@@ -445,8 +503,12 @@ export function ImagePreviewSurfaceMobile({
   const handleTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       if (!showGalleryNav || containerWidth <= 0) return;
+      if (centerZoomActiveRef.current || event.touches.length >= 2) return;
+
       const touch = event.touches[0];
       if (!touch) return;
+
+      cancelPendingTapNav();
 
       touchSessionRef.current = {
         startX: touch.clientX,
@@ -457,11 +519,19 @@ export function ImagePreviewSurfaceMobile({
       isHorizontalSwipeRef.current = null;
       applyTrackTransform(trackPositionRef.current);
     },
-    [applyTrackTransform, containerWidth, showGalleryNav],
+    [applyTrackTransform, cancelPendingTapNav, containerWidth, showGalleryNav],
   );
 
   const handleTouchMove = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
+      if (event.touches.length >= 2) {
+        touchSessionRef.current = null;
+        isHorizontalSwipeRef.current = null;
+        return;
+      }
+
+      if (centerZoomActiveRef.current) return;
+
       const session = touchSessionRef.current;
       if (!session || !showGalleryNav || containerWidth <= 0) return;
 
@@ -525,6 +595,7 @@ export function ImagePreviewSurfaceMobile({
         pendingFitModeRef.current = prevFit;
         goPrevious();
       }
+      centerZoomActiveRef.current = false;
     };
 
     track.addEventListener("transitionend", handleTrackTransitionEnd);
@@ -568,6 +639,9 @@ export function ImagePreviewSurfaceMobile({
                   fitMode={centerFit}
                   onFitModeChange={setCenterFit}
                   showLoader={showInitialLoader}
+                  enablePinchZoom
+                  onZoomActiveChange={handleCenterZoomActiveChange}
+                  onCancelPendingTap={cancelPendingTapNav}
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
@@ -610,6 +684,7 @@ export function ImagePreviewSurfaceMobile({
           showInitialLoader={showInitialLoader}
           imageFit={staticFit}
           onResolveFitFromImage={resolveStaticFit}
+          onCancelPendingTap={cancelPendingTapNav}
         />
       )}
 
