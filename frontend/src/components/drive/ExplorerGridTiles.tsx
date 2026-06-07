@@ -363,7 +363,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         }}
         className={cn(
           "flex h-full w-full flex-col gap-1.5 text-center",
-          touchDragBindings && !mobileSelectionMode && "touch-none select-none",
+          // Human: pan-y keeps list scroll working on first touch over a tile; drag arms only after long-press.
+          // Agent: AVOIDS touch-none here — that blocks native vertical scroll across the whole grid on mobile.
+          touchDragBindings && !mobileSelectionMode && "touch-pan-y",
           showThumbnailPreview
             ? "min-h-[148px] items-stretch p-2"
             : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
