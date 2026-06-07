@@ -85,6 +85,7 @@ export function ImagePreviewSurfaceDesktop({
           {displayUrl ? (
             useIosGifPlayback ? (
               <AnimatedGifCanvas
+                key={file?.id ?? displayUrl}
                 url={displayUrl}
                 fileId={file?.id}
                 byteSource={file ? getPreviewGifBlob(file.id) : null}

@@ -387,6 +387,12 @@ export function useImagePreviewController({
             rememberPreviewDimensions(item.id, naturalWidth, naturalHeight);
             cacheGifBlob(item.id, displayBlob, session);
 
+            if (silent) {
+              // Human: Prefetch ticket URL only — ffmpeg starts when the active slide mounts video.
+              // Agent: WARM animationUrlCacheRef for swipe; DOES NOT GET preview-animation body.
+              void resolveGifAnimationPreviewUrl(item.id).catch(() => undefined);
+            }
+
             return cacheBlobUrl(item.id, displayBlob, session);
           }
 
@@ -447,6 +453,7 @@ export function useImagePreviewController({
       isFileInBlobCacheWindow,
       previewDisplayMaxEdgePx,
       rememberPreviewDimensions,
+      resolveGifAnimationPreviewUrl,
       shareToken,
       sharePassword,
     ],
