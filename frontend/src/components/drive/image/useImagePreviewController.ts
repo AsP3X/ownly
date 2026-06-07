@@ -243,7 +243,6 @@ export function useImagePreviewController({
     [goNext, goPrevious],
   );
 
-  const showInitialLoader = loading && !displayUrl;
   const showDownloadAction = Boolean(file && onDownload);
   const showShareAction = Boolean(file && onShare);
   const photoInfoLabel = file
@@ -251,12 +250,35 @@ export function useImagePreviewController({
     : "Image preview";
   const sizeLabel = file ? formatBytes(file.size_bytes) : "";
 
+  // Human: Resolve blob URLs from the in-memory cache during render so carousel commits stay in sync with file.
+  // Agent: READS urlCacheRef by file.id and neighbor ids; RETURNS cached URL immediately after goNext/goPrevious.
+  const resolvedDisplayUrl = file?.id
+    ? (urlCacheRef.current.get(file.id) ?? displayUrl)
+    : displayUrl;
+
+  const resolvedAdjacentUrls = useMemo((): ImagePreviewAdjacentUrls => {
+    if (currentIndex < 0) {
+      return { previous: null, next: null };
+    }
+
+    return {
+      previous:
+        currentIndex > 0 ? urlCacheRef.current.get(images[currentIndex - 1]!.id) ?? null : null,
+      next:
+        currentIndex < images.length - 1
+          ? urlCacheRef.current.get(images[currentIndex + 1]!.id) ?? null
+          : null,
+    };
+  }, [currentIndex, images, adjacentUrls, displayUrl]);
+
+  const resolvedShowInitialLoader = loading && !resolvedDisplayUrl;
+
   return {
     file,
-    displayUrl,
+    displayUrl: resolvedDisplayUrl,
     error,
     loading,
-    showInitialLoader,
+    showInitialLoader: resolvedShowInitialLoader,
     hasPrevious,
     hasNext,
     showGalleryNav,
@@ -267,7 +289,7 @@ export function useImagePreviewController({
     showShareAction,
     goPrevious,
     goNext,
-    adjacentUrls,
+    adjacentUrls: resolvedAdjacentUrls,
     handleDialogOpenChange,
     viewportRef,
     handleContentKeyDown,

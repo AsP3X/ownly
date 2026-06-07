@@ -1,7 +1,7 @@
 // Human: Mobile image lightbox — Pencil MV Mobile Portrait Image Vertical / Letterbox full-bleed overlay.
 // Agent: READS ImagePreviewControllerViewModel; SWIPES horizontal carousel with elastic snap; TAP halves navigate.
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
@@ -219,8 +219,9 @@ export function ImagePreviewSurfaceMobile({
   const touchSessionRef = useRef<TouchSession | null>(null);
   const isHorizontalSwipeRef = useRef<boolean | null>(null);
   const pendingCommitRef = useRef<"previous" | "next" | null>(null);
-  // Human: Skip the file-change reset while a swipe commit recenters the track in transitionEnd.
+  // Human: Hold file-change reset until the swipe commit layout pass recenters the track.
   const suppressFileChangeResetRef = useRef(false);
+  const pendingFitModeRef = useRef<ImageFitMode | null>(null);
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [trackX, setTrackX] = useState(0);
@@ -249,10 +250,24 @@ export function ImagePreviewSurfaceMobile({
     return () => observer.disconnect();
   }, [showGalleryNav]);
 
-  // Human: Keep the track centered on the active slide when the file or width changes (tap/keyboard).
-  // Agent: SKIPS during swipe commit — transitionEnd flushSync updates slides before recentering trackX.
-  useEffect(() => {
-    if (!showGalleryNav || containerWidth <= 0 || suppressFileChangeResetRef.current) return;
+  // Human: Recenter the track on tap/keyboard navigation; swipe commits handle layout in transitionEnd.
+  // Agent: useLayoutEffect RUNS before paint; SKIPS when suppressFileChangeResetRef marks a swipe commit.
+  useLayoutEffect(() => {
+    if (!showGalleryNav || containerWidth <= 0) return;
+
+    if (suppressFileChangeResetRef.current) {
+      suppressFileChangeResetRef.current = false;
+      pendingCommitRef.current = null;
+      setEnableTransition(false);
+      setTrackX(-containerWidth);
+      if (pendingFitModeRef.current) {
+        setCenterFit(pendingFitModeRef.current);
+        pendingFitModeRef.current = null;
+      }
+      requestAnimationFrame(() => setEnableTransition(true));
+      return;
+    }
+
     pendingCommitRef.current = null;
     setEnableTransition(false);
     setTrackX(-containerWidth);
@@ -419,20 +434,18 @@ export function ImagePreviewSurfaceMobile({
       setEnableTransition(false);
 
       // Human: Apply the new slide URLs before recentering — otherwise trackX jumps back to the old center image.
-      // Agent: flushSync CALLS goNext/goPrevious; THEN setTrackX(-containerWidth) with transition disabled.
+      // Agent: flushSync CALLS goNext/goPrevious; layout effect recenters trackX after resolved URLs paint.
       flushSync(() => {
         if (commit === "next") {
+          pendingFitModeRef.current = nextFit;
           goNext();
         } else {
+          pendingFitModeRef.current = prevFit;
           goPrevious();
         }
       });
-
-      setTrackX(-containerWidth);
-      suppressFileChangeResetRef.current = false;
-      requestAnimationFrame(() => setEnableTransition(true));
     },
-    [containerWidth, goNext, goPrevious],
+    [containerWidth, goNext, goPrevious, nextFit, prevFit],
   );
 
   const trackStyle: CSSProperties = {
