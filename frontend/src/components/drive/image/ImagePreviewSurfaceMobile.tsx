@@ -1,10 +1,13 @@
 // Human: Mobile image lightbox — Pencil MV Mobile Portrait Image Vertical / Letterbox full-bleed overlay.
 // Agent: READS ImagePreviewControllerViewModel; SWIPES carousel; PINCH-ZOOM on active slide via useMobileImagePinchZoom.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { MOBILE_IMAGE_VIEWPORT_FIT_CLASS } from "@/components/drive/image/image-preview-layout";
+import {
+  MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE,
+  resolveMobileViewportFitStyle,
+} from "@/components/drive/image/image-preview-layout";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { useMobileImagePinchZoom } from "@/components/drive/image/useMobileImagePinchZoom";
 import { DialogClose } from "@/components/ui/dialog";
@@ -46,6 +49,85 @@ type TouchPoint = {
   clientY: number;
 };
 
+type ContainerSize = {
+  width: number;
+  height: number;
+};
+
+// Human: Track slide viewport size so fit math uses the same box the user sees.
+// Agent: READS ResizeObserver contentRect; WRITES width/height for resolveMobileViewportFitStyle.
+function useContainerSize(ref: React.RefObject<HTMLElement | null>): ContainerSize {
+  const [size, setSize] = useState<ContainerSize>({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      setSize({ width: rect?.width ?? 0, height: rect?.height ?? 0 });
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return size;
+}
+
+type MobileViewportFitImageProps = {
+  url: string;
+  alt: string;
+  fileId?: string;
+  containerSize: ContainerSize;
+  getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
+};
+
+// Human: Size image to touch viewport edges — width-first, or height-first when width would clip vertically.
+// Agent: READS getPreviewDimensions + onLoad natural size; APPLIES resolveMobileViewportFitStyle inline.
+function MobileViewportFitImage({
+  url,
+  alt,
+  fileId,
+  containerSize,
+  getPreviewDimensions,
+}: MobileViewportFitImageProps) {
+  const [loadedNatural, setLoadedNatural] = useState<{ width: number; height: number } | null>(null);
+  const cachedNatural = fileId ? getPreviewDimensions(fileId) : null;
+  const naturalWidth = cachedNatural?.width ?? loadedNatural?.width ?? 0;
+  const naturalHeight = cachedNatural?.height ?? loadedNatural?.height ?? 0;
+
+  const fitStyle = useMemo(
+    () =>
+      resolveMobileViewportFitStyle(
+        naturalWidth,
+        naturalHeight,
+        containerSize.width,
+        containerSize.height,
+      ),
+    [containerSize.height, containerSize.width, naturalHeight, naturalWidth],
+  );
+
+  const handleImageLoad = useCallback((event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget;
+    if (img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+    setLoadedNatural({ width: img.naturalWidth, height: img.naturalHeight });
+  }, []);
+
+  return (
+    <img
+      src={url}
+      alt={alt}
+      loading="eager"
+      decoding="async"
+      onLoad={handleImageLoad}
+      style={naturalWidth > 0 && naturalHeight > 0 ? fitStyle : MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE}
+      className="block max-h-full max-w-full"
+      draggable={false}
+    />
+  );
+}
+
 // Human: Scale snap duration to the remaining travel distance for a more natural deceleration.
 function snapDurationMs(distancePx: number): number {
   return Math.min(GALLERY_SNAP_MAX_MS, Math.max(GALLERY_SNAP_MIN_MS, Math.abs(distancePx) * 0.42));
@@ -71,22 +153,29 @@ function MobileImageViewportScrim() {
 type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
+  fileId?: string;
+  getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   showLoader?: boolean;
   enablePinchZoom?: boolean;
   onZoomActiveChange?: (active: boolean) => void;
   onCancelPendingTap?: () => void;
 };
 
-// Human: One carousel panel — width-first fit touches left/right unless height would overflow.
-// Agent: READS url; RENDERS MOBILE_IMAGE_VIEWPORT_FIT_CLASS; optional PINCH-ZOOM on center slide.
+// Human: One carousel panel — width-fit or height-fit so edges touch without cropping.
+// Agent: READS url + file dimensions; RENDERS MobileViewportFitImage; optional PINCH-ZOOM on center slide.
 function ImageGallerySlide({
   url,
   alt,
+  fileId,
+  getPreviewDimensions,
   showLoader = false,
   enablePinchZoom = false,
   onZoomActiveChange,
   onCancelPendingTap,
 }: ImageGallerySlideProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const containerSize = useContainerSize(stageRef);
+
   const pinchZoom = useMobileImagePinchZoom({
     resetKey: enablePinchZoom ? (url ?? "empty") : "gallery-slide-no-zoom",
     onCancelPendingTap: enablePinchZoom ? onCancelPendingTap : undefined,
@@ -95,7 +184,7 @@ function ImageGallerySlide({
 
   return (
     <div className="relative flex h-full w-full items-center justify-center bg-black">
-      <div className="absolute inset-0 overflow-hidden">
+      <div ref={stageRef} className="absolute inset-0 overflow-hidden">
         <div
           ref={pinchZoom.layerRef}
           className={cn(
@@ -105,13 +194,12 @@ function ImageGallerySlide({
           {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
         >
           {url ? (
-            <img
-              src={url}
+            <MobileViewportFitImage
+              url={url}
               alt={alt}
-              loading="eager"
-              decoding="async"
-              className={MOBILE_IMAGE_VIEWPORT_FIT_CLASS}
-              draggable={false}
+              fileId={fileId}
+              containerSize={containerSize}
+              getPreviewDimensions={getPreviewDimensions}
             />
           ) : showLoader ? (
             <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
@@ -128,6 +216,7 @@ type StaticImageStageProps = {
   error: string;
   loading: boolean;
   showInitialLoader: boolean;
+  getPreviewDimensions: ImagePreviewControllerViewModel["getPreviewDimensions"];
   onCancelPendingTap?: () => void;
 };
 
@@ -138,8 +227,12 @@ function StaticImageStage({
   error,
   loading,
   showInitialLoader,
+  getPreviewDimensions,
   onCancelPendingTap,
 }: StaticImageStageProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const containerSize = useContainerSize(stageRef);
+
   const pinchZoom = useMobileImagePinchZoom({
     resetKey: displayUrl ?? file?.id ?? "static-empty",
     onCancelPendingTap,
@@ -147,19 +240,19 @@ function StaticImageStage({
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black">
-      <div className="absolute inset-0 overflow-hidden">
+      <div ref={stageRef} className="absolute inset-0 overflow-hidden">
         <div
           ref={pinchZoom.layerRef}
           className="flex size-full origin-center touch-none items-center justify-center"
           {...pinchZoom.touchHandlers}
         >
           {displayUrl ? (
-            <img
-              key={displayUrl}
-              src={displayUrl}
+            <MobileViewportFitImage
+              url={displayUrl}
               alt={file?.name ?? "Image preview"}
-              className={MOBILE_IMAGE_VIEWPORT_FIT_CLASS}
-              draggable={false}
+              fileId={file?.id}
+              containerSize={containerSize}
+              getPreviewDimensions={getPreviewDimensions}
             />
           ) : null}
         </div>
@@ -219,6 +312,7 @@ export function ImagePreviewSurfaceMobile({
     adjacentUrls,
     previousFile,
     nextFile,
+    getPreviewDimensions,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -628,6 +722,8 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={adjacentUrls.previous}
                   alt={previousFile?.name ?? "Previous image"}
+                  fileId={previousFile?.id}
+                  getPreviewDimensions={getPreviewDimensions}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
@@ -635,6 +731,8 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={displayUrl}
                   alt={file?.name ?? "Image preview"}
+                  fileId={file?.id}
+                  getPreviewDimensions={getPreviewDimensions}
                   showLoader={showInitialLoader}
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
@@ -645,6 +743,8 @@ export function ImagePreviewSurfaceMobile({
                 <ImageGallerySlide
                   url={adjacentUrls.next}
                   alt={nextFile?.name ?? "Next image"}
+                  fileId={nextFile?.id}
+                  getPreviewDimensions={getPreviewDimensions}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>
@@ -679,6 +779,7 @@ export function ImagePreviewSurfaceMobile({
           error={error}
           loading={loading}
           showInitialLoader={showInitialLoader}
+          getPreviewDimensions={getPreviewDimensions}
           onCancelPendingTap={cancelPendingTapNav}
         />
       )}

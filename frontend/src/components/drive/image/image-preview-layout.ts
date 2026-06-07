@@ -1,5 +1,35 @@
-// Human: Mobile preview sizing — width-first edge contact with a vertical overflow guard.
-// Agent: EXPORTS img class; w-full upscales to viewport edges unless max-h-full would bind first.
+// Human: Mobile preview sizing — edge contact without cropping top/bottom or sides.
+// Agent: READS image + container dimensions; RETURNS inline size for width-fit or height-fit mode.
 
-/** Human: Scale to viewport width; shrink only when full width would clip top/bottom. */
-export const MOBILE_IMAGE_VIEWPORT_FIT_CLASS = "h-auto max-h-full w-full max-w-full";
+import type { CSSProperties } from "react";
+
+/** Human: Default before dimensions are known — prefer width contact once metadata arrives. */
+export const MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE: CSSProperties = {
+  width: "100%",
+  height: "auto",
+  maxHeight: "100%",
+};
+
+// Human: Pick width-fit (touch left/right) or height-fit (touch top/bottom) from aspect ratio vs viewport.
+// Agent: READS naturalWidth/Height + containerWidth/Height; RETURNS CSSProperties for centered flex img.
+export function resolveMobileViewportFitStyle(
+  naturalWidth: number,
+  naturalHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): CSSProperties {
+  if (naturalWidth <= 0 || naturalHeight <= 0 || containerWidth <= 0 || containerHeight <= 0) {
+    return MOBILE_IMAGE_VIEWPORT_FIT_FALLBACK_STYLE;
+  }
+
+  const heightIfFullWidth = naturalHeight * (containerWidth / naturalWidth);
+  if (heightIfFullWidth <= containerHeight) {
+    // Human: Scaling to viewport width keeps the full image visible — touch left and right edges.
+    // Agent: UPSCALES small images to w-full; centers vertically when shorter than the viewport.
+    return { width: "100%", height: "auto", maxHeight: "100%" };
+  }
+
+  // Human: Full width would clip vertically — fit height instead so top and bottom touch the viewport.
+  // Agent: USES h-full + w-auto; MAY pillarbox horizontally; NEVER crops top/bottom.
+  return { height: "100%", width: "auto", maxWidth: "100%" };
+}
