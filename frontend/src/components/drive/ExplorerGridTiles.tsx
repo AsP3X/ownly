@@ -127,6 +127,8 @@ export type ExplorerFileGridTileProps = {
   selectionEnabled: boolean;
   isSelected: boolean;
   hasActiveSelection: boolean;
+  /** Human: Mobile tap-to-select mode — tile taps toggle checkboxes instead of opening previews. */
+  mobileSelectionMode?: boolean;
   isDragging: boolean;
   isArmedForTouchDrag?: boolean;
   dragEnabled: boolean;
@@ -163,6 +165,7 @@ function explorerFileGridTilePropsEqual(
     prev.selectionEnabled === next.selectionEnabled &&
     prev.isSelected === next.isSelected &&
     prev.hasActiveSelection === next.hasActiveSelection &&
+    prev.mobileSelectionMode === next.mobileSelectionMode &&
     prev.isDragging === next.isDragging &&
     prev.isArmedForTouchDrag === next.isArmedForTouchDrag &&
     prev.dragEnabled === next.dragEnabled &&
@@ -178,6 +181,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   selectionEnabled,
   isSelected,
   hasActiveSelection,
+  mobileSelectionMode = false,
   isDragging,
   isArmedForTouchDrag = false,
   dragEnabled,
@@ -247,7 +251,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         <label
           className={cn(
             "absolute right-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity",
-            isSelected || hasActiveSelection
+            isSelected || hasActiveSelection || mobileSelectionMode
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
           )}
@@ -306,6 +310,12 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         onPointerCancel={touchDragBindings?.onPointerCancel}
         onClick={() => {
           if (touchDragBindings?.consumeSuppressedClick()) return;
+          // Human: In mobile selection mode, a tile tap toggles its checkbox instead of previewing.
+          // Agent: CALLS onToggleSelected; SKIPS preview handlers while mobileSelectionMode is true.
+          if (mobileSelectionMode && selectionEnabled && !processing) {
+            onToggleSelected(file.id, !isSelected);
+            return;
+          }
           if (!canPreview) return;
           if (canPreviewVideo) onPreviewVideo!(file);
           else if (canPreviewImage) onPreviewImage!(file);

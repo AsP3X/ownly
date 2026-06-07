@@ -1,7 +1,7 @@
 // Human: Command bar shown when one or more files are selected in the My files browser.
 // Agent: RENDERS selection count + bulk download/favourite/delete/clear; CALLS parent handlers only.
 
-import { Download, Star, Trash2, X } from "lucide-react";
+import { Copy, Download, FolderInput, Star, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,10 @@ type BulkActionsBarProps = {
   onToggleFavourite: () => void;
   onDelete: () => void;
   onClearSelection: () => void;
+  onCopyToFolder?: () => void;
+  onMoveToFolder?: () => void;
+  /** Human: Show copy/move icon buttons on the mobile floating bar. */
+  showMobileFolderActions?: boolean;
 };
 
 // Human: Bulk toolbar — compact floating pill on mobile, inline bar on desktop.
@@ -30,10 +34,15 @@ export function BulkActionsBar({
   onToggleFavourite,
   onDelete,
   onClearSelection,
+  onCopyToFolder,
+  onMoveToFolder,
+  showMobileFolderActions = false,
 }: BulkActionsBarProps) {
   if (selectedCount === 0) return null;
 
   const showSelectAll = selectableCount > 0 && !allSelected;
+  const showMobileCopyMove =
+    showMobileFolderActions && selectedCount >= 2 && onCopyToFolder !== undefined;
 
   return (
     <div
@@ -62,6 +71,31 @@ export function BulkActionsBar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 lg:gap-1">
+        {showMobileCopyMove ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-white hover:bg-white/15 lg:hidden"
+              onClick={onCopyToFolder}
+              aria-label="Copy selected to folder"
+            >
+              <Copy />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-white hover:bg-white/15 lg:hidden"
+              onClick={onMoveToFolder}
+              aria-label="Move selected to folder"
+              disabled={!onMoveToFolder}
+            >
+              <FolderInput />
+            </Button>
+          </>
+        ) : null}
         <Button
           type="button"
           variant="ghost"

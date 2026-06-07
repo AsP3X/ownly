@@ -83,6 +83,8 @@ type DriveCloudExplorerProps = {
   onExplorerDragActiveChange?: (active: boolean) => void;
   /** Human: Locks the main scroll pane during touch long-press drag so list scroll does not steal the gesture. */
   onExplorerTouchScrollLockChange?: (locked: boolean) => void;
+  /** Human: Mobile tap-to-select mode — tile taps toggle selection instead of opening previews. */
+  mobileSelectionMode?: boolean;
 };
 
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
@@ -184,6 +186,7 @@ export function DriveCloudExplorer({
   onOpenActions,
   onExplorerDragActiveChange,
   onExplorerTouchScrollLockChange,
+  mobileSelectionMode = false,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -295,6 +298,23 @@ export function DriveCloudExplorer({
       onSelectedFileIdsChange(next);
     },
     [onSelectedFileIdsChange, selectedFileIds, selectionEnabled],
+  );
+
+  // Human: Label for the touch drag ghost when multiple files are checked in selection mode.
+  // Agent: READS selectedFileIds + mobileSelectionMode; RETURNS count label or undefined for single file.
+  const resolveTouchDragGhostLabel = useCallback(
+    (fileId: string, fileName: string) => {
+      const selectedCount = selectedFileIds?.size ?? 0;
+      if (
+        mobileSelectionMode &&
+        selectedCount > 1 &&
+        selectedFileIds?.has(fileId) === true
+      ) {
+        return `${selectedCount} files`;
+      }
+      return fileName;
+    },
+    [mobileSelectionMode, selectedFileIds],
   );
 
   function handleFileDragStart(event: DragEvent<HTMLButtonElement>, fileId: string) {
@@ -495,13 +515,18 @@ export function DriveCloudExplorer({
                     selectionEnabled={selectionEnabled}
                     isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
                     hasActiveSelection={hasActiveSelection}
+                    mobileSelectionMode={mobileSelectionMode}
                     isDragging={activeDraggingFileId === entry.file.id}
                     isArmedForTouchDrag={armedFileId === entry.file.id}
                     dragEnabled={dragEnabled}
                     touchDragEnabled={touchDragEnabled}
                     getTouchDragBindings={
                       touchDragEnabled
-                        ? () => getFileDragBindings(entry.file.id, entry.file.name)
+                        ? () =>
+                            getFileDragBindings(
+                              entry.file.id,
+                              resolveTouchDragGhostLabel(entry.file.id, entry.file.name),
+                            )
                         : undefined
                     }
                     onToggleSelected={toggleFileSelected}

@@ -2,6 +2,7 @@
 // Agent: Sheet side=bottom; CALLS parent handlers; CLOSES on action selection.
 
 import {
+  CheckSquare,
   Copy,
   Download,
   FolderInput,
@@ -46,6 +47,8 @@ type MobileFileActionsSheetProps = {
   onMoveToFolder?: () => void;
   selectedFileIds?: Set<string>;
   bulkSelectionCount?: number;
+  /** Human: Enter tap-to-select mode and check the target file. */
+  onEnterMobileSelection?: (fileId: string) => void;
 };
 
 // Human: Full-width action row inside the grouped action card.
@@ -107,6 +110,7 @@ export function MobileFileActionsSheet({
   onMoveToFolder,
   selectedFileIds,
   bulkSelectionCount = 0,
+  onEnterMobileSelection,
 }: MobileFileActionsSheetProps) {
   const file = target?.kind === "file" ? target.file : undefined;
   const folder = target?.kind === "folder" ? target.folder : undefined;
@@ -154,6 +158,17 @@ export function MobileFileActionsSheet({
                 disabled={processing}
                 onClick={() => closeThen(() => onDetailsFile(file))}
               />
+              {onEnterMobileSelection ? (
+                <>
+                  <div className="mx-4 border-t border-neutral-100" />
+                  <ActionRow
+                    icon={<CheckSquare className="size-4" />}
+                    label="Select"
+                    disabled={processing}
+                    onClick={() => closeThen(() => onEnterMobileSelection(file.id))}
+                  />
+                </>
+              ) : null}
               <div className="mx-4 border-t border-neutral-100" />
               <ActionRow
                 icon={<Download className="size-4" />}

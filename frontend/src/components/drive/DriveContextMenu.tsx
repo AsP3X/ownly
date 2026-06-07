@@ -2,7 +2,7 @@
 // Agent: modal={false}; SubmenuTrigger inherits Base UI safePolygon; workspace rows use small leading Lucide icons only.
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-react";
+import { CheckSquare, Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-react";
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
@@ -56,6 +56,10 @@ type DriveContextMenuProps = {
   onMoveToFolder?: () => void;
   /** Human: True while a file is being dragged — menu closes and won't reopen until drag ends. */
   explorerDragActive?: boolean;
+  /** Human: Show "Select" on file rows for mobile multi-select entry. */
+  enableMobileSelectActions?: boolean;
+  /** Human: Enter tap-to-select mode and check the target file. */
+  onEnterMobileSelection?: (fileId: string) => void;
 };
 
 // Human: Walk DOM ancestors to find the file row or card that received the right click.
@@ -113,6 +117,8 @@ export function DriveContextMenu({
   onCopyToFolder,
   onMoveToFolder,
   explorerDragActive = false,
+  enableMobileSelectActions = false,
+  onEnterMobileSelection,
 }: DriveContextMenuProps) {
   const [open, setOpen] = useState(false);
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
@@ -274,6 +280,19 @@ export function DriveContextMenu({
             >
               {targetFavourited ? "Remove from favourites" : "Add to favourites"}
             </ContextMenuItem>
+
+            {enableMobileSelectActions && onEnterMobileSelection ? (
+              <ContextMenuItem
+                disabled={targetProcessing}
+                onClick={() => {
+                  onEnterMobileSelection(targetFile.id);
+                  setOpen(false);
+                }}
+              >
+                <CheckSquare />
+                Select
+              </ContextMenuItem>
+            ) : null}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger disabled={targetProcessing}>Open with…</ContextMenuSubTrigger>

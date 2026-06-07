@@ -28,6 +28,7 @@ import {
   type SharedWithMeItem,
 } from "@/api/client";
 import { BulkActionsBar } from "@/components/drive/BulkActionsBar";
+import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
 import {
   MobileFileActionsSheet,
   type MobileActionTarget,
@@ -240,6 +241,10 @@ export default function DrivePage() {
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
   const [explorerDragActive, setExplorerDragActive] = useState(false);
   const [explorerTouchScrollLocked, setExplorerTouchScrollLocked] = useState(false);
+  // Human: Mobile-only tap-to-select mode — entered via context menu or action sheet "Select".
+  // Agent: WRITES true after onEnterMobileSelection; READ by explorer tiles + touch drag batch moves.
+  const [mobileSelectionMode, setMobileSelectionMode] = useState(false);
+  const isDesktopViewport = useIsDesktopPlayer(true);
   const [recycleBinData, setRecycleBinData] = useState<RecycleBinResponse | null>(null);
   const [recycleBinError, setRecycleBinError] = useState("");
   const [sharedWithMeItems, setSharedWithMeItems] = useState<SharedWithMeItem[]>([]);
@@ -760,6 +765,62 @@ export default function DrivePage() {
     }
   }
 
+  // Human: Explorer drag-drop entry — moves every checked file when batch-select mode is active.
+  // Agent: READS mobileSelectionMode + selectedFileIds; CALLS moveFile per id; CLEARS selection on batch success.
+  async function handleExplorerMoveToFolder(fileId: string, folderId: string) {
+    const draggedFile = files.find((item) => item.id === fileId);
+    if (draggedFile && isFileProcessing(draggedFile)) return;
+
+    const batchIds =
+      mobileSelectionMode &&
+      selectedFileIds.has(fileId) &&
+      selectedFileIds.size > 1
+        ? [...selectedFileIds].filter((id) => {
+            const candidate = files.find((item) => item.id === id);
+            return candidate !== undefined && !isFileProcessing(candidate);
+          })
+        : null;
+
+    if (!batchIds) {
+      await handleMoveFileToFolder(fileId, folderId);
+      return;
+    }
+
+    setError("");
+    try {
+      for (const id of batchIds) {
+        await moveFile(id, folderId);
+      }
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+      handleClearBrowserSelection();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }
+
+  // Human: Enter mobile multi-select — seed the tapped file and show selection chrome on all tiles.
+  // Agent: WRITES mobileSelectionMode true; ADDS fileId to selectedFileIds when not processing.
+  function handleEnterMobileSelection(fileId: string) {
+    const file = files.find((item) => item.id === fileId);
+    if (!file || isFileProcessing(file)) return;
+
+    setMobileSelectionMode(true);
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      next.add(fileId);
+      return next;
+    });
+  }
+
+  // Human: Clear browser multi-select and exit mobile selection mode together.
+  // Agent: WRITES empty selectedFileIds; WRITES mobileSelectionMode false.
+  function handleClearBrowserSelection() {
+    setSelectedFileIds(new Set());
+    setMobileSelectionMode(false);
+  }
+
   // Human: Load folders for one level of the picker breadcrumb.
   // Agent: GET /folders?parent_id=; WRITES folderPickerFolders + loading flags.
   async function loadFolderPickerLevel(parentId: string | null) {
@@ -788,7 +849,7 @@ export default function DrivePage() {
   // Human: Open the folder picker for the current multi-selection.
   // Agent: WRITES folderPickerFiles from selectedFiles; LOADS root folders; OPENS dialog.
   function handleOpenFolderPicker() {
-    if (selectedFiles.length < 2) return;
+    if (selectedFiles.length === 0) return;
     setFolderPickerFiles(selectedFiles);
     setFolderPickerStack([]);
     setFolderPickerSubmitting(null);
@@ -1155,7 +1216,7 @@ export default function DrivePage() {
 
   function handleNavChange(nav: NavItemId) {
     setActiveNav(nav);
-    setSelectedFileIds(new Set());
+    handleClearBrowserSelection();
     if (nav === "home" || nav === "recycle-bin" || nav === "shared-files") {
       setQuery("");
       setTypeFilter("all");
@@ -1272,6 +1333,8 @@ export default function DrivePage() {
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}
       explorerDragActive={explorerDragActive}
+      enableMobileSelectActions={!isDesktopViewport}
+      onEnterMobileSelection={handleEnterMobileSelection}
     >
       {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
       {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
@@ -1484,6 +1547,7 @@ export default function DrivePage() {
           onMoveToFolder={handleOpenFolderPicker}
           selectedFileIds={selectedFileIds}
           bulkSelectionCount={selectedFileIds.size}
+          onEnterMobileSelection={handleEnterMobileSelection}
         />
       <MobileDriveHeader
         activeNav={activeNav}
@@ -1645,7 +1709,10 @@ export default function DrivePage() {
                   onDownload={handleBulkDownload}
                   onToggleFavourite={handleBulkToggleFavourite}
                   onDelete={handleBulkDeleteRequest}
-                  onClearSelection={() => setSelectedFileIds(new Set())}
+                  onClearSelection={handleClearBrowserSelection}
+                  onCopyToFolder={handleOpenFolderPicker}
+                  onMoveToFolder={handleOpenFolderPicker}
+                  showMobileFolderActions={!isDesktopViewport}
                 />
                 <DriveCloudExplorer
                   folderStack={folderStack}
@@ -1660,7 +1727,12 @@ export default function DrivePage() {
                   dragEnabled={!isSearchingMyFiles}
                   selectable
                   selectedFileIds={selectedFileIds}
-                  onSelectedFileIdsChange={setSelectedFileIds}
+                  onSelectedFileIdsChange={(ids) => {
+                    setSelectedFileIds(ids);
+                    if (ids.size === 0) {
+                      setMobileSelectionMode(false);
+                    }
+                  }}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}
@@ -1676,8 +1748,9 @@ export default function DrivePage() {
                   onOpenFolder={openFolder}
                   onCreateFolder={() => setCreateFolderDialogOpen(true)}
                   onUpload={() => setUploadDialogOpen(true)}
+                  mobileSelectionMode={mobileSelectionMode}
                   onMoveFileToFolder={(fileId, folderId) =>
-                    void handleMoveFileToFolder(fileId, folderId)
+                    void handleExplorerMoveToFolder(fileId, folderId)
                   }
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
