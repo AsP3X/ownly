@@ -124,6 +124,33 @@ export function isGifMimeType(mimeType: string): boolean {
   return mimeType.toLowerCase().includes("gif");
 }
 
+// Human: Pick ImageDecoder `type` from magic bytes — uploads may store WebP with image/gif mime.
+// Agent: READS RIFF/WEBP or GIF87a/89a header; RETURNS image/webp or image/gif.
+export function sniffImageDecoderMimeType(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer.slice(0, 16));
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  if (isGifHeaderBytes(bytes)) {
+    return "image/gif";
+  }
+  return "image/gif";
+}
+
+export function isWebpImageBytes(buffer: ArrayBuffer): boolean {
+  return sniffImageDecoderMimeType(buffer) === "image/webp";
+}
+
 // Human: True when the drive row should use the GIF preview path (mime or .gif extension).
 // Agent: READS FileItem.mime_type + name; used to skip mobile downscale and pick stream URLs.
 export function isGifPreviewFile(file: {

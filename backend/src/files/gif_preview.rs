@@ -220,10 +220,12 @@ fn source_filename_for_format(format: SniffedImageFormat) -> &'static str {
 
 // Human: Ordered ffmpeg input strategies per sniffed container type.
 // Agent: RETURNS Auto first, then container-specific fallbacks (image2 for WebP).
+#[derive(Clone, Copy)]
 enum TranscodeAttempt {
     Auto,
     Demuxer(&'static str),
-    Image2Single,
+    /// Human: WebP animation often needs variable frame timing on the output side.
+    WebpVariableFps,
 }
 
 fn transcode_attempts(format: SniffedImageFormat) -> Vec<TranscodeAttempt> {
@@ -234,7 +236,7 @@ fn transcode_attempts(format: SniffedImageFormat) -> Vec<TranscodeAttempt> {
         ],
         SniffedImageFormat::WebP => vec![
             TranscodeAttempt::Auto,
-            TranscodeAttempt::Image2Single,
+            TranscodeAttempt::WebpVariableFps,
         ],
         SniffedImageFormat::Png => vec![
             TranscodeAttempt::Auto,
@@ -352,12 +354,9 @@ async fn run_ffmpeg_animation_to_mp4(
 
     match attempt {
         TranscodeAttempt::Auto => {
-            if matches!(
-                source_format,
-                SniffedImageFormat::Gif | SniffedImageFormat::WebP
-            ) {
-                // Human: Animated GIF/WebP uploads should loop in the MP4 preview output.
-                // Agent: SETS -ignore_loop 0 before `-i` when probing by file extension.
+            if source_format == SniffedImageFormat::Gif {
+                // Human: `-ignore_loop` is GIF-only — WebKit/WebP inputs reject it (Option ignore_loop not found).
+                // Agent: SETS -ignore_loop 0 before `-i` for animated GIF demux only.
                 command.arg("-ignore_loop").arg("0");
             }
         }
@@ -367,20 +366,22 @@ async fn run_ffmpeg_animation_to_mp4(
                 command.arg("-ignore_loop").arg("0");
             }
         }
-        TranscodeAttempt::Image2Single => {
-            // Human: Fallback for WebP when extension probing fails on older ffmpeg builds.
-            // Agent: USES image2 single-file mode; READS one .webp path.
-            command
-                .arg("-f")
-                .arg("image2")
-                .arg("-pattern_type")
-                .arg("none");
+        TranscodeAttempt::WebpVariableFps => {
+            // Human: Second-chance WebP path when default timing fails on animated uploads.
+            // Agent: USES -vsync vfr after input; NO -ignore_loop (invalid for WebP).
         }
     }
 
+    command.arg("-i").arg(input);
+
+    if matches!(
+        (source_format, attempt),
+        (SniffedImageFormat::WebP, TranscodeAttempt::WebpVariableFps)
+    ) {
+        command.arg("-vsync").arg("vfr");
+    }
+
     command
-        .arg("-i")
-        .arg(input)
         .args([
             "-c:v",
             "libx264",
@@ -424,7 +425,7 @@ async fn run_ffmpeg_animation_to_mp4(
         let attempt_label = match attempt {
             TranscodeAttempt::Auto => "auto",
             TranscodeAttempt::Demuxer(name) => name,
-            TranscodeAttempt::Image2Single => "image2",
+            TranscodeAttempt::WebpVariableFps => "webp-vfr",
         };
         return Err(format!(
             "attempt={attempt_label} exit={:?} stderr={}",
@@ -476,10 +477,10 @@ mod tests {
     }
 
     #[test]
-    fn transcode_attempts_for_webp_skips_webp_demuxer() {
+    fn transcode_attempts_for_webp_uses_auto_and_vfr() {
         let attempts = transcode_attempts(SniffedImageFormat::WebP);
         assert_eq!(attempts.len(), 2);
         assert!(matches!(attempts[0], TranscodeAttempt::Auto));
-        assert!(matches!(attempts[1], TranscodeAttempt::Image2Single));
+        assert!(matches!(attempts[1], TranscodeAttempt::WebpVariableFps));
     }
 }

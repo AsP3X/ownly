@@ -3,6 +3,7 @@
 
 import { decompressFrames, parseGIF, type ParsedFrame } from "gifuct-js";
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { sniffImageDecoderMimeType } from "@/components/drive/image/image-preview-gif";
 
 export type GifPlaybackHandle = {
   stop: () => void;
@@ -153,8 +154,9 @@ async function startImageDecoderCanvasPlayback(
   canvas: HTMLCanvasElement,
   onNaturalSize: ((width: number, height: number) => void) | undefined,
   isCancelled: () => boolean,
+  mimeType: string,
 ): Promise<GifPlaybackHandle> {
-  const decoder = new ImageDecoder({ data: buffer, type: "image/gif" });
+  const decoder = new ImageDecoder({ data: buffer, type: mimeType });
   await decoder.completed;
   if (isCancelled()) {
     decoder.close();
@@ -323,6 +325,91 @@ export async function transcodeGifToMp4(
   return blob;
 }
 
+// Human: Mux ImageDecoder frames (GIF or WebP) into H.264 MP4 for iOS <video> playback.
+// Agent: DECODES each frameIndex; ENCODES via VideoEncoder; CACHES by cacheKey when provided.
+async function transcodeViaImageDecoderToMp4(
+  buffer: ArrayBuffer,
+  mimeType: string,
+  cacheKey?: string,
+  onNaturalSize?: (width: number, height: number) => void,
+): Promise<Blob> {
+  if (cacheKey) {
+    const cached = mp4Cache.get(cacheKey);
+    if (cached) return cached;
+  }
+
+  const decoder = new ImageDecoder({ data: buffer, type: mimeType });
+  await decoder.completed;
+  const track = decoder.tracks.selectedTrack;
+  if (!track || track.frameCount <= 1) {
+    decoder.close();
+    throw new Error("static image");
+  }
+
+  const first = await decoder.decode({ frameIndex: 0 });
+  const width = first.image.displayWidth;
+  const height = first.image.displayHeight;
+  first.image.close();
+  onNaturalSize?.(width, height);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    decoder.close();
+    throw new Error("no canvas context");
+  }
+
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({
+    target,
+    video: { codec: "avc", width, height },
+    fastStart: "in-memory",
+  });
+
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => {
+      muxer.addVideoChunk(chunk, sanitizeEncoderMeta(meta));
+    },
+    error: (error) => {
+      throw error;
+    },
+  });
+
+  encoder.configure({
+    codec: "avc1.42001f",
+    width,
+    height,
+    bitrate: 1_000_000,
+  });
+
+  let timestampUs = 0;
+  for (let index = 0; index < track.frameCount; index += 1) {
+    const result = await decoder.decode({ frameIndex: index });
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(result.image, 0, 0);
+    const delayMs = Math.max(20, (result.image.duration ?? 100_000) / 1000);
+    result.image.close();
+
+    const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
+    encoder.encode(videoFrame, { keyFrame: index === 0 || index % 30 === 0 });
+    videoFrame.close();
+    timestampUs += delayMs * 1000;
+  }
+
+  decoder.close();
+  await encoder.flush();
+  encoder.close();
+  muxer.finalize();
+
+  const blob = new Blob([target.buffer], { type: "video/mp4" });
+  if (cacheKey) {
+    mp4Cache.set(cacheKey, blob);
+  }
+  return blob;
+}
+
 export type StartIosGifPlaybackOptions = {
   buffer: ArrayBuffer;
   canvas: HTMLCanvasElement;
@@ -338,10 +425,14 @@ export async function startIosGifPlayback(
   options: StartIosGifPlaybackOptions,
 ): Promise<GifPlaybackHandle | null> {
   const { buffer, canvas, cacheKey, onNaturalSize, isCancelled, onVideoReady } = options;
+  const mimeType = sniffImageDecoderMimeType(buffer);
+  const isWebp = mimeType === "image/webp";
 
   if (canTranscodeGifToMp4() && onVideoReady) {
     try {
-      const mp4Blob = await transcodeGifToMp4(buffer, cacheKey, onNaturalSize);
+      const mp4Blob = isWebp
+        ? await transcodeViaImageDecoderToMp4(buffer, mimeType, cacheKey, onNaturalSize)
+        : await transcodeGifToMp4(buffer, cacheKey, onNaturalSize);
       if (isCancelled()) return { stop: () => undefined };
       const objectUrl = URL.createObjectURL(mp4Blob);
       onVideoReady(objectUrl);
@@ -357,10 +448,20 @@ export async function startIosGifPlayback(
 
   if (canUseImageDecoder()) {
     try {
-      return await startImageDecoderCanvasPlayback(buffer, canvas, onNaturalSize, isCancelled);
+      return await startImageDecoderCanvasPlayback(
+        buffer,
+        canvas,
+        onNaturalSize,
+        isCancelled,
+        mimeType,
+      );
     } catch {
       // Human: Fall through to gifuct when ImageDecoder rejects the bitstream.
     }
+  }
+
+  if (isWebp) {
+    throw new Error("webp playback unavailable");
   }
 
   try {
