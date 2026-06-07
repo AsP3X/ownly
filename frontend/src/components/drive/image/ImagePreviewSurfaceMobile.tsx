@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Loader2, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
+import { MOBILE_IMAGE_LETTERBOX_STAGE_CLASS, resolveImageFitFromElement, resolveImageFitMode } from "@/components/drive/image/image-preview-layout";
 import type { ImageFitMode } from "@/components/drive/image/image-preview-types";
 import type { ImagePreviewControllerViewModel } from "@/components/drive/image/useImagePreviewController";
 import { DialogClose } from "@/components/ui/dialog";
@@ -74,41 +74,52 @@ function ImageGallerySlide({
     [onFitModeChange],
   );
 
-  return (
-    <div
-      className={cn(
-        "relative flex h-full shrink-0 items-center justify-center bg-black",
-        isLetterbox
-          ? "aspect-[390/220] w-full max-h-[min(220px,42dvh)] min-h-[180px] max-w-[min(100%,390px)]"
-          : "h-full w-full",
-      )}
-    >
-      {url ? (
-        <img
-          src={url}
-          alt={alt}
-          onLoad={handleImageLoad}
-          className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
-          draggable={false}
-        />
-      ) : showLoader ? (
-        <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
-      ) : null}
+  const handleImageRef = useCallback(
+    (node: HTMLImageElement | null) => {
+      const fit = resolveImageFitFromElement(node);
+      if (fit) onFitModeChange(fit);
+    },
+    [onFitModeChange],
+  );
 
+  return (
+    <div className="relative flex h-full w-full items-center justify-center bg-black">
+      {/* Human: Letterbox uses a centered band; vertical fills the full slide behind the flex host. */}
+      {/* Agent: OUTER flex host READS h-full; INNER stage SWITCHES letterbox band vs absolute inset-0. */}
       <div
         className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-[#000000CC] to-transparent",
-          isLetterbox ? "h-14" : "h-[120px]",
+          "relative",
+          isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
         )}
-        aria-hidden
-      />
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#000000CC] to-transparent",
-          isLetterbox ? "h-[72px]" : "h-[120px]",
-        )}
-        aria-hidden
-      />
+      >
+        {url ? (
+          <img
+            ref={handleImageRef}
+            src={url}
+            alt={alt}
+            onLoad={handleImageLoad}
+            className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+            draggable={false}
+          />
+        ) : showLoader ? (
+          <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
+        ) : null}
+
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-[#000000CC] to-transparent",
+            isLetterbox ? "h-14" : "h-[120px]",
+          )}
+          aria-hidden
+        />
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#000000CC] to-transparent",
+            isLetterbox ? "h-[72px]" : "h-[120px]",
+          )}
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }
@@ -120,7 +131,7 @@ type StaticImageStageProps = {
   loading: boolean;
   showInitialLoader: boolean;
   imageFit: ImageFitMode;
-  onImageLoad: (event: React.SyntheticEvent<HTMLImageElement>) => void;
+  onResolveFitFromImage: (img: HTMLImageElement) => void;
 };
 
 // Human: Single-image layout when the folder has only one image (no carousel track).
@@ -131,70 +142,86 @@ function StaticImageStage({
   loading,
   showInitialLoader,
   imageFit,
-  onImageLoad,
+  onResolveFitFromImage,
 }: StaticImageStageProps) {
   const isLetterbox = imageFit === "letterbox";
 
+  const handleImageLoad = useCallback(
+    (event: React.SyntheticEvent<HTMLImageElement>) => {
+      onResolveFitFromImage(event.currentTarget);
+    },
+    [onResolveFitFromImage],
+  );
+
+  const handleImageRef = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (!node?.complete || node.naturalWidth <= 0) return;
+      onResolveFitFromImage(node);
+    },
+    [onResolveFitFromImage],
+  );
+
   return (
-    <div
-      className={cn(
-        "relative flex w-full items-center justify-center bg-black",
-        isLetterbox
-          ? "aspect-[390/220] w-full max-h-[min(220px,42dvh)] min-h-[180px] max-w-[min(100%,390px)] shrink-0"
-          : "absolute inset-0",
-      )}
-    >
-      {displayUrl ? (
-        <img
-          key={displayUrl}
-          src={displayUrl}
-          alt={file?.name ?? "Image preview"}
-          onLoad={onImageLoad}
-          className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
-          draggable={false}
-        />
-      ) : null}
+    <div className="absolute inset-0 flex items-center justify-center bg-black">
+      <div
+        className={cn(
+          "relative",
+          isLetterbox ? MOBILE_IMAGE_LETTERBOX_STAGE_CLASS : "absolute inset-0",
+        )}
+      >
+        {displayUrl ? (
+          <img
+            key={displayUrl}
+            ref={handleImageRef}
+            src={displayUrl}
+            alt={file?.name ?? "Image preview"}
+            onLoad={handleImageLoad}
+            className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
+            draggable={false}
+          />
+        ) : null}
 
-      {error ? (
-        <p
-          className="absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400"
-          role="alert"
-        >
-          {error}
-        </p>
-      ) : null}
+        {error ? (
+          <p
+            className="absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : null}
 
-      {showInitialLoader ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
-          <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
-          <span className="sr-only">Loading image…</span>
-        </div>
-      ) : null}
+        {showInitialLoader ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+            <Loader2 className="size-7 animate-spin text-white/80" aria-hidden />
+            <span className="sr-only">Loading image…</span>
+          </div>
+        ) : null}
 
-      {loading && displayUrl ? (
+        {loading && displayUrl ? (
+          <div
+            className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
+            aria-live="polite"
+          >
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            Loading…
+          </div>
+        ) : null}
+
         <div
-          className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-xs text-white"
-          aria-live="polite"
-        >
-          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          Loading…
-        </div>
-      ) : null}
-
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#000000CC] to-transparent",
-          isLetterbox ? "h-14" : "h-[120px]",
-        )}
-        aria-hidden
-      />
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#000000CC] to-transparent",
-          isLetterbox ? "h-[72px]" : "h-[120px]",
-        )}
-        aria-hidden
-      />
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#000000CC] to-transparent",
+            isLetterbox ? "h-14" : "h-[120px]",
+          )}
+          aria-hidden
+        />
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#000000CC] to-transparent",
+            isLetterbox ? "h-[72px]" : "h-[120px]",
+          )}
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }
@@ -309,8 +336,7 @@ export function ImagePreviewSurfaceMobile({
     setCenterFit("vertical");
   }, [file?.id, containerWidth, showGalleryNav, recenterTrack]);
 
-  const handleStaticImageLoad = useCallback((event: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = event.currentTarget;
+  const resolveStaticFit = useCallback((img: HTMLImageElement) => {
     setStaticFit(resolveImageFitMode(img.naturalWidth, img.naturalHeight));
   }, []);
 
@@ -583,7 +609,7 @@ export function ImagePreviewSurfaceMobile({
           loading={loading}
           showInitialLoader={showInitialLoader}
           imageFit={staticFit}
-          onImageLoad={handleStaticImageLoad}
+          onResolveFitFromImage={resolveStaticFit}
         />
       )}
 
