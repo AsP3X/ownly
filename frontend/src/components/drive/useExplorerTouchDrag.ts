@@ -24,6 +24,8 @@ type UseExplorerTouchDragOptions = {
   scrollElementRef?: RefObject<HTMLElement | null>;
   onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
   resolveFileFolderId: (fileId: string) => string | null | undefined;
+  /** Human: Notifies parent when a touch drag ghost is active — used to dismiss the context menu. */
+  onDragSessionActiveChange?: (active: boolean) => void;
 };
 
 export type ExplorerTouchDragBindings = {
@@ -46,6 +48,9 @@ function findFolderDropTarget(clientX: number, clientY: number): string | null {
   const stack = document.elementsFromPoint(clientX, clientY);
   for (const element of stack) {
     if (element.closest("[data-explorer-touch-drag-ghost]")) continue;
+    // Human: Skip open context menu popups so folder tiles underneath stay droppable.
+    // Agent: READS data-slot=context-menu-content; CONTINUES when menu layer is in hit stack.
+    if (element.closest('[data-slot="context-menu-content"]')) continue;
     const folderNode = element.closest<HTMLElement>("[data-folder-id]");
     if (folderNode?.dataset.folderId) {
       return folderNode.dataset.folderId;
@@ -79,6 +84,7 @@ export function useExplorerTouchDrag({
   scrollElementRef,
   onMoveFileToFolder,
   resolveFileFolderId,
+  onDragSessionActiveChange,
 }: UseExplorerTouchDragOptions) {
   const [isDesktopViewport, setIsDesktopViewport] = useState(readIsDesktopViewport);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -117,6 +123,7 @@ export function useExplorerTouchDrag({
   }, []);
 
   const resetSession = useCallback(() => {
+    const wasDragging = draggingRef.current;
     clearLongPressTimer();
     stopAutoScrollLoop();
     activePointerIdRef.current = null;
@@ -135,7 +142,10 @@ export function useExplorerTouchDrag({
     document.body.style.removeProperty("touch-action");
     document.body.style.removeProperty("user-select");
     document.body.style.removeProperty("-webkit-user-select");
-  }, [clearLongPressTimer, stopAutoScrollLoop]);
+    if (wasDragging) {
+      onDragSessionActiveChange?.(false);
+    }
+  }, [clearLongPressTimer, onDragSessionActiveChange, stopAutoScrollLoop]);
 
   const beginActiveDrag = useCallback(
     (clientX: number, clientY: number) => {
@@ -152,8 +162,9 @@ export function useExplorerTouchDrag({
       document.body.style.touchAction = "none";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
+      onDragSessionActiveChange?.(true);
     },
-    [],
+    [onDragSessionActiveChange],
   );
 
   const updateDragAt = useCallback(
@@ -230,6 +241,19 @@ export function useExplorerTouchDrag({
     apply();
     return () => desktopMq.removeEventListener("change", apply);
   }, [resetSession]);
+
+  // Human: Block long-press context menu while the touch drag ghost is on screen.
+  // Agent: LISTENS contextmenu capture; preventDefault only while draggingFileId is set.
+  useEffect(() => {
+    if (!draggingFileId) return;
+
+    const preventContextMenu = (event: Event) => {
+      event.preventDefault();
+    };
+
+    document.addEventListener("contextmenu", preventContextMenu, { capture: true });
+    return () => document.removeEventListener("contextmenu", preventContextMenu, { capture: true });
+  }, [draggingFileId]);
 
   // Human: Clear any in-flight drag when the explorer unmounts.
   // Agent: CALLS resetSession on unmount only — live pointer handlers gate on touchDragEnabled.

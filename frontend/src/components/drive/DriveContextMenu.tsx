@@ -54,6 +54,8 @@ type DriveContextMenuProps = {
   onDetailsFolder: (folder: FolderItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
+  /** Human: True while a file is being dragged — menu closes and won't reopen until drag ends. */
+  explorerDragActive?: boolean;
 };
 
 // Human: Walk DOM ancestors to find the file row or card that received the right click.
@@ -110,9 +112,23 @@ export function DriveContextMenu({
   onDetailsFolder,
   onCopyToFolder,
   onMoveToFolder,
+  explorerDragActive = false,
 }: DriveContextMenuProps) {
+  const [open, setOpen] = useState(false);
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
   const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
+  const [lastExplorerDragActive, setLastExplorerDragActive] = useState(explorerDragActive);
+
+  // Human: Close an open menu as soon as drag starts without waiting for the next pointer event.
+  // Agent: ADJUSTS open + target state during render when explorerDragActive flips true.
+  if (explorerDragActive !== lastExplorerDragActive) {
+    setLastExplorerDragActive(explorerDragActive);
+    if (explorerDragActive) {
+      setOpen(false);
+      setTargetFileId(null);
+      setTargetFolderId(null);
+    }
+  }
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const folderById = useMemo(
@@ -174,24 +190,28 @@ export function DriveContextMenu({
   }
 
   // Human: Resolve which file or folder (if any) was under the pointer when the menu opened.
-  // Agent: WRITES target ids from eventDetails.event on open; CLEARS on close.
+  // Agent: WRITES target ids from eventDetails.event on open; CLEARS on close; BLOCKS open during drag.
   const handleOpenChange = useCallback(
-    (open: boolean, eventDetails: ContextMenuPrimitive.Root.ChangeEventDetails) => {
-      if (open) {
+    (nextOpen: boolean, eventDetails: ContextMenuPrimitive.Root.ChangeEventDetails) => {
+      if (nextOpen && explorerDragActive) {
+        return;
+      }
+      if (nextOpen) {
         const fileId = findFileIdFromEvent(eventDetails.event);
         const folderId = fileId ? null : findFolderIdFromEvent(eventDetails.event);
         setTargetFileId(fileId);
         setTargetFolderId(folderId);
-        return;
+      } else {
+        setTargetFileId(null);
+        setTargetFolderId(null);
       }
-      setTargetFileId(null);
-      setTargetFolderId(null);
+      setOpen(nextOpen);
     },
-    [],
+    [explorerDragActive],
   );
 
   return (
-    <ContextMenu modal={false} onOpenChange={handleOpenChange}>
+    <ContextMenu modal={false} open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger className="contents">{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-[180px]">
         {targetFile ? (

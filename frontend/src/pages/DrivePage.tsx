@@ -238,6 +238,7 @@ export default function DrivePage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
+  const [explorerDragActive, setExplorerDragActive] = useState(false);
   const [recycleBinData, setRecycleBinData] = useState<RecycleBinResponse | null>(null);
   const [recycleBinError, setRecycleBinError] = useState("");
   const [sharedWithMeItems, setSharedWithMeItems] = useState<SharedWithMeItem[]>([]);
@@ -1269,6 +1270,7 @@ export default function DrivePage() {
       onDetailsFolder={handleDetailsFolder}
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}
+      explorerDragActive={explorerDragActive}
     >
       {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
       {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
@@ -1682,6 +1684,7 @@ export default function DrivePage() {
                   onPreviewSpreadsheet={handlePreviewSpreadsheet}
                   onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
+                  onExplorerDragActiveChange={setExplorerDragActive}
                 />
               </div>
             ) : null}

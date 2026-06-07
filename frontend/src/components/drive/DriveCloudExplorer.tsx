@@ -79,6 +79,8 @@ type DriveCloudExplorerProps = {
   onPreviewAudio?: (file: FileItem) => void;
   /** Human: Opens the mobile action sheet when the row ⋯ control is used. */
   onOpenActions?: (target: MobileActionTarget) => void;
+  /** Human: Fired while HTML5 or touch drag is moving a file — parent closes the context menu. */
+  onExplorerDragActiveChange?: (active: boolean) => void;
 };
 
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
@@ -178,6 +180,7 @@ export function DriveCloudExplorer({
   onPreviewSpreadsheet,
   onPreviewAudio,
   onOpenActions,
+  onExplorerDragActiveChange,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -209,6 +212,7 @@ export function DriveCloudExplorer({
     scrollElementRef: explorerScrollRef,
     onMoveFileToFolder,
     resolveFileFolderId,
+    onDragSessionActiveChange: onExplorerDragActiveChange,
   });
 
   const activeDraggingFileId = draggingFileId ?? touchDraggingFileId;
@@ -273,7 +277,8 @@ export function DriveCloudExplorer({
     setDraggingFileId(null);
     setDropTargetFolderId(null);
     dragDepthRef.current.clear();
-  }, []);
+    onExplorerDragActiveChange?.(false);
+  }, [onExplorerDragActiveChange]);
 
   const toggleFileSelected = useCallback(
     (fileId: string, checked: boolean) => {
@@ -300,6 +305,7 @@ export function DriveCloudExplorer({
     }
     draggingFileIdRef.current = fileId;
     setDraggingFileId(fileId);
+    onExplorerDragActiveChange?.(true);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(FILE_DRAG_MIME, fileId);
     event.dataTransfer.setData("text/plain", fileId);
