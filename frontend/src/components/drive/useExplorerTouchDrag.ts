@@ -12,7 +12,8 @@ import {
 
 const DESKTOP_MIN_WIDTH_PX = 1024;
 const LONG_PRESS_MS = 380;
-const SCROLL_CANCEL_PX = 12;
+/** Human: Finger jitter allowed during long-press before we treat the gesture as scroll. */
+const SCROLL_CANCEL_PX = 24;
 const DRAG_START_PX = 6;
 const AUTO_SCROLL_EDGE_PX = 72;
 const AUTO_SCROLL_MAX_SPEED = 14;
@@ -26,6 +27,8 @@ type UseExplorerTouchDragOptions = {
   resolveFileFolderId: (fileId: string) => string | null | undefined;
   /** Human: Notifies parent when a touch drag ghost is active — used to dismiss the context menu. */
   onDragSessionActiveChange?: (active: boolean) => void;
+  /** Human: Locks the explorer scroll pane while long-press drag is armed or moving. */
+  onTouchScrollLockChange?: (locked: boolean) => void;
 };
 
 export type ExplorerTouchDragBindings = {
@@ -85,6 +88,7 @@ export function useExplorerTouchDrag({
   onMoveFileToFolder,
   resolveFileFolderId,
   onDragSessionActiveChange,
+  onTouchScrollLockChange,
 }: UseExplorerTouchDragOptions) {
   const [isDesktopViewport, setIsDesktopViewport] = useState(readIsDesktopViewport);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -104,6 +108,8 @@ export function useExplorerTouchDrag({
   const sessionFileIdRef = useRef<string | null>(null);
   const sessionFileNameRef = useRef<string>("");
   const dropTargetFolderIdRef = useRef<string | null>(null);
+  const dragAnchorRef = useRef<GhostPosition | null>(null);
+  const touchScrollLockedRef = useRef(false);
 
   const touchDragEnabled =
     enabled && !isDesktopViewport && onMoveFileToFolder !== undefined;
@@ -122,6 +128,15 @@ export function useExplorerTouchDrag({
     }
   }, []);
 
+  const setTouchScrollLocked = useCallback(
+    (locked: boolean) => {
+      if (touchScrollLockedRef.current === locked) return;
+      touchScrollLockedRef.current = locked;
+      onTouchScrollLockChange?.(locked);
+    },
+    [onTouchScrollLockChange],
+  );
+
   const resetSession = useCallback(() => {
     const wasDragging = draggingRef.current;
     clearLongPressTimer();
@@ -133,6 +148,8 @@ export function useExplorerTouchDrag({
     sessionFileIdRef.current = null;
     sessionFileNameRef.current = "";
     lastPointerRef.current = null;
+    dragAnchorRef.current = null;
+    setTouchScrollLocked(false);
     setArmedFileId(null);
     setDraggingFileId(null);
     dropTargetFolderIdRef.current = null;
@@ -145,7 +162,7 @@ export function useExplorerTouchDrag({
     if (wasDragging) {
       onDragSessionActiveChange?.(false);
     }
-  }, [clearLongPressTimer, onDragSessionActiveChange, stopAutoScrollLoop]);
+  }, [clearLongPressTimer, onDragSessionActiveChange, setTouchScrollLocked, stopAutoScrollLoop]);
 
   const beginActiveDrag = useCallback(
     (clientX: number, clientY: number) => {
@@ -204,11 +221,16 @@ export function useExplorerTouchDrag({
     autoScrollFrameRef.current = window.requestAnimationFrame(tick);
   }, [scrollElementRef, stopAutoScrollLoop, updateDragAt]);
 
-  const armDragSession = useCallback(() => {
-    if (!sessionFileIdRef.current) return;
-    armedRef.current = true;
-    setArmedFileId(sessionFileIdRef.current);
-  }, []);
+  const armDragSession = useCallback(
+    (anchor: GhostPosition) => {
+      if (!sessionFileIdRef.current) return;
+      armedRef.current = true;
+      dragAnchorRef.current = anchor;
+      setTouchScrollLocked(true);
+      setArmedFileId(sessionFileIdRef.current);
+    },
+    [setTouchScrollLocked],
+  );
 
   const completeDrag = useCallback(() => {
     const fileId = sessionFileIdRef.current;
@@ -255,6 +277,23 @@ export function useExplorerTouchDrag({
     return () => document.removeEventListener("contextmenu", preventContextMenu, { capture: true });
   }, [draggingFileId]);
 
+  // Human: Safari/iOS may still scroll the main pane on touchmove unless we block it while armed/dragging.
+  // Agent: LISTENS touchmove on scroll root with passive:false; preventDefault when armed or dragging refs set.
+  useEffect(() => {
+    if (!armedFileId && !draggingFileId) return;
+
+    const scrollRoot = scrollElementRef?.current ?? null;
+    if (!scrollRoot) return;
+
+    const preventTouchScroll = (event: TouchEvent) => {
+      if (!armedRef.current && !draggingRef.current) return;
+      event.preventDefault();
+    };
+
+    scrollRoot.addEventListener("touchmove", preventTouchScroll, { capture: true, passive: false });
+    return () => scrollRoot.removeEventListener("touchmove", preventTouchScroll, { capture: true });
+  }, [armedFileId, draggingFileId, scrollElementRef]);
+
   // Human: Clear any in-flight drag when the explorer unmounts.
   // Agent: CALLS resetSession on unmount only — live pointer handlers gate on touchDragEnabled.
   useEffect(() => () => resetSession(), [resetSession]);
@@ -281,10 +320,16 @@ export function useExplorerTouchDrag({
 
         event.currentTarget.setPointerCapture(event.pointerId);
 
+        lastPointerRef.current = { x: event.clientX, y: event.clientY };
+
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTimerRef.current = null;
           if (activePointerIdRef.current !== event.pointerId) return;
-          armDragSession();
+          const anchor = lastPointerRef.current ?? {
+            x: event.clientX,
+            y: event.clientY,
+          };
+          armDragSession(anchor);
         }, LONG_PRESS_MS);
       },
       onPointerMove: (event) => {
@@ -299,11 +344,20 @@ export function useExplorerTouchDrag({
         const start = pointerStartRef.current;
         if (!start) return;
 
+        lastPointerRef.current = { x: event.clientX, y: event.clientY };
+
         const deltaX = event.clientX - start.x;
         const deltaY = event.clientY - start.y;
-        const distance = Math.hypot(deltaX, deltaY);
+        const distanceFromStart = Math.hypot(deltaX, deltaY);
 
-        if (!armedRef.current && !draggingRef.current && distance > SCROLL_CANCEL_PX) {
+        // Human: Only treat pre-arm movement as scroll when the long-press has not fired yet.
+        // Agent: READS longPressTimerRef; CANCELS pending drag when early movement exceeds threshold.
+        if (
+          !armedRef.current &&
+          !draggingRef.current &&
+          longPressTimerRef.current !== null &&
+          distanceFromStart > SCROLL_CANCEL_PX
+        ) {
           clearLongPressTimer();
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
@@ -312,13 +366,21 @@ export function useExplorerTouchDrag({
           return;
         }
 
-        if (armedRef.current && !draggingRef.current && distance > DRAG_START_PX) {
+        const anchor = dragAnchorRef.current;
+        const distanceFromAnchor = anchor
+          ? Math.hypot(event.clientX - anchor.x, event.clientY - anchor.y)
+          : distanceFromStart;
+
+        if (armedRef.current && !draggingRef.current && distanceFromAnchor > DRAG_START_PX) {
           beginActiveDrag(event.clientX, event.clientY);
           startAutoScrollLoop();
         }
 
-        if (draggingRef.current) {
+        if (armedRef.current || draggingRef.current) {
           event.preventDefault();
+        }
+
+        if (draggingRef.current) {
           updateDragAt(event.clientX, event.clientY);
         }
       },

@@ -81,6 +81,8 @@ type DriveCloudExplorerProps = {
   onOpenActions?: (target: MobileActionTarget) => void;
   /** Human: Fired while HTML5 or touch drag is moving a file — parent closes the context menu. */
   onExplorerDragActiveChange?: (active: boolean) => void;
+  /** Human: Locks the main scroll pane during touch long-press drag so list scroll does not steal the gesture. */
+  onExplorerTouchScrollLockChange?: (locked: boolean) => void;
 };
 
 // Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
@@ -181,6 +183,7 @@ export function DriveCloudExplorer({
   onPreviewAudio,
   onOpenActions,
   onExplorerDragActiveChange,
+  onExplorerTouchScrollLockChange,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -213,6 +216,7 @@ export function DriveCloudExplorer({
     onMoveFileToFolder,
     resolveFileFolderId,
     onDragSessionActiveChange: onExplorerDragActiveChange,
+    onTouchScrollLockChange: onExplorerTouchScrollLockChange,
   });
 
   const activeDraggingFileId = draggingFileId ?? touchDraggingFileId;

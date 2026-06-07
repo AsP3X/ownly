@@ -239,6 +239,7 @@ export default function DrivePage() {
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
   const [explorerDragActive, setExplorerDragActive] = useState(false);
+  const [explorerTouchScrollLocked, setExplorerTouchScrollLocked] = useState(false);
   const [recycleBinData, setRecycleBinData] = useState<RecycleBinResponse | null>(null);
   const [recycleBinError, setRecycleBinError] = useState("");
   const [sharedWithMeItems, setSharedWithMeItems] = useState<SharedWithMeItem[]>([]);
@@ -1542,6 +1543,7 @@ export default function DrivePage() {
             ref={mainScrollRef}
             className={cn(
               "min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
+              explorerTouchScrollLocked && "touch-none overflow-hidden",
             )}
           >
           <div
@@ -1685,6 +1687,7 @@ export default function DrivePage() {
                   onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
                   onExplorerDragActiveChange={setExplorerDragActive}
+                  onExplorerTouchScrollLockChange={setExplorerTouchScrollLocked}
                 />
               </div>
             ) : null}
