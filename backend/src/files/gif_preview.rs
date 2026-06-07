@@ -12,7 +12,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use tempfile::TempDir;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::{
@@ -158,8 +158,9 @@ async fn generate_and_store_gif_preview(
     gif_storage_key: &str,
     preview_key: &str,
 ) -> Result<(), AppError> {
-    let (gif_dir, gif_path) = download_storage_object_to_temp(storage.clone(), gif_storage_key).await?;
-    let mp4_bytes = transcode_gif_file_with_ffmpeg(&gif_path).await?;
+    let (gif_dir, source_path, source_format) =
+        download_storage_object_to_temp(storage.clone(), gif_storage_key).await?;
+    let mp4_bytes = transcode_animation_to_mp4(&source_path, source_format).await?;
     drop(gif_dir);
 
     if mp4_bytes.len() < 128 {
@@ -176,22 +177,75 @@ async fn generate_and_store_gif_preview(
     Ok(())
 }
 
-// Human: Persist one storage object to a temp dir as source.gif for ffmpeg probing.
-// Agent: READS get_stream; WRITES work_dir/source.gif; RETURNS dir handle + path.
+// Human: Detected on-disk image container — drives ffmpeg input flags and file extension.
+// Agent: READS first bytes of downloaded object; USED before ffmpeg spawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SniffedImageFormat {
+    Gif,
+    WebP,
+    Png,
+    Jpeg,
+    Unknown,
+}
+
+// Human: Classify stored bytes so mislabeled GIF mime rows still transcode (WebP/PNG/JPEG).
+// Agent: READS magic header; RETURNS SniffedImageFormat.
+fn sniff_image_format(head: &[u8]) -> SniffedImageFormat {
+    if head.len() >= 6 && (head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a")) {
+        return SniffedImageFormat::Gif;
+    }
+    if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
+        return SniffedImageFormat::WebP;
+    }
+    if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return SniffedImageFormat::Png;
+    }
+    if head.len() >= 2 && head[0] == 0xFF && head[1] == 0xD8 {
+        return SniffedImageFormat::Jpeg;
+    }
+    SniffedImageFormat::Unknown
+}
+
+// Human: Pick a filename extension ffmpeg can probe when the DB mime type is image/gif.
+// Agent: MAPS SniffedImageFormat → source.{gif,webp,png,jpg,bin}.
+fn source_filename_for_format(format: SniffedImageFormat) -> &'static str {
+    match format {
+        SniffedImageFormat::Gif => "source.gif",
+        SniffedImageFormat::WebP => "source.webp",
+        SniffedImageFormat::Png => "source.png",
+        SniffedImageFormat::Jpeg => "source.jpg",
+        SniffedImageFormat::Unknown => "source.bin",
+    }
+}
+
+// Human: Optional ffmpeg demuxer name matching sniff_image_format.
+// Agent: RETURNS Some("-f") arg value; None lets ffmpeg probe from extension.
+fn ffmpeg_input_format_flag(format: SniffedImageFormat) -> Option<&'static str> {
+    match format {
+        SniffedImageFormat::Gif => Some("gif"),
+        SniffedImageFormat::WebP => Some("webp"),
+        SniffedImageFormat::Png => Some("png"),
+        SniffedImageFormat::Jpeg => Some("image2"),
+        SniffedImageFormat::Unknown => None,
+    }
+}
+
+// Human: Persist one storage object to a temp dir with a sniffed extension for ffmpeg.
+// Agent: READS get_stream; WRITES work_dir/source.*; RETURNS dir handle, path, and format.
 async fn download_storage_object_to_temp(
     storage: Arc<dyn Storage>,
     storage_key: &str,
-) -> Result<(TempDir, PathBuf), AppError> {
+) -> Result<(TempDir, PathBuf, SniffedImageFormat), AppError> {
     let work_dir = TempDir::new()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
-    let gif_path = work_dir.path().join("source.gif");
+    let staging_path = work_dir.path().join("source.staging");
 
     let (mut stream, _, _) = storage
         .get_stream(storage_key)
         .await
         .map_err(|e| AppError::Storage(e.to_string()))?;
 
-    let mut file = tokio::fs::File::create(&gif_path)
+    let mut file = tokio::fs::File::create(&staging_path)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp file open: {e}")))?;
 
@@ -207,7 +261,7 @@ async fn download_storage_object_to_temp(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp flush: {e}")))?;
     drop(file);
 
-    let size = tokio::fs::metadata(&gif_path)
+    let size = tokio::fs::metadata(&staging_path)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp stat: {e}")))?
         .len();
@@ -217,24 +271,81 @@ async fn download_storage_object_to_temp(
         )));
     }
 
-    Ok((work_dir, gif_path))
+    let mut head = [0u8; 16];
+    let mut header_file = tokio::fs::File::open(&staging_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp header open: {e}")))?;
+    let read_len = header_file
+        .read(&mut head)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp header read: {e}")))?;
+    let source_format = sniff_image_format(&head[..read_len]);
+    let source_path = work_dir.path().join(source_filename_for_format(source_format));
+    tokio::fs::rename(&staging_path, &source_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp rename: {e}")))?;
+
+    Ok((work_dir, source_path, source_format))
 }
 
-// Human: Run ffmpeg to produce a browser-friendly H.264 MP4 from an animated GIF file.
-// Agent: SPAWNS ffmpeg into an isolated temp dir; LOGS stderr tail on failure; RETURNS mp4 bytes.
-async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<Vec<u8>, AppError> {
-    let work_dir = TempDir::new()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
+// Human: Run ffmpeg to produce a browser-friendly H.264 MP4 from an animated image file.
+// Agent: TRIES auto-probe then explicit demuxer; LOGS stderr tail on failure; RETURNS mp4 bytes.
+async fn transcode_animation_to_mp4(
+    input: &Path,
+    source_format: SniffedImageFormat,
+) -> Result<Vec<u8>, AppError> {
+    let mut last_error = String::from("no ffmpeg attempts were made");
+
+    // Human: Prefer extension probing first — forced `-f gif` fails on mislabeled WebP/PNG rows.
+    // Agent: CALLS run_ffmpeg_animation_to_mp4 without demuxer hint, then with explicit `-f`.
+    let mut attempts: Vec<Option<&str>> = vec![None];
+    if let Some(explicit) = ffmpeg_input_format_flag(source_format) {
+        attempts.push(Some(explicit));
+    }
+
+    for force_format in attempts {
+        match run_ffmpeg_animation_to_mp4(input, force_format).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(err) => last_error = err,
+        }
+    }
+
+    tracing::error!(
+        input = %input.display(),
+        source_format = ?source_format,
+        last_error = %last_error,
+        "gif preview ffmpeg transcode failed after all attempts"
+    );
+    Err(AppError::Internal(anyhow::anyhow!(
+        "ffmpeg gif preview transcode failed"
+    )))
+}
+
+// Human: Single ffmpeg invocation for GIF/WebP/PNG/JPEG → H.264 MP4 preview output.
+// Agent: SPAWNS ffmpeg into temp dir; RETURNS Err message tail when exit code is non-zero.
+async fn run_ffmpeg_animation_to_mp4(
+    input: &Path,
+    force_format: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let work_dir = TempDir::new().map_err(|e| format!("temp dir create: {e}"))?;
     let output_path = work_dir.path().join("preview.mp4");
 
-    let mut child = Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .arg("-y")
         .arg("-nostdin")
         .arg("-hide_banner")
         .arg("-loglevel")
-        .arg("error")
-        .arg("-f")
-        .arg("gif")
+        .arg("error");
+    if let Some(format) = force_format {
+        command.arg("-f").arg(format);
+    }
+    if force_format == Some("gif") {
+        // Human: Honor GIF loop metadata so animated previews keep looping in MP4 output.
+        // Agent: SETS -ignore_loop 0 before `-i` for gif demuxer inputs.
+        command.arg("-ignore_loop").arg("0");
+    }
+    command
         .arg("-i")
         .arg(input)
         .args([
@@ -252,20 +363,17 @@ async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<Vec<u8>, AppErro
         ])
         .arg(&output_path)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command
         .spawn()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg spawn: {e}")))?;
+        .map_err(|e| format!("ffmpeg spawn: {e}"))?;
 
     let mut stderr_lines = Vec::new();
     if let Some(stderr) = child.stderr.take() {
         let mut reader = BufReader::new(stderr);
         let mut line = String::new();
-        while reader
-            .read_line(&mut line)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg stderr read: {e}")))?
-            > 0
-        {
+        while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
             let trimmed = line.trim_end().to_string();
             if !trimmed.is_empty() {
                 stderr_lines.push(trimmed);
@@ -278,29 +386,18 @@ async fn transcode_gif_file_with_ffmpeg(input: &Path) -> Result<Vec<u8>, AppErro
         }
     }
 
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("ffmpeg wait: {e}")))?;
-
+    let status = child.wait().await.map_err(|e| format!("ffmpeg wait: {e}"))?;
     if !status.success() {
-        let stderr_tail = stderr_lines.join("\n");
-        tracing::error!(
-            exit_code = ?status.code(),
-            input = %input.display(),
-            ffmpeg_stderr = %stderr_tail,
-            "gif preview ffmpeg transcode failed"
-        );
-        return Err(AppError::Internal(anyhow::anyhow!(
-            "ffmpeg gif preview transcode failed"
-        )));
+        return Err(format!(
+            "exit={:?} format={force_format:?} stderr={}",
+            status.code(),
+            stderr_lines.join("\n")
+        ));
     }
 
-    let mp4_bytes = tokio::fs::read(&output_path)
+    tokio::fs::read(&output_path)
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("read preview mp4: {e}")))?;
-
-    Ok(mp4_bytes)
+        .map_err(|e| format!("read preview mp4: {e}"))
 }
 
 #[cfg(test)]
@@ -319,5 +416,24 @@ mod tests {
     fn is_gif_mime_matches_image_gif() {
         assert!(is_gif_mime("image/gif"));
         assert!(!is_gif_mime("image/png"));
+    }
+
+    #[test]
+    fn sniff_image_format_detects_common_containers() {
+        assert_eq!(sniff_image_format(b"GIF89a"), SniffedImageFormat::Gif);
+        assert_eq!(
+            sniff_image_format(b"GIF87a\x01"),
+            SniffedImageFormat::Gif
+        );
+        assert_eq!(
+            sniff_image_format(b"RIFF\x00\x00\x00\x00WEBP"),
+            SniffedImageFormat::WebP
+        );
+        assert_eq!(
+            sniff_image_format(b"\x89PNG\r\n\x1a\n"),
+            SniffedImageFormat::Png
+        );
+        assert_eq!(sniff_image_format(b"\xFF\xD8\xFF"), SniffedImageFormat::Jpeg);
+        assert_eq!(sniff_image_format(b"NOTAFILE"), SniffedImageFormat::Unknown);
     }
 }
