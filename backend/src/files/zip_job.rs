@@ -462,7 +462,7 @@ pub async fn collect_zip_entries_for_file_ids(
     for file_id in file_ids {
         let row: Option<FileRow> = sqlx::query_as(
             "SELECT id, name, storage_key, mime_type, hls_ready, download_export_ready, segment_count \
-             FROM files WHERE id = $1 AND user_id = $2",
+             FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
         )
         .bind(file_id)
         .bind(user_id)

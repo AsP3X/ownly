@@ -51,7 +51,8 @@ async fn ensure_file_owned(
     user_id: &str,
 ) -> Result<(String, Option<bool>, Option<i32>, Option<i64>), AppError> {
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files \
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(file_id)
     .bind(user_id)

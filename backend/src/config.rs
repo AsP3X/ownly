@@ -97,6 +97,14 @@ pub struct Config {
     /// Agent: READ by StoragePutGate; DEFAULT 2; LOWER under SQLite metadata to avoid 500 busy timeouts.
     #[serde(default = "default_storage_put_max_concurrent")]
     pub storage_put_max_concurrent: u32,
+    /// Human: When true, rate limiting trusts X-Forwarded-For / X-Real-IP from the reverse proxy.
+    /// Agent: SET TRUST_PROXY_HEADERS=1 behind nginx; DEFAULT false for direct API access (SEC-006).
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
+    /// Human: Per-minute cap on failed share-password guesses per token+IP (SEC-009).
+    /// Agent: READ by resolve_public_share; DEFAULT 8 wrong attempts/min before 429.
+    #[serde(default = "default_share_password_rpm")]
+    pub share_password_rpm: u32,
 }
 
 impl Config {
@@ -236,4 +244,8 @@ fn default_storage_metadata_mode() -> String {
 
 fn default_storage_put_max_concurrent() -> u32 {
     2
+}
+
+fn default_share_password_rpm() -> u32 {
+    8
 }

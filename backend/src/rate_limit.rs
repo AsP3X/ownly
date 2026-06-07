@@ -46,9 +46,29 @@ pub fn enforce(limiter: &PerKeyRateLimiter, key: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+// Human: Stable rate-limit key when forwarding headers must not be trusted (SEC-006).
+// Agent: RETURNS single bucket for direct API access so X-Forwarded-For rotation cannot bypass caps.
+const DIRECT_CONNECTION_KEY: &str = "direct-connection";
+
+// Human: Whether the process trusts reverse-proxy forwarding headers (mirrors Config / TRUST_PROXY_HEADERS).
+// Agent: READ by audit logging when AppState is unavailable; KEEPS audit IP aligned with rate limits.
+pub fn trust_proxy_from_env() -> bool {
+    matches!(
+        std::env::var("TRUST_PROXY_HEADERS")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        Some("1") | Some("true") | Some("yes")
+    )
+}
+
 // Human: Best-effort client IP from reverse-proxy headers for per-IP auth throttling.
-// Agent: READS x-forwarded-for or x-real-ip; RETURNS first IP or "unknown".
-pub fn client_ip_from_headers(headers: &axum::http::HeaderMap) -> String {
+// Agent: READS x-forwarded-for or x-real-ip only when trust_forwarded; ELSE fixed direct key.
+pub fn client_ip_from_headers(headers: &axum::http::HeaderMap, trust_forwarded: bool) -> String {
+    if !trust_forwarded {
+        return DIRECT_CONNECTION_KEY.to_string();
+    }
     headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -73,6 +93,20 @@ mod tests {
 
     // Human: When the rolling window is full, enforce must report seconds until the oldest hit expires.
     // Agent: FILLS limiter to cap; ASSERTS retry_after_secs is within the configured window.
+    #[test]
+    fn direct_connection_key_ignores_spoofed_forwarded_headers() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.99".parse().unwrap());
+        assert_eq!(
+            client_ip_from_headers(&headers, false),
+            DIRECT_CONNECTION_KEY
+        );
+        assert_eq!(
+            client_ip_from_headers(&headers, true),
+            "203.0.113.99"
+        );
+    }
+
     #[test]
     fn enforce_returns_retry_after_when_at_cap() {
         let limiter = PerKeyRateLimiter::new(2, Duration::from_secs(60));

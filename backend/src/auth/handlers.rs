@@ -131,7 +131,10 @@ pub async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     crate::browser_guard::require_browser_user_creation(&headers)?;
-    rate_limit::enforce(&state.auth_register_rl, &rate_limit::client_ip_from_headers(&headers))?;
+    rate_limit::enforce(
+        &state.auth_register_rl,
+        &rate_limit::client_ip_from_headers(&headers, state.trust_proxy_headers),
+    )?;
     info!(email_redacted = %redact::email_for_log(&body.email), "register attempt");
 
     if !registration_allowed(&state.pool).await? {
@@ -215,7 +218,10 @@ pub async fn login(
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    rate_limit::enforce(&state.auth_login_rl, &rate_limit::client_ip_from_headers(&headers))?;
+    rate_limit::enforce(
+        &state.auth_login_rl,
+        &rate_limit::client_ip_from_headers(&headers, state.trust_proxy_headers),
+    )?;
     let email = body.email.trim().to_lowercase();
 
     let row: Option<(String, String, String, bool)> = sqlx::query_as(

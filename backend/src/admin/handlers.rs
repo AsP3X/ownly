@@ -438,6 +438,15 @@ pub async fn update_user(
             .await?;
     }
 
+    let role_changed = new_role
+        .as_ref()
+        .is_some_and(|role| role != &current_role);
+    if role_changed || password_reset {
+        // Human: Invalidate outstanding JWTs when privileges or credentials change (SEC-002).
+        // Agent: bump_session_epoch; auth_middleware also reloads role from DB on every request.
+        crate::user_sessions::bump_session_epoch(&state.pool, &user_id).await?;
+    }
+
     let updated: (String, String, bool) =
         sqlx::query_as("SELECT email, role, enabled FROM users WHERE id = $1")
             .bind(&user_id)

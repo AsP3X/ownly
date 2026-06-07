@@ -92,7 +92,9 @@ pub async fn collect_zip_entries_for_folder(
 
     while let Some((folder_id, prefix)) = queue.pop() {
         let subfolders: Vec<(String, String)> = sqlx::query_as(
-            "SELECT id, name FROM folders WHERE user_id = $1 AND parent_id = $2 ORDER BY name ASC",
+            "SELECT id, name FROM folders \
+             WHERE user_id = $1 AND parent_id = $2 AND deleted_at IS NULL \
+             ORDER BY name ASC",
         )
         .bind(user_id)
         .bind(&folder_id)
@@ -110,7 +112,8 @@ pub async fn collect_zip_entries_for_folder(
 
         let rows: Vec<FolderFileRow> = sqlx::query_as(
             "SELECT id, name, storage_key, mime_type, hls_ready, download_export_ready, segment_count \
-             FROM files WHERE user_id = $1 AND folder_id = $2 ORDER BY name ASC",
+             FROM files WHERE user_id = $1 AND folder_id = $2 AND deleted_at IS NULL \
+             ORDER BY name ASC",
         )
         .bind(user_id)
         .bind(&folder_id)

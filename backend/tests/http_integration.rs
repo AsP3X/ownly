@@ -40,6 +40,8 @@ fn test_config(database_url: &str) -> Config {
         hls_large_bufsize: "10M".into(),
         storage_metadata_mode: "nebular".into(),
         storage_put_max_concurrent: 2,
+        trust_proxy_headers: false,
+        share_password_rpm: 8,
     }
 }
 
@@ -983,11 +985,24 @@ async fn public_share_password_and_download_block() {
 
     let app = create_router(state.clone());
 
+    let overview_denied = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/public/shares/{token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(overview_denied.status(), StatusCode::FORBIDDEN);
+
     let overview = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/v1/public/shares/{token}"))
+                .header("x-share-password", "visitor-pass")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1942,6 +1957,230 @@ async fn user_can_change_own_password() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Setup info routes require bootstrap token and block after initialization (SEC-001).
+// Agent: GET /setup/database without X-Setup-Token; EXPECT 403 on initialized instances.
+#[tokio::test]
+async fn setup_database_info_requires_bootstrap_token() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping setup_database_info_requires_bootstrap_token: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping setup_database_info_requires_bootstrap_token: {error}");
+            return;
+        }
+    };
+
+    let app = create_router(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/setup/database")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+// Human: Soft-deleted files must not be downloadable by the owner (SEC-004).
+// Agent: GET /files/{id}/download after deleted_at set; EXPECT 404.
+#[tokio::test]
+async fn trashed_file_download_is_denied() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping trashed_file_download_is_denied: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping trashed_file_download_is_denied: {error}");
+            return;
+        }
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(format!("trash-dl-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, deleted_at) \
+         VALUES ($1, $2, 'trashed.txt', 'storage/trashed', 'text/plain', 4, now())",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert trashed file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        format!("trash-dl-{user_id}@example.com"),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Demoted admins lose admin API access immediately — DB role wins over JWT claim (SEC-002).
+// Agent: PATCH user to pro; reuse pre-demotion JWT on GET /admin/users; EXPECT 403.
+#[tokio::test]
+async fn demoted_admin_jwt_is_denied_on_admin_routes() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping demoted_admin_jwt_is_denied_on_admin_routes: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping demoted_admin_jwt_is_denied_on_admin_routes: {error}");
+            return;
+        }
+    };
+
+    let demoter_id = uuid::Uuid::new_v4().to_string();
+    let subject_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (demoter_id.as_str(), format!("demoter-{demoter_id}@example.com")),
+        (subject_id.as_str(), format!("subject-{subject_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert admin");
+    }
+
+    let subject_token = ownly_backend::auth::handlers::create_token(
+        subject_id.clone(),
+        format!("subject-{subject_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("subject token");
+
+    let demoter_token = ownly_backend::auth::handlers::create_token(
+        demoter_id.clone(),
+        format!("demoter-{demoter_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("demoter token");
+
+    let app = create_router(state.clone());
+    let patch_body = json!({ "role": "pro" });
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/admin/users/{subject_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {demoter_token}"))
+                .body(Body::from(patch_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let list_response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/users")
+                .header("authorization", format!("Bearer {subject_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        list_response.status() == StatusCode::FORBIDDEN
+            || list_response.status() == StatusCode::UNAUTHORIZED,
+        "demoted admin token must not list users (got {})",
+        list_response.status()
+    );
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&subject_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&demoter_id)
         .execute(&state.pool)
         .await
         .ok();

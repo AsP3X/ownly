@@ -24,6 +24,7 @@ pub mod image;
 pub mod video;
 pub mod browser_guard;
 pub mod config;
+pub mod outbound_target;
 pub mod crypto;
 pub mod db;
 pub mod error;
@@ -78,6 +79,12 @@ pub struct AppState {
     pub auth_register_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub upload_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub hls_segment_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    /// Human: Throttle wrong x-share-password guesses on public share routes (SEC-009).
+    /// Agent: KEYED by share token + client IP in resolve_public_share.
+    pub share_password_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    /// Human: Whether X-Forwarded-For / X-Real-IP may define the rate-limit client IP.
+    /// Agent: FALSE by default; TRUE when TRUST_PROXY_HEADERS is set behind nginx.
+    pub trust_proxy_headers: bool,
     pub hls_key_store: hls::key_store::KeyStore,
     pub folder_download_jobs: files::zip_job::FolderDownloadRegistry,
     pub delete_jobs: files::delete_job::DeleteJobRegistry,
@@ -203,6 +210,11 @@ async fn build_app_state(
             config.hls_segment_rpm.max(1) as usize,
             window,
         )),
+        share_password_rl: Arc::new(rate_limit::PerKeyRateLimiter::new(
+            config.share_password_rpm.max(1) as usize,
+            window,
+        )),
+        trust_proxy_headers: config.trust_proxy_headers || rate_limit::trust_proxy_from_env(),
         hls_key_store: hls::key_store::KeyStore::new(pool.clone(), config.signing_secret.clone()),
         folder_download_jobs: files::zip_job::FolderDownloadRegistry::new(),
         delete_jobs: files::delete_job::DeleteJobRegistry::new(),
@@ -263,6 +275,9 @@ pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> 
 // Human: Test harness entry — same AppState as production but with in-memory storage (no Nebular dependency).
 // Agent: USES MemoryStorage; CALLED from integration tests; SKIPS object storage health probe.
 pub async fn create_test_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
+    // Human: Integration tests use localhost Postgres — allow private outbound targets in harness only.
+    // Agent: SET OWNLY_ALLOW_PRIVATE_OUTBOUND=1 before build_app_state; SEC-008/010 still gated by setup token.
+    std::env::set_var("OWNLY_ALLOW_PRIVATE_OUTBOUND", "1");
     build_app_state(config, Some(Arc::new(MemoryStorage::new())), true).await
 }
 

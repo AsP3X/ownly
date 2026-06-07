@@ -20,7 +20,7 @@ pub async fn write_audit(
     headers: &HeaderMap,
 ) -> Result<String, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
-    let ip = client_ip_from_headers(headers);
+    let ip = client_ip_from_headers(headers, crate::rate_limit::trust_proxy_from_env());
     let user_agent = headers
         .get(axum::http::header::USER_AGENT)
         .and_then(|v| v.to_str().ok())

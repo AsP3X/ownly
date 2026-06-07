@@ -12,8 +12,14 @@ use crate::{
     auth::handlers::{create_token, hash_password, AuthResponse, UserDto},
     db,
     error::AppError,
+    outbound_target,
+    setup::redact,
     AppState,
 };
+
+// Human: Postgres advisory lock id — serializes concurrent POST /setup on empty databases (SEC-005).
+// Agent: pg_advisory_xact_lock held for the setup transaction; RELEASED on commit/rollback.
+const SETUP_ADVISORY_LOCK_ID: i64 = 0x4f57_4e4c_5900;
 
 /// Human: Header the SPA and audit scripts send with setup mutation requests.
 /// Agent: MATCHES SEC-005/SEC-012 bootstrap probe; compared to AppState.setup_token.
@@ -145,22 +151,28 @@ pub async fn setup_status(State(state): State<Arc<AppState>>) -> Result<Json<Set
 
 pub async fn setup_database_info(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> Result<Json<SetupDatabaseInfo>, AppError> {
-    // Human: Read-only env snapshot for the wizard — safe before and after first admin exists.
-    // Agent: NO ensure_not_complete; READS AppState database_url only.
+    // Human: Pre-setup wizard only — bootstrap token required; password redacted (SEC-001).
+    // Agent: require_setup_token + ensure_not_complete; RETURNS redacted database_url.
+    require_setup_token(&headers, &state)?;
+    ensure_not_complete(&state).await?;
     Ok(Json(SetupDatabaseInfo {
         driver: db::driver_from_url(&state.database_url)
             .unwrap_or("unknown")
             .to_string(),
-        database_url: state.database_url.clone(),
+        database_url: redact::redact_database_url(&state.database_url),
     }))
 }
 
 pub async fn setup_storage_info(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> Result<Json<StorageInfo>, AppError> {
-    // Human: Read-only object-storage defaults for the wizard — no mutation, no 409 after setup.
-    // Agent: NO ensure_not_complete; READS AppState storage fields only.
+    // Human: Pre-setup wizard only — bootstrap token gates infrastructure metadata (SEC-001).
+    // Agent: require_setup_token + ensure_not_complete; BLOCKED with 409 after first admin exists.
+    require_setup_token(&headers, &state)?;
+    ensure_not_complete(&state).await?;
     Ok(Json(StorageInfo {
         object_storage_url: state.object_storage_url.clone(),
         object_storage_public_url: state.object_storage_public_url.clone(),
@@ -183,6 +195,7 @@ pub async fn test_setup_database(
     let driver = db::driver_from_url(url)
         .ok_or_else(|| AppError::BadRequest("unsupported database_url scheme".into()))?
         .to_string();
+    outbound_target::validate_database_connection_url(url)?;
     db::test_connection(url).await.map_err(|_| {
         AppError::BadRequest(
             "could not connect to database; check host, credentials, and network".into(),
@@ -202,6 +215,7 @@ pub async fn test_setup_storage(
     require_setup_token(&headers, &state)?;
     ensure_not_complete(&state).await?;
     let base_url = storage_nodes::normalize_base_url(&body.base_url)?;
+    outbound_target::validate_http_outbound_base_url(&base_url)?;
     if state.setup_relaxes_storage_probe {
         return Ok(Json(StorageTestResponse {
             ok: true,
@@ -309,6 +323,7 @@ pub async fn setup(
     if db::driver_from_url(target_url).is_none() {
         return Err(AppError::BadRequest("unsupported database_url scheme".into()));
     }
+    outbound_target::validate_database_connection_url(target_url)?;
 
     let (
         storage_node_id,
@@ -327,8 +342,6 @@ pub async fn setup(
             )
         })?
     };
-
-    ensure_not_complete_pool(&setup_pool).await?;
 
     if body.password.len() < 8 {
         return Err(AppError::BadRequest(
@@ -358,6 +371,20 @@ pub async fn setup(
     let storage_matches_startup = urls_equivalent(&storage_base_url, &state.object_storage_url);
 
     let mut tx = setup_pool.begin().await?;
+
+    // Human: Serialize first-admin creation — only one concurrent POST /setup may commit (SEC-005).
+    // Agent: pg_advisory_xact_lock + COUNT in same TX; RETURNS 409 when another setup won the race.
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SETUP_ADVISORY_LOCK_ID)
+        .execute(&mut *tx)
+        .await?;
+
+    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&mut *tx)
+        .await?;
+    if user_count > 0 {
+        return Err(AppError::Conflict("setup already completed".into()));
+    }
 
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
@@ -485,12 +512,3 @@ pub async fn setup(
     }))
 }
 
-async fn ensure_not_complete_pool(pool: &sqlx::PgPool) -> Result<(), AppError> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(pool)
-        .await?;
-    if count > 0 {
-        return Err(AppError::Conflict("setup already completed".into()));
-    }
-    Ok(())
-}

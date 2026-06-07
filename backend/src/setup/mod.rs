@@ -2,3 +2,4 @@
 // Agent: MODULE setup::handlers; PUBLIC routes under /api/v1/setup* before auth middleware.
 
 pub mod handlers;
+pub mod redact;

@@ -7,7 +7,12 @@ use sqlx::PgPool;
 use crate::{
     auth::handlers::verify_password,
     error::AppError,
-    files::{folders::ensure_folder_owned, handlers::FileDto, processing::ensure_file_not_processing},
+    files::{
+        folders::ensure_folder_owned,
+        handlers::FileDto,
+        processing::ensure_file_not_processing,
+        recycle_bin::{ACTIVE_FILES_SQL, ACTIVE_FOLDERS_SQL},
+    },
 };
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -135,9 +140,9 @@ pub async fn folder_is_under_root(
 
     let mut current = folder_id.to_string();
     loop {
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT parent_id FROM folders WHERE id = $1 AND user_id = $2",
-        )
+        let row: Option<(Option<String>,)> = sqlx::query_as(&format!(
+            "SELECT parent_id FROM folders WHERE id = $1 AND user_id = $2 AND {ACTIVE_FOLDERS_SQL}",
+        ))
         .bind(&current)
         .bind(user_id)
         .fetch_optional(pool)
@@ -193,11 +198,11 @@ pub async fn load_file_in_share_scope(
         return Err(AppError::NotFound);
     }
 
-    let row: Option<ShareScopedFileRow> = sqlx::query_as(
+    let row: Option<ShareScopedFileRow> = sqlx::query_as(&format!(
         "SELECT id, storage_key, name, mime_type, folder_id, hls_ready, download_export_ready, \
          hls_encode_status, audio_waveform_ready, audio_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2",
-    )
+         FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}",
+    ))
     .bind(file_id)
     .bind(&share.user_id)
     .fetch_optional(pool)
@@ -244,8 +249,9 @@ pub async fn ensure_file_owned_for_share(
     user_id: &str,
     file_id: &str,
 ) -> Result<(), AppError> {
-    let exists: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM files WHERE id = $1 AND user_id = $2")
+    let exists: Option<(String,)> = sqlx::query_as(&format!(
+        "SELECT id FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}",
+    ))
             .bind(file_id)
             .bind(user_id)
             .fetch_optional(pool)
@@ -279,7 +285,9 @@ pub async fn list_share_folder_files(
         audio_waveform_ready, audio_encode_status, audio_encode_error";
 
     let files: Vec<FileDto> = sqlx::query_as(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE user_id = $1 AND folder_id = $2 ORDER BY name ASC"
+        "SELECT {FILE_COLUMNS} FROM files \
+         WHERE user_id = $1 AND folder_id = $2 AND {ACTIVE_FILES_SQL} \
+         ORDER BY name ASC"
     ))
     .bind(&share.user_id)
     .bind(folder_id)
@@ -325,9 +333,9 @@ pub async fn compute_share_tree_stats(
     share: &ShareRecord,
 ) -> Result<PublicShareTreeStats, AppError> {
     if share.resource_type == "file" {
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT size_bytes FROM files WHERE id = $1 AND user_id = $2",
-        )
+        let row: Option<(i64,)> = sqlx::query_as(&format!(
+            "SELECT size_bytes FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}",
+        ))
         .bind(&share.resource_id)
         .bind(&share.user_id)
         .fetch_optional(pool)
@@ -340,19 +348,22 @@ pub async fn compute_share_tree_stats(
         });
     }
 
-    let stats: Option<(i64, i64, i64)> = sqlx::query_as(
+    let stats: Option<(i64, i64, i64)> = sqlx::query_as(&format!(
         "WITH RECURSIVE subtree AS ( \
-            SELECT id FROM folders WHERE id = $1 AND user_id = $2 \
+            SELECT id FROM folders WHERE id = $1 AND user_id = $2 AND {ACTIVE_FOLDERS_SQL} \
             UNION ALL \
             SELECT f.id FROM folders f \
             INNER JOIN subtree s ON f.parent_id = s.id \
-            WHERE f.user_id = $2 \
+            WHERE f.user_id = $2 AND f.{ACTIVE_FOLDERS_SQL} \
         ) \
         SELECT \
-            (SELECT COUNT(*)::bigint FROM files WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree)), \
-            (SELECT COUNT(*)::bigint FROM folders WHERE user_id = $2 AND id IN (SELECT id FROM subtree) AND id <> $1), \
-            (SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree))",
-    )
+            (SELECT COUNT(*)::bigint FROM files \
+             WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree) AND {ACTIVE_FILES_SQL}), \
+            (SELECT COUNT(*)::bigint FROM folders \
+             WHERE user_id = $2 AND id IN (SELECT id FROM subtree) AND id <> $1 AND {ACTIVE_FOLDERS_SQL}), \
+            (SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files \
+             WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree) AND {ACTIVE_FILES_SQL})",
+    ))
     .bind(&share.resource_id)
     .bind(&share.user_id)
     .fetch_optional(pool)
@@ -378,7 +389,8 @@ pub async fn list_all_files_in_share(
 
     if share.resource_type == "file" {
         let file: Option<FileDto> = sqlx::query_as(&format!(
-            "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
+            "SELECT {FILE_COLUMNS} FROM files \
+             WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
         ))
         .bind(&share.resource_id)
         .bind(&share.user_id)
@@ -389,14 +401,14 @@ pub async fn list_all_files_in_share(
 
     let files: Vec<FileDto> = sqlx::query_as(&format!(
         "WITH RECURSIVE subtree AS ( \
-            SELECT id FROM folders WHERE id = $1 AND user_id = $2 \
+            SELECT id FROM folders WHERE id = $1 AND user_id = $2 AND {ACTIVE_FOLDERS_SQL} \
             UNION ALL \
             SELECT f.id FROM folders f \
             INNER JOIN subtree s ON f.parent_id = s.id \
-            WHERE f.user_id = $2 \
+            WHERE f.user_id = $2 AND f.{ACTIVE_FOLDERS_SQL} \
         ) \
         SELECT {FILE_COLUMNS} FROM files \
-        WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree) \
+        WHERE user_id = $2 AND folder_id IN (SELECT id FROM subtree) AND {ACTIVE_FILES_SQL} \
         ORDER BY name ASC"
     ))
     .bind(&share.resource_id)
@@ -417,17 +429,17 @@ pub async fn list_all_folders_in_share(
         return Ok(Vec::new());
     }
 
-    let folders: Vec<crate::files::folders::FolderDto> = sqlx::query_as(
+    let folders: Vec<crate::files::folders::FolderDto> = sqlx::query_as(&format!(
         "WITH RECURSIVE subtree AS ( \
             SELECT id, name, parent_id, created_at, updated_at FROM folders \
-            WHERE id = $1 AND user_id = $2 \
+            WHERE id = $1 AND user_id = $2 AND {ACTIVE_FOLDERS_SQL} \
             UNION ALL \
             SELECT f.id, f.name, f.parent_id, f.created_at, f.updated_at FROM folders f \
             INNER JOIN subtree s ON f.parent_id = s.id \
-            WHERE f.user_id = $2 \
+            WHERE f.user_id = $2 AND f.{ACTIVE_FOLDERS_SQL} \
         ) \
         SELECT id, name, parent_id, created_at, updated_at FROM subtree ORDER BY name ASC",
-    )
+    ))
     .bind(&share.resource_id)
     .bind(&share.user_id)
     .fetch_all(pool)

@@ -10,6 +10,7 @@ import {
   fetchPublicShareContents,
   fetchPublicShareOverview,
   fetchPublicVideoStreamUrl,
+  ApiError,
   getErrorMessage,
   saveFromPublicShare,
   verifyPublicShareAccess,
@@ -100,6 +101,9 @@ export default function PublicSharePage() {
   const [inlineStreamError, setInlineStreamError] = useState("");
   const [inlineStreamLoading, setInlineStreamLoading] = useState(false);
   const [sharePassword, setSharePassword] = useState<string | null>(null);
+  // Human: True when overview is withheld until x-share-password is supplied (SEC-007).
+  // Agent: SET when GET /overview returns 403 requires-password without leaking metadata.
+  const [passwordGateOnly, setPasswordGateOnly] = useState(false);
   const [accessGranted, setAccessGranted] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -113,6 +117,7 @@ export default function PublicSharePage() {
     void fetchPublicShareOverview(token)
       .then((res) => {
         if (cancelled) return;
+        setPasswordGateOnly(false);
         setOverview(res.share);
         if (res.share.resource_type === "folder") {
           setRootFolderId(res.share.resource_id);
@@ -121,7 +126,17 @@ export default function PublicSharePage() {
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(getErrorMessage(e));
+        if (cancelled) return;
+        if (
+          e instanceof ApiError
+          && e.status === 403
+          && /requires a password/i.test(e.message)
+        ) {
+          setPasswordGateOnly(true);
+          setOverview(null);
+          return;
+        }
+        setError(getErrorMessage(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -133,6 +148,7 @@ export default function PublicSharePage() {
 
   useEffect(() => {
     setSharePassword(null);
+    setPasswordGateOnly(false);
     setAccessGranted(false);
     setPasswordInput("");
     setPasswordError("");
@@ -306,7 +322,7 @@ export default function PublicSharePage() {
 
   async function handleUnlockPassword(event: FormEvent) {
     event.preventDefault();
-    if (!token || !overview) return;
+    if (!token) return;
     const password = passwordInput.trim();
     if (!password) {
       setPasswordError("Enter the share password.");
@@ -316,7 +332,14 @@ export default function PublicSharePage() {
     setUnlocking(true);
     setPasswordError("");
     try {
-      await verifyPublicShareAccess(token, overview.resource_type, overview.resource_id, password);
+      const res = await fetchPublicShareOverview(token, password);
+      setOverview(res.share);
+      setPasswordGateOnly(false);
+      if (res.share.resource_type === "folder") {
+        setRootFolderId(res.share.resource_id);
+        setCurrentFolderId(res.share.resource_id);
+        setBreadcrumbs([{ id: res.share.resource_id, name: res.share.name }]);
+      }
       setStoredSharePassword(token, password);
       setSharePassword(password);
       setAccessGranted(true);
@@ -432,7 +455,7 @@ export default function PublicSharePage() {
     );
   }
 
-  if (error && !overview) {
+  if (error && !overview && !passwordGateOnly) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#F7F8FA] px-4 text-center">
         <p className="text-destructive">{error}</p>
@@ -443,13 +466,11 @@ export default function PublicSharePage() {
     );
   }
 
-  if (!overview) return null;
-
-  if (overview.requires_password && !accessGranted) {
+  if (passwordGateOnly || (overview?.requires_password && !accessGranted)) {
     return (
       <PublicSharePasswordGate
-        resourceType={overview.resource_type}
-        shareName={overview.name}
+        resourceType={overview?.resource_type ?? "folder"}
+        shareName={overview?.name ?? "Protected share"}
         password={passwordInput}
         onPasswordChange={setPasswordInput}
         error={passwordError}
@@ -458,6 +479,8 @@ export default function PublicSharePage() {
       />
     );
   }
+
+  if (!overview) return null;
 
   const isFolderShare = overview.resource_type === "folder";
   const singleMime = overview.mime_type ?? "";

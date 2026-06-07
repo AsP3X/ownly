@@ -133,14 +133,24 @@ export async function setupStatus() {
 }
 
 export async function setupDatabaseInfo() {
-  return apiFetch("/setup/database", { cache: "no-store" }) as Promise<{
+  // Human: Bootstrap token required — matches POST /setup* mutation routes (SEC-001).
+  // Agent: SENDS X-Setup-Token; READS redacted database_url for wizard defaults.
+  return apiFetch("/setup/database", {
+    cache: "no-store",
+    headers: setupMutationHeaders(),
+  }) as Promise<{
     driver: string;
     database_url: string;
   }>;
 }
 
 export async function setupStorageInfo() {
-  return apiFetch("/setup/storage", { cache: "no-store" }) as Promise<{
+  // Human: Bootstrap token gates infrastructure metadata before first admin exists.
+  // Agent: SENDS X-Setup-Token; RETURNS 409 after setup_complete.
+  return apiFetch("/setup/storage", {
+    cache: "no-store",
+    headers: setupMutationHeaders(),
+  }) as Promise<{
     object_storage_url: string;
     object_storage_public_url: string;
     object_storage_bucket: string;
@@ -2587,10 +2597,11 @@ export async function fetchResourceShares(params: { file_id?: string; folder_id?
 }
 
 // Human: Anonymous metadata for a public share token (no Authorization header required).
-// Agent: GET /public/shares/:token; RETURNS PublicShareInfo.
-export async function fetchPublicShareOverview(token: string) {
+// Agent: GET /public/shares/:token; REQUIRES X-Share-Password when link is protected (SEC-007).
+export async function fetchPublicShareOverview(token: string, sharePassword?: string | null) {
   return apiFetch(`/public/shares/${encodeURIComponent(token)}`, {
     cache: "no-store",
+    headers: publicShareRequestHeaders(sharePassword),
   }) as Promise<{ share: PublicShareInfo }>;
 }
 

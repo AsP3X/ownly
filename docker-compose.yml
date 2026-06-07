@@ -113,6 +113,12 @@ services:
       GIT_SHA: ${GIT_SHA:-unknown}
       AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
+      # Human: nginx sets X-Forwarded-For — trust it for rate limits and audit IPs (SEC-006).
+      # Agent: DEFAULT true in Compose; leave unset/false when API port 3000 is exposed directly.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+      # Human: Compose uses docker network hostnames (postgres, object-storage) — not public internet.
+      # Agent: REQUIRED for setup wizard DB/storage tests in local stack; omit in locked-down production.
+      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-1}
       UPLOAD_RPM: ${UPLOAD_RPM:-600}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       # Human: Cap parallel Nebular PUTs from API — pairs with SQLite metadata; raise only when using Postgres metadata backend.

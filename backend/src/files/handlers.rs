@@ -894,7 +894,7 @@ pub async fn download_file(
     let row: Option<DownloadFileRow> = sqlx::query_as(
         "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status, \
          download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
-         WHERE id = $1 AND user_id = $2",
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(&id)
     .bind(&claims.sub)
@@ -976,7 +976,7 @@ pub async fn download_url(
     let row: Option<DownloadUrlRow> = sqlx::query_as(
         "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status, \
          download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
-         WHERE id = $1 AND user_id = $2",
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(&id)
     .bind(&claims.sub)
@@ -1033,7 +1033,7 @@ pub async fn preview_url(
     type PreviewUrlRow = (Option<String>, bool, Option<String>, bool, Option<String>);
     let row: Option<PreviewUrlRow> = sqlx::query_as(
         "SELECT mime_type, hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2",
+         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(&id)
     .bind(&claims.sub)

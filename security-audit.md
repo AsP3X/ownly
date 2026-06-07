@@ -13,8 +13,8 @@ Use the checkboxes below to track remediation as you work through each item.
 
 | Severity | Count | Open |
 | -------- | ----- | ---- |
-| High     | 5     | 5    |
-| Medium   | 7     | 7    |
+| High     | 5     | 0    |
+| Medium   | 7     | 0    |
 | Low      | 0     | 0    |
 
 
@@ -26,7 +26,7 @@ Use the checkboxes below to track remediation as you work through each item.
 
 ### SEC-001 — Public setup endpoints leak database credentials and infrastructure metadata
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                          |
@@ -102,7 +102,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-002 — Stale JWT role allows admin access after demotion
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                        |
@@ -237,7 +237,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-003 — Soft-deleted files remain accessible via public share links
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                                                                               |
@@ -354,7 +354,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-004 — Authenticated download/preview ignores soft-delete state
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                                        |
@@ -429,7 +429,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-005 — Unauthenticated setup bootstrap race on fresh deployments
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                        |
@@ -498,7 +498,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-006 — Login/register rate limit trusts spoofable forwarding headers
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                       |
@@ -564,7 +564,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-007 — Password-protected share overview bypass exposes metadata without password
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                             |
@@ -645,7 +645,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-008 — Setup storage probe allows unauthenticated SSRF/internal network reconnaissance
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                    |
@@ -727,7 +727,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-009 — Public share password checks lack brute-force throttling
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                              |
@@ -807,7 +807,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-010 — Setup database test allows unauthenticated internal Postgres probing
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                        |
@@ -884,7 +884,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-011 — Folder and bulk zip archives include soft-deleted (recycle-bin) files
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                         |
@@ -967,7 +967,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-012 — Live exploit: unauthenticated first-admin creation (setup hijack)
 
-- **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                                                                          |
@@ -1091,5 +1091,6 @@ Add or extend integration tests in `backend/tests/` for:
 | 2026-06-02 | Follow-up static review | SEC-010–SEC-011 added       |
 | 2026-06-03 | Audit scripts           | SEC-010–SEC-011 probe scripts added |
 | 2026-06-04 | Audit scripts           | SEC-012 live setup-hijack exploit script added |
+| 2026-06-07 | Security remediation    | SEC-001–SEC-012 implemented in backend + frontend |
 
 

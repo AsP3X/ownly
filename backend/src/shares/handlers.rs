@@ -185,15 +185,31 @@ fn share_password_header(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
+// Human: True when verify_share_password failed due to a wrong guess (not a missing header).
+// Agent: USED to apply share_password_rl only on brute-force attempts (SEC-009).
+fn is_incorrect_share_password(err: &AppError) -> bool {
+    matches!(
+        err,
+        AppError::Forbidden(message) if message == "incorrect share password"
+    )
+}
+
 // Human: Resolve a token and enforce password protection before serving share content.
-// Agent: CALLS resolve_active_share + verify_share_password; USED by public content routes.
+// Agent: CALLS resolve_active_share + verify_share_password; RATE-LIMITS wrong guesses (SEC-009).
 async fn resolve_public_share(
-    pool: &sqlx::PgPool,
+    state: &AppState,
     token: &str,
     headers: &HeaderMap,
 ) -> Result<ShareRecord, AppError> {
-    let share = resolve_active_share(pool, token).await?;
-    verify_share_password(&share, share_password_header(headers).as_deref())?;
+    let share = resolve_active_share(&state.pool, token).await?;
+    if let Err(err) = verify_share_password(&share, share_password_header(headers).as_deref()) {
+        if is_incorrect_share_password(&err) {
+            let ip = rate_limit::client_ip_from_headers(headers, state.trust_proxy_headers);
+            let rl_key = format!("share-pw:{token}:{ip}");
+            rate_limit::enforce(&state.share_password_rl, &rl_key)?;
+        }
+        return Err(err);
+    }
     Ok(share)
 }
 
@@ -1052,12 +1068,13 @@ async fn public_overview_for_share(
 }
 
 // Human: Anonymous metadata probe for a public share link.
-// Agent: resolve_active_share; RETURNS resource name/type only.
+// Agent: resolve_public_share enforces x-share-password (SEC-007); RETURNS resource metadata.
 pub async fn public_share_overview(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(token): Path<String>,
 ) -> Result<Json<PublicShareOverviewResponse>, AppError> {
-    let share = resolve_active_share(&state.pool, &token).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let overview = public_overview_for_share(&state.pool, &share).await?;
     Ok(Json(PublicShareOverviewResponse { share: overview }))
 }
@@ -1070,7 +1087,7 @@ pub async fn public_share_contents(
     Path(token): Path<String>,
     Query(query): Query<PublicContentsQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     ensure_browse_folder_in_share(&state.pool, &share, query.folder_id.as_deref()).await?;
 
     let browse_folder_id = query
@@ -1110,7 +1127,7 @@ pub async fn public_share_download(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     ensure_share_download_allowed(&share)?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
     ensure_shared_file_ready(&row)?;
@@ -1163,7 +1180,7 @@ pub async fn public_share_stream_url(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     type StreamUrlRow = (Option<bool>, Option<i32>, Option<String>, Option<String>);
@@ -1208,7 +1225,7 @@ pub async fn public_share_waveform(
 ) -> Result<Json<crate::audio::waveform::AudioWaveformArtifact>, AppError> {
     use futures_util::StreamExt;
 
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let scoped = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
     ensure_shared_file_ready(&scoped)?;
 
@@ -1261,7 +1278,7 @@ pub async fn public_share_key(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let key = resolve_hls_aes_key(
@@ -1289,7 +1306,7 @@ pub async fn public_share_playlist(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
@@ -1341,7 +1358,7 @@ pub async fn public_share_segment(
     headers: HeaderMap,
     Path((token, file_id, segment_name)): Path<(String, String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     if !row.hls_ready {
@@ -1379,7 +1396,7 @@ pub async fn public_share_init(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     if !row.hls_ready {
@@ -1410,7 +1427,7 @@ pub async fn public_share_file(
     headers: HeaderMap,
     Path((token, file_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let file: Option<FileDto> = sqlx::query_as(&format!(
@@ -1432,7 +1449,7 @@ pub async fn public_share_all_files(
     headers: HeaderMap,
     Path(token): Path<String>,
 ) -> Result<Json<PublicShareAllFilesResponse>, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let files = list_all_files_in_share(&state.pool, &share).await?;
     let folders = list_all_folders_in_share(&state.pool, &share).await?;
     Ok(Json(PublicShareAllFilesResponse { files, folders }))
@@ -1446,7 +1463,7 @@ pub async fn public_share_download_archive(
     Path(token): Path<String>,
     Json(body): Json<PublicShareDownloadArchiveRequest>,
 ) -> Result<Json<PublicShareDownloadArchiveResponse>, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     ensure_share_download_allowed(&share)?;
 
     let mut file_ids: Vec<String> = body
@@ -1530,7 +1547,7 @@ pub async fn public_share_download_archive_status(
     headers: HeaderMap,
     Path((token, job_id)): Path<(String, String)>,
 ) -> Result<Json<PublicShareDownloadArchiveResponse>, AppError> {
-    let _share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let _share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let key = FolderDownloadRegistry::public_share_job_key(&token, &job_id);
     let job = state
         .folder_download_jobs
@@ -1547,7 +1564,7 @@ pub async fn public_share_download_archive_stream(
     headers: HeaderMap,
     Path((token, job_id)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let share = resolve_public_share(&state.pool, &token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     ensure_share_download_allowed(&share)?;
 
     let key = FolderDownloadRegistry::public_share_job_key(&token, &job_id);
@@ -1608,7 +1625,7 @@ pub async fn save_from_public_share(
         return Err(AppError::BadRequest("token is required".into()));
     }
 
-    let share = resolve_public_share(&state.pool, token, &headers).await?;
+    let share = resolve_public_share(state.as_ref(), token, &headers).await?;
     ensure_share_download_allowed(&share)?;
 
     let mut file_ids: Vec<String> = body
