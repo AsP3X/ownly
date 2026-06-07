@@ -1,21 +1,16 @@
 // Human: Image lightbox state — blob cache, gallery navigation, and keyboard handlers.
-// Agent: ROLLING blob window around active slide; REVOKES distant blobs on navigation; WARMS prev/current/next only.
+// Agent: NNCAXACNN tiers — X current, A ±1 visible, C ±2 cached, N beyond; ABORTS outside window.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
 import {
-  clearWarmedPreviewImages,
+  buildGalleryLoadPlan,
   collectGalleryWindowFileIds,
   isGalleryIndexInBlobWindow,
-  orderGalleryWindowForPreload,
   PREVIEW_BLOB_CACHE_RADIUS,
-  preloadGalleryImages,
-  retainWarmedPreviewImages,
-  warmPreviewImage,
-} from "@/components/drive/image/image-preview-preload";
-import { formatBytes } from "@/lib/utils-app";
+} from "@/components/drive/image/image-preview-preload";import { formatBytes } from "@/lib/utils-app";
 
 export type ImagePreviewAdjacentUrls = {
   previous: string | null;
@@ -44,6 +39,10 @@ export type ImagePreviewControllerViewModel = {
   handleContentKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 };
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export function useImagePreviewController({
   images,
   file,
@@ -60,8 +59,8 @@ export function useImagePreviewController({
   const [loading, setLoading] = useState(false);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef<Map<string, Promise<string | null>>>(new Map());
+  const fetchAbortRef = useRef<Map<string, AbortController>>(new Map());
   const cacheSessionRef = useRef(0);
-  const preloadGenerationRef = useRef(0);
   const activeFileIdRef = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [adjacentUrls, setAdjacentUrls] = useState<ImagePreviewAdjacentUrls>({
@@ -95,23 +94,41 @@ export function useImagePreviewController({
     return isGalleryIndexInBlobWindow(itemIndex, index, PREVIEW_BLOB_CACHE_RADIUS);
   }, []);
 
-  // Human: Revoke blob URLs outside the rolling window so memory stays flat while swiping.
-  // Agent: READS urlCacheRef; REVOKES distant object URLs; PRUNES warmed bitmaps to the same window.
-  const evictBlobCacheOutsideWindow = useCallback((index: number, gallery: readonly FileItem[]) => {
-    const keepIds = collectGalleryWindowFileIds(gallery, index, PREVIEW_BLOB_CACHE_RADIUS);
-
-    for (const [fileId, url] of urlCacheRef.current.entries()) {
-      if (keepIds.has(fileId)) continue;
-      URL.revokeObjectURL(url);
-      urlCacheRef.current.delete(fileId);
-      inFlightRef.current.delete(fileId);
-    }
-
-    retainWarmedPreviewImages(Array.from(keepIds));
+  const abortFetchForFile = useCallback((fileId: string) => {
+    const controller = fetchAbortRef.current.get(fileId);
+    if (!controller) return;
+    controller.abort();
+    fetchAbortRef.current.delete(fileId);
+    inFlightRef.current.delete(fileId);
   }, []);
 
-  // Human: Only re-render carousel neighbors when prev/next blob URLs actually change.
-  // Agent: READS urlCacheRef; COMPARES prior adjacentUrls; WRITES setAdjacentUrls when different.
+  const abortAllFetches = useCallback(() => {
+    for (const controller of fetchAbortRef.current.values()) {
+      controller.abort();
+    }
+    fetchAbortRef.current.clear();
+    inFlightRef.current.clear();
+  }, []);
+
+  // Human: Revoke blob URLs outside the rolling window and cancel their in-flight downloads.
+  // Agent: READS urlCacheRef; ABORTS fetchAbortRef; REVOKES distant object URLs.
+  const evictBlobCacheOutsideWindow = useCallback(
+    (index: number, gallery: readonly FileItem[]) => {
+      const keepIds = collectGalleryWindowFileIds(gallery, index, PREVIEW_BLOB_CACHE_RADIUS);
+
+      for (const fileId of fetchAbortRef.current.keys()) {
+        if (!keepIds.has(fileId)) abortFetchForFile(fileId);
+      }
+
+      for (const [fileId, url] of urlCacheRef.current.entries()) {
+        if (keepIds.has(fileId)) continue;
+        URL.revokeObjectURL(url);
+        urlCacheRef.current.delete(fileId);
+      }
+    },
+    [abortFetchForFile],
+  );
+
   const refreshAdjacentUrlsIfChanged = useCallback(() => {
     const index = currentIndexRef.current;
     const gallery = imagesRef.current;
@@ -162,20 +179,18 @@ export function useImagePreviewController({
 
   const revokeAllCachedUrls = useCallback(() => {
     cacheSessionRef.current += 1;
-    preloadGenerationRef.current += 1;
+    abortAllFetches();
 
     for (const url of urlCacheRef.current.values()) {
       URL.revokeObjectURL(url);
     }
     urlCacheRef.current.clear();
-    inFlightRef.current.clear();
-    clearWarmedPreviewImages();
     activeFileIdRef.current = null;
     setDisplayUrl(null);
     setError("");
     setLoading(false);
     setAdjacentUrls({ previous: null, next: null });
-  }, []);
+  }, [abortAllFetches]);
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -185,8 +200,6 @@ export function useImagePreviewController({
     [onOpenChange, revokeAllCachedUrls],
   );
 
-  // Human: Parent unmounts the dialog without a close animation — still tear down blobs and warm bitmaps.
-  // Agent: CALLS revokeAllCachedUrls on hook unmount; INVALIDATES in-flight session via cacheSessionRef.
   useEffect(() => {
     return () => {
       revokeAllCachedUrls();
@@ -194,63 +207,44 @@ export function useImagePreviewController({
   }, [revokeAllCachedUrls]);
 
   const fetchPreviewBlob = useCallback(
-    (item: FileItem) =>
+    (item: FileItem, signal?: AbortSignal) =>
       shareToken
-        ? fetchPublicShareBlobForPreview(shareToken, item.id, sharePassword)
-        : fetchFileBlobForPreview(item),
+        ? fetchPublicShareBlobForPreview(shareToken, item.id, sharePassword, signal)
+        : fetchFileBlobForPreview(item, signal),
     [shareToken, sharePassword],
   );
 
-  // Human: Fetch and optionally decode one preview — ignores results after session invalidation.
-  // Agent: READS cacheSessionRef; DEDUPES inFlightRef; WRITES blob URL only inside the rolling window.
+  // Human: Fetch one preview blob with abort support — carousel imgs decode; no duplicate warm layer.
+  // Agent: READS fetchAbortRef; DEDUPES inFlightRef; WRITES blob URL only inside the rolling window.
   const loadPreviewUrl = useCallback(
-    async (item: FileItem, options?: { warm?: boolean; silent?: boolean }): Promise<string | null> => {
+    async (item: FileItem, options?: { silent?: boolean }): Promise<string | null> => {
       const session = cacheSessionRef.current;
-      const warm = options?.warm ?? true;
       const silent = options?.silent ?? false;
       const isActive = () => isCacheSessionActive(session);
 
       if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
       const cachedUrl = urlCacheRef.current.get(item.id);
-      if (cachedUrl) {
-        if (warm) {
-          try {
-            await warmPreviewImage(item.id, cachedUrl, isActive);
-          } catch {
-            // Human: Warm failures are non-fatal — the carousel img can still decode on mount.
-          }
-        }
-        return isActive() ? cachedUrl : null;
-      }
+      if (cachedUrl) return cachedUrl;
 
       const existingRequest = inFlightRef.current.get(item.id);
-      if (existingRequest) {
-        return existingRequest;
-      }
+      if (existingRequest) return existingRequest;
 
-      const request = fetchPreviewBlob(item)
-        .then(async (blob) => {
+      const controller = new AbortController();
+      fetchAbortRef.current.set(item.id, controller);
+
+      const request = fetchPreviewBlob(item, controller.signal)
+        .then((blob) => {
           if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
-
-          const url = cacheBlobUrl(item.id, blob, session);
-          if (!url) return null;
-
-          if (warm) {
-            try {
-              await warmPreviewImage(item.id, url, isActive);
-            } catch {
-              // Human: Warm failures are non-fatal — the carousel img can still decode on mount.
-            }
-          }
-
-          return isActive() ? url : null;
+          return cacheBlobUrl(item.id, blob, session);
         })
         .catch((err) => {
+          if (isAbortError(err)) return null;
           if (silent) return null;
           throw err;
         })
         .finally(() => {
+          fetchAbortRef.current.delete(item.id);
           if (isCacheSessionActive(session)) {
             inFlightRef.current.delete(item.id);
           }
@@ -262,16 +256,15 @@ export function useImagePreviewController({
     [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow],
   );
 
-  // Human: Load the active slide with user-visible errors; evict distant blobs on each navigation.
-  // Agent: UPDATES displayUrl; WARMS prev/current/next; REVOKES blob URLs outside the rolling window.
+  // Human: On each navigation, enforce NNCAXACNN — evict N, load X then A then C.
+  // Agent: CALLS buildGalleryLoadPlan; ABORTS outside ±2; UPDATES displayUrl + adjacentUrls.
   useEffect(() => {
     if (!open || !file?.id || currentIndex < 0) return;
 
     const session = cacheSessionRef.current;
     activeFileIdRef.current = file.id;
     const requestFileId = file.id;
-    const prevItem = currentIndex > 0 ? images[currentIndex - 1]! : null;
-    const nextItem = currentIndex < images.length - 1 ? images[currentIndex + 1]! : null;
+    const loadPlan = buildGalleryLoadPlan(images, currentIndex);
 
     let cancelled = false;
     evictBlobCacheOutsideWindow(currentIndex, images);
@@ -312,19 +305,21 @@ export function useImagePreviewController({
         refreshAdjacentUrlsIfChanged();
       });
 
-    void Promise.all([
-      prevItem ? loadPreviewUrl(prevItem, { silent: true, warm: true }) : Promise.resolve(null),
-      nextItem ? loadPreviewUrl(nextItem, { silent: true, warm: true }) : Promise.resolve(null),
-    ]).then(() => {
-      if (cancelled || !isCacheSessionActive(session)) return;
-      refreshAdjacentUrlsIfChanged();
-    });
+    void Promise.all(loadPlan.adjacent.map((item) => loadPreviewUrl(item, { silent: true })))
+      .then(() => {
+        if (cancelled || !isCacheSessionActive(session)) return;
+        refreshAdjacentUrlsIfChanged();
+        return Promise.all(loadPlan.cache.map((item) => loadPreviewUrl(item, { silent: true })));
+      })
+      .then(() => {
+        if (cancelled || !isCacheSessionActive(session)) return;
+        refreshAdjacentUrlsIfChanged();
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [
-    open,
+  }, [    open,
     file,
     currentIndex,
     images,
@@ -333,54 +328,6 @@ export function useImagePreviewController({
     loadPreviewUrl,
     refreshAdjacentUrlsIfChanged,
   ]);
-
-  // Human: Prefetch only the rolling window around the active slide — never the entire folder.
-  // Agent: RESTARTS when currentIndex moves; STOPS stale workers via preloadGenerationRef; warm:false for background blobs.
-  useEffect(() => {
-    if (!open || images.length === 0 || currentIndex < 0) return;
-
-    const session = cacheSessionRef.current;
-    const preloadGeneration = preloadGenerationRef.current + 1;
-    preloadGenerationRef.current = preloadGeneration;
-    const orderedImages = orderGalleryWindowForPreload(
-      images,
-      currentIndex,
-      PREVIEW_BLOB_CACHE_RADIUS,
-    );
-    let cacheRefreshFrame = 0;
-
-    const isPreloadActive = () =>
-      isCacheSessionActive(session) && preloadGenerationRef.current === preloadGeneration;
-
-    const scheduleAdjacentRefresh = () => {
-      if (cacheRefreshFrame !== 0) return;
-      cacheRefreshFrame = window.requestAnimationFrame(() => {
-        cacheRefreshFrame = 0;
-        if (!isPreloadActive()) return;
-        refreshAdjacentUrlsIfChanged();
-      });
-    };
-
-    void preloadGalleryImages(
-      orderedImages,
-      async (item) => {
-        if (!isPreloadActive()) return;
-        await loadPreviewUrl(item, { silent: true, warm: false });
-        if (!isPreloadActive()) return;
-        scheduleAdjacentRefresh();
-      },
-      {
-        concurrency: 2,
-        isActive: isPreloadActive,
-      },
-    );
-
-    return () => {
-      if (cacheRefreshFrame !== 0) {
-        window.cancelAnimationFrame(cacheRefreshFrame);
-      }
-    };
-  }, [open, images, currentIndex, isCacheSessionActive, loadPreviewUrl, refreshAdjacentUrlsIfChanged]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;
@@ -449,8 +396,6 @@ export function useImagePreviewController({
     : "Image preview";
   const sizeLabel = file ? formatBytes(file.size_bytes) : "";
 
-  // Human: Resolve blob URLs from the in-memory cache during render so carousel commits stay in sync with file.
-  // Agent: READS urlCacheRef by file.id and neighbor ids; RETURNS cached URL immediately after goNext/goPrevious.
   const resolvedDisplayUrl = file?.id
     ? (urlCacheRef.current.get(file.id) ?? displayUrl)
     : displayUrl;

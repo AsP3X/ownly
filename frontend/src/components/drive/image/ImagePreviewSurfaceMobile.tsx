@@ -69,6 +69,35 @@ function MobileImageViewportScrim() {
   );
 }
 
+type ImageGalleryAdjacentSlideProps = {
+  url: string | null;
+  alt: string;
+  showLoader?: boolean;
+};
+
+// Human: Lightweight prev/next panel — no pinch hook or fit-mode state to avoid work on every swipe.
+// Agent: RENDERS single object-contain img; SKIPS letterbox detection on off-screen slides.
+function ImageGalleryAdjacentSlide({ url, alt, showLoader = false }: ImageGalleryAdjacentSlideProps) {
+  return (
+    <div className="relative flex h-full w-full items-center justify-center bg-black">
+      <div className="absolute inset-0 overflow-hidden">
+        {url ? (
+          <img
+            src={url}
+            alt={alt}
+            loading="eager"
+            decoding="async"
+            className="size-full object-contain"
+            draggable={false}
+          />
+        ) : showLoader ? (
+          <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
@@ -287,7 +316,6 @@ export function ImagePreviewSurfaceMobile({
   const commitFallbackTimerRef = useRef<number | null>(null);
   // Human: Hold file-change reset until the swipe commit layout pass recenters the track.
   const suppressFileChangeResetRef = useRef(false);
-  const pendingFitModeRef = useRef<ImageFitMode | null>(null);
   const centerZoomActiveRef = useRef(false);
   const tapNavTimerRef = useRef<number | null>(null);
 
@@ -314,8 +342,6 @@ export function ImagePreviewSurfaceMobile({
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [centerFit, setCenterFit] = useState<ImageFitMode>("vertical");
-  const [prevFit, setPrevFit] = useState<ImageFitMode>("vertical");
-  const [nextFit, setNextFit] = useState<ImageFitMode>("vertical");
   const [staticFit, setStaticFit] = useState<ImageFitMode>("vertical");
 
   const swipeCommitThresholdPx =
@@ -337,8 +363,10 @@ export function ImagePreviewSurfaceMobile({
       if (options?.animate) {
         const duration = options.durationMs ?? snapDurationMs(roundedX - previousX);
         track.style.transition = `transform ${duration}ms ${GALLERY_SNAP_EASING}`;
+        track.style.willChange = "transform";
       } else {
         track.style.transition = "none";
+        track.style.willChange = "";
       }
 
       track.style.transform = `translate3d(${roundedX}px, 0, 0)`;
@@ -377,15 +405,13 @@ export function ImagePreviewSurfaceMobile({
 
     suppressFileChangeResetRef.current = true;
     if (commit === "next") {
-      pendingFitModeRef.current = nextFit;
       goNext();
     } else {
-      pendingFitModeRef.current = prevFit;
       goPrevious();
     }
     centerZoomActiveRef.current = false;
     return true;
-  }, [clearCommitFallbackTimer, goNext, goPrevious, nextFit, prevFit]);
+  }, [clearCommitFallbackTimer, goNext, goPrevious]);
 
   const scheduleCommitFallback = useCallback(() => {
     clearCommitFallbackTimer();
@@ -431,10 +457,7 @@ export function ImagePreviewSurfaceMobile({
       suppressFileChangeResetRef.current = false;
       pendingCommitRef.current = null;
       recenterTrack();
-      if (pendingFitModeRef.current) {
-        setCenterFit(pendingFitModeRef.current);
-        pendingFitModeRef.current = null;
-      }
+      setCenterFit("vertical");
       return;
     }
 
@@ -653,6 +676,9 @@ export function ImagePreviewSurfaceMobile({
       if (event.propertyName !== "transform") return;
       if (!pendingCommitRef.current || containerWidth <= 0) return;
 
+      if (track) {
+        track.style.willChange = "";
+      }
       clearCommitFallbackTimer();
       flushPendingSwipeCommit();
     };
@@ -679,20 +705,19 @@ export function ImagePreviewSurfaceMobile({
           {containerWidth > 0 ? (
             <div
               ref={trackRef}
-              className="flex h-full [backface-visibility:hidden] [transform:translate3d(0,0,0)] [will-change:transform]"
+              className="flex h-full [backface-visibility:hidden] [transform:translate3d(0,0,0)]"
               style={trackWidthStyle}
             >
               <div style={{ width: containerWidth }} className="h-full shrink-0">
-                <ImageGallerySlide
+                <ImageGalleryAdjacentSlide
                   url={adjacentUrls.previous}
                   alt="Previous image"
-                  fitMode={prevFit}
-                  onFitModeChange={setPrevFit}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
                 <ImageGallerySlide
+                  key={file?.id ?? "center-empty"}
                   url={displayUrl}
                   alt={file?.name ?? "Image preview"}
                   fitMode={centerFit}
@@ -704,11 +729,9 @@ export function ImagePreviewSurfaceMobile({
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
-                <ImageGallerySlide
+                <ImageGalleryAdjacentSlide
                   url={adjacentUrls.next}
                   alt="Next image"
-                  fitMode={nextFit}
-                  onFitModeChange={setNextFit}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>

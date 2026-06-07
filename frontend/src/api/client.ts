@@ -2743,15 +2743,17 @@ async function publicShareFetchError(response: Response, code: string): Promise<
 }
 
 // Human: Load shared file bytes for in-browser preview without triggering save-as.
-// Agent: GET public download; NO auth; RETURNS Blob for object URLs and PDF viewer.
+// Agent: GET public download; optional AbortSignal cancels when the viewer evicts or closes.
 export async function fetchPublicShareBlobForPreview(
   token: string,
   fileId: string,
   sharePassword?: string | null,
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const response = await fetch(publicShareFileDownloadUrl(token, fileId), {
     cache: "no-store",
     headers: publicShareRequestHeaders(sharePassword),
+    signal,
   });
   if (!response.ok) {
     return publicShareFetchError(response, "preview_failed");
