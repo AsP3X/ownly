@@ -355,8 +355,8 @@ export function ImagePreviewSurfaceMobile({
       ? Math.min(containerWidth * SWIPE_COMMIT_THRESHOLD_RATIO, SWIPE_COMMIT_THRESHOLD_MAX_PX)
       : SWIPE_COMMIT_THRESHOLD_MAX_PX;
 
-  // Human: Drive transform on the DOM during gestures — avoids React re-renders every touchmove frame.
-  // Agent: WRITES trackRef.style.transform; READS trackPositionRef for snap targets and commit logic.
+  // Human: Drive carousel offset on the DOM during gestures — left avoids iOS freezing GIFs under translate3d.
+  // Agent: WRITES trackRef.style.left; READS trackPositionRef for snap targets and commit logic.
   const applyTrackTransform = useCallback(
     (nextX: number, options?: { animate?: boolean; durationMs?: number }) => {
       const track = trackRef.current;
@@ -366,16 +366,18 @@ export function ImagePreviewSurfaceMobile({
       const previousX = trackPositionRef.current;
       trackPositionRef.current = roundedX;
 
+      track.style.transform = "none";
+
       if (options?.animate) {
         const duration = options.durationMs ?? snapDurationMs(roundedX - previousX);
-        track.style.transition = `transform ${duration}ms ${GALLERY_SNAP_EASING}`;
-        track.style.willChange = "transform";
+        track.style.transition = `left ${duration}ms ${GALLERY_SNAP_EASING}`;
+        track.style.willChange = "left";
       } else {
         track.style.transition = "none";
         track.style.willChange = "";
       }
 
-      track.style.transform = `translate3d(${roundedX}px, 0, 0)`;
+      track.style.left = `${roundedX}px`;
     },
     [],
   );
@@ -683,7 +685,7 @@ export function ImagePreviewSurfaceMobile({
     if (!track || !showGalleryNav) return;
 
     const handleTrackTransitionEnd = (event: TransitionEvent) => {
-      if (event.propertyName !== "transform") return;
+      if (event.propertyName !== "left") return;
       if (!pendingCommitRef.current || containerWidth <= 0) return;
 
       if (track) {
@@ -715,7 +717,7 @@ export function ImagePreviewSurfaceMobile({
           {containerWidth > 0 ? (
             <div
               ref={trackRef}
-              className="flex h-full [backface-visibility:hidden] [transform:translate3d(0,0,0)]"
+              className="relative flex h-full"
               style={trackWidthStyle}
             >
               <div style={{ width: containerWidth }} className="h-full shrink-0">

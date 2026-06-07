@@ -106,6 +106,16 @@ export function useMobileImagePinchZoom({
     };
   }, []);
 
+  // Human: Identity transform on a parent freezes animated GIFs in iOS Safari — only apply when zoomed/panned.
+  // Agent: RETURNS true when scale≈1 and translation≈0; WRITES transform none at rest.
+  const isAtRest = useCallback((state: PinchZoomState) => {
+    return (
+      state.scale <= MIN_SCALE + 0.02 &&
+      Math.abs(state.x) <= 0.5 &&
+      Math.abs(state.y) <= 0.5
+    );
+  }, []);
+
   const applyTransform = useCallback(
     (nextState: PinchZoomState, options?: { animate?: boolean }) => {
       const layer = layerRef.current;
@@ -113,6 +123,14 @@ export function useMobileImagePinchZoom({
 
       const state = clampPan(nextState.scale, nextState.x, nextState.y);
       stateRef.current = state;
+      const atRest = isAtRest(state);
+
+      if (atRest && !options?.animate) {
+        layer.style.transition = "none";
+        layer.style.transform = "none";
+        notifyZoomActive(state);
+        return;
+      }
 
       if (options?.animate) {
         layer.style.transition = `transform ${ZOOM_SNAP_MS}ms ${ZOOM_SNAP_EASING}`;
@@ -121,9 +139,22 @@ export function useMobileImagePinchZoom({
       }
 
       layer.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`;
+
+      if (options?.animate && atRest) {
+        const clearTransform = (event: TransitionEvent) => {
+          if (event.propertyName !== "transform") return;
+          layer.removeEventListener("transitionend", clearTransform);
+          if (isAtRest(stateRef.current)) {
+            layer.style.transform = "none";
+            layer.style.transition = "none";
+          }
+        };
+        layer.addEventListener("transitionend", clearTransform);
+      }
+
       notifyZoomActive(state);
     },
-    [clampPan, notifyZoomActive],
+    [clampPan, isAtRest, notifyZoomActive],
   );
 
   const resetZoom = useCallback(
@@ -137,8 +168,14 @@ export function useMobileImagePinchZoom({
   );
 
   useLayoutEffect(() => {
-    applyTransform({ scale: MIN_SCALE, x: 0, y: 0 }, { animate: false });
-  }, [resetKey, applyTransform]);
+    const layer = layerRef.current;
+    stateRef.current = { scale: MIN_SCALE, x: 0, y: 0 };
+    if (layer) {
+      layer.style.transition = "none";
+      layer.style.transform = "none";
+    }
+    notifyZoomActive(stateRef.current);
+  }, [resetKey, notifyZoomActive]);
 
   const handleTouchStart = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {

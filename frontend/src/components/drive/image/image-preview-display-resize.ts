@@ -3,6 +3,7 @@
 
 import {
   isAnimatedGifBlob,
+  isGifMimeType,
   readImageNaturalDimensions,
 } from "@/components/drive/image/image-preview-gif";
 
@@ -142,6 +143,11 @@ async function resizeOnMainThread(
   source: Blob,
   maxEdgePx: number,
 ): Promise<PreviewDisplayImage> {
+  if (isGifMimeType(source.type) || (await isAnimatedGifBlob(source))) {
+    const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(source);
+    return { blob: source, naturalWidth, naturalHeight };
+  }
+
   if (!source.type.startsWith("image/")) {
     return { blob: source, naturalWidth: 0, naturalHeight: 0 };
   }
@@ -268,6 +274,10 @@ export async function preparePreviewDisplayBlob(
   try {
     return await resizeInWorker(source, maxEdgePx, signal);
   } catch {
+    if (await isAnimatedGifBlob(source)) {
+      const { naturalWidth, naturalHeight } = await readImageNaturalDimensions(source);
+      return { blob: source, naturalWidth, naturalHeight };
+    }
     return resizeOnMainThread(source, maxEdgePx);
   } finally {
     release();

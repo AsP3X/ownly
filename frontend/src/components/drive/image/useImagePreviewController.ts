@@ -51,6 +51,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+// Human: fetch().blob() may omit type — re-wrap with the file row mime so GIF detection and object URLs stay correct.
+// Agent: READS FileItem.mime_type; RETURNS new Blob only when type differs and mime is image/*.
+function normalizePreviewBlob(blob: Blob, mimeType: string | null | undefined): Blob {
+  const mime = (mimeType ?? "").trim().toLowerCase();
+  if (!mime.startsWith("image/") || blob.type === mime) {
+    return blob;
+  }
+  return new Blob([blob], { type: mime });
+}
+
 export function useImagePreviewController({
   images,
   file,
@@ -267,7 +277,7 @@ export function useImagePreviewController({
         .then(async (blob) => {
           if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
 
-          let displayBlob = blob;
+          let displayBlob = normalizePreviewBlob(blob, item.mime_type);
           if (previewDisplayMaxEdgePx && previewDisplayMaxEdgePx > 0) {
             const prepared = await preparePreviewDisplayBlob(
               blob,
