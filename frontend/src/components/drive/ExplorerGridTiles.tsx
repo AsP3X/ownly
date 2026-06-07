@@ -316,6 +316,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         }}
         className={cn(
           "flex h-full w-full flex-col gap-1.5 text-center",
+          touchDragBindings && "touch-none select-none",
           showThumbnailPreview
             ? "min-h-[148px] items-stretch p-2"
             : "min-h-[108px] items-center justify-center px-2.5 py-3.5",

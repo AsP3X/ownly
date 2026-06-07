@@ -1543,7 +1543,7 @@ export default function DrivePage() {
             ref={mainScrollRef}
             className={cn(
               "min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
-              explorerTouchScrollLocked && "touch-none overflow-hidden",
+              explorerTouchScrollLocked && "touch-none overflow-hidden overscroll-none",
             )}
           >
           <div
