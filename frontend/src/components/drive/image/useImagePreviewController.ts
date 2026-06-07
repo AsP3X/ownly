@@ -80,22 +80,35 @@ export function useImagePreviewController({
     setCacheRevision((revision) => revision + 1);
   }, []);
 
-  const refreshAdjacentUrls = useCallback(() => {
+  // Human: Avoid re-render storms during bulk preload — only notify React when prev/next URLs change.
+  // Agent: READS urlCacheRef; COMPARES against adjacentUrls state; WRITES setAdjacentUrls + cacheRevision on change.
+  const refreshAdjacentUrlsIfChanged = useCallback(() => {
     const index = currentIndexRef.current;
     const gallery = imagesRef.current;
     if (index < 0) {
-      setAdjacentUrls({ previous: null, next: null });
+      setAdjacentUrls((previous) =>
+        previous.previous === null && previous.next === null
+          ? previous
+          : { previous: null, next: null },
+      );
       return;
     }
 
-    setAdjacentUrls({
-      previous: index > 0 ? urlCacheRef.current.get(gallery[index - 1]!.id) ?? null : null,
-      next:
-        index < gallery.length - 1
-          ? urlCacheRef.current.get(gallery[index + 1]!.id) ?? null
-          : null,
+    const nextPrevious =
+      index > 0 ? urlCacheRef.current.get(gallery[index - 1]!.id) ?? null : null;
+    const nextNext =
+      index < gallery.length - 1
+        ? urlCacheRef.current.get(gallery[index + 1]!.id) ?? null
+        : null;
+
+    setAdjacentUrls((previous) => {
+      if (previous.previous === nextPrevious && previous.next === nextNext) {
+        return previous;
+      }
+      bumpCacheRevision();
+      return { previous: nextPrevious, next: nextNext };
     });
-  }, []);
+  }, [bumpCacheRevision]);
 
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
@@ -192,12 +205,14 @@ export function useImagePreviewController({
   );
 
   // Human: Load the active slide with user-visible errors while the gallery preloader runs in parallel.
-  // Agent: UPDATES displayUrl + loading for file.id; REFRESHES adjacentUrls after cache hits.
+  // Agent: UPDATES displayUrl + loading for file.id; WARMS adjacent slides after navigation.
   useEffect(() => {
     if (!open || !file?.id || currentIndex < 0) return;
 
     activeFileIdRef.current = file.id;
     const requestFileId = file.id;
+    const prevItem = currentIndex > 0 ? images[currentIndex - 1]! : null;
+    const nextItem = currentIndex < images.length - 1 ? images[currentIndex + 1]! : null;
 
     let cancelled = false;
     const cachedCurrent = urlCacheRef.current.get(requestFileId);
@@ -210,7 +225,7 @@ export function useImagePreviewController({
       setError("");
     }
 
-    refreshAdjacentUrls();
+    refreshAdjacentUrlsIfChanged();
 
     void loadPreviewUrl(file)
       .then((url) => {
@@ -218,7 +233,6 @@ export function useImagePreviewController({
         if (url) {
           setDisplayUrl(url);
           setError("");
-          bumpCacheRevision();
         }
       })
       .catch((err) => {
@@ -228,38 +242,61 @@ export function useImagePreviewController({
       .finally(() => {
         if (cancelled || activeFileIdRef.current !== requestFileId) return;
         setLoading(false);
-        refreshAdjacentUrls();
+        refreshAdjacentUrlsIfChanged();
       });
+
+    void Promise.all([
+      prevItem ? loadPreviewUrl(prevItem, { silent: true, warm: true }) : Promise.resolve(null),
+      nextItem ? loadPreviewUrl(nextItem, { silent: true, warm: true }) : Promise.resolve(null),
+    ]).then(() => {
+      if (cancelled) return;
+      refreshAdjacentUrlsIfChanged();
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [open, file, currentIndex, loadPreviewUrl, refreshAdjacentUrls, bumpCacheRevision]);
+  }, [open, file, currentIndex, images, loadPreviewUrl, refreshAdjacentUrlsIfChanged]);
 
-  // Human: Preload every gallery image once per open so swipes never wait on network/decode.
-  // Agent: PARALLEL preloadGalleryImages; PRIORITY anchor slide then neighbors; DOES NOT restart on navigation.
+  // Human: Preload every gallery blob once per open; decode only slides near the active index to avoid UI freezes.
+  // Agent: PARALLEL fetch via preloadGalleryImages; WARMS anchor ±2 only; SCHEDULES adjacent refresh without per-image re-render storms.
   useEffect(() => {
     if (!open || images.length === 0) return;
 
     const controller = new AbortController();
     const anchorIndex = currentIndexRef.current;
     const orderedImages = orderGalleryForPreload(images, anchorIndex);
+    let cacheRefreshFrame = 0;
+
+    const scheduleAdjacentRefresh = () => {
+      if (cacheRefreshFrame !== 0) return;
+      cacheRefreshFrame = window.requestAnimationFrame(() => {
+        cacheRefreshFrame = 0;
+        if (controller.signal.aborted) return;
+        refreshAdjacentUrlsIfChanged();
+      });
+    };
 
     void preloadGalleryImages(
       orderedImages,
       async (item) => {
-        await loadPreviewUrl(item, { silent: true });
+        const itemIndex = images.findIndex((entry) => entry.id === item.id);
+        const distance =
+          itemIndex >= 0 ? Math.abs(itemIndex - currentIndexRef.current) : Number.POSITIVE_INFINITY;
+        await loadPreviewUrl(item, { silent: true, warm: distance <= 2 });
         if (controller.signal.aborted) return;
-        refreshAdjacentUrls();
-        bumpCacheRevision();
+        scheduleAdjacentRefresh();
       },
-      { concurrency: 6, signal: controller.signal },
+      { concurrency: 3, signal: controller.signal },
     );
 
     return () => {
       controller.abort();
+      if (cacheRefreshFrame !== 0) {
+        window.cancelAnimationFrame(cacheRefreshFrame);
+      }
     };
-  }, [open, images, loadPreviewUrl, refreshAdjacentUrls, bumpCacheRevision]);
+  }, [open, images, loadPreviewUrl, refreshAdjacentUrlsIfChanged]);
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious) return;

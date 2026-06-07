@@ -22,6 +22,8 @@ const TAP_MAX_DURATION_MS = 350;
 const GALLERY_SNAP_EASING = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const GALLERY_SNAP_MIN_MS = 200;
 const GALLERY_SNAP_MAX_MS = 360;
+/** Human: Fallback when a swipe transition is interrupted before transitionend fires. */
+const SWIPE_COMMIT_FALLBACK_MS = GALLERY_SNAP_MAX_MS + 80;
 /** Human: Fast horizontal flicks commit even below the distance threshold. */
 const FLICK_VELOCITY_PX_MS = 0.35;
 /** Human: Delay left/right tap navigation so double-tap-to-zoom can cancel it. */
@@ -130,14 +132,14 @@ function ImageGallerySlide({
           {...(enablePinchZoom ? pinchZoom.touchHandlers : {})}
         >
           {url ? (
-            // Human: Eager sync decode — adjacent slides were pre-warmed in the controller before swipe.
-            // Agent: READS warmed blob URL; RENDERS without lazy-load deferral on carousel panels.
+            // Human: Blobs are prefetched in the controller — async decode keeps touch handling responsive.
+            // Agent: READS warmed blob URL; RENDERS with eager load but without sync main-thread decode.
             <img
               ref={handleImageRef}
               src={url}
               alt={alt}
               loading="eager"
-              decoding="sync"
+              decoding="async"
               onLoad={handleImageLoad}
               className={cn("size-full", isLetterbox ? "object-contain" : "object-cover")}
               draggable={false}
@@ -282,6 +284,7 @@ export function ImagePreviewSurfaceMobile({
   const touchSessionRef = useRef<TouchSession | null>(null);
   const isHorizontalSwipeRef = useRef<boolean | null>(null);
   const pendingCommitRef = useRef<"previous" | "next" | null>(null);
+  const commitFallbackTimerRef = useRef<number | null>(null);
   // Human: Hold file-change reset until the swipe commit layout pass recenters the track.
   const suppressFileChangeResetRef = useRef(false);
   const pendingFitModeRef = useRef<ImageFitMode | null>(null);
@@ -300,7 +303,13 @@ export function ImagePreviewSurfaceMobile({
   }, []);
 
   useEffect(() => {
-    return () => cancelPendingTapNav();
+    return () => {
+      cancelPendingTapNav();
+      if (commitFallbackTimerRef.current !== null) {
+        window.clearTimeout(commitFallbackTimerRef.current);
+        commitFallbackTimerRef.current = null;
+      }
+    };
   }, [cancelPendingTapNav]);
 
   const [containerWidth, setContainerWidth] = useState(0);
@@ -344,6 +353,58 @@ export function ImagePreviewSurfaceMobile({
     },
     [applyTrackTransform, containerWidth],
   );
+
+  const clearCommitFallbackTimer = useCallback(() => {
+    if (commitFallbackTimerRef.current !== null) {
+      window.clearTimeout(commitFallbackTimerRef.current);
+      commitFallbackTimerRef.current = null;
+    }
+  }, []);
+
+  // Human: Apply a completed swipe when transitionend fires or when the animation is interrupted.
+  // Agent: READS pendingCommitRef; CALLS goNext/goPrevious; RECENTERS track via suppressFileChangeResetRef.
+  const flushPendingSwipeCommit = useCallback(() => {
+    const commit = pendingCommitRef.current;
+    if (!commit) return false;
+
+    pendingCommitRef.current = null;
+    clearCommitFallbackTimer();
+
+    const track = trackRef.current;
+    if (track) {
+      track.style.transition = "none";
+    }
+
+    suppressFileChangeResetRef.current = true;
+    if (commit === "next") {
+      pendingFitModeRef.current = nextFit;
+      goNext();
+    } else {
+      pendingFitModeRef.current = prevFit;
+      goPrevious();
+    }
+    centerZoomActiveRef.current = false;
+    return true;
+  }, [clearCommitFallbackTimer, goNext, goPrevious, nextFit, prevFit]);
+
+  const scheduleCommitFallback = useCallback(() => {
+    clearCommitFallbackTimer();
+    commitFallbackTimerRef.current = window.setTimeout(() => {
+      commitFallbackTimerRef.current = null;
+      if (pendingCommitRef.current) {
+        flushPendingSwipeCommit();
+      }
+    }, SWIPE_COMMIT_FALLBACK_MS);
+  }, [clearCommitFallbackTimer, flushPendingSwipeCommit]);
+
+  const cancelActiveTrackTransition = useCallback(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    if (track.style.transition && track.style.transition !== "none") {
+      track.style.transition = "none";
+      recenterTrack();
+    }
+  }, [recenterTrack]);
 
   // Human: Measure the swipe viewport so each carousel panel is exactly one screen width.
   useEffect(() => {
@@ -464,12 +525,14 @@ export function ImagePreviewSurfaceMobile({
           animate: true,
           durationMs: snapDurationMs(Math.abs(-2 * containerWidth - trackPositionRef.current)),
         });
+        scheduleCommitFallback();
       } else if (commitPrevious) {
         pendingCommitRef.current = "previous";
         applyTrackTransform(0, {
           animate: true,
           durationMs: snapDurationMs(Math.abs(trackPositionRef.current)),
         });
+        scheduleCommitFallback();
       } else {
         recenterTrack({
           animate: true,
@@ -488,6 +551,7 @@ export function ImagePreviewSurfaceMobile({
       hasNext,
       hasPrevious,
       recenterTrack,
+      scheduleCommitFallback,
       showGalleryNav,
       swipeCommitThresholdPx,
     ],
@@ -503,6 +567,14 @@ export function ImagePreviewSurfaceMobile({
 
       cancelPendingTapNav();
 
+      // Human: Interrupted swipe animations never fire transitionend — flush the pending index change first.
+      // Agent: READS pendingCommitRef; CALLS flushPendingSwipeCommit before starting the next gesture.
+      if (pendingCommitRef.current) {
+        flushPendingSwipeCommit();
+      } else {
+        cancelActiveTrackTransition();
+      }
+
       touchSessionRef.current = {
         startX: touch.clientX,
         startY: touch.clientY,
@@ -512,7 +584,14 @@ export function ImagePreviewSurfaceMobile({
       isHorizontalSwipeRef.current = null;
       applyTrackTransform(trackPositionRef.current);
     },
-    [applyTrackTransform, cancelPendingTapNav, containerWidth, showGalleryNav],
+    [
+      applyTrackTransform,
+      cancelActiveTrackTransition,
+      cancelPendingTapNav,
+      containerWidth,
+      flushPendingSwipeCommit,
+      showGalleryNav,
+    ],
   );
 
   const handleTouchMove = useCallback(
@@ -572,28 +651,15 @@ export function ImagePreviewSurfaceMobile({
 
     const handleTrackTransitionEnd = (event: TransitionEvent) => {
       if (event.propertyName !== "transform") return;
+      if (!pendingCommitRef.current || containerWidth <= 0) return;
 
-      const commit = pendingCommitRef.current;
-      if (!commit || containerWidth <= 0) return;
-
-      pendingCommitRef.current = null;
-      suppressFileChangeResetRef.current = true;
-
-      // Human: Defer index change to the next frame so the snap animation fully completes before DOM swap.
-      // Agent: CALLS goNext/goPrevious; layout effect recenters track after resolved URLs render.
-      if (commit === "next") {
-        pendingFitModeRef.current = nextFit;
-        goNext();
-      } else {
-        pendingFitModeRef.current = prevFit;
-        goPrevious();
-      }
-      centerZoomActiveRef.current = false;
+      clearCommitFallbackTimer();
+      flushPendingSwipeCommit();
     };
 
     track.addEventListener("transitionend", handleTrackTransitionEnd);
     return () => track.removeEventListener("transitionend", handleTrackTransitionEnd);
-  }, [containerWidth, goNext, goPrevious, nextFit, prevFit, showGalleryNav]);
+  }, [clearCommitFallbackTimer, containerWidth, flushPendingSwipeCommit, showGalleryNav]);
 
   const trackWidthStyle =
     containerWidth > 0 ? { width: containerWidth * 3 } : { width: "300%" as const };
