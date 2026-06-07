@@ -8,9 +8,12 @@ import type { ImagePreviewDialogProps } from "@/components/drive/image/image-pre
 import {
   buildGalleryLoadPlan,
   collectGalleryWindowFileIds,
+  collectLeadingEdgeFileIds,
   isGalleryIndexInBlobWindow,
+  orderGalleryLoadSequence,
   PREVIEW_BLOB_CACHE_RADIUS,
-} from "@/components/drive/image/image-preview-preload";import { formatBytes } from "@/lib/utils-app";
+} from "@/components/drive/image/image-preview-preload";
+import { formatBytes } from "@/lib/utils-app";
 
 export type ImagePreviewAdjacentUrls = {
   previous: string | null;
@@ -19,6 +22,8 @@ export type ImagePreviewAdjacentUrls = {
 
 export type ImagePreviewControllerViewModel = {
   file: FileItem | null;
+  previousFile: FileItem | null;
+  nextFile: FileItem | null;
   displayUrl: string | null;
   error: string;
   loading: boolean;
@@ -158,6 +163,8 @@ export function useImagePreviewController({
 
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < images.length - 1;
+  const previousFile = hasPrevious ? (images[currentIndex - 1] ?? null) : null;
+  const nextFile = hasNext ? (images[currentIndex + 1] ?? null) : null;
   const showGalleryNav = images.length > 1;
   const positionLabel =
     currentIndex >= 0 && images.length > 1 ? `${currentIndex + 1} of ${images.length}` : null;
@@ -256,8 +263,8 @@ export function useImagePreviewController({
     [cacheBlobUrl, fetchPreviewBlob, isCacheSessionActive, isFileInBlobCacheWindow],
   );
 
-  // Human: On each navigation, enforce NNCAXACNN — evict N, load X then A then C.
-  // Agent: CALLS buildGalleryLoadPlan; ABORTS outside ±2; UPDATES displayUrl + adjacentUrls.
+  // Human: Enforce NNCAXACNN — prefetch leading +1/+2 before evicting trailing C→N on each navigation.
+  // Agent: LOADS X then forward A/C; EVICTS only after leading edge ready; then backward A/C.
   useEffect(() => {
     if (!open || !file?.id || currentIndex < 0) return;
 
@@ -265,9 +272,11 @@ export function useImagePreviewController({
     activeFileIdRef.current = file.id;
     const requestFileId = file.id;
     const loadPlan = buildGalleryLoadPlan(images, currentIndex);
+    const loadSequence = orderGalleryLoadSequence(loadPlan);
+    const leadingEdgeIds = collectLeadingEdgeFileIds(loadPlan);
+    const [currentItem, ...prefetchItems] = loadSequence;
 
     let cancelled = false;
-    evictBlobCacheOutsideWindow(currentIndex, images);
 
     const cachedCurrent = urlCacheRef.current.get(requestFileId);
     if (cachedCurrent) {
@@ -281,8 +290,11 @@ export function useImagePreviewController({
 
     refreshAdjacentUrlsIfChanged();
 
-    void loadPreviewUrl(file)
-      .then((url) => {
+    const loadLeadingEdge = async () => {
+      if (!currentItem) return;
+
+      try {
+        const url = await loadPreviewUrl(currentItem);
         if (cancelled || !isCacheSessionActive(session) || activeFileIdRef.current !== requestFileId) {
           return;
         }
@@ -290,36 +302,46 @@ export function useImagePreviewController({
           setDisplayUrl(url);
           setError("");
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (cancelled || !isCacheSessionActive(session) || activeFileIdRef.current !== requestFileId) {
           return;
         }
         setError(getErrorMessage(err));
-      })
-      .finally(() => {
+      } finally {
         if (cancelled || !isCacheSessionActive(session) || activeFileIdRef.current !== requestFileId) {
           return;
         }
         setLoading(false);
         refreshAdjacentUrlsIfChanged();
-      });
+      }
 
-    void Promise.all(loadPlan.adjacent.map((item) => loadPreviewUrl(item, { silent: true })))
-      .then(() => {
-        if (cancelled || !isCacheSessionActive(session)) return;
-        refreshAdjacentUrlsIfChanged();
-        return Promise.all(loadPlan.cache.map((item) => loadPreviewUrl(item, { silent: true })));
-      })
-      .then(() => {
-        if (cancelled || !isCacheSessionActive(session)) return;
-        refreshAdjacentUrlsIfChanged();
-      });
+      await Promise.all(
+        prefetchItems
+          .filter((item) => leadingEdgeIds.has(item.id))
+          .map((item) => loadPreviewUrl(item, { silent: true })),
+      );
+      if (cancelled || !isCacheSessionActive(session)) return;
+
+      refreshAdjacentUrlsIfChanged();
+      evictBlobCacheOutsideWindow(currentIndex, images);
+
+      await Promise.all(
+        prefetchItems
+          .filter((item) => !leadingEdgeIds.has(item.id))
+          .map((item) => loadPreviewUrl(item, { silent: true })),
+      );
+      if (cancelled || !isCacheSessionActive(session)) return;
+
+      refreshAdjacentUrlsIfChanged();
+    };
+
+    void loadLeadingEdge();
 
     return () => {
       cancelled = true;
     };
-  }, [    open,
+  }, [
+    open,
     file,
     currentIndex,
     images,
@@ -419,6 +441,8 @@ export function useImagePreviewController({
 
   return {
     file,
+    previousFile,
+    nextFile,
     displayUrl: resolvedDisplayUrl,
     error,
     loading,

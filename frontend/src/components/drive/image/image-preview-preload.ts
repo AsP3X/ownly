@@ -7,6 +7,15 @@ export const PREVIEW_BLOB_CACHE_RADIUS = 2;
 /** Human: Carousel tier for one gallery index relative to the active slide. */
 export type GallerySlideLoadTier = "current" | "adjacent" | "cache" | "none";
 
+/** Human: Load plan split by swipe direction so the leading edge is ready before trailing eviction. */
+export type GalleryDirectionalLoadPlan<T extends { id: string }> = {
+  current: T | null;
+  forwardAdjacent: T | null;
+  forwardCache: T | null;
+  backwardAdjacent: T | null;
+  backwardCache: T | null;
+};
+
 // Human: Map index distance to load tier — NNCAXACNN centered on the active slide.
 // Agent: READS itemIndex + anchorIndex; RETURNS current|adjacent|cache|none.
 export function resolveGalleryLoadTier(
@@ -51,31 +60,69 @@ export function isGalleryIndexInBlobWindow(
   return Math.abs(itemIndex - anchorIndex) <= radius;
 }
 
-// Human: Ordered load plan for one anchor — X first, then A (±1), then C (±2).
-// Agent: READS gallery + anchorIndex; RETURNS current, adjacent[], cache[] within the C band only.
+function galleryItemAt<T extends { id: string }>(
+  gallery: readonly T[],
+  index: number,
+): T | null {
+  if (index < 0 || index >= gallery.length) return null;
+  return gallery[index] ?? null;
+}
+
+// Human: Directional load plan — forward +1/+2 before backward so the next swipe panel is ready.
+// Agent: READS gallery + anchorIndex; RETURNS X, +1, +2, -1, -2 slots for ordered prefetch.
 export function buildGalleryLoadPlan<T extends { id: string }>(
   gallery: readonly T[],
   anchorIndex: number,
-): { current: T | null; adjacent: T[]; cache: T[] } {
+): GalleryDirectionalLoadPlan<T> {
   if (anchorIndex < 0 || gallery.length === 0) {
-    return { current: null, adjacent: [], cache: [] };
+    return {
+      current: null,
+      forwardAdjacent: null,
+      forwardCache: null,
+      backwardAdjacent: null,
+      backwardCache: null,
+    };
   }
 
-  const current = gallery[anchorIndex] ?? null;
-  const adjacent: T[] = [];
-  const cache: T[] = [];
+  return {
+    current: galleryItemAt(gallery, anchorIndex),
+    forwardAdjacent: galleryItemAt(gallery, anchorIndex + 1),
+    forwardCache: galleryItemAt(gallery, anchorIndex + 2),
+    backwardAdjacent: galleryItemAt(gallery, anchorIndex - 1),
+    backwardCache: galleryItemAt(gallery, anchorIndex - 2),
+  };
+}
 
-  for (let offset = -PREVIEW_BLOB_CACHE_RADIUS; offset <= PREVIEW_BLOB_CACHE_RADIUS; offset += 1) {
-    if (offset === 0) continue;
+// Human: Ordered prefetch sequence — leading edge (+1, +2) before trailing (-1, -2).
+// Agent: READS directional plan; RETURNS unique items in load priority order (X first).
+export function orderGalleryLoadSequence<T extends { id: string }>(
+  plan: GalleryDirectionalLoadPlan<T>,
+): T[] {
+  const ordered: T[] = [];
+  const seen = new Set<string>();
 
-    const index = anchorIndex + offset;
-    if (index < 0 || index >= gallery.length) continue;
+  const push = (item: T | null) => {
+    if (!item || seen.has(item.id)) return;
+    seen.add(item.id);
+    ordered.push(item);
+  };
 
-    const tier = resolveGalleryLoadTier(index, anchorIndex);
-    const item = gallery[index]!;
-    if (tier === "adjacent") adjacent.push(item);
-    if (tier === "cache") cache.push(item);
+  push(plan.current);
+  push(plan.forwardAdjacent);
+  push(plan.forwardCache);
+  push(plan.backwardAdjacent);
+  push(plan.backwardCache);
+  return ordered;
+}
+
+// Human: Leading-edge items that must be ready before trailing blobs are evicted on navigation.
+// Agent: READS plan; RETURNS current + forward A/C — the next swipe target and its successor.
+export function collectLeadingEdgeFileIds<T extends { id: string }>(
+  plan: GalleryDirectionalLoadPlan<T>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of [plan.current, plan.forwardAdjacent, plan.forwardCache]) {
+    if (item) ids.add(item.id);
   }
-
-  return { current, adjacent, cache };
+  return ids;
 }

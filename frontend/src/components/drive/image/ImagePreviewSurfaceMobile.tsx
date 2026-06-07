@@ -69,35 +69,6 @@ function MobileImageViewportScrim() {
   );
 }
 
-type ImageGalleryAdjacentSlideProps = {
-  url: string | null;
-  alt: string;
-  showLoader?: boolean;
-};
-
-// Human: Lightweight prev/next panel — no pinch hook or fit-mode state to avoid work on every swipe.
-// Agent: RENDERS single object-contain img; SKIPS letterbox detection on off-screen slides.
-function ImageGalleryAdjacentSlide({ url, alt, showLoader = false }: ImageGalleryAdjacentSlideProps) {
-  return (
-    <div className="relative flex h-full w-full items-center justify-center bg-black">
-      <div className="absolute inset-0 overflow-hidden">
-        {url ? (
-          <img
-            src={url}
-            alt={alt}
-            loading="eager"
-            decoding="async"
-            className="size-full object-contain"
-            draggable={false}
-          />
-        ) : showLoader ? (
-          <Loader2 className="size-7 animate-spin text-white/50" aria-hidden />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 type ImageGallerySlideProps = {
   url: string | null;
   alt: string;
@@ -305,6 +276,8 @@ export function ImagePreviewSurfaceMobile({
     goPrevious,
     goNext,
     adjacentUrls,
+    previousFile,
+    nextFile,
   } = vm;
 
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -341,8 +314,49 @@ export function ImagePreviewSurfaceMobile({
   }, [cancelPendingTapNav]);
 
   const [containerWidth, setContainerWidth] = useState(0);
-  const [centerFit, setCenterFit] = useState<ImageFitMode>("vertical");
   const [staticFit, setStaticFit] = useState<ImageFitMode>("vertical");
+  // Human: Remember letterbox vs vertical per file so swipes do not rescale when a slide becomes center.
+  // Agent: WRITES on img load in any carousel panel; READS when file id moves between prev/center/next slots.
+  const fitCacheRef = useRef<Map<string, ImageFitMode>>(new Map());
+  const [fitRevision, setFitRevision] = useState(0);
+
+  const getFitModeForFile = useCallback(
+    (fileId: string | undefined): ImageFitMode => {
+      if (!fileId) return "vertical";
+      return fitCacheRef.current.get(fileId) ?? "vertical";
+    },
+    [fitRevision],
+  );
+
+  const rememberFitModeForFile = useCallback((fileId: string, mode: ImageFitMode) => {
+    if (fitCacheRef.current.get(fileId) === mode) return;
+    fitCacheRef.current.set(fileId, mode);
+    setFitRevision((value) => value + 1);
+  }, []);
+
+  const handlePreviousFitModeChange = useCallback(
+    (mode: ImageFitMode) => {
+      if (!previousFile) return;
+      rememberFitModeForFile(previousFile.id, mode);
+    },
+    [previousFile, rememberFitModeForFile],
+  );
+
+  const handleCenterFitModeChange = useCallback(
+    (mode: ImageFitMode) => {
+      if (!file?.id) return;
+      rememberFitModeForFile(file.id, mode);
+    },
+    [file?.id, rememberFitModeForFile],
+  );
+
+  const handleNextFitModeChange = useCallback(
+    (mode: ImageFitMode) => {
+      if (!nextFile) return;
+      rememberFitModeForFile(nextFile.id, mode);
+    },
+    [nextFile, rememberFitModeForFile],
+  );
 
   const swipeCommitThresholdPx =
     containerWidth > 0
@@ -457,13 +471,11 @@ export function ImagePreviewSurfaceMobile({
       suppressFileChangeResetRef.current = false;
       pendingCommitRef.current = null;
       recenterTrack();
-      setCenterFit("vertical");
       return;
     }
 
     pendingCommitRef.current = null;
     recenterTrack();
-    setCenterFit("vertical");
   }, [file?.id, containerWidth, showGalleryNav, recenterTrack]);
 
   const resolveStaticFit = useCallback((img: HTMLImageElement) => {
@@ -515,15 +527,31 @@ export function ImagePreviewSurfaceMobile({
           if (!rect) return;
           const tapX = touch.clientX - rect.left;
           if (tapX < rect.width / 2) {
-            if (hasPrevious) goPrevious();
+            if (hasPrevious) {
+              // Human: Defer index change until the slide animation finishes — same as finger swipes.
+              // Agent: SETS pendingCommitRef; CALLS flushPendingSwipeCommit on transitionend.
+              pendingCommitRef.current = "previous";
+              applyTrackTransform(0, {
+                animate: true,
+                durationMs: snapDurationMs(Math.abs(trackPositionRef.current)),
+              });
+              scheduleCommitFallback();
+              return;
+            }
           } else if (hasNext) {
-            goNext();
+            pendingCommitRef.current = "next";
+            applyTrackTransform(-2 * containerWidth, {
+              animate: true,
+              durationMs: snapDurationMs(Math.abs(-2 * containerWidth - trackPositionRef.current)),
+            });
+            scheduleCommitFallback();
+            return;
           }
+          recenterTrack({
+            animate: true,
+            durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
+          });
         }, TAP_NAV_DELAY_MS);
-        recenterTrack({
-          animate: true,
-          durationMs: snapDurationMs(Math.abs(rest - trackPositionRef.current)),
-        });
         isHorizontalSwipeRef.current = null;
         return;
       }
@@ -569,8 +597,6 @@ export function ImagePreviewSurfaceMobile({
       applyTrackTransform,
       cancelPendingTapNav,
       containerWidth,
-      goNext,
-      goPrevious,
       hasNext,
       hasPrevious,
       recenterTrack,
@@ -709,19 +735,20 @@ export function ImagePreviewSurfaceMobile({
               style={trackWidthStyle}
             >
               <div style={{ width: containerWidth }} className="h-full shrink-0">
-                <ImageGalleryAdjacentSlide
+                <ImageGallerySlide
                   url={adjacentUrls.previous}
-                  alt="Previous image"
+                  alt={previousFile?.name ?? "Previous image"}
+                  fitMode={getFitModeForFile(previousFile?.id)}
+                  onFitModeChange={handlePreviousFitModeChange}
                   showLoader={hasPrevious && !adjacentUrls.previous}
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
                 <ImageGallerySlide
-                  key={file?.id ?? "center-empty"}
                   url={displayUrl}
                   alt={file?.name ?? "Image preview"}
-                  fitMode={centerFit}
-                  onFitModeChange={setCenterFit}
+                  fitMode={getFitModeForFile(file?.id)}
+                  onFitModeChange={handleCenterFitModeChange}
                   showLoader={showInitialLoader}
                   enablePinchZoom
                   onZoomActiveChange={handleCenterZoomActiveChange}
@@ -729,9 +756,11 @@ export function ImagePreviewSurfaceMobile({
                 />
               </div>
               <div style={{ width: containerWidth }} className="h-full shrink-0">
-                <ImageGalleryAdjacentSlide
+                <ImageGallerySlide
                   url={adjacentUrls.next}
-                  alt="Next image"
+                  alt={nextFile?.name ?? "Next image"}
+                  fitMode={getFitModeForFile(nextFile?.id)}
+                  onFitModeChange={handleNextFitModeChange}
                   showLoader={hasNext && !adjacentUrls.next}
                 />
               </div>
