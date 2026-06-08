@@ -18,6 +18,7 @@ const FeaturesPage = lazy(() => import("@/pages/FeaturesPage"));
 const SecurityPage = lazy(() => import("@/pages/SecurityPage"));
 const PricingPage = lazy(() => import("@/pages/PricingPage"));
 const FaqPage = lazy(() => import("@/pages/FaqPage"));
+const PrivacyPolicyPage = lazy(() => import("@/pages/PrivacyPolicyPage"));
 const NebularOsSpecsPage = lazy(() => import("@/pages/NebularOsSpecsPage"));
 const StorageSpecsPage = lazy(() => import("@/pages/StorageSpecsPage"));
 const DrivePage = lazy(() => import("@/pages/DrivePage"));
@@ -116,6 +117,7 @@ export default function App() {
               <Route path="/security" element={<SecurityPage />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/faq" element={<FaqPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/specs/nebular-os" element={<NebularOsSpecsPage />} />
               <Route path="/specs/storage" element={<StorageSpecsPage />} />
               <Route path="/s/:token" element={<PublicSharePage />} />
