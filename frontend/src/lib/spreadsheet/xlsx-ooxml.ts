@@ -3,6 +3,7 @@
 
 import type { CellRange, CfOperator, ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { createRuleId, parseSqref } from "@/lib/spreadsheet/conditional-formatting";
+import { columnIndexToLetters } from "@/lib/spreadsheet/cells";
 
 type ConditionalFormatStyle = {
   backgroundColor?: string;
@@ -636,6 +637,53 @@ function buildConditionalFormattingXml(
         continue;
       }
 
+      if (rule.type === "top10" && rule.top10) {
+        let dxfAttr = "";
+        if (rule.style) {
+          dxfs.push(buildDxfXml(rule.style));
+          dxfAttr = ` dxfId="${dxfIndex}"`;
+          dxfIndex += 1;
+        }
+        const rank = rule.top10.rank;
+        const percent = rule.top10.percent ? ' percent="1"' : "";
+        const bottom = rule.top10.bottom ? ' bottom="1"' : "";
+        ruleXml.push(
+          `<cfRule type="top10" priority="${rule.priority}" rank="${rank}"${percent}${bottom}${dxfAttr}/>`,
+        );
+        continue;
+      }
+
+      if (rule.type === "duplicateValues" || rule.type === "uniqueValues") {
+        let dxfAttr = "";
+        if (rule.style) {
+          dxfs.push(buildDxfXml(rule.style));
+          dxfAttr = ` dxfId="${dxfIndex}"`;
+          dxfIndex += 1;
+        }
+        ruleXml.push(
+          `<cfRule type="${rule.type}" priority="${rule.priority}"${dxfAttr}/>`,
+        );
+        continue;
+      }
+
+      if (rule.type === "iconSet" && rule.iconSet) {
+        let dxfAttr = "";
+        if (rule.style) {
+          dxfs.push(buildDxfXml(rule.style));
+          dxfAttr = ` dxfId="${dxfIndex}"`;
+          dxfIndex += 1;
+        }
+        const bucketCount = Math.max(2, rule.iconSet.colors.length);
+        const cfvoParts = Array.from({ length: bucketCount }, (_, index) => {
+          const percent = index === 0 ? 0 : Math.round((index / (bucketCount - 1)) * 100);
+          return `<cfvo type="percent" val="${percent}"/>`;
+        }).join("");
+        ruleXml.push(
+          `<cfRule type="iconSet" priority="${rule.priority}"${dxfAttr}><iconSet iconSet="3TrafficLights1">${cfvoParts}</iconSet></cfRule>`,
+        );
+        continue;
+      }
+
       if (rule.type === "expression" && rule.formula) {
         let dxfAttr = "";
         if (rule.style) {
@@ -823,6 +871,107 @@ export async function exportConditionalFormatsToXlsx(
   if (allDxfs.length > 0) {
     const patchedStyles = injectDxfs(stylesXml, allDxfs);
     entries.set("xl/styles.xml", new TextEncoder().encode(patchedStyles));
+  }
+
+  return writeXlsxZipEntries(entries);
+}
+
+export type FreezePaneSettings = {
+  frozenRows: number;
+  frozenCols: number;
+};
+
+function parseWorksheetFreezePanes(sheetXml: string): FreezePaneSettings | null {
+  const paneMatch = /<pane\b([^>]*)\/?>/i.exec(sheetXml);
+  if (!paneMatch) return null;
+  const attrs = paneMatch[1];
+  if (readXmlAttribute(attrs, "state") !== "frozen") return null;
+  const frozenCols = Number.parseInt(readXmlAttribute(attrs, "xSplit") ?? "0", 10) || 0;
+  const frozenRows = Number.parseInt(readXmlAttribute(attrs, "ySplit") ?? "0", 10) || 0;
+  if (!frozenRows && !frozenCols) return null;
+  return { frozenRows, frozenCols };
+}
+
+function buildSheetViewsXml(frozenRows: number, frozenCols: number): string {
+  const topLeftCell = `${columnIndexToLetters(Math.max(0, frozenCols))}${frozenRows + 1}`;
+  return `<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane xSplit="${frozenCols}" ySplit="${frozenRows}" topLeftCell="${topLeftCell}" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>`;
+}
+
+function injectFreezePanes(sheetXml: string, frozenRows: number, frozenCols: number): string {
+  const stripped = sheetXml.replace(/<sheetViews[\s\S]*?<\/sheetViews>/g, "");
+  if (!frozenRows && !frozenCols) return stripped;
+  const views = buildSheetViewsXml(frozenRows, frozenCols);
+  return stripped.replace(/(<worksheet\b[^>]*>)/i, `$1${views}`);
+}
+
+async function mapWorksheetEntries(buffer: ArrayBuffer): Promise<{
+  entries: Map<string, Uint8Array>;
+  relMap: Map<string, string>;
+  sheetMatches: RegExpMatchArray[];
+}> {
+  const entries = await readXlsxZipEntries(buffer);
+  const workbookXml = new TextDecoder().decode(entries.get("xl/workbook.xml") ?? new Uint8Array());
+  const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
+  const relMap = new Map<string, string>();
+  for (const match of relsXml.matchAll(/<Relationship\b([^>]*)\/?>/gi)) {
+    const id = readXmlAttribute(match[1], "Id");
+    const target = readXmlAttribute(match[1], "Target");
+    if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
+  }
+  const sheetMatches = [...workbookXml.matchAll(/<sheet\b([^>]*)\/?>/gi)];
+  return { entries, relMap, sheetMatches };
+}
+
+// Human: Import freeze pane settings from worksheet sheetViews XML.
+// Agent: READS xSplit/ySplit from frozen pane; RETURNS map sheetName → settings.
+export async function importFreezePanesFromXlsx(
+  buffer: ArrayBuffer,
+  sheetNames: string[],
+): Promise<Map<string, FreezePaneSettings>> {
+  const { entries, relMap, sheetMatches } = await mapWorksheetEntries(buffer);
+  const result = new Map<string, FreezePaneSettings>();
+
+  for (const sheetMatch of sheetMatches) {
+    const attrs = sheetMatch[1];
+    const name = readXmlAttribute(attrs, "name");
+    const relId = readXmlAttribute(attrs, "r:id");
+    if (!name || !relId || !sheetNames.includes(name)) continue;
+    const target = relMap.get(relId);
+    if (!target) continue;
+    const sheetXml = new TextDecoder().decode(entries.get(target) ?? new Uint8Array());
+    const settings = parseWorksheetFreezePanes(sheetXml);
+    if (settings) result.set(name, settings);
+  }
+
+  return result;
+}
+
+// Human: Patch serialized xlsx with freeze pane sheetViews per worksheet.
+// Agent: REWRITES worksheet XML inside zip; RETURNS patched ArrayBuffer.
+export async function exportFreezePanesToXlsx(
+  buffer: ArrayBuffer,
+  sheets: { name: string; frozenRows?: number; frozenCols?: number }[],
+): Promise<ArrayBuffer> {
+  const hasFreeze = sheets.some((sheet) => (sheet.frozenRows ?? 0) > 0 || (sheet.frozenCols ?? 0) > 0);
+  if (!hasFreeze) return buffer;
+
+  const { entries, relMap, sheetMatches } = await mapWorksheetEntries(buffer);
+
+  for (const sheetMatch of sheetMatches) {
+    const attrs = sheetMatch[1];
+    const name = readXmlAttribute(attrs, "name");
+    const relId = readXmlAttribute(attrs, "r:id");
+    const sheet = sheets.find((entry) => entry.name === name);
+    if (!name || !relId || !sheet) continue;
+    const frozenRows = sheet.frozenRows ?? 0;
+    const frozenCols = sheet.frozenCols ?? 0;
+    if (!frozenRows && !frozenCols) continue;
+
+    const target = relMap.get(relId);
+    if (!target) continue;
+    const original = new TextDecoder().decode(entries.get(target) ?? new Uint8Array());
+    const patched = injectFreezePanes(original, frozenRows, frozenCols);
+    entries.set(target, new TextEncoder().encode(patched));
   }
 
   return writeXlsxZipEntries(entries);

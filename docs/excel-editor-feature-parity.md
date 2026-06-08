@@ -21,23 +21,23 @@ Last updated: 2026-06-08
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUM, AVERAGE, IF, VLOOKUP, COUNTIF, MATCH, AND, OR; not full Excel set |
+| Formula evaluation / recalc | 🚧 | SUM, AVERAGE, IF, INDEX, VLOOKUP, COUNTIF, MATCH, date/text helpers; not full Excel set |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
 | Style persistence on save | ✅ | `cellStyleToXlsx` on serialize |
 | Font family / size pickers | ✅ | Home ribbon selects |
 | Percent / number / currency formats | ✅ | Home ribbon toggles |
 | Vertical align | ✅ | Home ribbon top/middle/bottom |
-| Borders / fill color picker | 🚧 | Fill color picker on Home; borders import-only |
+| Borders / fill color picker | ✅ | Home ribbon border presets + fill color; round-trip on save |
 | Wrap text | ✅ | Home ribbon Wrap toggle |
 | Merge cells | ✅ | Insert tab → Merge Cells |
-| Freeze panes | 🚧 | Freeze at active cell; sticky frozen rows/cols; unfreeze on Page Layout |
+| Freeze panes | ✅ | Ribbon freeze/unfreeze; import/export via OOXML; sticky grid |
 
 ## Phase 3 — Structure & data
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Add / rename / delete sheet | ✅ | Tab bar +, double-click rename, context-menu delete |
-| Reorder sheets | ⏳ | `moveSheet` helper exists; no tab drag UI |
+| Reorder sheets | ✅ | Drag-and-drop tab reorder |
 | Insert / delete rows | ✅ | Data tab |
 | Insert / delete columns | ✅ | Data tab |
 | Sort ascending / descending | ✅ | Data tab; header row fixed |
@@ -84,9 +84,9 @@ Last updated: 2026-06-08
 |---------|--------|-------|
 | Values + formulas export | ✅ | |
 | Column / row dimensions export | ✅ | |
-| Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars |
-| CF export (top10, duplicates, iconSet) | ⏳ | Import works; export incomplete |
-| Cell styles round-trip | 🚧 | Bold/italic/align/fill/font export added; full OOXML fidelity TBD |
+| Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars, top10, duplicates, iconSet |
+| CF export (aboveAverage, uniqueValues edge cases) | 🚧 | Core rules export; exotic Excel CF TBD |
+| Cell styles round-trip | 🚧 | Bold/italic/align/fill/font/borders export; full OOXML fidelity TBD |
 
 ## Implementation files
 
@@ -102,16 +102,17 @@ Last updated: 2026-06-08
 | CSV import | `frontend/src/lib/spreadsheet/csv-import.ts` |
 | Chart data | `frontend/src/lib/spreadsheet/chart-data.ts` |
 | Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
+| OOXML patch | `frontend/src/lib/spreadsheet/xlsx-ooxml.ts` |
 | Find/replace UI | `frontend/src/components/drive/excel/ExcelFindReplaceDialog.tsx` |
 | Chart UI | `frontend/src/components/drive/excel/ExcelChartDialog.tsx` |
+| Sheet tabs | `frontend/src/components/drive/excel/ExcelSheetTabsBar.tsx` |
 | Style export | `frontend/src/lib/spreadsheet/cell-styles.ts` (`cellStyleToXlsx`) |
 
 ## Remaining high-value work
 
-1. Sheet tab reorder (drag-and-drop)
-2. Full Excel function library (INDEX, date functions, nested arrays)
-3. CF export parity for top10 / duplicates / iconSet
-4. Real Copilot LLM integration (backend)
-5. Data validation UI
-6. Cell border picker
-7. Import freeze panes from xlsx on load
+1. Full Excel function library (nested arrays, XLOOKUP, date math)
+2. Real Copilot LLM integration (backend)
+3. Data validation UI
+4. AutoFilter dropdown UI (replace prompt)
+5. Comments / cell notes
+6. Sheet tab reorder persistence smoke on multi-sheet save

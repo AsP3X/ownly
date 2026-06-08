@@ -232,6 +232,14 @@ function evaluateFunction(
       const index = rangeValues.findIndex((value) => String(value ?? "").toLowerCase() === lookup);
       return index >= 0 ? index + 1 : "#N/A";
     }
+    case "INDEX": {
+      const parts = splitFunctionArgs(argsRaw);
+      const table = getTableFromRangeArg(ctx, sheetIndex, parts[0]?.trim() ?? "");
+      const rowNum = Math.max(1, Math.round(coerceNumber(args[1])));
+      const colNum = parts.length > 2 ? Math.max(1, Math.round(coerceNumber(args[2]))) : 1;
+      const value = table[rowNum - 1]?.[colNum - 1];
+      return value === undefined ? ("#REF!" as FormulaError) : value;
+    }
     default:
       return "#NAME?" as FormulaError;
   }

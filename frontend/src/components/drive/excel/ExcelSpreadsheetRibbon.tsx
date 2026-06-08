@@ -81,6 +81,42 @@ function RibbonDivider() {
   );
 }
 
+type BorderPreset = "all" | "outline" | "top" | "bottom" | "left" | "right" | "clear";
+
+// Human: Map ribbon border preset to CellStyle patch for the active selection.
+// Agent: WRITES per-side border flags consumed by grid + xlsx export.
+function borderPatchForPreset(preset: BorderPreset, current: CellStyle): Partial<CellStyle> {
+  const color = current.borderColor ?? "#1A1A1A";
+  switch (preset) {
+    case "all":
+    case "outline":
+      return {
+        borderTop: true,
+        borderRight: true,
+        borderBottom: true,
+        borderLeft: true,
+        borderColor: color,
+      };
+    case "top":
+      return { borderTop: true, borderColor: color };
+    case "bottom":
+      return { borderBottom: true, borderColor: color };
+    case "left":
+      return { borderLeft: true, borderColor: color };
+    case "right":
+      return { borderRight: true, borderColor: color };
+    case "clear":
+      return {
+        borderTop: false,
+        borderRight: false,
+        borderBottom: false,
+        borderLeft: false,
+      };
+    default:
+      return {};
+  }
+}
+
 function RibbonButton({
   label,
   icon,
@@ -249,6 +285,29 @@ function HomeTools({
             className="size-4 cursor-pointer border-0 bg-transparent p-0"
           />
         </label>
+        <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1 py-1 text-xs">
+          {(
+            [
+              ["All", "all"],
+              ["Outline", "outline"],
+              ["Top", "top"],
+              ["Bottom", "bottom"],
+              ["Left", "left"],
+              ["Right", "right"],
+              ["Clear", "clear"],
+            ] as const
+          ).map(([label, preset]) => (
+            <button
+              key={preset}
+              type="button"
+              disabled={readOnly}
+              className="rounded px-1.5 py-0.5 hover:bg-[#F7F8FA] disabled:opacity-40"
+              onClick={() => onStyleChange(borderPatchForPreset(preset, cellStyle))}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <RibbonDivider />

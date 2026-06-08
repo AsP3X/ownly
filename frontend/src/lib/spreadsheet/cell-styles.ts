@@ -20,6 +20,10 @@ export type XlsxCellStyle = {
   underline?: boolean;
   horizontal?: string;
   vertical?: string;
+  top?: { style?: string; color?: XlsxColor };
+  right?: { style?: string; color?: XlsxColor };
+  bottom?: { style?: string; color?: XlsxColor };
+  left?: { style?: string; color?: XlsxColor };
 };
 
 // Human: Convert OOXML/SheetJS ARGB or RGB hex into #RRGGBB for CSS.
@@ -58,6 +62,14 @@ function mapVerticalAlign(raw: string | undefined): CellStyle["verticalAlign"] {
   }
 }
 
+function hasBorderSide(side: { style?: string } | undefined): boolean {
+  return Boolean(side?.style && side.style !== "none");
+}
+
+function borderSideColor(side: { color?: XlsxColor } | undefined): string | undefined {
+  return argbToDisplayHex(side?.color?.rgb);
+}
+
 // Human: Build CellStyle from SheetJS cell.s plus optional number format hint.
 // Agent: MERGES imported fill/font with row-level header defaults from parse.ts.
 export function cellStyleFromXlsx(
@@ -87,6 +99,17 @@ export function cellStyleFromXlsx(
   if (xlsxStyle.horizontal) style.horizontalAlign = mapHorizontalAlign(xlsxStyle.horizontal);
   if (xlsxStyle.vertical) style.verticalAlign = mapVerticalAlign(xlsxStyle.vertical);
 
+  if (hasBorderSide(xlsxStyle.top)) style.borderTop = true;
+  if (hasBorderSide(xlsxStyle.right)) style.borderRight = true;
+  if (hasBorderSide(xlsxStyle.bottom)) style.borderBottom = true;
+  if (hasBorderSide(xlsxStyle.left)) style.borderLeft = true;
+  const borderColor =
+    borderSideColor(xlsxStyle.top) ??
+    borderSideColor(xlsxStyle.right) ??
+    borderSideColor(xlsxStyle.bottom) ??
+    borderSideColor(xlsxStyle.left);
+  if (borderColor) style.borderColor = borderColor;
+
   return style;
 }
 
@@ -113,6 +136,13 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
     xlsx.patternType = "solid";
     xlsx.fgColor = { rgb: hex.length === 6 ? `FF${hex}` : hex };
   }
+
+  const borderHex = (style.borderColor ?? "#1A1A1A").replace("#", "").toUpperCase();
+  const borderSide = { style: "thin", color: { rgb: borderHex.length === 6 ? `FF${borderHex}` : borderHex } };
+  if (style.borderTop) xlsx.top = borderSide;
+  if (style.borderRight) xlsx.right = borderSide;
+  if (style.borderBottom) xlsx.bottom = borderSide;
+  if (style.borderLeft) xlsx.left = borderSide;
 
   return Object.keys(xlsx).length > 0 ? xlsx : undefined;
 }

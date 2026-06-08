@@ -50,6 +50,7 @@ import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spre
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import {
   addSheet,
+  activeSheetIndexAfterMove,
   deleteColumn,
   deleteRow,
   findInSheet,
@@ -58,6 +59,7 @@ import {
   insertColumn,
   insertRow,
   mergeCellsInRange,
+  moveSheet,
   removeDuplicateRows,
   removeSheet,
   renameSheet,
@@ -535,6 +537,7 @@ export function ExcelSpreadsheetDialog({
                   <ExcelSheetTabsBar
                     sheets={editor.workbook?.sheets.map((sheet) => sheet.name) ?? []}
                     activeIndex={editor.activeSheetIndex}
+                    readOnly={readOnly}
                     onSelectSheet={editor.setActiveSheetIndex}
                     onAddSheet={() => {
                       if (readOnly || !editor.workbook) return;
@@ -550,6 +553,16 @@ export function ExcelSpreadsheetDialog({
                       if (readOnly) return;
                       editor.commitWorkbookMutation((current) => removeSheet(current, index));
                       editor.setActiveSheetIndex(Math.max(0, index - 1));
+                    }}
+                    onMoveSheet={(fromIndex, toIndex) => {
+                      if (readOnly) return;
+                      const nextActive = activeSheetIndexAfterMove(
+                        editor.activeSheetIndex,
+                        fromIndex,
+                        toIndex,
+                      );
+                      editor.commitWorkbookMutation((current) => moveSheet(current, fromIndex, toIndex));
+                      editor.setActiveSheetIndex(nextActive);
                     }}
                   />
                   <ExcelStatusBar

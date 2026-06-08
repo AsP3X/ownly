@@ -2,7 +2,7 @@
 // Agent: READS SheetCell matrix + dimensions; EMITS cell select + column/row resize like Excel.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { cellAddressLabel, columnIndexToLetters, statusBadgeTone } from "@/lib/spreadsheet/cells";
 import { resolveConditionalFormat } from "@/lib/spreadsheet/conditional-formatting";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/spreadsheet/dimensions";
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { isCellInRange, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
-import type { CellAddress, SheetCell } from "@/lib/spreadsheet/types";
+import type { CellAddress, CellStyle, SheetCell } from "@/lib/spreadsheet/types";
 import { cn } from "@/lib/utils";
 
 type ExcelSpreadsheetGridProps = {
@@ -61,6 +61,20 @@ function badgeClasses(tone: "on-track" | "over-budget" | "under-budget") {
     default:
       return "";
   }
+}
+
+// Human: Map per-side cell border flags to inline CSS for grid cells.
+// Agent: MERGED into cell button style alongside CF fill colors.
+function cellBorderStyles(style?: CellStyle): CSSProperties {
+  if (!style) return {};
+  const color = style.borderColor ?? "#1A1A1A";
+  const edge = `1px solid ${color}`;
+  return {
+    borderTop: style.borderTop ? edge : undefined,
+    borderRight: style.borderRight ? edge : undefined,
+    borderBottom: style.borderBottom ? edge : undefined,
+    borderLeft: style.borderLeft ? edge : undefined,
+  };
 }
 
 function CellContent({
@@ -492,6 +506,7 @@ export function ExcelSpreadsheetGrid({
                           paddingInline: scaledPx(8),
                           backgroundColor: cellFill ?? undefined,
                           left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
+                          ...cellBorderStyles(cell.style),
                         }}
                       >
                         {isActiveCell && !readOnly ? (
@@ -598,6 +613,7 @@ export function ExcelSpreadsheetGrid({
                         paddingInline: scaledPx(8),
                         backgroundColor: cellFill ?? undefined,
                         left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
+                        ...cellBorderStyles(cell.style),
                       }}
                     >
                       {rowIndex === normalizedSelection.end.row &&

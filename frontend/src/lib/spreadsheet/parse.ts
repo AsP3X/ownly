@@ -12,7 +12,7 @@ import {
 } from "@/lib/spreadsheet/dimensions";
 import { normalizeSheetGrid, expandSheetToAddress, trimSheetForSave } from "@/lib/spreadsheet/grid";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
-import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
+import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx, importFreezePanesFromXlsx, exportFreezePanesToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -71,17 +71,21 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: true, cellStyles: true });
   const sheetNames = workbook.SheetNames;
   const conditionalBySheet = await importConditionalFormatsFromXlsx(buffer, sheetNames);
+  const freezeBySheet = await importFreezePanesFromXlsx(buffer, sheetNames);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
     const rows = sheetToRows(worksheet);
     const importColumnCount = Math.max(...rows.map((row) => row.length), 1);
+    const freeze = freezeBySheet.get(name);
     const imported: SheetData = {
       name,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
       columnWidths: columnWidthsFromWorksheet(worksheet, importColumnCount),
       rowHeights: rowHeightsFromWorksheet(worksheet, rows.length),
+      frozenRows: freeze?.frozenRows,
+      frozenCols: freeze?.frozenCols,
     };
     return normalizeSheetGrid(imported);
   });
@@ -127,6 +131,7 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
 
   let bytes = XLSX.write(xlsxWorkbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   bytes = await exportConditionalFormatsToXlsx(bytes, workbook.sheets);
+  bytes = await exportFreezePanesToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

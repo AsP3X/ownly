@@ -330,6 +330,18 @@ export function moveSheet(
   return { sheets };
 }
 
+// Human: Compute the active tab index after reordering sheets by drag-and-drop.
+// Agent: ADJUSTS index when another tab moves past the active tab.
+export function activeSheetIndexAfterMove(active: number, fromIndex: number, toIndex: number): number {
+  if (active === fromIndex) return toIndex;
+  if (fromIndex < toIndex) {
+    if (active > fromIndex && active <= toIndex) return active - 1;
+  } else if (fromIndex > toIndex) {
+    if (active >= toIndex && active < fromIndex) return active + 1;
+  }
+  return active;
+}
+
 // Human: Set freeze panes at the active cell — rows above and columns left stay fixed.
 // Agent: WRITES frozenRows/frozenCols on active sheet from cell address.
 export function freezePanesAt(

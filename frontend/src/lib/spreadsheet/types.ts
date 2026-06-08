@@ -23,6 +23,13 @@ export type CellStyle = {
   fontFamily?: string;
   fontSize?: number;
   wrapText?: boolean;
+  // Human: Per-side cell borders from ribbon or xlsx import.
+  // Agent: RENDERED as inline CSS borders; EXPORTED via cellStyleToXlsx.
+  borderTop?: boolean;
+  borderRight?: boolean;
+  borderBottom?: boolean;
+  borderLeft?: boolean;
+  borderColor?: string;
   isHeaderRow?: boolean;
   isTotalRow?: boolean;
 };
