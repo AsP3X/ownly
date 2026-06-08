@@ -1,6 +1,7 @@
 // Human: Cell address helpers and display formatting for the spreadsheet grid.
 // Agent: CONVERTS row/col indices to A1 notation; FORMATS numbers as currency per cell style.
 
+import { formatValueWithNumberFormat } from "@/lib/spreadsheet/number-formats";
 import type { CellAddress, NumberFormat, SheetCell } from "@/lib/spreadsheet/types";
 
 const COLUMN_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -58,27 +59,12 @@ export function parseCellAddressLabel(label: string): CellAddress | null {
 
 // Human: Format numeric cell values for grid display according to ribbon number format.
 // Agent: READS SheetCell.value + style.numberFormat; RETURNS display string.
-export function formatCellDisplay(value: string | number | null, format: NumberFormat = "general"): string {
-  if (value === null || value === "") return "";
-  if (typeof value === "string") return value;
-
-  switch (format) {
-    case "currency":
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: 0,
-      }).format(value);
-    case "percent":
-      return new Intl.NumberFormat("en-US", {
-        style: "percent",
-        maximumFractionDigits: 1,
-      }).format(value);
-    case "number":
-      return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
-    default:
-      return Number.isInteger(value) ? String(value) : String(value);
-  }
+export function formatCellDisplay(
+  value: string | number | null,
+  format: NumberFormat = "general",
+  customCode?: string,
+): string {
+  return formatValueWithNumberFormat(value, format, customCode);
 }
 
 // Human: Derive the formula bar contents — show formula when present, else raw value.

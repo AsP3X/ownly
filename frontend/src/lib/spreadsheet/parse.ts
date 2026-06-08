@@ -2,7 +2,8 @@
 // Agent: READS ArrayBuffer/Blob; WRITES SpreadsheetWorkbook; SERIALIZES back to xlsx bytes on save.
 
 import * as XLSX from "xlsx";
-import { cellStyleFromXlsx, cellStyleToXlsx } from "@/lib/spreadsheet/cell-styles";
+import { cellExportPayload, cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
+import { numberFormatFromXlsxCode } from "@/lib/spreadsheet/number-formats";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
@@ -32,6 +33,10 @@ import {
   exportDimensionsToXlsx,
   importDimensionsFromXlsx,
 } from "@/lib/spreadsheet/xlsx-dimensions-ooxml";
+import {
+  exportMergedRegionsToXlsx,
+  importMergedRegionsFromXlsx,
+} from "@/lib/spreadsheet/xlsx-merge-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -48,23 +53,24 @@ function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCe
         ? raw.v
         : String(raw.v);
 
-  const numberFormat =
-    typeof value === "number" && (String(raw.z ?? "").includes("$") || String(raw.w ?? "").includes("$"))
-      ? "currency"
-      : "general";
+  const zCode = typeof raw.z === "string" ? raw.z : undefined;
+  const resolvedNumberFormat = numberFormatFromXlsxCode(zCode, typeof raw.w === "string" ? raw.w : undefined);
 
   const display =
     typeof raw.w === "string" && raw.w.length > 0
       ? raw.w
-      : formatCellDisplay(value, numberFormat === "currency" ? "currency" : "general");
+      : formatCellDisplay(value, resolvedNumberFormat, zCode);
 
-  const resolvedNumberFormat = numberFormat === "currency" ? "currency" : "general";
+  const style = cellStyleFromXlsx(raw.s, resolvedNumberFormat, { bold: row === 0, isHeaderRow: row === 0 }, zCode);
+  const linkTarget = (raw.l as { Target?: string } | undefined)?.Target;
+  const hyperlink = typeof linkTarget === "string" ? linkTarget : undefined;
 
   return {
     value,
     formula,
     display,
-    style: cellStyleFromXlsx(raw.s, resolvedNumberFormat, { bold: row === 0, isHeaderRow: row === 0 }),
+    style,
+    hyperlink,
   };
 }
 
@@ -97,6 +103,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const printAreasBySheet = await importPrintAreasFromXlsx(buffer, sheetNames);
   const marginsBySheet = await importPageMarginsFromXlsx(buffer);
   const dimensionsBySheet = await importDimensionsFromXlsx(buffer, sheetNames);
+  const mergedBySheet = await importMergedRegionsFromXlsx(buffer, sheetNames);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
@@ -130,6 +137,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       columnValidations: validationsBySheet.get(name),
       printArea: printAreasBySheet.get(name),
       pageMargins: marginsBySheet.get(name),
+      mergedRegions: mergedBySheet.get(name),
     };
     return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
   });
@@ -176,11 +184,18 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
     // Agent: PATCHES worksheet[addr].s after aoa_to_sheet for round-trip formatting.
     trimmed.rows.forEach((row, rowIndex) => {
       row.forEach((cell, colIndex) => {
-        const xlsxStyle = cellStyleToXlsx(cell.style);
-        if (!xlsxStyle) return;
+        const { s: xlsxStyle, z } = cellExportPayload(cell.style);
         const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-        const target = worksheet[address] as XLSX.CellObject | undefined;
-        if (target) target.s = xlsxStyle;
+        let target = worksheet[address] as XLSX.CellObject | undefined;
+        if (!target) {
+          target = { t: "s", v: cell.display || "" };
+          worksheet[address] = target;
+        }
+        if (xlsxStyle) target.s = xlsxStyle;
+        if (z) target.z = z;
+        if (cell.hyperlink) {
+          target.l = { Target: cell.hyperlink, Tooltip: cell.hyperlink };
+        }
       });
     });
 
@@ -194,6 +209,7 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
   bytes = await exportWorkbookMetadataToXlsx(bytes, workbook);
   bytes = await exportPageSettingsToXlsx(bytes, workbook.sheets);
   bytes = await exportDimensionsToXlsx(bytes, workbook.sheets);
+  bytes = await exportMergedRegionsToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

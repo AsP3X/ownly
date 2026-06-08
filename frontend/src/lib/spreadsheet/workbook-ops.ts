@@ -8,7 +8,17 @@ import { expandSheetToAddress, GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normal
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import type { PivotSummaryResult } from "@/lib/spreadsheet/pivot-summary";
 import type { NamedRange } from "@/lib/spreadsheet/named-ranges";
-import type { PageMargins, SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
+import { upsertMergedRegion, removeMergesIntersecting } from "@/lib/spreadsheet/merge-regions";
+import type {
+  PageMargins,
+  PageSetup,
+  SheetCell,
+  SheetChart,
+  SheetData,
+  SheetProtection,
+  SpreadsheetWorkbook,
+  TrackChangeEntry,
+} from "@/lib/spreadsheet/types";
 
 function emptyCell(): SheetCell {
   return { value: null, display: "" };
@@ -287,9 +297,49 @@ export function mergeCellsInRange(
         return { ...cell, value: null, formula: undefined, display: "" };
       }),
     );
-    return { ...sheet, rows: nextRows };
+    const mergedRegions = upsertMergedRegion(
+      removeMergesIntersecting(
+        sheet.mergedRegions,
+        normalized.start.row,
+        normalized.start.col,
+        normalized.end.row,
+        normalized.end.col,
+      ),
+      {
+        startRow: normalized.start.row,
+        startCol: normalized.start.col,
+        endRow: normalized.end.row,
+        endCol: normalized.end.col,
+      },
+    );
+    return { ...sheet, rows: nextRows, mergedRegions };
   });
   return { sheets: nextSheets };
+}
+
+// Human: Clear merge metadata and restore inner cell placeholders for a range.
+// Agent: REMOVES intersecting mergedRegions; USED by unmerge ribbon action.
+export function unmergeCellsInRange(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  range: CellRange,
+): SpreadsheetWorkbook {
+  const normalized = normalizeRange(range);
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      return {
+        ...sheet,
+        mergedRegions: removeMergesIntersecting(
+          sheet.mergedRegions,
+          normalized.start.row,
+          normalized.start.col,
+          normalized.end.row,
+          normalized.end.col,
+        ),
+      };
+    }),
+  };
 }
 
 // Human: Remove duplicate data rows keyed by a column value (header row preserved).
@@ -572,4 +622,248 @@ export function insertPivotSummaryAsNewSheet(
   const rows = [headerRow, ...dataRows];
   const sheet = normalizeSheetGrid({ name: sheetName, rows });
   return { ...workbook, sheets: [...workbook.sheets, sheet] };
+}
+
+// Human: Sort by multiple columns with stable tie-breaking (Excel Data → Sort).
+// Agent: KEEPS header row fixed; COMPARES each sort key in order.
+export function sortSheetByColumns(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  sortKeys: Array<{ colIndex: number; direction: SortDirection }>,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const header = sheet.rows[0] ? [sheet.rows[0]] : [];
+      const body = [...sheet.rows.slice(1)];
+      body.sort((rowA, rowB) => {
+        for (const key of sortKeys) {
+          const a = rowA[key.colIndex]?.value ?? rowA[key.colIndex]?.display ?? "";
+          const b = rowB[key.colIndex]?.value ?? rowB[key.colIndex]?.display ?? "";
+          const numA = Number(a);
+          const numB = Number(b);
+          const bothNumeric = Number.isFinite(numA) && Number.isFinite(numB);
+          const cmp = bothNumeric
+            ? numA - numB
+            : String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+          if (cmp !== 0) return key.direction === "asc" ? cmp : -cmp;
+        }
+        return 0;
+      });
+      return { ...sheet, rows: [...header, ...body] };
+    }),
+  };
+}
+
+// Human: Toggle hide state for a row index on the active sheet.
+// Agent: WRITES hiddenRows array; GRID skips hidden indices.
+export function toggleRowHidden(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  rowIndex: number,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const hidden = new Set(sheet.hiddenRows ?? []);
+      if (hidden.has(rowIndex)) hidden.delete(rowIndex);
+      else hidden.add(rowIndex);
+      const next = [...hidden].sort((a, b) => a - b);
+      return { ...sheet, hiddenRows: next.length > 0 ? next : undefined };
+    }),
+  };
+}
+
+export function toggleColumnHidden(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  colIndex: number,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const hidden = new Set(sheet.hiddenCols ?? []);
+      if (hidden.has(colIndex)) hidden.delete(colIndex);
+      else hidden.add(colIndex);
+      const next = [...hidden].sort((a, b) => a - b);
+      return { ...sheet, hiddenRows: sheet.hiddenRows, hiddenCols: next.length > 0 ? next : undefined };
+    }),
+  };
+}
+
+// Human: Split delimited text in a column into adjacent columns (Text to Columns).
+// Agent: SPLITS on delimiter; WRITES values across row cells from startCol.
+export function textToColumns(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  startCol: number,
+  delimiter: string,
+): SpreadsheetWorkbook {
+  const delim = delimiter || ",";
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const nextRows = sheet.rows.map((row) => {
+        const source = row[startCol];
+        const raw = String(source?.value ?? source?.display ?? "");
+        const parts = raw.split(delim).map((part) => part.trim());
+        const copy = [...row];
+        parts.forEach((part, offset) => {
+          const col = startCol + offset;
+          while (copy.length <= col) copy.push(emptyCell());
+          copy[col] = {
+            ...copy[col],
+            value: part,
+            formula: undefined,
+            display: part,
+          };
+        });
+        return copy;
+      });
+      return { ...sheet, rows: nextRows };
+    }),
+  };
+}
+
+export function setSheetProtection(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  protection: SheetProtection | null,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      if (!protection) {
+        const next = { ...sheet };
+        delete next.protection;
+        return next;
+      }
+      return { ...sheet, protection };
+    }),
+  };
+}
+
+export function setPageSetup(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  pageSetup: PageSetup,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex ? { ...sheet, pageSetup: { ...sheet.pageSetup, ...pageSetup } } : sheet,
+    ),
+  };
+}
+
+export function insertChartOnSheet(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  chart: SheetChart,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      return { ...sheet, charts: [...(sheet.charts ?? []), chart] };
+    }),
+  };
+}
+
+export function setSheetZoom(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  zoomPercent: number,
+): SpreadsheetWorkbook {
+  const clamped = Math.min(200, Math.max(50, Math.round(zoomPercent)));
+  return {
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex ? { ...sheet, zoomPercent: clamped } : sheet,
+    ),
+  };
+}
+
+export function setSheetTabColor(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  color: string | null,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      if (!color) {
+        const next = { ...sheet };
+        delete next.tabColor;
+        return next;
+      }
+      return { ...sheet, tabColor: color };
+    }),
+  };
+}
+
+export function appendTrackChange(
+  workbook: SpreadsheetWorkbook,
+  entry: TrackChangeEntry,
+): SpreadsheetWorkbook {
+  if (!workbook.trackChangesEnabled) return workbook;
+  return {
+    ...workbook,
+    trackChanges: [...(workbook.trackChanges ?? []), entry],
+  };
+}
+
+export function setTrackChangesEnabled(
+  workbook: SpreadsheetWorkbook,
+  enabled: boolean,
+): SpreadsheetWorkbook {
+  return { ...workbook, trackChangesEnabled: enabled };
+}
+
+export function groupRowsInRange(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  startRow: number,
+  endRow: number,
+): SpreadsheetWorkbook {
+  const minRow = Math.min(startRow, endRow);
+  const maxRow = Math.max(startRow, endRow);
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const levels = { ...(sheet.rowOutlineLevels ?? {}) };
+      for (let row = minRow; row <= maxRow; row += 1) {
+        levels[row] = (levels[row] ?? 0) + 1;
+      }
+      return { ...sheet, rowOutlineLevels: levels };
+    }),
+  };
+}
+
+export function setCellHyperlink(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  row: number,
+  col: number,
+  url: string | null,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const expanded = expandSheetToAddress(sheet, row, col);
+      const nextRows = expanded.rows.map((sheetRow, rowIndex) =>
+        sheetRow.map((cell, colIndex) => {
+          if (rowIndex !== row || colIndex !== col) return cell;
+          if (!url?.trim()) {
+            const nextCell = { ...cell };
+            delete nextCell.hyperlink;
+            return nextCell;
+          }
+          return {
+            ...cell,
+            hyperlink: url.trim(),
+            style: { ...cell.style, textColor: "#2563EB", underline: true },
+          };
+        }),
+      );
+      return { ...sheet, rows: nextRows };
+    }),
+  };
 }

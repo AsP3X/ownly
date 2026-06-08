@@ -1,6 +1,7 @@
 // Human: Map SheetJS per-cell style objects (cellStyles) into our CellStyle model.
 // Agent: READS raw.s from XLSX.read({ cellStyles: true }); RETURNS background/font fields.
 
+import { numberFormatFromXlsxCode, xlsxFormatCodeFromStyle } from "@/lib/spreadsheet/number-formats";
 import type { CellStyle, NumberFormat } from "@/lib/spreadsheet/types";
 
 type XlsxColor = {
@@ -76,10 +77,13 @@ export function cellStyleFromXlsx(
   sheetStyle: XlsxCellStyle | Record<string, unknown> | undefined,
   numberFormat: NumberFormat,
   rowDefaults: Pick<CellStyle, "bold" | "isHeaderRow" | "isTotalRow">,
+  zCode?: string,
 ): CellStyle {
+  const resolvedFormat = zCode ? numberFormatFromXlsxCode(zCode) : numberFormat;
   const style: CellStyle = {
     ...rowDefaults,
-    numberFormat,
+    numberFormat: resolvedFormat,
+    customNumberFormat: resolvedFormat === "custom" ? zCode : undefined,
   };
 
   if (!sheetStyle || typeof sheetStyle !== "object") return style;
@@ -145,4 +149,15 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
   if (style.borderLeft) xlsx.left = borderSide;
 
   return Object.keys(xlsx).length > 0 ? xlsx : undefined;
+}
+
+// Human: Build SheetJS cell export payload with style + number format code.
+// Agent: MERGES cellStyleToXlsx with z property for round-trip.
+export function cellExportPayload(style: CellStyle | undefined): {
+  s?: Record<string, unknown>;
+  z?: string;
+} {
+  const s = cellStyleToXlsx(style);
+  const z = xlsxFormatCodeFromStyle(style?.numberFormat, style?.customNumberFormat);
+  return { s, z };
 }

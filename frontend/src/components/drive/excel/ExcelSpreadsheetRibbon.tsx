@@ -41,6 +41,8 @@ import {
   ExcelConditionalFormatMenu,
   type ConditionalFormatPreset,
 } from "@/components/drive/excel/ExcelConditionalFormatMenu";
+import { ExcelDrawPanel } from "@/components/drive/excel/ExcelDrawPanel";
+import { ExcelHelpPanel } from "@/components/drive/excel/ExcelHelpPanel";
 import {
   RibbonContent,
   RibbonGroup,
@@ -101,6 +103,9 @@ type ExcelSpreadsheetRibbonProps = {
   onCopy?: () => void;
   onCut?: () => void;
   onPaste?: () => void;
+  onPasteSpecial?: () => void;
+  onFormatPainter?: () => void;
+  formatPainterActive?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
   onToggleGridlines?: () => void;
@@ -132,6 +137,20 @@ type ExcelSpreadsheetRibbonProps = {
   onNameManager?: () => void;
   onDataValidation?: () => void;
   onEditComment?: () => void;
+  onProtectSheet?: () => void;
+  onTrackChanges?: () => void;
+  onPageSetup?: () => void;
+  onTextToColumns?: () => void;
+  onHideRow?: () => void;
+  onHideColumn?: () => void;
+  onInsertLink?: () => void;
+  drawMode?: "pen" | "eraser" | null;
+  drawColor?: string;
+  onDrawModeChange?: (mode: "pen" | "eraser" | null) => void;
+  onDrawColorChange?: (color: string) => void;
+  onClearDrawings?: () => void;
+  zoomPercent?: number;
+  onZoomChange?: (percent: number) => void;
 };
 
 // Human: Map border preset names to CellStyle patches for the Borders gallery.
@@ -170,6 +189,9 @@ function HomeTabPanel({
   onCopy,
   onCut,
   onPaste,
+  onPasteSpecial,
+  onFormatPainter,
+  formatPainterActive,
   onUndo,
   onRedo,
   onSortAsc,
@@ -193,6 +215,9 @@ function HomeTabPanel({
   | "onCopy"
   | "onCut"
   | "onPaste"
+  | "onPasteSpecial"
+  | "onFormatPainter"
+  | "formatPainterActive"
   | "onUndo"
   | "onRedo"
   | "onSortAsc"
@@ -236,9 +261,19 @@ function HomeTabPanel({
         <RibbonIconButton
           label="Format Painter"
           icon={<Paintbrush style={{ width: sz, height: sz }} aria-hidden />}
-          disabled
-          title="Format Painter (coming soon)"
+          disabled={readOnly}
+          active={formatPainterActive}
+          title="Format Painter"
+          onClick={onFormatPainter}
         />
+        {onPasteSpecial ? (
+          <RibbonIconButton
+            label="Paste Special"
+            icon={<span style={{ fontSize: scaledPx(9) }}>▾</span>}
+            disabled={readOnly}
+            onClick={onPasteSpecial}
+          />
+        ) : null}
       </RibbonGroup>
       <RibbonGroupDivider />
 
@@ -532,15 +567,17 @@ function PageLayoutTabPanel(props: Pick<
   | "onSetPrintArea"
   | "onClearPrintArea"
   | "onPageMargins"
+  | "onPageSetup"
   | "onPrintPreview"
   | "readOnly"
 >) {
   const sz = iconSize();
-  const { readOnly, onToggleGridlines, onFreezePanes, onUnfreezePanes, onSetPrintArea, onClearPrintArea, onPageMargins, onPrintPreview } = props;
+  const { readOnly, onToggleGridlines, onFreezePanes, onUnfreezePanes, onSetPrintArea, onClearPrintArea, onPageMargins, onPageSetup, onPrintPreview } = props;
   return (
     <>
       <RibbonGroup label="Page Setup">
         <RibbonIconButton label="Margins" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={onPageMargins} />
+        <RibbonIconButton label="Page Setup" icon={<FileText style={{ width: sz, height: sz }} aria-hidden />} onClick={onPageSetup} />
         <RibbonIconStack>
           <RibbonIconButton label="Print Area" icon={<Printer style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onSetPrintArea} title="Set Print Area" />
           <RibbonIconButton label="Clear Area" icon={<span style={{ fontSize: scaledPx(10) }}>✕</span>} disabled={readOnly} onClick={onClearPrintArea} />
@@ -598,6 +635,7 @@ function DataTabPanel(props: Pick<
   | "onRemoveDuplicates"
   | "onImportCsv"
   | "onDataValidation"
+  | "onTextToColumns"
   | "readOnly"
 >) {
   const sz = iconSize();
@@ -616,6 +654,7 @@ function DataTabPanel(props: Pick<
       <RibbonGroupDivider />
       <RibbonGroup label="Data Tools">
         <RibbonIconButton label="Validation" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onDataValidation} />
+        <RibbonIconButton label="Text to Columns" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTextToColumns} />
         <RibbonIconButton label="Remove Duplicates" icon={<Copy style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onRemoveDuplicates} />
       </RibbonGroup>
       <RibbonGroupDivider />
@@ -633,12 +672,22 @@ function DataTabPanel(props: Pick<
   );
 }
 
-function ReviewTabPanel(props: Pick<ExcelSpreadsheetRibbonProps, "onEditComment" | "readOnly">) {
+function ReviewTabPanel(
+  props: Pick<
+    ExcelSpreadsheetRibbonProps,
+    "onEditComment" | "onProtectSheet" | "onTrackChanges" | "readOnly"
+  >,
+) {
   const sz = iconSize();
   return (
     <>
       <RibbonGroup label="Comments">
         <RibbonLargeButton label="Comment" icon={<MessageSquare style={{ width: sz, height: sz }} aria-hidden />} disabled={props.readOnly} onClick={props.onEditComment} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Protect">
+        <RibbonIconButton label="Protect Sheet" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onProtectSheet} />
+        <RibbonIconButton label="Track Changes" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTrackChanges} />
       </RibbonGroup>
     </>
   );
@@ -646,7 +695,17 @@ function ReviewTabPanel(props: Pick<ExcelSpreadsheetRibbonProps, "onEditComment"
 
 function ViewTabPanel(props: Pick<
   ExcelSpreadsheetRibbonProps,
-  "onToggleGridlines" | "onToggleShowFormulas" | "onFreezePanes" | "onUnfreezePanes" | "showGridlines" | "showFormulas"
+  | "onToggleGridlines"
+  | "onToggleShowFormulas"
+  | "onFreezePanes"
+  | "onUnfreezePanes"
+  | "onHideRow"
+  | "onHideColumn"
+  | "onZoomChange"
+  | "showGridlines"
+  | "showFormulas"
+  | "zoomPercent"
+  | "readOnly"
 >) {
   const sz = iconSize();
   return (
@@ -659,18 +718,16 @@ function ViewTabPanel(props: Pick<
       <RibbonGroup label="Window">
         <RibbonIconButton label="Freeze Panes" icon={<PanelTop style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onFreezePanes} />
         <RibbonIconButton label="Unfreeze Panes" icon={<span style={{ fontSize: scaledPx(10) }}>⊟</span>} onClick={props.onUnfreezePanes} />
+        <RibbonIconButton label="Hide Row" icon={<span style={{ fontSize: scaledPx(9) }}>-R</span>} disabled={props.readOnly} onClick={props.onHideRow} />
+        <RibbonIconButton label="Hide Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={props.readOnly} onClick={props.onHideColumn} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Zoom">
+        <RibbonIconButton label="Zoom −" icon={<span style={{ fontSize: scaledPx(12) }}>−</span>} onClick={() => props.onZoomChange?.((props.zoomPercent ?? 100) - 10)} />
+        <span style={{ fontSize: scaledPx(10), paddingInline: scaledPx(4) }}>{props.zoomPercent ?? 100}%</span>
+        <RibbonIconButton label="Zoom +" icon={<span style={{ fontSize: scaledPx(12) }}>+</span>} onClick={() => props.onZoomChange?.((props.zoomPercent ?? 100) + 10)} />
       </RibbonGroup>
     </>
-  );
-}
-
-function PlaceholderTabPanel({ message }: { message: string }) {
-  return (
-    <RibbonGroup label="Coming Soon">
-      <p style={{ fontSize: scaledPx(11), fontFamily: EXCEL_RIBBON_FONT, color: "#666666", padding: scaledPx(8) }}>
-        {message}
-      </p>
-    </RibbonGroup>
   );
 }
 
@@ -691,7 +748,7 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
   const [collapsed, setCollapsed] = useState(false);
   const fileActive = activeTab === "file";
 
-  let panel: ReactNode = null;
+  let panel: ReactNode;
   switch (activeTab) {
     case "file":
       panel = <FileTabPanel onSaveCopy={props.onSaveCopy} onPrint={props.onPrint} onExportPdf={props.onExportPdf} />;
@@ -703,7 +760,15 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
       panel = <InsertTabPanel {...props} />;
       break;
     case "draw":
-      panel = <PlaceholderTabPanel message="Draw tools require canvas support (planned)." />;
+      panel = (
+        <ExcelDrawPanel
+          drawMode={props.drawMode ?? null}
+          strokeColor={props.drawColor ?? "#2563EB"}
+          onDrawModeChange={props.onDrawModeChange ?? (() => undefined)}
+          onStrokeColorChange={props.onDrawColorChange ?? (() => undefined)}
+          onClearDrawings={props.onClearDrawings ?? (() => undefined)}
+        />
+      );
       break;
     case "page-layout":
       panel = <PageLayoutTabPanel {...props} />;
@@ -721,7 +786,7 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
       panel = <ViewTabPanel {...props} />;
       break;
     case "help":
-      panel = <PlaceholderTabPanel message="Search Excel Help — use Ownly docs for spreadsheet features." />;
+      panel = <ExcelHelpPanel />;
       break;
     case "automate":
       panel = <AutomateTabPanel />;

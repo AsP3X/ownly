@@ -7,9 +7,17 @@ type ExcelStatusBarProps = {
   metricsLine: string;
   undoAvailable?: boolean;
   redoAvailable?: boolean;
+  zoomPercent?: number;
+  onZoomChange?: (percent: number) => void;
 };
 
-export function ExcelStatusBar({ metricsLine, undoAvailable, redoAvailable }: ExcelStatusBarProps) {
+export function ExcelStatusBar({
+  metricsLine,
+  undoAvailable,
+  redoAvailable,
+  zoomPercent = 100,
+  onZoomChange,
+}: ExcelStatusBarProps) {
   const statusLabel = undoAvailable ? "Edited" : redoAvailable ? "Redo available" : "Ready";
   return (
     <div
@@ -26,9 +34,18 @@ export function ExcelStatusBar({ metricsLine, undoAvailable, redoAvailable }: Ex
           {statusLabel}
         </span>
       </div>
-      <p className="font-medium text-[#666666]" style={{ fontSize: scaledPx(10) }}>
-        {metricsLine}
-      </p>
+      <div className="flex items-center gap-3">
+        {onZoomChange ? (
+          <div className="flex items-center gap-1">
+            <button type="button" className="rounded px-1 hover:bg-[#E5E7EB]" onClick={() => onZoomChange(zoomPercent - 10)} aria-label="Zoom out">−</button>
+            <span className="text-[#666666]" style={{ fontSize: scaledPx(10), minWidth: scaledPx(36), textAlign: "center" }}>{zoomPercent}%</span>
+            <button type="button" className="rounded px-1 hover:bg-[#E5E7EB]" onClick={() => onZoomChange(zoomPercent + 10)} aria-label="Zoom in">+</button>
+          </div>
+        ) : null}
+        <p className="font-medium text-[#666666]" style={{ fontSize: scaledPx(10) }}>
+          {metricsLine}
+        </p>
+      </div>
     </div>
   );
 }

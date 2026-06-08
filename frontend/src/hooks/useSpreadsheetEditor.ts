@@ -1,7 +1,7 @@
 // Human: Central spreadsheet editor state — selection, undo, clipboard, keyboard, mutations.
 // Agent: OWNS workbook snapshot; PUSHES undo; RECALCULATES formulas after edits.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import {
   clearRangeInWorkbook,
@@ -43,6 +43,12 @@ export type SpreadsheetEditorViewFlags = {
   showGridlines: boolean;
 };
 
+export type WorkbookMutationOptions = {
+  // Human: Allow protect/unprotect and other meta ops while the sheet is locked.
+  // Agent: SKIPS isSheetProtected guard when true.
+  bypassProtection?: boolean;
+};
+
 export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) {
   const [workbook, setWorkbookState] = useState<SpreadsheetWorkbook | null>(null);
   const [savedWorkbook, setSavedWorkbook] = useState<SpreadsheetWorkbook | null>(null);
@@ -54,10 +60,21 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   const [editDraft, setEditDraft] = useState("");
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [filterHiddenRows, setFilterHiddenRows] = useState<Set<number>>(new Set());
-  const [viewFlags, setViewFlags] = useState<SpreadsheetEditorViewFlags>({
-    showFormulas: false,
-    showGridlines: true,
-  });
+  const [viewFlagsBySheet, setViewFlagsBySheet] = useState<
+    Record<number, Partial<SpreadsheetEditorViewFlags>>
+  >({});
+  const [formatPainterStyle, setFormatPainterStyle] = useState<CellStyle | null>(null);
+  const [formatPainterActive, setFormatPainterActive] = useState(false);
+
+  // Human: Latest workbook/sheet index for save-after-flush and stable empty-deps callbacks.
+  // Agent: SYNCED in layout effect + inside setState updaters when save runs before re-render.
+  const activeSheetIndexRef = useRef(activeSheetIndex);
+  const workbookRef = useRef<SpreadsheetWorkbook | null>(null);
+
+  useLayoutEffect(() => {
+    activeSheetIndexRef.current = activeSheetIndex;
+    workbookRef.current = workbook;
+  }, [activeSheetIndex, workbook]);
 
   const selectionRange = useMemo(
     () => normalizeRange({ start: selectionAnchor, end: selectionEnd }),
@@ -66,16 +83,38 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const activeCellAddress = selectionEnd;
   const activeSheet = workbook?.sheets[activeSheetIndex] ?? null;
-  const activeSheetIndexRef = useRef(activeSheetIndex);
-  const workbookRef = useRef<SpreadsheetWorkbook | null>(null);
 
-  useEffect(() => {
-    activeSheetIndexRef.current = activeSheetIndex;
-  }, [activeSheetIndex]);
+  // Human: Per-sheet view overrides merged with sheet-level defaults (no effect sync).
+  // Agent: READS viewFlagsBySheet[activeSheetIndex]; FALLBACK to activeSheet flags.
+  const viewFlags = useMemo((): SpreadsheetEditorViewFlags => {
+    const overrides = viewFlagsBySheet[activeSheetIndex] ?? {};
+    return {
+      showFormulas: overrides.showFormulas ?? activeSheet?.showFormulas ?? false,
+      showGridlines: overrides.showGridlines ?? activeSheet?.showGridlines ?? true,
+    };
+  }, [activeSheet, activeSheetIndex, viewFlagsBySheet]);
 
-  useEffect(() => {
-    workbookRef.current = workbook;
-  }, [workbook]);
+  const setViewFlags = useCallback(
+    (
+      updater:
+        | SpreadsheetEditorViewFlags
+        | ((current: SpreadsheetEditorViewFlags) => SpreadsheetEditorViewFlags),
+    ) => {
+      setViewFlagsBySheet((current) => {
+        const sheet = workbookRef.current?.sheets[activeSheetIndexRef.current];
+        const prevEffective: SpreadsheetEditorViewFlags = {
+          showFormulas:
+            current[activeSheetIndexRef.current]?.showFormulas ?? sheet?.showFormulas ?? false,
+          showGridlines:
+            current[activeSheetIndexRef.current]?.showGridlines ?? sheet?.showGridlines ?? true,
+        };
+        const next = typeof updater === "function" ? updater(prevEffective) : updater;
+        return { ...current, [activeSheetIndexRef.current]: next };
+      });
+    },
+    [],
+  );
+  const activeCell = activeSheet?.rows[activeCellAddress.row]?.[activeCellAddress.col];
 
   const dirty = useMemo(() => {
     if (!workbook || !savedWorkbook) return false;
@@ -112,7 +151,6 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     // Human: Show parsed sheet immediately; recalc in a follow-up tick so open stays responsive.
     // Agent: FALLBACK to parsed workbook when formula evaluation throws on complex sheets.
     setWorkbookState(parsed);
-    workbookRef.current = parsed;
     setSavedWorkbook(cloneWorkbook(parsed));
     setUndoStack(createUndoStack(parsed));
     setActiveSheetIndex(0);
@@ -120,14 +158,13 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     setSelectionEnd({ row: 3, col: 3 });
     setEditingCell(null);
     setFilterHiddenRows(new Set());
-    setViewFlags({ showFormulas: false, showGridlines: true });
+    setViewFlagsBySheet({});
 
     queueMicrotask(() => {
       setWorkbookState((current) => {
         if (!current) return current;
         try {
           const calculated = recalculateWorkbook(current);
-          workbookRef.current = calculated;
           setSavedWorkbook(cloneWorkbook(calculated));
           setUndoStack(createUndoStack(calculated));
           return calculated;
@@ -139,7 +176,6 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   }, []);
 
   const resetEditor = useCallback(() => {
-    workbookRef.current = null;
     setWorkbookState(null);
     setSavedWorkbook(null);
     setUndoStack(createUndoStack(null));
@@ -149,12 +185,20 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     setEditingCell(null);
     setClipboard(null);
     setFilterHiddenRows(new Set());
-    setViewFlags({ showFormulas: false, showGridlines: true });
+    setViewFlagsBySheet({});
+  }, []);
+
+  const isSheetProtected = useCallback(() => {
+    const sheet = workbookRef.current?.sheets[activeSheetIndexRef.current];
+    return Boolean(sheet?.protection?.locked);
   }, []);
 
   const commitWorkbookMutation = useCallback(
-    (mutator: (current: SpreadsheetWorkbook) => SpreadsheetWorkbook) => {
-      if (readOnly) return;
+    (
+      mutator: (current: SpreadsheetWorkbook) => SpreadsheetWorkbook,
+      options?: WorkbookMutationOptions,
+    ) => {
+      if (readOnly || (!options?.bypassProtection && isSheetProtected())) return;
       setWorkbookState((current) => {
         if (!current) return current;
         try {
@@ -170,14 +214,14 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         }
       });
     },
-    [readOnly],
+    [isSheetProtected, readOnly],
   );
 
   // Human: Apply column width changes without formula recalc — uses latest workbook snapshot.
   // Agent: SYNCS workbookRef; REPLACES sparse storage from grid array (no merge with stale widths).
   const setSheetColumnWidths = useCallback(
     (widths: number[], options?: { recordUndo?: boolean }) => {
-      if (readOnly) return;
+      if (readOnly || isSheetProtected()) return;
       setWorkbookState((current) => {
         if (!current) return current;
         const sheetIndex = activeSheetIndexRef.current;
@@ -200,14 +244,14 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         return next;
       });
     },
-    [readOnly],
+    [isSheetProtected, readOnly],
   );
 
   // Human: Apply row height changes without formula recalc — uses latest workbook snapshot.
   // Agent: SYNCS workbookRef immediately; COMPARES resolved heights so sparse arrays still update.
   const setSheetRowHeights = useCallback(
     (heights: number[], options?: { recordUndo?: boolean }) => {
-      if (readOnly) return;
+      if (readOnly || isSheetProtected()) return;
       setWorkbookState((current) => {
         if (!current) return current;
         const sheetIndex = activeSheetIndexRef.current;
@@ -229,7 +273,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         return next;
       });
     },
-    [readOnly],
+    [isSheetProtected, readOnly],
   );
 
   const selectCell = useCallback((address: CellAddress, extend = false) => {
@@ -253,7 +297,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const startEditing = useCallback(
     (address: CellAddress, initialValue?: string) => {
-      if (readOnly) return;
+      if (readOnly || isSheetProtected()) return;
       setSelectionAnchor(address);
       setSelectionEnd(address);
       setEditingCell(address);
@@ -266,12 +310,12 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
       else if (cell?.value === null || cell?.value === undefined) setEditDraft("");
       else setEditDraft(String(cell.value));
     },
-    [activeSheetIndex, readOnly, workbook],
+    [activeSheetIndex, isSheetProtected, readOnly, workbook],
   );
 
   const commitEdit = useCallback(
     (input?: string) => {
-      if (!workbook || !editingCell || readOnly) {
+      if (!workbook || !editingCell || readOnly || isSheetProtected()) {
         setEditingCell(null);
         return;
       }
@@ -285,22 +329,17 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
           return;
         }
       }
-      const next = applyFormulaBarEdit(
-        workbook,
-        activeSheetIndex,
-        editingCell.row,
-        editingCell.col,
-        value,
+      commitWorkbookMutation((current) =>
+        applyFormulaBarEdit(current, activeSheetIndex, editingCell.row, editingCell.col, value),
       );
-      setWorkbook(next);
       setEditingCell(null);
     },
-    [activeSheetIndex, editDraft, editingCell, readOnly, setWorkbook, workbook],
+    [activeSheetIndex, commitWorkbookMutation, editDraft, editingCell, isSheetProtected, readOnly, workbook],
   );
 
   const commitFormulaBar = useCallback(
     (input: string) => {
-      if (!workbook || readOnly) return;
+      if (!workbook || readOnly || isSheetProtected()) return;
       const validationRule = workbook.sheets[activeSheetIndex]?.columnValidations?.[activeCellAddress.col];
       if (validationRule && !input.trim().startsWith("=")) {
         const result = validateCellInput(validationRule, input);
@@ -309,21 +348,30 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
           return;
         }
       }
-      const next = applyFormulaBarEdit(
-        workbook,
-        activeSheetIndex,
-        activeCellAddress.row,
-        activeCellAddress.col,
-        input,
+      commitWorkbookMutation((current) =>
+        applyFormulaBarEdit(
+          current,
+          activeSheetIndex,
+          activeCellAddress.row,
+          activeCellAddress.col,
+          input,
+        ),
       );
-      setWorkbook(next);
     },
-    [activeCellAddress.col, activeCellAddress.row, activeSheetIndex, readOnly, setWorkbook, workbook],
+    [
+      activeCellAddress.col,
+      activeCellAddress.row,
+      activeSheetIndex,
+      commitWorkbookMutation,
+      isSheetProtected,
+      readOnly,
+      workbook,
+    ],
   );
 
   const applyStyleToSelection = useCallback(
     (patch: Partial<CellStyle>) => {
-      if (!workbook || readOnly) return;
+      if (!workbook || readOnly || isSheetProtected()) return;
       commitWorkbookMutation((current) => {
         const range = selectionRange;
         const nextSheets = current.sheets.map((sheet, index) => {
@@ -342,7 +390,11 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
                 style,
                 display: cell.formula
                   ? cell.display
-                  : formatCellDisplay(cell.value, style.numberFormat ?? "general"),
+                  : formatCellDisplay(
+                      cell.value,
+                      style.numberFormat ?? "general",
+                      style.customNumberFormat,
+                    ),
               };
             }),
           );
@@ -351,7 +403,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         return { sheets: nextSheets };
       });
     },
-    [activeSheetIndex, commitWorkbookMutation, readOnly, selectionRange, workbook],
+    [activeSheetIndex, commitWorkbookMutation, isSheetProtected, readOnly, selectionRange, workbook],
   );
 
   const copySelection = useCallback(async () => {
@@ -366,16 +418,16 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   }, [activeSheet, selectionRange]);
 
   const cutSelection = useCallback(async () => {
-    if (!workbook || readOnly || !activeSheet) return;
+    if (!workbook || readOnly || isSheetProtected() || !activeSheet) return;
     await copySelection();
     commitWorkbookMutation((current) =>
       clearRangeInWorkbook(current, activeSheetIndex, selectionRange),
     );
-  }, [activeSheet, activeSheetIndex, commitWorkbookMutation, copySelection, readOnly, selectionRange, workbook]);
+  }, [activeSheet, activeSheetIndex, commitWorkbookMutation, copySelection, isSheetProtected, readOnly, selectionRange, workbook]);
 
   const pasteClipboard = useCallback(
-    async (mode: PasteMode = "all") => {
-      if (!workbook || readOnly) return;
+    async (mode: PasteMode = "all", transpose = false) => {
+      if (!workbook || readOnly || isSheetProtected()) return;
       let payload = clipboard;
       if (!payload) {
         try {
@@ -386,29 +438,57 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         }
       }
       commitWorkbookMutation((current) =>
-        pasteRangeIntoWorkbook(current, activeSheetIndex, activeCellAddress, payload!, mode),
+        pasteRangeIntoWorkbook(current, activeSheetIndex, activeCellAddress, payload!, mode, transpose),
       );
     },
-    [activeCellAddress, activeSheetIndex, clipboard, commitWorkbookMutation, readOnly, workbook],
+    [activeCellAddress, activeSheetIndex, clipboard, commitWorkbookMutation, isSheetProtected, readOnly, workbook],
   );
 
+  // Human: Copy style from active cell for Format Painter (double-click locks mode).
+  // Agent: STORES CellStyle snapshot; ACTIVATES painter cursor until applied.
+  const activateFormatPainter = useCallback(() => {
+    if (readOnly || isSheetProtected() || !activeCell) return;
+    if (activeCell.style) {
+      setFormatPainterStyle({ ...activeCell.style });
+      setFormatPainterActive(true);
+    }
+  }, [activeCell, isSheetProtected, readOnly]);
+
+  // Human: Apply stored painter style to current selection and deactivate.
+  // Agent: CALLS applyStyleToSelection with copied style patch.
+  const applyFormatPainter = useCallback(() => {
+    if (!formatPainterStyle || readOnly || isSheetProtected()) return;
+    applyStyleToSelection(formatPainterStyle);
+    setFormatPainterActive(false);
+    setFormatPainterStyle(null);
+  }, [applyStyleToSelection, formatPainterStyle, isSheetProtected, readOnly]);
+
+  // Human: Cancel Format Painter without applying copied style.
+  // Agent: CLEARS painter state when user toggles off from ribbon.
+  const cancelFormatPainter = useCallback(() => {
+    setFormatPainterActive(false);
+    setFormatPainterStyle(null);
+  }, []);
+
   const performUndo = useCallback(() => {
-    if (!workbook) return;
+    if (!workbook || readOnly || isSheetProtected()) return;
     const result = undo(undoStack, workbook);
     if (!result.workbook) return;
+    const next = recalculateWorkbook(result.workbook);
     setUndoStack(result.stack);
-    setWorkbookState(recalculateWorkbook(result.workbook));
+    setWorkbookState(next);
     setEditingCell(null);
-  }, [undoStack, workbook]);
+  }, [isSheetProtected, readOnly, undoStack, workbook]);
 
   const performRedo = useCallback(() => {
-    if (!workbook) return;
+    if (!workbook || readOnly || isSheetProtected()) return;
     const result = redo(undoStack, workbook);
     if (!result.workbook) return;
+    const next = recalculateWorkbook(result.workbook);
     setUndoStack(result.stack);
-    setWorkbookState(recalculateWorkbook(result.workbook));
+    setWorkbookState(next);
     setEditingCell(null);
-  }, [undoStack, workbook]);
+  }, [isSheetProtected, readOnly, undoStack, workbook]);
 
   const moveSelection = useCallback(
     (deltaRow: number, deltaCol: number, extend: boolean) => {
@@ -563,23 +643,15 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const performFill = useCallback(
     (dragEnd: CellAddress) => {
-      if (!workbook || readOnly) return;
+      if (!workbook || readOnly || isSheetProtected()) return;
       const target = fillTargetRange(selectionRange, dragEnd);
       if (!target) return;
       commitWorkbookMutation((current) =>
         fillRangeInWorkbook(current, activeSheetIndex, selectionRange, target),
       );
     },
-    [activeSheetIndex, commitWorkbookMutation, readOnly, selectionRange, workbook],
+    [activeSheetIndex, commitWorkbookMutation, isSheetProtected, readOnly, selectionRange, workbook],
   );
-
-  useEffect(() => {
-    if (!activeSheet) return;
-    setViewFlags((current) => ({
-      showFormulas: activeSheet.showFormulas ?? current.showFormulas,
-      showGridlines: activeSheet.showGridlines ?? current.showGridlines,
-    }));
-  }, [activeSheet]);
 
   return {
     workbook,
@@ -625,5 +697,10 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     viewFlags,
     setViewFlags,
     singleCellRange,
+    formatPainterActive,
+    activateFormatPainter,
+    applyFormatPainter,
+    cancelFormatPainter,
+    isSheetProtected,
   };
 }

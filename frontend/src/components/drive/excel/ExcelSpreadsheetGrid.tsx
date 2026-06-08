@@ -20,7 +20,15 @@ import {
 } from "@/lib/spreadsheet/dimensions";
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { isCellInRange, isFullSheetSelection, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
-import type { CellAddress, CellStyle, SheetCell, SheetPrintArea } from "@/lib/spreadsheet/types";
+import { mergeInfoAt } from "@/lib/spreadsheet/merge-regions";
+import type {
+  CellAddress,
+  CellStyle,
+  MergedRegion,
+  SheetCell,
+  SheetDrawingStroke,
+  SheetPrintArea,
+} from "@/lib/spreadsheet/types";
 import { cn } from "@/lib/utils";
 
 type ExcelSpreadsheetGridProps = {
@@ -36,10 +44,17 @@ type ExcelSpreadsheetGridProps = {
   showFormulas?: boolean;
   showGridlines?: boolean;
   filterHiddenRows?: Set<number>;
+  hiddenRows?: number[];
+  hiddenCols?: number[];
+  mergedRegions?: MergedRegion[];
   frozenRows?: number;
   frozenCols?: number;
   precedentHighlight?: Set<string>;
   printArea?: SheetPrintArea | null;
+  zoomPercent?: number;
+  drawings?: SheetDrawingStroke[];
+  drawMode?: "pen" | "eraser" | null;
+  drawColor?: string;
   onSelectCell: (address: CellAddress, extend?: boolean) => void;
   onSelectAll?: () => void;
   onStartEditing: (address: CellAddress) => void;
@@ -162,8 +177,9 @@ function CellContent({
       style={{
         fontSize: cell.style?.fontSize ?? scaledPx(12),
         fontFamily: cell.style?.fontFamily,
-        color: cf?.textColor ?? cell.style?.textColor ?? "#1A1A1A",
+        color: cf?.textColor ?? cell.style?.textColor ?? (cell.hyperlink ? "#2563EB" : "#1A1A1A"),
         fontWeight: cf?.bold ? 700 : undefined,
+        textDecoration: cell.hyperlink ? "underline" : undefined,
       }}
     >
       {displayText}
@@ -230,10 +246,15 @@ export function ExcelSpreadsheetGrid({
   showFormulas = false,
   showGridlines = true,
   filterHiddenRows,
+  hiddenRows,
+  hiddenCols,
+  mergedRegions,
   frozenRows = 0,
   frozenCols = 0,
   precedentHighlight,
   printArea,
+  zoomPercent = 100,
+  drawings,
   onSelectCell,
   onSelectAll,
   onStartEditing,
@@ -256,6 +277,22 @@ export function ExcelSpreadsheetGrid({
   );
   const isFullSheetSelectedRef = useRef(isFullSheetSelected);
   isFullSheetSelectedRef.current = isFullSheetSelected;
+  const hiddenRowSet = useMemo(() => new Set(hiddenRows ?? []), [hiddenRows]);
+  const hiddenColSet = useMemo(() => new Set(hiddenCols ?? []), [hiddenCols]);
+  const zoomScale = Math.min(200, Math.max(50, zoomPercent)) / 100;
+
+  // Human: Skip merge slaves and user-hidden columns when painting cells.
+  // Agent: READS mergedRegions + hiddenCols; RETURNS false for covered/hidden cells.
+  const isCellVisible = useCallback(
+    (row: number, col: number) => {
+      if (hiddenColSet.has(col)) return false;
+      const merge = mergeInfoAt(mergedRegions, row, col);
+      if (merge?.isCovered) return false;
+      return true;
+    },
+    [hiddenColSet, mergedRegions],
+  );
+
   const frozenRowCount = Math.max(0, frozenRows);
   const frozenColCount = Math.max(0, frozenCols);
   const [fillDragging, setFillDragging] = useState(false);
@@ -307,6 +344,8 @@ export function ExcelSpreadsheetGrid({
 
   const scrollRowCount = Math.max(rows.length - frozenRowCount, 0);
 
+  // Human: TanStack Virtual is incompatible with React Compiler memoization — safe to use here.
+  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns unstable function refs by design
   const rowVirtualizer = useVirtualizer({
     count: scrollRowCount,
     getScrollElement: () => parentRef.current,
@@ -618,12 +657,19 @@ export function ExcelSpreadsheetGrid({
       aria-label="Spreadsheet grid"
       onKeyDown={onGridKeyDown}
       className={cn(
-        "min-h-0 flex-1 overflow-auto bg-[#F7F8FA] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+        "relative min-h-0 flex-1 overflow-auto bg-[#F7F8FA] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
         resizeDrag?.axis === "column" && "cursor-col-resize select-none",
         resizeDrag?.axis === "row" && "cursor-row-resize select-none",
       )}
     >
-      <div style={{ width: gridWidth, minWidth: "100%" }}>
+      <div
+        style={{
+          width: gridWidth,
+          minWidth: "100%",
+          transform: `scale(${zoomScale})`,
+          transformOrigin: "top left",
+        }}
+      >
         {/* Human: Column header row — corner cell + A…N labels per Pencil AOdk5. */}
         <div
           className={cn("sticky top-0 z-20 flex border-b bg-[#F3F4F6]", borderClass)}
@@ -666,7 +712,7 @@ export function ExcelSpreadsheetGrid({
         {frozenRowCount > 0 ? (
           <div className="sticky z-10" style={{ top: GRID_HEADER_ROW_HEIGHT }}>
             {Array.from({ length: frozenRowCount }, (_, rowIndex) => {
-              if (filterHiddenRows?.has(rowIndex)) return null;
+              if (filterHiddenRows?.has(rowIndex) || hiddenRowSet.has(rowIndex)) return null;
               const row = rows[rowIndex] ?? [];
               const isHeader = rowIndex === 0;
               const isTotalRow = row[0]?.display?.toLowerCase().includes("total");
@@ -685,6 +731,7 @@ export function ExcelSpreadsheetGrid({
                   </div>
 
                   {Array.from({ length: columnCount }, (_, colIndex) => {
+                    if (!isCellVisible(rowIndex, colIndex)) return null;
                     const cell = row[colIndex] ?? { value: null, display: "" };
                     const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
                     const isActiveCell = editingCell?.row === rowIndex && editingCell.col === colIndex;
@@ -759,7 +806,7 @@ export function ExcelSpreadsheetGrid({
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const rowIndex = virtualRow.index + frozenRowCount;
-            if (filterHiddenRows?.has(rowIndex)) return null;
+            if (filterHiddenRows?.has(rowIndex) || hiddenRowSet.has(rowIndex)) return null;
             const row = rows[rowIndex] ?? [];
             const isHeader = rowIndex === 0;
             const isTotalRow = row[0]?.display?.toLowerCase().includes("total");
@@ -793,6 +840,7 @@ export function ExcelSpreadsheetGrid({
                 </div>
 
                 {Array.from({ length: columnCount }, (_, colIndex) => {
+                  if (!isCellVisible(rowIndex, colIndex)) return null;
                   const cell = row[colIndex] ?? { value: null, display: "" };
                   const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
                   const isActiveCell =
@@ -893,6 +941,29 @@ export function ExcelSpreadsheetGrid({
           })}
         </div>
       </div>
+
+      {/* Human: Ink strokes from Draw tab rendered above the grid. */}
+      {/* Agent: READS drawings[]; RENDERS SVG polylines in grid coordinate space. */}
+      {drawings && drawings.length > 0 ? (
+        <svg
+          className="pointer-events-none absolute left-0 top-0"
+          width={gridWidth}
+          height={rowVirtualizer.getTotalSize() + GRID_HEADER_ROW_HEIGHT}
+          aria-hidden
+        >
+          {drawings.map((stroke) => (
+            <polyline
+              key={stroke.id}
+              fill="none"
+              stroke={stroke.color}
+              strokeWidth={stroke.width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={stroke.points.map((point) => `${point.x},${point.y}`).join(" ")}
+            />
+          ))}
+        </svg>
+      ) : null}
     </div>
   );
 }

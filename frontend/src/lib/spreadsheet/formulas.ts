@@ -2,11 +2,39 @@
 // Agent: READS cell refs + ranges; EVALUATES common Excel functions; UPDATES display values.
 
 import { columnIndexToLetters, columnLettersToIndex, formatCellDisplay } from "@/lib/spreadsheet/cells";
+import {
+  evalArrayFirstValue,
+  evalFilter,
+  evalSequence,
+  evalSort,
+  evalSortBy,
+  evalUnique,
+  isEvalArray,
+  type EvalArray,
+} from "@/lib/spreadsheet/formula-dynamic-arrays";
+import { evaluateExtendedFunction } from "@/lib/spreadsheet/formula-extended";
+import {
+  SHEET_QUALIFIED_CELL_PATTERN,
+  SHEET_QUALIFIED_RANGE_PATTERN,
+  splitSheetQualifiedToken,
+} from "@/lib/spreadsheet/formula-sheet-refs";
+import { parseTableColumnRef, resolveTableColumnIndex } from "@/lib/spreadsheet/formula-table-refs";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import type { SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 import { findNamedRange } from "@/lib/spreadsheet/named-ranges";
 
+export type FormulaEvalResult = string | number | boolean | null | FormulaError | EvalArray;
+
 export type FormulaError = "#ERROR!" | "#DIV/0!" | "#REF!" | "#VALUE!" | "#N/A" | "#NUM!" | "#NAME?";
+
+type FormulaScalar = string | number | boolean | null | FormulaError;
+
+// Human: Collapse dynamic-array results to a single scalar for legacy formula paths.
+// Agent: RETURNS first spill value when result is EvalArray.
+function toScalar(value: FormulaEvalResult): FormulaScalar {
+  if (isEvalArray(value)) return evalArrayFirstValue(value);
+  return value;
+}
 
 type EvalContext = {
   sheets: SheetData[];
@@ -14,7 +42,7 @@ type EvalContext = {
   row: number;
   col: number;
   visiting: Set<string>;
-  cache: Map<string, string | number | boolean | null | FormulaError>;
+  cache: Map<string, FormulaEvalResult>;
   namedRanges?: SpreadsheetWorkbook["namedRanges"];
 };
 
@@ -40,19 +68,20 @@ function parseRangeRef(raw: string): CellRange | null {
   return normalizeRange({ start, end });
 }
 
-function coerceNumber(value: string | number | boolean | null | FormulaError): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (value === null || value === "") return 0;
-  if (typeof value === "string" && value.startsWith("#")) return NaN;
-  const parsed = Number(String(value).replace(/[$,%\s,]/g, ""));
+function coerceNumber(value: FormulaEvalResult | FormulaScalar): number {
+  const scalar = toScalar(value as FormulaEvalResult);
+  if (typeof scalar === "number") return scalar;
+  if (typeof scalar === "boolean") return scalar ? 1 : 0;
+  if (scalar === null || scalar === "") return 0;
+  if (typeof scalar === "string" && scalar.startsWith("#")) return NaN;
+  const parsed = Number(String(scalar).replace(/[$,%\s,]/g, ""));
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
-function getRawCellValue(ctx: EvalContext, sheetIndex: number, row: number, col: number) {
+function getRawCellValue(ctx: EvalContext, sheetIndex: number, row: number, col: number): FormulaScalar {
   const cell = ctx.sheets[sheetIndex]?.rows[row]?.[col];
   if (!cell) return null;
-  if (cell.formula) return evaluateFormulaCell(ctx, sheetIndex, row, col, cell.formula);
+  if (cell.formula) return toScalar(evaluateFormulaCell(ctx, sheetIndex, row, col, cell.formula));
   return cell.value;
 }
 
@@ -62,7 +91,7 @@ function evaluateFormulaCell(
   row: number,
   col: number,
   formula: string,
-): string | number | boolean | null | FormulaError {
+): FormulaEvalResult {
   const key = cellKey(sheetIndex, row, col);
   if (ctx.visiting.has(key)) return "#ERROR!" as FormulaError;
   if (ctx.cache.has(key)) return ctx.cache.get(key)!;
@@ -94,6 +123,20 @@ function collectRangeValuesFromArg(
   arg: string,
 ): Array<string | number | boolean | null | FormulaError> {
   const trimmed = arg.trim();
+
+  const tableRef = parseTableColumnRef(trimmed);
+  if (tableRef) {
+    const sheet = ctx.sheets[sheetIndex];
+    const resolved = resolveTableColumnIndex(sheet, tableRef.tableName, tableRef.columnName);
+    if (resolved) {
+      const values: Array<string | number | boolean | null | FormulaError> = [];
+      for (let row = resolved.tableStartRow + 1; row <= resolved.tableEndRow; row += 1) {
+        values.push(getRawCellValue(ctx, sheetIndex, row, resolved.col));
+      }
+      return values;
+    }
+  }
+
   const named = findNamedRange(ctx.namedRanges, trimmed);
   if (named) {
     const targetSheetIndex = ctx.sheets.findIndex((sheet) => sheet.name === named.sheetName);
@@ -104,10 +147,15 @@ function collectRangeValuesFromArg(
     });
   }
 
-  const range = parseRangeRef(arg.replace(/\$/g, ""));
-  if (range) return collectRangeValues(ctx, sheetIndex, range);
-  const single = parseCellRef(arg.replace(/\$/g, ""));
-  if (single) return [getRawCellValue(ctx, sheetIndex, single.row, single.col)];
+  const { sheetIndex: resolvedSheetIndex, refPart } = splitSheetQualifiedToken(
+    trimmed,
+    ctx.sheets,
+    sheetIndex,
+  );
+  const range = parseRangeRef(refPart.replace(/\$/g, ""));
+  if (range) return collectRangeValues(ctx, resolvedSheetIndex, range);
+  const single = parseCellRef(refPart.replace(/\$/g, ""));
+  if (single) return [getRawCellValue(ctx, resolvedSheetIndex, single.row, single.col)];
   return [];
 }
 
@@ -206,10 +254,10 @@ function evaluateFunction(
   col: number,
   name: string,
   argsRaw: string,
-): string | number | boolean | null | FormulaError {
+): FormulaEvalResult {
   const upper = name.toUpperCase();
   const args = splitFunctionArgs(argsRaw).map((arg) =>
-    evaluateExpression(ctx, sheetIndex, row, col, arg.trim()),
+    toScalar(evaluateExpression(ctx, sheetIndex, row, col, arg.trim())),
   );
 
   const numericArgs = args.map((value) => coerceNumber(value)).filter((value) => Number.isFinite(value));
@@ -530,8 +578,40 @@ function evaluateFunction(
       }
       return matches.length === 0 ? 0 : Math.min(...matches);
     }
-    default:
+    case "FILTER": {
+      const parts = splitFunctionArgs(argsRaw);
+      const arrayValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const includeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[1]?.trim() ?? "");
+      return evalFilter(arrayValues as FormulaScalar[], includeValues as FormulaScalar[]);
+    }
+    case "SORT": {
+      const parts = splitFunctionArgs(argsRaw);
+      const arrayValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      return evalSort(arrayValues as FormulaScalar[]);
+    }
+    case "UNIQUE": {
+      const parts = splitFunctionArgs(argsRaw);
+      const arrayValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      return evalUnique(arrayValues as FormulaScalar[]);
+    }
+    case "SEQUENCE": {
+      const rows = Math.round(coerceNumber(args[0]));
+      const cols = args[1] !== undefined ? Math.round(coerceNumber(args[1])) : 1;
+      const start = args[2] !== undefined ? coerceNumber(args[2]) : 1;
+      const step = args[3] !== undefined ? coerceNumber(args[3]) : 1;
+      return evalSequence(rows, cols, start, step);
+    }
+    case "SORTBY": {
+      const parts = splitFunctionArgs(argsRaw);
+      const arrayValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const byValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[1]?.trim() ?? "");
+      return evalSortBy(arrayValues as FormulaScalar[], byValues as FormulaScalar[]);
+    }
+    default: {
+      const extended = evaluateExtendedFunction(upper, args as FormulaScalar[]);
+      if (extended !== undefined) return extended;
       return "#NAME?" as FormulaError;
+    }
   }
 }
 
@@ -572,7 +652,7 @@ function evaluateExpression(
   row: number,
   col: number,
   expression: string,
-): string | number | boolean | null | FormulaError {
+): FormulaEvalResult {
   let expr = expression.trim();
   if (!expr) return null;
 
@@ -591,6 +671,17 @@ function evaluateExpression(
     return String(value);
   });
 
+  // Human: Sheet-qualified ranges like Sheet2!A1:B3 in inline math.
+  expr = expr.replace(SHEET_QUALIFIED_RANGE_PATTERN, (match) => {
+    const { sheetIndex: resolvedIndex, refPart } = splitSheetQualifiedToken(match, ctx.sheets, sheetIndex);
+    const range = parseRangeRef(refPart.replace(/\$/g, ""));
+    if (!range) return match;
+    const values = collectRangeValues(ctx, resolvedIndex, range)
+      .map((value) => coerceNumber(value))
+      .filter((value) => Number.isFinite(value));
+    return values.length > 0 ? values.join("+") : "0";
+  });
+
   // Human: Range references in standalone function args already handled; expand A1:A3 patterns for inline math.
   expr = expr.replace(/([A-Za-z]+\d+):([A-Za-z]+\d+)/g, (match) => {
     const range = parseRangeRef(match);
@@ -599,6 +690,20 @@ function evaluateExpression(
       .map((value) => coerceNumber(value))
       .filter((value) => Number.isFinite(value));
     return values.length > 0 ? values.join("+") : "0";
+  });
+
+  // Human: Sheet-qualified single cells like Sheet1!A1.
+  expr = expr.replace(SHEET_QUALIFIED_CELL_PATTERN, (match) => {
+    const { sheetIndex: resolvedIndex, refPart } = splitSheetQualifiedToken(match, ctx.sheets, sheetIndex);
+    const ref = parseCellRef(refPart.replace(/\$/g, ""));
+    if (!ref) return match;
+    const value = getRawCellValue(ctx, resolvedIndex, ref.row, ref.col);
+    if (typeof value === "string" && value.startsWith("#")) return "0";
+    if (typeof value === "number") return String(value);
+    if (typeof value === "boolean") return value ? "1" : "0";
+    if (value === null) return "0";
+    const numeric = coerceNumber(value);
+    return Number.isFinite(numeric) ? String(numeric) : `"${String(value)}"`;
   });
 
   // Human: Single cell references.
@@ -633,12 +738,57 @@ function evaluateExpression(
 }
 
 function displayFromEvaluated(
-  value: string | number | boolean | null | FormulaError,
-  numberFormat?: "general" | "currency" | "percent" | "number",
+  value: FormulaEvalResult,
+  numberFormat?: import("@/lib/spreadsheet/types").NumberFormat,
+  customNumberFormat?: string,
 ): string {
+  if (isEvalArray(value)) return String(evalArrayFirstValue(value) ?? "");
   if (typeof value === "string" && value.startsWith("#")) return value;
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  return formatCellDisplay(value as string | number | null, numberFormat ?? "general");
+  return formatCellDisplay(
+    value as string | number | null,
+    numberFormat ?? "general",
+    customNumberFormat,
+  );
+}
+
+// Human: Write dynamic-array spill values into cells below/right of the formula cell.
+// Agent: EXPANDS sheet rows/cols; SKIPS cells that already hold data.
+function applySpillResult(
+  sheet: SheetData,
+  originRow: number,
+  originCol: number,
+  result: EvalArray,
+): SheetData {
+  let rows = sheet.rows.map((row) => [...row]);
+  const neededRows = originRow + result.spillRows;
+  const neededCols = originCol + result.spillCols;
+  while (rows.length < neededRows) rows.push([]);
+  rows = rows.map((row) => {
+    const copy = [...row];
+    while (copy.length < neededCols) copy.push({ value: null, display: "" });
+    return copy;
+  });
+
+  for (let spillRow = 0; spillRow < result.spillRows; spillRow += 1) {
+    for (let spillCol = 0; spillCol < result.spillCols; spillCol += 1) {
+      const targetRow = originRow + spillRow;
+      const targetCol = originCol + spillCol;
+      const flatIndex = spillRow * result.spillCols + spillCol;
+      const spillValue = result.values[flatIndex] ?? null;
+      if (targetRow === originRow && targetCol === originCol) continue;
+      const existing = rows[targetRow]?.[targetCol];
+      if (existing?.formula) continue;
+      rows[targetRow][targetCol] = {
+        ...existing,
+        value: typeof spillValue === "boolean" ? (spillValue ? 1 : 0) : spillValue,
+        display: displayFromEvaluated(spillValue),
+        formula: undefined,
+      };
+    }
+  }
+
+  return { ...sheet, rows };
 }
 
 // Human: Recalculate every formula cell in one sheet and refresh display strings.
@@ -659,19 +809,30 @@ export function recalculateSheet(
     namedRanges,
   };
 
+  // Human: Evaluate formulas first, then apply spills so spill rows are not overwritten.
+  // Agent: TWO-PASS — formula display updates, then sequential applySpillResult.
+  const spills: Array<{ row: number; col: number; result: EvalArray }> = [];
   const nextRows = sheet.rows.map((row, rowIndex) =>
     row.map((cell, colIndex) => {
       if (!cell.formula) return cell;
       const evaluated = evaluateFormulaCell(ctx, sheetIndex, rowIndex, colIndex, cell.formula);
+      if (isEvalArray(evaluated)) {
+        spills.push({ row: rowIndex, col: colIndex, result: evaluated });
+      }
+      const scalar = isEvalArray(evaluated) ? evalArrayFirstValue(evaluated) : evaluated;
       return {
         ...cell,
-        value: typeof evaluated === "boolean" ? (evaluated ? 1 : 0) : evaluated,
-        display: displayFromEvaluated(evaluated, cell.style?.numberFormat),
+        value: typeof scalar === "boolean" ? (scalar ? 1 : 0) : scalar,
+        display: displayFromEvaluated(scalar, cell.style?.numberFormat, cell.style?.customNumberFormat),
       };
     }),
   );
 
-  return { ...sheet, rows: nextRows };
+  let result: SheetData = { ...sheet, rows: nextRows };
+  for (const spill of spills) {
+    result = applySpillResult(result, spill.row, spill.col, spill.result);
+  }
+  return result;
 }
 
 // Human: Recalculate all sheets in workbook after edits.

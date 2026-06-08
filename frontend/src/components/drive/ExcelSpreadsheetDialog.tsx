@@ -2,7 +2,7 @@
 // Agent: FETCHES blob; PARSES xlsx; RENDERS ribbon/grid/copilot; SAVE replace upload on Save & Close.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
   deleteFile,
@@ -18,6 +18,11 @@ import { ExcelCopilotSidebar } from "@/components/drive/excel/ExcelCopilotSideba
 import { ExcelDataValidationDialog } from "@/components/drive/excel/ExcelDataValidationDialog";
 import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
+import { ExcelInsertFunctionDialog } from "@/components/drive/excel/ExcelInsertFunctionDialog";
+import { ExcelPageSetupDialog } from "@/components/drive/excel/ExcelPageSetupDialog";
+import { ExcelPasteSpecialDialog } from "@/components/drive/excel/ExcelPasteSpecialDialog";
+import { ExcelProtectSheetDialog } from "@/components/drive/excel/ExcelProtectSheetDialog";
+import { ExcelTextToColumnsDialog } from "@/components/drive/excel/ExcelTextToColumnsDialog";
 import { ExcelNamedRangeDialog } from "@/components/drive/excel/ExcelNamedRangeDialog";
 import { ExcelPageMarginsDialog } from "@/components/drive/excel/ExcelPageMarginsDialog";
 import { ExcelPivotTableDialog } from "@/components/drive/excel/ExcelPivotTableDialog";
@@ -86,9 +91,16 @@ import {
   setColumnValidation,
   setNamedRange,
   setPageMargins,
+  setPageSetup,
   setPrintArea,
   clearPrintArea,
+  setSheetProtection,
+  setSheetZoom,
+  setTrackChangesEnabled,
   sortSheetByColumn,
+  textToColumns,
+  toggleColumnHidden,
+  toggleRowHidden,
   unfreezePanes,
 } from "@/lib/spreadsheet/workbook-ops";
 import {
@@ -149,6 +161,13 @@ export function ExcelSpreadsheetDialog({
     selectedValues: null,
   });
   const [precedentHighlight, setPrecedentHighlight] = useState<Set<string>>(new Set());
+  const [insertFunctionOpen, setInsertFunctionOpen] = useState(false);
+  const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  const [protectOpen, setProtectOpen] = useState(false);
+  const [textToColumnsOpen, setTextToColumnsOpen] = useState(false);
+  const [drawMode, setDrawMode] = useState<"pen" | "eraser" | null>(null);
+  const [drawColor, setDrawColor] = useState("#2563EB");
 
   const activeSheet = editor.activeSheet;
   const activeCell =
@@ -214,10 +233,14 @@ export function ExcelSpreadsheetDialog({
     [loadEditorWorkbook, resetEditor, sharePassword, shareToken],
   );
 
+  // Human: Defer fetch/parse to a microtask so setState is not synchronous inside the effect body.
+  // Agent: SATISFIES react-hooks/set-state-in-effect; LOADS when dialog opens or file id changes.
   useEffect(() => {
-    if (!open || !file || !isDesktopViewport) return;
-    void loadFile(file);
-  }, [file, isDesktopViewport, loadFile, open]);
+    if (!open || !file) return;
+    queueMicrotask(() => {
+      void loadFile(file);
+    });
+  }, [file, loadFile, open]);
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -239,6 +262,13 @@ export function ExcelSpreadsheetDialog({
         setPrintPreviewOpen(false);
         setColumnFilter({ textQuery: "", selectedValues: null });
         setPrecedentHighlight(new Set());
+        setInsertFunctionOpen(false);
+        setPasteSpecialOpen(false);
+        setPageSetupOpen(false);
+        setProtectOpen(false);
+        setTextToColumnsOpen(false);
+        setDrawMode(null);
+        setDrawColor("#2563EB");
       }
       onOpenChange(nextOpen);
     },
@@ -391,26 +421,49 @@ export function ExcelSpreadsheetDialog({
 
   const formulaValue = formulaBarValue(activeCell);
 
+  // Human: Narrow viewports get read-only grid (no ribbon) instead of a hard block.
+  // Agent: LOADS workbook on mobile; RENDERS scaled grid when activeSheet is ready.
   if (!isDesktopViewport) {
     return (
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent
-          className="gap-4 border border-[#E5E7EB] bg-white p-6 sm:max-w-md"
-          overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
-        >
+        <DialogContent className="gap-2 border border-[#E5E7EB] bg-white p-3 sm:max-w-full" overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl">
           <DialogHeader>
-            <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-[#EFF6FF] text-[#2563EB]">
-              <FileSpreadsheet className="size-6" aria-hidden />
-            </div>
-            <DialogTitle className="text-center">{file?.name ?? "Spreadsheet preview"}</DialogTitle>
-            <DialogDescription className="text-center">
-              Spreadsheet preview is not supported on mobile. Open this file on a desktop browser to view and edit it.
-            </DialogDescription>
+            <DialogTitle className="text-base">{file?.name ?? "Spreadsheet"}</DialogTitle>
+            <DialogDescription>Read-only mobile view. Use a desktop browser to edit.</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="border-0 bg-transparent px-0 py-0 sm:justify-center">
-            <Button type="button" className="w-full sm:w-auto" onClick={() => handleDialogOpenChange(false)}>
-              Close
-            </Button>
+          {loading ? <p className="text-sm text-[#666666]">Loading…</p> : null}
+          {loadError ? <p className="text-sm text-[#EF4444]">{loadError}</p> : null}
+          {activeSheet ? (
+            <div className="max-h-[70vh] overflow-auto">
+              <ExcelSpreadsheetGrid
+                sheetKey={activeSheet.name}
+                rows={activeSheet.rows}
+                conditionalFormats={activeSheet.conditionalFormats}
+                columnWidths={activeSheet.columnWidths}
+                rowHeights={activeSheet.rowHeights}
+                readOnly
+                selectionRange={editor.selectionRange}
+                editingCell={null}
+                editDraft=""
+                showFormulas={false}
+                showGridlines
+                filterHiddenRows={editor.filterHiddenRows}
+                frozenRows={activeSheet.frozenRows ?? 0}
+                frozenCols={activeSheet.frozenCols ?? 0}
+                mergedRegions={activeSheet.mergedRegions}
+                hiddenRows={activeSheet.hiddenRows}
+                hiddenCols={activeSheet.hiddenCols}
+                zoomPercent={activeSheet.zoomPercent ?? 100}
+                onSelectCell={handleSelectCell}
+                onStartEditing={() => undefined}
+                onEditDraftChange={() => undefined}
+                onCommitEdit={() => undefined}
+                onGridKeyDown={() => undefined}
+              />
+            </div>
+          ) : null}
+          <DialogFooter className="border-0 bg-transparent px-0 py-0">
+            <Button type="button" onClick={() => handleDialogOpenChange(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -465,6 +518,12 @@ export function ExcelSpreadsheetDialog({
                 onCopy={() => void editor.copySelection()}
                 onCut={() => void editor.cutSelection()}
                 onPaste={() => void editor.pasteClipboard()}
+                onPasteSpecial={() => setPasteSpecialOpen(true)}
+                onFormatPainter={() => {
+                  if (editor.formatPainterActive) editor.cancelFormatPainter();
+                  else editor.activateFormatPainter();
+                }}
+                formatPainterActive={editor.formatPainterActive}
                 onUndo={() => editor.performUndo()}
                 onRedo={() => editor.performRedo()}
                 onSaveCopy={() => void handleSaveCopy()}
@@ -473,16 +532,9 @@ export function ExcelSpreadsheetDialog({
                 onToggleGridlines={() =>
                   editor.setViewFlags((current) => ({ ...current, showGridlines: !current.showGridlines }))
                 }
-                onToggleShowFormulas={() => {
-                  editor.commitWorkbookMutation((current) => ({
-                    sheets: current.sheets.map((sheet, index) =>
-                      index === editor.activeSheetIndex
-                        ? { ...sheet, showFormulas: !sheet.showFormulas }
-                        : sheet,
-                    ),
-                  }));
-                  editor.setViewFlags((current) => ({ ...current, showFormulas: !current.showFormulas }));
-                }}
+                onToggleShowFormulas={() =>
+                  editor.setViewFlags((current) => ({ ...current, showFormulas: !current.showFormulas }))
+                }
                 onAutoSum={() => {
                   if (readOnly) return;
                   const formula = buildAutoSumFormula(editor.selectionRange);
@@ -490,9 +542,45 @@ export function ExcelSpreadsheetDialog({
                 }}
                 onInsertFunction={() => {
                   if (readOnly) return;
-                  const fn = window.prompt("Enter function (e.g. SUM(A1:A5))", "SUM()");
-                  if (fn) editor.commitFormulaBar(fn.startsWith("=") ? fn : `=${fn}`);
+                  setInsertFunctionOpen(true);
                 }}
+                onPageSetup={() => setPageSetupOpen(true)}
+                onTextToColumns={() => setTextToColumnsOpen(true)}
+                onProtectSheet={() => setProtectOpen(true)}
+                onTrackChanges={() =>
+                  editor.commitWorkbookMutation(
+                    (current) => setTrackChangesEnabled(current, !current.trackChangesEnabled),
+                    { bypassProtection: true },
+                  )
+                }
+                onHideRow={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    toggleRowHidden(current, editor.activeSheetIndex, editor.activeCellAddress.row),
+                  )
+                }
+                onHideColumn={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    toggleColumnHidden(current, editor.activeSheetIndex, editor.activeCellAddress.col),
+                  )
+                }
+                zoomPercent={activeSheet?.zoomPercent ?? 100}
+                onZoomChange={(percent) =>
+                  editor.commitWorkbookMutation(
+                    (current) => setSheetZoom(current, editor.activeSheetIndex, percent),
+                    { bypassProtection: true },
+                  )
+                }
+                drawMode={drawMode}
+                drawColor={drawColor}
+                onDrawModeChange={setDrawMode}
+                onDrawColorChange={setDrawColor}
+                onClearDrawings={() =>
+                  editor.commitWorkbookMutation((current) => ({
+                    sheets: current.sheets.map((sheet, index) =>
+                      index === editor.activeSheetIndex ? { ...sheet, drawings: undefined } : sheet,
+                    ),
+                  }))
+                }
                 onSortAsc={() =>
                   editor.commitWorkbookMutation((current) =>
                     sortSheetByColumn(current, editor.activeSheetIndex, editor.activeCellAddress.col, "asc"),
@@ -632,7 +720,21 @@ export function ExcelSpreadsheetDialog({
                     frozenCols={activeSheet.frozenCols ?? 0}
                     precedentHighlight={precedentHighlight}
                     printArea={activeSheet.printArea ?? null}
-                    onSelectCell={handleSelectCell}
+                    mergedRegions={activeSheet.mergedRegions}
+                    hiddenRows={activeSheet.hiddenRows}
+                    hiddenCols={activeSheet.hiddenCols}
+                    zoomPercent={activeSheet.zoomPercent ?? 100}
+                    drawings={activeSheet.drawings}
+                    drawMode={drawMode}
+                    drawColor={drawColor}
+                    onSelectCell={(address, extend) => {
+                      if (editor.formatPainterActive) {
+                        editor.selectCell(address, extend);
+                        editor.applyFormatPainter();
+                        return;
+                      }
+                      handleSelectCell(address, extend);
+                    }}
                     onSelectAll={handleSelectAll}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
@@ -678,6 +780,13 @@ export function ExcelSpreadsheetDialog({
                     metricsLine={metricsLine}
                     undoAvailable={editor.canUndo}
                     redoAvailable={editor.canRedo}
+                    zoomPercent={activeSheet.zoomPercent ?? 100}
+                    onZoomChange={(percent) =>
+                      editor.commitWorkbookMutation(
+                        (current) => setSheetZoom(current, editor.activeSheetIndex, percent),
+                        { bypassProtection: true },
+                      )
+                    }
                   />
                 </>
               ) : null}
@@ -698,6 +807,52 @@ export function ExcelSpreadsheetDialog({
             </div>
           </div>
         </div>
+
+        <ExcelInsertFunctionDialog
+          open={insertFunctionOpen}
+          onOpenChange={setInsertFunctionOpen}
+          onInsert={(formula) => editor.commitFormulaBar(formula)}
+        />
+
+        <ExcelPasteSpecialDialog
+          open={pasteSpecialOpen}
+          onOpenChange={setPasteSpecialOpen}
+          onPaste={({ mode, transpose }) => void editor.pasteClipboard(mode, transpose)}
+        />
+
+        <ExcelPageSetupDialog
+          open={pageSetupOpen}
+          onOpenChange={setPageSetupOpen}
+          initial={activeSheet?.pageSetup}
+          onApply={(setup) =>
+            editor.commitWorkbookMutation((current) =>
+              setPageSetup(current, editor.activeSheetIndex, setup),
+            )
+          }
+        />
+
+        <ExcelProtectSheetDialog
+          open={protectOpen}
+          onOpenChange={setProtectOpen}
+          currentlyProtected={Boolean(activeSheet?.protection?.locked)}
+          onApply={(protection) =>
+            editor.commitWorkbookMutation(
+              (current) => setSheetProtection(current, editor.activeSheetIndex, protection),
+              { bypassProtection: true },
+            )
+          }
+        />
+
+        <ExcelTextToColumnsDialog
+          open={textToColumnsOpen}
+          onOpenChange={setTextToColumnsOpen}
+          columnLabel={activeColumnLabel}
+          onApply={(delimiter) =>
+            editor.commitWorkbookMutation((current) =>
+              textToColumns(current, editor.activeSheetIndex, editor.activeCellAddress.col, delimiter),
+            )
+          }
+        />
 
         <ExcelFindReplaceDialog
           open={findOpen}

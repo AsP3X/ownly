@@ -44,6 +44,25 @@ export function copyRangeFromSheet(sheet: SheetData, range: CellRange): Clipboar
 
 export type PasteMode = "all" | "values";
 
+export type PasteOptions = {
+  mode?: PasteMode;
+  transpose?: boolean;
+};
+
+// Human: Swap rows/cols on a clipboard block for Paste Special → Transpose.
+// Agent: RETURNS new ClipboardPayload with dimensions flipped.
+export function transposeClipboardPayload(payload: ClipboardPayload): ClipboardPayload {
+  const cells: SheetCell[][] = [];
+  for (let col = 0; col < payload.cols; col += 1) {
+    const rowCells: SheetCell[] = [];
+    for (let row = 0; row < payload.rows; row += 1) {
+      rowCells.push(payload.cells[row]?.[col] ?? emptyCell());
+    }
+    cells.push(rowCells);
+  }
+  return { cells, rows: payload.cols, cols: payload.rows };
+}
+
 // Human: Paste clipboard block starting at target cell; grows sheet as needed.
 // Agent: WRITES cells into workbook; STRIPS formulas/styles when mode is values.
 export function pasteRangeIntoWorkbook(
@@ -52,24 +71,26 @@ export function pasteRangeIntoWorkbook(
   target: { row: number; col: number },
   payload: ClipboardPayload,
   mode: PasteMode,
+  transpose = false,
 ): SpreadsheetWorkbook {
+  const effective = transpose ? transposeClipboardPayload(payload) : payload;
   const nextSheets = workbook.sheets.map((sheet, index) => {
     if (index !== sheetIndex) return sheet;
 
     let expanded = sheet;
-    const endRow = target.row + payload.rows - 1;
-    const endCol = target.col + payload.cols - 1;
+    const endRow = target.row + effective.rows - 1;
+    const endCol = target.col + effective.cols - 1;
     expanded = expandSheetToAddress(expanded, endRow, endCol);
 
     const nextRows = expanded.rows.map((row, rowIndex) =>
       row.map((cell, colIndex) => {
         const relRow = rowIndex - target.row;
         const relCol = colIndex - target.col;
-        if (relRow < 0 || relCol < 0 || relRow >= payload.rows || relCol >= payload.cols) {
+        if (relRow < 0 || relCol < 0 || relRow >= effective.rows || relCol >= effective.cols) {
           return cell;
         }
 
-        const source = payload.cells[relRow][relCol];
+        const source = effective.cells[relRow][relCol];
         if (mode === "values") {
           const value = source.formula ? source.value : source.value;
           return {
