@@ -13,7 +13,10 @@ export const GRID_ROW_INDEX_WIDTH_BASE = 40;
 // Human: Excel default column ≈ 8.43 characters (~64 screen px at 96 dpi).
 export const GRID_DEFAULT_COL_WIDTH = 64;
 export const GRID_MIN_COL_WIDTH = 20;
-export const GRID_MAX_COL_WIDTH = 400;
+// Human: Excel allows column widths up to 255 character units (~1790 px at default font).
+// Agent: MATCHES Excel UI max; used for resize clamp, import, and OOXML round-trip.
+export const GRID_MAX_COL_WCH = 255;
+export const GRID_MAX_COL_WIDTH = GRID_MAX_COL_WCH * 7 + 5;
 export const GRID_MIN_ROW_HEIGHT_BASE = 14;
 
 export const GRID_DEFAULT_ROW_HEIGHT = scaledPx(GRID_DEFAULT_ROW_HEIGHT_BASE);
@@ -21,8 +24,8 @@ export const GRID_HEADER_ROW_HEIGHT = scaledPx(GRID_HEADER_ROW_HEIGHT_BASE);
 export const GRID_ROW_INDEX_WIDTH = scaledPx(GRID_ROW_INDEX_WIDTH_BASE);
 export const GRID_MIN_ROW_HEIGHT = scaledPx(GRID_MIN_ROW_HEIGHT_BASE);
 
-// Human: Clamp imported/resized column width to Excel-like bounds.
-// Agent: PREVENTS oversized wpx/wch values from stretching the grid.
+// Human: Clamp imported/resized column width to Excel character-unit bounds.
+// Agent: MIN 20px; MAX 255 wch (~1790px) — same limits as Excel column resize.
 function clampColumnWidth(width: number): number {
   return Math.min(GRID_MAX_COL_WIDTH, Math.max(GRID_MIN_COL_WIDTH, Math.round(width)));
 }
@@ -45,6 +48,48 @@ export function displayPxToHpx(displayPx: number): number {
   return Math.max(1, Math.round(displayPx));
 }
 
+// Human: Detect whether a stored width/height matches Excel defaults (skip OOXML write).
+// Agent: USED by trimSheetForSave and xlsx-dimensions-ooxml export; undefined counts as default.
+export function isDefaultColumnWidth(width: number | undefined): boolean {
+  if (typeof width !== "number" || !Number.isFinite(width)) return true;
+  return Math.abs(width - GRID_DEFAULT_COL_WIDTH) <= 1;
+}
+
+export function isDefaultRowHeight(height: number | undefined): boolean {
+  if (typeof height !== "number" || !Number.isFinite(height)) return true;
+  return Math.abs(height - GRID_DEFAULT_ROW_HEIGHT) <= 1;
+}
+
+// Human: Last index with a user-resized column or row (for save-range trimming).
+// Agent: EXTENDS trimSheetForSave beyond cell content when dimensions were changed.
+export function lastNonDefaultColumnIndex(widths: number[] | undefined): number {
+  if (!widths) return -1;
+  for (let index = widths.length - 1; index >= 0; index -= 1) {
+    if (typeof widths[index] === "number" && !isDefaultColumnWidth(widths[index])) return index;
+  }
+  return -1;
+}
+
+export function lastNonDefaultRowIndex(heights: number[] | undefined): number {
+  if (!heights) return -1;
+  for (let index = heights.length - 1; index >= 0; index -= 1) {
+    if (typeof heights[index] === "number" && !isDefaultRowHeight(heights[index])) return index;
+  }
+  return -1;
+}
+
+// Human: Count of columns/rows that include a user-resized dimension (not array .length).
+// Agent: PREVENTS sparse OOXML arrays from expanding the interactive grid to Excel max bounds.
+export function storedCustomColumnExtent(widths: number[] | undefined): number {
+  const last = lastNonDefaultColumnIndex(widths);
+  return last < 0 ? 0 : last + 1;
+}
+
+export function storedCustomRowExtent(heights: number[] | undefined): number {
+  const last = lastNonDefaultRowIndex(heights);
+  return last < 0 ? 0 : last + 1;
+}
+
 // Human: Points (hpt) → screen pixels at 96 dpi.
 // Agent: USED when SheetJS exposes row height in points instead of hpx.
 export function hptToDisplayPx(hpt: number): number {
@@ -52,24 +97,50 @@ export function hptToDisplayPx(hpt: number): number {
   return hpxToDisplayPx(screenPx);
 }
 
-// Human: Estimate column width from SheetJS col metadata (prefers wch over inflated wpx).
-// Agent: READS !cols entry; RETURNS clamped CSS pixel width.
+// Human: Estimate column width from SheetJS col metadata.
+// Agent: TRUSTS custom wpx over default wch; IGNORES inflated template wpx on default cols.
 function columnWidthFromColMeta(meta: { wpx?: number; wch?: number; width?: number } | undefined): number {
   if (!meta) return GRID_DEFAULT_COL_WIDTH;
 
-  if (meta.wch && meta.wch > 0) {
-    return clampColumnWidth(meta.wch * 7 + 5);
+  const fromWch = meta.wch && meta.wch > 0 ? clampColumnWidth(meta.wch * 7 + 5) : null;
+  const fromWpx = meta.wpx && meta.wpx > 0 ? clampColumnWidth(meta.wpx) : null;
+
+  if (fromWpx !== null && fromWch !== null) {
+    const wchIsDefault = isDefaultColumnWidth(fromWch);
+    const wpxIsDefault = isDefaultColumnWidth(fromWpx);
+    if (wchIsDefault && wpxIsDefault) return GRID_DEFAULT_COL_WIDTH;
+    // Human: Saved custom widths export wpx while Excel keeps default wch on the same col.
+    // Agent: PREFERS custom wpx; FALLS BACK to custom wch when wpx is default-only.
+    if (!wpxIsDefault) return fromWpx;
+    if (!wchIsDefault) return fromWch;
+    return GRID_DEFAULT_COL_WIDTH;
   }
 
-  if (meta.wpx && meta.wpx > 0) {
-    return clampColumnWidth(meta.wpx);
-  }
-
-  if (meta.width && meta.width > 0) {
-    return clampColumnWidth(meta.width * 7 + 5);
-  }
-
+  if (fromWpx !== null) return fromWpx;
+  if (fromWch !== null) return fromWch;
+  if (meta.width && meta.width > 0) return clampColumnWidth(meta.width * 7 + 5);
   return GRID_DEFAULT_COL_WIDTH;
+}
+
+// Human: Build sparse sheet.columnWidths from a full grid width array (replace, not merge).
+// Agent: ONLY stores non-default widths so phantom max entries cannot block later widens.
+export function applyGridColumnWidths(
+  _existing: number[] | undefined,
+  gridWidths: number[],
+): number[] | undefined {
+  const merged: number[] = [];
+
+  for (let index = 0; index < gridWidths.length; index += 1) {
+    const raw = gridWidths[index];
+    const width =
+      typeof raw === "number" && raw > 0 ? clampColumnWidth(raw) : GRID_DEFAULT_COL_WIDTH;
+
+    if (!isDefaultColumnWidth(width)) {
+      merged[index] = width;
+    }
+  }
+
+  return lastNonDefaultColumnIndex(merged) >= 0 ? merged : undefined;
 }
 
 // Human: Build a full column-width array, filling gaps with the Excel default width.
@@ -93,7 +164,7 @@ export function resolveRowHeights(sheet: Pick<SheetData, "rows" | "rowHeights">,
 }
 
 // Human: Import !cols metadata from a parsed SheetJS worksheet (data columns only).
-// Agent: PREFERS wch; FALLS BACK to wpx; RETURNS clamped CSS pixel widths.
+// Agent: READS wpx/wch via columnWidthFromColMeta; RETURNS clamped CSS pixel widths.
 export function columnWidthsFromWorksheet(
   worksheet: XLSX.WorkSheet,
   columnCount: number,
@@ -124,8 +195,14 @@ export function applyDimensionsToWorksheet(worksheet: XLSX.WorkSheet, sheet: She
   const widths = resolveColumnWidths(sheet, columnCount);
   const heights = resolveRowHeights(sheet, rowCount);
 
-  worksheet["!cols"] = widths.map((width) => ({ wpx: displayPxToWpx(width) }));
-  worksheet["!rows"] = heights.map((height) => ({ hpx: displayPxToHpx(height) }));
+  // Human: Only write !cols wpx for non-default widths so SheetJS reload does not pick default wch.
+  // Agent: SKIPS default columns; OOXML exportDimensionsToXlsx adds customWidth for resized cols.
+  worksheet["!cols"] = widths.map((width) =>
+    isDefaultColumnWidth(width) ? {} : { wpx: displayPxToWpx(width) },
+  );
+  worksheet["!rows"] = heights.map((height) =>
+    isDefaultRowHeight(height) ? {} : { hpx: displayPxToHpx(height) },
+  );
 }
 
 let measureCanvas: HTMLCanvasElement | null = null;

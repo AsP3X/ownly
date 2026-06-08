@@ -2,16 +2,36 @@
 // Agent: READS ArrayBuffer/Blob; WRITES SpreadsheetWorkbook; SERIALIZES back to xlsx bytes on save.
 
 import * as XLSX from "xlsx";
-import { cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
+import { cellStyleFromXlsx, cellStyleToXlsx } from "@/lib/spreadsheet/cell-styles";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
+import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
   applyDimensionsToWorksheet,
+  applyGridColumnWidths,
   columnWidthsFromWorksheet,
   rowHeightsFromWorksheet,
+  storedCustomColumnExtent,
+  storedCustomRowExtent,
 } from "@/lib/spreadsheet/dimensions";
 import { normalizeSheetGrid, expandSheetToAddress, trimSheetForSave } from "@/lib/spreadsheet/grid";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
-import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
+import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx, importFreezePanesFromXlsx, exportFreezePanesToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
+import {
+  exportWorkbookMetadataToXlsx,
+  importCommentsFromXlsx,
+  importDataValidationsFromXlsx,
+  importNamedRangesFromXlsx,
+  mergeCommentsIntoSheet,
+} from "@/lib/spreadsheet/xlsx-metadata-ooxml";
+import {
+  exportPageSettingsToXlsx,
+  importPageMarginsFromXlsx,
+  importPrintAreasFromXlsx,
+} from "@/lib/spreadsheet/xlsx-page-settings-ooxml";
+import {
+  exportDimensionsToXlsx,
+  importDimensionsFromXlsx,
+} from "@/lib/spreadsheet/xlsx-dimensions-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -70,19 +90,48 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: true, cellStyles: true });
   const sheetNames = workbook.SheetNames;
   const conditionalBySheet = await importConditionalFormatsFromXlsx(buffer, sheetNames);
+  const freezeBySheet = await importFreezePanesFromXlsx(buffer, sheetNames);
+  const commentsBySheet = await importCommentsFromXlsx(buffer, sheetNames);
+  const validationsBySheet = await importDataValidationsFromXlsx(buffer, sheetNames);
+  const namedRanges = await importNamedRangesFromXlsx(buffer);
+  const printAreasBySheet = await importPrintAreasFromXlsx(buffer, sheetNames);
+  const marginsBySheet = await importPageMarginsFromXlsx(buffer);
+  const dimensionsBySheet = await importDimensionsFromXlsx(buffer, sheetNames);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
     const rows = sheetToRows(worksheet);
-    const importColumnCount = Math.max(...rows.map((row) => row.length), 1);
+    const ooxmlDimensions = dimensionsBySheet.get(name);
+    const importColumnCount = Math.max(
+      ...rows.map((row) => row.length),
+      1,
+      storedCustomColumnExtent(ooxmlDimensions?.columnWidths),
+    );
+    const importRowCount = Math.max(
+      rows.length,
+      storedCustomRowExtent(ooxmlDimensions?.rowHeights),
+    );
+    const sheetJsColumnWidths = columnWidthsFromWorksheet(worksheet, importColumnCount);
+    const sheetJsRowHeights = rowHeightsFromWorksheet(worksheet, importRowCount);
+    const freeze = freezeBySheet.get(name);
+    const mergedColumnWidths = mergeImportedDimensions(
+      importColumnCount,
+      ooxmlDimensions?.columnWidths,
+      sheetJsColumnWidths,
+    );
     const imported: SheetData = {
       name,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
-      columnWidths: columnWidthsFromWorksheet(worksheet, importColumnCount),
-      rowHeights: rowHeightsFromWorksheet(worksheet, rows.length),
+      columnWidths: applyGridColumnWidths(undefined, mergedColumnWidths),
+      rowHeights: mergeImportedDimensions(importRowCount, ooxmlDimensions?.rowHeights, sheetJsRowHeights),
+      frozenRows: freeze?.frozenRows,
+      frozenCols: freeze?.frozenCols,
+      columnValidations: validationsBySheet.get(name),
+      printArea: printAreasBySheet.get(name),
+      pageMargins: marginsBySheet.get(name),
     };
-    return normalizeSheetGrid(imported);
+    return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
   });
 
   return {
@@ -90,7 +139,22 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       sheets.length > 0
         ? sheets
         : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
+    namedRanges: namedRanges.length > 0 ? namedRanges : undefined,
   };
+}
+
+// Human: Prefer OOXML dimension arrays over SheetJS !cols/!rows (SheetJS often omits them).
+// Agent: OOXML wins when present; fallback only fills gaps so custom widths are not capped.
+function mergeImportedDimensions(
+  count: number,
+  ooxmlValues: number[] | undefined,
+  fallbackValues: number[],
+): number[] {
+  return Array.from({ length: count }, (_, index) => {
+    const ooxml = ooxmlValues?.[index];
+    if (typeof ooxml === "number") return ooxml;
+    return fallbackValues[index];
+  });
 }
 
 // Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
@@ -107,12 +171,29 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
       }),
     );
     const worksheet = XLSX.utils.aoa_to_sheet(matrix);
+
+    // Human: Write per-cell styles from our model back into SheetJS cells.
+    // Agent: PATCHES worksheet[addr].s after aoa_to_sheet for round-trip formatting.
+    trimmed.rows.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const xlsxStyle = cellStyleToXlsx(cell.style);
+        if (!xlsxStyle) return;
+        const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+        const target = worksheet[address] as XLSX.CellObject | undefined;
+        if (target) target.s = xlsxStyle;
+      });
+    });
+
     applyDimensionsToWorksheet(worksheet, trimmed);
     XLSX.utils.book_append_sheet(xlsxWorkbook, worksheet, sheet.name);
   }
 
   let bytes = XLSX.write(xlsxWorkbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   bytes = await exportConditionalFormatsToXlsx(bytes, workbook.sheets);
+  bytes = await exportFreezePanesToXlsx(bytes, workbook.sheets);
+  bytes = await exportWorkbookMetadataToXlsx(bytes, workbook);
+  bytes = await exportPageSettingsToXlsx(bytes, workbook.sheets);
+  bytes = await exportDimensionsToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -160,5 +241,5 @@ export function applyFormulaBarEdit(
     return { ...expanded, rows: nextRows };
   });
 
-  return { sheets: nextSheets };
+  return recalculateWorkbook({ sheets: nextSheets });
 }

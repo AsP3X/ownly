@@ -11,10 +11,13 @@ import {
 import type { CopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cn } from "@/lib/utils";
 
+import type { CellAddress } from "@/lib/spreadsheet/types";
+
 type ExcelCopilotSidebarProps = {
   analysis: CopilotAnalysis | null;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
+  onNavigateToCell?: (address: CellAddress) => void;
 };
 
 // Human: Narrow vertical rail — sparkles + chevron; click anywhere to expand Copilot.
@@ -48,8 +51,14 @@ function CopilotLedge({ onExpand }: { onExpand: () => void }) {
   );
 }
 
-export function ExcelCopilotSidebar({ analysis, collapsed, onCollapsedChange }: ExcelCopilotSidebarProps) {
+export function ExcelCopilotSidebar({
+  analysis,
+  collapsed,
+  onCollapsedChange,
+  onNavigateToCell,
+}: ExcelCopilotSidebarProps) {
   const [prompt, setPrompt] = useState("");
+  const [promptReply, setPromptReply] = useState("");
   const expandedWidth = scaledPx(EXCEL_COPILOT_SIDEBAR_WIDTH_BASE);
   const ledgeWidth = scaledPx(EXCEL_COPILOT_LEDGE_WIDTH_BASE);
 
@@ -135,6 +144,7 @@ export function ExcelCopilotSidebar({ analysis, collapsed, onCollapsedChange }: 
                     type="button"
                     className="w-full rounded-lg border border-[#2563EB] text-left font-semibold text-[#2563EB] hover:bg-[#EFF6FF]"
                     style={{ padding: `${scaledPx(8)}px ${scaledPx(12)}px`, fontSize: scaledPx(12) }}
+                    onClick={() => onNavigateToCell?.({ row: 3, col: 6 })}
                   >
                     {analysis.primaryAction}
                   </button>
@@ -142,6 +152,7 @@ export function ExcelCopilotSidebar({ analysis, collapsed, onCollapsedChange }: 
                     type="button"
                     className="w-full text-left font-medium text-[#2563EB] hover:underline"
                     style={{ padding: `${scaledPx(4)}px`, fontSize: scaledPx(12) }}
+                    onClick={() => onNavigateToCell?.({ row: 1, col: 6 })}
                   >
                     {analysis.secondaryAction}
                   </button>
@@ -173,10 +184,28 @@ export function ExcelCopilotSidebar({ analysis, collapsed, onCollapsedChange }: 
                 className="min-w-0 flex-1 bg-transparent text-[#1A1A1A] outline-none placeholder:text-[#888888]"
                 style={{ fontSize: scaledPx(12) }}
               />
-              <button type="button" aria-label="Send prompt" className="text-[#2563EB]">
+              <button
+                type="button"
+                aria-label="Send prompt"
+                className="text-[#2563EB]"
+                onClick={() => {
+                  const trimmed = prompt.trim();
+                  if (!trimmed) return;
+                  setPromptReply(
+                    analysis
+                      ? `Based on ${analysis.title}: try a formula like =SUM(G2:G10) or review column G for budget comparisons.`
+                      : "Select a cell first, then ask about formulas, totals, or formatting.",
+                  );
+                }}
+              >
                 <Send style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
               </button>
             </div>
+            {promptReply ? (
+              <p className="text-[#666666]" style={{ fontSize: scaledPx(11) }}>
+                {promptReply}
+              </p>
+            ) : null}
           </section>
         </>
       )}

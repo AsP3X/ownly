@@ -10,6 +10,8 @@ type ExcelDialogHeaderProps = {
   file: FileItem | null;
   dirty: boolean;
   saving: boolean;
+  loading?: boolean;
+  loaded?: boolean;
   readOnly: boolean;
   onShare?: () => void;
   onSaveAndClose: () => void;
@@ -19,15 +21,21 @@ export function ExcelDialogHeader({
   file,
   dirty,
   saving,
+  loading = false,
+  loaded = true,
   readOnly,
   onShare,
   onSaveAndClose,
 }: ExcelDialogHeaderProps) {
-  const savedLabel = saving
-    ? "Saving to Ownly Cloud…"
-    : dirty
-      ? "Unsaved changes"
-      : "Saved to Ownly Cloud";
+  const savedLabel = loading
+    ? "Loading spreadsheet…"
+    : saving
+      ? "Saving to Ownly Cloud…"
+      : !loaded
+        ? "Not loaded"
+        : dirty
+          ? "Unsaved changes"
+          : "Saved to Ownly Cloud";
 
   return (
     <header
