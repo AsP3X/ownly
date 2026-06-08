@@ -622,20 +622,24 @@ export function ExcelSpreadsheetDialog({
                     onCommitEdit={editor.commitEdit}
                     onGridKeyDown={handleGridKeyDown}
                     onFillDragEnd={editor.performFill}
-                    onColumnWidthsChange={(widths) =>
-                      editor.commitWorkbookMutation((current) => ({
-                        sheets: current.sheets.map((sheet, index) =>
+                    onColumnWidthsChange={(widths) => {
+                      if (!editor.workbook || readOnly) return;
+                      editor.setWorkbook({
+                        ...editor.workbook,
+                        sheets: editor.workbook.sheets.map((sheet, index) =>
                           index === editor.activeSheetIndex ? { ...sheet, columnWidths: widths } : sheet,
                         ),
-                      }))
-                    }
-                    onRowHeightsChange={(heights) =>
-                      editor.commitWorkbookMutation((current) => ({
-                        sheets: current.sheets.map((sheet, index) =>
+                      });
+                    }}
+                    onRowHeightsChange={(heights) => {
+                      if (!editor.workbook || readOnly) return;
+                      editor.setWorkbook({
+                        ...editor.workbook,
+                        sheets: editor.workbook.sheets.map((sheet, index) =>
                           index === editor.activeSheetIndex ? { ...sheet, rowHeights: heights } : sheet,
                         ),
-                      }))
-                    }
+                      });
+                    }}
                   />
                   <ExcelSheetTabsBar
                     sheets={editor.workbook?.sheets.map((sheet) => sheet.name) ?? []}

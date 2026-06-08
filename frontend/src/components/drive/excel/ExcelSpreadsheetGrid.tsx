@@ -250,6 +250,8 @@ export function ExcelSpreadsheetGrid({
   const [previewColumnWidths, setPreviewColumnWidths] = useState<number[] | null>(null);
   const [previewRowHeights, setPreviewRowHeights] = useState<number[] | null>(null);
   const [resizeDrag, setResizeDrag] = useState<ResizeDrag | null>(null);
+  const previewColumnWidthsRef = useRef<number[] | null>(null);
+  const previewRowHeightsRef = useRef<number[] | null>(null);
 
   const columnWidths = previewColumnWidths ?? baseColumnWidths;
   const rowHeights = previewRowHeights ?? baseRowHeights;
@@ -278,17 +280,31 @@ export function ExcelSpreadsheetGrid({
     rowVirtualizer.measure();
   }, [rowHeights, rows.length, rowVirtualizer]);
 
-  // Human: Clear in-progress resize when the active sheet or stored dimensions change.
+  useEffect(() => {
+    previewColumnWidthsRef.current = previewColumnWidths;
+  }, [previewColumnWidths]);
+
+  useEffect(() => {
+    previewRowHeightsRef.current = previewRowHeights;
+  }, [previewRowHeights]);
+
+  // Human: Drop live-resize preview once parent sheet dimensions update from commit.
+  // Agent: AVOIDS clearing preview before columnWidthsProp/rowHeightsProp re-render (snap-back).
+  useEffect(() => {
+    setPreviewColumnWidths(null);
+    setPreviewRowHeights(null);
+  }, [columnWidthsProp, rowHeightsProp]);
+
+  // Human: Reset resize state when switching worksheet tabs.
   // Agent: PREVENTS stale preview widths/heights after sheet tab switch.
   useEffect(() => {
     setPreviewColumnWidths(null);
     setPreviewRowHeights(null);
     setResizeDrag(null);
-  }, [columnWidthsProp, rowHeightsProp, sheetKey]);
+  }, [sheetKey]);
 
   const commitColumnWidths = useCallback(
     (widths: number[]) => {
-      setPreviewColumnWidths(null);
       onColumnWidthsChange?.(widths);
     },
     [onColumnWidthsChange],
@@ -296,7 +312,6 @@ export function ExcelSpreadsheetGrid({
 
   const commitRowHeights = useCallback(
     (heights: number[]) => {
-      setPreviewRowHeights(null);
       onRowHeightsChange?.(heights);
     },
     [onRowHeightsChange],
@@ -367,14 +382,16 @@ export function ExcelSpreadsheetGrid({
   const finishResize = useCallback(() => {
     if (!resizeDrag) return;
 
-    if (resizeDrag.axis === "column" && previewColumnWidths) {
-      commitColumnWidths(previewColumnWidths);
-    } else if (resizeDrag.axis === "row" && previewRowHeights) {
-      commitRowHeights(previewRowHeights);
+    if (resizeDrag.axis === "column") {
+      const widths = previewColumnWidthsRef.current;
+      if (widths) commitColumnWidths(widths);
+    } else {
+      const heights = previewRowHeightsRef.current;
+      if (heights) commitRowHeights(heights);
     }
 
     setResizeDrag(null);
-  }, [commitColumnWidths, commitRowHeights, previewColumnWidths, previewRowHeights, resizeDrag]);
+  }, [commitColumnWidths, commitRowHeights, resizeDrag]);
 
   useEffect(() => {
     if (!resizeDrag) return undefined;
