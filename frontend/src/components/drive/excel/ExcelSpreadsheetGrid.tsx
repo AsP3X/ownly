@@ -36,6 +36,7 @@ type ExcelSpreadsheetGridProps = {
   filterHiddenRows?: Set<number>;
   frozenRows?: number;
   frozenCols?: number;
+  precedentHighlight?: Set<string>;
   onSelectCell: (address: CellAddress, extend?: boolean) => void;
   onStartEditing: (address: CellAddress) => void;
   onEditDraftChange: (value: string) => void;
@@ -75,6 +76,18 @@ function cellBorderStyles(style?: CellStyle): CSSProperties {
     borderBottom: style.borderBottom ? edge : undefined,
     borderLeft: style.borderLeft ? edge : undefined,
   };
+}
+
+// Human: Red corner marker when a cell has an attached comment note.
+function CellCommentMarker({ comment }: { comment?: string }) {
+  if (!comment) return null;
+  return (
+    <span
+      className="pointer-events-none absolute right-0 top-0 size-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-[#EAB308]"
+      title={comment}
+      aria-hidden
+    />
+  );
 }
 
 function CellContent({
@@ -195,6 +208,7 @@ export function ExcelSpreadsheetGrid({
   filterHiddenRows,
   frozenRows = 0,
   frozenCols = 0,
+  precedentHighlight,
   onSelectCell,
   onStartEditing,
   onEditDraftChange,
@@ -478,6 +492,7 @@ export function ExcelSpreadsheetGrid({
                     const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                     const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                     const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
+                    const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
 
                     return (
                       <button
@@ -498,6 +513,7 @@ export function ExcelSpreadsheetGrid({
                           !isHeader && !isTotalRow && !cellFill && "bg-white",
                           selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                           selected && !cellFill && "bg-[#EFF6FF]",
+                          isPrecedent && "ring-2 ring-amber-400 ring-inset",
                           isNumericCol && "justify-end",
                         )}
                         style={{
@@ -521,6 +537,7 @@ export function ExcelSpreadsheetGrid({
                             aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                           />
                         ) : null}
+                        <CellCommentMarker comment={cell.comment} />
                         <CellContent
                           cell={cell}
                           row={rowIndex}
@@ -582,6 +599,7 @@ export function ExcelSpreadsheetGrid({
                   const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                   const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                   const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
+                  const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
 
                   return (
                     <button
@@ -605,6 +623,7 @@ export function ExcelSpreadsheetGrid({
                         !isHeader && !isTotalRow && !cellFill && "bg-white",
                         selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                         selected && !cellFill && "bg-[#EFF6FF]",
+                        isPrecedent && "ring-2 ring-amber-400 ring-inset",
                         isNumericCol && "justify-end",
                       )}
                       style={{
@@ -654,6 +673,7 @@ export function ExcelSpreadsheetGrid({
                           aria-hidden
                         />
                       ) : null}
+                      <CellCommentMarker comment={cell.comment} />
                       <CellContent
                         cell={cell}
                         row={rowIndex}

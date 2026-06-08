@@ -11,8 +11,11 @@ import {
   getErrorMessage,
   uploadFileWithProgress,
 } from "@/api/client";
+import { ExcelAutoFilterDialog } from "@/components/drive/excel/ExcelAutoFilterDialog";
+import { ExcelCellCommentDialog } from "@/components/drive/excel/ExcelCellCommentDialog";
 import { ExcelChartDialog } from "@/components/drive/excel/ExcelChartDialog";
 import { ExcelCopilotSidebar } from "@/components/drive/excel/ExcelCopilotSidebar";
+import { ExcelDataValidationDialog } from "@/components/drive/excel/ExcelDataValidationDialog";
 import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
@@ -39,7 +42,13 @@ import {
 import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
 import { useSpreadsheetEditor } from "@/hooks/useSpreadsheetEditor";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
-import { formulaBarValue } from "@/lib/spreadsheet/cells";
+import { cellAddressLabel, columnIndexToLetters, formulaBarValue } from "@/lib/spreadsheet/cells";
+import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
+import {
+  distinctColumnValues,
+  hiddenRowsForColumnFilter,
+  type ColumnFilterConfig,
+} from "@/lib/spreadsheet/filter-values";
 import {
   columnRangeFromSelection,
   statusBadgePresetRules,
@@ -48,6 +57,7 @@ import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
 import { chartBarsFromSelection } from "@/lib/spreadsheet/chart-data";
 import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spreadsheet/parse";
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
+import { precedentCellKey, precedentCellsFromFormula } from "@/lib/spreadsheet/trace-precedents";
 import {
   addSheet,
   activeSheetIndexAfterMove,
@@ -64,6 +74,8 @@ import {
   removeSheet,
   renameSheet,
   replaceInWorkbook,
+  setCellComment,
+  setColumnValidation,
   sortSheetByColumn,
   unfreezePanes,
 } from "@/lib/spreadsheet/workbook-ops";
@@ -103,7 +115,14 @@ export function ExcelSpreadsheetDialog({
   const [saveError, setSaveError] = useState("");
   const [findOpen, setFindOpen] = useState(false);
   const [chartOpen, setChartOpen] = useState(false);
-  const [filterQuery, setFilterQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [columnFilter, setColumnFilter] = useState<ColumnFilterConfig>({
+    textQuery: "",
+    selectedValues: null,
+  });
+  const [precedentHighlight, setPrecedentHighlight] = useState<Set<string>>(new Set());
 
   const activeSheet = editor.activeSheet;
   const activeCell =
@@ -125,6 +144,21 @@ export function ExcelSpreadsheetDialog({
     if (!activeSheet) return [];
     return chartBarsFromSelection(activeSheet, editor.selectionRange);
   }, [activeSheet, editor.selectionRange]);
+
+  const filterColumnValues = useMemo(() => {
+    if (!activeSheet) return [];
+    return distinctColumnValues(activeSheet, editor.activeCellAddress.col);
+  }, [activeSheet, editor.activeCellAddress.col]);
+
+  const activeColumnLabel = columnIndexToLetters(editor.activeCellAddress.col);
+
+  const handleSelectCell = useCallback(
+    (address: Parameters<typeof editor.selectCell>[0], extend?: boolean) => {
+      setPrecedentHighlight(new Set());
+      editor.selectCell(address, extend);
+    },
+    [editor],
+  );
 
   const loadFile = useCallback(
     async (target: FileItem) => {
@@ -163,7 +197,11 @@ export function ExcelSpreadsheetDialog({
         setCopilotCollapsed(false);
         setFindOpen(false);
         setChartOpen(false);
-        setFilterQuery("");
+        setFilterOpen(false);
+        setValidationOpen(false);
+        setCommentOpen(false);
+        setColumnFilter({ textQuery: "", selectedValues: null });
+        setPrecedentHighlight(new Set());
       }
       onOpenChange(nextOpen);
     },
@@ -291,19 +329,20 @@ export function ExcelSpreadsheetDialog({
   );
 
   const handleApplyFilter = useCallback(
-    (query: string) => {
-      setFilterQuery(query);
+    (filter: ColumnFilterConfig) => {
+      setColumnFilter(filter);
       if (!activeSheet) return;
-      const hidden = new Set<number>();
-      activeSheet.rows.forEach((row, rowIndex) => {
-        if (rowIndex === 0) return;
-        const display = String(row[editor.activeCellAddress.col]?.display ?? "").toLowerCase();
-        if (query.trim() && !display.includes(query.trim().toLowerCase())) hidden.add(rowIndex);
-      });
-      editor.setFilterHiddenRows(hidden);
+      editor.setFilterHiddenRows(
+        hiddenRowsForColumnFilter(activeSheet, editor.activeCellAddress.col, filter),
+      );
     },
     [activeSheet, editor],
   );
+
+  const handleClearFilter = useCallback(() => {
+    setColumnFilter({ textQuery: "", selectedValues: null });
+    editor.setFilterHiddenRows(new Set());
+  }, [editor]);
 
   const formulaValue = formulaBarValue(activeCell);
 
@@ -414,11 +453,8 @@ export function ExcelSpreadsheetDialog({
                     sortSheetByColumn(current, editor.activeSheetIndex, editor.activeCellAddress.col, "desc"),
                   )
                 }
-                onFilter={() => {
-                  const query = window.prompt("Filter column by text", filterQuery) ?? "";
-                  handleApplyFilter(query);
-                }}
-                onClearFilter={() => handleApplyFilter("")}
+                onFilter={() => setFilterOpen(true)}
+                onClearFilter={handleClearFilter}
                 onInsertRow={() =>
                   editor.commitWorkbookMutation((current) =>
                     insertRow(current, editor.activeSheetIndex, editor.activeCellAddress.row),
@@ -474,6 +510,12 @@ export function ExcelSpreadsheetDialog({
                   editor.setActiveSheetIndex(next.sheets.length - 1);
                 }}
                 onInsertChart={() => setChartOpen(true)}
+                onTracePrecedents={() => {
+                  const refs = precedentCellsFromFormula(activeCell?.formula);
+                  setPrecedentHighlight(new Set(refs.map(precedentCellKey)));
+                }}
+                onDataValidation={() => setValidationOpen(true)}
+                onEditComment={() => setCommentOpen(true)}
               />
 
               <ExcelFormulaBar
@@ -513,7 +555,8 @@ export function ExcelSpreadsheetDialog({
                     filterHiddenRows={editor.filterHiddenRows}
                     frozenRows={activeSheet.frozenRows ?? 0}
                     frozenCols={activeSheet.frozenCols ?? 0}
-                    onSelectCell={editor.selectCell}
+                    precedentHighlight={precedentHighlight}
+                    onSelectCell={handleSelectCell}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
                     onCommitEdit={editor.commitEdit}
@@ -603,6 +646,63 @@ export function ExcelSpreadsheetDialog({
           onOpenChange={setChartOpen}
           title={`Chart — ${file?.name ?? "Spreadsheet"}`}
           bars={chartBars}
+        />
+
+        <ExcelAutoFilterDialog
+          key={`filter-${editor.activeCellAddress.col}-${filterOpen ? "open" : "closed"}`}
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          columnLabel={activeColumnLabel}
+          values={filterColumnValues}
+          initialFilter={columnFilter}
+          onApply={handleApplyFilter}
+          onClear={handleClearFilter}
+        />
+
+        <ExcelDataValidationDialog
+          key={`validation-${editor.activeCellAddress.col}-${validationOpen ? "open" : "closed"}`}
+          open={validationOpen}
+          onOpenChange={setValidationOpen}
+          columnLabel={activeColumnLabel}
+          initialRule={
+            activeSheet?.columnValidations?.[editor.activeCellAddress.col] ?? null
+          }
+          onApply={(rule: DataValidationRule | null) => {
+            editor.commitWorkbookMutation((current) =>
+              setColumnValidation(current, editor.activeSheetIndex, editor.activeCellAddress.col, rule),
+            );
+          }}
+        />
+
+        <ExcelCellCommentDialog
+          key={`comment-${cellAddressLabel(editor.activeCellAddress)}-${commentOpen ? "open" : "closed"}`}
+          open={commentOpen}
+          onOpenChange={setCommentOpen}
+          cellLabel={cellAddressLabel(editor.activeCellAddress)}
+          initialComment={activeCell?.comment ?? ""}
+          readOnly={readOnly}
+          onSave={(comment) => {
+            editor.commitWorkbookMutation((current) =>
+              setCellComment(
+                current,
+                editor.activeSheetIndex,
+                editor.activeCellAddress.row,
+                editor.activeCellAddress.col,
+                comment,
+              ),
+            );
+          }}
+          onDelete={() => {
+            editor.commitWorkbookMutation((current) =>
+              setCellComment(
+                current,
+                editor.activeSheetIndex,
+                editor.activeCellAddress.row,
+                editor.activeCellAddress.col,
+                null,
+              ),
+            );
+          }}
         />
       </DialogContent>
     </Dialog>

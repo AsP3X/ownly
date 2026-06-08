@@ -21,8 +21,9 @@ Last updated: 2026-06-08
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUM, AVERAGE, IF, INDEX, VLOOKUP, COUNTIF, MATCH, date/text helpers; not full Excel set |
+| Formula evaluation / recalc | 🚧 | SUM, IF, INDEX, XLOOKUP, VLOOKUP, HLOOKUP, IFERROR, COUNTIF, MATCH, date/text helpers |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
+| Trace Precedents | ✅ | Highlights formula refs in amber on grid |
 | Style persistence on save | ✅ | `cellStyleToXlsx` on serialize |
 | Font family / size pickers | ✅ | Home ribbon selects |
 | Percent / number / currency formats | ✅ | Home ribbon toggles |
@@ -41,9 +42,9 @@ Last updated: 2026-06-08
 | Insert / delete rows | ✅ | Data tab |
 | Insert / delete columns | ✅ | Data tab |
 | Sort ascending / descending | ✅ | Data tab; header row fixed |
-| AutoFilter | 🚧 | Column text filter via prompt; hides rows |
+| AutoFilter | ✅ | Dialog with search + value checkboxes |
 | Remove duplicates | ✅ | Data tab; key column = active cell column |
-| Data validation | ⏳ | Not yet implemented |
+| Data validation | ✅ | List / number / text-length rules on column; blocks invalid commits |
 | Named ranges | ⏳ | Not yet implemented |
 
 ## Phase 4 — Ribbon tabs (non-Home)
@@ -61,9 +62,10 @@ Last updated: 2026-06-08
 | Page Layout — freeze / unfreeze | ✅ | At active cell |
 | Page Layout — margins, orientation | ⏳ | Not yet implemented |
 | Formulas — Show Formulas | ✅ | View mode |
-| Formulas — Trace Precedents | ⏳ | Not yet implemented |
+| Formulas — Trace Precedents | ✅ | Formulas tab |
 | Data — Find | ✅ | Opens find/replace dialog |
 | Data — From CSV | ✅ | Paste CSV/TSV as new sheet |
+| Data — Validation / Comment | ✅ | Data tab dialogs |
 | Data — From Web | ⏳ | Not yet implemented |
 | Automate — Macros / Scripts | ❌ | VBA not supported in browser |
 
@@ -75,7 +77,7 @@ Last updated: 2026-06-08
 | Copilot prompt / Send | 🚧 | Local heuristic replies (not LLM) |
 | Copilot action buttons | ✅ | Navigate to related cells |
 | Real-time co-editing | ❌ | Requires backend sync |
-| Comments / notes | ⏳ | Not yet implemented |
+| Comments / notes | 🚧 | In-app comments on cells; not yet exported to xlsx OOXML |
 | Track changes | ❌ | |
 
 ## Phase 6 — Save fidelity
@@ -84,8 +86,8 @@ Last updated: 2026-06-08
 |---------|--------|-------|
 | Values + formulas export | ✅ | |
 | Column / row dimensions export | ✅ | |
-| Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars, top10, duplicates, iconSet |
-| CF export (aboveAverage, uniqueValues edge cases) | 🚧 | Core rules export; exotic Excel CF TBD |
+| Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars, top10, duplicates, iconSet, aboveAverage |
+| CF export (exotic Excel rules) | 🚧 | Core rules export; edge cases TBD |
 | Cell styles round-trip | 🚧 | Bold/italic/align/fill/font/borders export; full OOXML fidelity TBD |
 
 ## Implementation files
@@ -94,25 +96,21 @@ Last updated: 2026-06-08
 |------|------|
 | Tracker | `docs/excel-editor-feature-parity.md` |
 | Editor hook | `frontend/src/hooks/useSpreadsheetEditor.ts` |
-| Selection | `frontend/src/lib/spreadsheet/selection.ts` |
-| Undo | `frontend/src/lib/spreadsheet/undo.ts` |
-| Clipboard | `frontend/src/lib/spreadsheet/clipboard.ts` |
+| AutoFilter | `frontend/src/lib/spreadsheet/filter-values.ts` |
+| Data validation | `frontend/src/lib/spreadsheet/data-validation.ts` |
+| Trace precedents | `frontend/src/lib/spreadsheet/trace-precedents.ts` |
+| AutoFilter UI | `frontend/src/components/drive/excel/ExcelAutoFilterDialog.tsx` |
+| Validation UI | `frontend/src/components/drive/excel/ExcelDataValidationDialog.tsx` |
+| Comment UI | `frontend/src/components/drive/excel/ExcelCellCommentDialog.tsx` |
 | Formulas | `frontend/src/lib/spreadsheet/formulas.ts` |
-| Fill handle | `frontend/src/lib/spreadsheet/fill-handle.ts` |
-| CSV import | `frontend/src/lib/spreadsheet/csv-import.ts` |
-| Chart data | `frontend/src/lib/spreadsheet/chart-data.ts` |
-| Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
 | OOXML patch | `frontend/src/lib/spreadsheet/xlsx-ooxml.ts` |
-| Find/replace UI | `frontend/src/components/drive/excel/ExcelFindReplaceDialog.tsx` |
-| Chart UI | `frontend/src/components/drive/excel/ExcelChartDialog.tsx` |
-| Sheet tabs | `frontend/src/components/drive/excel/ExcelSheetTabsBar.tsx` |
-| Style export | `frontend/src/lib/spreadsheet/cell-styles.ts` (`cellStyleToXlsx`) |
+| Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
 
 ## Remaining high-value work
 
-1. Full Excel function library (nested arrays, XLOOKUP, date math)
+1. Export cell comments to xlsx OOXML
 2. Real Copilot LLM integration (backend)
-3. Data validation UI
-4. AutoFilter dropdown UI (replace prompt)
-5. Comments / cell notes
-6. Sheet tab reorder persistence smoke on multi-sheet save
+3. Named ranges
+4. Insert Table / structured references
+5. Full Excel function library (LAMBDA, dynamic arrays)
+6. Data validation import from xlsx

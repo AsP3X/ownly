@@ -2,6 +2,7 @@
 // Agent: DEFINES SheetCell, SheetData, SpreadsheetWorkbook consumed by parse + grid components.
 
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
+import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
 
 export type HorizontalAlign = "left" | "center" | "right";
 export type VerticalAlign = "top" | "middle" | "bottom";
@@ -39,6 +40,9 @@ export type SheetCell = {
   formula?: string;
   display: string;
   style?: CellStyle;
+  // Human: Optional cell note shown via comment indicator in grid.
+  // Agent: EDITED via Comment dialog; PERSISTED in workbook JSON on save.
+  comment?: string;
 };
 
 export type SheetData = {
@@ -61,6 +65,9 @@ export type SheetData = {
   // Agent: SET via Page Layout ribbon; RENDERED as sticky sections in grid.
   frozenRows?: number;
   frozenCols?: number;
+  // Human: Per-column data validation rules keyed by column index.
+  // Agent: CHECKED on commitEdit; SET via Data Validation dialog.
+  columnValidations?: Record<number, DataValidationRule>;
 };
 
 export type SpreadsheetWorkbook = {

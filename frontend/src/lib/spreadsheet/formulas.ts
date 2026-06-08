@@ -240,6 +240,55 @@ function evaluateFunction(
       const value = table[rowNum - 1]?.[colNum - 1];
       return value === undefined ? ("#REF!" as FormulaError) : value;
     }
+    case "IFERROR": {
+      const first = args[0];
+      if (typeof first === "string" && first.startsWith("#")) return args[1] ?? null;
+      return first;
+    }
+    case "XLOOKUP": {
+      const parts = splitFunctionArgs(argsRaw);
+      const lookup = String(args[0] ?? "").toLowerCase();
+      const lookupValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[1]?.trim() ?? "");
+      const returnValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[2]?.trim() ?? "");
+      const matchIndex = lookupValues.findIndex((value) => String(value ?? "").toLowerCase() === lookup);
+      if (matchIndex < 0) {
+        if (parts[3]) return evaluateExpression(ctx, sheetIndex, row, col, parts[3].trim());
+        return "#N/A" as FormulaError;
+      }
+      return returnValues[matchIndex] ?? ("#N/A" as FormulaError);
+    }
+    case "HLOOKUP": {
+      const tableArg = splitFunctionArgs(argsRaw)[1]?.trim() ?? "";
+      const table = getTableFromRangeArg(ctx, sheetIndex, tableArg);
+      const rowIndex = Math.max(1, Math.round(coerceNumber(args[2])));
+      const lookupText = String(args[0] ?? "").toLowerCase();
+      if (!table.length) return "#N/A" as FormulaError;
+      const headerRow = table[0] ?? [];
+      const colIndex = headerRow.findIndex((value) => String(value ?? "").toLowerCase() === lookupText);
+      if (colIndex < 0) return "#N/A" as FormulaError;
+      return table[rowIndex - 1]?.[colIndex] ?? ("#N/A" as FormulaError);
+    }
+    case "YEAR": {
+      const date = new Date(String(args[0] ?? ""));
+      return Number.isFinite(date.getTime()) ? date.getFullYear() : ("#VALUE!" as FormulaError);
+    }
+    case "MONTH": {
+      const date = new Date(String(args[0] ?? ""));
+      return Number.isFinite(date.getTime()) ? date.getMonth() + 1 : ("#VALUE!" as FormulaError);
+    }
+    case "DAY": {
+      const date = new Date(String(args[0] ?? ""));
+      return Number.isFinite(date.getTime()) ? date.getDate() : ("#VALUE!" as FormulaError);
+    }
+    case "DATE": {
+      const year = Math.round(coerceNumber(args[0]));
+      const month = Math.round(coerceNumber(args[1]));
+      const day = Math.round(coerceNumber(args[2]));
+      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+        return "#VALUE!" as FormulaError;
+      }
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
     default:
       return "#NAME?" as FormulaError;
   }

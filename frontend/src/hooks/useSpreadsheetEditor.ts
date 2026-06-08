@@ -13,6 +13,7 @@ import {
   type PasteMode,
 } from "@/lib/spreadsheet/clipboard";
 import { fillRangeInWorkbook, fillTargetRange } from "@/lib/spreadsheet/fill-handle";
+import { validateCellInput } from "@/lib/spreadsheet/data-validation";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import { applyFormulaBarEdit } from "@/lib/spreadsheet/parse";
 import { normalizeRange, rangeAddressLabel, singleCellRange } from "@/lib/spreadsheet/selection";
@@ -166,6 +167,15 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         return;
       }
       const value = input ?? editDraft;
+      const sheet = workbook.sheets[activeSheetIndex];
+      const validationRule = sheet?.columnValidations?.[editingCell.col];
+      if (validationRule && !value.trim().startsWith("=")) {
+        const result = validateCellInput(validationRule, value);
+        if (!result.valid) {
+          window.alert(result.message ?? "The value you entered is not valid for this cell.");
+          return;
+        }
+      }
       const next = applyFormulaBarEdit(
         workbook,
         activeSheetIndex,
@@ -182,6 +192,14 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   const commitFormulaBar = useCallback(
     (input: string) => {
       if (!workbook || readOnly) return;
+      const validationRule = workbook.sheets[activeSheetIndex]?.columnValidations?.[activeCellAddress.col];
+      if (validationRule && !input.trim().startsWith("=")) {
+        const result = validateCellInput(validationRule, input);
+        if (!result.valid) {
+          window.alert(result.message ?? "The value you entered is not valid for this cell.");
+          return;
+        }
+      }
       const next = applyFormulaBarEdit(
         workbook,
         activeSheetIndex,

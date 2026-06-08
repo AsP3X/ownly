@@ -3,7 +3,8 @@
 
 import { csvTextToSheet } from "@/lib/spreadsheet/csv-import";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
-import { GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normalizeSheetGrid } from "@/lib/spreadsheet/grid";
+import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
+import { expandSheetToAddress, GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normalizeSheetGrid } from "@/lib/spreadsheet/grid";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 
@@ -374,4 +375,56 @@ export function importCsvAsNewSheet(
 ): SpreadsheetWorkbook {
   const sheet = csvTextToSheet(csvText, sheetName);
   return { sheets: [...workbook.sheets, sheet] };
+}
+
+// Human: Set or clear a data validation rule on a column.
+// Agent: WRITES columnValidations map entry; UNDO via commitWorkbookMutation.
+export function setColumnValidation(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  colIndex: number,
+  rule: DataValidationRule | null,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const nextValidations = { ...(sheet.columnValidations ?? {}) };
+      if (rule) nextValidations[colIndex] = rule;
+      else delete nextValidations[colIndex];
+      return {
+        ...sheet,
+        columnValidations: Object.keys(nextValidations).length > 0 ? nextValidations : undefined,
+      };
+    }),
+  };
+}
+
+// Human: Attach or remove a comment note on a single cell.
+// Agent: EXPANDS sheet grid; WRITES SheetCell.comment string.
+export function setCellComment(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  row: number,
+  col: number,
+  comment: string | null,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const expanded = expandSheetToAddress(sheet, row, col);
+      const nextRows = expanded.rows.map((sheetRow, rowIndex) =>
+        sheetRow.map((cell, colIndex) => {
+          if (rowIndex !== row || colIndex !== col) return cell;
+          const trimmed = comment?.trim() ?? "";
+          if (!trimmed) {
+            const nextCell = { ...cell };
+            delete nextCell.comment;
+            return nextCell;
+          }
+          return { ...cell, comment: trimmed };
+        }),
+      );
+      return { ...sheet, rows: nextRows };
+    }),
+  };
 }

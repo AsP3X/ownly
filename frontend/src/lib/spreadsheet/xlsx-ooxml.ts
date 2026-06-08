@@ -684,6 +684,25 @@ function buildConditionalFormattingXml(
         continue;
       }
 
+      if (rule.type === "aboveAverage" && rule.aboveAverage) {
+        let dxfAttr = "";
+        if (rule.style) {
+          dxfs.push(buildDxfXml(rule.style));
+          dxfAttr = ` dxfId="${dxfIndex}"`;
+          dxfIndex += 1;
+        }
+        const aboveAverage = rule.aboveAverage.above ? ' aboveAverage="1"' : ' aboveAverage="0"';
+        const equalAverage = rule.aboveAverage.equalAverage ? ' equalAverage="1"' : "";
+        const stdDev =
+          rule.aboveAverage.stdDev && rule.aboveAverage.stdDev > 0
+            ? ` stdDev="${rule.aboveAverage.stdDev}"`
+            : "";
+        ruleXml.push(
+          `<cfRule type="aboveAverage" priority="${rule.priority}"${aboveAverage}${equalAverage}${stdDev}${dxfAttr}/>`,
+        );
+        continue;
+      }
+
       if (rule.type === "expression" && rule.formula) {
         let dxfAttr = "";
         if (rule.style) {

@@ -73,6 +73,9 @@ type ExcelSpreadsheetRibbonProps = {
   onRemoveDuplicates?: () => void;
   onImportCsv?: () => void;
   onInsertChart?: () => void;
+  onTracePrecedents?: () => void;
+  onDataValidation?: () => void;
+  onEditComment?: () => void;
 };
 
 function RibbonDivider() {
@@ -414,10 +417,12 @@ function FormulasTools({
   onAutoSum,
   onInsertFunction,
   onToggleShowFormulas,
+  onTracePrecedents,
 }: {
   onAutoSum?: () => void;
   onInsertFunction?: () => void;
   onToggleShowFormulas?: () => void;
+  onTracePrecedents?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -425,6 +430,7 @@ function FormulasTools({
       <RibbonButton label="AutoSum" onClick={onAutoSum} />
       <RibbonDivider />
       <RibbonButton label="Show Formulas" onClick={onToggleShowFormulas} />
+      <RibbonButton label="Trace Precedents" onClick={onTracePrecedents} />
     </div>
   );
 }
@@ -441,6 +447,8 @@ function DataTools({
   onFindReplace,
   onRemoveDuplicates,
   onImportCsv,
+  onDataValidation,
+  onEditComment,
 }: {
   onSortAsc?: () => void;
   onSortDesc?: () => void;
@@ -453,6 +461,8 @@ function DataTools({
   onFindReplace?: () => void;
   onRemoveDuplicates?: () => void;
   onImportCsv?: () => void;
+  onDataValidation?: () => void;
+  onEditComment?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -462,6 +472,8 @@ function DataTools({
       <RibbonButton label="Clear Filter" onClick={onClearFilter} />
       <RibbonButton label="Remove Duplicates" onClick={onRemoveDuplicates} />
       <RibbonButton label="From CSV" onClick={onImportCsv} />
+      <RibbonButton label="Validation" onClick={onDataValidation} />
+      <RibbonButton label="Comment" onClick={onEditComment} />
       <RibbonDivider />
       <RibbonButton label="Insert Row" onClick={onInsertRow} />
       <RibbonButton label="Delete Row" onClick={onDeleteRow} />
@@ -513,6 +525,9 @@ export function ExcelSpreadsheetRibbon({
   onRemoveDuplicates,
   onImportCsv,
   onInsertChart,
+  onTracePrecedents,
+  onDataValidation,
+  onEditComment,
 }: ExcelSpreadsheetRibbonProps) {
   return (
     <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
@@ -585,6 +600,7 @@ export function ExcelSpreadsheetRibbon({
             onAutoSum={onAutoSum}
             onInsertFunction={onInsertFunction}
             onToggleShowFormulas={onToggleShowFormulas}
+            onTracePrecedents={onTracePrecedents}
           />
         ) : null}
         {activeTab === "data" ? (
@@ -600,6 +616,8 @@ export function ExcelSpreadsheetRibbon({
             onFindReplace={onFindReplace}
             onRemoveDuplicates={onRemoveDuplicates}
             onImportCsv={onImportCsv}
+            onDataValidation={onDataValidation}
+            onEditComment={onEditComment}
           />
         ) : null}
         {activeTab === "automate" ? <AutomateTools /> : null}
