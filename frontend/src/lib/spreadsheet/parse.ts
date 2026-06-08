@@ -9,6 +9,8 @@ import {
   applyDimensionsToWorksheet,
   columnWidthsFromWorksheet,
   rowHeightsFromWorksheet,
+  storedCustomColumnExtent,
+  storedCustomRowExtent,
 } from "@/lib/spreadsheet/dimensions";
 import { normalizeSheetGrid, expandSheetToAddress, trimSheetForSave } from "@/lib/spreadsheet/grid";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
@@ -102,9 +104,12 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
     const importColumnCount = Math.max(
       ...rows.map((row) => row.length),
       1,
-      ooxmlDimensions?.columnWidths?.length ?? 0,
+      storedCustomColumnExtent(ooxmlDimensions?.columnWidths),
     );
-    const importRowCount = Math.max(rows.length, ooxmlDimensions?.rowHeights?.length ?? 0);
+    const importRowCount = Math.max(
+      rows.length,
+      storedCustomRowExtent(ooxmlDimensions?.rowHeights),
+    );
     const sheetJsColumnWidths = columnWidthsFromWorksheet(worksheet, importColumnCount);
     const sheetJsRowHeights = rowHeightsFromWorksheet(worksheet, importRowCount);
     const freeze = freezeBySheet.get(name);

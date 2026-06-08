@@ -46,12 +46,14 @@ export function displayPxToHpx(displayPx: number): number {
 }
 
 // Human: Detect whether a stored width/height matches Excel defaults (skip OOXML write).
-// Agent: USED by trimSheetForSave and xlsx-dimensions-ooxml export.
-export function isDefaultColumnWidth(width: number): boolean {
+// Agent: USED by trimSheetForSave and xlsx-dimensions-ooxml export; undefined counts as default.
+export function isDefaultColumnWidth(width: number | undefined): boolean {
+  if (typeof width !== "number" || !Number.isFinite(width)) return true;
   return Math.abs(width - GRID_DEFAULT_COL_WIDTH) <= 1;
 }
 
-export function isDefaultRowHeight(height: number): boolean {
+export function isDefaultRowHeight(height: number | undefined): boolean {
+  if (typeof height !== "number" || !Number.isFinite(height)) return true;
   return Math.abs(height - GRID_DEFAULT_ROW_HEIGHT) <= 1;
 }
 
@@ -60,7 +62,7 @@ export function isDefaultRowHeight(height: number): boolean {
 export function lastNonDefaultColumnIndex(widths: number[] | undefined): number {
   if (!widths) return -1;
   for (let index = widths.length - 1; index >= 0; index -= 1) {
-    if (!isDefaultColumnWidth(widths[index])) return index;
+    if (typeof widths[index] === "number" && !isDefaultColumnWidth(widths[index])) return index;
   }
   return -1;
 }
@@ -68,9 +70,21 @@ export function lastNonDefaultColumnIndex(widths: number[] | undefined): number 
 export function lastNonDefaultRowIndex(heights: number[] | undefined): number {
   if (!heights) return -1;
   for (let index = heights.length - 1; index >= 0; index -= 1) {
-    if (!isDefaultRowHeight(heights[index])) return index;
+    if (typeof heights[index] === "number" && !isDefaultRowHeight(heights[index])) return index;
   }
   return -1;
+}
+
+// Human: Count of columns/rows that include a user-resized dimension (not array .length).
+// Agent: PREVENTS sparse OOXML arrays from expanding the interactive grid to Excel max bounds.
+export function storedCustomColumnExtent(widths: number[] | undefined): number {
+  const last = lastNonDefaultColumnIndex(widths);
+  return last < 0 ? 0 : last + 1;
+}
+
+export function storedCustomRowExtent(heights: number[] | undefined): number {
+  const last = lastNonDefaultRowIndex(heights);
+  return last < 0 ? 0 : last + 1;
 }
 
 // Human: Points (hpt) → screen pixels at 96 dpi.

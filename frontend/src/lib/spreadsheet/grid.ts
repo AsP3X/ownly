@@ -7,6 +7,8 @@ import {
   lastNonDefaultRowIndex,
   resolveColumnWidths,
   resolveRowHeights,
+  storedCustomColumnExtent,
+  storedCustomRowExtent,
 } from "@/lib/spreadsheet/dimensions";
 import type { SheetCell, SheetData } from "@/lib/spreadsheet/types";
 
@@ -65,7 +67,7 @@ export function usedRowCount(rows: SheetCell[][]): number {
 export function targetGridColumnCount(rows: SheetCell[][], columnWidths?: number[]): number {
   const usedCols = usedColumnCount(rows);
   const structuralCols = Math.max(...rows.map((row) => row.length), 0);
-  const dimensionCols = columnWidths?.length ?? 0;
+  const dimensionCols = storedCustomColumnExtent(columnWidths);
   return Math.max(GRID_MIN_COLUMN_COUNT, usedCols + GRID_PADDING_COLUMNS, structuralCols, dimensionCols);
 }
 
@@ -73,7 +75,7 @@ export function targetGridColumnCount(rows: SheetCell[][], columnWidths?: number
 // Agent: RETURNS max(500, usedRows + 50, current row array length, resized row metadata).
 export function targetGridRowCount(rows: SheetCell[][], rowHeights?: number[]): number {
   const usedRows = usedRowCount(rows);
-  const dimensionRows = rowHeights?.length ?? 0;
+  const dimensionRows = storedCustomRowExtent(rowHeights);
   return Math.max(GRID_MIN_ROW_COUNT, usedRows + GRID_PADDING_ROWS, rows.length, dimensionRows);
 }
 

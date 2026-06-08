@@ -2,9 +2,12 @@
 // Agent: PATCHES worksheet XML; READS <cols> and <row ht>; WRITES customWidth/customHeight.
 
 import {
+  GRID_DEFAULT_COL_WIDTH,
   hptToDisplayPx,
   isDefaultColumnWidth,
   isDefaultRowHeight,
+  lastNonDefaultColumnIndex,
+  lastNonDefaultRowIndex,
   resolveColumnWidths,
   resolveRowHeights,
 } from "@/lib/spreadsheet/dimensions";
@@ -47,6 +50,18 @@ function wchToDisplayPx(wch: number): number {
   return Math.min(400, Math.max(20, Math.round(wch * 7 + 5)));
 }
 
+// Human: Excel default column width in character units (~64 CSS px).
+// Agent: SKIP importing sheet-wide default <col> spans that would allocate thousands of columns.
+const EXCEL_DEFAULT_COL_WCH = (GRID_DEFAULT_COL_WIDTH - 5) / 7;
+
+function isCustomWidthFlag(value: string | null): boolean {
+  return value === "1" || value === "true";
+}
+
+function isExcelDefaultColWch(wch: number): boolean {
+  return Math.abs(wch - EXCEL_DEFAULT_COL_WCH) <= 0.05;
+}
+
 function parseWorksheetColumnWidths(sheetXml: string): number[] {
   const colsMatch = /<cols\b[^>]*>([\s\S]*?)<\/cols>/i.exec(sheetXml);
   if (!colsMatch) return [];
@@ -57,11 +72,15 @@ function parseWorksheetColumnWidths(sheetXml: string): number[] {
     const min = Number.parseInt(readXmlAttribute(attrs, "min") ?? "0", 10);
     const max = Number.parseInt(readXmlAttribute(attrs, "max") ?? "0", 10);
     const width = Number.parseFloat(readXmlAttribute(attrs, "width") ?? "0");
+    const customWidth = readXmlAttribute(attrs, "customWidth");
     if (!Number.isFinite(min) || !Number.isFinite(max) || min < 1 || max < min || !Number.isFinite(width)) {
       continue;
     }
+    if (!isCustomWidthFlag(customWidth) || isExcelDefaultColWch(width)) continue;
 
     const displayPx = wchToDisplayPx(width);
+    if (isDefaultColumnWidth(displayPx)) continue;
+
     for (let colIndex = min; colIndex <= max; colIndex += 1) {
       widths[colIndex - 1] = displayPx;
     }
@@ -73,17 +92,22 @@ function parseWorksheetColumnWidths(sheetXml: string): number[] {
 function parseWorksheetRowHeights(sheetXml: string): number[] {
   const heights: number[] = [];
 
-  for (const match of sheetXml.matchAll(/<row\b([^>]*)\/?>/gi)) {
-    const attrs = match[1];
+  for (const match of sheetXml.matchAll(/<row\b[^>]*\bcustomHeight="(?:1|true)"[^>]*\/?>/gi)) {
+    const attrs = match[0];
     const rowNumber = Number.parseInt(readXmlAttribute(attrs, "r") ?? "0", 10);
     const ht = Number.parseFloat(readXmlAttribute(attrs, "ht") ?? "0");
-    const customHeight = readXmlAttribute(attrs, "customHeight");
     if (!Number.isFinite(rowNumber) || rowNumber < 1 || !Number.isFinite(ht) || ht <= 0) continue;
-    if (customHeight !== "1" && customHeight !== "true") continue;
-    heights[rowNumber - 1] = hptToDisplayPx(ht);
+
+    const displayPx = hptToDisplayPx(ht);
+    if (isDefaultRowHeight(displayPx)) continue;
+    heights[rowNumber - 1] = displayPx;
   }
 
   return heights;
+}
+
+function dimensionArrayHasValues(values: number[]): boolean {
+  return values.some((value) => typeof value === "number" && Number.isFinite(value));
 }
 
 function stripColsBlock(sheetXml: string): string {
@@ -165,11 +189,7 @@ function injectRowHeights(sheetXml: string, heights: number[]): string {
 }
 
 function sheetHasCustomDimensions(sheet: Pick<SheetData, "rows" | "columnWidths" | "rowHeights">): boolean {
-  const columnCount = Math.max(...sheet.rows.map((row) => row.length), 1);
-  const rowCount = sheet.rows.length;
-  const widths = resolveColumnWidths(sheet, columnCount);
-  const heights = resolveRowHeights(sheet, rowCount);
-  return widths.some((width) => !isDefaultColumnWidth(width)) || heights.some((height) => !isDefaultRowHeight(height));
+  return lastNonDefaultColumnIndex(sheet.columnWidths) >= 0 || lastNonDefaultRowIndex(sheet.rowHeights) >= 0;
 }
 
 async function mapWorksheetEntries(buffer: ArrayBuffer): Promise<{
@@ -211,11 +231,11 @@ export async function importDimensionsFromXlsx(
     const sheetXml = new TextDecoder().decode(entries.get(target) ?? new Uint8Array());
     const columnWidths = parseWorksheetColumnWidths(sheetXml);
     const rowHeights = parseWorksheetRowHeights(sheetXml);
-    if (columnWidths.length === 0 && rowHeights.length === 0) continue;
+    if (!dimensionArrayHasValues(columnWidths) && !dimensionArrayHasValues(rowHeights)) continue;
 
     result.set(name, {
-      columnWidths: columnWidths.length > 0 ? columnWidths : undefined,
-      rowHeights: rowHeights.length > 0 ? rowHeights : undefined,
+      columnWidths: dimensionArrayHasValues(columnWidths) ? columnWidths : undefined,
+      rowHeights: dimensionArrayHasValues(rowHeights) ? rowHeights : undefined,
     });
   }
 
