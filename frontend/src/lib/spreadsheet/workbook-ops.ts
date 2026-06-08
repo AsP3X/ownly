@@ -6,7 +6,8 @@ import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
 import { expandSheetToAddress, GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normalizeSheetGrid } from "@/lib/spreadsheet/grid";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
-import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
+import type { NamedRange } from "@/lib/spreadsheet/named-ranges";
+import type { PageMargins, SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 
 function emptyCell(): SheetCell {
   return { value: null, display: "" };
@@ -426,5 +427,130 @@ export function setCellComment(
       );
       return { ...sheet, rows: nextRows };
     }),
+  };
+}
+
+// Human: Format a selected range as an Excel-style table with header + banded rows.
+// Agent: APPLIES styles; APPENDS SpreadsheetTable metadata on the active sheet.
+export function formatRangeAsTable(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  range: CellRange,
+  tableName: string,
+): SpreadsheetWorkbook {
+  const normalized = normalizeRange(range);
+  const trimmedName = tableName.trim() || `Table${(workbook.sheets[sheetIndex]?.tables?.length ?? 0) + 1}`;
+
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+
+      const nextRows = sheet.rows.map((row, rowIndex) =>
+        row.map((cell, colIndex) => {
+          const inRange =
+            rowIndex >= normalized.start.row &&
+            rowIndex <= normalized.end.row &&
+            colIndex >= normalized.start.col &&
+            colIndex <= normalized.end.col;
+          if (!inRange) return cell;
+
+          const isHeader = rowIndex === normalized.start.row;
+          const bandIndex = rowIndex - normalized.start.row;
+          const style = {
+            ...cell.style,
+            bold: isHeader ? true : cell.style?.bold,
+            textColor: isHeader ? "#FFFFFF" : cell.style?.textColor,
+            backgroundColor: isHeader
+              ? "#1F4E79"
+              : bandIndex % 2 === 1
+                ? "#DEEBF7"
+                : "#FFFFFF",
+          };
+
+          return { ...cell, style };
+        }),
+      );
+
+      const tables = [...(sheet.tables ?? []), {
+        name: trimmedName,
+        startRow: normalized.start.row,
+        startCol: normalized.start.col,
+        endRow: normalized.end.row,
+        endCol: normalized.end.col,
+      }];
+
+      return { ...sheet, rows: nextRows, tables };
+    }),
+  };
+}
+
+// Human: Add or replace a workbook-level named range from the current selection.
+// Agent: WRITES namedRanges array used by formulas + OOXML export.
+export function setNamedRange(workbook: SpreadsheetWorkbook, range: NamedRange): SpreadsheetWorkbook {
+  const existing = workbook.namedRanges ?? [];
+  const without = existing.filter((entry) => entry.name.toLowerCase() !== range.name.toLowerCase());
+  return { ...workbook, namedRanges: [...without, range] };
+}
+
+export function removeNamedRange(workbook: SpreadsheetWorkbook, name: string): SpreadsheetWorkbook {
+  const existing = workbook.namedRanges ?? [];
+  const normalized = name.trim().toLowerCase();
+  const next = existing.filter((entry) => entry.name.toLowerCase() !== normalized);
+  return { ...workbook, namedRanges: next.length > 0 ? next : undefined };
+}
+
+// Human: Set the printable region on a sheet from the current selection.
+// Agent: WRITES printArea bounds exported as _xlnm.Print_Area.
+export function setPrintArea(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  range: CellRange,
+): SpreadsheetWorkbook {
+  const normalized = normalizeRange(range);
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex
+        ? {
+            ...sheet,
+            printArea: {
+              startRow: normalized.start.row,
+              startCol: normalized.start.col,
+              endRow: normalized.end.row,
+              endCol: normalized.end.col,
+            },
+          }
+        : sheet,
+    ),
+  };
+}
+
+// Human: Clear the printable region on a sheet.
+// Agent: REMOVES printArea so export omits Print_Area defined name.
+export function clearPrintArea(workbook: SpreadsheetWorkbook, sheetIndex: number): SpreadsheetWorkbook {
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const next = { ...sheet };
+      delete next.printArea;
+      return next;
+    }),
+  };
+}
+
+// Human: Apply page margin inches on a sheet for print layout.
+// Agent: WRITES pageMargins exported via worksheet OOXML.
+export function setPageMargins(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  margins: PageMargins,
+): SpreadsheetWorkbook {
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex ? { ...sheet, pageMargins: margins } : sheet,
+    ),
   };
 }

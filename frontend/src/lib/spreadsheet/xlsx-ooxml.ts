@@ -995,3 +995,14 @@ export async function exportFreezePanesToXlsx(
 
   return writeXlsxZipEntries(entries);
 }
+
+// Human: Load, mutate, and repack an xlsx zip — shared by OOXML patch exporters.
+// Agent: READS buffer; CALLS patch callback; RETURNS patched ArrayBuffer.
+export async function patchXlsxZipEntries(
+  buffer: ArrayBuffer,
+  patch: (entries: Map<string, Uint8Array>) => void,
+): Promise<ArrayBuffer> {
+  const entries = await readXlsxZipEntries(buffer);
+  patch(entries);
+  return writeXlsxZipEntries(entries);
+}

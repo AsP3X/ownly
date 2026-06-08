@@ -18,6 +18,8 @@ import { ExcelCopilotSidebar } from "@/components/drive/excel/ExcelCopilotSideba
 import { ExcelDataValidationDialog } from "@/components/drive/excel/ExcelDataValidationDialog";
 import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
+import { ExcelNamedRangeDialog } from "@/components/drive/excel/ExcelNamedRangeDialog";
+import { ExcelPageMarginsDialog } from "@/components/drive/excel/ExcelPageMarginsDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -44,6 +46,7 @@ import { useSpreadsheetEditor } from "@/hooks/useSpreadsheetEditor";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cellAddressLabel, columnIndexToLetters, formulaBarValue } from "@/lib/spreadsheet/cells";
 import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
+import type { PageMargins } from "@/lib/spreadsheet/types";
 import {
   distinctColumnValues,
   hiddenRowsForColumnFilter,
@@ -64,18 +67,24 @@ import {
   deleteColumn,
   deleteRow,
   findInSheet,
+  formatRangeAsTable,
   freezePanesAt,
   importCsvAsNewSheet,
   insertColumn,
   insertRow,
   mergeCellsInRange,
   moveSheet,
+  removeNamedRange,
   removeDuplicateRows,
   removeSheet,
   renameSheet,
   replaceInWorkbook,
   setCellComment,
   setColumnValidation,
+  setNamedRange,
+  setPageMargins,
+  setPrintArea,
+  clearPrintArea,
   sortSheetByColumn,
   unfreezePanes,
 } from "@/lib/spreadsheet/workbook-ops";
@@ -92,6 +101,15 @@ export type ExcelSpreadsheetDialogProps = {
   onShare?: (file: FileItem) => void;
   shareToken?: string;
   sharePassword?: string | null;
+};
+
+const DEFAULT_PAGE_MARGINS: PageMargins = {
+  top: 0.75,
+  bottom: 0.75,
+  left: 0.7,
+  right: 0.7,
+  header: 0.3,
+  footer: 0.3,
 };
 
 export function ExcelSpreadsheetDialog({
@@ -118,6 +136,8 @@ export function ExcelSpreadsheetDialog({
   const [filterOpen, setFilterOpen] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
+  const [nameManagerOpen, setNameManagerOpen] = useState(false);
+  const [marginsOpen, setMarginsOpen] = useState(false);
   const [columnFilter, setColumnFilter] = useState<ColumnFilterConfig>({
     textQuery: "",
     selectedValues: null,
@@ -200,6 +220,8 @@ export function ExcelSpreadsheetDialog({
         setFilterOpen(false);
         setValidationOpen(false);
         setCommentOpen(false);
+        setNameManagerOpen(false);
+        setMarginsOpen(false);
         setColumnFilter({ textQuery: "", selectedValues: null });
         setPrecedentHighlight(new Set());
       }
@@ -496,6 +518,19 @@ export function ExcelSpreadsheetDialog({
                     unfreezePanes(current, editor.activeSheetIndex),
                   )
                 }
+                onSetPrintArea={() => {
+                  if (readOnly) return;
+                  editor.commitWorkbookMutation((current) =>
+                    setPrintArea(current, editor.activeSheetIndex, editor.selectionRange),
+                  );
+                }}
+                onClearPrintArea={() => {
+                  if (readOnly) return;
+                  editor.commitWorkbookMutation((current) =>
+                    clearPrintArea(current, editor.activeSheetIndex),
+                  );
+                }}
+                onPageMargins={() => setMarginsOpen(true)}
                 onRemoveDuplicates={() =>
                   editor.commitWorkbookMutation((current) =>
                     removeDuplicateRows(current, editor.activeSheetIndex, editor.activeCellAddress.col),
@@ -510,10 +545,20 @@ export function ExcelSpreadsheetDialog({
                   editor.setActiveSheetIndex(next.sheets.length - 1);
                 }}
                 onInsertChart={() => setChartOpen(true)}
+                onInsertTable={() => {
+                  if (readOnly || !editor.workbook) return;
+                  const name =
+                    window.prompt("Table name", `Table${(activeSheet?.tables?.length ?? 0) + 1}`) ?? "";
+                  if (!name.trim()) return;
+                  editor.commitWorkbookMutation((current) =>
+                    formatRangeAsTable(current, editor.activeSheetIndex, editor.selectionRange, name),
+                  );
+                }}
                 onTracePrecedents={() => {
                   const refs = precedentCellsFromFormula(activeCell?.formula);
                   setPrecedentHighlight(new Set(refs.map(precedentCellKey)));
                 }}
+                onNameManager={() => setNameManagerOpen(true)}
                 onDataValidation={() => setValidationOpen(true)}
                 onEditComment={() => setCommentOpen(true)}
               />
@@ -556,6 +601,7 @@ export function ExcelSpreadsheetDialog({
                     frozenRows={activeSheet.frozenRows ?? 0}
                     frozenCols={activeSheet.frozenCols ?? 0}
                     precedentHighlight={precedentHighlight}
+                    printArea={activeSheet.printArea ?? null}
                     onSelectCell={handleSelectCell}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
@@ -701,6 +747,43 @@ export function ExcelSpreadsheetDialog({
                 editor.activeCellAddress.col,
                 null,
               ),
+            );
+          }}
+        />
+
+        <ExcelNamedRangeDialog
+          key={`names-${nameManagerOpen ? "open" : "closed"}-${editor.workbook?.namedRanges?.length ?? 0}`}
+          open={nameManagerOpen}
+          onOpenChange={setNameManagerOpen}
+          ranges={editor.workbook?.namedRanges ?? []}
+          selectionLabel={editor.rangeAddressLabel}
+          onAddRange={(name) => {
+            if (!activeSheet) return;
+            const range = editor.selectionRange;
+            editor.commitWorkbookMutation((current) =>
+              setNamedRange(current, {
+                name,
+                sheetName: activeSheet.name,
+                startRow: range.start.row,
+                startCol: range.start.col,
+                endRow: range.end.row,
+                endCol: range.end.col,
+              }),
+            );
+          }}
+          onRemoveRange={(name) => {
+            editor.commitWorkbookMutation((current) => removeNamedRange(current, name));
+          }}
+        />
+
+        <ExcelPageMarginsDialog
+          key={`margins-${marginsOpen ? "open" : "closed"}-${editor.activeSheetIndex}`}
+          open={marginsOpen}
+          onOpenChange={setMarginsOpen}
+          initialMargins={activeSheet?.pageMargins ?? DEFAULT_PAGE_MARGINS}
+          onApply={(margins) => {
+            editor.commitWorkbookMutation((current) =>
+              setPageMargins(current, editor.activeSheetIndex, margins),
             );
           }}
         />

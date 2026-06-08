@@ -13,6 +13,18 @@ import {
 import { normalizeSheetGrid, expandSheetToAddress, trimSheetForSave } from "@/lib/spreadsheet/grid";
 import type { SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 import { importConditionalFormatsFromXlsx, exportConditionalFormatsToXlsx, importFreezePanesFromXlsx, exportFreezePanesToXlsx } from "@/lib/spreadsheet/xlsx-ooxml";
+import {
+  exportWorkbookMetadataToXlsx,
+  importCommentsFromXlsx,
+  importDataValidationsFromXlsx,
+  importNamedRangesFromXlsx,
+  mergeCommentsIntoSheet,
+} from "@/lib/spreadsheet/xlsx-metadata-ooxml";
+import {
+  exportPageSettingsToXlsx,
+  importPageMarginsFromXlsx,
+  importPrintAreasFromXlsx,
+} from "@/lib/spreadsheet/xlsx-page-settings-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -72,6 +84,11 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const sheetNames = workbook.SheetNames;
   const conditionalBySheet = await importConditionalFormatsFromXlsx(buffer, sheetNames);
   const freezeBySheet = await importFreezePanesFromXlsx(buffer, sheetNames);
+  const commentsBySheet = await importCommentsFromXlsx(buffer, sheetNames);
+  const validationsBySheet = await importDataValidationsFromXlsx(buffer, sheetNames);
+  const namedRanges = await importNamedRangesFromXlsx(buffer);
+  const printAreasBySheet = await importPrintAreasFromXlsx(buffer, sheetNames);
+  const marginsBySheet = await importPageMarginsFromXlsx(buffer);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
@@ -86,8 +103,11 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       rowHeights: rowHeightsFromWorksheet(worksheet, rows.length),
       frozenRows: freeze?.frozenRows,
       frozenCols: freeze?.frozenCols,
+      columnValidations: validationsBySheet.get(name),
+      printArea: printAreasBySheet.get(name),
+      pageMargins: marginsBySheet.get(name),
     };
-    return normalizeSheetGrid(imported);
+    return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
   });
 
   return {
@@ -95,6 +115,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       sheets.length > 0
         ? sheets
         : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
+    namedRanges: namedRanges.length > 0 ? namedRanges : undefined,
   };
 }
 
@@ -132,6 +153,8 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
   let bytes = XLSX.write(xlsxWorkbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   bytes = await exportConditionalFormatsToXlsx(bytes, workbook.sheets);
   bytes = await exportFreezePanesToXlsx(bytes, workbook.sheets);
+  bytes = await exportWorkbookMetadataToXlsx(bytes, workbook);
+  bytes = await exportPageSettingsToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

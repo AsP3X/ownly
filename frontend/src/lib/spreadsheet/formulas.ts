@@ -4,8 +4,9 @@
 import { columnIndexToLetters, columnLettersToIndex, formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import type { SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
+import { findNamedRange } from "@/lib/spreadsheet/named-ranges";
 
-export type FormulaError = "#ERROR!" | "#DIV/0!" | "#REF!" | "#VALUE!" | "#N/A";
+export type FormulaError = "#ERROR!" | "#DIV/0!" | "#REF!" | "#VALUE!" | "#N/A" | "#NUM!" | "#NAME?";
 
 type EvalContext = {
   sheets: SheetData[];
@@ -14,6 +15,7 @@ type EvalContext = {
   col: number;
   visiting: Set<string>;
   cache: Map<string, string | number | boolean | null | FormulaError>;
+  namedRanges?: SpreadsheetWorkbook["namedRanges"];
 };
 
 function cellKey(sheetIndex: number, row: number, col: number): string {
@@ -91,6 +93,17 @@ function collectRangeValuesFromArg(
   _col: number,
   arg: string,
 ): Array<string | number | boolean | null | FormulaError> {
+  const trimmed = arg.trim();
+  const named = findNamedRange(ctx.namedRanges, trimmed);
+  if (named) {
+    const targetSheetIndex = ctx.sheets.findIndex((sheet) => sheet.name === named.sheetName);
+    const resolvedSheetIndex = targetSheetIndex >= 0 ? targetSheetIndex : sheetIndex;
+    return collectRangeValues(ctx, resolvedSheetIndex, {
+      start: { row: named.startRow, col: named.startCol },
+      end: { row: named.endRow, col: named.endCol },
+    });
+  }
+
   const range = parseRangeRef(arg.replace(/\$/g, ""));
   if (range) return collectRangeValues(ctx, sheetIndex, range);
   const single = parseCellRef(arg.replace(/\$/g, ""));
@@ -103,6 +116,22 @@ function getTableFromRangeArg(
   sheetIndex: number,
   arg: string,
 ): Array<Array<string | number | boolean | null | FormulaError>> {
+  const trimmed = arg.trim();
+  const named = findNamedRange(ctx.namedRanges, trimmed);
+  if (named) {
+    const targetSheetIndex = ctx.sheets.findIndex((sheet) => sheet.name === named.sheetName);
+    const resolvedSheetIndex = targetSheetIndex >= 0 ? targetSheetIndex : sheetIndex;
+    const table: Array<Array<string | number | boolean | null | FormulaError>> = [];
+    for (let r = named.startRow; r <= named.endRow; r += 1) {
+      const rowValues: Array<string | number | boolean | null | FormulaError> = [];
+      for (let c = named.startCol; c <= named.endCol; c += 1) {
+        rowValues.push(getRawCellValue(ctx, resolvedSheetIndex, r, c));
+      }
+      table.push(rowValues);
+    }
+    return table;
+  }
+
   const range = parseRangeRef(arg.replace(/\$/g, ""));
   if (!range) return [];
   const normalized = normalizeRange(range);
@@ -150,6 +179,26 @@ function countIfValues(
   return values.filter((value) => String(value ?? "").toLowerCase().includes(normalizedCriteria)).length;
 }
 
+// Human: Test whether a row index satisfies paired range/criteria args for SUMIFS/COUNTIFS.
+// Agent: READS criteria ranges at valueIndex; RETURNS true when every pair matches.
+function matchesAllCriteria(
+  ctx: EvalContext,
+  sheetIndex: number,
+  row: number,
+  col: number,
+  parts: string[],
+  valueIndex: number,
+  startPairIndex: number,
+): boolean {
+  for (let pairIndex = startPairIndex; pairIndex + 1 < parts.length; pairIndex += 2) {
+    const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[pairIndex]?.trim() ?? "");
+    const criteria = parts[pairIndex + 1]?.trim() ?? "";
+    const value = rangeValues[valueIndex];
+    if (countIfValues([value], criteria) <= 0) return false;
+  }
+  return true;
+}
+
 function evaluateFunction(
   ctx: EvalContext,
   sheetIndex: number,
@@ -178,8 +227,27 @@ function evaluateFunction(
       return numericArgs.length === 0 ? 0 : Math.max(...numericArgs);
     case "ABS":
       return Math.abs(coerceNumber(args[0]));
-    case "ROUND":
-      return Math.round(coerceNumber(args[0]));
+    case "ROUND": {
+      const value = coerceNumber(args[0]);
+      const digits = args.length > 1 ? Math.round(coerceNumber(args[1])) : 0;
+      if (!Number.isFinite(value)) return "#VALUE!" as FormulaError;
+      const factor = 10 ** digits;
+      return Math.round(value * factor) / factor;
+    }
+    case "ROUNDUP": {
+      const value = coerceNumber(args[0]);
+      const digits = args.length > 1 ? Math.round(coerceNumber(args[1])) : 0;
+      if (!Number.isFinite(value)) return "#VALUE!" as FormulaError;
+      const factor = 10 ** digits;
+      return value >= 0 ? Math.ceil(value * factor) / factor : Math.floor(value * factor) / factor;
+    }
+    case "ROUNDDOWN": {
+      const value = coerceNumber(args[0]);
+      const digits = args.length > 1 ? Math.round(coerceNumber(args[1])) : 0;
+      if (!Number.isFinite(value)) return "#VALUE!" as FormulaError;
+      const factor = 10 ** digits;
+      return value >= 0 ? Math.floor(value * factor) / factor : Math.ceil(value * factor) / factor;
+    }
     case "IF": {
       const condition = Boolean(args[0]);
       return condition ? args[1] ?? null : args[2] ?? null;
@@ -195,6 +263,34 @@ function evaluateFunction(
       return args.map((value) => (value === null ? "" : String(value))).join("");
     case "LEN":
       return String(args[0] ?? "").length;
+    case "LEFT": {
+      const text = String(args[0] ?? "");
+      const count = Math.max(0, Math.round(coerceNumber(args[1] ?? 1)));
+      return text.slice(0, count);
+    }
+    case "RIGHT": {
+      const text = String(args[0] ?? "");
+      const count = Math.max(0, Math.round(coerceNumber(args[1] ?? 1)));
+      return text.slice(Math.max(0, text.length - count));
+    }
+    case "MID": {
+      const text = String(args[0] ?? "");
+      const start = Math.max(1, Math.round(coerceNumber(args[1])));
+      const length = Math.max(0, Math.round(coerceNumber(args[2] ?? 0)));
+      return text.slice(start - 1, start - 1 + length);
+    }
+    case "TEXT": {
+      const value = args[0];
+      const format = String(args[1] ?? "General");
+      if (typeof value === "number" && format.includes("%")) {
+        return `${(value * 100).toFixed(format.split("%").length > 1 ? 0 : 0)}%`;
+      }
+      if (typeof value === "number" && (format.includes("$") || format.includes("0.00"))) {
+        return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
+      }
+      if (typeof value === "number") return String(value);
+      return String(value ?? "");
+    }
     case "UPPER":
       return String(args[0] ?? "").toUpperCase();
     case "LOWER":
@@ -210,6 +306,73 @@ function evaluateFunction(
       const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
       const criteria = parts[1]?.trim() ?? String(args[1] ?? "");
       return countIfValues(rangeValues, criteria);
+    }
+    case "SUMIF": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const criteria = parts[1]?.trim() ?? String(args[1] ?? "");
+      const sumRangeValues =
+        parts[2]?.trim()
+          ? collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[2].trim())
+          : rangeValues;
+      let total = 0;
+      rangeValues.forEach((value, index) => {
+        const matches = countIfValues([value], criteria) > 0;
+        if (!matches) return;
+        const numeric = coerceNumber(sumRangeValues[index] ?? value);
+        if (Number.isFinite(numeric)) total += numeric;
+      });
+      return total;
+    }
+    case "AVERAGEIF": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const criteria = parts[1]?.trim() ?? String(args[1] ?? "");
+      const averageRangeValues =
+        parts[2]?.trim()
+          ? collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[2].trim())
+          : rangeValues;
+      let total = 0;
+      let count = 0;
+      rangeValues.forEach((value, index) => {
+        if (countIfValues([value], criteria) <= 0) return;
+        const numeric = coerceNumber(averageRangeValues[index] ?? value);
+        if (!Number.isFinite(numeric)) return;
+        total += numeric;
+        count += 1;
+      });
+      return count === 0 ? ("#DIV/0!" as FormulaError) : total / count;
+    }
+    case "SUMIFS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const sumRangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      let total = 0;
+      for (let index = 0; index < sumRangeValues.length; index += 1) {
+        if (!matchesAllCriteria(ctx, sheetIndex, row, col, parts, index, 1)) continue;
+        const numeric = coerceNumber(sumRangeValues[index]);
+        if (Number.isFinite(numeric)) total += numeric;
+      }
+      return total;
+    }
+    case "COUNTIFS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const firstRangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      let count = 0;
+      for (let index = 0; index < firstRangeValues.length; index += 1) {
+        if (matchesAllCriteria(ctx, sheetIndex, row, col, parts, index, 0)) count += 1;
+      }
+      return count;
+    }
+    case "COUNTA": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      return rangeValues.filter((value) => value !== null && value !== "").length;
+    }
+    case "MEDIAN": {
+      const sorted = [...numericArgs].sort((left, right) => left - right);
+      if (sorted.length === 0) return "#NUM!" as FormulaError;
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     }
     case "VLOOKUP": {
       const lookup = args[0];
@@ -402,7 +565,12 @@ function displayFromEvaluated(
 
 // Human: Recalculate every formula cell in one sheet and refresh display strings.
 // Agent: USES dependency cache per recalc pass; RETURNS updated SheetData.
-export function recalculateSheet(sheet: SheetData, sheetIndex: number, allSheets: SheetData[]): SheetData {
+export function recalculateSheet(
+  sheet: SheetData,
+  sheetIndex: number,
+  allSheets: SheetData[],
+  namedRanges?: SpreadsheetWorkbook["namedRanges"],
+): SheetData {
   const ctx: EvalContext = {
     sheets: allSheets,
     sheetIndex,
@@ -410,6 +578,7 @@ export function recalculateSheet(sheet: SheetData, sheetIndex: number, allSheets
     col: 0,
     visiting: new Set(),
     cache: new Map(),
+    namedRanges,
   };
 
   const nextRows = sheet.rows.map((row, rowIndex) =>
@@ -432,8 +601,8 @@ export function recalculateSheet(sheet: SheetData, sheetIndex: number, allSheets
 export function recalculateWorkbook(workbook: SpreadsheetWorkbook): SpreadsheetWorkbook {
   try {
     let sheets = workbook.sheets;
-    sheets = sheets.map((sheet, index) => recalculateSheet(sheet, index, sheets));
-    return { sheets };
+    sheets = sheets.map((sheet, index) => recalculateSheet(sheet, index, sheets, workbook.namedRanges));
+    return { ...workbook, sheets };
   } catch {
     return workbook;
   }

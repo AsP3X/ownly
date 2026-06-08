@@ -70,10 +70,15 @@ type ExcelSpreadsheetRibbonProps = {
   onFindReplace?: () => void;
   onFreezePanes?: () => void;
   onUnfreezePanes?: () => void;
+  onSetPrintArea?: () => void;
+  onClearPrintArea?: () => void;
+  onPageMargins?: () => void;
   onRemoveDuplicates?: () => void;
   onImportCsv?: () => void;
   onInsertChart?: () => void;
+  onInsertTable?: () => void;
   onTracePrecedents?: () => void;
+  onNameManager?: () => void;
   onDataValidation?: () => void;
   onEditComment?: () => void;
 };
@@ -383,13 +388,16 @@ function FileTools({
 function InsertTools({
   onMergeCells,
   onInsertChart,
+  onInsertTable,
 }: {
   onMergeCells?: () => void;
   onInsertChart?: () => void;
+  onInsertTable?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Merge Cells" onClick={onMergeCells} />
+      <RibbonButton label="Table" onClick={onInsertTable} />
       <RibbonButton label="Bar Chart" onClick={onInsertChart} />
     </div>
   );
@@ -399,16 +407,26 @@ function PageLayoutTools({
   onToggleGridlines,
   onFreezePanes,
   onUnfreezePanes,
+  onSetPrintArea,
+  onClearPrintArea,
+  onPageMargins,
 }: {
   onToggleGridlines?: () => void;
   onFreezePanes?: () => void;
   onUnfreezePanes?: () => void;
+  onSetPrintArea?: () => void;
+  onClearPrintArea?: () => void;
+  onPageMargins?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Gridlines" onClick={onToggleGridlines} />
       <RibbonButton label="Freeze Panes" onClick={onFreezePanes} />
       <RibbonButton label="Unfreeze" onClick={onUnfreezePanes} />
+      <RibbonDivider />
+      <RibbonButton label="Set Print Area" onClick={onSetPrintArea} />
+      <RibbonButton label="Clear Print Area" onClick={onClearPrintArea} />
+      <RibbonButton label="Margins" onClick={onPageMargins} />
     </div>
   );
 }
@@ -418,11 +436,13 @@ function FormulasTools({
   onInsertFunction,
   onToggleShowFormulas,
   onTracePrecedents,
+  onNameManager,
 }: {
   onAutoSum?: () => void;
   onInsertFunction?: () => void;
   onToggleShowFormulas?: () => void;
   onTracePrecedents?: () => void;
+  onNameManager?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -431,6 +451,7 @@ function FormulasTools({
       <RibbonDivider />
       <RibbonButton label="Show Formulas" onClick={onToggleShowFormulas} />
       <RibbonButton label="Trace Precedents" onClick={onTracePrecedents} />
+      <RibbonButton label="Name Manager" onClick={onNameManager} />
     </div>
   );
 }
@@ -522,10 +543,15 @@ export function ExcelSpreadsheetRibbon({
   onFindReplace,
   onFreezePanes,
   onUnfreezePanes,
+  onSetPrintArea,
+  onClearPrintArea,
+  onPageMargins,
   onRemoveDuplicates,
   onImportCsv,
   onInsertChart,
+  onInsertTable,
   onTracePrecedents,
+  onNameManager,
   onDataValidation,
   onEditComment,
 }: ExcelSpreadsheetRibbonProps) {
@@ -586,13 +612,20 @@ export function ExcelSpreadsheetRibbon({
           />
         ) : null}
         {activeTab === "insert" ? (
-          <InsertTools onMergeCells={onMergeCells} onInsertChart={onInsertChart} />
+          <InsertTools
+            onMergeCells={onMergeCells}
+            onInsertChart={onInsertChart}
+            onInsertTable={onInsertTable}
+          />
         ) : null}
         {activeTab === "page-layout" ? (
           <PageLayoutTools
             onToggleGridlines={onToggleGridlines}
             onFreezePanes={onFreezePanes}
             onUnfreezePanes={onUnfreezePanes}
+            onSetPrintArea={onSetPrintArea}
+            onClearPrintArea={onClearPrintArea}
+            onPageMargins={onPageMargins}
           />
         ) : null}
         {activeTab === "formulas" ? (
@@ -601,6 +634,7 @@ export function ExcelSpreadsheetRibbon({
             onInsertFunction={onInsertFunction}
             onToggleShowFormulas={onToggleShowFormulas}
             onTracePrecedents={onTracePrecedents}
+            onNameManager={onNameManager}
           />
         ) : null}
         {activeTab === "data" ? (

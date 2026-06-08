@@ -3,6 +3,7 @@
 
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
+import type { NamedRange } from "@/lib/spreadsheet/named-ranges";
 
 export type HorizontalAlign = "left" | "center" | "right";
 export type VerticalAlign = "top" | "middle" | "bottom";
@@ -68,10 +69,46 @@ export type SheetData = {
   // Human: Per-column data validation rules keyed by column index.
   // Agent: CHECKED on commitEdit; SET via Data Validation dialog.
   columnValidations?: Record<number, DataValidationRule>;
+  // Human: Excel-style table metadata for banded row styling in grid.
+  // Agent: SET via Insert Table; RENDERED as alternating row fills.
+  tables?: SpreadsheetTable[];
+  // Human: Print area bounds for Page Layout ribbon and xlsx export.
+  // Agent: IMPORTED from _xlnm.Print_Area; SHOWN as dashed outline in grid.
+  printArea?: SheetPrintArea;
+  // Human: Page margins in inches for print/PDF.
+  // Agent: IMPORTED/EXPORTED via worksheet pageMargins OOXML.
+  pageMargins?: PageMargins;
+};
+
+export type SpreadsheetTable = {
+  name: string;
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+};
+
+export type SheetPrintArea = {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+};
+
+export type PageMargins = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  header?: number;
+  footer?: number;
 };
 
 export type SpreadsheetWorkbook = {
   sheets: SheetData[];
+  // Human: Workbook-level named ranges for formulas and name manager UI.
+  // Agent: IMPORTED/EXPORTED via xl/workbook.xml definedNames.
+  namedRanges?: NamedRange[];
 };
 
 export type CellAddress = {

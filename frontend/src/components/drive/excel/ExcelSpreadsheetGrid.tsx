@@ -18,7 +18,7 @@ import {
 } from "@/lib/spreadsheet/dimensions";
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { isCellInRange, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
-import type { CellAddress, CellStyle, SheetCell } from "@/lib/spreadsheet/types";
+import type { CellAddress, CellStyle, SheetCell, SheetPrintArea } from "@/lib/spreadsheet/types";
 import { cn } from "@/lib/utils";
 
 type ExcelSpreadsheetGridProps = {
@@ -37,6 +37,7 @@ type ExcelSpreadsheetGridProps = {
   frozenRows?: number;
   frozenCols?: number;
   precedentHighlight?: Set<string>;
+  printArea?: SheetPrintArea | null;
   onSelectCell: (address: CellAddress, extend?: boolean) => void;
   onStartEditing: (address: CellAddress) => void;
   onEditDraftChange: (value: string) => void;
@@ -64,8 +65,6 @@ function badgeClasses(tone: "on-track" | "over-budget" | "under-budget") {
   }
 }
 
-// Human: Map per-side cell border flags to inline CSS for grid cells.
-// Agent: MERGED into cell button style alongside CF fill colors.
 function cellBorderStyles(style?: CellStyle): CSSProperties {
   if (!style) return {};
   const color = style.borderColor ?? "#1A1A1A";
@@ -76,6 +75,17 @@ function cellBorderStyles(style?: CellStyle): CSSProperties {
     borderBottom: style.borderBottom ? edge : undefined,
     borderLeft: style.borderLeft ? edge : undefined,
   };
+}
+
+// Human: Highlight dashed outline on print-area perimeter cells.
+// Agent: READS SheetPrintArea bounds; RETURNS true for edge cells only.
+function isPrintAreaEdge(row: number, col: number, printArea: SheetPrintArea): boolean {
+  const range = normalizeRange({
+    start: { row: printArea.startRow, col: printArea.startCol },
+    end: { row: printArea.endRow, col: printArea.endCol },
+  });
+  if (!isCellInRange(row, col, range)) return false;
+  return row === range.start.row || row === range.end.row || col === range.start.col || col === range.end.col;
 }
 
 // Human: Red corner marker when a cell has an attached comment note.
@@ -209,6 +219,7 @@ export function ExcelSpreadsheetGrid({
   frozenRows = 0,
   frozenCols = 0,
   precedentHighlight,
+  printArea,
   onSelectCell,
   onStartEditing,
   onEditDraftChange,
@@ -493,6 +504,7 @@ export function ExcelSpreadsheetGrid({
                     const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                     const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
                     const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
+                    const isPrintEdge = printArea ? isPrintAreaEdge(rowIndex, colIndex, printArea) : false;
 
                     return (
                       <button
@@ -514,6 +526,7 @@ export function ExcelSpreadsheetGrid({
                           selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                           selected && !cellFill && "bg-[#EFF6FF]",
                           isPrecedent && "ring-2 ring-amber-400 ring-inset",
+                          isPrintEdge && "ring-2 ring-violet-500 ring-inset",
                           isNumericCol && "justify-end",
                         )}
                         style={{
@@ -600,6 +613,7 @@ export function ExcelSpreadsheetGrid({
                   const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                   const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
                   const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
+                  const isPrintEdge = printArea ? isPrintAreaEdge(rowIndex, colIndex, printArea) : false;
 
                   return (
                     <button
@@ -624,6 +638,7 @@ export function ExcelSpreadsheetGrid({
                         selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                         selected && !cellFill && "bg-[#EFF6FF]",
                         isPrecedent && "ring-2 ring-amber-400 ring-inset",
+                        isPrintEdge && "ring-2 ring-violet-500 ring-inset",
                         isNumericCol && "justify-end",
                       )}
                       style={{
