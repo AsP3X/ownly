@@ -1,7 +1,7 @@
 // Human: Full-screen Excel spreadsheet preview dialog — Pencil Excel Dialog Frame (sgOxg).
 // Agent: FETCHES blob; PARSES xlsx; RENDERS ribbon/grid/copilot; SAVE replace upload on Save & Close.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
@@ -128,6 +128,7 @@ export function ExcelSpreadsheetDialog({
   const isDesktopViewport = useIsDesktopExcelViewport(open);
   const editor = useSpreadsheetEditor({ readOnly });
   const { loadWorkbook: loadEditorWorkbook, resetEditor } = editor;
+  const flushGridDimensionsRef = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [ribbonTab, setRibbonTab] = useState<RibbonTabId>("home");
@@ -268,12 +269,14 @@ export function ExcelSpreadsheetDialog({
   );
 
   const handleSaveAndClose = useCallback(async () => {
-    if (!file || !editor.workbook) {
+    flushGridDimensionsRef.current?.();
+    const workbook = editor.getWorkbookForSave();
+    if (!file || !workbook) {
       handleDialogOpenChange(false);
       return;
     }
 
-    if (readOnly || !editor.dirty) {
+    if (readOnly || !editor.isWorkbookDirty(workbook)) {
       handleDialogOpenChange(false);
       return;
     }
@@ -281,7 +284,7 @@ export function ExcelSpreadsheetDialog({
     setSaving(true);
     setSaveError("");
     try {
-      const blob = await serializeSpreadsheetWorkbook(editor.workbook);
+      const blob = await serializeSpreadsheetWorkbook(workbook);
       const nextFileObject = new File([blob], file.name, {
         type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -296,18 +299,24 @@ export function ExcelSpreadsheetDialog({
     } finally {
       setSaving(false);
     }
-  }, [editor.dirty, editor.workbook, file, handleDialogOpenChange, onFileSaved, readOnly]);
+  }, [editor, file, handleDialogOpenChange, onFileSaved, readOnly]);
 
   const handleSaveCopy = useCallback(async () => {
-    if (!editor.workbook || !file) return;
-    const blob = await serializeSpreadsheetWorkbook(editor.workbook);
+    flushGridDimensionsRef.current?.();
+    const workbook = editor.getWorkbookForSave();
+    if (!workbook || !file) return;
+    const blob = await serializeSpreadsheetWorkbook(workbook);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = file.name.replace(/\.xlsx?$/i, "") + "-copy.xlsx";
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [editor.workbook, file]);
+  }, [editor, file]);
+
+  const handleRegisterDimensionFlush = useCallback((flush: (() => void) | null) => {
+    flushGridDimensionsRef.current = flush;
+  }, []);
 
   const handleFindNext = useCallback(
     (query: string) => {
@@ -624,6 +633,7 @@ export function ExcelSpreadsheetDialog({
                     onFillDragEnd={editor.performFill}
                     onColumnWidthsChange={editor.setSheetColumnWidths}
                     onRowHeightsChange={editor.setSheetRowHeights}
+                    onRegisterDimensionFlush={handleRegisterDimensionFlush}
                   />
                   <ExcelSheetTabsBar
                     sheets={editor.workbook?.sheets.map((sheet) => sheet.name) ?? []}

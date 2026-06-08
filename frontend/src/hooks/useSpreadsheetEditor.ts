@@ -15,6 +15,7 @@ import {
 import { fillRangeInWorkbook, fillTargetRange } from "@/lib/spreadsheet/fill-handle";
 import { validateCellInput } from "@/lib/spreadsheet/data-validation";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
+import { GRID_DEFAULT_COL_WIDTH, GRID_DEFAULT_ROW_HEIGHT } from "@/lib/spreadsheet/dimensions";
 import { applyFormulaBarEdit } from "@/lib/spreadsheet/parse";
 import { normalizeRange, rangeAddressLabel, singleCellRange } from "@/lib/spreadsheet/selection";
 import {
@@ -62,10 +63,15 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   const activeCellAddress = selectionEnd;
   const activeSheet = workbook?.sheets[activeSheetIndex] ?? null;
   const activeSheetIndexRef = useRef(activeSheetIndex);
+  const workbookRef = useRef<SpreadsheetWorkbook | null>(null);
 
   useEffect(() => {
     activeSheetIndexRef.current = activeSheetIndex;
   }, [activeSheetIndex]);
+
+  useEffect(() => {
+    workbookRef.current = workbook;
+  }, [workbook]);
 
   const dirty = useMemo(() => {
     if (!workbook || !savedWorkbook) return false;
@@ -80,16 +86,29 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         if (options?.recordUndo !== false && current && next) {
           setUndoStack((stack) => pushUndo(stack, current));
         }
+        workbookRef.current = next;
         return next;
       });
     },
     [],
   );
 
+  const getWorkbookForSave = useCallback((): SpreadsheetWorkbook | null => workbookRef.current, []);
+
+  const isWorkbookDirty = useCallback(
+    (candidate?: SpreadsheetWorkbook | null) => {
+      const current = candidate ?? workbookRef.current;
+      if (!current || !savedWorkbook) return false;
+      return JSON.stringify(current) !== JSON.stringify(savedWorkbook);
+    },
+    [savedWorkbook],
+  );
+
   const loadWorkbook = useCallback((parsed: SpreadsheetWorkbook) => {
     // Human: Show parsed sheet immediately; recalc in a follow-up tick so open stays responsive.
     // Agent: FALLBACK to parsed workbook when formula evaluation throws on complex sheets.
     setWorkbookState(parsed);
+    workbookRef.current = parsed;
     setSavedWorkbook(cloneWorkbook(parsed));
     setUndoStack(createUndoStack(parsed));
     setActiveSheetIndex(0);
@@ -100,18 +119,23 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     setViewFlags({ showFormulas: false, showGridlines: true });
 
     queueMicrotask(() => {
-      try {
-        const calculated = recalculateWorkbook(parsed);
-        setWorkbookState(calculated);
-        setSavedWorkbook(cloneWorkbook(calculated));
-        setUndoStack(createUndoStack(calculated));
-      } catch {
-        // Keep parsed workbook when recalc fails — grid still renders imported values.
-      }
+      setWorkbookState((current) => {
+        if (!current) return current;
+        try {
+          const calculated = recalculateWorkbook(current);
+          workbookRef.current = calculated;
+          setSavedWorkbook(cloneWorkbook(calculated));
+          setUndoStack(createUndoStack(calculated));
+          return calculated;
+        } catch {
+          return current;
+        }
+      });
     });
   }, []);
 
   const resetEditor = useCallback(() => {
+    workbookRef.current = null;
     setWorkbookState(null);
     setSavedWorkbook(null);
     setUndoStack(createUndoStack(null));
@@ -132,10 +156,12 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         try {
           const next = recalculateWorkbook(mutator(current));
           setUndoStack((stack) => pushUndo(stack, current));
+          workbookRef.current = next;
           return next;
         } catch {
           const next = mutator(current);
           setUndoStack((stack) => pushUndo(stack, current));
+          workbookRef.current = next;
           return next;
         }
       });
@@ -144,19 +170,38 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   );
 
   // Human: Apply column width changes without formula recalc — uses latest workbook snapshot.
-  // Agent: FUNCTIONAL setState; WRITES sheet.columnWidths on active tab; RECORDS undo once per drag.
+  // Agent: SYNCS workbookRef immediately; COMPARES resolved widths so sparse arrays still update.
   const setSheetColumnWidths = useCallback(
-    (widths: number[]) => {
+    (widths: number[], options?: { recordUndo?: boolean }) => {
       if (readOnly) return;
       setWorkbookState((current) => {
         if (!current) return current;
+        const sheetIndex = activeSheetIndexRef.current;
+        const existing = current.sheets[sheetIndex]?.columnWidths;
+        const columnCount = widths.length;
+        let unchanged = true;
+        for (let index = 0; index < columnCount; index += 1) {
+          const nextWidth = widths[index];
+          const stored = existing?.[index];
+          const currentWidth = typeof stored === "number" ? stored : GRID_DEFAULT_COL_WIDTH;
+          const resolvedNext = typeof nextWidth === "number" ? nextWidth : GRID_DEFAULT_COL_WIDTH;
+          if (currentWidth !== resolvedNext) {
+            unchanged = false;
+            break;
+          }
+        }
+        if (unchanged) return current;
+
         const next: SpreadsheetWorkbook = {
           ...current,
           sheets: current.sheets.map((sheet, index) =>
-            index === activeSheetIndexRef.current ? { ...sheet, columnWidths: [...widths] } : sheet,
+            index === sheetIndex ? { ...sheet, columnWidths: [...widths] } : sheet,
           ),
         };
-        setUndoStack((stack) => pushUndo(stack, current));
+        if (options?.recordUndo !== false) {
+          setUndoStack((stack) => pushUndo(stack, current));
+        }
+        workbookRef.current = next;
         return next;
       });
     },
@@ -164,19 +209,38 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   );
 
   // Human: Apply row height changes without formula recalc — uses latest workbook snapshot.
-  // Agent: FUNCTIONAL setState; WRITES sheet.rowHeights on active tab; RECORDS undo once per drag.
+  // Agent: SYNCS workbookRef immediately; COMPARES resolved heights so sparse arrays still update.
   const setSheetRowHeights = useCallback(
-    (heights: number[]) => {
+    (heights: number[], options?: { recordUndo?: boolean }) => {
       if (readOnly) return;
       setWorkbookState((current) => {
         if (!current) return current;
+        const sheetIndex = activeSheetIndexRef.current;
+        const existing = current.sheets[sheetIndex]?.rowHeights;
+        const rowCount = heights.length;
+        let unchanged = true;
+        for (let index = 0; index < rowCount; index += 1) {
+          const nextHeight = heights[index];
+          const stored = existing?.[index];
+          const currentHeight = typeof stored === "number" ? stored : GRID_DEFAULT_ROW_HEIGHT;
+          const resolvedNext = typeof nextHeight === "number" ? nextHeight : GRID_DEFAULT_ROW_HEIGHT;
+          if (currentHeight !== resolvedNext) {
+            unchanged = false;
+            break;
+          }
+        }
+        if (unchanged) return current;
+
         const next: SpreadsheetWorkbook = {
           ...current,
           sheets: current.sheets.map((sheet, index) =>
-            index === activeSheetIndexRef.current ? { ...sheet, rowHeights: [...heights] } : sheet,
+            index === sheetIndex ? { ...sheet, rowHeights: [...heights] } : sheet,
           ),
         };
-        setUndoStack((stack) => pushUndo(stack, current));
+        if (options?.recordUndo !== false) {
+          setUndoStack((stack) => pushUndo(stack, current));
+        }
+        workbookRef.current = next;
         return next;
       });
     },
@@ -557,6 +621,8 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     commitWorkbookMutation,
     setSheetColumnWidths,
     setSheetRowHeights,
+    getWorkbookForSave,
+    isWorkbookDirty,
     performFill,
     handleGridKeyDown,
     filterHiddenRows,
