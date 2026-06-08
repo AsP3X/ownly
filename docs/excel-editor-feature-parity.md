@@ -4,6 +4,15 @@ Status legend: ✅ Done · 🚧 Partial · ⏳ Planned · ❌ Out of scope (Ownl
 
 Last updated: 2026-06-08
 
+## Ribbon UI
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Excel 365 tab strip | ✅ | File (green) + Home/Insert/Draw/Page Layout/Formulas/Data/Review/View/Help/Automate |
+| Labeled command groups | ✅ | Clipboard, Font, Alignment, Number, Styles, Cells, Editing (Home) |
+| Ribbon collapse | ✅ | Chevron on tab strip |
+| Design tokens | ✅ | `excel-ribbon-tokens.ts` from login-screen + Office colors |
+
 ## Phase 1 — Core editing
 
 | Feature | Status | Notes |
@@ -98,6 +107,9 @@ Last updated: 2026-06-08
 | Area | Path |
 |------|------|
 | Tracker | `docs/excel-editor-feature-parity.md` |
+| Ribbon tokens | `frontend/src/components/drive/excel/excel-ribbon-tokens.ts` |
+| Ribbon primitives | `frontend/src/components/drive/excel/excel-ribbon-primitives.tsx` |
+| Ribbon shell | `frontend/src/components/drive/excel/ExcelSpreadsheetRibbon.tsx` |
 | Metadata OOXML | `frontend/src/lib/spreadsheet/xlsx-metadata-ooxml.ts` |
 | Page settings OOXML | `frontend/src/lib/spreadsheet/xlsx-page-settings-ooxml.ts` |
 | Page margins UI | `frontend/src/components/drive/excel/ExcelPageMarginsDialog.tsx` |

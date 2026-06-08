@@ -1,18 +1,36 @@
-// Human: Excel ribbon toolbar with all seven Pencil tab variants (File, Home, Insert, …).
-// Agent: READS activeRibbonTab + formatting state; EMITS tab/format callbacks for selected cell styling.
+// Human: Microsoft Excel 365 ribbon — File tab, standard tabs, labeled command groups.
+// Agent: READS activeRibbonTab + cellStyle; EMITS callbacks; USES excel-ribbon-primitives + login-screen tokens.
 
+import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  BarChart3,
   Bold,
-  ChevronDown,
+  Calculator,
+  ClipboardPaste,
   Copy,
+  Eye,
   FileText,
+  Filter,
+  FunctionSquare,
+  Grid3X3,
   Italic,
+  MessageSquare,
+  Paintbrush,
+  PanelTop,
   Printer,
+  Scissors,
+  Search,
+  Sheet,
+  Sigma,
+  Table2,
   Underline,
+  WrapText,
 } from "lucide-react";
 import type {
   CellStyle,
@@ -23,38 +41,68 @@ import {
   ExcelConditionalFormatMenu,
   type ConditionalFormatPreset,
 } from "@/components/drive/excel/ExcelConditionalFormatMenu";
+import {
+  RibbonContent,
+  RibbonGroup,
+  RibbonGroupDivider,
+  RibbonIconButton,
+  RibbonIconStack,
+  RibbonLargeButton,
+  RibbonSelect,
+  RibbonTabStrip,
+  RibbonToggleButton,
+} from "@/components/drive/excel/excel-ribbon-primitives";
+import { EXCEL_RIBBON_FONT } from "@/components/drive/excel/excel-ribbon-tokens";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
-import { cn } from "@/lib/utils";
 
 export type RibbonTabId =
   | "file"
   | "home"
   | "insert"
+  | "draw"
   | "page-layout"
   | "formulas"
   | "data"
+  | "review"
+  | "view"
+  | "help"
   | "automate";
 
-const RIBBON_TABS: { id: RibbonTabId; label: string }[] = [
-  { id: "file", label: "File" },
+/** Human: Excel 365 default tab order (File is separate green tab). */
+const RIBBON_TABS: { id: Exclude<RibbonTabId, "file">; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "insert", label: "Insert" },
+  { id: "draw", label: "Draw" },
   { id: "page-layout", label: "Page Layout" },
   { id: "formulas", label: "Formulas" },
   { id: "data", label: "Data" },
+  { id: "review", label: "Review" },
+  { id: "view", label: "View" },
+  { id: "help", label: "Help" },
   { id: "automate", label: "Automate" },
 ];
+
+type BorderPreset = "all" | "outline" | "top" | "bottom" | "left" | "right" | "clear";
 
 type ExcelSpreadsheetRibbonProps = {
   activeTab: RibbonTabId;
   cellStyle: CellStyle;
   readOnly?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  showGridlines?: boolean;
+  showFormulas?: boolean;
   onTabChange: (tab: RibbonTabId) => void;
   onStyleChange: (patch: Partial<CellStyle>) => void;
   onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
   onSaveCopy?: () => void;
   onPrint?: () => void;
   onExportPdf?: () => void;
+  onCopy?: () => void;
+  onCut?: () => void;
+  onPaste?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onToggleGridlines?: () => void;
   onToggleShowFormulas?: () => void;
   onAutoSum?: () => void;
@@ -86,28 +134,13 @@ type ExcelSpreadsheetRibbonProps = {
   onEditComment?: () => void;
 };
 
-function RibbonDivider() {
-  return (
-    <div className="w-px shrink-0 bg-[#E5E7EB]" style={{ height: scaledPx(24) }} aria-hidden />
-  );
-}
-
-type BorderPreset = "all" | "outline" | "top" | "bottom" | "left" | "right" | "clear";
-
-// Human: Map ribbon border preset to CellStyle patch for the active selection.
-// Agent: WRITES per-side border flags consumed by grid + xlsx export.
+// Human: Map border preset names to CellStyle patches for the Borders gallery.
 function borderPatchForPreset(preset: BorderPreset, current: CellStyle): Partial<CellStyle> {
   const color = current.borderColor ?? "#1A1A1A";
   switch (preset) {
     case "all":
     case "outline":
-      return {
-        borderTop: true,
-        borderRight: true,
-        borderBottom: true,
-        borderLeft: true,
-        borderColor: color,
-      };
+      return { borderTop: true, borderRight: true, borderBottom: true, borderLeft: true, borderColor: color };
     case "top":
       return { borderTop: true, borderColor: color };
     case "bottom":
@@ -117,194 +150,280 @@ function borderPatchForPreset(preset: BorderPreset, current: CellStyle): Partial
     case "right":
       return { borderRight: true, borderColor: color };
     case "clear":
-      return {
-        borderTop: false,
-        borderRight: false,
-        borderBottom: false,
-        borderLeft: false,
-      };
+      return { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false };
     default:
       return {};
   }
 }
 
-function RibbonButton({
-  label,
-  icon,
-  active = false,
-  onClick,
-}: {
-  label: string;
-  icon?: ReactNode;
-  active?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center rounded-lg border font-semibold text-[#1A1A1A] transition-colors",
-        active
-          ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]"
-          : "border-[#E5E7EB] bg-[#F7F8FA] hover:bg-white",
-      )}
-      style={{
-        gap: scaledPx(4),
-        padding: `${scaledPx(4)}px ${scaledPx(8)}px`,
-        fontSize: scaledPx(11),
-      }}
-    >
-      {icon}
-      {label}
-    </button>
-  );
+function iconSize() {
+  return scaledPx(16);
 }
 
-function HomeTools({
+function HomeTabPanel({
   cellStyle,
   readOnly,
+  canUndo,
+  canRedo,
   onStyleChange,
   onConditionalFormatPreset,
-}: {
-  cellStyle: CellStyle;
-  readOnly?: boolean;
-  onStyleChange: (patch: Partial<CellStyle>) => void;
-  onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
-}) {
+  onCopy,
+  onCut,
+  onPaste,
+  onUndo,
+  onRedo,
+  onSortAsc,
+  onSortDesc,
+  onFilter,
+  onFindReplace,
+  onAutoSum,
+  onInsertRow,
+  onDeleteRow,
+  onInsertColumn,
+  onDeleteColumn,
+  onMergeCells,
+}: Pick<
+  ExcelSpreadsheetRibbonProps,
+  | "cellStyle"
+  | "readOnly"
+  | "canUndo"
+  | "canRedo"
+  | "onStyleChange"
+  | "onConditionalFormatPreset"
+  | "onCopy"
+  | "onCut"
+  | "onPaste"
+  | "onUndo"
+  | "onRedo"
+  | "onSortAsc"
+  | "onSortDesc"
+  | "onFilter"
+  | "onFindReplace"
+  | "onAutoSum"
+  | "onInsertRow"
+  | "onDeleteRow"
+  | "onInsertColumn"
+  | "onDeleteColumn"
+  | "onMergeCells"
+>) {
+  const sz = iconSize();
   const setAlign = (horizontalAlign: HorizontalAlign) => onStyleChange({ horizontalAlign });
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
-        <div className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]">
-          <select
-            aria-label="Font family"
-            className="bg-transparent outline-none"
-            value={cellStyle.fontFamily ?? "Inter"}
+      <RibbonGroup label="Clipboard">
+        <RibbonLargeButton
+          label="Paste"
+          icon={<ClipboardPaste style={{ width: sz, height: sz }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onPaste}
+        />
+        <RibbonIconStack>
+          <RibbonIconButton
+            label="Cut"
+            showLabel={false}
+            icon={<Scissors style={{ width: sz, height: sz }} aria-hidden />}
             disabled={readOnly}
-            onChange={(event) => onStyleChange({ fontFamily: event.target.value })}
-          >
-            <option value="Inter">Inter</option>
-            <option value="Arial">Arial</option>
-            <option value="Georgia">Georgia</option>
-            <option value="Times New Roman">Times New Roman</option>
-          </select>
-        </div>
-        <div className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 py-1 text-xs text-[#1A1A1A]">
-          <select
-            aria-label="Font size"
-            className="bg-transparent outline-none"
-            value={cellStyle.fontSize ?? 11}
-            disabled={readOnly}
-            onChange={(event) => onStyleChange({ fontSize: Number(event.target.value) })}
-          >
-            {[10, 11, 12, 14, 16, 18, 24].map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="inline-flex overflow-hidden rounded-lg border border-[#E5E7EB]">
-          <button
-            type="button"
-            aria-label="Bold"
-            onClick={() => onStyleChange({ bold: !cellStyle.bold })}
-            className={cn("px-2 py-1.5", cellStyle.bold ? "bg-[#EFF6FF]" : "bg-white")}
-          >
-            <Bold className="size-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            aria-label="Italic"
-            onClick={() => onStyleChange({ italic: !cellStyle.italic })}
-            className={cn("border-x border-[#E5E7EB] px-2 py-1.5", cellStyle.italic ? "bg-[#EFF6FF]" : "bg-white")}
-          >
-            <Italic className="size-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            aria-label="Underline"
-            onClick={() => onStyleChange({ underline: !cellStyle.underline })}
-            className={cn("px-2 py-1.5", cellStyle.underline ? "bg-[#EFF6FF]" : "bg-white")}
-          >
-            <Underline className="size-3.5" aria-hidden />
-          </button>
-        </div>
-      </div>
-
-      <RibbonDivider />
-
-      <div className="flex items-center gap-1">
-        <div className="inline-flex overflow-hidden rounded-lg border border-[#E5E7EB]">
-          {(["left", "center", "right"] as HorizontalAlign[]).map((align) => (
-            <button
-              key={align}
-              type="button"
-              aria-label={`Align ${align}`}
-              onClick={() => setAlign(align)}
-              className={cn(
-                "px-2 py-1.5",
-                cellStyle.horizontalAlign === align ? "bg-[#F7F8FA]" : "bg-white",
-                align !== "right" && "border-r border-[#E5E7EB]",
-              )}
-            >
-              {align === "left" ? (
-                <AlignLeft className="size-3.5" aria-hidden />
-              ) : align === "center" ? (
-                <AlignCenter className="size-3.5" aria-hidden />
-              ) : (
-                <AlignRight className="size-3.5" aria-hidden />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <RibbonDivider />
-
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className="rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs"
-          onClick={() => onStyleChange({ wrapText: !cellStyle.wrapText })}
-        >
-          Wrap
-        </button>
-        {(["top", "middle", "bottom"] as VerticalAlign[]).map((align) => (
-          <button
-            key={align}
-            type="button"
-            className={cn(
-              "rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs capitalize",
-              cellStyle.verticalAlign === align ? "bg-[#EFF6FF]" : "bg-white",
-            )}
-            onClick={() => onStyleChange({ verticalAlign: align })}
-          >
-            {align}
-          </button>
-        ))}
-        <label className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs">
-          Fill
-          <input
-            type="color"
-            aria-label="Fill color"
-            disabled={readOnly}
-            value={cellStyle.backgroundColor ?? "#ffffff"}
-            onChange={(event) => onStyleChange({ backgroundColor: event.target.value })}
-            className="size-4 cursor-pointer border-0 bg-transparent p-0"
+            onClick={onCut}
           />
-        </label>
-        <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1 py-1 text-xs">
+          <RibbonIconButton
+            label="Copy"
+            showLabel={false}
+            icon={<Copy style={{ width: sz, height: sz }} aria-hidden />}
+            onClick={onCopy}
+          />
+        </RibbonIconStack>
+        <RibbonIconButton
+          label="Format Painter"
+          icon={<Paintbrush style={{ width: sz, height: sz }} aria-hidden />}
+          disabled
+          title="Format Painter (coming soon)"
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      <RibbonGroup label="Font">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1">
+            <RibbonSelect
+              ariaLabel="Font"
+              disabled={readOnly}
+              width={100}
+              value={cellStyle.fontFamily ?? "Inter"}
+              onChange={(value) => onStyleChange({ fontFamily: value })}
+              options={[
+                { value: "Inter", label: "Inter" },
+                { value: "Calibri", label: "Calibri" },
+                { value: "Arial", label: "Arial" },
+                { value: "Georgia", label: "Georgia" },
+                { value: "Times New Roman", label: "Times New Roman" },
+              ]}
+            />
+            <RibbonSelect
+              ariaLabel="Font size"
+              disabled={readOnly}
+              width={44}
+              value={cellStyle.fontSize ?? 11}
+              onChange={(value) => onStyleChange({ fontSize: Number(value) })}
+              options={[8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((size) => ({
+                value: size,
+                label: String(size),
+              }))}
+            />
+          </div>
+          <div className="flex items-center gap-0.5">
+            <RibbonToggleButton
+              ariaLabel="Bold"
+              disabled={readOnly}
+              active={cellStyle.bold}
+              onClick={() => onStyleChange({ bold: !cellStyle.bold })}
+            >
+              <Bold style={{ width: sz, height: sz }} />
+            </RibbonToggleButton>
+            <RibbonToggleButton
+              ariaLabel="Italic"
+              disabled={readOnly}
+              active={cellStyle.italic}
+              onClick={() => onStyleChange({ italic: !cellStyle.italic })}
+            >
+              <Italic style={{ width: sz, height: sz }} />
+            </RibbonToggleButton>
+            <RibbonToggleButton
+              ariaLabel="Underline"
+              disabled={readOnly}
+              active={cellStyle.underline}
+              onClick={() => onStyleChange({ underline: !cellStyle.underline })}
+            >
+              <Underline style={{ width: sz, height: sz }} />
+            </RibbonToggleButton>
+            <label
+              className="ml-1 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-1 py-0.5 hover:bg-[#E5E5E5]"
+              style={{ fontSize: scaledPx(10), borderColor: "#E5E7EB" }}
+            >
+              Fill
+              <input
+                type="color"
+                aria-label="Fill color"
+                disabled={readOnly}
+                value={cellStyle.backgroundColor ?? "#ffffff"}
+                onChange={(event) => onStyleChange({ backgroundColor: event.target.value })}
+                className="size-4 cursor-pointer border-0 bg-transparent p-0"
+              />
+            </label>
+          </div>
+        </div>
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      <RibbonGroup label="Alignment">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-0.5">
+            {(["left", "center", "right"] as HorizontalAlign[]).map((align) => (
+              <RibbonToggleButton
+                key={align}
+                ariaLabel={`Align ${align}`}
+                disabled={readOnly}
+                active={cellStyle.horizontalAlign === align || (!cellStyle.horizontalAlign && align === "left")}
+                onClick={() => setAlign(align)}
+              >
+                {align === "left" ? (
+                  <AlignLeft style={{ width: sz, height: sz }} />
+                ) : align === "center" ? (
+                  <AlignCenter style={{ width: sz, height: sz }} />
+                ) : (
+                  <AlignRight style={{ width: sz, height: sz }} />
+                )}
+              </RibbonToggleButton>
+            ))}
+            <RibbonToggleButton
+              ariaLabel="Wrap text"
+              disabled={readOnly}
+              active={cellStyle.wrapText}
+              onClick={() => onStyleChange({ wrapText: !cellStyle.wrapText })}
+            >
+              <WrapText style={{ width: sz, height: sz }} />
+            </RibbonToggleButton>
+          </div>
+          <div className="flex items-center gap-0.5">
+            {(["top", "middle", "bottom"] as VerticalAlign[]).map((align) => (
+              <RibbonToggleButton
+                key={align}
+                ariaLabel={`Vertical ${align}`}
+                disabled={readOnly}
+                active={cellStyle.verticalAlign === align}
+                onClick={() => onStyleChange({ verticalAlign: align })}
+              >
+                <span style={{ fontSize: scaledPx(9), fontWeight: 600, width: sz, textAlign: "center" }}>
+                  {align === "top" ? "T" : align === "middle" ? "M" : "B"}
+                </span>
+              </RibbonToggleButton>
+            ))}
+            <RibbonIconButton
+              label="Merge"
+              icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />}
+              disabled={readOnly}
+              onClick={onMergeCells}
+            />
+          </div>
+        </div>
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      <RibbonGroup label="Number">
+        <div className="flex flex-col gap-1">
+          <RibbonSelect
+            ariaLabel="Number format"
+            disabled={readOnly}
+            width={88}
+            value={cellStyle.numberFormat ?? "general"}
+            onChange={(value) =>
+              onStyleChange({ numberFormat: value as CellStyle["numberFormat"] })
+            }
+            options={[
+              { value: "general", label: "General" },
+              { value: "number", label: "Number" },
+              { value: "currency", label: "Currency" },
+              { value: "percent", label: "Percent" },
+            ]}
+          />
+          <div className="flex gap-0.5">
+            <RibbonIconButton
+              label="Currency"
+              icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>$</span>}
+              disabled={readOnly}
+              active={cellStyle.numberFormat === "currency"}
+              onClick={() =>
+                onStyleChange({
+                  numberFormat: cellStyle.numberFormat === "currency" ? "general" : "currency",
+                })
+              }
+            />
+            <RibbonIconButton
+              label="Percent"
+              icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>%</span>}
+              disabled={readOnly}
+              active={cellStyle.numberFormat === "percent"}
+              onClick={() =>
+                onStyleChange({
+                  numberFormat: cellStyle.numberFormat === "percent" ? "general" : "percent",
+                })
+              }
+            />
+          </div>
+        </div>
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      <RibbonGroup label="Styles">
+        <ExcelConditionalFormatMenu
+          disabled={readOnly || !onConditionalFormatPreset}
+          onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
+        />
+        <div className="flex flex-wrap gap-0.5" style={{ maxWidth: scaledPx(120) }}>
           {(
             [
               ["All", "all"],
               ["Outline", "outline"],
-              ["Top", "top"],
-              ["Bottom", "bottom"],
-              ["Left", "left"],
-              ["Right", "right"],
               ["Clear", "clear"],
             ] as const
           ).map(([label, preset]) => (
@@ -312,368 +431,317 @@ function HomeTools({
               key={preset}
               type="button"
               disabled={readOnly}
-              className="rounded px-1.5 py-0.5 hover:bg-[#F7F8FA] disabled:opacity-40"
+              className="rounded-sm px-1.5 py-0.5 hover:bg-[#E5E5E5] disabled:opacity-40"
+              style={{ fontSize: scaledPx(9), fontFamily: EXCEL_RIBBON_FONT }}
               onClick={() => onStyleChange(borderPatchForPreset(preset, cellStyle))}
             >
               {label}
             </button>
           ))}
         </div>
-      </div>
+      </RibbonGroup>
+      <RibbonGroupDivider />
 
-      <RibbonDivider />
+      <RibbonGroup label="Cells">
+        <RibbonIconStack>
+          <RibbonIconButton label="Insert" icon={<span style={{ fontSize: scaledPx(10) }}>▾ Ins</span>} disabled={readOnly} onClick={onInsertRow} title="Insert row" />
+          <RibbonIconButton label="Delete" icon={<span style={{ fontSize: scaledPx(10) }}>▾ Del</span>} disabled={readOnly} onClick={onDeleteRow} title="Delete row" />
+        </RibbonIconStack>
+        <RibbonIconStack>
+          <RibbonIconButton label="Format" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertColumn} title="Insert column" />
+          <RibbonIconButton label="Delete Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={readOnly} onClick={onDeleteColumn} title="Delete column" />
+        </RibbonIconStack>
+      </RibbonGroup>
+      <RibbonGroupDivider />
 
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
-          onClick={() =>
-            onStyleChange({
-              numberFormat:
-                cellStyle.numberFormat === "currency"
-                  ? "general"
-                  : cellStyle.numberFormat === "percent"
-                    ? "general"
-                    : "currency",
-            })
-          }
-        >
-          {cellStyle.numberFormat === "percent" ? "Percent" : "Currency"}
-          <ChevronDown className="size-3 text-[#666666]" aria-hidden />
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
-          onClick={() =>
-            onStyleChange({
-              numberFormat: cellStyle.numberFormat === "percent" ? "general" : "percent",
-            })
-          }
-        >
-          Percent
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
-          onClick={() =>
-            onStyleChange({
-              numberFormat: cellStyle.numberFormat === "number" ? "general" : "number",
-            })
-          }
-        >
-          Number
-        </button>
-        <ExcelConditionalFormatMenu
-          disabled={readOnly || !onConditionalFormatPreset}
-          onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
+      <RibbonGroup label="Editing">
+        <RibbonLargeButton
+          label="AutoSum"
+          icon={<Sigma style={{ width: sz, height: sz }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onAutoSum}
         />
-      </div>
+        <RibbonIconStack>
+          <RibbonIconButton label="Sort A→Z" icon={<ArrowDownAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={onSortAsc} />
+          <RibbonIconButton label="Sort Z→A" icon={<ArrowUpAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={onSortDesc} />
+        </RibbonIconStack>
+        <RibbonIconStack>
+          <RibbonIconButton label="Filter" icon={<Filter style={{ width: sz, height: sz }} aria-hidden />} onClick={onFilter} />
+          <RibbonIconButton label="Find" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={onFindReplace} />
+        </RibbonIconStack>
+        <RibbonIconStack>
+          <RibbonIconButton label="Undo" icon={<span style={{ fontSize: scaledPx(10) }}>↶</span>} disabled={!canUndo} onClick={onUndo} />
+          <RibbonIconButton label="Redo" icon={<span style={{ fontSize: scaledPx(10) }}>↷</span>} disabled={!canRedo} onClick={onRedo} />
+        </RibbonIconStack>
+      </RibbonGroup>
     </>
   );
 }
 
-function FileTools({
+function FileTabPanel({
   onSaveCopy,
   onPrint,
   onExportPdf,
-}: {
-  onSaveCopy?: () => void;
-  onPrint?: () => void;
-  onExportPdf?: () => void;
-}) {
+}: Pick<ExcelSpreadsheetRibbonProps, "onSaveCopy" | "onPrint" | "onExportPdf">) {
+  const sz = iconSize();
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Save Copy" icon={<Copy className="size-3 text-[#666666]" aria-hidden />} onClick={onSaveCopy} />
-      <RibbonButton label="Print Preview" icon={<Printer className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
-      <RibbonButton label="Export PDF" icon={<FileText className="size-3 text-[#666666]" aria-hidden />} onClick={onExportPdf ?? onPrint} />
-    </div>
+    <>
+      <RibbonGroup label="Export">
+        <RibbonLargeButton label="Save Copy" icon={<Copy style={{ width: sz, height: sz }} aria-hidden />} onClick={onSaveCopy} />
+        <RibbonIconButton label="Print" icon={<Printer style={{ width: sz, height: sz }} aria-hidden />} onClick={onPrint} />
+        <RibbonIconButton label="Export PDF" icon={<FileText style={{ width: sz, height: sz }} aria-hidden />} onClick={onExportPdf ?? onPrint} />
+      </RibbonGroup>
+    </>
   );
 }
 
-function InsertTools({
+function InsertTabPanel({
   onMergeCells,
   onInsertChart,
   onInsertTable,
   onInsertPivot,
-}: {
-  onMergeCells?: () => void;
-  onInsertChart?: () => void;
-  onInsertTable?: () => void;
-  onInsertPivot?: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Merge Cells" onClick={onMergeCells} />
-      <RibbonButton label="Table" onClick={onInsertTable} />
-      <RibbonButton label="PivotTable" onClick={onInsertPivot} />
-      <RibbonButton label="Bar Chart" onClick={onInsertChart} />
-    </div>
-  );
-}
-
-function PageLayoutTools({
-  onToggleGridlines,
-  onFreezePanes,
-  onUnfreezePanes,
-  onSetPrintArea,
-  onClearPrintArea,
-  onPageMargins,
-  onPrintPreview,
-}: {
-  onToggleGridlines?: () => void;
-  onFreezePanes?: () => void;
-  onUnfreezePanes?: () => void;
-  onSetPrintArea?: () => void;
-  onClearPrintArea?: () => void;
-  onPageMargins?: () => void;
-  onPrintPreview?: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Gridlines" onClick={onToggleGridlines} />
-      <RibbonButton label="Freeze Panes" onClick={onFreezePanes} />
-      <RibbonButton label="Unfreeze" onClick={onUnfreezePanes} />
-      <RibbonDivider />
-      <RibbonButton label="Set Print Area" onClick={onSetPrintArea} />
-      <RibbonButton label="Clear Print Area" onClick={onClearPrintArea} />
-      <RibbonButton label="Margins" onClick={onPageMargins} />
-      <RibbonButton label="Print Preview" onClick={onPrintPreview} />
-    </div>
-  );
-}
-
-function FormulasTools({
-  onAutoSum,
-  onInsertFunction,
-  onToggleShowFormulas,
-  onTracePrecedents,
-  onNameManager,
-}: {
-  onAutoSum?: () => void;
-  onInsertFunction?: () => void;
-  onToggleShowFormulas?: () => void;
-  onTracePrecedents?: () => void;
-  onNameManager?: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Insert Function" onClick={onInsertFunction} />
-      <RibbonButton label="AutoSum" onClick={onAutoSum} />
-      <RibbonDivider />
-      <RibbonButton label="Show Formulas" onClick={onToggleShowFormulas} />
-      <RibbonButton label="Trace Precedents" onClick={onTracePrecedents} />
-      <RibbonButton label="Name Manager" onClick={onNameManager} />
-    </div>
-  );
-}
-
-function DataTools({
-  onSortAsc,
-  onSortDesc,
-  onFilter,
-  onClearFilter,
-  onInsertRow,
-  onDeleteRow,
-  onInsertColumn,
-  onDeleteColumn,
-  onFindReplace,
-  onRemoveDuplicates,
-  onImportCsv,
-  onDataValidation,
-  onEditComment,
-}: {
-  onSortAsc?: () => void;
-  onSortDesc?: () => void;
-  onFilter?: () => void;
-  onClearFilter?: () => void;
-  onInsertRow?: () => void;
-  onDeleteRow?: () => void;
-  onInsertColumn?: () => void;
-  onDeleteColumn?: () => void;
-  onFindReplace?: () => void;
-  onRemoveDuplicates?: () => void;
-  onImportCsv?: () => void;
-  onDataValidation?: () => void;
-  onEditComment?: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Sort A→Z" onClick={onSortAsc} />
-      <RibbonButton label="Sort Z→A" onClick={onSortDesc} />
-      <RibbonButton label="Filter" active onClick={onFilter} />
-      <RibbonButton label="Clear Filter" onClick={onClearFilter} />
-      <RibbonButton label="Remove Duplicates" onClick={onRemoveDuplicates} />
-      <RibbonButton label="From CSV" onClick={onImportCsv} />
-      <RibbonButton label="Validation" onClick={onDataValidation} />
-      <RibbonButton label="Comment" onClick={onEditComment} />
-      <RibbonDivider />
-      <RibbonButton label="Insert Row" onClick={onInsertRow} />
-      <RibbonButton label="Delete Row" onClick={onDeleteRow} />
-      <RibbonButton label="Insert Column" onClick={onInsertColumn} />
-      <RibbonButton label="Delete Column" onClick={onDeleteColumn} />
-      <RibbonDivider />
-      <RibbonButton label="Find" onClick={onFindReplace} />
-    </div>
-  );
-}
-
-function AutomateTools() {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Record Actions" />
-      <RibbonButton label="Office Scripts" />
-      <RibbonDivider />
-      <RibbonButton label="Power Automate" />
-      <RibbonButton label="Add-ins" />
-    </div>
-  );
-}
-
-export function ExcelSpreadsheetRibbon({
-  activeTab,
-  cellStyle,
   readOnly,
-  onTabChange,
-  onStyleChange,
-  onConditionalFormatPreset,
-  onSaveCopy,
-  onPrint,
-  onExportPdf,
-  onToggleGridlines,
-  onToggleShowFormulas,
-  onAutoSum,
-  onInsertFunction,
-  onSortAsc,
-  onSortDesc,
-  onFilter,
-  onClearFilter,
-  onInsertRow,
-  onDeleteRow,
-  onInsertColumn,
-  onDeleteColumn,
-  onMergeCells,
-  onFindReplace,
-  onFreezePanes,
-  onUnfreezePanes,
-  onSetPrintArea,
-  onClearPrintArea,
-  onPageMargins,
-  onPrintPreview,
-  onRemoveDuplicates,
-  onImportCsv,
-  onInsertChart,
-  onInsertTable,
-  onInsertPivot,
-  onTracePrecedents,
-  onNameManager,
-  onDataValidation,
-  onEditComment,
-}: ExcelSpreadsheetRibbonProps) {
+}: Pick<
+  ExcelSpreadsheetRibbonProps,
+  "onMergeCells" | "onInsertChart" | "onInsertTable" | "onInsertPivot" | "readOnly"
+>) {
+  const sz = iconSize();
   return (
-    <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
-      {/* Human: Tab row — active tab gets blue underline per Pencil ribbon variants. */}
-      <div
-        className="flex items-end bg-[#F7F8FA]"
-        style={{
-          height: scaledPx(28),
-          gap: scaledPx(16),
-          paddingInline: scaledPx(16),
-          paddingTop: scaledPx(4),
-        }}
-      >
-        {RIBBON_TABS.map((tab) => {
-          const active = tab.id === activeTab;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onTabChange(tab.id)}
-              className={cn(
-                "relative transition-colors",
-                active ? "font-bold text-[#2563EB]" : "font-medium text-[#666666] hover:text-[#1A1A1A]",
-              )}
-              style={{
-                fontSize: scaledPx(12),
-                paddingInline: scaledPx(8),
-                paddingBottom: scaledPx(4),
-              }}
-            >
-              {tab.label}
-              {active ? (
-                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[#2563EB]" aria-hidden />
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+    <>
+      <RibbonGroup label="Tables">
+        <RibbonLargeButton label="PivotTable" icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertPivot} />
+        <RibbonIconButton label="Table" icon={<Grid3X3 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertTable} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Charts">
+        <RibbonLargeButton label="Charts" icon={<BarChart3 style={{ width: sz, height: sz }} aria-hidden />} onClick={onInsertChart} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Cells">
+        <RibbonIconButton label="Merge Cells" icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onMergeCells} />
+      </RibbonGroup>
+    </>
+  );
+}
 
-      {/* Human: Tools area — 1.5× Pencil ribbon height (61px baseline). */}
-      <div
-        className="flex flex-wrap items-center bg-white"
-        style={{
-          minHeight: scaledPx(61),
-          gap: scaledPx(12),
-          padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
-        }}
-      >
-        {activeTab === "file" ? (
-          <FileTools onSaveCopy={onSaveCopy} onPrint={onPrint} onExportPdf={onExportPdf} />
-        ) : null}
-        {activeTab === "home" ? (
-          <HomeTools
-            cellStyle={cellStyle}
-            readOnly={readOnly}
-            onStyleChange={onStyleChange}
-            onConditionalFormatPreset={onConditionalFormatPreset}
-          />
-        ) : null}
-        {activeTab === "insert" ? (
-          <InsertTools
-            onMergeCells={onMergeCells}
-            onInsertChart={onInsertChart}
-            onInsertTable={onInsertTable}
-            onInsertPivot={onInsertPivot}
-          />
-        ) : null}
-        {activeTab === "page-layout" ? (
-          <PageLayoutTools
-            onToggleGridlines={onToggleGridlines}
-            onFreezePanes={onFreezePanes}
-            onUnfreezePanes={onUnfreezePanes}
-            onSetPrintArea={onSetPrintArea}
-            onClearPrintArea={onClearPrintArea}
-            onPageMargins={onPageMargins}
-            onPrintPreview={onPrintPreview}
-          />
-        ) : null}
-        {activeTab === "formulas" ? (
-          <FormulasTools
-            onAutoSum={onAutoSum}
-            onInsertFunction={onInsertFunction}
-            onToggleShowFormulas={onToggleShowFormulas}
-            onTracePrecedents={onTracePrecedents}
-            onNameManager={onNameManager}
-          />
-        ) : null}
-        {activeTab === "data" ? (
-          <DataTools
-            onSortAsc={onSortAsc}
-            onSortDesc={onSortDesc}
-            onFilter={onFilter}
-            onClearFilter={onClearFilter}
-            onInsertRow={onInsertRow}
-            onDeleteRow={onDeleteRow}
-            onInsertColumn={onInsertColumn}
-            onDeleteColumn={onDeleteColumn}
-            onFindReplace={onFindReplace}
-            onRemoveDuplicates={onRemoveDuplicates}
-            onImportCsv={onImportCsv}
-            onDataValidation={onDataValidation}
-            onEditComment={onEditComment}
-          />
-        ) : null}
-        {activeTab === "automate" ? <AutomateTools /> : null}
-      </div>
+function PageLayoutTabPanel(props: Pick<
+  ExcelSpreadsheetRibbonProps,
+  | "onToggleGridlines"
+  | "onFreezePanes"
+  | "onUnfreezePanes"
+  | "onSetPrintArea"
+  | "onClearPrintArea"
+  | "onPageMargins"
+  | "onPrintPreview"
+  | "readOnly"
+>) {
+  const sz = iconSize();
+  const { readOnly, onToggleGridlines, onFreezePanes, onUnfreezePanes, onSetPrintArea, onClearPrintArea, onPageMargins, onPrintPreview } = props;
+  return (
+    <>
+      <RibbonGroup label="Page Setup">
+        <RibbonIconButton label="Margins" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={onPageMargins} />
+        <RibbonIconStack>
+          <RibbonIconButton label="Print Area" icon={<Printer style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onSetPrintArea} title="Set Print Area" />
+          <RibbonIconButton label="Clear Area" icon={<span style={{ fontSize: scaledPx(10) }}>✕</span>} disabled={readOnly} onClick={onClearPrintArea} />
+        </RibbonIconStack>
+        <RibbonIconButton label="Print Preview" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} onClick={onPrintPreview} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Sheet Options">
+        <RibbonIconButton label="Gridlines" icon={<Grid3X3 style={{ width: sz, height: sz }} aria-hidden />} onClick={onToggleGridlines} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Window">
+        <RibbonIconButton label="Freeze Panes" icon={<PanelTop style={{ width: sz, height: sz }} aria-hidden />} onClick={onFreezePanes} />
+        <RibbonIconButton label="Unfreeze" icon={<span style={{ fontSize: scaledPx(10) }}>⊟</span>} onClick={onUnfreezePanes} />
+      </RibbonGroup>
+    </>
+  );
+}
+
+function FormulasTabPanel(props: Pick<
+  ExcelSpreadsheetRibbonProps,
+  "onAutoSum" | "onInsertFunction" | "onToggleShowFormulas" | "onTracePrecedents" | "onNameManager" | "readOnly" | "showFormulas"
+>) {
+  const sz = iconSize();
+  return (
+    <>
+      <RibbonGroup label="Function Library">
+        <RibbonLargeButton label="Insert Function" icon={<FunctionSquare style={{ width: sz, height: sz }} aria-hidden />} disabled={props.readOnly} onClick={props.onInsertFunction} />
+        <RibbonIconButton label="AutoSum" icon={<Sigma style={{ width: sz, height: sz }} aria-hidden />} disabled={props.readOnly} onClick={props.onAutoSum} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Defined Names">
+        <RibbonIconButton label="Name Manager" icon={<Calculator style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onNameManager} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Formula Auditing">
+        <RibbonIconButton label="Show Formulas" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} active={props.showFormulas} onClick={props.onToggleShowFormulas} />
+        <RibbonIconButton label="Trace Precedents" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTracePrecedents} />
+      </RibbonGroup>
+    </>
+  );
+}
+
+function DataTabPanel(props: Pick<
+  ExcelSpreadsheetRibbonProps,
+  | "onSortAsc"
+  | "onSortDesc"
+  | "onFilter"
+  | "onClearFilter"
+  | "onInsertRow"
+  | "onDeleteRow"
+  | "onInsertColumn"
+  | "onDeleteColumn"
+  | "onFindReplace"
+  | "onRemoveDuplicates"
+  | "onImportCsv"
+  | "onDataValidation"
+  | "readOnly"
+>) {
+  const sz = iconSize();
+  return (
+    <>
+      <RibbonGroup label="Get & Transform Data">
+        <RibbonLargeButton label="From Text/CSV" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onImportCsv} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Sort & Filter">
+        <RibbonIconButton label="Sort A→Z" icon={<ArrowDownAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onSortAsc} />
+        <RibbonIconButton label="Sort Z→A" icon={<ArrowUpAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onSortDesc} />
+        <RibbonIconButton label="Filter" icon={<Filter style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onFilter} />
+        <RibbonIconButton label="Clear" icon={<span style={{ fontSize: scaledPx(10) }}>✕</span>} onClick={props.onClearFilter} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Data Tools">
+        <RibbonIconButton label="Validation" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onDataValidation} />
+        <RibbonIconButton label="Remove Duplicates" icon={<Copy style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onRemoveDuplicates} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Outline">
+        <RibbonIconStack>
+          <RibbonIconButton label="Insert Row" icon={<span style={{ fontSize: scaledPx(9) }}>+R</span>} disabled={props.readOnly} onClick={props.onInsertRow} />
+          <RibbonIconButton label="Delete Row" icon={<span style={{ fontSize: scaledPx(9) }}>-R</span>} disabled={props.readOnly} onClick={props.onDeleteRow} />
+        </RibbonIconStack>
+        <RibbonIconStack>
+          <RibbonIconButton label="Insert Col" icon={<span style={{ fontSize: scaledPx(9) }}>+C</span>} disabled={props.readOnly} onClick={props.onInsertColumn} />
+          <RibbonIconButton label="Delete Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={props.readOnly} onClick={props.onDeleteColumn} />
+        </RibbonIconStack>
+      </RibbonGroup>
+    </>
+  );
+}
+
+function ReviewTabPanel(props: Pick<ExcelSpreadsheetRibbonProps, "onEditComment" | "readOnly">) {
+  const sz = iconSize();
+  return (
+    <>
+      <RibbonGroup label="Comments">
+        <RibbonLargeButton label="Comment" icon={<MessageSquare style={{ width: sz, height: sz }} aria-hidden />} disabled={props.readOnly} onClick={props.onEditComment} />
+      </RibbonGroup>
+    </>
+  );
+}
+
+function ViewTabPanel(props: Pick<
+  ExcelSpreadsheetRibbonProps,
+  "onToggleGridlines" | "onToggleShowFormulas" | "onFreezePanes" | "onUnfreezePanes" | "showGridlines" | "showFormulas"
+>) {
+  const sz = iconSize();
+  return (
+    <>
+      <RibbonGroup label="Show">
+        <RibbonIconButton label="Gridlines" icon={<Grid3X3 style={{ width: sz, height: sz }} aria-hidden />} active={props.showGridlines} onClick={props.onToggleGridlines} />
+        <RibbonIconButton label="Formulas" icon={<FunctionSquare style={{ width: sz, height: sz }} aria-hidden />} active={props.showFormulas} onClick={props.onToggleShowFormulas} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Window">
+        <RibbonIconButton label="Freeze Panes" icon={<PanelTop style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onFreezePanes} />
+        <RibbonIconButton label="Unfreeze Panes" icon={<span style={{ fontSize: scaledPx(10) }}>⊟</span>} onClick={props.onUnfreezePanes} />
+      </RibbonGroup>
+    </>
+  );
+}
+
+function PlaceholderTabPanel({ message }: { message: string }) {
+  return (
+    <RibbonGroup label="Coming Soon">
+      <p style={{ fontSize: scaledPx(11), fontFamily: EXCEL_RIBBON_FONT, color: "#666666", padding: scaledPx(8) }}>
+        {message}
+      </p>
+    </RibbonGroup>
+  );
+}
+
+function AutomateTabPanel() {
+  const sz = iconSize();
+  return (
+    <>
+      <RibbonGroup label="Automate">
+        <RibbonIconButton label="Scripts" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} disabled title="Office Scripts not supported in browser" />
+        <RibbonIconButton label="Automate" icon={<Calculator style={{ width: sz, height: sz }} aria-hidden />} disabled title="Power Automate not supported in browser" />
+      </RibbonGroup>
+    </>
+  );
+}
+
+export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
+  const { activeTab, onTabChange } = props;
+  const [collapsed, setCollapsed] = useState(false);
+  const fileActive = activeTab === "file";
+
+  let panel: ReactNode = null;
+  switch (activeTab) {
+    case "file":
+      panel = <FileTabPanel onSaveCopy={props.onSaveCopy} onPrint={props.onPrint} onExportPdf={props.onExportPdf} />;
+      break;
+    case "home":
+      panel = <HomeTabPanel {...props} />;
+      break;
+    case "insert":
+      panel = <InsertTabPanel {...props} />;
+      break;
+    case "draw":
+      panel = <PlaceholderTabPanel message="Draw tools require canvas support (planned)." />;
+      break;
+    case "page-layout":
+      panel = <PageLayoutTabPanel {...props} />;
+      break;
+    case "formulas":
+      panel = <FormulasTabPanel {...props} />;
+      break;
+    case "data":
+      panel = <DataTabPanel {...props} />;
+      break;
+    case "review":
+      panel = <ReviewTabPanel {...props} />;
+      break;
+    case "view":
+      panel = <ViewTabPanel {...props} />;
+      break;
+    case "help":
+      panel = <PlaceholderTabPanel message="Search Excel Help — use Ownly docs for spreadsheet features." />;
+      break;
+    case "automate":
+      panel = <AutomateTabPanel />;
+      break;
+    default:
+      panel = null;
+  }
+
+  return (
+    <div className="shrink-0" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
+      <RibbonTabStrip
+        tabs={RIBBON_TABS}
+        activeTab={fileActive ? "" : activeTab}
+        fileActive={fileActive}
+        onFileTab={() => onTabChange("file")}
+        onTabChange={(id) => onTabChange(id as RibbonTabId)}
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((current) => !current)}
+      />
+      <RibbonContent collapsed={collapsed}>{panel}</RibbonContent>
     </div>
   );
 }

@@ -439,9 +439,18 @@ export function ExcelSpreadsheetDialog({
                 activeTab={ribbonTab}
                 cellStyle={cellStyle}
                 readOnly={readOnly}
+                canUndo={editor.canUndo}
+                canRedo={editor.canRedo}
+                showGridlines={editor.viewFlags.showGridlines}
+                showFormulas={editor.viewFlags.showFormulas || activeSheet?.showFormulas}
                 onTabChange={setRibbonTab}
                 onStyleChange={editor.applyStyleToSelection}
                 onConditionalFormatPreset={handleConditionalFormatPreset}
+                onCopy={() => void editor.copySelection()}
+                onCut={() => void editor.cutSelection()}
+                onPaste={() => void editor.pasteClipboard()}
+                onUndo={() => editor.performUndo()}
+                onRedo={() => editor.performRedo()}
                 onSaveCopy={() => void handleSaveCopy()}
                 onPrint={() => setPrintPreviewOpen(true)}
                 onExportPdf={() => setPrintPreviewOpen(true)}
