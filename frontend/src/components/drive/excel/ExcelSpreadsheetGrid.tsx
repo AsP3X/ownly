@@ -5,6 +5,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { cellAddressLabel, columnIndexToLetters, statusBadgeTone } from "@/lib/spreadsheet/cells";
+import {
+  horizontalAlignJustifyClass,
+  resolveFontWeight,
+  resolveHorizontalAlign,
+  verticalAlignItemsClass,
+} from "@/lib/spreadsheet/cell-styles";
 import { resolveConditionalFormat } from "@/lib/spreadsheet/conditional-formatting";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import {
@@ -136,6 +142,7 @@ function CellContent({
   rows,
   conditionalFormats,
   showFormulas,
+  headerRow,
 }: {
   cell: SheetCell;
   row: number;
@@ -143,6 +150,7 @@ function CellContent({
   rows: SheetCell[][];
   conditionalFormats?: ConditionalFormatRule[];
   showFormulas?: boolean;
+  headerRow?: boolean;
 }) {
   const cf = resolveConditionalFormat(conditionalFormats, rows, row, col);
   // Human: Prefer imported CF colors over design-time status pills when Excel rules match.
@@ -151,6 +159,7 @@ function CellContent({
   const badge = cf?.badge ?? (hasCfPaint ? null : statusBadgeTone(cell.display));
 
   const displayText = showFormulas && cell.formula ? cell.formula : cell.display;
+  const horizontalAlign = resolveHorizontalAlign(cell);
 
   if (badge) {
     return (
@@ -166,20 +175,19 @@ function CellContent({
   return (
     <span
       className={cn(
+        "block w-full min-w-0",
         cell.style?.wrapText ? "whitespace-pre-wrap break-words" : "truncate",
-        cell.style?.bold && "font-bold",
         cell.style?.italic && "italic",
         cell.style?.underline && "underline",
-        cell.style?.horizontalAlign === "center" && "text-center",
-        cell.style?.horizontalAlign === "right" && "text-right",
-        (cell.style?.numberFormat === "currency" || typeof cell.value === "number") && "ml-auto text-right",
+        horizontalAlign === "center" && "text-center",
+        horizontalAlign === "right" && "text-right",
       )}
       style={{
         fontSize: cell.style?.fontSize ?? scaledPx(12),
         fontFamily: cell.style?.fontFamily,
         color: cf?.textColor ?? cell.style?.textColor ?? (cell.hyperlink ? "#2563EB" : "#1A1A1A"),
-        fontWeight: cf?.bold ? 700 : undefined,
-        textDecoration: cell.hyperlink ? "underline" : undefined,
+        fontWeight: resolveFontWeight(cell.style, { headerRow, conditionalBold: cf?.bold }),
+        textDecoration: cell.style?.underline || cell.hyperlink ? "underline" : undefined,
       }}
     >
       {displayText}
@@ -735,7 +743,6 @@ export function ExcelSpreadsheetGrid({
                     const cell = row[colIndex] ?? { value: null, display: "" };
                     const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
                     const isActiveCell = editingCell?.row === rowIndex && editingCell.col === colIndex;
-                    const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                     const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                     const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
                     const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
@@ -751,18 +758,18 @@ export function ExcelSpreadsheetGrid({
                           if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
                         }}
                         className={cn(
-                          "relative flex shrink-0 items-center overflow-hidden border-r border-b text-left transition-colors",
+                          "relative flex shrink-0 overflow-hidden border-r border-b text-left transition-colors",
                           borderClass,
+                          verticalAlignItemsClass(cell.style),
+                          horizontalAlignJustifyClass(cell),
                           colIndex < frozenColCount && "sticky z-20 bg-white",
-                          isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
-                          isHeader && cellFill && "font-bold",
+                          isHeader && !cellFill && "bg-[#FAFAFA]",
                           isTotalRow && !cellFill && "bg-[#EFF6FF]",
                           !isHeader && !isTotalRow && !cellFill && "bg-white",
                           selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                           selected && !cellFill && "bg-[#EFF6FF]",
                           isPrecedent && "ring-2 ring-amber-400 ring-inset",
                           isPrintEdge && "ring-2 ring-violet-500 ring-inset",
-                          isNumericCol && "justify-end",
                         )}
                         style={{
                           width: columnWidths[colIndex],
@@ -793,6 +800,7 @@ export function ExcelSpreadsheetGrid({
                           rows={rows}
                           conditionalFormats={conditionalFormats}
                           showFormulas={showFormulas}
+                          headerRow={isHeader}
                         />
                       </button>
                     );
@@ -845,7 +853,6 @@ export function ExcelSpreadsheetGrid({
                   const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
                   const isActiveCell =
                     editingCell?.row === rowIndex && editingCell.col === colIndex;
-                  const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                   const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                   const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
                   const isPrecedent = precedentHighlight?.has(`${rowIndex}:${colIndex}`);
@@ -864,18 +871,18 @@ export function ExcelSpreadsheetGrid({
                         if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
                       }}
                       className={cn(
-                        "relative flex shrink-0 items-center overflow-hidden border-r border-b text-left transition-colors",
+                        "relative flex shrink-0 overflow-hidden border-r border-b text-left transition-colors",
                         borderClass,
+                        verticalAlignItemsClass(cell.style),
+                        horizontalAlignJustifyClass(cell),
                         colIndex < frozenColCount && "sticky z-20 bg-white",
-                        isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
-                        isHeader && cellFill && "font-bold",
+                        isHeader && !cellFill && "bg-[#FAFAFA]",
                         isTotalRow && !cellFill && "bg-[#EFF6FF]",
                         !isHeader && !isTotalRow && !cellFill && "bg-white",
                         selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
                         selected && !cellFill && "bg-[#EFF6FF]",
                         isPrecedent && "ring-2 ring-amber-400 ring-inset",
                         isPrintEdge && "ring-2 ring-violet-500 ring-inset",
-                        isNumericCol && "justify-end",
                       )}
                       style={{
                         width: columnWidths[colIndex],
@@ -932,6 +939,7 @@ export function ExcelSpreadsheetGrid({
                         rows={rows}
                         conditionalFormats={conditionalFormats}
                         showFormulas={showFormulas}
+                        headerRow={isHeader}
                       />
                     </button>
                   );

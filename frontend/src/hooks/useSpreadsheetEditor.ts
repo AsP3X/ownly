@@ -2,7 +2,7 @@
 // Agent: OWNS workbook snapshot; PUSHES undo; RECALCULATES formulas after edits.
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { formatCellDisplay } from "@/lib/spreadsheet/cells";
+import { applyStylePatchToCell } from "@/lib/spreadsheet/cell-styles";
 import {
   clearRangeInWorkbook,
   clipboardToTsv,
@@ -384,23 +384,12 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
                 colIndex >= range.start.col &&
                 colIndex <= range.end.col;
               if (!inRange) return cell;
-              const style = { ...cell.style, ...patch };
-              return {
-                ...cell,
-                style,
-                display: cell.formula
-                  ? cell.display
-                  : formatCellDisplay(
-                      cell.value,
-                      style.numberFormat ?? "general",
-                      style.customNumberFormat,
-                    ),
-              };
+              return applyStylePatchToCell(cell, patch);
             }),
           );
           return { ...sheet, rows: nextRows };
         });
-        return { sheets: nextSheets };
+        return { ...current, sheets: nextSheets };
       });
     },
     [activeSheetIndex, commitWorkbookMutation, isSheetProtected, readOnly, selectionRange, workbook],

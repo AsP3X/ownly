@@ -1,8 +1,9 @@
 // Human: Map SheetJS per-cell style objects (cellStyles) into our CellStyle model.
 // Agent: READS raw.s from XLSX.read({ cellStyles: true }); RETURNS background/font fields.
 
+import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { numberFormatFromXlsxCode, xlsxFormatCodeFromStyle } from "@/lib/spreadsheet/number-formats";
-import type { CellStyle, NumberFormat } from "@/lib/spreadsheet/types";
+import type { CellStyle, HorizontalAlign, NumberFormat, SheetCell } from "@/lib/spreadsheet/types";
 
 type XlsxColor = {
   rgb?: string;
@@ -21,11 +22,86 @@ export type XlsxCellStyle = {
   underline?: boolean;
   horizontal?: string;
   vertical?: string;
+  // Human: SheetJS flat font fields from cellStyles import.
+  // Agent: MAPPED to fontFamily/fontSize on CellStyle.
+  name?: string;
+  sz?: number;
+  wrapText?: boolean;
   top?: { style?: string; color?: XlsxColor };
   right?: { style?: string; color?: XlsxColor };
   bottom?: { style?: string; color?: XlsxColor };
   left?: { style?: string; color?: XlsxColor };
 };
+
+// Human: Merge ribbon style patches onto an existing cell style object.
+// Agent: SPREADS partial patch; USED by applyStylePatchToCell and format painter.
+export function mergeCellStyle(base: CellStyle | undefined, patch: Partial<CellStyle>): CellStyle {
+  return { ...(base ?? {}), ...patch };
+}
+
+// Human: Apply a ribbon style patch to one cell and refresh its display string.
+// Agent: SKIPS display rewrite for formula cells — recalculateWorkbook handles those.
+export function applyStylePatchToCell(cell: SheetCell, patch: Partial<CellStyle>): SheetCell {
+  const style = mergeCellStyle(cell.style, patch);
+  if (cell.formula) {
+    return { ...cell, style };
+  }
+  return {
+    ...cell,
+    style,
+    display: formatCellDisplay(
+      cell.value,
+      style.numberFormat ?? "general",
+      style.customNumberFormat,
+    ),
+  };
+}
+
+// Human: Resolve effective horizontal alignment like Excel (explicit style beats type defaults).
+// Agent: RETURNS left for text, right for numbers, center when set on style.
+export function resolveHorizontalAlign(cell: SheetCell): HorizontalAlign {
+  if (cell.style?.horizontalAlign) return cell.style.horizontalAlign;
+  if (typeof cell.value === "number") return "right";
+  return "left";
+}
+
+// Human: Tailwind flex alignment class for the cell container vertical position.
+// Agent: MAPS verticalAlign to items-start/center/end; DEFAULT middle like Excel.
+export function verticalAlignItemsClass(style: CellStyle | undefined): string {
+  switch (style?.verticalAlign) {
+    case "top":
+      return "items-start";
+    case "bottom":
+      return "items-end";
+    default:
+      return "items-center";
+  }
+}
+
+// Human: Tailwind justify class for cell content horizontal position.
+// Agent: MAPS resolveHorizontalAlign to justify-start/center/end.
+export function horizontalAlignJustifyClass(cell: SheetCell): string {
+  switch (resolveHorizontalAlign(cell)) {
+    case "center":
+      return "justify-center";
+    case "right":
+      return "justify-end";
+    default:
+      return "justify-start";
+  }
+}
+
+// Human: Effective bold weight — explicit false overrides header-row default bold.
+// Agent: USED by grid text and dimension auto-fit measurements.
+export function resolveFontWeight(
+  style: CellStyle | undefined,
+  options?: { headerRow?: boolean; conditionalBold?: boolean },
+): number | undefined {
+  if (style?.bold === true || options?.conditionalBold) return 700;
+  if (style?.bold === false) return 400;
+  if (options?.headerRow && style?.bold !== false) return 700;
+  return undefined;
+}
 
 // Human: Convert OOXML/SheetJS ARGB or RGB hex into #RRGGBB for CSS.
 // Agent: STRIPS alpha prefix when present; RETURNS undefined for empty input.
@@ -102,6 +178,13 @@ export function cellStyleFromXlsx(
   if (xlsxStyle.underline) style.underline = true;
   if (xlsxStyle.horizontal) style.horizontalAlign = mapHorizontalAlign(xlsxStyle.horizontal);
   if (xlsxStyle.vertical) style.verticalAlign = mapVerticalAlign(xlsxStyle.vertical);
+  if (typeof xlsxStyle.name === "string" && xlsxStyle.name.trim()) {
+    style.fontFamily = xlsxStyle.name.trim();
+  }
+  if (typeof xlsxStyle.sz === "number" && Number.isFinite(xlsxStyle.sz)) {
+    style.fontSize = xlsxStyle.sz;
+  }
+  if (xlsxStyle.wrapText) style.wrapText = true;
 
   if (hasBorderSide(xlsxStyle.top)) style.borderTop = true;
   if (hasBorderSide(xlsxStyle.right)) style.borderRight = true;
@@ -131,6 +214,9 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
   if (style.verticalAlign) {
     xlsx.vertical = style.verticalAlign === "middle" ? "center" : style.verticalAlign;
   }
+  if (style.fontFamily) xlsx.name = style.fontFamily;
+  if (typeof style.fontSize === "number") xlsx.sz = style.fontSize;
+  if (style.wrapText) xlsx.wrapText = true;
   if (style.textColor) {
     const hex = style.textColor.replace("#", "").toUpperCase();
     xlsx.color = { rgb: hex.length === 6 ? `FF${hex}` : hex };

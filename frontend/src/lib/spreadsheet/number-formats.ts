@@ -3,6 +3,23 @@
 
 import type { NumberFormat } from "@/lib/spreadsheet/types";
 
+// Human: Excel 365 Home → Number dropdown entries mapped to our NumberFormat enum.
+// Agent: READ by ExcelSpreadsheetRibbon RibbonSelect options.
+export const RIBBON_NUMBER_FORMAT_OPTIONS: { value: NumberFormat; label: string }[] = [
+  { value: "general", label: "General" },
+  { value: "number", label: "Number" },
+  { value: "currency", label: "Currency" },
+  { value: "accounting", label: "Accounting" },
+  { value: "date", label: "Short Date" },
+  { value: "datetime", label: "Long Date" },
+  { value: "time", label: "Time" },
+  { value: "percent", label: "Percentage" },
+  { value: "fraction", label: "Fraction" },
+  { value: "scientific", label: "Scientific" },
+  { value: "text", label: "Text" },
+  { value: "custom", label: "Custom" },
+];
+
 // Human: Built-in Excel format codes keyed by our NumberFormat enum.
 // Agent: WRITTEN to cell.z on serialize when not custom.
 export const BUILTIN_FORMAT_CODES: Record<Exclude<NumberFormat, "custom">, string> = {

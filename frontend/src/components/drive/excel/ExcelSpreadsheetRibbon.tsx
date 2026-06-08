@@ -35,8 +35,10 @@ import {
 import type {
   CellStyle,
   HorizontalAlign,
+  NumberFormat,
   VerticalAlign,
 } from "@/lib/spreadsheet/types";
+import { RIBBON_NUMBER_FORMAT_OPTIONS } from "@/lib/spreadsheet/number-formats";
 import {
   ExcelConditionalFormatMenu,
   type ConditionalFormatPreset,
@@ -335,6 +337,20 @@ function HomeTabPanel({
               className="ml-1 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-1 py-0.5 hover:bg-[#E5E5E5]"
               style={{ fontSize: scaledPx(10), borderColor: "#E5E7EB" }}
             >
+              Font
+              <input
+                type="color"
+                aria-label="Font color"
+                disabled={readOnly}
+                value={cellStyle.textColor ?? "#1a1a1a"}
+                onChange={(event) => onStyleChange({ textColor: event.target.value })}
+                className="size-4 cursor-pointer border-0 bg-transparent p-0"
+              />
+            </label>
+            <label
+              className="inline-flex cursor-pointer items-center gap-1 rounded-sm border px-1 py-0.5 hover:bg-[#E5E5E5]"
+              style={{ fontSize: scaledPx(10), borderColor: "#E5E7EB" }}
+            >
               Fill
               <input
                 type="color"
@@ -409,19 +425,26 @@ function HomeTabPanel({
           <RibbonSelect
             ariaLabel="Number format"
             disabled={readOnly}
-            width={88}
+            width={108}
             value={cellStyle.numberFormat ?? "general"}
             onChange={(value) =>
-              onStyleChange({ numberFormat: value as CellStyle["numberFormat"] })
+              onStyleChange({ numberFormat: value as NumberFormat, customNumberFormat: undefined })
             }
-            options={[
-              { value: "general", label: "General" },
-              { value: "number", label: "Number" },
-              { value: "currency", label: "Currency" },
-              { value: "percent", label: "Percent" },
-            ]}
+            options={RIBBON_NUMBER_FORMAT_OPTIONS}
           />
           <div className="flex gap-0.5">
+            <RibbonIconButton
+              label="Accounting"
+              icon={<span style={{ fontSize: scaledPx(9), fontWeight: 700 }}>$±</span>}
+              disabled={readOnly}
+              active={cellStyle.numberFormat === "accounting"}
+              onClick={() =>
+                onStyleChange({
+                  numberFormat: cellStyle.numberFormat === "accounting" ? "general" : "accounting",
+                  customNumberFormat: undefined,
+                })
+              }
+            />
             <RibbonIconButton
               label="Currency"
               icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>$</span>}
@@ -430,6 +453,7 @@ function HomeTabPanel({
               onClick={() =>
                 onStyleChange({
                   numberFormat: cellStyle.numberFormat === "currency" ? "general" : "currency",
+                  customNumberFormat: undefined,
                 })
               }
             />
@@ -441,6 +465,19 @@ function HomeTabPanel({
               onClick={() =>
                 onStyleChange({
                   numberFormat: cellStyle.numberFormat === "percent" ? "general" : "percent",
+                  customNumberFormat: undefined,
+                })
+              }
+            />
+            <RibbonIconButton
+              label="Comma"
+              icon={<span style={{ fontSize: scaledPx(9), fontWeight: 700 }}>,</span>}
+              disabled={readOnly}
+              active={cellStyle.numberFormat === "number"}
+              onClick={() =>
+                onStyleChange({
+                  numberFormat: cellStyle.numberFormat === "number" ? "general" : "number",
+                  customNumberFormat: undefined,
                 })
               }
             />
@@ -454,11 +491,15 @@ function HomeTabPanel({
           disabled={readOnly || !onConditionalFormatPreset}
           onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
         />
-        <div className="flex flex-wrap gap-0.5" style={{ maxWidth: scaledPx(120) }}>
+        <div className="flex flex-wrap gap-0.5" style={{ maxWidth: scaledPx(160) }}>
           {(
             [
               ["All", "all"],
               ["Outline", "outline"],
+              ["Top", "top"],
+              ["Bottom", "bottom"],
+              ["Left", "left"],
+              ["Right", "right"],
               ["Clear", "clear"],
             ] as const
           ).map(([label, preset]) => (

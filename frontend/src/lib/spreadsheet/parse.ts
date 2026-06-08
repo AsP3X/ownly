@@ -257,5 +257,5 @@ export function applyFormulaBarEdit(
     return { ...expanded, rows: nextRows };
   });
 
-  return recalculateWorkbook({ sheets: nextSheets });
+  return recalculateWorkbook({ ...workbook, sheets: nextSheets });
 }
