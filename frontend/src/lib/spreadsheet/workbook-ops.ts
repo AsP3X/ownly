@@ -6,6 +6,7 @@ import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
 import { expandSheetToAddress, GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normalizeSheetGrid } from "@/lib/spreadsheet/grid";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
+import type { PivotSummaryResult } from "@/lib/spreadsheet/pivot-summary";
 import type { NamedRange } from "@/lib/spreadsheet/named-ranges";
 import type { PageMargins, SheetCell, SheetData, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 
@@ -553,4 +554,22 @@ export function setPageMargins(
       index === sheetIndex ? { ...sheet, pageMargins: margins } : sheet,
     ),
   };
+}
+
+// Human: Append a pivot summary table as a new worksheet.
+// Agent: BUILDS header + data rows from PivotSummaryResult; RETURNS workbook with extra sheet.
+export function insertPivotSummaryAsNewSheet(
+  workbook: SpreadsheetWorkbook,
+  sheetName: string,
+  summary: PivotSummaryResult,
+): SpreadsheetWorkbook {
+  const headerRow = summary.headers.map((header) => ({
+    value: header,
+    display: header,
+    style: { bold: true, isHeaderRow: true },
+  }));
+  const dataRows = summary.rows.map((row) => row.map((cell) => ({ ...cell })));
+  const rows = [headerRow, ...dataRows];
+  const sheet = normalizeSheetGrid({ name: sheetName, rows });
+  return { ...workbook, sheets: [...workbook.sheets, sheet] };
 }

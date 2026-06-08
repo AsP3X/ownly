@@ -20,6 +20,8 @@ import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
 import { ExcelNamedRangeDialog } from "@/components/drive/excel/ExcelNamedRangeDialog";
 import { ExcelPageMarginsDialog } from "@/components/drive/excel/ExcelPageMarginsDialog";
+import { ExcelPivotTableDialog } from "@/components/drive/excel/ExcelPivotTableDialog";
+import { ExcelPrintPreviewDialog } from "@/components/drive/excel/ExcelPrintPreviewDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -71,6 +73,7 @@ import {
   freezePanesAt,
   importCsvAsNewSheet,
   insertColumn,
+  insertPivotSummaryAsNewSheet,
   insertRow,
   mergeCellsInRange,
   moveSheet,
@@ -138,6 +141,8 @@ export function ExcelSpreadsheetDialog({
   const [commentOpen, setCommentOpen] = useState(false);
   const [nameManagerOpen, setNameManagerOpen] = useState(false);
   const [marginsOpen, setMarginsOpen] = useState(false);
+  const [pivotOpen, setPivotOpen] = useState(false);
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [columnFilter, setColumnFilter] = useState<ColumnFilterConfig>({
     textQuery: "",
     selectedValues: null,
@@ -222,6 +227,8 @@ export function ExcelSpreadsheetDialog({
         setCommentOpen(false);
         setNameManagerOpen(false);
         setMarginsOpen(false);
+        setPivotOpen(false);
+        setPrintPreviewOpen(false);
         setColumnFilter({ textQuery: "", selectedValues: null });
         setPrecedentHighlight(new Set());
       }
@@ -436,7 +443,8 @@ export function ExcelSpreadsheetDialog({
                 onStyleChange={editor.applyStyleToSelection}
                 onConditionalFormatPreset={handleConditionalFormatPreset}
                 onSaveCopy={() => void handleSaveCopy()}
-                onPrint={() => window.print()}
+                onPrint={() => setPrintPreviewOpen(true)}
+                onExportPdf={() => setPrintPreviewOpen(true)}
                 onToggleGridlines={() =>
                   editor.setViewFlags((current) => ({ ...current, showGridlines: !current.showGridlines }))
                 }
@@ -526,6 +534,7 @@ export function ExcelSpreadsheetDialog({
                   );
                 }}
                 onPageMargins={() => setMarginsOpen(true)}
+                onPrintPreview={() => setPrintPreviewOpen(true)}
                 onRemoveDuplicates={() =>
                   editor.commitWorkbookMutation((current) =>
                     removeDuplicateRows(current, editor.activeSheetIndex, editor.activeCellAddress.col),
@@ -540,6 +549,7 @@ export function ExcelSpreadsheetDialog({
                   editor.setActiveSheetIndex(next.sheets.length - 1);
                 }}
                 onInsertChart={() => setChartOpen(true)}
+                onInsertPivot={() => setPivotOpen(true)}
                 onInsertTable={() => {
                   if (readOnly || !editor.workbook) return;
                   const name =
@@ -782,6 +792,36 @@ export function ExcelSpreadsheetDialog({
             );
           }}
         />
+
+        {activeSheet ? (
+          <ExcelPivotTableDialog
+            key={`pivot-${pivotOpen ? "open" : "closed"}-${editor.rangeAddressLabel}`}
+            open={pivotOpen}
+            onOpenChange={setPivotOpen}
+            sheet={activeSheet}
+            selectionRange={editor.selectionRange}
+            onInsertSheet={(sheetName, summary) => {
+              if (readOnly || !editor.workbook) return;
+              const nextIndex = editor.workbook.sheets.length;
+              editor.commitWorkbookMutation((current) =>
+                insertPivotSummaryAsNewSheet(current, sheetName, summary),
+              );
+              editor.setActiveSheetIndex(nextIndex);
+            }}
+          />
+        ) : null}
+
+        {activeSheet ? (
+          <ExcelPrintPreviewDialog
+            key={`print-${printPreviewOpen ? "open" : "closed"}-${activeSheet.name}`}
+            open={printPreviewOpen}
+            onOpenChange={setPrintPreviewOpen}
+            sheet={activeSheet}
+            sheetName={activeSheet.name}
+            margins={activeSheet.pageMargins ?? DEFAULT_PAGE_MARGINS}
+            showFormulas={editor.viewFlags.showFormulas || activeSheet.showFormulas}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );

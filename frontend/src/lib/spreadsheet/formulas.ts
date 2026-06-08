@@ -452,6 +452,84 @@ function evaluateFunction(
       }
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
+    case "ROW": {
+      const refArg = splitFunctionArgs(argsRaw)[0]?.trim();
+      if (!refArg) return row + 1;
+      const single = parseCellRef(refArg.replace(/\$/g, ""));
+      return single ? single.row + 1 : row + 1;
+    }
+    case "COLUMN": {
+      const refArg = splitFunctionArgs(argsRaw)[0]?.trim();
+      if (!refArg) return col + 1;
+      const single = parseCellRef(refArg.replace(/\$/g, ""));
+      return single ? single.col + 1 : col + 1;
+    }
+    case "OFFSET": {
+      const parts = splitFunctionArgs(argsRaw);
+      const anchor = parseCellRef(parts[0]?.trim().replace(/\$/g, "") ?? "");
+      if (!anchor) return "#REF!" as FormulaError;
+      const rowOffset = Math.round(coerceNumber(args[1]));
+      const colOffset = Math.round(coerceNumber(args[2]));
+      const targetRow = anchor.row + rowOffset;
+      const targetCol = anchor.col + colOffset;
+      if (targetRow < 0 || targetCol < 0) return "#REF!" as FormulaError;
+      return getRawCellValue(ctx, sheetIndex, targetRow, targetCol);
+    }
+    case "ISBLANK":
+      return args[0] === null || args[0] === "";
+    case "IFNA": {
+      const first = args[0];
+      if (first === "#N/A" || first === ("#N/A" as FormulaError)) return args[1] ?? null;
+      return first;
+    }
+    case "SUBSTITUTE": {
+      const text = String(args[0] ?? "");
+      const search = String(args[1] ?? "");
+      const replacement = String(args[2] ?? "");
+      const instance = args[3] !== undefined ? Math.max(1, Math.round(coerceNumber(args[3]))) : null;
+      if (!search) return text;
+      if (instance === null) return text.split(search).join(replacement);
+      let count = 0;
+      let result = "";
+      let start = 0;
+      while (true) {
+        const index = text.indexOf(search, start);
+        if (index < 0) {
+          result += text.slice(start);
+          break;
+        }
+        count += 1;
+        result += text.slice(start, index) + (count === instance ? replacement : search);
+        start = index + search.length;
+        if (count === instance) {
+          result += text.slice(start);
+          break;
+        }
+      }
+      return result;
+    }
+    case "MAXIFS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const maxRangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const matches: number[] = [];
+      for (let index = 0; index < maxRangeValues.length; index += 1) {
+        if (!matchesAllCriteria(ctx, sheetIndex, row, col, parts, index, 1)) continue;
+        const numeric = coerceNumber(maxRangeValues[index]);
+        if (Number.isFinite(numeric)) matches.push(numeric);
+      }
+      return matches.length === 0 ? 0 : Math.max(...matches);
+    }
+    case "MINIFS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const minRangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const matches: number[] = [];
+      for (let index = 0; index < minRangeValues.length; index += 1) {
+        if (!matchesAllCriteria(ctx, sheetIndex, row, col, parts, index, 1)) continue;
+        const numeric = coerceNumber(minRangeValues[index]);
+        if (Number.isFinite(numeric)) matches.push(numeric);
+      }
+      return matches.length === 0 ? 0 : Math.min(...matches);
+    }
     default:
       return "#NAME?" as FormulaError;
   }

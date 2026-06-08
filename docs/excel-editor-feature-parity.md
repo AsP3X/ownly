@@ -21,7 +21,7 @@ Last updated: 2026-06-08
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUM, IF, INDEX, XLOOKUP, SUMIF/SUMIFS, AVERAGEIF, COUNTIFS, COUNTA, MEDIAN, text/date helpers |
+| Formula evaluation / recalc | 🚧 | SUMIFS, MAXIFS/MINIFS, ROW/COLUMN/OFFSET, IFNA, text helpers |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
 | Trace Precedents | ✅ | Highlights formula refs in amber on grid |
 | Named ranges | ✅ | Name Manager + formula resolution + OOXML export |
@@ -53,17 +53,18 @@ Last updated: 2026-06-08
 | Feature | Status | Notes |
 |---------|--------|-------|
 | File — Save Copy | ✅ | Downloads xlsx |
-| File — Export PDF | 🚧 | Uses browser print (same as Print) |
-| File — Print | ✅ | `window.print()` |
+| File — Export PDF | ✅ | Print preview dialog → Save as PDF in browser |
+| File — Print | ✅ | Opens print preview with margin guides |
 | Insert — Merge Cells | ✅ | |
 | Insert — Table | ✅ | Formats selection with banded rows |
 | Insert — Bar Chart | ✅ | SVG dialog from selection |
-| Insert — PivotTable | ⏳ | Not yet implemented |
+| Insert — PivotTable | ✅ | Group-by summary dialog; inserts new sheet |
 | Insert — Pictures / Shapes | ❌ | Requires asset upload pipeline |
 | Page Layout — gridlines toggle | ✅ | View flag |
 | Page Layout — freeze / unfreeze | ✅ | At active cell |
 | Page Layout — print area | ✅ | Set/clear selection; OOXML round-trip; violet outline in grid |
 | Page Layout — margins | ✅ | Margins dialog; pageMargins OOXML export |
+| Page Layout — print preview | ✅ | Margin guides + isolated print/PDF export |
 | Formulas — Name Manager | ✅ | Create/delete defined names |
 | Formulas — Trace Precedents | ✅ | Formulas tab |
 | Data — Find | ✅ | Opens find/replace dialog |
@@ -102,12 +103,15 @@ Last updated: 2026-06-08
 | Page margins UI | `frontend/src/components/drive/excel/ExcelPageMarginsDialog.tsx` |
 | Named ranges | `frontend/src/lib/spreadsheet/named-ranges.ts` |
 | Name Manager UI | `frontend/src/components/drive/excel/ExcelNamedRangeDialog.tsx` |
+| Pivot summary | `frontend/src/lib/spreadsheet/pivot-summary.ts` |
+| PivotTable UI | `frontend/src/components/drive/excel/ExcelPivotTableDialog.tsx` |
+| Print preview | `frontend/src/lib/spreadsheet/print-preview.ts` |
+| Print preview UI | `frontend/src/components/drive/excel/ExcelPrintPreviewDialog.tsx` |
 | Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
 
 ## Remaining high-value work
 
 1. Real Copilot LLM integration (backend)
-2. PivotTable / structured references
+2. Structured references for table formulas
 3. Full Excel function library (LAMBDA, dynamic arrays)
 4. Comment VML drawing for Excel-native indicators
-5. Print preview with margin guides

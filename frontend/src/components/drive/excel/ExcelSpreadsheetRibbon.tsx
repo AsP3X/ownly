@@ -54,6 +54,7 @@ type ExcelSpreadsheetRibbonProps = {
   onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
   onSaveCopy?: () => void;
   onPrint?: () => void;
+  onExportPdf?: () => void;
   onToggleGridlines?: () => void;
   onToggleShowFormulas?: () => void;
   onAutoSum?: () => void;
@@ -73,10 +74,12 @@ type ExcelSpreadsheetRibbonProps = {
   onSetPrintArea?: () => void;
   onClearPrintArea?: () => void;
   onPageMargins?: () => void;
+  onPrintPreview?: () => void;
   onRemoveDuplicates?: () => void;
   onImportCsv?: () => void;
   onInsertChart?: () => void;
   onInsertTable?: () => void;
+  onInsertPivot?: () => void;
   onTracePrecedents?: () => void;
   onNameManager?: () => void;
   onDataValidation?: () => void;
@@ -372,15 +375,17 @@ function HomeTools({
 function FileTools({
   onSaveCopy,
   onPrint,
+  onExportPdf,
 }: {
   onSaveCopy?: () => void;
   onPrint?: () => void;
+  onExportPdf?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Save Copy" icon={<Copy className="size-3 text-[#666666]" aria-hidden />} onClick={onSaveCopy} />
-      <RibbonButton label="Print" icon={<Printer className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
-      <RibbonButton label="Export PDF" icon={<FileText className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
+      <RibbonButton label="Print Preview" icon={<Printer className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
+      <RibbonButton label="Export PDF" icon={<FileText className="size-3 text-[#666666]" aria-hidden />} onClick={onExportPdf ?? onPrint} />
     </div>
   );
 }
@@ -389,15 +394,18 @@ function InsertTools({
   onMergeCells,
   onInsertChart,
   onInsertTable,
+  onInsertPivot,
 }: {
   onMergeCells?: () => void;
   onInsertChart?: () => void;
   onInsertTable?: () => void;
+  onInsertPivot?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Merge Cells" onClick={onMergeCells} />
       <RibbonButton label="Table" onClick={onInsertTable} />
+      <RibbonButton label="PivotTable" onClick={onInsertPivot} />
       <RibbonButton label="Bar Chart" onClick={onInsertChart} />
     </div>
   );
@@ -410,6 +418,7 @@ function PageLayoutTools({
   onSetPrintArea,
   onClearPrintArea,
   onPageMargins,
+  onPrintPreview,
 }: {
   onToggleGridlines?: () => void;
   onFreezePanes?: () => void;
@@ -417,6 +426,7 @@ function PageLayoutTools({
   onSetPrintArea?: () => void;
   onClearPrintArea?: () => void;
   onPageMargins?: () => void;
+  onPrintPreview?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -427,6 +437,7 @@ function PageLayoutTools({
       <RibbonButton label="Set Print Area" onClick={onSetPrintArea} />
       <RibbonButton label="Clear Print Area" onClick={onClearPrintArea} />
       <RibbonButton label="Margins" onClick={onPageMargins} />
+      <RibbonButton label="Print Preview" onClick={onPrintPreview} />
     </div>
   );
 }
@@ -527,6 +538,7 @@ export function ExcelSpreadsheetRibbon({
   onConditionalFormatPreset,
   onSaveCopy,
   onPrint,
+  onExportPdf,
   onToggleGridlines,
   onToggleShowFormulas,
   onAutoSum,
@@ -546,10 +558,12 @@ export function ExcelSpreadsheetRibbon({
   onSetPrintArea,
   onClearPrintArea,
   onPageMargins,
+  onPrintPreview,
   onRemoveDuplicates,
   onImportCsv,
   onInsertChart,
   onInsertTable,
+  onInsertPivot,
   onTracePrecedents,
   onNameManager,
   onDataValidation,
@@ -602,7 +616,9 @@ export function ExcelSpreadsheetRibbon({
           padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
         }}
       >
-        {activeTab === "file" ? <FileTools onSaveCopy={onSaveCopy} onPrint={onPrint} /> : null}
+        {activeTab === "file" ? (
+          <FileTools onSaveCopy={onSaveCopy} onPrint={onPrint} onExportPdf={onExportPdf} />
+        ) : null}
         {activeTab === "home" ? (
           <HomeTools
             cellStyle={cellStyle}
@@ -616,6 +632,7 @@ export function ExcelSpreadsheetRibbon({
             onMergeCells={onMergeCells}
             onInsertChart={onInsertChart}
             onInsertTable={onInsertTable}
+            onInsertPivot={onInsertPivot}
           />
         ) : null}
         {activeTab === "page-layout" ? (
@@ -626,6 +643,7 @@ export function ExcelSpreadsheetRibbon({
             onSetPrintArea={onSetPrintArea}
             onClearPrintArea={onClearPrintArea}
             onPageMargins={onPageMargins}
+            onPrintPreview={onPrintPreview}
           />
         ) : null}
         {activeTab === "formulas" ? (
