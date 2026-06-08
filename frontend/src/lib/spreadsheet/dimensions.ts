@@ -45,6 +45,34 @@ export function displayPxToHpx(displayPx: number): number {
   return Math.max(1, Math.round(displayPx));
 }
 
+// Human: Detect whether a stored width/height matches Excel defaults (skip OOXML write).
+// Agent: USED by trimSheetForSave and xlsx-dimensions-ooxml export.
+export function isDefaultColumnWidth(width: number): boolean {
+  return Math.abs(width - GRID_DEFAULT_COL_WIDTH) <= 1;
+}
+
+export function isDefaultRowHeight(height: number): boolean {
+  return Math.abs(height - GRID_DEFAULT_ROW_HEIGHT) <= 1;
+}
+
+// Human: Last index with a user-resized column or row (for save-range trimming).
+// Agent: EXTENDS trimSheetForSave beyond cell content when dimensions were changed.
+export function lastNonDefaultColumnIndex(widths: number[] | undefined): number {
+  if (!widths) return -1;
+  for (let index = widths.length - 1; index >= 0; index -= 1) {
+    if (!isDefaultColumnWidth(widths[index])) return index;
+  }
+  return -1;
+}
+
+export function lastNonDefaultRowIndex(heights: number[] | undefined): number {
+  if (!heights) return -1;
+  for (let index = heights.length - 1; index >= 0; index -= 1) {
+    if (!isDefaultRowHeight(heights[index])) return index;
+  }
+  return -1;
+}
+
 // Human: Points (hpt) → screen pixels at 96 dpi.
 // Agent: USED when SheetJS exposes row height in points instead of hpx.
 export function hptToDisplayPx(hpt: number): number {

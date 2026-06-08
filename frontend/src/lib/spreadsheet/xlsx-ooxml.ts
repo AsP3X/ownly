@@ -77,7 +77,7 @@ function crc32(data: Uint8Array): number {
 
 // Human: Build a new zip archive from entry map (deflate method 8).
 // Agent: WRITES local + central headers; RETURNS ArrayBuffer suitable for .xlsx save.
-async function writeXlsxZipEntries(entries: Map<string, Uint8Array>): Promise<ArrayBuffer> {
+export async function writeXlsxZipEntries(entries: Map<string, Uint8Array>): Promise<ArrayBuffer> {
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
   let offset = 0;

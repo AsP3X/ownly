@@ -25,6 +25,10 @@ import {
   importPageMarginsFromXlsx,
   importPrintAreasFromXlsx,
 } from "@/lib/spreadsheet/xlsx-page-settings-ooxml";
+import {
+  exportDimensionsToXlsx,
+  importDimensionsFromXlsx,
+} from "@/lib/spreadsheet/xlsx-dimensions-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -89,18 +93,27 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const namedRanges = await importNamedRangesFromXlsx(buffer);
   const printAreasBySheet = await importPrintAreasFromXlsx(buffer, sheetNames);
   const marginsBySheet = await importPageMarginsFromXlsx(buffer);
+  const dimensionsBySheet = await importDimensionsFromXlsx(buffer, sheetNames);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const worksheet = workbook.Sheets[name];
     const rows = sheetToRows(worksheet);
-    const importColumnCount = Math.max(...rows.map((row) => row.length), 1);
+    const ooxmlDimensions = dimensionsBySheet.get(name);
+    const importColumnCount = Math.max(
+      ...rows.map((row) => row.length),
+      1,
+      ooxmlDimensions?.columnWidths?.length ?? 0,
+    );
+    const importRowCount = Math.max(rows.length, ooxmlDimensions?.rowHeights?.length ?? 0);
+    const sheetJsColumnWidths = columnWidthsFromWorksheet(worksheet, importColumnCount);
+    const sheetJsRowHeights = rowHeightsFromWorksheet(worksheet, importRowCount);
     const freeze = freezeBySheet.get(name);
     const imported: SheetData = {
       name,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
-      columnWidths: columnWidthsFromWorksheet(worksheet, importColumnCount),
-      rowHeights: rowHeightsFromWorksheet(worksheet, rows.length),
+      columnWidths: mergeImportedDimensions(importColumnCount, ooxmlDimensions?.columnWidths, sheetJsColumnWidths),
+      rowHeights: mergeImportedDimensions(importRowCount, ooxmlDimensions?.rowHeights, sheetJsRowHeights),
       frozenRows: freeze?.frozenRows,
       frozenCols: freeze?.frozenCols,
       columnValidations: validationsBySheet.get(name),
@@ -117,6 +130,16 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
         : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
     namedRanges: namedRanges.length > 0 ? namedRanges : undefined,
   };
+}
+
+// Human: Prefer OOXML dimension arrays over SheetJS !cols/!rows (SheetJS often omits them).
+// Agent: MERGES sparse OOXML arrays with SheetJS fallbacks per index.
+function mergeImportedDimensions(
+  count: number,
+  ooxmlValues: number[] | undefined,
+  fallbackValues: number[],
+): number[] {
+  return Array.from({ length: count }, (_, index) => ooxmlValues?.[index] ?? fallbackValues[index]);
 }
 
 // Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
@@ -155,6 +178,7 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
   bytes = await exportFreezePanesToXlsx(bytes, workbook.sheets);
   bytes = await exportWorkbookMetadataToXlsx(bytes, workbook);
   bytes = await exportPageSettingsToXlsx(bytes, workbook.sheets);
+  bytes = await exportDimensionsToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

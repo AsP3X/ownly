@@ -53,10 +53,10 @@ export type SheetData = {
   // Agent: READ by grid resolveConditionalFormat; WRITTEN on save via OOXML patch.
   conditionalFormats?: ConditionalFormatRule[];
   // Human: Column widths in on-screen CSS pixels (1.5× Pencil scale) — drag-resized like Excel.
-  // Agent: READ by grid; IMPORTED from !cols; WRITTEN on save via SheetJS !cols wpx.
+  // Agent: IMPORTED from OOXML cols/row ht; WRITTEN on save via xlsx-dimensions-ooxml patch.
   columnWidths?: number[];
   // Human: Row heights in on-screen CSS pixels — drag-resized like Excel.
-  // Agent: READ by virtualizer; IMPORTED from !rows; WRITTEN on save via SheetJS !rows hpx.
+  // Agent: READ by virtualizer; IMPORTED from OOXML row ht; WRITTEN on save via OOXML patch.
   rowHeights?: number[];
   // Human: View flags toggled from Page Layout / Formulas ribbon.
   // Agent: READ by grid for display-only modes.

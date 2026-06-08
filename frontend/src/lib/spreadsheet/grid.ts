@@ -3,6 +3,8 @@
 
 import {
   GRID_DEFAULT_COL_WIDTH,
+  lastNonDefaultColumnIndex,
+  lastNonDefaultRowIndex,
   resolveColumnWidths,
   resolveRowHeights,
 } from "@/lib/spreadsheet/dimensions";
@@ -59,18 +61,20 @@ export function usedRowCount(rows: SheetCell[][]): number {
 }
 
 // Human: Target column count for the interactive grid (min A–Z + padding past data).
-// Agent: RETURNS max(26, usedCols + 10, explicit width).
-export function targetGridColumnCount(rows: SheetCell[][]): number {
+// Agent: RETURNS max(26, usedCols + 10, explicit width, resized column metadata).
+export function targetGridColumnCount(rows: SheetCell[][], columnWidths?: number[]): number {
   const usedCols = usedColumnCount(rows);
   const structuralCols = Math.max(...rows.map((row) => row.length), 0);
-  return Math.max(GRID_MIN_COLUMN_COUNT, usedCols + GRID_PADDING_COLUMNS, structuralCols);
+  const dimensionCols = columnWidths?.length ?? 0;
+  return Math.max(GRID_MIN_COLUMN_COUNT, usedCols + GRID_PADDING_COLUMNS, structuralCols, dimensionCols);
 }
 
 // Human: Target row count for the interactive grid (min 500 + padding past data).
-// Agent: RETURNS max(500, usedRows + 50, current row array length).
-export function targetGridRowCount(rows: SheetCell[][]): number {
+// Agent: RETURNS max(500, usedRows + 50, current row array length, resized row metadata).
+export function targetGridRowCount(rows: SheetCell[][], rowHeights?: number[]): number {
   const usedRows = usedRowCount(rows);
-  return Math.max(GRID_MIN_ROW_COUNT, usedRows + GRID_PADDING_ROWS, rows.length);
+  const dimensionRows = rowHeights?.length ?? 0;
+  return Math.max(GRID_MIN_ROW_COUNT, usedRows + GRID_PADDING_ROWS, rows.length, dimensionRows);
 }
 
 function padRow(row: SheetCell[], columnCount: number): SheetCell[] {
@@ -106,22 +110,35 @@ export function padSheetToSize(sheet: SheetData, rowCount: number, columnCount: 
 // Human: After import, pad sheet to Excel-like working area so users can add cells anywhere.
 // Agent: CALLS padSheetToSize with targetGridRow/ColumnCount.
 export function normalizeSheetGrid(sheet: SheetData): SheetData {
-  return padSheetToSize(sheet, targetGridRowCount(sheet.rows), targetGridColumnCount(sheet.rows));
+  return padSheetToSize(
+    sheet,
+    targetGridRowCount(sheet.rows, sheet.rowHeights),
+    targetGridColumnCount(sheet.rows, sheet.columnWidths),
+  );
 }
 
 // Human: Before editing a cell, ensure the grid covers the address plus scroll padding.
 // Agent: EXPANDS rows/cols when formula bar targets beyond current padded bounds.
 export function expandSheetToAddress(sheet: SheetData, row: number, col: number): SheetData {
-  const rowCount = Math.max(targetGridRowCount(sheet.rows), row + 1 + GRID_PADDING_ROWS);
-  const columnCount = Math.max(targetGridColumnCount(sheet.rows), col + 1 + GRID_PADDING_COLUMNS);
+  const rowCount = Math.max(targetGridRowCount(sheet.rows, sheet.rowHeights), row + 1 + GRID_PADDING_ROWS);
+  const columnCount = Math.max(
+    targetGridColumnCount(sheet.rows, sheet.columnWidths),
+    col + 1 + GRID_PADDING_COLUMNS,
+  );
   return padSheetToSize(sheet, rowCount, columnCount);
 }
 
 // Human: Strip trailing empty rows/columns before writing xlsx (keeps file size small).
 // Agent: TRIMS to used range; RETURNS single empty cell when sheet has no content.
 export function trimSheetForSave(sheet: SheetData): SheetData {
-  const maxRow = usedRowCount(sheet.rows) - 1;
-  const maxCol = usedColumnCount(sheet.rows) - 1;
+  const maxRow = Math.max(
+    usedRowCount(sheet.rows) - 1,
+    lastNonDefaultRowIndex(sheet.rowHeights),
+  );
+  const maxCol = Math.max(
+    usedColumnCount(sheet.rows) - 1,
+    lastNonDefaultColumnIndex(sheet.columnWidths),
+  );
 
   if (maxRow < 0 || maxCol < 0) {
     return { ...sheet, rows: [[{ ...EMPTY_SHEET_CELL }]], columnWidths: undefined, rowHeights: undefined };
