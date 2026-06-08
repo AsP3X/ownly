@@ -332,7 +332,7 @@ export function ExcelSpreadsheetDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none ring-0"
+        className="!fixed !inset-4 flex !h-auto !w-auto !max-h-none !max-w-none !translate-x-0 !translate-y-0 flex-col items-stretch justify-center gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none ring-0 sm:!max-w-none"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -341,10 +341,10 @@ export function ExcelSpreadsheetDialog({
           <DialogDescription>View and edit spreadsheet files in the browser.</DialogDescription>
         </DialogHeader>
 
-        {/* Human: Viewer card — full viewport width/height minus uniform 1rem edge inset. */}
-        {/* Agent: PREVENTS top=-50 overflow from 112.5dvh exceeding 100dvh when vertically centered. */}
+        {/* Human: Viewer card — fills dialog inset (1rem margin on every viewport edge). */}
+        {/* Agent: OVERRIDES default sm:max-w-sm; height capped at design max on very tall screens. */}
         <div
-          className="flex w-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
+          className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
           style={{
             height: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - ${EXCEL_DIALOG_VIEWPORT_INSET_CSS}))`,
           }}

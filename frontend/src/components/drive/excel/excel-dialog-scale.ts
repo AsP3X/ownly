@@ -5,8 +5,8 @@
 // Agent: MULTIPLIED by scaledPx and dimension import/export in dimensions.ts.
 export const EXCEL_DIALOG_SCALE = 1.25;
 
-// Human: Viewport inset on every edge — 1rem margin × 2 (top+bottom or left+right).
-// Agent: USED in shell width/height calcs and DialogContent max dimensions.
+// Human: Viewport inset on every edge — Tailwind inset-4 (1rem) per side; 2rem total per axis.
+// Agent: USED in shell height calc; DialogContent uses !inset-4 for full-width layout.
 export const EXCEL_DIALOG_VIEWPORT_INSET_CSS = "2rem";
 
 // Human: Desktop Excel shell height — design max 1063px but never taller than viewport minus inset.
