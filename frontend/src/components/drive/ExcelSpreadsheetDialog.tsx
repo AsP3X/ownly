@@ -38,8 +38,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
-  EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX,
-  EXCEL_DIALOG_VIEWPORT_INSET_CSS,
+  excelDialogContentClass,
+  excelDialogShellClass,
 } from "@/components/drive/excel/excel-dialog-scale";
 import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
 import { useSpreadsheetEditor } from "@/hooks/useSpreadsheetEditor";
@@ -397,7 +397,8 @@ export function ExcelSpreadsheetDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="!flex h-[min(1063px,calc(100dvh-2rem))] max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[calc(100vw-2rem)]"
+        motionlessPopup
+        className={excelDialogContentClass}
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -406,13 +407,7 @@ export function ExcelSpreadsheetDialog({
           <DialogDescription>View and edit spreadsheet files in the browser.</DialogDescription>
         </DialogHeader>
 
-        <div
-          className="flex w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
-          style={{
-            height: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - ${EXCEL_DIALOG_VIEWPORT_INSET_CSS}))`,
-            minHeight: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - ${EXCEL_DIALOG_VIEWPORT_INSET_CSS}))`,
-          }}
-        >
+        <div className={excelDialogShellClass}>
           <ExcelDialogHeader
             file={file}
             dirty={editor.dirty}
