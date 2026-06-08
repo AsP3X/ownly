@@ -35,16 +35,21 @@ type AdminUserListRow = (
     DateTime<Utc>,
 );
 
-// Human: Reject non-admin JWTs before any admin console mutation or listing.
-// Agent: READS Claims.role; RETURNS Forbidden when role != admin.
-pub fn require_admin(claims: &Claims) -> Result<(), AppError> {
-    if claims.role == "admin" {
-        Ok(())
-    } else {
-        Err(AppError::Forbidden(
-            "administrator access is required".into(),
-        ))
-    }
+// Human: Reject callers without instance.admin (admin group grant).
+// Agent: CALLS authz::authorize_instance; REPLACES legacy role-only JWT check.
+pub async fn require_admin(pool: &sqlx::PgPool, claims: &Claims) -> Result<(), AppError> {
+    crate::authz::authorize_instance(pool, &claims.sub, crate::authz::Permission::InstanceAdmin)
+        .await
+}
+
+// Human: Gate admin routes that need a specific instance permission.
+// Agent: WRAPPER around authorize_instance for delegated admin roles.
+pub async fn require_instance_permission(
+    pool: &sqlx::PgPool,
+    claims: &Claims,
+    permission: crate::authz::Permission,
+) -> Result<(), AppError> {
+    crate::authz::authorize_instance(pool, &claims.sub, permission).await
 }
 
 fn normalize_role(role: &str) -> Result<String, AppError> {
@@ -132,7 +137,12 @@ pub async fn list_users(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminUsersListResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersRead,
+    )
+    .await?;
 
     let rows: Vec<AdminUserListRow> = sqlx::query_as(
         "SELECT u.id, u.email, u.role, u.enabled, \
@@ -155,9 +165,9 @@ pub async fn list_users(
     .await?;
 
     let default_quota_bytes = crate::quota::load_default_quota_bytes(&state.pool).await?;
+    let admin_count = count_enabled_admins(&state.pool).await?;
 
     let mut enabled_count = 0_i64;
-    let mut admin_count = 0_i64;
     let users: Vec<AdminUserRow> = rows
         .into_iter()
         .map(
@@ -175,9 +185,6 @@ pub async fn list_users(
             )| {
                 if enabled {
                     enabled_count += 1;
-                }
-                if role == "admin" {
-                    admin_count += 1;
                 }
                 let quota_bytes = storage_quota_gb
                     .map(|gb| (gb as i64).max(1).saturating_mul(1024 * 1024 * 1024))
@@ -225,61 +232,60 @@ pub async fn list_roles(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminRolesResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceGroupsRead,
+    )
+    .await?;
 
-    let counts: Vec<(String, i64)> =
-        sqlx::query_as("SELECT role, COUNT(*)::BIGINT FROM users GROUP BY role ORDER BY role")
-            .fetch_all(&state.pool)
-            .await?;
+    let groups: Vec<(String, String, String, bool, i64)> = sqlx::query_as(
+        "SELECT g.id, g.slug, g.name, g.is_system, COALESCE(COUNT(gm.user_id), 0)::BIGINT \
+         FROM groups g \
+         LEFT JOIN group_members gm ON gm.group_id = g.id \
+         GROUP BY g.id, g.slug, g.name, g.is_system \
+         ORDER BY g.is_system DESC, g.slug ASC",
+    )
+    .fetch_all(&state.pool)
+    .await?;
 
-    let count_for = |role_id: &str| -> i64 {
-        counts
-            .iter()
-            .filter(|(role, _)| {
-                role == role_id || (role_id == "pro" && (role == "user" || role == "pro"))
-            })
-            .map(|(_, count)| *count)
-            .sum()
-    };
+    let mut roles = Vec::with_capacity(groups.len());
+    for (group_id, slug, name, is_system, member_count) in groups {
+        let perm_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT permission FROM permission_grants \
+             WHERE subject_type = 'group' AND subject_id = $1 \
+               AND resource_type = 'instance' AND resource_id IS NULL \
+               AND effect = 'allow' \
+             ORDER BY permission ASC",
+        )
+        .bind(&group_id)
+        .fetch_all(&state.pool)
+        .await?;
 
-    let catalog = [
-        (
-            "admin",
-            "Administrator",
-            "instance.admin, users.manage, settings.write",
-        ),
-        (
-            "pro",
-            "Pro User",
-            "content.read, content.write, shares.create",
-        ),
-        (
-            "standard",
-            "Standard User",
-            "content.read, shares.read",
-        ),
-    ];
+        let permissions = if perm_rows.is_empty() {
+            "—".to_string()
+        } else {
+            perm_rows
+                .into_iter()
+                .map(|(p,)| p)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
 
-    let roles = catalog
-        .iter()
-        .map(|(role_id, label, permissions)| AdminRoleRow {
-            id: (*role_id).to_string(),
-            label: (*label).to_string(),
-            member_count: count_for(role_id),
-            permissions: (*permissions).to_string(),
-            role_type: "system".to_string(),
-        })
-        .collect();
+        roles.push(AdminRoleRow {
+            id: slug,
+            label: name,
+            member_count,
+            permissions,
+            role_type: if is_system { "system" } else { "custom" }.to_string(),
+        });
+    }
 
     Ok(Json(AdminRolesResponse { roles }))
 }
 
 async fn count_enabled_admins(pool: &sqlx::PgPool) -> Result<i64, AppError> {
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*)::BIGINT FROM users WHERE role = 'admin' AND enabled = true")
-            .fetch_one(pool)
-            .await?;
-    Ok(count)
+    crate::authz::count_enabled_admin_group_members(pool).await
 }
 
 // Human: Create a new local account (admin invite) with optional activation gate.
@@ -290,8 +296,13 @@ pub async fn create_user(
     headers: HeaderMap,
     Json(body): Json<CreateAdminUserRequest>,
 ) -> Result<Json<UserDto>, AppError> {
-    require_admin(&claims)?;
-    // Human: Admin JWT + role gate is sufficient — no Sec-Fetch/Origin check (remote Compose / proxies).
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersManage,
+    )
+    .await?;
+    // Human: Admin JWT + permission gate — no Sec-Fetch/Origin check (remote Compose / proxies).
     // Agent: SKIPS browser_guard; register still enforces it; AUDIT admin.users.create unchanged.
 
     let email = body.email.trim().to_lowercase();
@@ -328,6 +339,8 @@ pub async fn create_user(
         _ => AppError::Database(e),
     })?;
 
+    crate::authz::sync_user_admin_group_membership(&state.pool, &user_id, &role).await?;
+
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),
@@ -357,7 +370,12 @@ pub async fn update_user(
     Path(user_id): Path<String>,
     Json(body): Json<UpdateAdminUserRequest>,
 ) -> Result<Json<UserDto>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersManage,
+    )
+    .await?;
 
     if body.role.is_none()
         && body.enabled.is_none()
@@ -393,8 +411,10 @@ pub async fn update_user(
 
     if target_role != "admin" || !target_enabled {
         let would_remain_admin = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*)::BIGINT FROM users \
-             WHERE role = 'admin' AND enabled = true AND id <> $1",
+            "SELECT COUNT(*)::BIGINT FROM group_members gm \
+             JOIN groups g ON g.id = gm.group_id \
+             JOIN users u ON u.id = gm.user_id \
+             WHERE g.slug = 'admin' AND u.enabled = true AND gm.user_id <> $1",
         )
         .bind(&user_id)
         .fetch_one(&state.pool)
@@ -414,6 +434,7 @@ pub async fn update_user(
             .bind(&user_id)
             .execute(&state.pool)
             .await?;
+        crate::authz::sync_user_admin_group_membership(&state.pool, &user_id, role).await?;
     }
 
     if let Some(enabled) = new_enabled {
@@ -511,7 +532,12 @@ pub async fn delete_user(
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersManage,
+    )
+    .await?;
 
     if user_id == claims.sub {
         return Err(AppError::Forbidden(
@@ -525,9 +551,9 @@ pub async fn delete_user(
             .fetch_optional(&state.pool)
             .await?;
 
-    let (email, role, enabled) = row.ok_or(AppError::NotFound)?;
+    let (email, _role, enabled) = row.ok_or(AppError::NotFound)?;
 
-    if role == "admin" && enabled {
+    if crate::authz::user_is_admin_group_member(&state.pool, &user_id).await? && enabled {
         let remaining = count_enabled_admins(&state.pool).await?;
         if remaining <= 1 {
             return Err(AppError::Forbidden(
@@ -578,7 +604,12 @@ pub async fn list_user_sessions(
     Extension(claims): Extension<Claims>,
     Path(user_id): Path<String>,
 ) -> Result<Json<AdminUserSessionsResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersRead,
+    )
+    .await?;
 
     let exists: Option<(String,)> = sqlx::query_as("SELECT email FROM users WHERE id = $1")
         .bind(&user_id)
@@ -632,7 +663,12 @@ pub async fn revoke_user_session(
     headers: HeaderMap,
     Path((user_id, session_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersManage,
+    )
+    .await?;
 
     user_sessions::revoke_session_id(&state.pool, &user_id, &session_id).await?;
 
@@ -659,7 +695,12 @@ pub async fn revoke_other_sessions(
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(
+        &state.pool,
+        &claims,
+        crate::authz::Permission::InstanceUsersManage,
+    )
+    .await?;
 
     user_sessions::revoke_all_other_sessions(&state.pool, &user_id).await?;
 

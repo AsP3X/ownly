@@ -18,7 +18,7 @@ use crate::{
     auth::handlers::Claims,
     error::AppError,
     files::{
-        folders::ensure_folder_owned,
+        access,
         zip_job::{
             zip_status_json, FolderDownloadJob, FolderDownloadRegistry,
             ZipFileEntry,
@@ -84,9 +84,25 @@ type FolderFileRow = (
 // Agent: BFS folders table; READS files per folder; RETURNS ordered ZipFileEntry list.
 pub async fn collect_zip_entries_for_folder(
     pool: &sqlx::PgPool,
-    user_id: &str,
+    actor_id: &str,
     root_folder_id: &str,
 ) -> Result<Vec<ZipFileEntry>, AppError> {
+    access::ensure_folder_access(
+        pool,
+        actor_id,
+        root_folder_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
+    let owner_row: Option<(String,)> = sqlx::query_as(
+        "SELECT user_id FROM folders WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(root_folder_id)
+    .fetch_optional(pool)
+    .await?;
+    let (owner_id,) = owner_row.ok_or(AppError::NotFound)?;
+
     let mut entries = Vec::new();
     let mut queue: Vec<(String, String)> = vec![(root_folder_id.to_string(), String::new())];
 
@@ -96,7 +112,7 @@ pub async fn collect_zip_entries_for_folder(
              WHERE user_id = $1 AND parent_id = $2 AND deleted_at IS NULL \
              ORDER BY name ASC",
         )
-        .bind(user_id)
+        .bind(&owner_id)
         .bind(&folder_id)
         .fetch_all(pool)
         .await?;
@@ -115,7 +131,7 @@ pub async fn collect_zip_entries_for_folder(
              FROM files WHERE user_id = $1 AND folder_id = $2 AND deleted_at IS NULL \
              ORDER BY name ASC",
         )
-        .bind(user_id)
+        .bind(&owner_id)
         .bind(&folder_id)
         .fetch_all(pool)
         .await?;
@@ -159,15 +175,16 @@ pub async fn post_folder_download(
     headers: HeaderMap,
     AxumPath(folder_id): AxumPath<String>,
 ) -> Result<Json<FolderDownloadStatusResponse>, AppError> {
-    ensure_folder_owned(&state.pool, &claims.sub, &folder_id).await?;
+    access::ensure_folder_access(
+        &state.pool,
+        &claims.sub,
+        &folder_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
 
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT name FROM folders WHERE id = $1 AND user_id = $2")
-            .bind(&folder_id)
-            .bind(&claims.sub)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (folder_name,) = row.ok_or(AppError::NotFound)?;
+    let folder = access::load_folder_if_readable(&state.pool, &claims.sub, &folder_id).await?;
+    let folder_name = folder.name;
 
     let key = FolderDownloadRegistry::folder_job_key(&claims.sub, &folder_id);
     if let Some(existing) = state.folder_download_jobs.get(&key).await {
@@ -240,7 +257,13 @@ pub async fn get_folder_download_status(
     Extension(claims): Extension<Claims>,
     AxumPath(folder_id): AxumPath<String>,
 ) -> Result<Json<FolderDownloadStatusResponse>, AppError> {
-    ensure_folder_owned(&state.pool, &claims.sub, &folder_id).await?;
+    access::ensure_folder_access(
+        &state.pool,
+        &claims.sub,
+        &folder_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
 
     let key = FolderDownloadRegistry::folder_job_key(&claims.sub, &folder_id);
     let job = state
@@ -260,7 +283,13 @@ pub async fn get_folder_download_archive(
     headers: HeaderMap,
     AxumPath(folder_id): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    ensure_folder_owned(&state.pool, &claims.sub, &folder_id).await?;
+    access::ensure_folder_access(
+        &state.pool,
+        &claims.sub,
+        &folder_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
 
     let key = FolderDownloadRegistry::folder_job_key(&claims.sub, &folder_id);
     let job = state
@@ -329,7 +358,13 @@ pub async fn delete_folder_download_job(
     Extension(claims): Extension<Claims>,
     AxumPath(folder_id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    ensure_folder_owned(&state.pool, &claims.sub, &folder_id).await?;
+    access::ensure_folder_access(
+        &state.pool,
+        &claims.sub,
+        &folder_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
 
     let key = FolderDownloadRegistry::folder_job_key(&claims.sub, &folder_id);
     if let Some(mut job) = state.folder_download_jobs.get(&key).await {

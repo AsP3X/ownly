@@ -49,9 +49,10 @@ pub async fn auth_middleware(
         ));
     }
 
-    // Human: Authorization uses DB role — JWT role claim alone must not grant admin APIs (SEC-002/SEC-012).
-    // Agent: OVERWRITES claims.role after signature verify; require_admin reads refreshed Claims.
-    claims.role = db_role;
+    // Human: JWT role reflects admin group membership — not users.role alone (atomic permissions Phase 1).
+    // Agent: CALLS effective_jwt_role; OVERWRITES claims.role after DB enabled check.
+    claims.role =
+        crate::authz::effective_jwt_role(&state.pool, &claims.sub, &db_role).await?;
 
     if !crate::user_sessions::is_token_session_valid(
         &state.pool,

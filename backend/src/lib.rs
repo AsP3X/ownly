@@ -19,6 +19,7 @@ use tracing::{info, Level};
 pub mod admin;
 pub mod audit;
 pub mod auth;
+pub mod authz;
 pub mod audio;
 pub mod image;
 pub mod video;
@@ -38,6 +39,7 @@ pub mod rate_limit;
 pub mod redact;
 pub mod request_tracking;
 pub mod secrets;
+pub mod permissions;
 pub mod setup;
 pub mod shares;
 pub mod storage;
@@ -425,6 +427,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
+        .route("/api/v1/me/permissions", get(auth::handlers::me_permissions))
         .route("/api/v1/me/profile", get(auth::handlers::profile))
         .route(
             "/api/v1/me/password",
@@ -589,10 +592,46 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/shares/{id}",
             patch(shares::handlers::update_share).delete(shares::handlers::revoke_share),
         )
+        .route(
+            "/api/v1/permissions/assignable-groups",
+            get(permissions::handlers::list_assignable_groups),
+        )
+        .route(
+            "/api/v1/permissions",
+            get(permissions::handlers::list_permissions).put(permissions::handlers::put_permission),
+        )
+        .route(
+            "/api/v1/permissions/{id}",
+            delete(permissions::handlers::delete_permission),
+        )
         .route("/api/v1/jobs", get(jobs::handlers::list_jobs))
         .route(
             "/api/v1/jobs/{id}",
             get(jobs::handlers::get_job).delete(jobs::handlers::delete_job),
+        )
+        .route(
+            "/api/v1/admin/groups",
+            get(admin::groups::list_groups).post(admin::groups::create_group),
+        )
+        .route(
+            "/api/v1/admin/groups/{id}",
+            patch(admin::groups::update_group).delete(admin::groups::delete_group),
+        )
+        .route(
+            "/api/v1/admin/groups/{id}/members",
+            get(admin::groups::list_group_members).post(admin::groups::add_group_member),
+        )
+        .route(
+            "/api/v1/admin/groups/{id}/members/{user_id}",
+            delete(admin::groups::remove_group_member),
+        )
+        .route(
+            "/api/v1/admin/permissions",
+            get(admin::groups::list_admin_permissions).put(admin::groups::put_admin_permission),
+        )
+        .route(
+            "/api/v1/admin/permissions/{id}",
+            delete(admin::groups::delete_admin_permission),
         )
         .route(
             "/api/v1/admin/overview",

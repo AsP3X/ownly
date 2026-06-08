@@ -13,9 +13,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::{
-    admin::handlers::require_admin,
+    admin::handlers::require_instance_permission,
     audit,
     auth::Claims,
+    authz::Permission,
     error::AppError,
     storage::nebula::NebulaStorage,
     AppState,
@@ -415,7 +416,7 @@ pub async fn list_storage_nodes(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminStorageResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
     Ok(Json(build_storage_response(&state).await?))
 }
 
@@ -612,7 +613,7 @@ pub async fn get_storage_node_detail(
     Path(node_id): Path<String>,
     Query(query): Query<StorageNodeDetailQuery>,
 ) -> Result<Json<AdminStorageNodeDetailResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
 
     let id = normalize_node_id(&node_id)?;
     let record: StorageNodeRecord = sqlx::query_as(
@@ -712,7 +713,7 @@ pub async fn create_storage_node(
     headers: HeaderMap,
     Json(body): Json<CreateStorageNodeRequest>,
 ) -> Result<Json<CreateStorageNodeResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsManage).await?;
 
     let id = normalize_node_id(&body.id)?;
     let base_url = normalize_base_url(&body.base_url)?;
@@ -803,7 +804,7 @@ pub async fn update_storage_node(
     Path(node_id): Path<String>,
     Json(body): Json<UpdateStorageNodeRequest>,
 ) -> Result<Json<CreateStorageNodeResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsManage).await?;
 
     let id = normalize_node_id(&node_id)?;
 

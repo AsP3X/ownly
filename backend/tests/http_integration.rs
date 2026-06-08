@@ -2143,6 +2143,9 @@ async fn demoted_admin_jwt_is_denied_on_admin_routes() {
         .execute(&state.pool)
         .await
         .expect("insert admin");
+        ownly_backend::authz::sync_user_admin_group_membership(&state.pool, id, "admin")
+            .await
+            .expect("admin group membership");
     }
 
     let subject_token = ownly_backend::auth::handlers::create_token(
@@ -2206,6 +2209,369 @@ async fn demoted_admin_jwt_is_denied_on_admin_routes() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&demoter_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Grantee with content.read can download an owner's file via atomic permissions.
+// Agent: INSERT permission_grants allow; GET download; EXPECT 200 or streaming response.
+#[tokio::test]
+async fn content_read_grant_allows_file_download() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping content_read_grant_allows_file_download: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping content_read_grant_allows_file_download: {error}");
+            return;
+        }
+    };
+
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    let grantee_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let storage_key = format!("users/{owner_id}/files/{file_id}/blob");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (owner_id.as_str(), format!("owner-{owner_id}@example.com")),
+        (grantee_id.as_str(), format!("grantee-{grantee_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'grant-test.txt', $3, 'text/plain', 4)",
+    )
+    .bind(&file_id)
+    .bind(&owner_id)
+    .bind(&storage_key)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let grant_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'file', $3, 'content.read', 'allow', $4)",
+    )
+    .bind(&grant_id)
+    .bind(&grantee_id)
+    .bind(&file_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert grant");
+
+    let grantee_token = ownly_backend::auth::handlers::create_token(
+        grantee_id.clone(),
+        format!("grantee-{grantee_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("grantee token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download"))
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "grantee with content.read should not be forbidden"
+    );
+    assert_ne!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "grantee with content.read should resolve the file"
+    );
+
+    sqlx::query("DELETE FROM permission_grants WHERE id = $1")
+        .bind(&grant_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(&[owner_id, grantee_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Explicit deny on a file beats allow — grantee must not download.
+// Agent: INSERT allow + deny content.read; GET download; EXPECT 403 or idempotent ok on delete path.
+#[tokio::test]
+async fn content_deny_grant_blocks_file_download() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping content_deny_grant_blocks_file_download: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping content_deny_grant_blocks_file_download: {error}");
+            return;
+        }
+    };
+
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    let grantee_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (owner_id.as_str(), format!("owner-{owner_id}@example.com")),
+        (grantee_id.as_str(), format!("grantee-{grantee_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'deny-test.txt', $3, 'text/plain', 4)",
+    )
+    .bind(&file_id)
+    .bind(&owner_id)
+    .bind(format!("users/{owner_id}/files/{file_id}/blob"))
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    for (grant_id, effect) in [
+        (uuid::Uuid::new_v4().to_string(), "allow"),
+        (uuid::Uuid::new_v4().to_string(), "deny"),
+    ] {
+        sqlx::query(
+            "INSERT INTO permission_grants \
+             (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+             VALUES ($1, 'user', $2, 'file', $3, 'content.read', $4::grant_effect, $5)",
+        )
+        .bind(&grant_id)
+        .bind(&grantee_id)
+        .bind(&file_id)
+        .bind(effect)
+        .bind(&owner_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert grant");
+    }
+
+    let grantee_token = ownly_backend::auth::handlers::create_token(
+        grantee_id.clone(),
+        format!("grantee-{grantee_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("grantee token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download"))
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "deny must win over allow for content.read"
+    );
+
+    sqlx::query("DELETE FROM permission_grants WHERE resource_id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(&[owner_id, grantee_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Folder grant inherits to child files — grantee can fetch file metadata.
+// Agent: INSERT folder + nested file + folder content.read grant; GET /files/:id; EXPECT 200 JSON.
+#[tokio::test]
+async fn folder_read_grant_inherits_to_child_file() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            eprintln!("skipping folder_read_grant_inherits_to_child_file: DATABASE_URL unset");
+            return;
+        }
+    };
+
+    let cfg = test_config(&database_url);
+    let state = match create_test_app_state(&cfg).await {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("skipping folder_read_grant_inherits_to_child_file: {error}");
+            return;
+        }
+    };
+
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    let grantee_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (owner_id.as_str(), format!("owner-{owner_id}@example.com")),
+        (grantee_id.as_str(), format!("grantee-{grantee_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, name, parent_id) VALUES ($1, $2, 'Shared', NULL)",
+    )
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, folder_id) \
+         VALUES ($1, $2, 'nested.txt', $3, 'text/plain', 4, $4)",
+    )
+    .bind(&file_id)
+    .bind(&owner_id)
+    .bind(format!("users/{owner_id}/files/{file_id}/blob"))
+    .bind(&folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let grant_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'folder', $3, 'content.read', 'allow', $4)",
+    )
+    .bind(&grant_id)
+    .bind(&grantee_id)
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder grant");
+
+    let grantee_token = ownly_backend::auth::handlers::create_token(
+        grantee_id.clone(),
+        format!("grantee-{grantee_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("grantee token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}"))
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "folder content.read should inherit to nested file metadata"
+    );
+
+    sqlx::query("DELETE FROM permission_grants WHERE id = $1")
+        .bind(&grant_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE id = $1")
+        .bind(&folder_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(&[owner_id, grantee_id])
         .execute(&state.pool)
         .await
         .ok();

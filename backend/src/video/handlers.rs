@@ -15,6 +15,7 @@ use serde::Deserialize;
 use crate::{
     audit,
     auth::handlers::Claims,
+    authz::Permission,
     error::AppError,
     files::{
         handlers::{FileDto, FILE_COLUMNS},
@@ -43,12 +44,19 @@ async fn load_manifest_for_file(
     file_id: &str,
     user_id: &str,
 ) -> Result<(VideoThumbnailManifest, String), AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        user_id,
+        file_id,
+        Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<ThumbnailManifestRow> = sqlx::query_as(
         "SELECT mime_type, video_thumbnail_ready, video_thumbnail_manifest_key, \
-         video_thumbnail_selected_index FROM files WHERE id = $1 AND user_id = $2",
+         video_thumbnail_selected_index FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
-    .bind(user_id)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -106,12 +114,19 @@ async fn selected_thumbnail_storage_key(
     file_id: &str,
     user_id: &str,
 ) -> Result<String, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        user_id,
+        file_id,
+        Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<SelectedThumbnailRow> = sqlx::query_as(
         "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
-         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
-    .bind(user_id)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -150,12 +165,19 @@ pub async fn get_thumbnail_option(
     Extension(claims): Extension<Claims>,
     Path((id, index)): Path<(String, u32)>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<SelectedThumbnailRow> = sqlx::query_as(
         "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
-         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -230,6 +252,14 @@ pub async fn select_thumbnail(
     Path(id): Path<String>,
     Json(body): Json<SelectThumbnailRequest>,
 ) -> Result<Json<VideoThumbnailManifest>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentWrite,
+    )
+    .await?;
+
     let (manifest, manifest_key) = load_manifest_for_file(&state, &id, &claims.sub).await?;
 
     if !manifest
@@ -241,11 +271,10 @@ pub async fn select_thumbnail(
     }
 
     sqlx::query(
-        "UPDATE files SET video_thumbnail_selected_index = $1 WHERE id = $2 AND user_id = $3",
+        "UPDATE files SET video_thumbnail_selected_index = $1 WHERE id = $2",
     )
     .bind(body.selected_index as i32)
     .bind(&id)
-    .bind(&claims.sub)
     .execute(&state.pool)
     .await?;
 
@@ -291,12 +320,19 @@ pub async fn regenerate_thumbnails(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentWrite,
+    )
+    .await?;
+
     let row: Option<RegenerateThumbnailRow> = sqlx::query_as(
         "SELECT storage_key, mime_type, name, video_thumbnail_status FROM files \
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -324,10 +360,9 @@ pub async fn regenerate_thumbnails(
 
     sqlx::query(
         "UPDATE files SET video_thumbnail_ready = false, video_thumbnail_status = 'queued', \
-         video_thumbnail_error = NULL, video_thumbnail_progress = 0 WHERE id = $1 AND user_id = $2",
+         video_thumbnail_error = NULL, video_thumbnail_progress = 0 WHERE id = $1",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .execute(&state.pool)
     .await?;
 
@@ -362,10 +397,9 @@ pub async fn regenerate_thumbnails(
     .ok();
 
     let file: FileDto = sqlx::query_as(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
+        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
     ))
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_one(&state.pool)
     .await?;
 

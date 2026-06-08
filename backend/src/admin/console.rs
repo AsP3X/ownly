@@ -14,9 +14,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::{
-    admin::handlers::require_admin,
+    admin::handlers::require_instance_permission,
     audit,
     auth::handlers::Claims,
+    authz::Permission,
     crypto,
     error::AppError,
     files::gif_preview,
@@ -236,7 +237,7 @@ pub async fn overview(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminOverviewResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
 
     let user_stats: (i64, i64) = sqlx::query_as(
         "SELECT COUNT(*)::BIGINT, COALESCE(SUM(CASE WHEN enabled THEN 1 ELSE 0 END), 0)::BIGINT FROM users",
@@ -399,7 +400,7 @@ pub async fn list_audit_logs(
     Extension(claims): Extension<Claims>,
     Query(query): Query<AuditLogsQuery>,
 ) -> Result<Json<AdminAuditLogsResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceAuditRead).await?;
 
     let limit = query.limit.clamp(1, 200);
     let offset = query.offset.max(0);
@@ -708,7 +709,7 @@ pub async fn get_settings(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminSettingsResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
     Ok(Json(load_settings_response(&state).await?))
 }
 
@@ -720,7 +721,7 @@ pub async fn patch_settings(
     headers: HeaderMap,
     Json(body): Json<AdminSettingsPatch>,
 ) -> Result<Json<AdminSettingsResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsManage).await?;
 
     if let Some(name) = body.instance_name.as_ref() {
         let trimmed = name.trim();
@@ -851,7 +852,7 @@ pub async fn cleanup_gif_preview_temp(
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> Result<Json<CleanupGifPreviewTempResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceAdmin).await?;
 
     let temp_dirs_removed =
         temp_cleanup::sweep_gif_preview_temp_files(Some(state.gif_preview_transcode_locks.as_ref()))
@@ -922,7 +923,7 @@ pub async fn security_overview(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdminSecurityOverviewResponse>, AppError> {
-    require_admin(&claims)?;
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
 
     let settings = load_settings_response(&state).await?;
 

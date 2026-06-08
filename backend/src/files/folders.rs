@@ -296,17 +296,13 @@ pub async fn ensure_folder_owned(
     user_id: &str,
     folder_id: &str,
 ) -> Result<(), AppError> {
-    let exists: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM folders WHERE id = $1 AND user_id = $2")
-            .bind(folder_id)
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?;
-
-    if exists.is_none() {
-        return Err(AppError::NotFound);
-    }
-    Ok(())
+    crate::files::access::ensure_folder_access(
+        pool,
+        user_id,
+        folder_id,
+        crate::authz::Permission::ContentWrite,
+    )
+    .await
 }
 
 // Human: Paginated folder listing at the root or under a parent folder.
@@ -317,11 +313,17 @@ pub async fn list_folders(
     Query(query): Query<FolderListQuery>,
 ) -> Result<Json<FolderListResponse>, AppError> {
     if let Some(parent_id) = query.parent_id.as_deref() {
-        ensure_folder_owned(&state.pool, &claims.sub, parent_id).await?;
+        crate::files::access::ensure_folder_access(
+            &state.pool,
+            &claims.sub,
+            parent_id,
+            crate::authz::Permission::ContentRead,
+        )
+        .await?;
     }
 
     let (limit, offset) = listing::normalize_page(query.limit, query.offset);
-    let response = listing::list_owned_folders(
+    let response = listing::list_accessible_folders(
         &state.pool,
         &claims.sub,
         ListFoldersParams {

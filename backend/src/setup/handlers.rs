@@ -388,7 +388,7 @@ pub async fn setup(
     }
 
     sqlx::query(
-        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
     )
     .bind(&user_id)
     .bind(body.email.trim().to_lowercase())
@@ -401,6 +401,17 @@ pub async fn setup(
         }
         _ => AppError::Database(e),
     })?;
+
+    // Human: First user joins migration-seeded admin group for instance.admin authorization.
+    // Agent: INSERT group_members inside setup TX; JWT role derived via effective_jwt_role.
+    sqlx::query(
+        "INSERT INTO group_members (group_id, user_id) \
+         SELECT id, $1 FROM groups WHERE slug = 'admin' \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&user_id)
+    .execute(&mut *tx)
+    .await?;
 
     let settings = [
         ("instance_name", body.instance_name.trim()),

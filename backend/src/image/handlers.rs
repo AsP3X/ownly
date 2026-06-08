@@ -37,13 +37,20 @@ pub async fn get_grid_thumbnail(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<GridThumbnailRow> = sqlx::query_as(
         "SELECT mime_type, storage_key, image_thumbnail_ready, image_thumbnail_status, \
          hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 

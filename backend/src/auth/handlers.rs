@@ -254,10 +254,12 @@ pub async fn login(
     .ok();
 
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
+    let effective_role =
+        crate::authz::effective_jwt_role(&state.pool, &user_id, &role).await?;
     let token = create_token(
         user_id.clone(),
         email.clone(),
-        role.clone(),
+        effective_role.clone(),
         &state.jwt_secret,
         session_id,
         session_version,
@@ -270,7 +272,7 @@ pub async fn login(
         user: UserDto {
             id: user_id,
             email,
-            role,
+            role: effective_role,
             enabled,
         },
     }))
@@ -285,6 +287,17 @@ pub async fn me(Extension(claims): Extension<Claims>) -> Json<UserDto> {
         role: claims.role,
         enabled: true,
     })
+}
+
+// Human: Instance-level permissions for frontend admin route gating.
+// Agent: GET /me/permissions; READS authz::list_effective_instance_permissions.
+pub async fn me_permissions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let permissions =
+        crate::authz::list_effective_instance_permissions(&state.pool, &claims.sub).await?;
+    Ok(Json(serde_json::json!({ "permissions": permissions })))
 }
 
 #[derive(Debug, Serialize)]

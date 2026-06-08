@@ -1,10 +1,11 @@
 // Human: Admin console route — 1:1 shell and panels from login-signup.pencil Admin Console frames.
 // Agent: RENDERS AdminSidebar + panels wired to /api/v1/admin/*; route /admin; redirects non-admins.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { hasAnyInstanceAccess, filterAdminNav } from "@/lib/instance-permissions";
 import { useAdminUrlState } from "@/hooks/useAdminUrlState";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
@@ -37,16 +38,38 @@ function statusTextForNav(activeNav: AdminNavId): string {
 
 /** Human: Full admin console — explorer layout with pen-accurate section panels. */
 export default function AdminDashboardWireframePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, instancePermissions, isAdmin } = useAuth();
   const [activeNav, setActiveNav] = useState<AdminNavId>("overview");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const visibleNav = useMemo(
+    () => filterAdminNav(ADMIN_NAV, instancePermissions, user?.role),
+    [instancePermissions, user?.role],
+  );
+
+  // Human: When permissions shrink, fall back to the first visible admin section.
+  // Agent: RESETS activeNav when current tab is no longer allowed.
+  useEffect(() => {
+    if (visibleNav.length === 0) return;
+    if (!visibleNav.some((item) => item.id === activeNav)) {
+      setActiveNav(visibleNav[0].id);
+    }
+  }, [activeNav, visibleNav]);
   // Human: Persist the active admin section in ?section= so reload stays on the same panel.
   // Agent: CALLS useAdminUrlState; WRITES ADMIN_SECTION_PARAM when sidebar changes.
   useAdminUrlState(activeNav, setActiveNav);
 
-  // Human: Only administrators may access the console — others return to drive.
-  // Agent: READS user.role; NAVIGATE away when role !== admin.
-  if (user && user.role !== "admin") {
+  // Human: Admin console requires any instance.* grant or legacy JWT admin role (Phase 1 compat).
+  // Agent: READS hasAnyInstanceAccess + user.role; NAVIGATE away when neither holds.
+  if (
+    user &&
+    !isAdmin &&
+    !hasAnyInstanceAccess(instancePermissions)
+  ) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (visibleNav.length === 0) {
     return <Navigate to="/" replace />;
   }
 
@@ -66,10 +89,11 @@ export default function AdminDashboardWireframePage() {
         onOpenChange={setMobileSidebarOpen}
         activeNav={activeNav}
         onNavChange={setActiveNav}
+        navItems={visibleNav}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
-        <AdminSidebar activeNav={activeNav} onNavChange={setActiveNav} />
+        <AdminSidebar activeNav={activeNav} onNavChange={setActiveNav} navItems={visibleNav} />
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Human: Mobile admin chrome — hamburger opens drawer; title shows active section. */}
@@ -103,7 +127,7 @@ export default function AdminDashboardWireframePage() {
                 roleLabel={roleLabel}
                 initials={initials}
                 email={user?.email}
-                isAdmin={user?.role === "admin"}
+                isAdmin={isAdmin}
                 statusText={statusTextForNav(activeNav)}
                 onSignOut={logout}
                 className="flex max-lg:flex"

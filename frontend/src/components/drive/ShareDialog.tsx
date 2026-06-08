@@ -14,20 +14,27 @@ import {
   ShieldAlert,
   Trash2,
   UserMinus,
+  Users,
   X,
 } from "lucide-react";
 import {
   createPublicShare,
+  fetchAssignableGroups,
   fetchResourceShares,
-  getErrorMessage,
   inviteUserShare,
+  getErrorMessage,
+  listResourcePermissions,
   publicSharePageUrl,
   revokePublicShare,
+  revokeResourcePermission,
   revokeUserShare,
   updatePublicShare,
+  upsertResourcePermission,
+  type PermissionGrantRow,
   type ShareLink,
   type UserShare,
 } from "@/api/client";
+import { CONTENT_PERMISSION_OPTIONS } from "@/lib/instance-permissions";
 import { copyTextToClipboard } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import {
@@ -195,8 +202,17 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
   const [activeTab, setActiveTab] = useState<ShareDialogTab>("public-link");
   const [settings, setSettings] = useState<ShareSettingsDraft>(settingsFromShare(null));
   const [inviteEmail, setInviteEmail] = useState("");
+  const [invitePermission, setInvitePermission] = useState("content.read");
   const [inviting, setInviting] = useState(false);
   const [revokingUserId, setRevokingUserId] = useState<string | null>(null);
+  const [assignableGroups, setAssignableGroups] = useState<
+    { id: string; slug: string; name: string }[]
+  >([]);
+  const [groupGrants, setGroupGrants] = useState<PermissionGrantRow[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [groupPermission, setGroupPermission] = useState("content.read");
+  const [grantingGroup, setGrantingGroup] = useState(false);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
 
   const applyShareState = useCallback((nextShare: ShareLink | null) => {
     setShare(nextShare);
@@ -226,6 +242,33 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
       setLoading(false);
     }
   }, [target, applyShareState]);
+
+  // Human: Load atomic group grants + assignable group catalog for ACL picker.
+  // Agent: GET /permissions + /permissions/assignable-groups when invite tab is active.
+  const loadGroupAcl = useCallback(async () => {
+    if (!target) return;
+    try {
+      const [groupsRes, grantsRes] = await Promise.all([
+        fetchAssignableGroups(target.resource_type, target.resource_id),
+        listResourcePermissions(target.resource_type, target.resource_id),
+      ]);
+      setAssignableGroups(groupsRes.groups);
+      setGroupGrants(
+        grantsRes.grants.filter(
+          (row) => row.subject_type === "group" && row.effect === "allow",
+        ),
+      );
+      setSelectedGroupId((prev) => prev || groupsRes.groups[0]?.id || "");
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }, [target]);
+
+  useEffect(() => {
+    if (!open || !target || activeTab !== "invite") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load ACL when invite tab shown
+    void loadGroupAcl();
+  }, [open, target, activeTab, loadGroupAcl]);
 
   // Human: Create a public link the first time the owner opens the Public Link tab.
   // Agent: POST /shares; SETS share + pageUrl; EMITS onShareChanged for drive indicators.
@@ -269,6 +312,9 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
       setActiveTab("public-link");
       setSettings(settingsFromShare(null));
       setInviteEmail("");
+      setSelectedGroupId("");
+      setGroupGrants([]);
+      setAssignableGroups([]);
     }
     onOpenChange(next);
   }
@@ -354,6 +400,46 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
     }
   }
 
+  async function handleGrantGroup() {
+    if (!target || !selectedGroupId) return;
+    setGrantingGroup(true);
+    setError("");
+    try {
+      await upsertResourcePermission({
+        subject_type: "group",
+        subject_id: selectedGroupId,
+        resource_type: target.resource_type,
+        resource_id: target.resource_id,
+        permission: groupPermission,
+        effect: "allow",
+      });
+      await loadGroupAcl();
+      onShareChanged?.();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setGrantingGroup(false);
+    }
+  }
+
+  async function handleRevokeGroupGrant(grantId: string) {
+    setRevokingGrantId(grantId);
+    setError("");
+    try {
+      await revokeResourcePermission(grantId);
+      setGroupGrants((current) => current.filter((row) => row.id !== grantId));
+      onShareChanged?.();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setRevokingGrantId(null);
+    }
+  }
+
+  function groupLabel(groupId: string): string {
+    return assignableGroups.find((g) => g.id === groupId)?.name ?? groupId;
+  }
+
   async function handleInviteUser() {
     if (!target) return;
     const email = inviteEmail.trim();
@@ -369,6 +455,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
         resource_type: target.resource_type,
         resource_id: target.resource_id,
         email,
+        permission: invitePermission,
       });
       setUserShares((current) => [...current, res.user_share]);
       setInviteEmail("");
@@ -459,9 +546,27 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
           {activeTab === "invite" ? (
             <div className="flex flex-col gap-4">
               <p className="text-xs leading-relaxed text-[#888888]">
-                Invite people who already have an account on this Ownly instance. Groups are not
-                available yet.
+                Invite people who already have an account on this Ownly instance. Choose the access
+                level they receive on this {target?.resource_type ?? "resource"}.
               </p>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+                  Access level
+                </span>
+                <select
+                  value={invitePermission}
+                  onChange={(event) => setInvitePermission(event.target.value)}
+                  className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  disabled={inviting}
+                >
+                  {CONTENT_PERMISSION_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <div className="flex min-w-0 items-stretch gap-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-3 py-2.5">
@@ -527,6 +632,104 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                             <Loader2 className="size-3.5 animate-spin" />
                           ) : (
                             <UserMinus className="size-3.5" />
+                          )}
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-[#E5E7EB] pt-4">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+                  Group access
+                </p>
+                <p className="text-xs leading-relaxed text-[#888888]">
+                  Grant a permission to an instance group. Members inherit access through atomic
+                  grants.
+                </p>
+
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+                  <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold text-[#666666]">Group</span>
+                    <select
+                      value={selectedGroupId}
+                      onChange={(event) => setSelectedGroupId(event.target.value)}
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      disabled={grantingGroup || assignableGroups.length === 0}
+                    >
+                      {assignableGroups.length === 0 ? (
+                        <option value="">No groups available</option>
+                      ) : (
+                        assignableGroups.map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.name} ({group.slug})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                  <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold text-[#666666]">Permission</span>
+                    <select
+                      value={groupPermission}
+                      onChange={(event) => setGroupPermission(event.target.value)}
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      disabled={grantingGroup}
+                    >
+                      {CONTENT_PERMISSION_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2.5 text-[13px] font-semibold text-white transition",
+                      "hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50",
+                    )}
+                    disabled={grantingGroup || !selectedGroupId || !target}
+                    onClick={() => void handleGrantGroup()}
+                  >
+                    {grantingGroup ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Users className="size-3.5" />
+                    )}
+                    Grant group
+                  </button>
+                </div>
+
+                {groupGrants.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#F7F8FA] px-3 py-3 text-center text-xs text-[#888888]">
+                    No group grants on this {target?.resource_type ?? "resource"} yet.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {groupGrants.map((grant) => (
+                      <li
+                        key={grant.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-semibold text-[#1A1A1A]">
+                            {groupLabel(grant.subject_id)}
+                          </p>
+                          <p className="text-[11px] text-[#888888]">{grant.permission}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[12px] font-semibold text-[#666666] transition hover:bg-[#F7F8FA] disabled:opacity-50"
+                          disabled={revokingGrantId === grant.id}
+                          onClick={() => void handleRevokeGroupGrant(grant.id)}
+                        >
+                          {revokingGrantId === grant.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
                           )}
                           Remove
                         </button>

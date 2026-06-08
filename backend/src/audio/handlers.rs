@@ -23,6 +23,14 @@ pub async fn get_waveform(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<AudioWaveformArtifact>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<(
         Option<String>,
         bool,
@@ -33,10 +41,9 @@ pub async fn get_waveform(
         Option<String>,
     )> = sqlx::query_as(
         "SELECT mime_type, hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status, \
-         audio_waveform_key, audio_encode_error FROM files WHERE id = $1 AND user_id = $2",
+         audio_waveform_key, audio_encode_error FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 

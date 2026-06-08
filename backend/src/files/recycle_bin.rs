@@ -107,22 +107,29 @@ async fn revoke_shares_for_resource(
     Ok(())
 }
 
-// Human: Mark one owned file as deleted without touching object storage blobs.
-// Agent: UPDATE files SET deleted_at; REVOKES file shares; RETURNS name for audit.
-pub async fn soft_delete_owned_file(
+// Human: Mark one file as deleted without touching object storage (owner or grantee with delete).
+// Agent: CALLS authz ContentDelete; UPDATE files.deleted_at; REVOKES shares under owner id.
+pub async fn soft_delete_file(
     pool: &sqlx::PgPool,
-    user_id: &str,
+    actor_id: &str,
     file_id: &str,
 ) -> Result<String, AppError> {
-    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-        "SELECT name, deleted_at FROM files WHERE id = $1 AND user_id = $2",
+    crate::files::access::ensure_file_access(
+        pool,
+        actor_id,
+        file_id,
+        crate::authz::Permission::ContentDelete,
+    )
+    .await?;
+
+    let row: Option<(String, String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT user_id, name, deleted_at FROM files WHERE id = $1",
     )
     .bind(file_id)
-    .bind(user_id)
     .fetch_optional(pool)
     .await?;
 
-    let Some((name, deleted_at)) = row else {
+    let Some((owner_id, name, deleted_at)) = row else {
         return Err(AppError::NotFound);
     };
 
@@ -132,18 +139,27 @@ pub async fn soft_delete_owned_file(
 
     sqlx::query(
         "UPDATE files SET deleted_at = now(), updated_at = now() \
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
-    .bind(user_id)
     .execute(pool)
     .await?;
 
-    revoke_shares_for_resource(pool, user_id, "file", file_id)
+    revoke_shares_for_resource(pool, &owner_id, "file", file_id)
         .await
         .ok();
 
     Ok(name)
+}
+
+// Human: Mark one owned file as deleted without touching object storage blobs.
+// Agent: DELEGATES soft_delete_file after legacy owner-only call sites migrate.
+pub async fn soft_delete_owned_file(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    file_id: &str,
+) -> Result<String, AppError> {
+    soft_delete_file(pool, user_id, file_id).await
 }
 
 // Human: Soft-delete a folder and every nested subfolder and file in one transaction.

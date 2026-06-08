@@ -3,8 +3,9 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCurrentUser, setUnauthorizedHandler } from "@/api/client";
+import { fetchCurrentUser, fetchMyInstancePermissions, setUnauthorizedHandler } from "@/api/client";
 import { AuthContext, type User } from "@/context/auth-context";
+import { hasInstancePermission as checkInstancePermission, isInstanceAdmin } from "@/lib/instance-permissions";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
 
 /** Human: Run session probes after first paint so login shell is not blocked on /me. */
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const raw = localStorage.getItem("ownly_user");
     return raw ? (JSON.parse(raw) as User) : null;
   });
+  const [instancePermissions, setInstancePermissions] = useState<string[]>([]);
 
   // Human: Persist a successful login or setup response so protected routes work after refresh.
   // Agent: WRITES localStorage; MUTATES token + user React state.
@@ -41,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("ownly_user");
     setToken(null);
     setUser(null);
+    setInstancePermissions([]);
     navigate("/", { replace: true });
   }, [navigate]);
 
@@ -66,8 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const probe = async () => {
       try {
-        const profile = await fetchCurrentUser();
+        const [profile, permPayload] = await Promise.all([
+          fetchCurrentUser(),
+          fetchMyInstancePermissions(),
+        ]);
         if (cancelled) return;
+        setInstancePermissions(permPayload.permissions);
         setUser((prev) =>
           prev &&
           prev.id === profile.id &&
@@ -101,9 +108,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
+  const hasInstancePermission = useCallback(
+    (permission: string) => checkInstancePermission(instancePermissions, permission),
+    [instancePermissions],
+  );
+
+  const isAdmin = useMemo(
+    () => isInstanceAdmin(instancePermissions, user?.role),
+    [instancePermissions, user?.role],
+  );
+
   const value = useMemo(
-    () => ({ token, user, setAuth, logout }),
-    [token, user, setAuth, logout],
+    () => ({
+      token,
+      user,
+      instancePermissions,
+      setAuth,
+      logout,
+      hasInstancePermission,
+      isAdmin,
+    }),
+    [token, user, instancePermissions, setAuth, logout, hasInstancePermission, isAdmin],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

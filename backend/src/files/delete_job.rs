@@ -22,7 +22,6 @@ use crate::{
     files::{
         delete_config::DELETE_FILE_CONCURRENCY,
         file_delete::{
-            batch_delete_owned_file_rows, delete_owned_file_row_with_progress,
             parallel_purge_file_rows, storage_object_count, FilePurgeRow,
         },
         processing::ensure_files_not_processing,
@@ -175,27 +174,14 @@ fn normalize_file_ids(
     Ok(ids)
 }
 
-// Human: Load owned file rows for preview/delete and compute per-file blob counts.
-// Agent: SELECT files WHERE user_id AND id = ANY($2); ERRORS when any id is missing.
-async fn load_owned_files_for_delete(
+// Human: Load file rows for preview/delete after content.delete authorization.
+// Agent: DELEGATES access::load_files_for_delete; ERRORS when any id is missing or denied.
+async fn load_files_for_delete(
     pool: &sqlx::PgPool,
-    user_id: &str,
+    actor_id: &str,
     file_ids: &[String],
 ) -> Result<Vec<FilePreviewRow>, AppError> {
-    let rows: Vec<FilePreviewRow> = sqlx::query_as(
-        "SELECT id, name, segment_count FROM files \
-         WHERE user_id = $1 AND id = ANY($2) ORDER BY name ASC",
-    )
-    .bind(user_id)
-    .bind(file_ids)
-    .fetch_all(pool)
-    .await?;
-
-    if rows.len() != file_ids.len() {
-        return Err(AppError::NotFound);
-    }
-
-    Ok(rows)
+    crate::files::access::load_files_for_delete(pool, actor_id, file_ids).await
 }
 
 // Human: Build preview items and total blob count from loaded file rows.
@@ -232,7 +218,7 @@ pub async fn file_deletion_preview(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<FileDeletionPreviewResponse>, AppError> {
-    let rows = load_owned_files_for_delete(&state.pool, &claims.sub, &[id]).await?;
+    let rows = load_files_for_delete(&state.pool, &claims.sub, &[id]).await?;
     let preview = preview_from_rows(&rows);
     let file = preview
         .files
@@ -256,7 +242,7 @@ pub async fn bulk_deletion_preview(
     Json(body): Json<BulkDeletionPreviewRequest>,
 ) -> Result<Json<BulkDeletionPreviewResponse>, AppError> {
     let file_ids = normalize_file_ids(body.file_ids, true)?;
-    let rows = load_owned_files_for_delete(&state.pool, &claims.sub, &file_ids).await?;
+    let rows = load_files_for_delete(&state.pool, &claims.sub, &file_ids).await?;
     Ok(Json(preview_from_rows(&rows)))
 }
 
@@ -268,7 +254,7 @@ pub async fn preview_files_for_permanent_delete(
     file_ids: Vec<String>,
 ) -> Result<BulkDeletionPreviewResponse, AppError> {
     let file_ids = normalize_file_ids(file_ids, false)?;
-    let rows = load_owned_files_for_delete(pool, user_id, &file_ids).await?;
+    let rows = load_files_for_delete(pool, user_id, &file_ids).await?;
     Ok(preview_from_rows(&rows))
 }
 
@@ -283,7 +269,7 @@ pub async fn start_delete_job(
 ) -> Result<DeleteJobStatusResponse, AppError> {
     let file_ids = normalize_file_ids(file_ids, false)?;
     ensure_files_not_processing(&state.pool, user_id, &file_ids).await?;
-    let preview_rows = load_owned_files_for_delete(&state.pool, user_id, &file_ids).await?;
+    let preview_rows = load_files_for_delete(&state.pool, user_id, &file_ids).await?;
     let preview = preview_from_rows(&preview_rows);
 
     let job_id = Uuid::new_v4().to_string();
@@ -371,7 +357,7 @@ async fn run_delete_job(
         Arc as StdArc,
     };
 
-    let rows = match load_owned_files_for_delete(&state.pool, &user_id, &file_ids).await {
+    let rows = match load_files_for_delete(&state.pool, &user_id, &file_ids).await {
         Ok(rows) => rows,
         Err(error) => {
             if let Some(mut job) = state.delete_jobs.get(&registry_key).await {
@@ -436,7 +422,7 @@ async fn run_delete_job(
 
     if permanent {
         let file_ids: Vec<String> = rows.iter().map(|(id, _, _)| id.clone()).collect();
-        match batch_delete_owned_file_rows(&state.pool, &user_id, &file_ids).await {
+        match crate::files::file_delete::batch_delete_file_rows(&state.pool, &file_ids).await {
             Ok(purge_rows) => {
                 deleted_files = total_files;
                 deleted_file_ids = file_ids.clone();
@@ -484,10 +470,9 @@ async fn run_delete_job(
                 if rows.len() == 1 {
                     let (file_id, _, _) = &rows[0];
                     let blob_counter = deleted_blobs.clone();
-                    match delete_owned_file_row_with_progress(
+                    match crate::files::file_delete::delete_file_row_with_progress(
                         &state,
                         &state.pool,
-                        &user_id,
                         file_id,
                         move |_deleted, _total| {
                             blob_counter.fetch_add(1, Ordering::Relaxed);
@@ -532,7 +517,7 @@ async fn run_delete_job(
                 let successes = successes.clone();
                 let failures = failures.clone();
                 async move {
-                    match recycle_bin::soft_delete_owned_file(&pool, &recycle_user, &file_id).await
+                    match recycle_bin::soft_delete_file(&pool, &recycle_user, &file_id).await
                     {
                         Ok(deleted_name) => {
                             successes.lock().await.push((file_id, deleted_name));
@@ -661,8 +646,8 @@ mod tests {
 
     #[test]
     fn storage_object_count_matches_delete_attempts() {
-        assert_eq!(storage_object_count(None), 12);
-        assert_eq!(storage_object_count(Some(0)), 12);
-        assert_eq!(storage_object_count(Some(12)), 24);
+        assert_eq!(storage_object_count(None), 14);
+        assert_eq!(storage_object_count(Some(0)), 14);
+        assert_eq!(storage_object_count(Some(12)), 26);
     }
 }

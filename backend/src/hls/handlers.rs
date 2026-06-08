@@ -50,12 +50,19 @@ async fn ensure_file_owned(
     file_id: &str,
     user_id: &str,
 ) -> Result<(String, Option<bool>, Option<i32>, Option<i64>), AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        user_id,
+        file_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
         "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files \
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
-    .bind(user_id)
     .fetch_optional(&state.pool)
     .await?;
 

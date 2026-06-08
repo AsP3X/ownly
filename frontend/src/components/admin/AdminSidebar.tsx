@@ -15,6 +15,8 @@ export type { AdminNavId } from "@/components/admin/admin-nav";
 type AdminSidebarProps = {
   activeNav: AdminNavId;
   onNavChange: (nav: AdminNavId) => void;
+  /** Human: Permission-filtered nav items; defaults to full ADMIN_NAV. */
+  navItems?: typeof ADMIN_NAV;
 };
 
 function AdminNavRow({
@@ -49,6 +51,25 @@ function AdminNavRow({
       </span>
       <span>{label}</span>
     </button>
+  );
+}
+
+// Human: Render permission-filtered admin nav rows (desktop sidebar).
+// Agent: READS navItems prop; DEFAULTS to ADMIN_NAV when unset.
+function AdminSidebarNav({ activeNav, onNavChange, navItems }: AdminSidebarProps) {
+  const items = navItems ?? ADMIN_NAV;
+  return (
+    <nav className="flex flex-col gap-2" aria-label="Admin navigation">
+      {items.map((item) => (
+        <AdminNavRow
+          key={item.id}
+          label={item.label}
+          icon={item.icon}
+          active={activeNav === item.id}
+          onClick={() => onNavChange(item.id)}
+        />
+      ))}
+    </nav>
   );
 }
 
@@ -96,7 +117,7 @@ function GlobalCapacityWidget({
 }
 
 /** Human: Left rail for /admin — matches Pencil Admin Sidebar on every console frame. */
-export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
+export function AdminSidebar({ activeNav, onNavChange, navItems }: AdminSidebarProps) {
   const { instanceName } = useInstanceName();
   const { usedBytes, capacityBytes, loading } = useAdminStorageMetrics();
 
@@ -107,17 +128,7 @@ export function AdminSidebar({ activeNav, onNavChange }: AdminSidebarProps) {
         <span className="text-[22px] font-bold text-[#1A1A1A]">{instanceName}</span>
       </Link>
 
-      <nav className="flex flex-col gap-2" aria-label="Admin navigation">
-        {ADMIN_NAV.map((item) => (
-          <AdminNavRow
-            key={item.id}
-            label={item.label}
-            icon={item.icon}
-            active={activeNav === item.id}
-            onClick={() => onNavChange(item.id)}
-          />
-        ))}
-      </nav>
+      <AdminSidebarNav activeNav={activeNav} onNavChange={onNavChange} navItems={navItems} />
 
       <div className="mt-auto">
         <GlobalCapacityWidget

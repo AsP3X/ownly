@@ -220,6 +220,115 @@ export async function fetchCurrentUser() {
   }>;
 }
 
+// Human: Instance-level permission strings for admin UI gating (atomic authz).
+// Agent: GET /me/permissions; RETURNS catalog strings e.g. instance.admin.
+export async function fetchMyInstancePermissions() {
+  return apiFetch("/me/permissions", { cache: "no-store" }) as Promise<{
+    permissions: string[];
+  }>;
+}
+
+export type PermissionGrantRow = {
+  id: string;
+  subject_type: string;
+  subject_id: string;
+  resource_type: string;
+  resource_id: string | null;
+  permission: string;
+  effect: string;
+  granted_by: string | null;
+  created_at: string;
+  expires_at: string | null;
+};
+
+export type UpsertPermissionGrantBody = {
+  subject_type: string;
+  subject_id: string;
+  resource_type: string;
+  resource_id?: string | null;
+  permission: string;
+  effect?: string;
+};
+
+// Human: List groups pickable in share/ACL UI for one resource.
+// Agent: GET /permissions/assignable-groups; REQUIRES content.share on resource.
+export async function fetchAssignableGroups(resourceType: string, resourceId: string) {
+  const params = new URLSearchParams({ resource_type: resourceType, resource_id: resourceId });
+  return apiFetch(`/permissions/assignable-groups?${params.toString()}`) as Promise<{
+    groups: { id: string; slug: string; name: string }[];
+  }>;
+}
+
+// Human: List atomic grants on one file/folder for ACL management UI.
+// Agent: GET /permissions?resource_type=&resource_id=.
+export async function listResourcePermissions(resourceType: string, resourceId?: string) {
+  const params = new URLSearchParams({ resource_type: resourceType });
+  if (resourceId) params.set("resource_id", resourceId);
+  return apiFetch(`/permissions?${params.toString()}`) as Promise<{ grants: PermissionGrantRow[] }>;
+}
+
+// Human: Create or update one atomic grant on a resource.
+// Agent: PUT /permissions; AUDIT permissions.grant/deny server-side.
+export async function upsertResourcePermission(body: UpsertPermissionGrantBody) {
+  return apiFetch("/permissions", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  }) as Promise<{ grant: PermissionGrantRow }>;
+}
+
+// Human: Remove one grant row by id.
+// Agent: DELETE /permissions/:id.
+export async function revokeResourcePermission(grantId: string) {
+  return apiFetch(`/permissions/${grantId}`, { method: "DELETE" }) as Promise<{ ok: boolean }>;
+}
+
+export type AdminGroupRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+// Human: List instance groups for admin directory.
+// Agent: GET /admin/groups; REQUIRES instance.groups.read.
+export async function fetchAdminGroups() {
+  return apiFetch("/admin/groups") as Promise<{ groups: AdminGroupRow[] }>;
+}
+
+// Human: Create a custom group slug/name.
+// Agent: POST /admin/groups; REQUIRES instance.groups.manage.
+export async function createAdminGroup(body: {
+  slug: string;
+  name: string;
+  description?: string;
+}) {
+  return apiFetch("/admin/groups", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<{ id: string; slug: string }>;
+}
+
+// Human: Add a user to a group (e.g. promote to admin group).
+// Agent: POST /admin/groups/:id/members.
+export async function addAdminGroupMember(groupId: string, userId: string) {
+  return apiFetch(`/admin/groups/${groupId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Remove a user from a group.
+// Agent: DELETE /admin/groups/:id/members/:userId.
+export async function removeAdminGroupMember(groupId: string, userId: string) {
+  return apiFetch(`/admin/groups/${groupId}/members/${userId}`, {
+    method: "DELETE",
+  }) as Promise<{ ok: boolean }>;
+}
+
 export type UserProfileResponse = {
   user: {
     id: string;
@@ -2595,6 +2704,7 @@ export async function inviteUserShare(payload: {
   resource_type: "file" | "folder";
   resource_id: string;
   email: string;
+  permission?: string;
 }) {
   return apiFetch("/shares/user", {
     method: "POST",

@@ -23,6 +23,8 @@ type AdminMobileSidebarSheetProps = {
   onOpenChange: (open: boolean) => void;
   activeNav: AdminNavId;
   onNavChange: (nav: AdminNavId) => void;
+  /** Human: Permission-filtered nav items; defaults to full ADMIN_NAV. */
+  navItems?: typeof ADMIN_NAV;
 };
 
 function AdminDrawerNavRow({
@@ -109,6 +111,7 @@ export function AdminMobileSidebarSheet({
   onOpenChange,
   activeNav,
   onNavChange,
+  navItems,
 }: AdminMobileSidebarSheetProps) {
   const { instanceName } = useInstanceName();
   const { usedBytes, capacityBytes, loading } = useAdminStorageMetrics();
@@ -149,7 +152,7 @@ export function AdminMobileSidebarSheet({
             className="flex flex-col gap-1 rounded-2xl bg-white p-2 ring-1 ring-[#E5E7EB]"
             aria-label="Admin navigation"
           >
-            {ADMIN_NAV.map((item) => (
+            {(navItems ?? ADMIN_NAV).map((item) => (
               <AdminDrawerNavRow
                 key={item.id}
                 label={item.label}

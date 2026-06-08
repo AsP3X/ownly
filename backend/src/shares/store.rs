@@ -8,7 +8,6 @@ use crate::{
     auth::handlers::verify_password,
     error::AppError,
     files::{
-        folders::ensure_folder_owned,
         handlers::FileDto,
         processing::ensure_file_not_processing,
         recycle_bin::{ACTIVE_FILES_SQL, ACTIVE_FOLDERS_SQL},
@@ -242,35 +241,36 @@ pub async fn load_file_in_share_scope(
     })
 }
 
-// Human: Verify the owner still owns a file before creating a file share link.
-// Agent: READS files WHERE id + user_id; RETURNS NotFound when missing.
+// Human: Verify caller may share a file (owner or content.share grant).
+// Agent: CALLS authz ContentShare on File(id); RETURNS NotFound when row missing.
 pub async fn ensure_file_owned_for_share(
     pool: &PgPool,
     user_id: &str,
     file_id: &str,
 ) -> Result<(), AppError> {
-    let exists: Option<(String,)> = sqlx::query_as(&format!(
-        "SELECT id FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}",
-    ))
-            .bind(file_id)
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?;
-
-    if exists.is_none() {
-        return Err(AppError::NotFound);
-    }
-    Ok(())
+    crate::files::access::ensure_file_access(
+        pool,
+        user_id,
+        file_id,
+        crate::authz::Permission::ContentShare,
+    )
+    .await
 }
 
-// Human: Verify the owner still owns a folder before creating a folder share link.
-// Agent: DELEGATES to folders::ensure_folder_owned.
+// Human: Verify caller may share a folder (owner or content.share grant).
+// Agent: CALLS authz ContentShare on Folder(id).
 pub async fn ensure_folder_owned_for_share(
     pool: &PgPool,
     user_id: &str,
     folder_id: &str,
 ) -> Result<(), AppError> {
-    ensure_folder_owned(pool, user_id, folder_id).await
+    crate::files::access::ensure_folder_access(
+        pool,
+        user_id,
+        folder_id,
+        crate::authz::Permission::ContentShare,
+    )
+    .await
 }
 
 // Human: Reuse the drive file DTO columns when listing public folder contents.

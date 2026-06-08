@@ -229,7 +229,7 @@ pub async fn list_files(
         .filter(|value| !value.is_empty() && *value != "all")
         .map(str::to_string);
 
-    let response = listing::list_owned_files(
+    let response = listing::list_accessible_files(
         &state.pool,
         &claims.sub,
         ListFilesParams {
@@ -259,7 +259,9 @@ pub async fn batch_files(
     Json(body): Json<BatchFilesRequest>,
 ) -> Result<Json<BatchFilesResponse>, AppError> {
     let minimal = body.fields.as_deref() == Some("minimal");
-    let files = listing::batch_owned_files(&state.pool, &claims.sub, body.ids, minimal).await?;
+    let files =
+        crate::files::access::batch_readable_files(&state.pool, &claims.sub, body.ids, minimal)
+            .await?;
     Ok(Json(BatchFilesResponse { files }))
 }
 
@@ -350,12 +352,19 @@ pub async fn get_file(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let file: Option<FileDto> = sqlx::query_as(&format!(
         "SELECT {FILE_COLUMNS} FROM files \
-         WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
+         WHERE id = $1 AND {ACTIVE_FILES_SQL}"
     ))
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -939,13 +948,20 @@ pub async fn download_file(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<DownloadFileRow> = sqlx::query_as(
         "SELECT storage_key, name, mime_type, hls_ready, download_export_ready, hls_encode_status, \
          download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1021,13 +1037,20 @@ pub async fn download_url(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<DownloadUrlRow> = sqlx::query_as(
         "SELECT storage_key, mime_type, hls_ready, download_export_ready, hls_encode_status, \
          download_export_size_bytes, audio_waveform_ready, audio_encode_status FROM files \
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
     let (
@@ -1078,13 +1101,20 @@ pub async fn preview_url(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<DownloadUrlResponse>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     type PreviewUrlRow = (Option<String>, bool, Option<String>, bool, Option<String>);
     let row: Option<PreviewUrlRow> = sqlx::query_as(
         "SELECT mime_type, hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status \
-         FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1120,12 +1150,19 @@ pub async fn move_file(
     Path(id): Path<String>,
     Json(body): Json<MoveFileRequest>,
 ) -> Result<Json<MoveFileResponse>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentWrite,
+    )
+    .await?;
+
     let current: Option<MoveFileCurrentRow> = sqlx::query_as(
         "SELECT folder_id, name, mime_type, hls_ready, hls_encode_status, audio_waveform_ready, \
-         audio_encode_status FROM files WHERE id = $1 AND user_id = $2",
+         audio_encode_status FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1161,16 +1198,21 @@ pub async fn move_file(
     }
 
     if let Some(ref folder_id) = target_folder_id {
-        ensure_folder_owned(&state.pool, &claims.sub, folder_id).await?;
+        crate::files::access::ensure_folder_access(
+            &state.pool,
+            &claims.sub,
+            folder_id,
+            crate::authz::Permission::ContentWrite,
+        )
+        .await?;
     }
 
     let file: FileDto = sqlx::query_as(&format!(
         "UPDATE files SET folder_id = $1, updated_at = NOW() \
-         WHERE id = $2 AND user_id = $3 RETURNING {FILE_COLUMNS}"
+         WHERE id = $2 RETURNING {FILE_COLUMNS}"
     ))
     .bind(&target_folder_id)
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_one(&state.pool)
     .await?;
 
@@ -1202,16 +1244,23 @@ pub async fn copy_file(
     Path(id): Path<String>,
     Json(body): Json<CopyFileRequest>,
 ) -> Result<Json<CopyFileResponse>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, content_hash, hls_ready, \
          hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
          audio_waveform_ready, audio_encode_status, audio_waveform_key, \
          video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
          video_thumbnail_selected_index \
-         FROM files WHERE id = $1 AND user_id = $2",
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1318,11 +1367,18 @@ pub async fn cancel_video_ingest(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentWrite,
+    )
+    .await?;
+
     let row: Option<(Option<String>, bool, String, Option<i32>)> = sqlx::query_as(
-        "SELECT mime_type, hls_ready, storage_key, segment_count FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT mime_type, hls_ready, storage_key, segment_count FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
-    .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1372,18 +1428,37 @@ pub async fn delete_file(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-        let row: Option<(Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> =
-            sqlx::query_as(
-            "SELECT mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, \
-             audio_encode_status FROM files WHERE id = $1 AND user_id = $2",
+    if crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentDelete,
+    )
+    .await
+    .is_err()
+    {
+        // Human: DELETE is idempotent — missing or forbidden rows return ok for stale UI.
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    }
+
+    let row: Option<(String, Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> =
+        sqlx::query_as(
+            "SELECT user_id, mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, \
+             audio_encode_status FROM files WHERE id = $1",
         )
         .bind(&id)
-        .bind(&claims.sub)
         .fetch_optional(&state.pool)
         .await?;
 
-    let Some((mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, audio_encode_status)) =
-        row
+    let Some((
+        owner_id,
+        mime_type,
+        hls_ready,
+        hls_encode_status,
+        deleted_at,
+        audio_waveform_ready,
+        audio_encode_status,
+    )) = row
     else {
         // Human: DELETE is idempotent — stale UI rows may reference files already purged.
         // Agent: RETURNS ok without audit when row missing (retry after partial delete).
@@ -1400,7 +1475,7 @@ pub async fn delete_file(
 
     if query.permanent {
         let deleted =
-            delete_owned_file_row(&state, &state.pool, &claims.sub, &id).await?;
+            delete_owned_file_row(&state, &state.pool, &owner_id, &id).await?;
 
         audit::write_audit(
             &state.pool,
@@ -1416,7 +1491,7 @@ pub async fn delete_file(
     } else if deleted_at.is_some() {
         return Ok(Json(serde_json::json!({ "ok": true })));
     } else {
-        let name = recycle_bin::soft_delete_owned_file(&state.pool, &claims.sub, &id).await?;
+        let name = recycle_bin::soft_delete_owned_file(&state.pool, &owner_id, &id).await?;
 
         audit::write_audit(
             &state.pool,

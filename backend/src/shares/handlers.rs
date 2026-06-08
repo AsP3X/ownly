@@ -103,6 +103,9 @@ pub struct CreateUserShareRequest {
     pub resource_type: String,
     pub resource_id: String,
     pub email: String,
+    /// Human: Atomic content permission to grant (defaults to content.read).
+    /// Agent: VALIDATED against Permission catalog; UPSERTed into permission_grants.
+    pub permission: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -775,6 +778,22 @@ pub async fn create_user_share(
         other => other.into(),
     })?;
 
+    // Human: Mirror user invite into atomic grant for authz resolver.
+    // Agent: UPSERT permission_grants allow row for grantee user subject.
+    let permission = body
+        .permission
+        .as_deref()
+        .unwrap_or("content.read");
+    crate::authz::grant_content_for_user_share(
+        &state.pool,
+        &claims.sub,
+        &grantee_user_id,
+        &resource_type,
+        &body.resource_id,
+        permission,
+    )
+    .await?;
+
     let user_share: UserShareDto = sqlx::query_as(
         "SELECT rus.id, rus.grantee_user_id, u.email AS grantee_email, rus.created_at \
          FROM resource_user_shares rus \
@@ -808,19 +827,28 @@ pub async fn revoke_user_share(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let deleted: Option<(String, String)> = sqlx::query_as(
+    let deleted: Option<(String, String, String)> = sqlx::query_as(
         "DELETE FROM resource_user_shares \
          WHERE id = $1 AND owner_user_id = $2 \
-         RETURNING resource_type, resource_id",
+         RETURNING resource_type, resource_id, grantee_user_id",
     )
     .bind(&id)
     .bind(&claims.sub)
     .fetch_optional(&state.pool)
     .await?;
 
-    let Some((resource_type, resource_id)) = deleted else {
+    let Some((resource_type, resource_id, grantee_user_id)) = deleted else {
         return Err(AppError::NotFound);
     };
+
+    crate::authz::revoke_content_read_for_user_share(
+        &state.pool,
+        &grantee_user_id,
+        &resource_type,
+        &resource_id,
+    )
+    .await
+    .ok();
 
     audit::write_audit(
         &state.pool,

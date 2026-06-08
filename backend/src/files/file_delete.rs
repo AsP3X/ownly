@@ -235,6 +235,87 @@ pub async fn load_owned_files_for_purge(
     Ok(rows)
 }
 
+// Human: Load purge metadata by file id (caller must have verified content.delete).
+// Agent: SELECT without user_id filter; ERRORS when any id is missing.
+pub async fn load_files_for_purge_by_ids(
+    pool: &PgPool,
+    file_ids: &[String],
+) -> Result<Vec<FilePurgeRow>, AppError> {
+    let rows: Vec<FilePurgeRow> = sqlx::query_as(
+        "SELECT id, name, storage_key, segment_count, mime_type FROM files \
+         WHERE id = ANY($1) ORDER BY name ASC",
+    )
+    .bind(file_ids)
+    .fetch_all(pool)
+    .await?;
+
+    if rows.len() != file_ids.len() {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(rows)
+}
+
+// Human: Remove file rows by id after authz (grantee permanent delete on shared files).
+// Agent: DELETE files WHERE id = ANY; RETURNS purge metadata loaded before delete.
+pub async fn batch_delete_file_rows(
+    pool: &PgPool,
+    file_ids: &[String],
+) -> Result<Vec<FilePurgeRow>, AppError> {
+    let rows = load_files_for_purge_by_ids(pool, file_ids).await?;
+    sqlx::query("DELETE FROM files WHERE id = ANY($1)")
+        .bind(file_ids)
+        .execute(pool)
+        .await?;
+    Ok(rows)
+}
+
+// Human: Delete one file row by id and purge storage (authz checked by caller).
+// Agent: DELETE files WHERE id; SAME purge path as delete_owned_file_row_with_progress.
+pub async fn delete_file_row_with_progress<F>(
+    state: &Arc<AppState>,
+    pool: &PgPool,
+    file_id: &str,
+    mut on_blob_deleted: F,
+) -> Result<OwnedFileRow, AppError>
+where
+    F: FnMut(u32, u32),
+{
+    let row: Option<(String, String, Option<i32>, Option<String>)> = sqlx::query_as(
+        "SELECT storage_key, name, segment_count, mime_type FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await?;
+    let (storage_key, name, segment_count, mime_type) = row.ok_or(AppError::NotFound)?;
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(file_id)
+        .execute(pool)
+        .await?;
+
+    let counter = Arc::new(AtomicU32::new(0));
+    let reporter = counter.clone();
+    let expected = storage_object_count(segment_count);
+    purge_storage_keys(
+        state.storage.clone(),
+        &storage_key,
+        segment_count,
+        &mime_type,
+        Some(counter),
+    )
+    .await;
+    let deleted = reporter.load(Ordering::Relaxed);
+    let total = deleted.max(expected);
+    on_blob_deleted(total.min(deleted.max(1)), total);
+
+    Ok(OwnedFileRow {
+        id: file_id.to_string(),
+        name,
+        storage_key,
+        segment_count,
+    })
+}
 // Human: Remove many owned file rows in one statement (deferred purge — DB first, blobs after).
 // Agent: DELETE files WHERE user_id AND id = ANY; RETURNS rows loaded before delete for storage purge.
 pub async fn batch_delete_owned_file_rows(
@@ -359,9 +440,9 @@ mod tests {
 
     #[test]
     fn storage_object_count_matches_delete_attempts() {
-        assert_eq!(storage_object_count(None), 12);
-        assert_eq!(storage_object_count(Some(0)), 12);
-        assert_eq!(storage_object_count(Some(12)), 24);
+        assert_eq!(storage_object_count(None), 14);
+        assert_eq!(storage_object_count(Some(0)), 14);
+        assert_eq!(storage_object_count(Some(12)), 26);
     }
 
     #[test]

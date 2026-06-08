@@ -441,8 +441,8 @@ pub async fn run_zip_entries_job(
     );
 }
 
-// Human: Load zip member rows for explicit file ids owned by the authenticated user.
-// Agent: READS files table; REJECTS unknown ids; DEDUPES member names for flat archives.
+// Human: Load zip member rows for file ids the caller may read (owned or granted).
+// Agent: CALLS ensure_file_access ContentRead per id; REJECTS unknown or forbidden ids.
 pub async fn collect_zip_entries_for_file_ids(
     pool: &sqlx::PgPool,
     user_id: &str,
@@ -458,14 +458,21 @@ pub async fn collect_zip_entries_for_file_ids(
         Option<i32>,
     );
 
+    crate::files::access::ensure_each_file_access(
+        pool,
+        user_id,
+        file_ids,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let mut entries = Vec::with_capacity(file_ids.len());
     for file_id in file_ids {
         let row: Option<FileRow> = sqlx::query_as(
             "SELECT id, name, storage_key, mime_type, hls_ready, download_export_ready, segment_count \
-             FROM files WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+             FROM files WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(file_id)
-        .bind(user_id)
         .fetch_optional(pool)
         .await?;
 

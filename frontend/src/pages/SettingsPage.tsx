@@ -48,7 +48,7 @@ import { userInitials, userRoleLabel } from "@/lib/utils-app";
 /** Human: Authenticated settings route — full Account Settings & Security layout per login-signup.pen. */
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -214,7 +214,7 @@ export default function SettingsPage() {
               roleLabel={userRoleLabel(user?.role)}
               initials={initials}
               email={user?.email}
-              isAdmin={user?.role === "admin"}
+              isAdmin={isAdmin}
               statusText="Secure Profile Session Active"
               onSignOut={logout}
               className="hidden lg:flex"

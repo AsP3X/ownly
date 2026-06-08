@@ -149,7 +149,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 }
 
 export default function DrivePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const { instanceName, dashboard, refreshDashboard: refreshDashboardShared } = useInstanceName();
   // Human: Mobile profile menu anchor — desktop topbar uses an inline Sign Out button instead.
   // Agent: mobileProfileRef; WRITTEN by MobileDriveHeader; READ by outside-click dismiss handler.
@@ -1605,7 +1605,7 @@ export default function DrivePage() {
         roleLabel={profileRoleLabel}
         initials={initials}
         email={user?.email}
-        isAdmin={user?.role === "admin"}
+        isAdmin={isAdmin}
         profileOpen={profileOpen}
         profileRef={mobileProfileRef}
         onProfileToggle={() => setProfileOpen((open) => !open)}
@@ -1642,7 +1642,7 @@ export default function DrivePage() {
             roleLabel={profileRoleLabel}
             initials={initials}
             email={user?.email}
-            isAdmin={user?.role === "admin"}
+            isAdmin={isAdmin}
             onSignOut={handleSignOut}
             className={cn(
               "mx-4 mt-4 max-lg:hidden lg:mx-12 lg:mt-0",

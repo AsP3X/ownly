@@ -32,7 +32,7 @@ import { userInitials, userRoleLabel } from "@/lib/utils-app";
 /** Human: Authenticated profile route — identity summary, personal details, and preferences. */
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -153,7 +153,7 @@ export default function ProfilePage() {
               roleLabel={userRoleLabel(user?.role)}
               initials={initials}
               email={user?.email}
-              isAdmin={user?.role === "admin"}
+              isAdmin={isAdmin}
               statusText="Secure Profile Session Active"
               onSignOut={logout}
               className="hidden lg:flex"
