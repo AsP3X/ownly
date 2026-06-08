@@ -32,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX,
+  EXCEL_DIALOG_VIEWPORT_INSET_CSS,
 } from "@/components/drive/excel/excel-dialog-scale";
 import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
@@ -331,7 +332,7 @@ export function ExcelSpreadsheetDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[93.75rem]"
+        className="flex w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none ring-0"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -340,11 +341,13 @@ export function ExcelSpreadsheetDialog({
           <DialogDescription>View and edit spreadsheet files in the browser.</DialogDescription>
         </DialogHeader>
 
-        {/* Human: Viewer card — up to 1063px tall but capped at viewport minus dialog padding. */}
+        {/* Human: Viewer card — full viewport width/height minus uniform 1rem edge inset. */}
         {/* Agent: PREVENTS top=-50 overflow from 112.5dvh exceeding 100dvh when vertically centered. */}
         <div
           className="flex w-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
-          style={{ height: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - 2rem))` }}
+          style={{
+            height: `min(${EXCEL_DIALOG_SHELL_MAX_HEIGHT_PX}px, calc(100dvh - ${EXCEL_DIALOG_VIEWPORT_INSET_CSS}))`,
+          }}
         >
           <ExcelDialogHeader
             file={file}
