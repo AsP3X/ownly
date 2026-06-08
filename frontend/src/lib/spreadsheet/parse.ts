@@ -2,8 +2,9 @@
 // Agent: READS ArrayBuffer/Blob; WRITES SpreadsheetWorkbook; SERIALIZES back to xlsx bytes on save.
 
 import * as XLSX from "xlsx";
-import { cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
+import { cellStyleFromXlsx, cellStyleToXlsx } from "@/lib/spreadsheet/cell-styles";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
+import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
   applyDimensionsToWorksheet,
   columnWidthsFromWorksheet,
@@ -107,6 +108,19 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
       }),
     );
     const worksheet = XLSX.utils.aoa_to_sheet(matrix);
+
+    // Human: Write per-cell styles from our model back into SheetJS cells.
+    // Agent: PATCHES worksheet[addr].s after aoa_to_sheet for round-trip formatting.
+    trimmed.rows.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const xlsxStyle = cellStyleToXlsx(cell.style);
+        if (!xlsxStyle) return;
+        const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+        const target = worksheet[address] as XLSX.CellObject | undefined;
+        if (target) target.s = xlsxStyle;
+      });
+    });
+
     applyDimensionsToWorksheet(worksheet, trimmed);
     XLSX.utils.book_append_sheet(xlsxWorkbook, worksheet, sheet.name);
   }
@@ -160,5 +174,5 @@ export function applyFormulaBarEdit(
     return { ...expanded, rows: nextRows };
   });
 
-  return { sheets: nextSheets };
+  return recalculateWorkbook({ sheets: nextSheets });
 }

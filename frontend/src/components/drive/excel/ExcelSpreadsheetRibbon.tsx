@@ -10,11 +10,8 @@ import {
   ChevronDown,
   Copy,
   FileText,
-  FolderOpen,
   Italic,
-  Plus,
   Printer,
-  Settings,
   Underline,
 } from "lucide-react";
 import type {
@@ -54,6 +51,22 @@ type ExcelSpreadsheetRibbonProps = {
   onTabChange: (tab: RibbonTabId) => void;
   onStyleChange: (patch: Partial<CellStyle>) => void;
   onConditionalFormatPreset?: (preset: ConditionalFormatPreset) => void;
+  onSaveCopy?: () => void;
+  onPrint?: () => void;
+  onToggleGridlines?: () => void;
+  onToggleShowFormulas?: () => void;
+  onAutoSum?: () => void;
+  onInsertFunction?: () => void;
+  onSortAsc?: () => void;
+  onSortDesc?: () => void;
+  onFilter?: () => void;
+  onClearFilter?: () => void;
+  onInsertRow?: () => void;
+  onDeleteRow?: () => void;
+  onInsertColumn?: () => void;
+  onDeleteColumn?: () => void;
+  onMergeCells?: () => void;
+  onFindReplace?: () => void;
 };
 
 function RibbonDivider() {
@@ -112,12 +125,33 @@ function HomeTools({
     <>
       <div className="flex items-center gap-1.5">
         <div className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]">
-          Inter
-          <ChevronDown className="size-3 text-[#666666]" aria-hidden />
+          <select
+            aria-label="Font family"
+            className="bg-transparent outline-none"
+            value={cellStyle.fontFamily ?? "Inter"}
+            disabled={readOnly}
+            onChange={(event) => onStyleChange({ fontFamily: event.target.value })}
+          >
+            <option value="Inter">Inter</option>
+            <option value="Arial">Arial</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
         </div>
         <div className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 py-1 text-xs text-[#1A1A1A]">
-          11
-          <ChevronDown className="size-3 text-[#666666]" aria-hidden />
+          <select
+            aria-label="Font size"
+            className="bg-transparent outline-none"
+            value={cellStyle.fontSize ?? 11}
+            disabled={readOnly}
+            onChange={(event) => onStyleChange({ fontSize: Number(event.target.value) })}
+          >
+            {[10, 11, 12, 14, 16, 18, 24].map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="inline-flex overflow-hidden rounded-lg border border-[#E5E7EB]">
           <button
@@ -183,12 +217,39 @@ function HomeTools({
           className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
           onClick={() =>
             onStyleChange({
-              numberFormat: cellStyle.numberFormat === "currency" ? "general" : "currency",
+              numberFormat:
+                cellStyle.numberFormat === "currency"
+                  ? "general"
+                  : cellStyle.numberFormat === "percent"
+                    ? "general"
+                    : "currency",
             })
           }
         >
-          Currency
+          {cellStyle.numberFormat === "percent" ? "Percent" : "Currency"}
           <ChevronDown className="size-3 text-[#666666]" aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
+          onClick={() =>
+            onStyleChange({
+              numberFormat: cellStyle.numberFormat === "percent" ? "general" : "percent",
+            })
+          }
+        >
+          Percent
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
+          onClick={() =>
+            onStyleChange({
+              numberFormat: cellStyle.numberFormat === "number" ? "general" : "number",
+            })
+          }
+        >
+          Number
         </button>
         <ExcelConditionalFormatMenu
           disabled={readOnly || !onConditionalFormatPreset}
@@ -199,74 +260,91 @@ function HomeTools({
   );
 }
 
-function FileTools() {
+function FileTools({
+  onSaveCopy,
+  onPrint,
+}: {
+  onSaveCopy?: () => void;
+  onPrint?: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="New" icon={<Plus className="size-3 text-[#666666]" aria-hidden />} />
-      <RibbonButton label="Open" icon={<FolderOpen className="size-3 text-[#666666]" aria-hidden />} />
-      <RibbonButton label="Save Copy" icon={<Copy className="size-3 text-[#666666]" aria-hidden />} />
-      <RibbonButton label="Export PDF" icon={<FileText className="size-3 text-[#666666]" aria-hidden />} />
-      <RibbonButton label="Print" icon={<Printer className="size-3 text-[#666666]" aria-hidden />} />
-      <RibbonButton label="Settings" icon={<Settings className="size-3 text-[#666666]" aria-hidden />} />
+      <RibbonButton label="Save Copy" icon={<Copy className="size-3 text-[#666666]" aria-hidden />} onClick={onSaveCopy} />
+      <RibbonButton label="Print" icon={<Printer className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
+      <RibbonButton label="Export PDF" icon={<FileText className="size-3 text-[#666666]" aria-hidden />} onClick={onPrint} />
     </div>
   );
 }
 
-function InsertTools() {
+function InsertTools({ onMergeCells }: { onMergeCells?: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Table" />
-      <RibbonButton label="PivotTable" />
-      <RibbonDivider />
-      <RibbonButton label="Pictures" />
-      <RibbonButton label="Shapes" />
-      <RibbonDivider />
-      <RibbonButton label="Recommended Charts" />
+      <RibbonButton label="Merge Cells" onClick={onMergeCells} />
     </div>
   );
 }
 
-function PageLayoutTools() {
+function PageLayoutTools({ onToggleGridlines }: { onToggleGridlines?: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Margins" />
-      <RibbonButton label="Orientation" />
-      <RibbonButton label="Size" />
-      <RibbonDivider />
-      <RibbonButton label="Gridlines" />
-      <RibbonButton label="Headings" />
+      <RibbonButton label="Gridlines" onClick={onToggleGridlines} />
     </div>
   );
 }
 
-function FormulasTools() {
+function FormulasTools({
+  onAutoSum,
+  onInsertFunction,
+  onToggleShowFormulas,
+}: {
+  onAutoSum?: () => void;
+  onInsertFunction?: () => void;
+  onToggleShowFormulas?: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="Insert Function" />
-      <RibbonButton label="AutoSum" />
-      <RibbonButton label="Financial" />
-      <RibbonButton label="Logical" />
-      <RibbonButton label="Math & Trig" />
+      <RibbonButton label="Insert Function" onClick={onInsertFunction} />
+      <RibbonButton label="AutoSum" onClick={onAutoSum} />
       <RibbonDivider />
-      <RibbonButton label="Name Manager" />
-      <RibbonDivider />
-      <RibbonButton label="Trace Precedents" />
-      <RibbonButton label="Show Formulas" />
+      <RibbonButton label="Show Formulas" onClick={onToggleShowFormulas} />
     </div>
   );
 }
 
-function DataTools() {
+function DataTools({
+  onSortAsc,
+  onSortDesc,
+  onFilter,
+  onClearFilter,
+  onInsertRow,
+  onDeleteRow,
+  onInsertColumn,
+  onDeleteColumn,
+  onFindReplace,
+}: {
+  onSortAsc?: () => void;
+  onSortDesc?: () => void;
+  onFilter?: () => void;
+  onClearFilter?: () => void;
+  onInsertRow?: () => void;
+  onDeleteRow?: () => void;
+  onInsertColumn?: () => void;
+  onDeleteColumn?: () => void;
+  onFindReplace?: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <RibbonButton label="From CSV" />
-      <RibbonButton label="From Web" />
+      <RibbonButton label="Sort A→Z" onClick={onSortAsc} />
+      <RibbonButton label="Sort Z→A" onClick={onSortDesc} />
+      <RibbonButton label="Filter" active onClick={onFilter} />
+      <RibbonButton label="Clear Filter" onClick={onClearFilter} />
       <RibbonDivider />
-      <RibbonButton label="Sort" />
-      <RibbonButton label="Filter" active />
+      <RibbonButton label="Insert Row" onClick={onInsertRow} />
+      <RibbonButton label="Delete Row" onClick={onDeleteRow} />
+      <RibbonButton label="Insert Column" onClick={onInsertColumn} />
+      <RibbonButton label="Delete Column" onClick={onDeleteColumn} />
       <RibbonDivider />
-      <RibbonButton label="Remove Duplicates" />
-      <RibbonButton label="Validation" />
+      <RibbonButton label="Find" onClick={onFindReplace} />
     </div>
   );
 }
@@ -290,6 +368,22 @@ export function ExcelSpreadsheetRibbon({
   onTabChange,
   onStyleChange,
   onConditionalFormatPreset,
+  onSaveCopy,
+  onPrint,
+  onToggleGridlines,
+  onToggleShowFormulas,
+  onAutoSum,
+  onInsertFunction,
+  onSortAsc,
+  onSortDesc,
+  onFilter,
+  onClearFilter,
+  onInsertRow,
+  onDeleteRow,
+  onInsertColumn,
+  onDeleteColumn,
+  onMergeCells,
+  onFindReplace,
 }: ExcelSpreadsheetRibbonProps) {
   return (
     <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
@@ -338,7 +432,7 @@ export function ExcelSpreadsheetRibbon({
           padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
         }}
       >
-        {activeTab === "file" ? <FileTools /> : null}
+        {activeTab === "file" ? <FileTools onSaveCopy={onSaveCopy} onPrint={onPrint} /> : null}
         {activeTab === "home" ? (
           <HomeTools
             cellStyle={cellStyle}
@@ -347,10 +441,28 @@ export function ExcelSpreadsheetRibbon({
             onConditionalFormatPreset={onConditionalFormatPreset}
           />
         ) : null}
-        {activeTab === "insert" ? <InsertTools /> : null}
-        {activeTab === "page-layout" ? <PageLayoutTools /> : null}
-        {activeTab === "formulas" ? <FormulasTools /> : null}
-        {activeTab === "data" ? <DataTools /> : null}
+        {activeTab === "insert" ? <InsertTools onMergeCells={onMergeCells} /> : null}
+        {activeTab === "page-layout" ? <PageLayoutTools onToggleGridlines={onToggleGridlines} /> : null}
+        {activeTab === "formulas" ? (
+          <FormulasTools
+            onAutoSum={onAutoSum}
+            onInsertFunction={onInsertFunction}
+            onToggleShowFormulas={onToggleShowFormulas}
+          />
+        ) : null}
+        {activeTab === "data" ? (
+          <DataTools
+            onSortAsc={onSortAsc}
+            onSortDesc={onSortDesc}
+            onFilter={onFilter}
+            onClearFilter={onClearFilter}
+            onInsertRow={onInsertRow}
+            onDeleteRow={onDeleteRow}
+            onInsertColumn={onInsertColumn}
+            onDeleteColumn={onDeleteColumn}
+            onFindReplace={onFindReplace}
+          />
+        ) : null}
         {activeTab === "automate" ? <AutomateTools /> : null}
       </div>
     </div>

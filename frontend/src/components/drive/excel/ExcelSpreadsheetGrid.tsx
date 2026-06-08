@@ -17,6 +17,7 @@ import {
   resolveRowHeights,
 } from "@/lib/spreadsheet/dimensions";
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
+import { isCellInRange, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import type { CellAddress, SheetCell } from "@/lib/spreadsheet/types";
 import { cn } from "@/lib/utils";
 
@@ -27,8 +28,17 @@ type ExcelSpreadsheetGridProps = {
   columnWidths?: number[];
   rowHeights?: number[];
   readOnly?: boolean;
-  selection: CellAddress | null;
-  onSelectCell: (address: CellAddress) => void;
+  selectionRange: CellRange;
+  editingCell: CellAddress | null;
+  editDraft: string;
+  showFormulas?: boolean;
+  showGridlines?: boolean;
+  filterHiddenRows?: Set<number>;
+  onSelectCell: (address: CellAddress, extend?: boolean) => void;
+  onStartEditing: (address: CellAddress) => void;
+  onEditDraftChange: (value: string) => void;
+  onCommitEdit: () => void;
+  onGridKeyDown: (event: React.KeyboardEvent) => void;
   onColumnWidthsChange?: (widths: number[]) => void;
   onRowHeightsChange?: (heights: number[]) => void;
 };
@@ -56,12 +66,14 @@ function CellContent({
   col,
   rows,
   conditionalFormats,
+  showFormulas,
 }: {
   cell: SheetCell;
   row: number;
   col: number;
   rows: SheetCell[][];
   conditionalFormats?: ConditionalFormatRule[];
+  showFormulas?: boolean;
 }) {
   const cf = resolveConditionalFormat(conditionalFormats, rows, row, col);
   // Human: Prefer imported CF colors over design-time status pills when Excel rules match.
@@ -69,13 +81,15 @@ function CellContent({
   const hasCfPaint = Boolean(cf?.backgroundColor || cf?.textColor || cf?.badge);
   const badge = cf?.badge ?? (hasCfPaint ? null : statusBadgeTone(cell.display));
 
+  const displayText = showFormulas && cell.formula ? cell.formula : cell.display;
+
   if (badge) {
     return (
       <span
         className={cn("rounded-full font-semibold", badgeClasses(badge))}
         style={{ fontSize: scaledPx(10), padding: `${scaledPx(2)}px ${scaledPx(8)}px` }}
       >
-        {cell.display}
+        {displayText}
       </span>
     );
   }
@@ -83,7 +97,7 @@ function CellContent({
   return (
     <span
       className={cn(
-        "truncate",
+        cell.style?.wrapText ? "whitespace-pre-wrap break-words" : "truncate",
         cell.style?.bold && "font-bold",
         cell.style?.italic && "italic",
         cell.style?.underline && "underline",
@@ -92,12 +106,13 @@ function CellContent({
         (cell.style?.numberFormat === "currency" || typeof cell.value === "number") && "ml-auto text-right",
       )}
       style={{
-        fontSize: scaledPx(12),
+        fontSize: cell.style?.fontSize ?? scaledPx(12),
+        fontFamily: cell.style?.fontFamily,
         color: cf?.textColor ?? cell.style?.textColor ?? "#1A1A1A",
         fontWeight: cf?.bold ? 700 : undefined,
       }}
     >
-      {cell.display}
+      {displayText}
     </span>
   );
 }
@@ -155,12 +170,23 @@ export function ExcelSpreadsheetGrid({
   columnWidths: columnWidthsProp,
   rowHeights: rowHeightsProp,
   readOnly = false,
-  selection,
+  selectionRange,
+  editingCell,
+  editDraft,
+  showFormulas = false,
+  showGridlines = true,
+  filterHiddenRows,
   onSelectCell,
+  onStartEditing,
+  onEditDraftChange,
+  onCommitEdit,
+  onGridKeyDown,
   onColumnWidthsChange,
   onRowHeightsChange,
 }: ExcelSpreadsheetGridProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const normalizedSelection = useMemo(() => normalizeRange(selectionRange), [selectionRange]);
   const columnCount = Math.max(...rows.map((row) => row.length), 1);
 
   const baseColumnWidths = useMemo(
@@ -326,11 +352,21 @@ export function ExcelSpreadsheetGrid({
     [baseColumnWidths, baseRowHeights, commitRowHeights, readOnly, rows],
   );
 
+  useEffect(() => {
+    if (editingCell) editInputRef.current?.focus();
+  }, [editingCell]);
+
+  const borderClass = showGridlines ? "border-[#E5E7EB]" : "border-transparent";
+
   return (
     <div
       ref={parentRef}
+      tabIndex={0}
+      role="grid"
+      aria-label="Spreadsheet grid"
+      onKeyDown={onGridKeyDown}
       className={cn(
-        "min-h-0 flex-1 overflow-auto bg-[#F7F8FA]",
+        "min-h-0 flex-1 overflow-auto bg-[#F7F8FA] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
         resizeDrag?.axis === "column" && "cursor-col-resize select-none",
         resizeDrag?.axis === "row" && "cursor-row-resize select-none",
       )}
@@ -338,18 +374,18 @@ export function ExcelSpreadsheetGrid({
       <div style={{ width: gridWidth, minWidth: "100%" }}>
         {/* Human: Column header row — corner cell + A…N labels per Pencil AOdk5. */}
         <div
-          className="sticky top-0 z-20 flex border-b border-[#E5E7EB] bg-[#F3F4F6]"
+          className={cn("sticky top-0 z-20 flex border-b bg-[#F3F4F6]", borderClass)}
           style={{ height: GRID_HEADER_ROW_HEIGHT }}
         >
           <div
-            className="shrink-0 border-r border-[#E5E7EB] bg-[#E5E7EB]"
+            className={cn("shrink-0 border-r bg-[#E5E7EB]", borderClass)}
             style={{ width: GRID_ROW_INDEX_WIDTH }}
             aria-hidden
           />
           {Array.from({ length: columnCount }, (_, colIndex) => (
             <div
               key={colIndex}
-              className="relative flex shrink-0 items-center justify-center border-r border-[#E5E7EB] font-medium text-[#666666]"
+              className={cn("relative flex shrink-0 items-center justify-center border-r font-medium text-[#666666]", borderClass)}
               style={{ width: columnWidths[colIndex], fontSize: scaledPx(12) }}
             >
               {columnIndexToLetters(colIndex)}
@@ -370,6 +406,7 @@ export function ExcelSpreadsheetGrid({
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const rowIndex = virtualRow.index;
+            if (filterHiddenRows?.has(rowIndex)) return null;
             const row = rows[rowIndex] ?? [];
             const isHeader = rowIndex === 0;
             const isTotalRow = row[0]?.display?.toLowerCase().includes("total");
@@ -386,7 +423,7 @@ export function ExcelSpreadsheetGrid({
                 }}
               >
                 <div
-                  className="relative flex shrink-0 items-center justify-center border-r border-b border-[#E5E7EB] bg-[#F3F4F6] text-[#666666]"
+                  className={cn("relative flex shrink-0 items-center justify-center border-r border-b bg-[#F3F4F6] text-[#666666]", borderClass)}
                   style={{ width: GRID_ROW_INDEX_WIDTH, height: rowHeight, fontSize: scaledPx(11) }}
                 >
                   {rowIndex + 1}
@@ -404,7 +441,9 @@ export function ExcelSpreadsheetGrid({
 
                 {Array.from({ length: columnCount }, (_, colIndex) => {
                   const cell = row[colIndex] ?? { value: null, display: "" };
-                  const selected = selection?.row === rowIndex && selection.col === colIndex;
+                  const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
+                  const isActiveCell =
+                    editingCell?.row === rowIndex && editingCell.col === colIndex;
                   const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
                   const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
                   const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
@@ -414,9 +453,13 @@ export function ExcelSpreadsheetGrid({
                       key={colIndex}
                       type="button"
                       aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
-                      onClick={() => onSelectCell({ row: rowIndex, col: colIndex })}
+                      onClick={(event) => onSelectCell({ row: rowIndex, col: colIndex }, event.shiftKey)}
+                      onDoubleClick={() => {
+                        if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
+                      }}
                       className={cn(
-                        "relative flex shrink-0 items-center overflow-hidden border-r border-b border-[#E5E7EB] text-left transition-colors",
+                        "relative flex shrink-0 items-center overflow-hidden border-r border-b text-left transition-colors",
+                        borderClass,
                         isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
                         isHeader && cellFill && "font-bold",
                         isTotalRow && !cellFill && "bg-[#EFF6FF]",
@@ -432,6 +475,18 @@ export function ExcelSpreadsheetGrid({
                         backgroundColor: cellFill ?? undefined,
                       }}
                     >
+                      {isActiveCell && !readOnly ? (
+                        <input
+                          ref={editInputRef}
+                          value={editDraft}
+                          onChange={(event) => onEditDraftChange(event.target.value)}
+                          onBlur={() => onCommitEdit()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
+                          style={{ fontSize: cell.style?.fontSize ?? scaledPx(12) }}
+                          aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
+                        />
+                      ) : null}
                       {/* Agent: Data bar overlay from conditional formatting rules. */}
                       {cf?.dataBarPercent !== undefined && cf.dataBarColor ? (
                         <span
@@ -449,6 +504,7 @@ export function ExcelSpreadsheetGrid({
                         col={colIndex}
                         rows={rows}
                         conditionalFormats={conditionalFormats}
+                        showFormulas={showFormulas}
                       />
                     </button>
                   );

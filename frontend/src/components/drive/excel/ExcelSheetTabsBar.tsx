@@ -1,5 +1,5 @@
-// Human: Sheet tab bar with navigation chevrons and add-sheet control per Pencil UeiM4.
-// Agent: READS sheet names + active index; EMITS sheet selection callbacks.
+// Human: Sheet tab bar with navigation chevrons and add/rename/delete sheet controls.
+// Agent: READS sheet names + active index; EMITS sheet selection and CRUD callbacks.
 
 import {
   ChevronLeft,
@@ -15,9 +15,19 @@ type ExcelSheetTabsBarProps = {
   sheets: string[];
   activeIndex: number;
   onSelectSheet: (index: number) => void;
+  onAddSheet?: () => void;
+  onRenameSheet?: (index: number, name: string) => void;
+  onDeleteSheet?: (index: number) => void;
 };
 
-export function ExcelSheetTabsBar({ sheets, activeIndex, onSelectSheet }: ExcelSheetTabsBarProps) {
+export function ExcelSheetTabsBar({
+  sheets,
+  activeIndex,
+  onSelectSheet,
+  onAddSheet,
+  onRenameSheet,
+  onDeleteSheet,
+}: ExcelSheetTabsBarProps) {
   const canGoBack = activeIndex > 0;
   const canGoForward = activeIndex < sheets.length - 1;
 
@@ -51,6 +61,16 @@ export function ExcelSheetTabsBar({ sheets, activeIndex, onSelectSheet }: ExcelS
               key={`${name}-${index}`}
               type="button"
               onClick={() => onSelectSheet(index)}
+              onDoubleClick={() => {
+                if (!onRenameSheet) return;
+                const nextName = window.prompt("Rename sheet", name);
+                if (nextName) onRenameSheet(index, nextName);
+              }}
+              onContextMenu={(event) => {
+                if (!onDeleteSheet || sheets.length <= 1) return;
+                event.preventDefault();
+                if (window.confirm(`Delete sheet "${name}"?`)) onDeleteSheet(index);
+              }}
               className={cn(
                 "shrink-0 rounded-t transition-colors",
                 active
@@ -73,6 +93,7 @@ export function ExcelSheetTabsBar({ sheets, activeIndex, onSelectSheet }: ExcelS
         aria-label="Add sheet"
         className="rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A]"
         style={{ padding: scaledPx(6) }}
+        onClick={onAddSheet}
       >
         <Plus style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
       </button>

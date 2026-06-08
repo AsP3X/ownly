@@ -89,3 +89,30 @@ export function cellStyleFromXlsx(
 
   return style;
 }
+
+// Human: Convert CellStyle back to SheetJS-compatible style object for xlsx export.
+// Agent: WRITES font/fill/alignment fields consumed by XLSX cell.s on serialize.
+export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, unknown> | undefined {
+  if (!style) return undefined;
+
+  const xlsx: Record<string, unknown> = {};
+
+  if (style.bold) xlsx.bold = true;
+  if (style.italic) xlsx.italic = true;
+  if (style.underline) xlsx.underline = true;
+  if (style.horizontalAlign) xlsx.horizontal = style.horizontalAlign;
+  if (style.verticalAlign) {
+    xlsx.vertical = style.verticalAlign === "middle" ? "center" : style.verticalAlign;
+  }
+  if (style.textColor) {
+    const hex = style.textColor.replace("#", "").toUpperCase();
+    xlsx.color = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+  }
+  if (style.backgroundColor) {
+    const hex = style.backgroundColor.replace("#", "").toUpperCase();
+    xlsx.patternType = "solid";
+    xlsx.fgColor = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+  }
+
+  return Object.keys(xlsx).length > 0 ? xlsx : undefined;
+}

@@ -5,9 +5,12 @@ import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 
 type ExcelStatusBarProps = {
   metricsLine: string;
+  undoAvailable?: boolean;
+  redoAvailable?: boolean;
 };
 
-export function ExcelStatusBar({ metricsLine }: ExcelStatusBarProps) {
+export function ExcelStatusBar({ metricsLine, undoAvailable, redoAvailable }: ExcelStatusBarProps) {
+  const statusLabel = undoAvailable ? "Edited" : redoAvailable ? "Redo available" : "Ready";
   return (
     <div
       className="flex shrink-0 items-center justify-between border-t border-[#E5E7EB] bg-[#F7F8FA]"
@@ -20,7 +23,7 @@ export function ExcelStatusBar({ metricsLine }: ExcelStatusBarProps) {
           aria-hidden
         />
         <span className="text-[#888888]" style={{ fontSize: scaledPx(10) }}>
-          Ready
+          {statusLabel}
         </span>
       </div>
       <p className="font-medium text-[#666666]" style={{ fontSize: scaledPx(10) }}>

@@ -18,6 +18,11 @@ export type CellStyle = {
   // Human: Direct font color from xlsx cell style (not conditional formatting).
   // Agent: READ from SheetJS cell.s.color; RENDERED in grid when no CF textColor wins.
   textColor?: string;
+  // Human: Ribbon font controls — persisted on save via cellStyleToXlsx.
+  // Agent: RENDERED in grid inline styles when set.
+  fontFamily?: string;
+  fontSize?: number;
+  wrapText?: boolean;
   isHeaderRow?: boolean;
   isTotalRow?: boolean;
 };
@@ -41,6 +46,10 @@ export type SheetData = {
   // Human: Row heights in on-screen CSS pixels — drag-resized like Excel.
   // Agent: READ by virtualizer; IMPORTED from !rows; WRITTEN on save via SheetJS !rows hpx.
   rowHeights?: number[];
+  // Human: View flags toggled from Page Layout / Formulas ribbon.
+  // Agent: READ by grid for display-only modes.
+  showGridlines?: boolean;
+  showFormulas?: boolean;
 };
 
 export type SpreadsheetWorkbook = {
