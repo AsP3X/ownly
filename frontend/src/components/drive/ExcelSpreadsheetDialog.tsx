@@ -11,6 +11,7 @@ import {
   getErrorMessage,
   uploadFileWithProgress,
 } from "@/api/client";
+import { ExcelChartDialog } from "@/components/drive/excel/ExcelChartDialog";
 import { ExcelCopilotSidebar } from "@/components/drive/excel/ExcelCopilotSidebar";
 import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
@@ -44,6 +45,7 @@ import {
   statusBadgePresetRules,
 } from "@/lib/spreadsheet/conditional-formatting";
 import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
+import { chartBarsFromSelection } from "@/lib/spreadsheet/chart-data";
 import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spreadsheet/parse";
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import {
@@ -51,13 +53,17 @@ import {
   deleteColumn,
   deleteRow,
   findInSheet,
+  freezePanesAt,
+  importCsvAsNewSheet,
   insertColumn,
   insertRow,
   mergeCellsInRange,
+  removeDuplicateRows,
   removeSheet,
   renameSheet,
   replaceInWorkbook,
   sortSheetByColumn,
+  unfreezePanes,
 } from "@/lib/spreadsheet/workbook-ops";
 import {
   rulesFromPreset,
@@ -94,6 +100,7 @@ export function ExcelSpreadsheetDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [findOpen, setFindOpen] = useState(false);
+  const [chartOpen, setChartOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
 
   const activeSheet = editor.activeSheet;
@@ -111,6 +118,11 @@ export function ExcelSpreadsheetDialog({
     const stats = computeSelectionStats(activeSheet?.rows ?? [], editor.activeCellAddress);
     return formatSelectionStatsLine(stats);
   }, [activeSheet?.rows, editor.activeCellAddress]);
+
+  const chartBars = useMemo(() => {
+    if (!activeSheet) return [];
+    return chartBarsFromSelection(activeSheet, editor.selectionRange);
+  }, [activeSheet, editor.selectionRange]);
 
   const loadFile = useCallback(
     async (target: FileItem) => {
@@ -148,6 +160,7 @@ export function ExcelSpreadsheetDialog({
         setRibbonTab("home");
         setCopilotCollapsed(false);
         setFindOpen(false);
+        setChartOpen(false);
         setFilterQuery("");
       }
       onOpenChange(nextOpen);
@@ -430,6 +443,35 @@ export function ExcelSpreadsheetDialog({
                   )
                 }
                 onFindReplace={() => setFindOpen(true)}
+                onFreezePanes={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    freezePanesAt(
+                      current,
+                      editor.activeSheetIndex,
+                      editor.activeCellAddress.row,
+                      editor.activeCellAddress.col,
+                    ),
+                  )
+                }
+                onUnfreezePanes={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    unfreezePanes(current, editor.activeSheetIndex),
+                  )
+                }
+                onRemoveDuplicates={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    removeDuplicateRows(current, editor.activeSheetIndex, editor.activeCellAddress.col),
+                  )
+                }
+                onImportCsv={() => {
+                  const csvText = window.prompt("Paste CSV or TSV data") ?? "";
+                  if (!csvText.trim() || !editor.workbook) return;
+                  const name = window.prompt("Sheet name", `Import${editor.workbook.sheets.length + 1}`) ?? "Import";
+                  const next = importCsvAsNewSheet(editor.workbook, csvText, name);
+                  editor.setWorkbook(next);
+                  editor.setActiveSheetIndex(next.sheets.length - 1);
+                }}
+                onInsertChart={() => setChartOpen(true)}
               />
 
               <ExcelFormulaBar
@@ -467,11 +509,14 @@ export function ExcelSpreadsheetDialog({
                     showFormulas={editor.viewFlags.showFormulas || activeSheet.showFormulas}
                     showGridlines={editor.viewFlags.showGridlines}
                     filterHiddenRows={editor.filterHiddenRows}
+                    frozenRows={activeSheet.frozenRows ?? 0}
+                    frozenCols={activeSheet.frozenCols ?? 0}
                     onSelectCell={editor.selectCell}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
                     onCommitEdit={editor.commitEdit}
                     onGridKeyDown={handleGridKeyDown}
+                    onFillDragEnd={editor.performFill}
                     onColumnWidthsChange={(widths) =>
                       editor.commitWorkbookMutation((current) => ({
                         sheets: current.sheets.map((sheet, index) =>
@@ -538,6 +583,13 @@ export function ExcelSpreadsheetDialog({
           onFindNext={handleFindNext}
           onReplace={handleReplace}
           onReplaceAll={handleReplaceAll}
+        />
+
+        <ExcelChartDialog
+          open={chartOpen}
+          onOpenChange={setChartOpen}
+          title={`Chart — ${file?.name ?? "Spreadsheet"}`}
+          bars={chartBars}
         />
       </DialogContent>
     </Dialog>

@@ -14,35 +14,35 @@ Last updated: 2026-06-08
 | Multi-cell / range selection | ✅ | Shift+click; range highlight |
 | Copy / Cut / Paste (Ctrl+C/X/V) | ✅ | Internal + system clipboard TSV |
 | Undo / Redo (Ctrl+Z / Ctrl+Y) | ✅ | 50-level workbook snapshots |
-| Fill handle / drag-fill | ⏳ | Not yet implemented |
+| Fill handle / drag-fill | ✅ | Bottom-right handle; numeric/date/text series |
 | Find & Replace | ✅ | Dialog + Ctrl+F; find next / replace / replace all |
 
 ## Phase 2 — Formulas & formatting
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUM, AVERAGE, IF, AND, OR, cell refs, ranges; not full Excel function set |
+| Formula evaluation / recalc | 🚧 | SUM, AVERAGE, IF, VLOOKUP, COUNTIF, MATCH, AND, OR; not full Excel set |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
 | Style persistence on save | ✅ | `cellStyleToXlsx` on serialize |
 | Font family / size pickers | ✅ | Home ribbon selects |
 | Percent / number / currency formats | ✅ | Home ribbon toggles |
-| Vertical align | ⏳ | Imported only; no ribbon toggle |
-| Borders / fill color picker | ⏳ | Imported only |
-| Wrap text | ⏳ | Type supported; no ribbon toggle |
+| Vertical align | ✅ | Home ribbon top/middle/bottom |
+| Borders / fill color picker | 🚧 | Fill color picker on Home; borders import-only |
+| Wrap text | ✅ | Home ribbon Wrap toggle |
 | Merge cells | ✅ | Insert tab → Merge Cells |
-| Freeze panes | ⏳ | Not yet implemented |
+| Freeze panes | 🚧 | Freeze at active cell; sticky frozen rows/cols; unfreeze on Page Layout |
 
 ## Phase 3 — Structure & data
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Add / rename / delete sheet | ✅ | Tab bar +, double-click rename, context-menu delete |
-| Reorder sheets | ⏳ | Not yet implemented |
+| Reorder sheets | ⏳ | `moveSheet` helper exists; no tab drag UI |
 | Insert / delete rows | ✅ | Data tab |
 | Insert / delete columns | ✅ | Data tab |
 | Sort ascending / descending | ✅ | Data tab; header row fixed |
 | AutoFilter | 🚧 | Column text filter via prompt; hides rows |
-| Remove duplicates | ⏳ | Not yet implemented |
+| Remove duplicates | ✅ | Data tab; key column = active cell column |
 | Data validation | ⏳ | Not yet implemented |
 | Named ranges | ⏳ | Not yet implemented |
 
@@ -54,14 +54,17 @@ Last updated: 2026-06-08
 | File — Export PDF | 🚧 | Uses browser print (same as Print) |
 | File — Print | ✅ | `window.print()` |
 | Insert — Merge Cells | ✅ | |
-| Insert — Table / Chart / PivotTable | ⏳ | Not yet implemented |
+| Insert — Bar Chart | ✅ | SVG dialog from selection |
+| Insert — Table / PivotTable | ⏳ | Not yet implemented |
 | Insert — Pictures / Shapes | ❌ | Requires asset upload pipeline |
 | Page Layout — gridlines toggle | ✅ | View flag |
+| Page Layout — freeze / unfreeze | ✅ | At active cell |
 | Page Layout — margins, orientation | ⏳ | Not yet implemented |
 | Formulas — Show Formulas | ✅ | View mode |
 | Formulas — Trace Precedents | ⏳ | Not yet implemented |
 | Data — Find | ✅ | Opens find/replace dialog |
-| Data — From CSV / Web | ⏳ | Not yet implemented |
+| Data — From CSV | ✅ | Paste CSV/TSV as new sheet |
+| Data — From Web | ⏳ | Not yet implemented |
 | Automate — Macros / Scripts | ❌ | VBA not supported in browser |
 
 ## Phase 5 — Copilot & collaboration
@@ -95,17 +98,20 @@ Last updated: 2026-06-08
 | Undo | `frontend/src/lib/spreadsheet/undo.ts` |
 | Clipboard | `frontend/src/lib/spreadsheet/clipboard.ts` |
 | Formulas | `frontend/src/lib/spreadsheet/formulas.ts` |
+| Fill handle | `frontend/src/lib/spreadsheet/fill-handle.ts` |
+| CSV import | `frontend/src/lib/spreadsheet/csv-import.ts` |
+| Chart data | `frontend/src/lib/spreadsheet/chart-data.ts` |
 | Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
 | Find/replace UI | `frontend/src/components/drive/excel/ExcelFindReplaceDialog.tsx` |
+| Chart UI | `frontend/src/components/drive/excel/ExcelChartDialog.tsx` |
 | Style export | `frontend/src/lib/spreadsheet/cell-styles.ts` (`cellStyleToXlsx`) |
 
 ## Remaining high-value work
 
-1. Fill handle / drag-fill
-2. Freeze panes
-3. Charts from selection
-4. Remove duplicates
-5. Full Excel function library (VLOOKUP, INDEX/MATCH, date functions)
-6. CF export parity for top10 / duplicates / iconSet
-7. Real Copilot LLM integration (backend)
-8. CSV import as new sheet
+1. Sheet tab reorder (drag-and-drop)
+2. Full Excel function library (INDEX, date functions, nested arrays)
+3. CF export parity for top10 / duplicates / iconSet
+4. Real Copilot LLM integration (backend)
+5. Data validation UI
+6. Cell border picker
+7. Import freeze panes from xlsx on load

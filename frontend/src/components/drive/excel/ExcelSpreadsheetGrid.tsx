@@ -34,11 +34,14 @@ type ExcelSpreadsheetGridProps = {
   showFormulas?: boolean;
   showGridlines?: boolean;
   filterHiddenRows?: Set<number>;
+  frozenRows?: number;
+  frozenCols?: number;
   onSelectCell: (address: CellAddress, extend?: boolean) => void;
   onStartEditing: (address: CellAddress) => void;
   onEditDraftChange: (value: string) => void;
   onCommitEdit: () => void;
   onGridKeyDown: (event: React.KeyboardEvent) => void;
+  onFillDragEnd?: (address: CellAddress) => void;
   onColumnWidthsChange?: (widths: number[]) => void;
   onRowHeightsChange?: (heights: number[]) => void;
 };
@@ -176,17 +179,24 @@ export function ExcelSpreadsheetGrid({
   showFormulas = false,
   showGridlines = true,
   filterHiddenRows,
+  frozenRows = 0,
+  frozenCols = 0,
   onSelectCell,
   onStartEditing,
   onEditDraftChange,
   onCommitEdit,
   onGridKeyDown,
+  onFillDragEnd,
   onColumnWidthsChange,
   onRowHeightsChange,
 }: ExcelSpreadsheetGridProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const fillHoverRef = useRef<CellAddress | null>(null);
   const normalizedSelection = useMemo(() => normalizeRange(selectionRange), [selectionRange]);
+  const frozenRowCount = Math.max(0, frozenRows);
+  const frozenColCount = Math.max(0, frozenCols);
+  const [fillDragging, setFillDragging] = useState(false);
   const columnCount = Math.max(...rows.map((row) => row.length), 1);
 
   const baseColumnWidths = useMemo(
@@ -206,10 +216,22 @@ export function ExcelSpreadsheetGrid({
   const rowHeights = previewRowHeights ?? baseRowHeights;
   const gridWidth = GRID_ROW_INDEX_WIDTH + columnWidths.reduce((sum, width) => sum + width, 0);
 
+  const colLeftOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let left = GRID_ROW_INDEX_WIDTH;
+    for (let index = 0; index < columnCount; index += 1) {
+      offsets.push(left);
+      left += columnWidths[index];
+    }
+    return offsets;
+  }, [columnCount, columnWidths]);
+
+  const scrollRowCount = Math.max(rows.length - frozenRowCount, 0);
+
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: scrollRowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => rowHeights[index] ?? baseRowHeights[index],
+    estimateSize: (index) => rowHeights[index + frozenRowCount] ?? baseRowHeights[index + frozenRowCount],
     overscan: 8,
   });
 
@@ -356,6 +378,17 @@ export function ExcelSpreadsheetGrid({
     if (editingCell) editInputRef.current?.focus();
   }, [editingCell]);
 
+  useEffect(() => {
+    if (!fillDragging) return undefined;
+    const onUp = () => {
+      if (fillHoverRef.current) onFillDragEnd?.(fillHoverRef.current);
+      fillHoverRef.current = null;
+      setFillDragging(false);
+    };
+    window.addEventListener("pointerup", onUp);
+    return () => window.removeEventListener("pointerup", onUp);
+  }, [fillDragging, onFillDragEnd]);
+
   const borderClass = showGridlines ? "border-[#E5E7EB]" : "border-transparent";
 
   return (
@@ -403,9 +436,96 @@ export function ExcelSpreadsheetGrid({
           ))}
         </div>
 
+        {frozenRowCount > 0 ? (
+          <div className="sticky z-10" style={{ top: GRID_HEADER_ROW_HEIGHT }}>
+            {Array.from({ length: frozenRowCount }, (_, rowIndex) => {
+              if (filterHiddenRows?.has(rowIndex)) return null;
+              const row = rows[rowIndex] ?? [];
+              const isHeader = rowIndex === 0;
+              const isTotalRow = row[0]?.display?.toLowerCase().includes("total");
+              const rowHeight = rowHeights[rowIndex] ?? baseRowHeights[rowIndex];
+
+              return (
+                <div key={`frozen-${rowIndex}`} className="flex" style={{ height: rowHeight, width: gridWidth }}>
+                  <div
+                    className={cn(
+                      "relative flex shrink-0 items-center justify-center border-r border-b bg-[#F3F4F6] text-[#666666]",
+                      borderClass,
+                    )}
+                    style={{ width: GRID_ROW_INDEX_WIDTH, height: rowHeight, fontSize: scaledPx(11) }}
+                  >
+                    {rowIndex + 1}
+                  </div>
+
+                  {Array.from({ length: columnCount }, (_, colIndex) => {
+                    const cell = row[colIndex] ?? { value: null, display: "" };
+                    const selected = isCellInRange(rowIndex, colIndex, normalizedSelection);
+                    const isActiveCell = editingCell?.row === rowIndex && editingCell.col === colIndex;
+                    const isNumericCol = colIndex > 0 && colIndex < columnCount - 1;
+                    const cf = resolveConditionalFormat(conditionalFormats, rows, rowIndex, colIndex);
+                    const cellFill = cf?.backgroundColor ?? cell.style?.backgroundColor;
+
+                    return (
+                      <button
+                        key={colIndex}
+                        type="button"
+                        aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
+                        onClick={(event) => onSelectCell({ row: rowIndex, col: colIndex }, event.shiftKey)}
+                        onDoubleClick={() => {
+                          if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
+                        }}
+                        className={cn(
+                          "relative flex shrink-0 items-center overflow-hidden border-r border-b text-left transition-colors",
+                          borderClass,
+                          colIndex < frozenColCount && "sticky z-20 bg-white",
+                          isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
+                          isHeader && cellFill && "font-bold",
+                          isTotalRow && !cellFill && "bg-[#EFF6FF]",
+                          !isHeader && !isTotalRow && !cellFill && "bg-white",
+                          selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
+                          selected && !cellFill && "bg-[#EFF6FF]",
+                          isNumericCol && "justify-end",
+                        )}
+                        style={{
+                          width: columnWidths[colIndex],
+                          height: rowHeight,
+                          paddingInline: scaledPx(8),
+                          backgroundColor: cellFill ?? undefined,
+                          left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
+                        }}
+                      >
+                        {isActiveCell && !readOnly ? (
+                          <input
+                            ref={editInputRef}
+                            value={editDraft}
+                            onChange={(event) => onEditDraftChange(event.target.value)}
+                            onBlur={() => onCommitEdit()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                            className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
+                            style={{ fontSize: cell.style?.fontSize ?? scaledPx(12) }}
+                            aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
+                          />
+                        ) : null}
+                        <CellContent
+                          cell={cell}
+                          row={rowIndex}
+                          col={colIndex}
+                          rows={rows}
+                          conditionalFormats={conditionalFormats}
+                          showFormulas={showFormulas}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const rowIndex = virtualRow.index;
+            const rowIndex = virtualRow.index + frozenRowCount;
             if (filterHiddenRows?.has(rowIndex)) return null;
             const row = rows[rowIndex] ?? [];
             const isHeader = rowIndex === 0;
@@ -454,12 +574,16 @@ export function ExcelSpreadsheetGrid({
                       type="button"
                       aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                       onClick={(event) => onSelectCell({ row: rowIndex, col: colIndex }, event.shiftKey)}
+                      onMouseEnter={() => {
+                        if (fillDragging) fillHoverRef.current = { row: rowIndex, col: colIndex };
+                      }}
                       onDoubleClick={() => {
                         if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
                       }}
                       className={cn(
                         "relative flex shrink-0 items-center overflow-hidden border-r border-b text-left transition-colors",
                         borderClass,
+                        colIndex < frozenColCount && "sticky z-20 bg-white",
                         isHeader && !cellFill && "bg-[#FAFAFA] font-bold",
                         isHeader && cellFill && "font-bold",
                         isTotalRow && !cellFill && "bg-[#EFF6FF]",
@@ -473,8 +597,24 @@ export function ExcelSpreadsheetGrid({
                         height: rowHeight,
                         paddingInline: scaledPx(8),
                         backgroundColor: cellFill ?? undefined,
+                        left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
                       }}
                     >
+                      {rowIndex === normalizedSelection.end.row &&
+                      colIndex === normalizedSelection.end.col &&
+                      !readOnly &&
+                      onFillDragEnd ? (
+                        <div
+                          role="separator"
+                          aria-label="Fill handle"
+                          className="absolute -bottom-1 -right-1 z-30 size-2 cursor-crosshair border border-[#2563EB] bg-[#2563EB]"
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setFillDragging(true);
+                          }}
+                        />
+                      ) : null}
                       {isActiveCell && !readOnly ? (
                         <input
                           ref={editInputRef}

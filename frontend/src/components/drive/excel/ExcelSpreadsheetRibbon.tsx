@@ -17,6 +17,7 @@ import {
 import type {
   CellStyle,
   HorizontalAlign,
+  VerticalAlign,
 } from "@/lib/spreadsheet/types";
 import {
   ExcelConditionalFormatMenu,
@@ -67,6 +68,11 @@ type ExcelSpreadsheetRibbonProps = {
   onDeleteColumn?: () => void;
   onMergeCells?: () => void;
   onFindReplace?: () => void;
+  onFreezePanes?: () => void;
+  onUnfreezePanes?: () => void;
+  onRemoveDuplicates?: () => void;
+  onImportCsv?: () => void;
+  onInsertChart?: () => void;
 };
 
 function RibbonDivider() {
@@ -214,6 +220,42 @@ function HomeTools({
       <div className="flex items-center gap-1.5">
         <button
           type="button"
+          className="rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs"
+          onClick={() => onStyleChange({ wrapText: !cellStyle.wrapText })}
+        >
+          Wrap
+        </button>
+        {(["top", "middle", "bottom"] as VerticalAlign[]).map((align) => (
+          <button
+            key={align}
+            type="button"
+            className={cn(
+              "rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs capitalize",
+              cellStyle.verticalAlign === align ? "bg-[#EFF6FF]" : "bg-white",
+            )}
+            onClick={() => onStyleChange({ verticalAlign: align })}
+          >
+            {align}
+          </button>
+        ))}
+        <label className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs">
+          Fill
+          <input
+            type="color"
+            aria-label="Fill color"
+            disabled={readOnly}
+            value={cellStyle.backgroundColor ?? "#ffffff"}
+            onChange={(event) => onStyleChange({ backgroundColor: event.target.value })}
+            className="size-4 cursor-pointer border-0 bg-transparent p-0"
+          />
+        </label>
+      </div>
+
+      <RibbonDivider />
+
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
           className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#1A1A1A]"
           onClick={() =>
             onStyleChange({
@@ -276,18 +318,35 @@ function FileTools({
   );
 }
 
-function InsertTools({ onMergeCells }: { onMergeCells?: () => void }) {
+function InsertTools({
+  onMergeCells,
+  onInsertChart,
+}: {
+  onMergeCells?: () => void;
+  onInsertChart?: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Merge Cells" onClick={onMergeCells} />
+      <RibbonButton label="Bar Chart" onClick={onInsertChart} />
     </div>
   );
 }
 
-function PageLayoutTools({ onToggleGridlines }: { onToggleGridlines?: () => void }) {
+function PageLayoutTools({
+  onToggleGridlines,
+  onFreezePanes,
+  onUnfreezePanes,
+}: {
+  onToggleGridlines?: () => void;
+  onFreezePanes?: () => void;
+  onUnfreezePanes?: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <RibbonButton label="Gridlines" onClick={onToggleGridlines} />
+      <RibbonButton label="Freeze Panes" onClick={onFreezePanes} />
+      <RibbonButton label="Unfreeze" onClick={onUnfreezePanes} />
     </div>
   );
 }
@@ -321,6 +380,8 @@ function DataTools({
   onInsertColumn,
   onDeleteColumn,
   onFindReplace,
+  onRemoveDuplicates,
+  onImportCsv,
 }: {
   onSortAsc?: () => void;
   onSortDesc?: () => void;
@@ -331,6 +392,8 @@ function DataTools({
   onInsertColumn?: () => void;
   onDeleteColumn?: () => void;
   onFindReplace?: () => void;
+  onRemoveDuplicates?: () => void;
+  onImportCsv?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -338,6 +401,8 @@ function DataTools({
       <RibbonButton label="Sort Z→A" onClick={onSortDesc} />
       <RibbonButton label="Filter" active onClick={onFilter} />
       <RibbonButton label="Clear Filter" onClick={onClearFilter} />
+      <RibbonButton label="Remove Duplicates" onClick={onRemoveDuplicates} />
+      <RibbonButton label="From CSV" onClick={onImportCsv} />
       <RibbonDivider />
       <RibbonButton label="Insert Row" onClick={onInsertRow} />
       <RibbonButton label="Delete Row" onClick={onDeleteRow} />
@@ -384,6 +449,11 @@ export function ExcelSpreadsheetRibbon({
   onDeleteColumn,
   onMergeCells,
   onFindReplace,
+  onFreezePanes,
+  onUnfreezePanes,
+  onRemoveDuplicates,
+  onImportCsv,
+  onInsertChart,
 }: ExcelSpreadsheetRibbonProps) {
   return (
     <div className="shrink-0 border-b border-[#E5E7EB] bg-white">
@@ -441,8 +511,16 @@ export function ExcelSpreadsheetRibbon({
             onConditionalFormatPreset={onConditionalFormatPreset}
           />
         ) : null}
-        {activeTab === "insert" ? <InsertTools onMergeCells={onMergeCells} /> : null}
-        {activeTab === "page-layout" ? <PageLayoutTools onToggleGridlines={onToggleGridlines} /> : null}
+        {activeTab === "insert" ? (
+          <InsertTools onMergeCells={onMergeCells} onInsertChart={onInsertChart} />
+        ) : null}
+        {activeTab === "page-layout" ? (
+          <PageLayoutTools
+            onToggleGridlines={onToggleGridlines}
+            onFreezePanes={onFreezePanes}
+            onUnfreezePanes={onUnfreezePanes}
+          />
+        ) : null}
         {activeTab === "formulas" ? (
           <FormulasTools
             onAutoSum={onAutoSum}
@@ -461,6 +539,8 @@ export function ExcelSpreadsheetRibbon({
             onInsertColumn={onInsertColumn}
             onDeleteColumn={onDeleteColumn}
             onFindReplace={onFindReplace}
+            onRemoveDuplicates={onRemoveDuplicates}
+            onImportCsv={onImportCsv}
           />
         ) : null}
         {activeTab === "automate" ? <AutomateTools /> : null}

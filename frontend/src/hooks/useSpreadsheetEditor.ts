@@ -12,6 +12,7 @@ import {
   type ClipboardPayload,
   type PasteMode,
 } from "@/lib/spreadsheet/clipboard";
+import { fillRangeInWorkbook, fillTargetRange } from "@/lib/spreadsheet/fill-handle";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import { applyFormulaBarEdit } from "@/lib/spreadsheet/parse";
 import { normalizeRange, rangeAddressLabel, singleCellRange } from "@/lib/spreadsheet/selection";
@@ -433,6 +434,18 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     ],
   );
 
+  const performFill = useCallback(
+    (dragEnd: CellAddress) => {
+      if (!workbook || readOnly) return;
+      const target = fillTargetRange(selectionRange, dragEnd);
+      if (!target) return;
+      commitWorkbookMutation((current) =>
+        fillRangeInWorkbook(current, activeSheetIndex, selectionRange, target),
+      );
+    },
+    [activeSheetIndex, commitWorkbookMutation, readOnly, selectionRange, workbook],
+  );
+
   useEffect(() => {
     if (!activeSheet) return;
     setViewFlags((current) => ({
@@ -473,6 +486,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     resetEditor,
     setWorkbook,
     commitWorkbookMutation,
+    performFill,
     handleGridKeyDown,
     filterHiddenRows,
     setFilterHiddenRows,

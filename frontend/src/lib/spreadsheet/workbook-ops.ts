@@ -1,6 +1,7 @@
 // Human: Structural workbook mutations — sheets, rows, columns, sort, filter.
 // Agent: RETURNS new SpreadsheetWorkbook snapshots for undo integration.
 
+import { csvTextToSheet } from "@/lib/spreadsheet/csv-import";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { GRID_MIN_COLUMN_COUNT, GRID_MIN_ROW_COUNT, normalizeSheetGrid } from "@/lib/spreadsheet/grid";
 import { normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
@@ -286,4 +287,79 @@ export function mergeCellsInRange(
     return { ...sheet, rows: nextRows };
   });
   return { sheets: nextSheets };
+}
+
+// Human: Remove duplicate data rows keyed by a column value (header row preserved).
+// Agent: KEEPS first occurrence; COMPARES display/value text in chosen column.
+export function removeDuplicateRows(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  columnIndex: number,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+
+      const header = sheet.rows[0] ? [sheet.rows[0]] : [];
+      const seen = new Set<string>();
+      const body = sheet.rows.slice(1).filter((row) => {
+        const key = String(row[columnIndex]?.display ?? row[columnIndex]?.value ?? "").toLowerCase();
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      return { ...sheet, rows: [...header, ...body] };
+    }),
+  };
+}
+
+// Human: Move a sheet tab to a new index for reordering.
+// Agent: SPLICES sheets array; USED by tab drag or menu (future).
+export function moveSheet(
+  workbook: SpreadsheetWorkbook,
+  fromIndex: number,
+  toIndex: number,
+): SpreadsheetWorkbook {
+  if (fromIndex === toIndex) return workbook;
+  const sheets = [...workbook.sheets];
+  const [sheet] = sheets.splice(fromIndex, 1);
+  if (!sheet) return workbook;
+  sheets.splice(toIndex, 0, sheet);
+  return { sheets };
+}
+
+// Human: Set freeze panes at the active cell — rows above and columns left stay fixed.
+// Agent: WRITES frozenRows/frozenCols on active sheet from cell address.
+export function freezePanesAt(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  row: number,
+  col: number,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex ? { ...sheet, frozenRows: row, frozenCols: col } : sheet,
+    ),
+  };
+}
+
+export function unfreezePanes(workbook: SpreadsheetWorkbook, sheetIndex: number): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) =>
+      index === sheetIndex ? { ...sheet, frozenRows: 0, frozenCols: 0 } : sheet,
+    ),
+  };
+}
+
+// Human: Append CSV/TSV import as a new sheet tab.
+// Agent: PARSES text via csvTextToSheet; RETURNS workbook with extra sheet.
+export function importCsvAsNewSheet(
+  workbook: SpreadsheetWorkbook,
+  csvText: string,
+  sheetName: string,
+): SpreadsheetWorkbook {
+  const sheet = csvTextToSheet(csvText, sheetName);
+  return { sheets: [...workbook.sheets, sheet] };
 }

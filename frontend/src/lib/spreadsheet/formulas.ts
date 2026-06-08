@@ -84,6 +84,72 @@ function collectRangeValues(ctx: EvalContext, sheetIndex: number, range: CellRan
   return values;
 }
 
+function collectRangeValuesFromArg(
+  ctx: EvalContext,
+  sheetIndex: number,
+  _row: number,
+  _col: number,
+  arg: string,
+): Array<string | number | boolean | null | FormulaError> {
+  const range = parseRangeRef(arg.replace(/\$/g, ""));
+  if (range) return collectRangeValues(ctx, sheetIndex, range);
+  const single = parseCellRef(arg.replace(/\$/g, ""));
+  if (single) return [getRawCellValue(ctx, sheetIndex, single.row, single.col)];
+  return [];
+}
+
+function getTableFromRangeArg(
+  ctx: EvalContext,
+  sheetIndex: number,
+  arg: string,
+): Array<Array<string | number | boolean | null | FormulaError>> {
+  const range = parseRangeRef(arg.replace(/\$/g, ""));
+  if (!range) return [];
+  const normalized = normalizeRange(range);
+  const table: Array<Array<string | number | boolean | null | FormulaError>> = [];
+  for (let r = normalized.start.row; r <= normalized.end.row; r += 1) {
+    const rowValues: Array<string | number | boolean | null | FormulaError> = [];
+    for (let c = normalized.start.col; c <= normalized.end.col; c += 1) {
+      rowValues.push(getRawCellValue(ctx, sheetIndex, r, c));
+    }
+    table.push(rowValues);
+  }
+  return table;
+}
+
+function countIfValues(
+  values: Array<string | number | boolean | null | FormulaError>,
+  criteria: string,
+): number {
+  const trimmed = criteria.trim();
+  const opMatch = /^([><]=?|=)(.+)$/.exec(trimmed);
+  if (opMatch) {
+    const op = opMatch[1];
+    const target = Number(opMatch[2].replace(/[$,%\s,]/g, ""));
+    return values.filter((value) => {
+      const num = coerceNumber(value);
+      if (!Number.isFinite(num) || !Number.isFinite(target)) return false;
+      switch (op) {
+        case ">":
+          return num > target;
+        case ">=":
+          return num >= target;
+        case "<":
+          return num < target;
+        case "<=":
+          return num <= target;
+        case "=":
+          return num === target;
+        default:
+          return false;
+      }
+    }).length;
+  }
+
+  const normalizedCriteria = trimmed.replace(/^"|"$/g, "").toLowerCase();
+  return values.filter((value) => String(value ?? "").toLowerCase().includes(normalizedCriteria)).length;
+}
+
 function evaluateFunction(
   ctx: EvalContext,
   sheetIndex: number,
@@ -139,6 +205,33 @@ function evaluateFunction(
       return new Date().toISOString().slice(0, 10);
     case "NOW":
       return new Date().toISOString().replace("T", " ").slice(0, 19);
+    case "COUNTIF": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const criteria = parts[1]?.trim() ?? String(args[1] ?? "");
+      return countIfValues(rangeValues, criteria);
+    }
+    case "VLOOKUP": {
+      const lookup = args[0];
+      const tableArg = splitFunctionArgs(argsRaw)[1]?.trim() ?? "";
+      const colIndex = Math.max(1, Math.round(coerceNumber(args[2])));
+      const table = getTableFromRangeArg(ctx, sheetIndex, tableArg);
+      if (!table.length) return "#N/A" as FormulaError;
+      const lookupText = String(lookup ?? "").toLowerCase();
+      for (const tableRow of table) {
+        const first = tableRow[0];
+        if (String(first ?? "").toLowerCase() === lookupText) {
+          return tableRow[colIndex - 1] ?? "#N/A";
+        }
+      }
+      return "#N/A" as FormulaError;
+    }
+    case "MATCH": {
+      const lookup = String(args[0] ?? "").toLowerCase();
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, splitFunctionArgs(argsRaw)[1]?.trim() ?? "");
+      const index = rangeValues.findIndex((value) => String(value ?? "").toLowerCase() === lookup);
+      return index >= 0 ? index + 1 : "#N/A";
+    }
     default:
       return "#NAME?" as FormulaError;
   }

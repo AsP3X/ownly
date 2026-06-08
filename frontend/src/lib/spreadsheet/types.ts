@@ -50,6 +50,10 @@ export type SheetData = {
   // Agent: READ by grid for display-only modes.
   showGridlines?: boolean;
   showFormulas?: boolean;
+  // Human: Freeze panes — rows/cols before these indices stay visible while scrolling.
+  // Agent: SET via Page Layout ribbon; RENDERED as sticky sections in grid.
+  frozenRows?: number;
+  frozenCols?: number;
 };
 
 export type SpreadsheetWorkbook = {
