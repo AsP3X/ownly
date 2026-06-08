@@ -161,9 +161,11 @@ function CellContent({
 // Agent: CAPTURES pointer; STOPS propagation so header does not steal cell selection.
 function ColumnResizeHandle({
   onPointerDown,
+  onPointerUp,
   onDoubleClick,
 }: {
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   return (
@@ -174,6 +176,8 @@ function ColumnResizeHandle({
       className="absolute top-0 -right-px bottom-0 z-30 translate-x-1/2 cursor-col-resize touch-none select-none hover:bg-[#2563EB]/20"
       style={{ width: scaledPx(6) }}
       onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onLostPointerCapture={onPointerUp}
       onDoubleClick={onDoubleClick}
       onClick={(event) => event.stopPropagation()}
     />
@@ -184,9 +188,11 @@ function ColumnResizeHandle({
 // Agent: CAPTURES pointer; STOPS propagation so row index does not select cells.
 function RowResizeHandle({
   onPointerDown,
+  onPointerUp,
   onDoubleClick,
 }: {
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   return (
@@ -197,6 +203,8 @@ function RowResizeHandle({
       className="absolute right-0 -bottom-px left-0 z-30 translate-y-1/2 cursor-row-resize touch-none select-none hover:bg-[#2563EB]/20"
       style={{ height: scaledPx(6) }}
       onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onLostPointerCapture={onPointerUp}
       onDoubleClick={onDoubleClick}
       onClick={(event) => event.stopPropagation()}
     />
@@ -252,6 +260,7 @@ export function ExcelSpreadsheetGrid({
   const [resizeDrag, setResizeDrag] = useState<ResizeDrag | null>(null);
   const previewColumnWidthsRef = useRef<number[] | null>(null);
   const previewRowHeightsRef = useRef<number[] | null>(null);
+  const resizeDragRef = useRef<ResizeDrag | null>(null);
 
   const columnWidths = previewColumnWidths ?? baseColumnWidths;
   const rowHeights = previewRowHeights ?? baseRowHeights;
@@ -280,28 +289,33 @@ export function ExcelSpreadsheetGrid({
     rowVirtualizer.measure();
   }, [rowHeights, rows.length, rowVirtualizer]);
 
-  useEffect(() => {
-    previewColumnWidthsRef.current = previewColumnWidths;
-  }, [previewColumnWidths]);
-
-  useEffect(() => {
-    previewRowHeightsRef.current = previewRowHeights;
-  }, [previewRowHeights]);
-
-  // Human: Drop live-resize preview once parent sheet dimensions update from commit.
-  // Agent: AVOIDS clearing preview before columnWidthsProp/rowHeightsProp re-render (snap-back).
-  useEffect(() => {
-    setPreviewColumnWidths(null);
-    setPreviewRowHeights(null);
-  }, [columnWidthsProp, rowHeightsProp]);
-
   // Human: Reset resize state when switching worksheet tabs.
   // Agent: PREVENTS stale preview widths/heights after sheet tab switch.
   useEffect(() => {
+    previewColumnWidthsRef.current = null;
+    previewRowHeightsRef.current = null;
+    resizeDragRef.current = null;
     setPreviewColumnWidths(null);
     setPreviewRowHeights(null);
     setResizeDrag(null);
   }, [sheetKey]);
+
+  const finishResize = useCallback(() => {
+    const drag = resizeDragRef.current;
+    if (!drag) return;
+
+    resizeDragRef.current = null;
+    setResizeDrag(null);
+
+    if (drag.axis === "column") {
+      const widths = previewColumnWidthsRef.current;
+      if (widths) onColumnWidthsChange?.(widths);
+      return;
+    }
+
+    const heights = previewRowHeightsRef.current;
+    if (heights) onRowHeightsChange?.(heights);
+  }, [onColumnWidthsChange, onRowHeightsChange]);
 
   const commitColumnWidths = useCallback(
     (widths: number[]) => {
@@ -323,13 +337,17 @@ export function ExcelSpreadsheetGrid({
       event.preventDefault();
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
-      setResizeDrag({
+      const drag: ResizeDrag = {
         axis: "column",
         index: colIndex,
         startClient: event.clientX,
         startSize: columnWidths[colIndex],
-      });
-      setPreviewColumnWidths([...columnWidths]);
+      };
+      const initial = [...columnWidths];
+      resizeDragRef.current = drag;
+      previewColumnWidthsRef.current = initial;
+      setResizeDrag(drag);
+      setPreviewColumnWidths(initial);
     },
     [columnWidths, readOnly],
   );
@@ -340,58 +358,51 @@ export function ExcelSpreadsheetGrid({
       event.preventDefault();
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
-      setResizeDrag({
+      const drag: ResizeDrag = {
         axis: "row",
         index: rowIndex,
         startClient: event.clientY,
         startSize: rowHeights[rowIndex],
-      });
-      setPreviewRowHeights([...rowHeights]);
+      };
+      const initial = [...rowHeights];
+      resizeDragRef.current = drag;
+      previewRowHeightsRef.current = initial;
+      setResizeDrag(drag);
+      setPreviewRowHeights(initial);
     },
     [readOnly, rowHeights],
   );
 
   const handleResizePointerMove = useCallback(
     (event: PointerEvent) => {
-      if (!resizeDrag) return;
+      const drag = resizeDragRef.current;
+      if (!drag) return;
 
-      if (resizeDrag.axis === "column") {
-        const delta = event.clientX - resizeDrag.startClient;
-        const nextWidth = Math.max(GRID_MIN_COL_WIDTH, Math.round(resizeDrag.startSize + delta));
+      if (drag.axis === "column") {
+        const delta = event.clientX - drag.startClient;
+        const nextWidth = Math.max(GRID_MIN_COL_WIDTH, Math.round(drag.startSize + delta));
         setPreviewColumnWidths((current) => {
           const base = current ?? [...baseColumnWidths];
           const next = [...base];
-          next[resizeDrag.index] = nextWidth;
+          next[drag.index] = nextWidth;
+          previewColumnWidthsRef.current = next;
           return next;
         });
         return;
       }
 
-      const delta = event.clientY - resizeDrag.startClient;
-      const nextHeight = Math.max(GRID_MIN_ROW_HEIGHT, Math.round(resizeDrag.startSize + delta));
+      const delta = event.clientY - drag.startClient;
+      const nextHeight = Math.max(GRID_MIN_ROW_HEIGHT, Math.round(drag.startSize + delta));
       setPreviewRowHeights((current) => {
         const base = current ?? [...baseRowHeights];
         const next = [...base];
-        next[resizeDrag.index] = nextHeight;
+        next[drag.index] = nextHeight;
+        previewRowHeightsRef.current = next;
         return next;
       });
     },
-    [baseColumnWidths, baseRowHeights, resizeDrag],
+    [baseColumnWidths, baseRowHeights],
   );
-
-  const finishResize = useCallback(() => {
-    if (!resizeDrag) return;
-
-    if (resizeDrag.axis === "column") {
-      const widths = previewColumnWidthsRef.current;
-      if (widths) commitColumnWidths(widths);
-    } else {
-      const heights = previewRowHeightsRef.current;
-      if (heights) commitRowHeights(heights);
-    }
-
-    setResizeDrag(null);
-  }, [commitColumnWidths, commitRowHeights, resizeDrag]);
 
   useEffect(() => {
     if (!resizeDrag) return undefined;
@@ -400,15 +411,31 @@ export function ExcelSpreadsheetGrid({
     const onUp = () => finishResize();
 
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
 
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
     };
   }, [finishResize, handleResizePointerMove, resizeDrag]);
+
+  const finishColumnResize = useCallback(
+    (colIndex: number) => {
+      if (resizeDragRef.current?.axis !== "column" || resizeDragRef.current.index !== colIndex) return;
+      finishResize();
+    },
+    [finishResize],
+  );
+
+  const finishRowResize = useCallback(
+    (rowIndex: number) => {
+      if (resizeDragRef.current?.axis !== "row" || resizeDragRef.current.index !== rowIndex) return;
+      finishResize();
+    },
+    [finishResize],
+  );
 
   const autoFitColumn = useCallback(
     (colIndex: number) => {
@@ -481,6 +508,7 @@ export function ExcelSpreadsheetGrid({
               {!readOnly && onColumnWidthsChange ? (
                 <ColumnResizeHandle
                   onPointerDown={(event) => startColumnResize(colIndex, event)}
+                  onPointerUp={() => finishColumnResize(colIndex)}
                   onDoubleClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -612,6 +640,7 @@ export function ExcelSpreadsheetGrid({
                   {!readOnly && onRowHeightsChange ? (
                     <RowResizeHandle
                       onPointerDown={(event) => startRowResize(rowIndex, event)}
+                      onPointerUp={() => finishRowResize(rowIndex)}
                       onDoubleClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();

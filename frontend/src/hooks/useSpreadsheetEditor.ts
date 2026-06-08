@@ -1,7 +1,7 @@
 // Human: Central spreadsheet editor state — selection, undo, clipboard, keyboard, mutations.
 // Agent: OWNS workbook snapshot; PUSHES undo; RECALCULATES formulas after edits.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import {
   clearRangeInWorkbook,
@@ -61,6 +61,11 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const activeCellAddress = selectionEnd;
   const activeSheet = workbook?.sheets[activeSheetIndex] ?? null;
+  const activeSheetIndexRef = useRef(activeSheetIndex);
+
+  useEffect(() => {
+    activeSheetIndexRef.current = activeSheetIndex;
+  }, [activeSheetIndex]);
 
   const dirty = useMemo(() => {
     if (!workbook || !savedWorkbook) return false;
@@ -121,15 +126,61 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const commitWorkbookMutation = useCallback(
     (mutator: (current: SpreadsheetWorkbook) => SpreadsheetWorkbook) => {
-      if (!workbook || readOnly) return;
-      try {
-        const next = recalculateWorkbook(mutator(workbook));
-        setWorkbook(next);
-      } catch {
-        setWorkbook(mutator(workbook));
-      }
+      if (readOnly) return;
+      setWorkbookState((current) => {
+        if (!current) return current;
+        try {
+          const next = recalculateWorkbook(mutator(current));
+          setUndoStack((stack) => pushUndo(stack, current));
+          return next;
+        } catch {
+          const next = mutator(current);
+          setUndoStack((stack) => pushUndo(stack, current));
+          return next;
+        }
+      });
     },
-    [readOnly, setWorkbook, workbook],
+    [readOnly],
+  );
+
+  // Human: Apply column width changes without formula recalc — uses latest workbook snapshot.
+  // Agent: FUNCTIONAL setState; WRITES sheet.columnWidths on active tab; RECORDS undo once per drag.
+  const setSheetColumnWidths = useCallback(
+    (widths: number[]) => {
+      if (readOnly) return;
+      setWorkbookState((current) => {
+        if (!current) return current;
+        const next: SpreadsheetWorkbook = {
+          ...current,
+          sheets: current.sheets.map((sheet, index) =>
+            index === activeSheetIndexRef.current ? { ...sheet, columnWidths: [...widths] } : sheet,
+          ),
+        };
+        setUndoStack((stack) => pushUndo(stack, current));
+        return next;
+      });
+    },
+    [readOnly],
+  );
+
+  // Human: Apply row height changes without formula recalc — uses latest workbook snapshot.
+  // Agent: FUNCTIONAL setState; WRITES sheet.rowHeights on active tab; RECORDS undo once per drag.
+  const setSheetRowHeights = useCallback(
+    (heights: number[]) => {
+      if (readOnly) return;
+      setWorkbookState((current) => {
+        if (!current) return current;
+        const next: SpreadsheetWorkbook = {
+          ...current,
+          sheets: current.sheets.map((sheet, index) =>
+            index === activeSheetIndexRef.current ? { ...sheet, rowHeights: [...heights] } : sheet,
+          ),
+        };
+        setUndoStack((stack) => pushUndo(stack, current));
+        return next;
+      });
+    },
+    [readOnly],
   );
 
   const selectCell = useCallback((address: CellAddress, extend = false) => {
@@ -504,6 +555,8 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     resetEditor,
     setWorkbook,
     commitWorkbookMutation,
+    setSheetColumnWidths,
+    setSheetRowHeights,
     performFill,
     handleGridKeyDown,
     filterHiddenRows,
