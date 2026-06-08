@@ -2,11 +2,8 @@
 // Agent: PADS SheetData on load/edit; TRIMS trailing empties before xlsx serialize.
 
 import {
-  GRID_DEFAULT_COL_WIDTH,
   lastNonDefaultColumnIndex,
   lastNonDefaultRowIndex,
-  resolveColumnWidths,
-  resolveRowHeights,
   storedCustomColumnExtent,
   storedCustomRowExtent,
 } from "@/lib/spreadsheet/dimensions";
@@ -87,25 +84,20 @@ function padRow(row: SheetCell[], columnCount: number): SheetCell[] {
   return next.slice(0, columnCount);
 }
 
-// Human: Grow row/column arrays with empty cells and default dimension metadata.
-// Agent: WRITES rows, columnWidths, rowHeights to at least rowCount × columnCount.
+// Human: Grow row/column arrays with empty cells while preserving sparse dimension metadata.
+// Agent: WRITES rows to rowCount × columnCount; KEEPS sheet.columnWidths/rowHeights sparse.
 export function padSheetToSize(sheet: SheetData, rowCount: number, columnCount: number): SheetData {
   const nextRows = Array.from({ length: rowCount }, (_, rowIndex) =>
     padRow(sheet.rows[rowIndex] ?? [], columnCount),
   );
 
-  const nextColumnWidths = resolveColumnWidths(sheet, columnCount);
-  for (let colIndex = nextColumnWidths.length; colIndex < columnCount; colIndex += 1) {
-    nextColumnWidths[colIndex] = GRID_DEFAULT_COL_WIDTH;
-  }
-
-  const nextRowHeights = resolveRowHeights(sheet, rowCount);
-
   return {
     ...sheet,
     rows: nextRows,
-    columnWidths: nextColumnWidths,
-    rowHeights: nextRowHeights,
+    // Human: Keep sparse dimension metadata — resolveColumnWidths fills defaults at read time.
+    // Agent: AVOIDS writing explicit default widths that block later column widen commits.
+    columnWidths: sheet.columnWidths,
+    rowHeights: sheet.rowHeights,
   };
 }
 

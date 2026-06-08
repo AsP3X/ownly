@@ -3,6 +3,9 @@
 
 import {
   GRID_DEFAULT_COL_WIDTH,
+  GRID_MAX_COL_WIDTH,
+  GRID_MIN_COL_WIDTH,
+  GRID_MAX_COL_WCH,
   hptToDisplayPx,
   isDefaultColumnWidth,
   isDefaultRowHeight,
@@ -35,7 +38,7 @@ function normalizeXlsxEntryPath(target: string): string {
 // Agent: INVERSE of wch * 7 + 5 used on import.
 function displayPxToWch(displayPx: number): number {
   const wch = (displayPx - 5) / 7;
-  return Math.max(0, Math.round(wch * 1000) / 1000);
+  return Math.min(GRID_MAX_COL_WCH, Math.max(0, Math.round(wch * 1000) / 1000));
 }
 
 // Human: Excel row height uses points; convert from 96 dpi display pixels.
@@ -47,7 +50,7 @@ function displayPxToHpt(displayPx: number): number {
 // Human: Map OOXML width (character units) to grid display pixels.
 // Agent: MATCHES columnWidthFromColMeta wch branch in dimensions.ts.
 function wchToDisplayPx(wch: number): number {
-  return Math.min(400, Math.max(20, Math.round(wch * 7 + 5)));
+  return Math.min(GRID_MAX_COL_WIDTH, Math.max(GRID_MIN_COL_WIDTH, Math.round(wch * 7 + 5)));
 }
 
 // Human: Excel default column width in character units (~64 CSS px).

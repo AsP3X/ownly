@@ -15,9 +15,13 @@ import {
 import { fillRangeInWorkbook, fillTargetRange } from "@/lib/spreadsheet/fill-handle";
 import { validateCellInput } from "@/lib/spreadsheet/data-validation";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
-import { GRID_DEFAULT_COL_WIDTH, GRID_DEFAULT_ROW_HEIGHT } from "@/lib/spreadsheet/dimensions";
+import {
+  applyGridColumnWidths,
+  resolveColumnWidths,
+  resolveRowHeights,
+} from "@/lib/spreadsheet/dimensions";
 import { applyFormulaBarEdit } from "@/lib/spreadsheet/parse";
-import { normalizeRange, rangeAddressLabel, singleCellRange } from "@/lib/spreadsheet/selection";
+import { normalizeRange, rangeAddressLabel, singleCellRange, fullSheetRange } from "@/lib/spreadsheet/selection";
 import {
   canRedo,
   canUndo,
@@ -170,7 +174,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   );
 
   // Human: Apply column width changes without formula recalc — uses latest workbook snapshot.
-  // Agent: SYNCS workbookRef immediately; COMPARES resolved widths so sparse arrays still update.
+  // Agent: SYNCS workbookRef; REPLACES sparse storage from grid array (no merge with stale widths).
   const setSheetColumnWidths = useCallback(
     (widths: number[], options?: { recordUndo?: boolean }) => {
       if (readOnly) return;
@@ -178,24 +182,15 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         if (!current) return current;
         const sheetIndex = activeSheetIndexRef.current;
         const existing = current.sheets[sheetIndex]?.columnWidths;
-        const columnCount = widths.length;
-        let unchanged = true;
-        for (let index = 0; index < columnCount; index += 1) {
-          const nextWidth = widths[index];
-          const stored = existing?.[index];
-          const currentWidth = typeof stored === "number" ? stored : GRID_DEFAULT_COL_WIDTH;
-          const resolvedNext = typeof nextWidth === "number" ? nextWidth : GRID_DEFAULT_COL_WIDTH;
-          if (currentWidth !== resolvedNext) {
-            unchanged = false;
-            break;
-          }
-        }
-        if (unchanged) return current;
+        const nextWidths = applyGridColumnWidths(undefined, widths);
+        const resolvedBefore = resolveColumnWidths({ rows: [], columnWidths: existing }, widths.length);
+        const resolvedAfter = resolveColumnWidths({ rows: [], columnWidths: nextWidths }, widths.length);
+        if (resolvedBefore.every((width, index) => width === resolvedAfter[index])) return current;
 
         const next: SpreadsheetWorkbook = {
           ...current,
           sheets: current.sheets.map((sheet, index) =>
-            index === sheetIndex ? { ...sheet, columnWidths: [...widths] } : sheet,
+            index === sheetIndex ? { ...sheet, columnWidths: nextWidths } : sheet,
           ),
         };
         if (options?.recordUndo !== false) {
@@ -217,19 +212,9 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
         if (!current) return current;
         const sheetIndex = activeSheetIndexRef.current;
         const existing = current.sheets[sheetIndex]?.rowHeights;
-        const rowCount = heights.length;
-        let unchanged = true;
-        for (let index = 0; index < rowCount; index += 1) {
-          const nextHeight = heights[index];
-          const stored = existing?.[index];
-          const currentHeight = typeof stored === "number" ? stored : GRID_DEFAULT_ROW_HEIGHT;
-          const resolvedNext = typeof nextHeight === "number" ? nextHeight : GRID_DEFAULT_ROW_HEIGHT;
-          if (currentHeight !== resolvedNext) {
-            unchanged = false;
-            break;
-          }
-        }
-        if (unchanged) return current;
+        const resolvedExisting = resolveRowHeights({ rows: [], rowHeights: existing }, heights.length);
+        const resolvedNext = resolveRowHeights({ rows: [], rowHeights: heights }, heights.length);
+        if (resolvedExisting.every((height, index) => height === resolvedNext[index])) return current;
 
         const next: SpreadsheetWorkbook = {
           ...current,
@@ -254,6 +239,15 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     }
     setSelectionAnchor(address);
     setSelectionEnd(address);
+    setEditingCell(null);
+  }, []);
+
+  // Human: Select every cell on the active sheet (Excel top-left corner click).
+  // Agent: SETS anchor A1 and end to last row/column; CLEARS in-cell edit.
+  const selectAll = useCallback((rowCount: number, columnCount: number) => {
+    const range = fullSheetRange(rowCount, columnCount);
+    setSelectionAnchor(range.start);
+    setSelectionEnd(range.end);
     setEditingCell(null);
   }, []);
 
@@ -600,6 +594,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     selectionEnd,
     activeCellAddress,
     selectCell,
+    selectAll,
     rangeAddressLabel: rangeAddressLabel(selectionRange),
     editingCell,
     editDraft,

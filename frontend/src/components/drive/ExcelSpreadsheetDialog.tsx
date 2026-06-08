@@ -186,6 +186,13 @@ export function ExcelSpreadsheetDialog({
     [editor],
   );
 
+  const handleSelectAll = useCallback(() => {
+    if (!activeSheet) return;
+    setPrecedentHighlight(new Set());
+    const columnCount = Math.max(...activeSheet.rows.map((row) => row.length), 1);
+    editor.selectAll(activeSheet.rows.length, columnCount);
+  }, [activeSheet, editor]);
+
   const loadFile = useCallback(
     async (target: FileItem) => {
       setLoading(true);
@@ -626,6 +633,7 @@ export function ExcelSpreadsheetDialog({
                     precedentHighlight={precedentHighlight}
                     printArea={activeSheet.printArea ?? null}
                     onSelectCell={handleSelectCell}
+                    onSelectAll={handleSelectAll}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
                     onCommitEdit={editor.commitEdit}

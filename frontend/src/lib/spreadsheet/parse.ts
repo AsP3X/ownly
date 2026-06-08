@@ -7,6 +7,7 @@ import { formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
   applyDimensionsToWorksheet,
+  applyGridColumnWidths,
   columnWidthsFromWorksheet,
   rowHeightsFromWorksheet,
   storedCustomColumnExtent,
@@ -113,11 +114,16 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
     const sheetJsColumnWidths = columnWidthsFromWorksheet(worksheet, importColumnCount);
     const sheetJsRowHeights = rowHeightsFromWorksheet(worksheet, importRowCount);
     const freeze = freezeBySheet.get(name);
+    const mergedColumnWidths = mergeImportedDimensions(
+      importColumnCount,
+      ooxmlDimensions?.columnWidths,
+      sheetJsColumnWidths,
+    );
     const imported: SheetData = {
       name,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
-      columnWidths: mergeImportedDimensions(importColumnCount, ooxmlDimensions?.columnWidths, sheetJsColumnWidths),
+      columnWidths: applyGridColumnWidths(undefined, mergedColumnWidths),
       rowHeights: mergeImportedDimensions(importRowCount, ooxmlDimensions?.rowHeights, sheetJsRowHeights),
       frozenRows: freeze?.frozenRows,
       frozenCols: freeze?.frozenCols,
@@ -138,13 +144,17 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
 }
 
 // Human: Prefer OOXML dimension arrays over SheetJS !cols/!rows (SheetJS often omits them).
-// Agent: MERGES sparse OOXML arrays with SheetJS fallbacks per index.
+// Agent: OOXML wins when present; fallback only fills gaps so custom widths are not capped.
 function mergeImportedDimensions(
   count: number,
   ooxmlValues: number[] | undefined,
   fallbackValues: number[],
 ): number[] {
-  return Array.from({ length: count }, (_, index) => ooxmlValues?.[index] ?? fallbackValues[index]);
+  return Array.from({ length: count }, (_, index) => {
+    const ooxml = ooxmlValues?.[index];
+    if (typeof ooxml === "number") return ooxml;
+    return fallbackValues[index];
+  });
 }
 
 // Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
