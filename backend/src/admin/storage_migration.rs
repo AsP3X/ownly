@@ -1,7 +1,7 @@
 // Human: Admin maintenance — migrate legacy Nebular blobs (nested paths, old compression) to the current layout.
 // Agent: POST /api/v1/admin/maintenance/migrate-storage-blobs; CALLS Nebular maintenance or per-object probe; AUDIT.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{Query, State},
@@ -92,6 +92,10 @@ pub struct StorageMigrationObjectLog {
 /// Human: Callback for per-object migration log lines during batched work.
 pub type StorageMigrationLogSink = dyn Fn(StorageMigrationObjectLog) + Send + Sync;
 
+/// Human: Per HTTP call to Nebular during migration — long enough for large rewrites, short enough to surface hangs.
+/// Agent: APPLIES to migrate_blobs maintenance POST and per-object GET/PUT in client fallback.
+pub(crate) const MIGRATION_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(900);
+
 // Human: Build an admin JWT Nebular client for one registry row.
 // Agent: READS app_settings bucket + env secrets; RETURNS NebulaStorage for LIST/PUT/maintenance.
 pub(crate) async fn nebula_client_for_node(
@@ -116,12 +120,13 @@ pub(crate) async fn nebula_client_for_node(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| state.signing_secret.clone());
 
-    NebulaStorage::new(
+    NebulaStorage::new_with_request_timeout(
         record.base_url.clone(),
         state.object_storage_public_url.clone(),
         bucket,
         &object_storage_jwt,
         &signing_secret,
+        Some(MIGRATION_HTTP_REQUEST_TIMEOUT),
     )
     .map_err(AppError::Internal)
 }

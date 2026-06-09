@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
 };
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::stream::{self, StreamExt};
 use hmac::{Hmac, Mac};
@@ -112,9 +112,34 @@ impl NebulaStorage {
         jwt_secret: &str,
         signing_secret: &str,
     ) -> anyhow::Result<Self> {
+        Self::new_with_request_timeout(
+            base_url,
+            public_base_url,
+            bucket,
+            jwt_secret,
+            signing_secret,
+            None,
+        )
+    }
+
+    // Human: Same as `new` but with a finite per-request timeout — used for long admin migration batches.
+    // Agent: BUILDS reqwest client with connect + request timeouts; PREVENTS infinite hang on stuck Nebular PUT.
+    pub fn new_with_request_timeout(
+        base_url: String,
+        public_base_url: String,
+        bucket: String,
+        jwt_secret: &str,
+        signing_secret: &str,
+        request_timeout: Option<Duration>,
+    ) -> anyhow::Result<Self> {
         let token = generate_service_token(jwt_secret)?;
+        let mut builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(30));
+        if let Some(timeout) = request_timeout {
+            builder = builder.timeout(timeout);
+        }
+        let client = builder.build()?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.trim_end_matches('/').to_string(),
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             bucket,

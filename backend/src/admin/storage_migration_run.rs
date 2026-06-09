@@ -7,6 +7,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
 use axum::{
@@ -23,7 +24,7 @@ use crate::{
         handlers::require_instance_permission,
         storage_migration::{
             execute_node_migration_batch, load_migration_node_rows, NodeMigrationBatchRequest,
-            StorageMigrationLogSink, StorageMigrationObjectLog,
+            MIGRATION_HTTP_REQUEST_TIMEOUT, StorageMigrationLogSink, StorageMigrationObjectLog,
         },
         storage_nodes::StorageNodeRecord,
     },
@@ -35,6 +36,11 @@ use crate::{
 };
 
 const BATCH_LIMIT: u64 = 25;
+
+/// Human: Outer safety net for one migration batch — slightly longer than a single Nebular maintenance POST.
+/// Agent: WRAPS execute_node_migration_batch; MARKS run error on timeout instead of leaving status `running`.
+const BATCH_EXECUTION_TIMEOUT: Duration =
+    Duration::from_secs(MIGRATION_HTTP_REQUEST_TIMEOUT.as_secs() + 120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -517,7 +523,7 @@ async fn run_storage_migration_worker(
             });
         });
 
-        let batch_result = execute_node_migration_batch(
+        let batch_future = execute_node_migration_batch(
             state.as_ref(),
             record,
             NodeMigrationBatchRequest {
@@ -528,12 +534,13 @@ async fn run_storage_migration_worker(
                 prefer_server: true,
                 log_sink: Some(log_sink.as_ref()),
             },
-        )
-        .await;
+        );
+
+        let batch_result = tokio::time::timeout(BATCH_EXECUTION_TIMEOUT, batch_future).await;
 
         let report = match batch_result {
-            Ok(report) => report,
-            Err(error) => {
+            Ok(Ok(report)) => report,
+            Ok(Err(error)) => {
                 let message = error.to_string();
                 let _ = append_log(&state.pool, run_id, "error", &message, Some(&node_id), None).await;
                 let _ = finish_run(
@@ -541,6 +548,24 @@ async fn run_storage_migration_worker(
                     run_id,
                     StorageMigrationRunStatus::Error,
                     None,
+                    Some(message),
+                )
+                .await;
+                return;
+            }
+            Err(_) => {
+                let timeout_secs = BATCH_EXECUTION_TIMEOUT.as_secs();
+                let message = format!(
+                    "Migration batch timed out after {timeout_secs}s on node {node_id}. \
+                     Nebular may be stuck on a large object or the storage volume may be full. \
+                     Check object-storage logs and disk space, cancel this run, then retry."
+                );
+                let _ = append_log(&state.pool, run_id, "error", &message, Some(&node_id), None).await;
+                let _ = finish_run(
+                    &state.pool,
+                    run_id,
+                    StorageMigrationRunStatus::Error,
+                    Some(run.total_target),
                     Some(message),
                 )
                 .await;
