@@ -112,13 +112,15 @@ impl NebulaStorage {
         jwt_secret: &str,
         signing_secret: &str,
     ) -> anyhow::Result<Self> {
+        // Human: Default API clients get a finite PUT timeout so hung Nebular I/O cannot block the PUT gate forever.
+        // Agent: DEFAULT 900s; OVERRIDE via new_with_request_timeout(None) only when callers need unbounded I/O.
         Self::new_with_request_timeout(
             base_url,
             public_base_url,
             bucket,
             jwt_secret,
             signing_secret,
-            None,
+            Some(Duration::from_secs(900)),
         )
     }
 

@@ -97,6 +97,10 @@ pub struct Config {
     /// Agent: READ by StoragePutGate; DEFAULT 2; LOWER under SQLite metadata to avoid 500 busy timeouts.
     #[serde(default = "default_storage_put_max_concurrent")]
     pub storage_put_max_concurrent: u32,
+    /// Human: Per-request HTTP timeout for Nebular object PUT/GET — prevents hung HLS ingest from blocking the PUT gate.
+    /// Agent: READ by NebulaStorage::new; DEFAULT 900s; OVERRIDE with OBJECT_STORAGE_REQUEST_TIMEOUT_SECS.
+    #[serde(default = "default_object_storage_request_timeout_secs")]
+    pub object_storage_request_timeout_secs: u64,
     /// Human: When true, rate limiting trusts X-Forwarded-For / X-Real-IP from the reverse proxy.
     /// Agent: SET TRUST_PROXY_HEADERS=1 behind nginx; DEFAULT false for direct API access (SEC-006).
     #[serde(default)]
@@ -244,6 +248,10 @@ fn default_storage_metadata_mode() -> String {
 
 fn default_storage_put_max_concurrent() -> u32 {
     2
+}
+
+fn default_object_storage_request_timeout_secs() -> u64 {
+    900
 }
 
 fn default_share_password_rpm() -> u32 {

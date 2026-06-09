@@ -47,6 +47,7 @@ pub fn test_config(database_url: &str) -> Config {
         hls_large_bufsize: "10M".into(),
         storage_metadata_mode: "nebular".into(),
         storage_put_max_concurrent: 2,
+        object_storage_request_timeout_secs: 900,
         trust_proxy_headers: false,
         share_password_rpm: 8,
     }

@@ -127,6 +127,9 @@ services:
       # Human: Cap parallel Nebular PUTs from API — pairs with SQLite metadata; raise only when using Postgres metadata backend.
       # Agent: READ by StoragePutGate; DEFAULT 2; WRAPS all Storage::put (uploads, thumbnails, HLS).
       STORAGE_PUT_MAX_CONCURRENT: ${STORAGE_PUT_MAX_CONCURRENT:-2}
+      # Human: Per-request Nebular HTTP timeout — hung PUTs otherwise block HLS ingest and the global PUT gate.
+      # Agent: READ as OBJECT_STORAGE_REQUEST_TIMEOUT_SECS; DEFAULT 900s.
+      OBJECT_STORAGE_REQUEST_TIMEOUT_SECS: ${OBJECT_STORAGE_REQUEST_TIMEOUT_SECS:-900}
       # Human: Optional GPU HLS ingest — auto|off|nvenc|vaapi|qsv (defaults to auto; CPU when no GPU).
       # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}

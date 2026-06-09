@@ -2,6 +2,7 @@
 // Agent: READS storage_nodes + placement tables; WRITES blobs with capacity-aware overflow striping.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::stream;
@@ -24,6 +25,9 @@ pub struct RouterConfig {
     pub bucket: String,
     pub jwt_secret: String,
     pub signing_secret: String,
+    /// Human: Reqwest per-request timeout for every Nebular client created by this router.
+    /// Agent: PASSED to NebulaStorage::new_with_request_timeout; PREVENTS infinite PUT hangs.
+    pub request_timeout: Duration,
 }
 
 /// Human: Production storage backend — capacity-aware PUT and placement-aware GET/DELETE.
@@ -37,12 +41,13 @@ impl RouterStorage {
     // Human: Construct router; seeds client cache with the primary OBJECT_STORAGE_URL node.
     // Agent: READS pool + RouterConfig; WRITES HashMap entry for node-primary when bootstrapping.
     pub fn new(pool: PgPool, config: RouterConfig) -> anyhow::Result<Self> {
-        let primary = NebulaStorage::new(
+        let primary = NebulaStorage::new_with_request_timeout(
             config.primary_base_url.clone(),
             config.public_base_url.clone(),
             config.bucket.clone(),
             &config.jwt_secret,
             &config.signing_secret,
+            Some(config.request_timeout),
         )?;
         let mut clients = HashMap::new();
         clients.insert("node-primary".to_string(), primary);
@@ -62,12 +67,13 @@ impl RouterStorage {
             }
         }
 
-        let client = NebulaStorage::new(
+        let client = NebulaStorage::new_with_request_timeout(
             base_url.to_string(),
             self.config.public_base_url.clone(),
             self.config.bucket.clone(),
             &self.config.jwt_secret,
             &self.config.signing_secret,
+            Some(self.config.request_timeout),
         )?;
 
         let mut guard = self.clients.write().await;
@@ -76,6 +82,12 @@ impl RouterStorage {
     }
 
     async fn client_for_node_id(&self, node_id: &str) -> anyhow::Result<NebulaStorage> {
+        // Human: OBJECT_STORAGE_URL always wins for the primary node — DB base_url may be a stale Docker hostname.
+        // Agent: BYPASSES storage_nodes.base_url for node-primary; USED by HLS segment sidecar PUT routing.
+        if node_id == "node-primary" {
+            return self.fallback_primary_client().await;
+        }
+
         let record: Option<(String,)> =
             sqlx::query_as("SELECT base_url FROM storage_nodes WHERE id = $1 AND enabled = true")
                 .bind(node_id)
@@ -114,8 +126,21 @@ impl RouterStorage {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
             {
                 let client = self.client_for_node_id(&node_id).await?;
-                client.put(key, content_type, data).await?;
-                return Ok(());
+                match client.put(key, content_type, data.clone()).await {
+                    Ok(()) => return Ok(()),
+                    Err(error) if node_id != "node-primary" => {
+                        tracing::warn!(
+                            storage_key = %key,
+                            node_id = %node_id,
+                            %error,
+                            "derived object PUT failed on reserved node; retrying on node-primary"
+                        );
+                        let primary = self.fallback_primary_client().await?;
+                        primary.put(key, content_type, data).await?;
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         }
 

@@ -285,6 +285,15 @@ pub async fn reserve_node_for_upload(
     size_bytes: u64,
 ) -> Result<String, AppError> {
     let nodes = load_node_snapshots_cached(pool).await?;
+    // Human: When every registry node fails /health (e.g. stale Docker hostname in DB), still reserve primary.
+    // Agent: RETURNS node-primary; RouterStorage routes PUTs via OBJECT_STORAGE_URL for that id.
+    if nodes.is_empty() {
+        tracing::warn!(
+            storage_key = %storage_key,
+            "no reachable storage nodes probed; reserving node-primary for upload placement"
+        );
+        return Ok("node-primary".to_string());
+    }
     let plan = plan_upload(&nodes, storage_key, size_bytes)?;
     Ok(match plan {
         UploadPlacementPlan::Single { node_id, .. } => node_id,

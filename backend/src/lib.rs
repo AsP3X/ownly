@@ -159,6 +159,8 @@ async fn build_app_state(
             .ok()
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| config.signing_secret.clone());
+        let storage_request_timeout =
+            std::time::Duration::from_secs(config.object_storage_request_timeout_secs.max(30));
         let router = Arc::new(RouterStorage::new(
             pool.clone(),
             RouterConfig {
@@ -167,6 +169,7 @@ async fn build_app_state(
                 bucket: config.object_storage_bucket.clone(),
                 jwt_secret: config.object_storage_jwt_secret.clone(),
                 signing_secret: object_storage_signing,
+                request_timeout: storage_request_timeout,
             },
         )?) as Arc<dyn Storage>;
         let put_gate = StoragePutGate::new(config.storage_put_max_concurrent as usize);
