@@ -12,6 +12,9 @@ COPY Cargo.toml .
 COPY Cargo.lock .
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo build --release && rm -rf src
 COPY src ./src
+# Human: Postgres metadata backend embeds SQL at compile time (migrations/001_nos_object_index.sql).
+# Agent: COPY migrations for include_str in src/storage/object_meta.rs; SYNC on submodule bump.
+COPY migrations ./migrations
 RUN cargo build --release
 
 FROM debian:bookworm-slim

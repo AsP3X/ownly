@@ -234,7 +234,7 @@ async fn build_app_state(
     }))
 }
 
-// Human: Nebular OS binds after optional startup recompress; readiness probe retries before failing API boot.
+// Human: Nebular OS binds immediately; optional startup recompress runs in background.
 // Agent: HTTP GET /health/ready; RETRIES up to 60s; BAILS if still unreachable in proxy mode.
 async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
     let health_url = format!("{}/health/ready", base_url.trim_end_matches('/'));

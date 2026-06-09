@@ -454,7 +454,7 @@ impl Storage for NebulaStorage {
         let status = response.status();
         let elapsed_ms = started.elapsed().as_millis() as u64;
         if status.as_u16() == 503 {
-            // Human: Defensive handling when storage signals backpressure (legacy Nebular or future limits).
+            // Human: Nebular upload budget exceeded — aggregate in-flight PUT bytes over cap.
             // Agent: READ Retry-After header; BAILS with retry hint for put_with_retry.
             let retry_after = response
                 .headers()
@@ -473,6 +473,17 @@ impl Storage for NebulaStorage {
                 "object storage PUT backpressure (retry after {}s)",
                 retry_after
             );
+        }
+        if status.as_u16() == 507 {
+            // Human: Nebular NOS_MAX_LOGICAL_BYTES cap reached on this node.
+            // Agent: SURFACES as storage error; placement layer may retry another node on multi-node setups.
+            tracing::warn!(
+                bucket = %self.bucket,
+                storage_key = %key,
+                size_bytes,
+                "nebular storage PUT rejected — node logical byte cap exceeded"
+            );
+            anyhow::bail!("object storage PUT failed: insufficient storage capacity on node");
         }
         if !status.is_success() {
             let body_snippet = response.text().await.unwrap_or_default();

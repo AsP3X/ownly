@@ -21,8 +21,8 @@ const heroHighlights = [
   { icon: HardDrive, label: "Flat-File Disk Blobs", detail: "No file system overhead, direct content-addressable storage." },
   {
     icon: Zap,
-    label: "Block zstd (NOSB)",
-    detail: "Per-block zstd with seek index — Compose default level 3; raw blobs upgraded on recompress.",
+    label: "Tiered zstd (NOSI)",
+    detail: "Fast upload level (default 3) plus background recompress to level 22 with indexed blocks.",
   },
   { icon: KeyRound, label: "JWT & HMAC Security", detail: "Stateless security gates and S3-compatible credentials." },
 ];
@@ -190,11 +190,11 @@ export default function NebularOsSpecsPage() {
       <section className="flex w-full flex-col gap-6 py-8">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-bold text-[#2563EB]">04 — TRANSPARENT COMPRESSION</span>
-          <h2 className="text-2xl font-bold text-[#1A1A1A]">NOSB block-compressed blobs</h2>
+          <h2 className="text-2xl font-bold text-[#1A1A1A]">NOSI indexed block compression</h2>
           <p className="max-w-3xl text-sm leading-relaxed text-[#666666]">
-            Compressible objects use the NOSB layout: fixed header, per-block index, and independently zstd-compressed
-            or raw blocks. Legacy NOSZ/NOS2 whole-object blobs are not readable after the block-compression upgrade —
-            re-upload from source. Background recompress rewrites remaining raw blobs when NOSB saves space.
+            New blobs use the NOSI header (logical size, block index, optional dictionary id, per-block checksums).
+            Legacy NOSB, NOSZ, and NOS2 remain readable. Background recompression migrates them to NOSI and upgrades
+            low-level blobs when a stronger pass saves space.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

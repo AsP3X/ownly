@@ -53,7 +53,7 @@ const storageCards: StorageCard[] = [
     items: [
       "Predictable content keys",
       "xxHash3 prefix spread",
-      "NOSB block-compressed blobs",
+      "NOSI indexed block blobs",
       "HLS sidecars (encrypted segments)",
     ],
   },
@@ -226,8 +226,8 @@ export default function StorageSpecsPage() {
 
           <article className="flex flex-col gap-5 rounded-2xl border border-[#E5E7EB] bg-white p-8">
             <div className="flex flex-col gap-1">
-              <h3 className="text-lg font-bold text-[#1A1A1A]">Nebular NOSB block compression</h3>
-              <span className="text-xs font-semibold text-[#2563EB]">Compose: NOS_ZSTD_LEVEL / NOS_COMPRESS_*</span>
+              <h3 className="text-lg font-bold text-[#1A1A1A]">Nebular NOSI indexed compression</h3>
+              <span className="text-xs font-semibold text-[#2563EB]">Compose: NOS_ZSTD_LEVEL_UPLOAD / NOS_ZSTD_LEVEL</span>
             </div>
             <p className="text-sm leading-relaxed text-[#666666]">{OWNLY_STORAGE_ENCRYPTION_SUMMARY}</p>
             <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">

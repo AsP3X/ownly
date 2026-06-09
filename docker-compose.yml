@@ -52,20 +52,30 @@ services:
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
       # Human: Reclaim blob disk promptly on delete; optional raw→NOSB recompress on an interval, not at boot.
-      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — when true, HTTP binds only after the startup scan finishes.
+      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — recompress runs in background without blocking HTTP.
       NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
       NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
       NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
       NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
       NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
-      # Human: Block-compressed NOSB layout — fast zstd for dev uploads; see docs/storage-disk-tuning.md.
-      # Agent: NOS_ZSTD_LEVEL default 3 in Compose; NOS_COMPRESS_* tune block size and minimum compressible object size.
-      NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-3}
+      # Human: NOSI indexed blobs — fast upload zstd then background upgrade (see docs/storage-disk-tuning.md).
+      # Agent: NOS_ZSTD_LEVEL_UPLOAD default 3; NOS_ZSTD_LEVEL default 22; optional dict/dedup off by default.
+      NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
+      NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-22}
+      NOS_ZSTD_DICT_ENABLED: ${NOS_ZSTD_DICT_ENABLED:-false}
+      NOS_DEDUP_ENABLED: ${NOS_DEDUP_ENABLED:-false}
       NOS_COMPRESS_MIN_SIZE: ${NOS_COMPRESS_MIN_SIZE:-4096}
       NOS_COMPRESS_BLOCK_SIZE: ${NOS_COMPRESS_BLOCK_SIZE:-1048576}
+      NOS_BLOCK_CACHE_ENTRIES: ${NOS_BLOCK_CACHE_ENTRIES:-256}
       # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
+      # Human: When Ownly STORAGE_METADATA_MODE=ownly, set NOS_METADATA_MODE=blob_only on object-storage.
+      # Agent: NOS_METADATA_BACKEND sqlite default; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps aggregate PUT body bytes.
+      NOS_METADATA_MODE: ${NOS_METADATA_MODE:-full}
+      NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
+      NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
+      NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
       RUST_LOG: info
     ports:
       - "9000:9000"

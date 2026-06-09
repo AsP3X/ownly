@@ -2,7 +2,7 @@
 
 Ownly sends **plaintext** file bytes to Nebular OS on normal drive uploads so zstd can compress them. Do **not** add whole-file blob encryption in the API before PUT — that defeats compression.
 
-HLS is the exception: **AES-128-CBC** segment encryption runs in Ownly before segments are uploaded. Nebular still wraps ciphertext in block zstd when it helps, but encrypted `.m4s` payloads rarely shrink. Save disk on video with **encode settings** (CRF/CQ, max resolution) and retention, not zstd level alone.
+HLS is the exception: **AES-128-CBC** segment encryption runs in Ownly before segments are uploaded. Nebular still wraps ciphertext in indexed blocks when it helps, but encrypted `.m4s` payloads rarely shrink. Save disk on video with **encode settings** (CRF/CQ, max resolution) and retention, not zstd level alone.
 
 ## Nebular OS (object-storage service)
 
@@ -10,20 +10,25 @@ Configure on the **object-storage** container (see `docker-compose.yml` and `.en
 
 | Variable | Default (Compose) | Purpose |
 |----------|-------------------|---------|
-| `NOS_ZSTD_LEVEL` | `3` | zstd level 1–22 for NOSB block writes (lower = faster uploads) |
+| `NOS_ZSTD_LEVEL_UPLOAD` | `3` | Fast zstd on upload (NOSI writes) |
+| `NOS_ZSTD_LEVEL` | `22` | Background recompress / maintenance zstd |
 | `NOS_COMPRESS_MIN_SIZE` | `4096` | Skip compression below this logical size (bytes) |
-| `NOS_COMPRESS_BLOCK_SIZE` | `1048576` | Uncompressed block size inside NOSB blobs |
-| `NOS_RECOMPRESS_ON_STARTUP` | `false` | Scan raw blobs at boot and rewrite as NOSB when smaller |
-| `NOS_RECOMPRESS_INTERVAL_SECS` | `3600` | Periodic raw→NOSB pass; `0` disables |
+| `NOS_COMPRESS_BLOCK_SIZE` | `1048576` | Uncompressed block size inside indexed blobs |
+| `NOS_BLOCK_CACHE_ENTRIES` | `256` | Hot block decode cache for range GET |
+| `NOS_RECOMPRESS_ON_STARTUP` | `false` | Background legacy→NOSI migration at boot (non-blocking HTTP) |
+| `NOS_RECOMPRESS_INTERVAL_SECS` | `3600` | Periodic recompress; `0` disables |
+| `NOS_VERIFY_INTERVAL_SECS` | `0` | Optional integrity scrub interval; `0` disables |
 | `NOS_SOFT_DELETE_DROP_BLOB` | `true` | Drop blob files on soft-delete |
-| `NOS_RECONCILE_ON_STARTUP` | `false` | Metadata vs blob reconciliation at boot |
-| `NOS_RECONCILE_INTERVAL_SECS` | `0` | Periodic reconciliation; `0` disables |
+| `NOS_ZSTD_DICT_ENABLED` | `false` | Global zstd dictionary (optional) |
+| `NOS_DEDUP_ENABLED` | `false` | Unified block dedup for large objects (optional) |
+| `NOS_UPLOAD_MAX_IN_FLIGHT_BYTES` | `2147483648` (2 GiB) | Aggregate PUT body budget; below largest upload → instant 503 backpressure |
+| `NOS_BULK_DELETE_*` | `32` / `1000` | Prefix and batch delete throughput |
 
-**On-disk format (NOSB):** Compressible objects use a block-compressed layout with per-block seek indexes. Incompressible MIME types and objects below `NOS_COMPRESS_MIN_SIZE` stay raw. If block compression does not shrink a payload, Nebular keeps the raw file.
+**On-disk format (NOSI):** New writes use indexed block blobs (`NOSI`) with per-block checksums and optional dedup refs. Legacy `NOSB`, `NOSZ`, `NOS2`, and `NOSD` remain readable; background recompress migrates them to `NOSI` when smaller.
 
-**Migration from pre–block-compression Nebular:** Legacy `NOSZ` / `NOS2` whole-object blobs are **not readable** after this upgrade. Re-upload from source, or rely on periodic recompression only for **raw** blobs still on disk (already-compressed legacy blobs must be re-ingested).
+**Upload backpressure:** Nebular rejects PUTs when in-flight body bytes would exceed the cap (503 + `Retry-After`). Raise `NOS_UPLOAD_MAX_IN_FLIGHT_BYTES` for large drive uploads; pair with backend `STORAGE_PUT_MAX_CONCURRENT` (default 2).
 
-**Upload concurrency:** Pair backend `STORAGE_PUT_MAX_CONCURRENT` (default 2) with host RAM and disk throughput. Nebular no longer exposes a separate in-flight byte cap env var — Ownly’s PUT gate limits parallel uploads.
+**Node capacity:** Optional `NOS_MAX_LOGICAL_BYTES` on each Nebular instance should align with Ownly admin `target_capacity_bytes` for that storage node (HTTP 507 when full).
 
 Align `NOS_MAX_BODY_SIZE` / `MAX_UPLOAD_BYTES` with nginx and the Ownly API upload cap.
 
@@ -70,11 +75,11 @@ python scripts/storage-audit.py --env-file /path/to/.env
 
 (Activate `scripts/.venv` first so `psycopg` is available. For host-side Postgres, use `localhost` in `DATABASE_URL`, not the Compose service name `postgres`.)
 
-The script sums `files.size_bytes` (non-deleted) and walks the Nebular blob tree, classifying **NOSB**, legacy **NOSZ/NOS2**, and **raw** files. Large gaps often mean orphaned blobs, incomplete deletes, or HLS sidecars not reflected in a single file row.
+The script sums `files.size_bytes` (non-deleted) and walks the Nebular blob tree, classifying **NOSI**, legacy **NOSB/NOSZ/NOS2**, and **raw** files. Large gaps often mean orphaned blobs, incomplete deletes, or HLS sidecars not reflected in a single file row.
 
 ## What Ownly does not do (yet)
 
-- **Content dedup** (“upload same file again”) — would need Ownly metadata + storage key strategy.
-- **Separate upload vs maintenance zstd levels** — Nebular block-compression uses one `NOS_ZSTD_LEVEL`; tune recompress interval for background raw→NOSB passes.
+- **Content dedup** (“upload same file again”) — would need Ownly metadata + storage key strategy; Nebular block dedup is optional and separate.
+- **Per-size zstd tiers in Ownly** — Nebular uses upload vs maintenance levels only; there is no &lt;10 MiB → level 3 table in the engine.
 
 Public pages under `/specs/storage` and `/specs/nebular-os` follow this document.
