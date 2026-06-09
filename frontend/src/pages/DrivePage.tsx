@@ -20,6 +20,7 @@ import {
   listFiles,
   listFolders,
   moveFile,
+  moveFolder,
   type FileItem,
   type FolderDeletionPreview,
   type FolderItem,
@@ -210,8 +211,13 @@ export default function DrivePage() {
   // Human: Synchronous mirror of selectedFileIds — mobile taps read/write this between React commits.
   // Agent: WRITES on every selection mutation; READ by handleTapToggleFileSelection before setState.
   const selectedFileIdsRef = useRef<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(() => new Set());
+  // Human: Synchronous mirror of selectedFolderIds — keeps checkbox toggles consistent between commits.
+  // Agent: WRITES on every folder selection mutation; READ by handleSelectedFolderIdsChange updater.
+  const selectedFolderIdsRef = useRef<Set<string>>(new Set());
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [folderPickerFiles, setFolderPickerFiles] = useState<FileItem[]>([]);
+  const [folderPickerFoldersToMove, setFolderPickerFoldersToMove] = useState<FolderItem[]>([]);
   const [folderPickerStack, setFolderPickerStack] = useState<FolderPickerCrumb[]>([]);
   const [folderPickerFolders, setFolderPickerFolders] = useState<FolderItem[]>([]);
   const [folderPickerLoading, setFolderPickerLoading] = useState(false);
@@ -377,15 +383,35 @@ export default function DrivePage() {
     });
   }
 
+  // Human: Drop folder selections that disappeared from the current listing after refresh.
+  // Agent: INTERSECTS selectedFolderIds with visible folder ids; SKIPS setState when unchanged.
+  function pruneFolderSelection(validFolders: FolderItem[]) {
+    const validIds = new Set(validFolders.map((folder) => folder.id));
+    setSelectedFolderIds((prev) => {
+      const next = new Set([...prev].filter((id) => validIds.has(id)));
+      if (next.size === prev.size) return prev;
+      selectedFolderIdsRef.current = next;
+      return next;
+    });
+  }
+
   // Human: Publish a new selection Set to React state and the synchronous ref together.
   // Agent: WRITES selectedFileIdsRef + setSelectedFileIds; CLEARS mobileSelectionMode when empty.
   function commitFileSelection(next: Set<string>) {
     const committed = new Set(next);
     selectedFileIdsRef.current = committed;
     setSelectedFileIds(committed);
-    if (committed.size === 0) {
+    if (committed.size === 0 && selectedFolderIdsRef.current.size === 0) {
       setMobileSelectionMode(false);
     }
+  }
+
+  // Human: Publish folder checkbox selection to React state and the synchronous ref together.
+  // Agent: WRITES selectedFolderIdsRef + setSelectedFolderIds.
+  function commitFolderSelection(next: Set<string>) {
+    const committed = new Set(next);
+    selectedFolderIdsRef.current = committed;
+    setSelectedFolderIds(committed);
   }
 
   const refresh = useCallback(
@@ -458,6 +484,7 @@ export default function DrivePage() {
           setFileShareFlags(flags.files);
           setFolderShareFlags(flags.folders);
           pruneFileSelection(recentBatch);
+          pruneFolderSelection(folderListing.folders);
           return;
         }
 
@@ -487,6 +514,7 @@ export default function DrivePage() {
           setFileShareFlags(flags.files);
           setFolderShareFlags(flags.folders);
           pruneFileSelection(listing.files);
+          pruneFolderSelection(folderListing.folders);
           return;
         }
 
@@ -515,6 +543,7 @@ export default function DrivePage() {
         setFileShareFlags(flags.files);
         setFolderShareFlags(flags.folders);
         pruneFileSelection(fileListing.files);
+        pruneFolderSelection(folderListing.folders);
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
@@ -777,7 +806,7 @@ export default function DrivePage() {
 
   // Human: Persist a drag-and-drop move by updating the file's folder_id on the API.
   // Agent: CALLS moveFile; REFRESHES listing silently so the row disappears from the current folder.
-  async function handleMoveFileToFolder(fileId: string, folderId: string) {
+  async function handleMoveFileToFolder(fileId: string, folderId: string | null) {
     const file = files.find((item) => item.id === fileId);
     if (file && isFileProcessing(file)) return;
 
@@ -792,9 +821,24 @@ export default function DrivePage() {
     }
   }
 
+  // Human: Persist a folder hierarchy change by PATCHing parent_id on the API.
+  // Agent: CALLS moveFolder; REFRESHES listing; TRIMS folderStack when the open folder moved away.
+  async function handleMoveFolderToParent(folderId: string, parentId: string | null) {
+    setError("");
+    try {
+      await moveFolder(folderId, parentId);
+      setFolderStack((prev) => prev.filter((crumb) => crumb.id !== folderId));
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }
+
   // Human: Explorer drag-drop entry — moves every checked file when batch-select mode is active.
   // Agent: READS mobileSelectionMode + selectedFileIds; CALLS moveFile per id; CLEARS selection on batch success.
-  async function handleExplorerMoveToFolder(fileId: string, folderId: string) {
+  async function handleExplorerMoveFileToFolder(fileId: string, folderId: string | null) {
     const draggedFile = files.find((item) => item.id === fileId);
     if (draggedFile && isFileProcessing(draggedFile)) return;
 
@@ -818,6 +862,34 @@ export default function DrivePage() {
       for (const id of batchIds) {
         await moveFile(id, folderId);
       }
+      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        silent: true,
+      });
+      handleClearBrowserSelection();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }
+
+  // Human: Explorer drag-drop for folders — batch-moves checked folders when applicable.
+  // Agent: READS selectedFolderIds; CALLS moveFolder per id; CLEARS selection after batch success.
+  async function handleExplorerMoveFolderToParent(folderId: string, parentId: string | null) {
+    const batchIds =
+      selectedFolderIds.has(folderId) && selectedFolderIds.size > 1
+        ? [...selectedFolderIds]
+        : null;
+
+    if (!batchIds) {
+      await handleMoveFolderToParent(folderId, parentId);
+      return;
+    }
+
+    setError("");
+    try {
+      for (const id of batchIds) {
+        await moveFolder(id, parentId);
+      }
+      setFolderStack((prev) => prev.filter((crumb) => !batchIds.includes(crumb.id)));
       await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
@@ -855,10 +927,16 @@ export default function DrivePage() {
     setSelectedFileIds(new Set());
   }
 
+  function clearFolderSelectionState() {
+    selectedFolderIdsRef.current = new Set();
+    setSelectedFolderIds(new Set());
+  }
+
   // Human: Clear browser multi-select and exit mobile selection mode together.
-  // Agent: WRITES empty selectedFileIds; WRITES mobileSelectionMode false.
+  // Agent: WRITES empty selected ids; WRITES mobileSelectionMode false.
   function handleClearBrowserSelection() {
     clearFileSelectionState();
+    clearFolderSelectionState();
     setMobileSelectionMode(false);
   }
 
@@ -870,6 +948,16 @@ export default function DrivePage() {
     const next =
       typeof ids === "function" ? ids(selectedFileIdsRef.current) : new Set(ids);
     commitFileSelection(next);
+  }
+
+  // Human: Folder checkbox selection from explorer tiles — merges from selectedFolderIdsRef.
+  // Agent: WRITES commitFolderSelection; SUPPORTS functional updater for checkbox paths.
+  function handleSelectedFolderIdsChange(
+    ids: Set<string> | ((prev: Set<string>) => Set<string>),
+  ) {
+    const next =
+      typeof ids === "function" ? ids(selectedFolderIdsRef.current) : new Set(ids);
+    commitFolderSelection(next);
   }
 
   // Human: Load folders for one level of the picker breadcrumb.
@@ -891,23 +979,45 @@ export default function DrivePage() {
   function closeFolderPicker() {
     setFolderPickerOpen(false);
     setFolderPickerFiles([]);
+    setFolderPickerFoldersToMove([]);
     setFolderPickerStack([]);
     setFolderPickerFolders([]);
     setFolderPickerError("");
     setFolderPickerSubmitting(null);
   }
 
-  // Human: Open the folder picker for the current multi-selection.
-  // Agent: WRITES folderPickerFiles from selectedFiles; LOADS root folders; OPENS dialog.
+  // Human: Open the folder picker with the current file and folder multi-selection.
+  // Agent: WRITES picker state; LOADS root folders; OPENS dialog.
   function handleOpenFolderPicker() {
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0 && selectedFolders.length === 0) return;
     setFolderPickerFiles(selectedFiles);
+    setFolderPickerFoldersToMove(selectedFolders);
     setFolderPickerStack([]);
     setFolderPickerSubmitting(null);
     setFolderPickerError("");
     setFolderPickerOpen(true);
     void loadFolderPickerLevel(null);
   }
+
+  // Human: Open the folder picker to move one folder or the current folder selection.
+  // Agent: SEEDS foldersToMove from seedFolder or selectedFolders; HIDES copy when files empty.
+  function handleOpenFolderPickerForFolders(seedFolder?: FolderItem) {
+    const foldersToMove =
+      selectedFolders.length > 0 ? selectedFolders : seedFolder ? [seedFolder] : [];
+    if (foldersToMove.length === 0) return;
+    setFolderPickerFiles([]);
+    setFolderPickerFoldersToMove(foldersToMove);
+    setFolderPickerStack([]);
+    setFolderPickerSubmitting(null);
+    setFolderPickerError("");
+    setFolderPickerOpen(true);
+    void loadFolderPickerLevel(null);
+  }
+
+  const folderPickerExcludeIds = useMemo(
+    () => new Set(folderPickerFoldersToMove.map((folder) => folder.id)),
+    [folderPickerFoldersToMove],
+  );
 
   // Human: Navigate the picker breadcrumb and refresh the folder listing for that level.
   // Agent: WRITES folderPickerStack; CALLS loadFolderPickerLevel with leaf id or null.
@@ -933,7 +1043,7 @@ export default function DrivePage() {
       await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
-      clearFileSelectionState();
+      handleClearBrowserSelection();
       closeFolderPicker();
     } catch (err) {
       const message = getErrorMessage(err);
@@ -947,11 +1057,14 @@ export default function DrivePage() {
   // Human: Move selected files that are not already in the picker destination folder.
   // Agent: SKIPS same-folder rows; PATCH moveFile per file; REFRESHES; CLEARS selection.
   async function handleFolderPickerMove() {
-    const toMove = folderPickerFiles.filter(
+    const filesToMove = folderPickerFiles.filter(
       (file) => (file.folder_id ?? null) !== folderPickerTargetId,
     );
-    if (toMove.length === 0) {
-      setFolderPickerError("Every selected file is already in this folder.");
+    const foldersToMove = folderPickerFoldersToMove.filter(
+      (folder) => (folder.parent_id ?? null) !== folderPickerTargetId,
+    );
+    if (filesToMove.length === 0 && foldersToMove.length === 0) {
+      setFolderPickerError("Everything selected is already in this folder.");
       return;
     }
 
@@ -959,13 +1072,21 @@ export default function DrivePage() {
     setFolderPickerError("");
     setError("");
     try {
-      for (const file of toMove) {
+      for (const file of filesToMove) {
         await moveFile(file.id, folderPickerTargetId);
+      }
+      for (const folder of foldersToMove) {
+        await moveFolder(folder.id, folderPickerTargetId);
+      }
+      if (foldersToMove.length > 0) {
+        setFolderStack((prev) =>
+          prev.filter((crumb) => !foldersToMove.some((folder) => folder.id === crumb.id)),
+        );
       }
       await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
         silent: true,
       });
-      clearFileSelectionState();
+      handleClearBrowserSelection();
       closeFolderPicker();
     } catch (err) {
       const message = getErrorMessage(err);
@@ -1236,6 +1357,13 @@ export default function DrivePage() {
     [files, selectedFileIds],
   );
 
+  const selectedFolders = useMemo(
+    () => folders.filter((folder) => selectedFolderIds.has(folder.id)),
+    [folders, selectedFolderIds],
+  );
+
+  const totalSelectedCount = selectedFiles.length + selectedFolders.length;
+
   // Human: Queue downloads for checked files — one file directly, multiple as a zip archive.
   // Agent: CALLS enqueueDownload for single selection; CALLS enqueueBulkDownload for 2+ files.
   function handleBulkDownload() {
@@ -1335,25 +1463,42 @@ export default function DrivePage() {
     () => browserFiles.filter((file) => !isFileProcessing(file)).map((file) => file.id),
     [browserFiles],
   );
-  const allBrowserFilesSelected =
-    selectableBrowserFileIds.length > 0 &&
-    selectableBrowserFileIds.every((fileId) => selectedFileIds.has(fileId));
-
-  // Human: Add every visible, selectable file to the current bulk selection.
-  // Agent: MERGES selectableBrowserFileIds into selectedFileIds Set.
-  const handleSelectAllBrowserFiles = useCallback(() => {
-    const next = new Set(selectedFileIdsRef.current);
-    for (const fileId of selectableBrowserFileIds) {
-      next.add(fileId);
-    }
-    if (next.size === selectedFileIdsRef.current.size) return;
-    commitFileSelection(next);
-  }, [selectableBrowserFileIds]);
 
   const visibleFolders = useMemo(
     () => sortFilesByName(folders),
     [folders],
   );
+
+  const selectableBrowserFolderIds = useMemo(
+    () => visibleFolders.map((folder) => folder.id),
+    [visibleFolders],
+  );
+  const allBrowserItemsSelected =
+    (selectableBrowserFileIds.length > 0 || selectableBrowserFolderIds.length > 0) &&
+    selectableBrowserFileIds.every((fileId) => selectedFileIds.has(fileId)) &&
+    selectableBrowserFolderIds.every((folderId) => selectedFolderIds.has(folderId));
+
+  // Human: Add every visible, selectable file and folder to the current bulk selection.
+  // Agent: MERGES selectable ids into selectedFileIds + selectedFolderIds Sets.
+  const handleSelectAllBrowserFiles = useCallback(() => {
+    const nextFiles = new Set(selectedFileIdsRef.current);
+    for (const fileId of selectableBrowserFileIds) {
+      nextFiles.add(fileId);
+    }
+    const nextFolders = new Set(selectedFolderIdsRef.current);
+    for (const folderId of selectableBrowserFolderIds) {
+      nextFolders.add(folderId);
+    }
+    if (
+      nextFiles.size === selectedFileIdsRef.current.size &&
+      nextFolders.size === selectedFolderIdsRef.current.size
+    ) {
+      return;
+    }
+    commitFileSelection(nextFiles);
+    commitFolderSelection(nextFolders);
+  }, [selectableBrowserFileIds, selectableBrowserFolderIds]);
+
   const recentFiles = sortFilesByRecentAccess(nameFilteredFiles, 12);
   const overviewFolders = useMemo(
     () => (activeNav === "home" ? sortFilesByName(folders) : []),
@@ -1380,7 +1525,7 @@ export default function DrivePage() {
         }
       }
 
-      if (event.key === "F2" && selectedFileIds.size === 1) {
+      if (event.key === "F2" && selectedFileIds.size === 1 && selectedFolderIds.size === 0) {
         const fileId = [...selectedFileIds][0];
         const file = files.find((item) => item.id === fileId);
         if (file) {
@@ -1390,10 +1535,20 @@ export default function DrivePage() {
         return;
       }
 
+      if (event.key === "F2" && selectedFolderIds.size === 1 && selectedFileIds.size === 0) {
+        const folderId = [...selectedFolderIds][0];
+        const folder = folders.find((item) => item.id === folderId);
+        if (folder) {
+          event.preventDefault();
+          void handleRenameFolder(folder);
+        }
+        return;
+      }
+
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "a") {
         return;
       }
-      if (selectableBrowserFileIds.length === 0) {
+      if (selectableBrowserFileIds.length === 0 && selectableBrowserFolderIds.length === 0) {
         return;
       }
       event.preventDefault();
@@ -1406,9 +1561,13 @@ export default function DrivePage() {
     activeNav,
     files,
     handleRenameFile,
+    handleRenameFolder,
     handleSelectAllBrowserFiles,
     selectableBrowserFileIds.length,
+    selectableBrowserFolderIds.length,
     selectedFileIds,
+    selectedFolderIds,
+    folders,
   ]);
 
   return (
@@ -1418,6 +1577,7 @@ export default function DrivePage() {
       favouriteIds={favouriteIds}
       activeNav={activeNav}
       selectedFileIds={selectedFileIds}
+      selectedFolderIds={selectedFolderIds}
       onDownload={handleDownload}
       onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
@@ -1442,6 +1602,7 @@ export default function DrivePage() {
       onDetailsFolder={handleDetailsFolder}
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}
+      onMoveFolderToFolder={(folder) => handleOpenFolderPickerForFolders(folder)}
       onRenameFile={(file) => void handleRenameFile(file)}
       onRenameFolder={(folder) => void handleRenameFolder(folder)}
       explorerDragActive={explorerDragActive}
@@ -1612,6 +1773,8 @@ export default function DrivePage() {
             if (!open) closeFolderPicker();
           }}
           files={folderPickerFiles}
+          foldersToMove={folderPickerFoldersToMove}
+          excludeFolderIds={folderPickerExcludeIds}
           folderStack={folderPickerStack}
           folders={folderPickerFolders}
           loading={folderPickerLoading}
@@ -1664,7 +1827,7 @@ export default function DrivePage() {
           onCopyToFolder={handleOpenFolderPicker}
           onMoveToFolder={handleOpenFolderPicker}
           selectedFileIds={selectedFileIds}
-          bulkSelectionCount={selectedFileIds.size}
+          bulkSelectionCount={totalSelectedCount}
           onEnterMobileSelection={handleEnterMobileSelection}
         />
       <MobileDriveHeader
@@ -1819,16 +1982,20 @@ export default function DrivePage() {
             ) : activeNav === "my-files" ? (
               <div className="flex flex-col gap-4">
                 <BulkActionsBar
-                  selectedCount={selectedFiles.length}
-                  selectableCount={selectableBrowserFileIds.length}
-                  allSelected={allBrowserFilesSelected}
+                  selectedCount={totalSelectedCount}
+                  selectableCount={
+                    selectableBrowserFileIds.length + selectableBrowserFolderIds.length
+                  }
+                  allSelected={allBrowserItemsSelected}
                   onSelectAll={handleSelectAllBrowserFiles}
                   favouriteLabel={bulkFavouriteLabel}
                   onDownload={handleBulkDownload}
                   onToggleFavourite={handleBulkToggleFavourite}
                   onDelete={handleBulkDeleteRequest}
                   onClearSelection={handleClearBrowserSelection}
-                  onCopyToFolder={handleOpenFolderPicker}
+                  onCopyToFolder={
+                    selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
+                  }
                   onMoveToFolder={handleOpenFolderPicker}
                   showMobileFolderActions={!isDesktopViewport}
                 />
@@ -1846,6 +2013,8 @@ export default function DrivePage() {
                   selectable
                   selectedFileIds={selectedFileIds}
                   onSelectedFileIdsChange={handleSelectedFileIdsChange}
+                  selectedFolderIds={selectedFolderIds}
+                  onSelectedFolderIdsChange={handleSelectedFolderIdsChange}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
                   hasMoreFiles={hasMoreFiles}
@@ -1864,7 +2033,10 @@ export default function DrivePage() {
                   mobileSelectionMode={mobileSelectionMode}
                   onTapToggleFileSelection={handleTapToggleFileSelection}
                   onMoveFileToFolder={(fileId, folderId) =>
-                    void handleExplorerMoveToFolder(fileId, folderId)
+                    void handleExplorerMoveFileToFolder(fileId, folderId)
+                  }
+                  onMoveFolderToParent={(folderId, parentId) =>
+                    void handleExplorerMoveFolderToParent(folderId, parentId)
                   }
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}

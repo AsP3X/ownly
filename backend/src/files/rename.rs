@@ -24,14 +24,24 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
-pub struct RenameFolderRequest {
-    pub name: String,
+pub struct PatchFolderRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Human: When absent, parent is unchanged. When null, move to root. When set, move under that folder.
+    /// Agent: Option<Option<String>> distinguishes JSON omit vs null vs string for PATCH /folders/{id}.
+    #[serde(default)]
+    #[serde(deserialize_with = "crate::patch_fields::deserialize_optional_nullable_string")]
+    pub parent_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct RenameFolderResponse {
+pub struct PatchFolderResponse {
     pub folder: FolderDto,
 }
+
+// Human: Backward-compatible aliases for rename-only PATCH bodies.
+pub type RenameFolderRequest = PatchFolderRequest;
+pub type RenameFolderResponse = PatchFolderResponse;
 
 // Human: Ensure no other active sibling uses the same display name (case-insensitive).
 // Agent: READS files or folders table; EXCLUDES current row id; RETURNS Conflict on collision.
@@ -67,7 +77,7 @@ async fn ensure_unique_file_name(
     Ok(())
 }
 
-async fn ensure_unique_folder_name(
+pub(crate) async fn ensure_unique_folder_name(
     pool: &sqlx::PgPool,
     user_id: &str,
     parent_id: &Option<String>,
@@ -181,15 +191,15 @@ pub async fn rename_file_in_place(
     Ok(file)
 }
 
-// Human: Rename a folder without moving it in the hierarchy.
-// Agent: PATCH /folders/{id}; VALIDATES ContentWrite on folder; AUDIT folders.rename.
-pub async fn rename_folder(
+// Human: Patch a folder — rename, move within the hierarchy, or both in one request.
+// Agent: PATCH /folders/{id}; OPTIONAL name + parent_id; AUDIT folders.rename / folders.move.
+pub async fn patch_folder(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<RenameFolderRequest>,
-) -> Result<Json<RenameFolderResponse>, AppError> {
+    Json(body): Json<PatchFolderRequest>,
+) -> Result<Json<PatchFolderResponse>, AppError> {
     crate::files::access::ensure_folder_access(
         &state.pool,
         &claims.sub,
@@ -198,58 +208,100 @@ pub async fn rename_folder(
     )
     .await?;
 
-    let name = folders::normalize_folder_name(&body.name)?;
+    if body.name.is_none() && body.parent_id.is_none() {
+        return Err(AppError::BadRequest(
+            "provide name and/or parent_id to update the folder".into(),
+        ));
+    }
+
+    if let Some(ref raw_name) = body.name {
+        rename_folder_in_place(&state.pool, &headers, &claims.sub, &id, raw_name).await?;
+        if body.parent_id.is_none() {
+            let folder = fetch_folder_dto(&state.pool, &id, &claims.sub).await?;
+            return Ok(Json(PatchFolderResponse { folder }));
+        }
+    }
+
+    if let Some(parent_patch) = body.parent_id {
+        let target_parent = parent_patch
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let folder = crate::files::folder_move::move_folder_in_place(
+            &state.pool,
+            &headers,
+            &claims.sub,
+            &id,
+            target_parent,
+        )
+        .await?;
+        return Ok(Json(PatchFolderResponse { folder }));
+    }
+
+    let folder = fetch_folder_dto(&state.pool, &id, &claims.sub).await?;
+    Ok(Json(PatchFolderResponse { folder }))
+}
+
+// Human: Rename a folder without moving it in the hierarchy.
+// Agent: CALLED from patch_folder when name is set; AUDIT folders.rename.
+async fn rename_folder_in_place(
+    pool: &sqlx::PgPool,
+    headers: &HeaderMap,
+    user_id: &str,
+    folder_id: &str,
+    raw_name: &str,
+) -> Result<(), AppError> {
+    let name = folders::normalize_folder_name(raw_name)?;
 
     let current: Option<(Option<String>, String)> = sqlx::query_as(
         "SELECT parent_id, name FROM folders WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
-    .bind(&id)
-    .bind(&claims.sub)
-    .fetch_optional(&state.pool)
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(pool)
     .await?;
 
     let (parent_id, previous_name) = current.ok_or(AppError::NotFound)?;
 
     if previous_name == name {
-        let folder = fetch_folder_dto(&state.pool, &id, &claims.sub).await?;
-        return Ok(Json(RenameFolderResponse { folder }));
+        return Ok(());
     }
 
-    ensure_unique_folder_name(&state.pool, &claims.sub, &parent_id, &name, &id).await?;
+    ensure_unique_folder_name(pool, user_id, &parent_id, &name, folder_id).await?;
 
     sqlx::query(
         "UPDATE folders SET name = $1, updated_at = NOW() \
          WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL",
     )
     .bind(&name)
-    .bind(&id)
-    .bind(&claims.sub)
-    .execute(&state.pool)
+    .bind(folder_id)
+    .bind(user_id)
+    .execute(pool)
     .await?;
 
     audit::write_audit(
-        &state.pool,
-        Some(&claims.sub),
+        pool,
+        Some(user_id),
         "folders.rename",
         Some("folder"),
-        Some(&id),
+        Some(folder_id),
         Some(serde_json::json!({
             "from_name": previous_name,
             "to_name": name,
             "parent_id": parent_id,
         })),
-        &headers,
+        headers,
     )
     .await
     .ok();
 
-    let folder = fetch_folder_dto(&state.pool, &id, &claims.sub).await?;
-    Ok(Json(RenameFolderResponse { folder }))
+    Ok(())
 }
 
-// Human: Load one owned folder row after rename for the PATCH response envelope.
+// Human: Load one owned folder row after patch for the PATCH response envelope.
 // Agent: READS folders WHERE id + user_id; RETURNS NotFound when missing.
-async fn fetch_folder_dto(
+pub(crate) async fn fetch_folder_dto(
     pool: &sqlx::PgPool,
     folder_id: &str,
     user_id: &str,
@@ -263,4 +315,24 @@ async fn fetch_folder_dto(
     .fetch_optional(pool)
     .await?
     .ok_or(AppError::NotFound)
+}
+
+#[cfg(test)]
+mod patch_folder_request_tests {
+    use super::PatchFolderRequest;
+
+    // Human: PATCH move-to-root sends JSON null for parent_id — must not deserialize as "field absent".
+    // Agent: ASSERTS Option<Option<String>> tri-state; FAILURES here explain breadcrumb root-drop 400s.
+    #[test]
+    fn deserializes_null_parent_id_as_some_none() {
+        let body: PatchFolderRequest =
+            serde_json::from_str(r#"{"parent_id": null}"#).unwrap();
+        assert_eq!(body.parent_id, Some(None));
+    }
+
+    #[test]
+    fn deserializes_empty_body_as_none_parent_id() {
+        let body: PatchFolderRequest = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(body.parent_id.is_none());
+    }
 }

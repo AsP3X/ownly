@@ -24,6 +24,10 @@ type FolderPickerDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   files: FileItem[];
+  /** Human: Folders queued for move — copy is hidden when this list is non-empty and files is empty. */
+  foldersToMove?: FolderItem[];
+  /** Human: Folder ids that cannot be chosen as destinations (prevents moving a folder into itself). */
+  excludeFolderIds?: Set<string>;
   folderStack: FolderPickerCrumb[];
   folders: FolderItem[];
   loading: boolean;
@@ -44,6 +48,8 @@ export function FolderPickerDialog({
   open,
   onOpenChange,
   files,
+  foldersToMove = [],
+  excludeFolderIds,
   folderStack,
   folders,
   loading,
@@ -55,23 +61,44 @@ export function FolderPickerDialog({
 }: FolderPickerDialogProps) {
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const fileCount = files.length;
-  const moveDisabled =
+  const folderCount = foldersToMove.length;
+  const totalCount = fileCount + folderCount;
+  const visibleFolders = excludeFolderIds
+    ? folders.filter((folder) => !excludeFolderIds.has(folder.id))
+    : folders;
+  const filesAlreadyHere =
     fileCount > 0 &&
     files.every((file) => folderIdsMatch(file.folder_id, currentFolderId));
+  const foldersAlreadyHere =
+    folderCount > 0 &&
+    foldersToMove.every((folder) => folderIdsMatch(folder.parent_id, currentFolderId));
+  const moveDisabled =
+    totalCount > 0 &&
+    (fileCount === 0 || filesAlreadyHere) &&
+    (folderCount === 0 || foldersAlreadyHere);
   const moveDisabledReason = moveDisabled
-    ? "Every selected file is already in this folder."
+    ? folderCount > 0 && fileCount === 0
+      ? "Every selected folder is already in this location."
+      : fileCount > 0 && folderCount === 0
+        ? "Every selected file is already in this folder."
+        : "Everything selected is already in this folder."
     : undefined;
+  const showCopyAction = fileCount > 0;
 
   function goToFolderIndex(index: number) {
     onNavigate(index < 0 ? [] : folderStack.slice(0, index + 1));
   }
 
   function openFolder(folder: FolderItem) {
+    if (excludeFolderIds?.has(folder.id)) return;
     if (folderStack.at(-1)?.id === folder.id) return;
     onNavigate([...folderStack, { id: folder.id, name: folder.name }]);
   }
 
-  const title = fileCount === 1 ? "Choose destination folder" : `Choose destination for ${fileCount} files`;
+  const title =
+    totalCount === 1
+      ? "Choose destination folder"
+      : `Choose destination for ${totalCount} items`;
   const destinationLabel =
     folderStack.length > 0 ? folderStack[folderStack.length - 1]?.name ?? "My files" : "My files";
 
@@ -84,7 +111,7 @@ export function FolderPickerDialog({
             {title}
           </DialogTitle>
           <DialogDescription className="text-neutral-500">
-            Browse to a folder, then copy or move your selection into{" "}
+            Browse to a folder, then {showCopyAction ? "copy or " : ""}move your selection into{" "}
             <span className="font-medium text-neutral-700">{destinationLabel}</span>.
           </DialogDescription>
         </DialogHeader>
@@ -132,15 +159,15 @@ export function FolderPickerDialog({
                 <Loader2 className="size-4 animate-spin" aria-hidden />
                 Loading folders…
               </p>
-            ) : folders.length === 0 ? (
+            ) : visibleFolders.length === 0 ? (
               <p className="py-10 text-center text-sm text-neutral-500">
                 {folderStack.length === 0
-                  ? "No subfolders yet — files will go to the drive root."
+                  ? "No subfolders yet — items will go to the drive root."
                   : "This folder has no subfolders."}
               </p>
             ) : (
               <ul className="divide-y divide-neutral-100">
-                {folders.map((folder) => (
+                {visibleFolders.map((folder) => (
                   <li key={folder.id}>
                     <button
                       type="button"
@@ -177,25 +204,27 @@ export function FolderPickerDialog({
           >
             Cancel
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="border-blue-200 text-blue-800 hover:bg-blue-50"
-            disabled={submitting !== null}
-            onClick={() => void onCopy()}
-          >
-            {submitting === "copy" ? (
-              <>
-                <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden />
-                Copying…
-              </>
-            ) : (
-              <>
-                <Copy data-icon="inline-start" aria-hidden />
-                Copy here
-              </>
-            )}
-          </Button>
+          {showCopyAction ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="border-blue-200 text-blue-800 hover:bg-blue-50"
+              disabled={submitting !== null}
+              onClick={() => void onCopy()}
+            >
+              {submitting === "copy" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden />
+                  Copying…
+                </>
+              ) : (
+                <>
+                  <Copy data-icon="inline-start" aria-hidden />
+                  Copy here
+                </>
+              )}
+            </Button>
+          ) : null}
           <Button
             type="button"
             className="bg-blue-600 text-white hover:bg-blue-700"

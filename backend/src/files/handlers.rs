@@ -197,6 +197,7 @@ pub struct PatchFileRequest {
     /// Human: When absent, folder is unchanged. When null, move to root. When set, move to that folder.
     /// Agent: Option<Option<String>> distinguishes JSON omit vs null vs string for PATCH /files/{id}.
     #[serde(default)]
+    #[serde(deserialize_with = "crate::patch_fields::deserialize_optional_nullable_string")]
     pub folder_id: Option<Option<String>>,
     #[serde(default)]
     pub name: Option<String>,

@@ -1960,7 +1960,7 @@ export async function emptyRecycleBin() {
 export async function moveFile(id: string, folderId: string | null) {
   return apiFetch(`/files/${id}`, {
     method: "PATCH",
-    body: JSON.stringify({ folder_id: folderId }),
+    body: JSON.stringify({ folder_id: folderId ?? null }),
   }) as Promise<{ file: FileItem }>;
 }
 
@@ -1979,6 +1979,15 @@ export async function renameFolder(id: string, name: string) {
   return apiFetch(`/folders/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
+  }) as Promise<{ folder: FolderItem }>;
+}
+
+// Human: Move a folder under another folder or back to the drive root (parent_id null).
+// Agent: PATCH /folders/{id} JSON { parent_id }; RETURNS { folder: FolderItem }; SERVER rejects cycles.
+export async function moveFolder(id: string, parentId: string | null) {
+  return apiFetch(`/folders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ parent_id: parentId ?? null }),
   }) as Promise<{ folder: FolderItem }>;
 }
 

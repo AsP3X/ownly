@@ -31,6 +31,7 @@ type DriveContextMenuProps = {
   favouriteIds: Set<string>;
   activeNav: NavItemId;
   selectedFileIds?: Set<string>;
+  selectedFolderIds?: Set<string>;
   onDownload: (file: FileItem) => void;
   onDownloadFolder: (folder: FolderItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
@@ -54,6 +55,8 @@ type DriveContextMenuProps = {
   onDetailsFolder: (folder: FolderItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
+  /** Human: Opens the folder picker to move the right-clicked folder (or bulk folder selection). */
+  onMoveFolderToFolder?: (folder?: FolderItem) => void;
   onRenameFile?: (file: FileItem) => void;
   onRenameFolder?: (folder: FolderItem) => void;
   /** Human: True while a file is being dragged — menu closes and won't reopen until drag ends. */
@@ -96,6 +99,7 @@ export function DriveContextMenu({
   favouriteIds,
   activeNav,
   selectedFileIds,
+  selectedFolderIds,
   onDownload,
   onDownloadFolder,
   onPreviewVideo,
@@ -118,6 +122,7 @@ export function DriveContextMenu({
   onDetailsFolder,
   onCopyToFolder,
   onMoveToFolder,
+  onMoveFolderToFolder,
   onRenameFile,
   onRenameFolder,
   explorerDragActive = false,
@@ -150,15 +155,23 @@ export function DriveContextMenu({
   const targetFavourited = targetFile ? favouriteIds.has(targetFile.id) : false;
   const targetProcessing = targetFile ? isFileProcessing(targetFile) : false;
   const targetIsVideo = targetFile?.mime_type?.startsWith("video/") ?? false;
-  const multiSelectedCount = selectedFileIds?.size ?? 0;
+  const multiSelectedFileCount = selectedFileIds?.size ?? 0;
+  const multiSelectedFolderCount = selectedFolderIds?.size ?? 0;
+  const multiSelectedCount = multiSelectedFileCount + multiSelectedFolderCount;
   const bulkSelectionLabel =
-    multiSelectedCount === 2 ? "2 files selected" : `${multiSelectedCount} files selected`;
-  // Human: Bulk copy/move applies when 2+ files are checked and the right-clicked row is in that set.
-  // Agent: READS selectedFileIds + targetFile; USED to append bulk items without replacing file menu.
+    multiSelectedCount === 2
+      ? "2 items selected"
+      : `${multiSelectedCount} items selected`;
+  // Human: Bulk copy/move applies when 2+ items are checked and the right-clicked row is in that set.
+  // Agent: READS selected ids + target row; USED to append bulk items without replacing row menu.
   const bulkSelectionOnTargetFile =
-    multiSelectedCount >= 2 &&
+    multiSelectedFileCount >= 2 &&
     targetFile !== undefined &&
     selectedFileIds?.has(targetFile.id) === true;
+  const bulkSelectionOnTargetFolder =
+    multiSelectedFolderCount >= 2 &&
+    targetFolder !== undefined &&
+    selectedFolderIds?.has(targetFolder.id) === true;
   const bulkSelectionOnWorkspace =
     multiSelectedCount >= 2 && !targetFile && !targetFolder;
 
@@ -171,19 +184,30 @@ export function DriveContextMenu({
         <ContextMenuLabel className="normal-case tracking-normal">
           {bulkSelectionLabel}
         </ContextMenuLabel>
-        <ContextMenuItem disabled={!onCopyToFolder} onClick={() => onCopyToFolder?.()}>
-          Copy to…
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!onMoveToFolder} onClick={() => onMoveToFolder?.()}>
+        {multiSelectedFileCount > 0 ? (
+          <ContextMenuItem disabled={!onCopyToFolder} onClick={() => onCopyToFolder?.()}>
+            Copy to…
+          </ContextMenuItem>
+        ) : null}
+        <ContextMenuItem
+          disabled={!onMoveToFolder && !onMoveFolderToFolder}
+          onClick={() => {
+            if (multiSelectedFolderCount > 0 && multiSelectedFileCount === 0) {
+              onMoveFolderToFolder?.();
+              return;
+            }
+            onMoveToFolder?.();
+          }}
+        >
           Move to…
         </ContextMenuItem>
-        {includeDelete ? (
+        {includeDelete && multiSelectedFileCount > 0 ? (
           <ContextMenuItem
             variant="destructive"
             disabled={!onBulkDelete}
             onClick={() => onBulkDelete?.()}
           >
-            Delete {multiSelectedCount} files
+            Delete {multiSelectedFileCount} files
           </ContextMenuItem>
         ) : null}
       </>
@@ -412,6 +436,13 @@ export function DriveContextMenu({
               Rename
             </ContextMenuItem>
 
+            <ContextMenuItem
+              disabled={!onMoveFolderToFolder}
+              onClick={() => onMoveFolderToFolder?.(targetFolder)}
+            >
+              Move to…
+            </ContextMenuItem>
+
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
@@ -419,6 +450,7 @@ export function DriveContextMenu({
             >
               Delete folder
             </ContextMenuItem>
+            {bulkSelectionOnTargetFolder ? bulkSelectionItems(false) : null}
           </ContextMenuGroup>
         ) : (
           <ContextMenuGroup>

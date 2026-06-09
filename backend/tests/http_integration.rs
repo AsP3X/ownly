@@ -2538,3 +2538,254 @@ async fn folder_search_finds_matches_by_name() {
         .await
         .ok();
 }
+
+// Human: Owners can reparent a folder under another folder via PATCH parent_id.
+// Agent: PATCH /folders/{child} { parent_id }; EXPECT 200; child.parent_id updated.
+#[tokio::test]
+async fn folder_move_updates_parent_id() {
+    let Some(state) = test_harness::TestHarness::state("folder_move_updates_parent_id").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let parent_id = uuid::Uuid::new_v4().to_string();
+    let child_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("move-folder-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Parent')")
+        .bind(&parent_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert parent");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Child')")
+        .bind(&child_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert child");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/folders/{child_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "parent_id": parent_id }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch.status(), StatusCode::OK);
+    let patch_json = response_json(patch).await;
+    assert_eq!(patch_json["folder"]["parent_id"], parent_id);
+
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Breadcrumb "My Cloud" drops send parent_id null — must move nested folders to drive root.
+// Agent: PATCH /folders/{child} { parent_id: null }; EXPECT 200; child.parent_id IS NULL in DB.
+#[tokio::test]
+async fn folder_move_to_root_with_null_parent_id() {
+    let Some(state) = test_harness::TestHarness::state("folder_move_to_root_with_null_parent_id").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let parent_id = uuid::Uuid::new_v4().to_string();
+    let child_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("move-folder-root-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Parent')")
+        .bind(&parent_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert parent");
+
+    sqlx::query("INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, $3, 'Child')")
+        .bind(&child_id)
+        .bind(&user_id)
+        .bind(&parent_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert nested child");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/folders/{child_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "parent_id": null }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch.status(), StatusCode::OK);
+    let patch_json = response_json(patch).await;
+    assert!(patch_json["folder"]["parent_id"].is_null());
+
+    let stored_parent: Option<String> = sqlx::query_scalar(
+        "SELECT parent_id::text FROM folders WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&child_id)
+    .bind(&user_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("read parent_id");
+
+    assert!(stored_parent.is_none());
+
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Moving a parent folder into its child must be rejected to prevent cycles.
+// Agent: PATCH parent into descendant; EXPECT 400 bad_request envelope.
+#[tokio::test]
+async fn folder_move_rejects_cycle_into_subfolder() {
+    let Some(state) = test_harness::TestHarness::state("folder_move_rejects_cycle_into_subfolder")
+        .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let parent_id = uuid::Uuid::new_v4().to_string();
+    let child_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("cycle-folder-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Parent')")
+        .bind(&parent_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert parent");
+
+    sqlx::query("INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, $3, 'Child')")
+        .bind(&child_id)
+        .bind(&user_id)
+        .bind(&parent_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert child");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/folders/{parent_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "parent_id": child_id }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch.status(), StatusCode::BAD_REQUEST);
+
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

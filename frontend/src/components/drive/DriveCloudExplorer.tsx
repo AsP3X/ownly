@@ -14,6 +14,7 @@ import {
 import {
   ChevronRight,
   FileIcon,
+  Folder,
   FolderPlus,
   Search,
   SlidersHorizontal,
@@ -29,14 +30,17 @@ import {
 import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
 import { EXPLORER_GRID_LAYOUT_CLASS } from "@/components/drive/ExplorerGridPreviewSlot";
 import { useExplorerTouchDrag } from "@/components/drive/useExplorerTouchDrag";
+import {
+  FILE_DRAG_MIME,
+  FOLDER_DRAG_MIME,
+  parseBreadcrumbDropTarget,
+  readExplorerDragPayload,
+  type ExplorerDragPayload,
+} from "@/lib/explorer-drag";
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-// Human: MIME payload for HTML5 drag — must match DrivePage FileTable for drop handlers.
-// Agent: SET on dragstart; READ on folder drop.
-const FILE_DRAG_MIME = "application/x-ownly-file-id";
 
 export type ExplorerFolderCrumb = { id: string; name: string };
 
@@ -59,6 +63,10 @@ type DriveCloudExplorerProps = {
   onSelectedFileIdsChange?: (
     ids: Set<string> | ((prev: Set<string>) => Set<string>),
   ) => void;
+  selectedFolderIds?: Set<string>;
+  onSelectedFolderIdsChange?: (
+    ids: Set<string> | ((prev: Set<string>) => Set<string>),
+  ) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
   hasMoreFiles?: boolean;
@@ -74,7 +82,11 @@ type DriveCloudExplorerProps = {
   onOpenFolder: (folder: FolderItem) => void;
   onCreateFolder: () => void;
   onUpload: () => void;
-  onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
+  onMoveFileToFolder?: (fileId: string, folderId: string | null) => void | Promise<void>;
+  onMoveFolderToParent?: (
+    folderId: string,
+    parentId: string | null,
+  ) => void | Promise<void>;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
@@ -115,24 +127,57 @@ type ExplorerBreadcrumbCrumbProps = {
   isCurrent: boolean;
   onClick: () => void;
   className?: string;
+  /** Human: When set, this crumb accepts drag-drop moves into the encoded parent folder (root = `root`). */
+  breadcrumbDropTarget?: string;
+  isDropTarget?: boolean;
+  dragEnabled?: boolean;
+  onBreadcrumbDragEnter?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
+  onBreadcrumbDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
+  onBreadcrumbDragLeave?: (dropTarget: string) => void;
+  onBreadcrumbDrop?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
 };
 
 // Human: One tappable breadcrumb segment with mobile truncation for long folder names.
-// Agent: RENDERS button; TRUNCATES label below lg; SETS title tooltip to full name.
+// Agent: RENDERS button; TRUNCATES label below lg; SETS title tooltip to full name; OPTIONAL drop target.
 function ExplorerBreadcrumbCrumb({
   label,
   isCurrent,
   onClick,
   className,
+  breadcrumbDropTarget,
+  isDropTarget = false,
+  dragEnabled = false,
+  onBreadcrumbDragEnter,
+  onBreadcrumbDragOver,
+  onBreadcrumbDragLeave,
+  onBreadcrumbDrop,
 }: ExplorerBreadcrumbCrumbProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={label}
+      data-breadcrumb-drop={breadcrumbDropTarget}
+      onDragEnter={
+        dragEnabled && breadcrumbDropTarget !== undefined
+          ? (event) => onBreadcrumbDragEnter?.(event, breadcrumbDropTarget)
+          : undefined
+      }
+      onDragOver={dragEnabled ? onBreadcrumbDragOver : undefined}
+      onDragLeave={
+        dragEnabled && breadcrumbDropTarget !== undefined
+          ? () => onBreadcrumbDragLeave?.(breadcrumbDropTarget)
+          : undefined
+      }
+      onDrop={
+        dragEnabled && breadcrumbDropTarget !== undefined
+          ? (event) => onBreadcrumbDrop?.(event, breadcrumbDropTarget)
+          : undefined
+      }
       className={cn(
         "shrink-0 transition-colors hover:text-[#2563EB] max-lg:max-w-[9.5rem] max-lg:truncate",
         isCurrent ? "font-bold text-[#1A1A1A]" : "text-[#888888]",
+        isDropTarget && "rounded-md bg-blue-50 px-1 text-[#2563EB] ring-2 ring-blue-300",
         className,
       )}
     >
@@ -141,18 +186,30 @@ function ExplorerBreadcrumbCrumb({
   );
 }
 
-// Human: Wireframe breadcrumb trail — Home › My Cloud › folder path.
+// Human: Wireframe breadcrumb trail — Home › My Cloud › folder path; crumbs accept drag-drop moves.
 // Agent: CALLS parent navigation handlers; SCROLLS horizontally on mobile; COLLAPSES deep paths.
 function ExplorerBreadcrumbs({
   folderStack,
   onNavigateHome,
   onNavigateMyCloudRoot,
   onGoToFolderIndex,
+  dragEnabled = false,
+  dropTargetBreadcrumb,
+  onBreadcrumbDragEnter,
+  onBreadcrumbDragOver,
+  onBreadcrumbDragLeave,
+  onBreadcrumbDrop,
 }: {
   folderStack: ExplorerFolderCrumb[];
   onNavigateHome: () => void;
   onNavigateMyCloudRoot: () => void;
   onGoToFolderIndex: (index: number) => void;
+  dragEnabled?: boolean;
+  dropTargetBreadcrumb?: string | null;
+  onBreadcrumbDragEnter?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
+  onBreadcrumbDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
+  onBreadcrumbDragLeave?: (dropTarget: string) => void;
+  onBreadcrumbDrop?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
 }) {
   const isMobile = useMaxLgViewport();
 
@@ -192,6 +249,13 @@ function ExplorerBreadcrumbs({
         label="My Cloud"
         isCurrent={folderStack.length === 0}
         onClick={onNavigateMyCloudRoot}
+        breadcrumbDropTarget="root"
+        isDropTarget={dropTargetBreadcrumb === "root"}
+        dragEnabled={dragEnabled}
+        onBreadcrumbDragEnter={onBreadcrumbDragEnter}
+        onBreadcrumbDragOver={onBreadcrumbDragOver}
+        onBreadcrumbDragLeave={onBreadcrumbDragLeave}
+        onBreadcrumbDrop={onBreadcrumbDrop}
       />
       {shouldCollapse ? (
         <>
@@ -218,6 +282,13 @@ function ExplorerBreadcrumbs({
             label={crumb.name}
             isCurrent={index === folderStack.length - 1}
             onClick={() => onGoToFolderIndex(index)}
+            breadcrumbDropTarget={crumb.id}
+            isDropTarget={dropTargetBreadcrumb === crumb.id}
+            dragEnabled={dragEnabled}
+            onBreadcrumbDragEnter={onBreadcrumbDragEnter}
+            onBreadcrumbDragOver={onBreadcrumbDragOver}
+            onBreadcrumbDragLeave={onBreadcrumbDragLeave}
+            onBreadcrumbDrop={onBreadcrumbDrop}
           />
         </span>
       ))}
@@ -240,6 +311,8 @@ export function DriveCloudExplorer({
   selectable = false,
   selectedFileIds,
   onSelectedFileIdsChange,
+  selectedFolderIds,
+  onSelectedFolderIdsChange,
   fileShareFlags = {},
   folderShareFlags = {},
   hasMoreFiles = false,
@@ -256,6 +329,7 @@ export function DriveCloudExplorer({
   onCreateFolder,
   onUpload,
   onMoveFileToFolder,
+  onMoveFolderToParent,
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
@@ -269,49 +343,84 @@ export function DriveCloudExplorer({
   onTapToggleFileSelection,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
-  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
+  const [activeDrag, setActiveDrag] = useState<ExplorerDragPayload | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
+  const [dropTargetBreadcrumb, setDropTargetBreadcrumb] = useState<string | null | undefined>(
+    undefined,
+  );
   const dragDepthRef = useRef<Map<string, number>>(new Map());
-  const draggingFileIdRef = useRef<string | null>(null);
+  const breadcrumbDragDepthRef = useRef<Map<string, number>>(new Map());
+  const activeDragRef = useRef<ExplorerDragPayload | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
   const fallbackScrollRef = useRef<HTMLElement | null>(null);
   const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const folderById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders],
+  );
 
   const resolveFileFolderId = useCallback(
     (fileId: string) => fileById.get(fileId)?.folder_id,
     [fileById],
   );
 
+  const resolveFolderParentId = useCallback(
+    (folderId: string) => folderById.get(folderId)?.parent_id,
+    [folderById],
+  );
+
   const {
     touchDragEnabled,
-    draggingFileId: touchDraggingFileId,
-    armedFileId,
+    draggingItemId: touchDraggingItemId,
+    draggingItemKind: touchDraggingItemKind,
+    armedItemId,
+    armedItemKind,
     dropTargetFolderId: touchDropTargetFolderId,
     ghostLabel,
     ghostPosition,
+    ghostKind,
     getFileDragBindings,
+    getFolderDragBindings,
   } = useExplorerTouchDrag({
     // Human: Disable touch-drag while selecting so pointerdown does not lock list scroll.
     // Agent: READS mobileSelectionMode; SKIPS scroll lock + long-press handlers during tap-select.
     enabled: dragEnabled && !mobileSelectionMode,
     scrollElementRef: explorerScrollRef,
     onMoveFileToFolder,
+    onMoveFolderToParent,
     resolveFileFolderId,
+    resolveFolderParentId,
     onDragSessionActiveChange: onExplorerDragActiveChange,
     onTouchScrollLockChange: onExplorerTouchScrollLockChange,
   });
 
-  const activeDraggingFileId = draggingFileId ?? touchDraggingFileId;
+  const activeDraggingFileId =
+    activeDrag?.kind === "file"
+      ? activeDrag.id
+      : touchDraggingItemKind === "file"
+        ? touchDraggingItemId
+        : null;
+  const activeDraggingFolderId =
+    activeDrag?.kind === "folder"
+      ? activeDrag.id
+      : touchDraggingItemKind === "folder"
+        ? touchDraggingItemId
+        : null;
   const activeDropTargetFolderId = dropTargetFolderId ?? touchDropTargetFolderId;
   const selectionEnabled =
-    selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
-  // Human: When any file is selected, keep checkmarks visible on all tiles for easier multi-select.
-  // Agent: READS selectedFileIds.size; USED by explorer file card checkbox opacity classes.
+    selectable &&
+    selectedFileIds !== undefined &&
+    onSelectedFileIdsChange !== undefined &&
+    selectedFolderIds !== undefined &&
+    onSelectedFolderIdsChange !== undefined;
+  // Human: When any file or folder is selected, keep checkmarks visible on all tiles for easier multi-select.
+  // Agent: READS selectedFileIds.size + selectedFolderIds.size; USED by explorer checkbox opacity classes.
   const hasActiveSelection =
-    selectionEnabled && selectedFileIds !== undefined && selectedFileIds.size > 0;
+    selectionEnabled &&
+    ((selectedFileIds?.size ?? 0) > 0 || (selectedFolderIds?.size ?? 0) > 0);
   const activeFilterLabel =
     typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
 
@@ -362,12 +471,57 @@ export function DriveCloudExplorer({
   }, [hasMoreFiles, loadingMoreFiles, onLoadMoreFiles, files.length, scrollElementRef]);
 
   const resetDragState = useCallback(() => {
-    draggingFileIdRef.current = null;
-    setDraggingFileId(null);
+    activeDragRef.current = null;
+    setActiveDrag(null);
     setDropTargetFolderId(null);
+    setDropTargetBreadcrumb(undefined);
     dragDepthRef.current.clear();
+    breadcrumbDragDepthRef.current.clear();
     onExplorerDragActiveChange?.(false);
   }, [onExplorerDragActiveChange]);
+
+  // Human: Decide whether dropping onto a folder parent is a no-op for the dragged item.
+  // Agent: READS file.folder_id or folder.parent_id; BLOCKS self-drop for folders.
+  const isValidDropOntoFolder = useCallback(
+    (payload: ExplorerDragPayload, targetFolderId: string) => {
+      if (payload.kind === "folder" && payload.id === targetFolderId) {
+        return false;
+      }
+      if (payload.kind === "file") {
+        const file = fileById.get(payload.id);
+        return file !== undefined && (file.folder_id ?? null) !== targetFolderId;
+      }
+      const folder = folderById.get(payload.id);
+      return folder !== undefined && (folder.parent_id ?? null) !== targetFolderId;
+    },
+    [fileById, folderById],
+  );
+
+  const isValidDropOntoParent = useCallback(
+    (payload: ExplorerDragPayload, parentId: string | null) => {
+      if (payload.kind === "file") {
+        const file = fileById.get(payload.id);
+        return file !== undefined && (file.folder_id ?? null) !== parentId;
+      }
+      const folder = folderById.get(payload.id);
+      if (!folder) return false;
+      if (folder.id === parentId) return false;
+      return (folder.parent_id ?? null) !== parentId;
+    },
+    [fileById, folderById],
+  );
+
+  const dispatchDrop = useCallback(
+    (payload: ExplorerDragPayload, parentId: string | null | undefined) => {
+      const targetParentId = parentId ?? null;
+      if (payload.kind === "file") {
+        void onMoveFileToFolder?.(payload.id, targetParentId);
+        return;
+      }
+      void onMoveFolderToParent?.(payload.id, targetParentId);
+    },
+    [onMoveFileToFolder, onMoveFolderToParent],
+  );
 
   const toggleFileSelected = useCallback(
     (fileId: string, checked: boolean) => {
@@ -403,7 +557,33 @@ export function DriveCloudExplorer({
     [mobileSelectionMode, selectedFileIds],
   );
 
-  function handleFileDragStart(event: DragEvent<HTMLButtonElement>, fileId: string) {
+  const toggleFolderSelected = useCallback(
+    (folderId: string, checked: boolean) => {
+      if (!selectionEnabled || !onSelectedFolderIdsChange) {
+        return;
+      }
+      // Human: Functional update — rapid checkbox clicks must not rebuild from a stale Set snapshot.
+      // Agent: WRITES via onSelectedFolderIdsChange updater; ADDS or REMOVES folderId from latest prev.
+      onSelectedFolderIdsChange((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(folderId);
+        else next.delete(folderId);
+        return next;
+      });
+    },
+    [onSelectedFolderIdsChange, selectionEnabled],
+  );
+
+  const beginHtmlDrag = useCallback(
+    (payload: ExplorerDragPayload) => {
+      activeDragRef.current = payload;
+      setActiveDrag(payload);
+      onExplorerDragActiveChange?.(true);
+    },
+    [onExplorerDragActiveChange],
+  );
+
+  function handleFileDragStart(event: DragEvent<HTMLElement>, fileId: string) {
     if (!dragEnabled) {
       event.preventDefault();
       return;
@@ -413,36 +593,39 @@ export function DriveCloudExplorer({
       event.preventDefault();
       return;
     }
-    draggingFileIdRef.current = fileId;
-    setDraggingFileId(fileId);
-    onExplorerDragActiveChange?.(true);
+    beginHtmlDrag({ kind: "file", id: fileId });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(FILE_DRAG_MIME, fileId);
     event.dataTransfer.setData("text/plain", fileId);
   }
 
-  function readDraggedFileId(event: DragEvent): string | null {
-    const custom = event.dataTransfer.getData(FILE_DRAG_MIME);
-    if (custom) return custom;
-    const plain = event.dataTransfer.getData("text/plain");
-    return plain || draggingFileIdRef.current || draggingFileId;
+  function handleFolderDragStart(event: DragEvent<HTMLElement>, folderId: string) {
+    if (!dragEnabled) {
+      event.preventDefault();
+      return;
+    }
+    beginHtmlDrag({ kind: "folder", id: folderId });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(FOLDER_DRAG_MIME, folderId);
+    event.dataTransfer.setData("text/plain", folderId);
   }
 
   const handleFolderDragEnter = useCallback(
-    (event: DragEvent<HTMLButtonElement>, folderId: string) => {
-      const fileId = draggingFileIdRef.current;
-      if (!dragEnabled || !fileId) return;
+    (event: DragEvent<HTMLElement>, folderId: string) => {
+      const payload = activeDragRef.current;
+      if (!dragEnabled || !payload || !isValidDropOntoFolder(payload, folderId)) return;
       event.preventDefault();
       const depth = (dragDepthRef.current.get(folderId) ?? 0) + 1;
       dragDepthRef.current.set(folderId, depth);
       setDropTargetFolderId(folderId);
+      setDropTargetBreadcrumb(undefined);
     },
-    [dragEnabled],
+    [dragEnabled, isValidDropOntoFolder],
   );
 
   const handleFolderDragOver = useCallback(
-    (event: DragEvent<HTMLButtonElement>) => {
-      if (!dragEnabled || !draggingFileIdRef.current) return;
+    (event: DragEvent<HTMLElement>) => {
+      if (!dragEnabled || !activeDragRef.current) return;
       event.preventDefault();
     },
     [dragEnabled],
@@ -458,15 +641,57 @@ export function DriveCloudExplorer({
     dragDepthRef.current.set(folderId, depth);
   }
 
-  function handleFolderDrop(event: DragEvent<HTMLButtonElement>, folderId: string) {
-    if (!dragEnabled || !onMoveFileToFolder) return;
+  function handleFolderDrop(event: DragEvent<HTMLElement>, folderId: string) {
+    if (!dragEnabled || !folderId) return;
     event.preventDefault();
-    const fileId = readDraggedFileId(event);
+    event.stopPropagation();
+    const payload = readExplorerDragPayload(event, activeDragRef.current);
     resetDragState();
-    if (!fileId) return;
-    const file = fileById.get(fileId);
-    if (!file || file.folder_id === folderId) return;
-    void onMoveFileToFolder(fileId, folderId);
+    if (!payload || !isValidDropOntoFolder(payload, folderId)) return;
+    dispatchDrop(payload, folderId);
+  }
+
+  const handleBreadcrumbDragEnter = useCallback(
+    (event: DragEvent<HTMLButtonElement>, dropTarget: string) => {
+      const payload = activeDragRef.current;
+      const parentId = parseBreadcrumbDropTarget(dropTarget);
+      if (!dragEnabled || !payload || !isValidDropOntoParent(payload, parentId)) return;
+      event.preventDefault();
+      const depth = (breadcrumbDragDepthRef.current.get(dropTarget) ?? 0) + 1;
+      breadcrumbDragDepthRef.current.set(dropTarget, depth);
+      setDropTargetBreadcrumb(dropTarget);
+      setDropTargetFolderId(null);
+    },
+    [dragEnabled, isValidDropOntoParent],
+  );
+
+  const handleBreadcrumbDragOver = useCallback(
+    (event: DragEvent<HTMLButtonElement>) => {
+      if (!dragEnabled || !activeDragRef.current) return;
+      event.preventDefault();
+    },
+    [dragEnabled],
+  );
+
+  function handleBreadcrumbDragLeave(dropTarget: string) {
+    const depth = (breadcrumbDragDepthRef.current.get(dropTarget) ?? 0) - 1;
+    if (depth <= 0) {
+      breadcrumbDragDepthRef.current.delete(dropTarget);
+      setDropTargetBreadcrumb((current) => (current === dropTarget ? undefined : current));
+      return;
+    }
+    breadcrumbDragDepthRef.current.set(dropTarget, depth);
+  }
+
+  function handleBreadcrumbDrop(event: DragEvent<HTMLButtonElement>, dropTarget: string) {
+    if (!dragEnabled || !activeDragRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = readExplorerDragPayload(event, activeDragRef.current);
+    const parentId = parseBreadcrumbDropTarget(dropTarget);
+    resetDragState();
+    if (!payload || !isValidDropOntoParent(payload, parentId)) return;
+    dispatchDrop(payload, parentId);
   }
 
   return (
@@ -476,6 +701,12 @@ export function DriveCloudExplorer({
         onNavigateHome={onNavigateHome}
         onNavigateMyCloudRoot={onNavigateMyCloudRoot}
         onGoToFolderIndex={onGoToFolderIndex}
+        dragEnabled={dragEnabled}
+        dropTargetBreadcrumb={dropTargetBreadcrumb}
+        onBreadcrumbDragEnter={handleBreadcrumbDragEnter}
+        onBreadcrumbDragOver={handleBreadcrumbDragOver}
+        onBreadcrumbDragLeave={handleBreadcrumbDragLeave}
+        onBreadcrumbDrop={handleBreadcrumbDrop}
       />
 
       {/* Action bar — search + filter + folder/upload actions */}
@@ -587,7 +818,25 @@ export function DriveCloudExplorer({
                     shareFlags={folderShareFlags[entry.folder.id]}
                     isDropTarget={activeDropTargetFolderId === entry.folder.id}
                     dragEnabled={dragEnabled && !isSearching}
+                    selectionEnabled={selectionEnabled}
+                    isSelected={
+                      selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
+                    }
+                    hasActiveSelection={hasActiveSelection}
+                    isDragging={activeDraggingFolderId === entry.folder.id}
+                    isArmedForTouchDrag={
+                      armedItemKind === "folder" && armedItemId === entry.folder.id
+                    }
+                    touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
+                    getTouchDragBindings={
+                      touchDragEnabled && !mobileSelectionMode
+                        ? () => getFolderDragBindings(entry.folder.id, entry.folder.name)
+                        : undefined
+                    }
+                    onToggleSelected={toggleFolderSelected}
                     onOpenFolder={onOpenFolder}
+                    onDragStart={handleFolderDragStart}
+                    onDragEnd={resetDragState}
                     onDragEnter={handleFolderDragEnter}
                     onDragOver={handleFolderDragOver}
                     onDragLeave={handleFolderDragLeave}
@@ -603,7 +852,9 @@ export function DriveCloudExplorer({
                     hasActiveSelection={hasActiveSelection}
                     mobileSelectionMode={mobileSelectionMode}
                     isDragging={activeDraggingFileId === entry.file.id}
-                    isArmedForTouchDrag={armedFileId === entry.file.id}
+                    isArmedForTouchDrag={
+                      armedItemKind === "file" && armedItemId === entry.file.id
+                    }
                     dragEnabled={dragEnabled}
                     touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
                     getTouchDragBindings={
@@ -641,7 +892,11 @@ export function DriveCloudExplorer({
             style={{ left: ghostPosition.x, top: ghostPosition.y }}
             aria-hidden
           >
-            <FileIcon className="size-4 shrink-0 text-[#2563EB]" />
+            {ghostKind === "folder" ? (
+              <Folder className="size-4 shrink-0 text-[#2563EB]" />
+            ) : (
+              <FileIcon className="size-4 shrink-0 text-[#2563EB]" />
+            )}
             <span className="truncate">{ghostLabel}</span>
           </div>
         ) : null}

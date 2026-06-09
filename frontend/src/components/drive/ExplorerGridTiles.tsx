@@ -100,56 +100,138 @@ export type ExplorerFolderGridTileProps = {
   shareFlags?: ShareFlags;
   isDropTarget: boolean;
   dragEnabled: boolean;
+  selectionEnabled?: boolean;
+  isSelected?: boolean;
+  hasActiveSelection?: boolean;
+  isDragging?: boolean;
+  isArmedForTouchDrag?: boolean;
+  touchDragEnabled?: boolean;
+  getTouchDragBindings?: () => ExplorerTouchDragBindings;
+  onToggleSelected?: (folderId: string, checked: boolean) => void;
   onOpenFolder: (folder: FolderItem) => void;
-  onDragEnter: (event: DragEvent<HTMLButtonElement>, folderId: string) => void;
-  onDragOver: (event: DragEvent<HTMLButtonElement>) => void;
+  onDragStart?: (event: DragEvent<HTMLElement>, folderId: string) => void;
+  onDragEnd?: () => void;
+  onDragEnter: (event: DragEvent<HTMLElement>, folderId: string) => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDragLeave: (folderId: string) => void;
-  onDrop: (event: DragEvent<HTMLButtonElement>, folderId: string) => void;
+  onDrop: (event: DragEvent<HTMLElement>, folderId: string) => void;
 };
 
-// Human: Folder tile — navigation target and optional drag-drop move target.
+// Human: Folder tile — navigation target, optional drag source, and drop target for files/folders.
 // Agent: MEMOIZED; CALLS parent drag handlers; RENDERS SharedIndicator from folderShareFlags.
 export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
   folder,
   shareFlags,
   isDropTarget,
   dragEnabled,
+  selectionEnabled = false,
+  isSelected = false,
+  hasActiveSelection = false,
+  isDragging = false,
+  isArmedForTouchDrag = false,
+  touchDragEnabled = false,
+  getTouchDragBindings,
+  onToggleSelected,
   onOpenFolder,
+  onDragStart,
+  onDragEnd,
   onDragEnter,
   onDragOver,
   onDragLeave,
   onDrop,
 }: ExplorerFolderGridTileProps) {
+  const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
+
   return (
-    <button
-      type="button"
+    <div
       data-folder-id={folder.id}
-      onClick={() => onOpenFolder(folder)}
       onDragEnter={(event) => onDragEnter(event, folder.id)}
       onDragOver={onDragOver}
       onDragLeave={() => onDragLeave(folder.id)}
       onDrop={(event) => onDrop(event, folder.id)}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "flex w-full flex-col items-stretch gap-1.5 rounded-xl border border-[#E5E7EB] bg-white p-2 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
+        "group relative w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        isSelected
+          ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
+          : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
         isDropTarget && "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
-        !dragEnabled && "cursor-pointer",
+        isDragging && "opacity-50",
+        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
+        touchDragEnabled && "touch-manipulation",
       )}
     >
-      {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
-      {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
-      <ExplorerGridPreviewSlot>
-        <Folder className="size-8 text-[#2563EB]" aria-hidden />
-      </ExplorerGridPreviewSlot>
-      <span
-        className="w-full truncate text-[13px] font-semibold leading-snug text-[#1A1A1A]"
-        title={folder.name}
+      {selectionEnabled && onToggleSelected ? (
+        <label
+          className={cn(
+            "absolute right-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity",
+            isSelected || hasActiveSelection
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+              onToggleSelected(folder.id, event.target.checked)
+            }
+            className="peer sr-only"
+            aria-label={`Select ${folder.name}`}
+            onClick={(event) => event.stopPropagation()}
+          />
+          <span
+            className={cn(
+              "flex size-5 items-center justify-center rounded-md border transition-colors",
+              "peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-1",
+              isSelected
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-[#D1D5DB] bg-white text-transparent shadow-sm",
+            )}
+            aria-hidden
+          >
+            <Check className="size-3.5 stroke-[2.5]" />
+          </span>
+        </label>
+      ) : null}
+      <button
+        type="button"
+        draggable={dragEnabled && !touchDragEnabled}
+        onClick={() => {
+          if (touchDragBindings?.consumeSuppressedClick()) return;
+          onOpenFolder(folder);
+        }}
+        onDragStart={(event) => onDragStart?.(event, folder.id)}
+        onDragEnd={onDragEnd}
+        onPointerDown={touchDragBindings?.onPointerDown}
+        onPointerMove={touchDragBindings?.onPointerMove}
+        onPointerUp={touchDragBindings?.onPointerUp}
+        onPointerCancel={touchDragBindings?.onPointerCancel}
+        className={cn(
+          "flex h-full w-full flex-col items-stretch gap-1.5 p-2 text-center",
+          touchDragBindings && "touch-pan-y",
+        )}
       >
-        {folder.name}
-      </span>
-      <span className="text-[11px] text-[#888888]">Folder</span>
-      <SharedIndicator flags={shareFlags} className="size-3" />
-    </button>
+        {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
+        {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
+        <ExplorerGridPreviewSlot>
+          <Folder className="size-8 text-[#2563EB]" aria-hidden />
+        </ExplorerGridPreviewSlot>
+        <span
+          className={cn(
+            "w-full truncate text-[13px] font-semibold leading-snug",
+            isSelected ? "text-blue-950" : "text-[#1A1A1A]",
+          )}
+          title={folder.name}
+        >
+          {folder.name}
+        </span>
+        <span className={cn("text-[11px]", isSelected ? "text-blue-700/80" : "text-[#888888]")}>
+          Folder
+        </span>
+        <SharedIndicator flags={shareFlags} className="size-3" />
+      </button>
+    </div>
   );
 });
 

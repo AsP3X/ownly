@@ -26,6 +26,7 @@ pub mod video;
 pub mod browser_guard;
 pub mod config;
 pub mod outbound_target;
+pub mod patch_fields;
 pub mod crypto;
 pub mod db;
 pub mod error;
@@ -553,7 +554,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/folders/{id}",
-            patch(files::rename::rename_folder).delete(files::folders::delete_folder),
+            patch(files::rename::patch_folder).delete(files::folders::delete_folder),
         )
         .route("/api/v1/dashboard", get(files::handlers::dashboard_summary))
         .route(

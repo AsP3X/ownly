@@ -1,5 +1,5 @@
-// Human: Touch drag-and-drop for the mobile explorer — long-press a file, drag onto a folder tile.
-// Agent: READS pointer events on file tiles; WRITES ghost + drop highlight; CALLS onMoveFileToFolder on drop.
+// Human: Touch drag-and-drop for the mobile explorer — long-press a file or folder, drag onto a folder tile.
+// Agent: READS pointer events on tiles; WRITES ghost + drop highlight; CALLS move handlers on drop.
 
 import {
   useCallback,
@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
+import type { ExplorerDragKind } from "@/lib/explorer-drag";
 
 const DESKTOP_MIN_WIDTH_PX = 1024;
 const LONG_PRESS_MS = 400;
@@ -23,8 +24,13 @@ type GhostPosition = { x: number; y: number };
 type UseExplorerTouchDragOptions = {
   enabled: boolean;
   scrollElementRef?: RefObject<HTMLElement | null>;
-  onMoveFileToFolder?: (fileId: string, folderId: string) => void | Promise<void>;
+  onMoveFileToFolder?: (fileId: string, folderId: string | null) => void | Promise<void>;
+  onMoveFolderToParent?: (
+    folderId: string,
+    parentId: string | null,
+  ) => void | Promise<void>;
   resolveFileFolderId: (fileId: string) => string | null | undefined;
+  resolveFolderParentId: (folderId: string) => string | null | undefined;
   /** Human: Notifies parent when a touch drag ghost is active — used to dismiss the context menu. */
   onDragSessionActiveChange?: (active: boolean) => void;
   /** Human: Locks the explorer scroll pane while long-press drag is armed or moving. */
@@ -86,16 +92,21 @@ export function useExplorerTouchDrag({
   enabled,
   scrollElementRef,
   onMoveFileToFolder,
+  onMoveFolderToParent,
   resolveFileFolderId,
+  resolveFolderParentId,
   onDragSessionActiveChange,
   onTouchScrollLockChange,
 }: UseExplorerTouchDragOptions) {
   const [isDesktopViewport, setIsDesktopViewport] = useState(readIsDesktopViewport);
-  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
-  const [armedFileId, setArmedFileId] = useState<string | null>(null);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [draggingItemKind, setDraggingItemKind] = useState<ExplorerDragKind | null>(null);
+  const [armedItemId, setArmedItemId] = useState<string | null>(null);
+  const [armedItemKind, setArmedItemKind] = useState<ExplorerDragKind | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const [ghostLabel, setGhostLabel] = useState<string | null>(null);
   const [ghostPosition, setGhostPosition] = useState<GhostPosition | null>(null);
+  const [ghostKind, setGhostKind] = useState<ExplorerDragKind>("file");
 
   const longPressTimerRef = useRef<number | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
@@ -105,8 +116,9 @@ export function useExplorerTouchDrag({
   const suppressNextClickRef = useRef(false);
   const autoScrollFrameRef = useRef<number | null>(null);
   const lastPointerRef = useRef<GhostPosition | null>(null);
-  const sessionFileIdRef = useRef<string | null>(null);
-  const sessionFileNameRef = useRef<string>("");
+  const sessionItemIdRef = useRef<string | null>(null);
+  const sessionItemKindRef = useRef<ExplorerDragKind | null>(null);
+  const sessionItemNameRef = useRef<string>("");
   const dropTargetFolderIdRef = useRef<string | null>(null);
   const dragAnchorRef = useRef<GhostPosition | null>(null);
   const touchScrollLockedRef = useRef(false);
@@ -117,7 +129,9 @@ export function useExplorerTouchDrag({
   const pendingPointerMoveHandlerRef = useRef<((event: PointerEvent) => void) | null>(null);
 
   const touchDragEnabled =
-    enabled && !isDesktopViewport && onMoveFileToFolder !== undefined;
+    enabled &&
+    !isDesktopViewport &&
+    (onMoveFileToFolder !== undefined || onMoveFolderToParent !== undefined);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current !== null) {
@@ -149,7 +163,7 @@ export function useExplorerTouchDrag({
     gestureScrollBlockedRef.current = true;
 
     const preventGestureScroll = (event: Event) => {
-      if (!sessionFileIdRef.current) return;
+      if (!sessionItemIdRef.current) return;
       if (event instanceof TouchEvent) {
         if (event.touches.length !== 1) return;
         event.preventDefault();
@@ -163,8 +177,6 @@ export function useExplorerTouchDrag({
 
     document.addEventListener("touchmove", preventGestureScroll, { capture: true, passive: false });
     document.addEventListener("pointermove", preventGestureScroll, { capture: true });
-    // Human: Store handler on ref so unblock removes the same function reference.
-    // Agent: WRITES closure to gestureScrollHandlerRef for teardown in unblockGestureScroll.
     gestureScrollHandlerRef.current = preventGestureScroll;
   }, []);
 
@@ -177,8 +189,6 @@ export function useExplorerTouchDrag({
     gestureScrollBlockedRef.current = false;
   }, []);
 
-  // Human: Stop tracking finger movement once the user scrolls or the session ends.
-  // Agent: REMOVES document pointermove listener registered during pending long-press.
   const clearPendingPointerTracking = useCallback(() => {
     const handler = pendingPointerMoveHandlerRef.current;
     if (!handler) return;
@@ -194,8 +204,9 @@ export function useExplorerTouchDrag({
     pointerStartRef.current = null;
     armedRef.current = false;
     draggingRef.current = false;
-    sessionFileIdRef.current = null;
-    sessionFileNameRef.current = "";
+    sessionItemIdRef.current = null;
+    sessionItemKindRef.current = null;
+    sessionItemNameRef.current = "";
     lastPointerRef.current = null;
     dragAnchorRef.current = null;
     pointerDownAtRef.current = 0;
@@ -203,12 +214,15 @@ export function useExplorerTouchDrag({
     clearPendingPointerTracking();
     unblockGestureScroll();
     setTouchScrollLocked(false);
-    setArmedFileId(null);
-    setDraggingFileId(null);
+    setArmedItemId(null);
+    setArmedItemKind(null);
+    setDraggingItemId(null);
+    setDraggingItemKind(null);
     dropTargetFolderIdRef.current = null;
     setDropTargetFolderId(null);
     setGhostLabel(null);
     setGhostPosition(null);
+    setGhostKind("file");
     document.body.style.removeProperty("touch-action");
     document.body.style.removeProperty("user-select");
     document.body.style.removeProperty("-webkit-user-select");
@@ -224,15 +238,31 @@ export function useExplorerTouchDrag({
     unblockGestureScroll,
   ]);
 
+  const isValidFolderDrop = useCallback(
+    (itemId: string, kind: ExplorerDragKind, folderId: string) => {
+      if (kind === "folder" && itemId === folderId) {
+        return false;
+      }
+      if (kind === "file") {
+        return resolveFileFolderId(itemId) !== folderId;
+      }
+      return (resolveFolderParentId(itemId) ?? null) !== folderId;
+    },
+    [resolveFileFolderId, resolveFolderParentId],
+  );
+
   const beginActiveDrag = useCallback(
     (clientX: number, clientY: number) => {
-      const fileId = sessionFileIdRef.current;
-      if (!fileId || draggingRef.current) return;
+      const itemId = sessionItemIdRef.current;
+      const kind = sessionItemKindRef.current;
+      if (!itemId || !kind || draggingRef.current) return;
 
       draggingRef.current = true;
       suppressNextClickRef.current = true;
-      setDraggingFileId(fileId);
-      setGhostLabel(sessionFileNameRef.current);
+      setDraggingItemId(itemId);
+      setDraggingItemKind(kind);
+      setGhostKind(kind);
+      setGhostLabel(sessionItemNameRef.current);
       const position = { x: clientX, y: clientY };
       lastPointerRef.current = position;
       setGhostPosition(position);
@@ -253,16 +283,19 @@ export function useExplorerTouchDrag({
       setGhostPosition(position);
 
       const folderId = findFolderDropTarget(clientX, clientY);
-      const fileId = sessionFileIdRef.current;
-      const fileFolderId = fileId ? resolveFileFolderId(fileId) : null;
+      const itemId = sessionItemIdRef.current;
+      const kind = sessionItemKindRef.current;
       const isValidTarget =
-        folderId !== null && fileId !== null && fileFolderId !== folderId;
+        folderId !== null &&
+        itemId !== null &&
+        kind !== null &&
+        isValidFolderDrop(itemId, kind, folderId);
 
       const nextTarget = isValidTarget ? folderId : null;
       dropTargetFolderIdRef.current = nextTarget;
       setDropTargetFolderId(nextTarget);
     },
-    [resolveFileFolderId],
+    [isValidFolderDrop],
   );
 
   const startAutoScrollLoop = useCallback(() => {
@@ -281,28 +314,24 @@ export function useExplorerTouchDrag({
     autoScrollFrameRef.current = window.requestAnimationFrame(tick);
   }, [scrollElementRef, stopAutoScrollLoop, updateDragAt]);
 
-  const armDragSession = useCallback(
-    (anchor: GhostPosition) => {
-      if (!sessionFileIdRef.current) return;
-      armedRef.current = true;
-      dragAnchorRef.current = anchor;
-      setArmedFileId(sessionFileIdRef.current);
-      const element = sessionElementRef.current;
-      const pointerId = activePointerIdRef.current;
-      if (element && pointerId !== null && !element.hasPointerCapture(pointerId)) {
-        element.setPointerCapture(pointerId);
-      }
-    },
-    [],
-  );
+  const armDragSession = useCallback((anchor: GhostPosition) => {
+    if (!sessionItemIdRef.current) return;
+    armedRef.current = true;
+    dragAnchorRef.current = anchor;
+    setArmedItemId(sessionItemIdRef.current);
+    setArmedItemKind(sessionItemKindRef.current);
+    const element = sessionElementRef.current;
+    const pointerId = activePointerIdRef.current;
+    if (element && pointerId !== null && !element.hasPointerCapture(pointerId)) {
+      element.setPointerCapture(pointerId);
+    }
+  }, []);
 
-  // Human: Abort a pending long-press when the finger moves like a scroll gesture.
-  // Agent: READS pointer delta from pointerStartRef; CALLS resetSession when > SCROLL_CANCEL_PX.
   const cancelPendingSessionIfScrolling = useCallback(
     (clientX: number, clientY: number) => {
       if (armedRef.current || draggingRef.current) return false;
       const start = pointerStartRef.current;
-      if (!start || !sessionFileIdRef.current) return false;
+      if (!start || !sessionItemIdRef.current) return false;
       const distance = Math.hypot(clientX - start.x, clientY - start.y);
       if (distance <= SCROLL_CANCEL_PX) return false;
       resetSession();
@@ -312,23 +341,27 @@ export function useExplorerTouchDrag({
   );
 
   const completeDrag = useCallback(() => {
-    const fileId = sessionFileIdRef.current;
+    const itemId = sessionItemIdRef.current;
+    const kind = sessionItemKindRef.current;
     const folderId = dropTargetFolderIdRef.current;
     const shouldMove =
       draggingRef.current &&
-      fileId !== null &&
+      itemId !== null &&
+      kind !== null &&
       folderId !== null &&
-      resolveFileFolderId(fileId) !== folderId;
+      isValidFolderDrop(itemId, kind, folderId);
 
     resetSession();
 
-    if (shouldMove && fileId && folderId) {
-      void onMoveFileToFolder?.(fileId, folderId);
+    if (shouldMove && itemId && kind && folderId) {
+      if (kind === "file") {
+        void onMoveFileToFolder?.(itemId, folderId);
+      } else {
+        void onMoveFolderToParent?.(itemId, folderId);
+      }
     }
-  }, [onMoveFileToFolder, resetSession, resolveFileFolderId]);
+  }, [isValidFolderDrop, onMoveFileToFolder, onMoveFolderToParent, resetSession]);
 
-  // Human: Track lg breakpoint so touch drag stays off on desktop (HTML5 drag handles that path).
-  // Agent: LISTENS matchMedia change; WRITES isDesktopViewport; RESETS drag when crossing to desktop.
   useEffect(() => {
     const desktopMq = window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH_PX}px)`);
     const apply = () => {
@@ -343,10 +376,8 @@ export function useExplorerTouchDrag({
     return () => desktopMq.removeEventListener("change", apply);
   }, [resetSession]);
 
-  // Human: Block long-press context menu while the touch drag ghost is on screen.
-  // Agent: LISTENS contextmenu capture; preventDefault only while draggingFileId is set.
   useEffect(() => {
-    if (!draggingFileId) return;
+    if (!draggingItemId) return;
 
     const preventContextMenu = (event: Event) => {
       event.preventDefault();
@@ -354,14 +385,12 @@ export function useExplorerTouchDrag({
 
     document.addEventListener("contextmenu", preventContextMenu, { capture: true });
     return () => document.removeEventListener("contextmenu", preventContextMenu, { capture: true });
-  }, [draggingFileId]);
+  }, [draggingItemId]);
 
-  // Human: Clear any in-flight drag when the explorer unmounts.
-  // Agent: CALLS resetSession on unmount only — live pointer handlers gate on touchDragEnabled.
   useEffect(() => () => resetSession(), [resetSession]);
 
-  const getFileDragBindings = useCallback(
-    (fileId: string, fileName: string): ExplorerTouchDragBindings => ({
+  const createDragBindings = useCallback(
+    (kind: ExplorerDragKind, itemId: string, itemName: string): ExplorerTouchDragBindings => ({
       onPointerDown: (event) => {
         if (!touchDragEnabled || event.button !== 0) return;
         if (!event.isPrimary) return;
@@ -370,14 +399,17 @@ export function useExplorerTouchDrag({
         clearPendingPointerTracking();
         activePointerIdRef.current = event.pointerId;
         pointerStartRef.current = { x: event.clientX, y: event.clientY };
-        sessionFileIdRef.current = fileId;
-        sessionFileNameRef.current = fileName;
+        sessionItemIdRef.current = itemId;
+        sessionItemKindRef.current = kind;
+        sessionItemNameRef.current = itemName;
         sessionElementRef.current = event.currentTarget;
         suppressNextClickRef.current = false;
         armedRef.current = false;
         draggingRef.current = false;
-        setArmedFileId(null);
-        setDraggingFileId(null);
+        setArmedItemId(null);
+        setArmedItemKind(null);
+        setDraggingItemId(null);
+        setDraggingItemKind(null);
         setDropTargetFolderId(null);
         setGhostLabel(null);
         setGhostPosition(null);
@@ -385,8 +417,6 @@ export function useExplorerTouchDrag({
         pointerDownAtRef.current = Date.now();
         lastPointerRef.current = { x: event.clientX, y: event.clientY };
 
-        // Human: Track movement at document level — finger can leave the tile while scrolling.
-        // Agent: LISTENS pointermove capture; CALLS cancelPendingSessionIfScrolling before drag arms.
         const onPendingPointerMove = (moveEvent: PointerEvent) => {
           if (activePointerIdRef.current !== moveEvent.pointerId) return;
           lastPointerRef.current = { x: moveEvent.clientX, y: moveEvent.clientY };
@@ -398,7 +428,7 @@ export function useExplorerTouchDrag({
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTimerRef.current = null;
           if (activePointerIdRef.current !== event.pointerId) return;
-          if (!sessionFileIdRef.current) return;
+          if (!sessionItemIdRef.current) return;
           const anchor = lastPointerRef.current ?? {
             x: event.clientX,
             y: event.clientY,
@@ -494,13 +524,27 @@ export function useExplorerTouchDrag({
     ],
   );
 
+  const getFileDragBindings = useCallback(
+    (fileId: string, fileName: string) => createDragBindings("file", fileId, fileName),
+    [createDragBindings],
+  );
+
+  const getFolderDragBindings = useCallback(
+    (folderId: string, folderName: string) => createDragBindings("folder", folderId, folderName),
+    [createDragBindings],
+  );
+
   return {
     touchDragEnabled,
-    draggingFileId,
-    armedFileId,
+    draggingItemId,
+    draggingItemKind,
+    armedItemId,
+    armedItemKind,
     dropTargetFolderId,
     ghostLabel,
     ghostPosition,
+    ghostKind,
     getFileDragBindings,
+    getFolderDragBindings,
   };
 }
