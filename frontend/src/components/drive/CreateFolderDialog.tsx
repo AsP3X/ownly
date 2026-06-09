@@ -1,7 +1,7 @@
 // Human: Modal to name and create a folder in the current drive location.
 // Agent: CALLS createFolder API; WRITES parent_id from current folder; CLOSES on success.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderPlus } from "lucide-react";
 import { createFolder, getErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -33,13 +33,14 @@ export function CreateFolderDialog({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  function handleOpenChange(next: boolean) {
-    if (next) {
-      setName("");
-      setError("");
-    }
-    onOpenChange(next);
-  }
+  // Human: Parent toggles `open` directly — reset the name field on every open, not only via onOpenChange.
+  // Agent: READS open prop; WRITES name/error/submitting when dialog becomes visible.
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setError("");
+    setSubmitting(false);
+  }, [open]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -57,7 +58,7 @@ export function CreateFolderDialog({
         parent_id: parentFolderId,
       });
       onFolderCreated?.();
-      handleOpenChange(false);
+      onOpenChange(false);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -66,7 +67,7 @@ export function CreateFolderDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-md">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader className="border-b border-neutral-100 px-6 py-5">
@@ -100,7 +101,7 @@ export function CreateFolderDialog({
               type="button"
               variant="outline"
               disabled={submitting}
-              onClick={() => handleOpenChange(false)}
+              onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
