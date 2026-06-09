@@ -170,7 +170,7 @@ async fn object_storage_healthy(state: &AppState) -> (bool, Option<u128>) {
         return (true, None);
     }
     let health_url = format!(
-        "{}/health",
+        "{}/health/ready",
         state.object_storage_url.trim_end_matches('/')
     );
     let started = Instant::now();

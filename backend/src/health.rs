@@ -1,5 +1,5 @@
 // Human: Operational probes for orchestrators — DB connectivity and object storage reachability.
-// Agent: GET /api/v1/health/ready; READS pool SELECT 1; OPTIONAL object storage GET /health; NO auth.
+// Agent: GET /api/v1/health/ready; READS pool SELECT 1; OPTIONAL object storage GET /health/ready; NO auth.
 
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ pub async fn readiness(State(state): State<Arc<AppState>>) -> Json<serde_json::V
 
     let storage_ok = if state.storage_configured {
         let health_url = format!(
-            "{}/health",
+            "{}/health/ready",
             state.object_storage_url.trim_end_matches('/')
         );
         match reqwest::get(&health_url).await {

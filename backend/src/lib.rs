@@ -234,10 +234,10 @@ async fn build_app_state(
     }))
 }
 
-// Human: Nebular OS may bind only after startup recompression; retry before failing API boot.
-// Agent: HTTP GET /health; RETRIES up to 60s; BAILS if still unreachable in proxy mode.
+// Human: Nebular OS binds after optional startup recompress; readiness probe retries before failing API boot.
+// Agent: HTTP GET /health/ready; RETRIES up to 60s; BAILS if still unreachable in proxy mode.
 async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
-    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let health_url = format!("{}/health/ready", base_url.trim_end_matches('/'));
     const MAX_ATTEMPTS: u32 = 60;
     const RETRY_INTERVAL: Duration = Duration::from_secs(1);
     let client = reqwest::Client::new();

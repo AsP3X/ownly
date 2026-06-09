@@ -2,9 +2,8 @@
 # Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build`;
 #        register node-b in Admin → Add Storage Node with URL http://object-storage-b:9000 and a target capacity.
 #        Ownly routes uploads by remaining capacity and can stripe overflow across nodes (see docs/nebular-os-storage-metadata-prompt.md).
-#        Optional per-node cap in Nebular: NOS_MAX_LOGICAL_BYTES (implement in nebular-os repo).
 #
-# Host port: node-b 9001 (curl http://localhost:9001/health from the host).
+# Host port: node-b 9001 (curl http://localhost:9001/health/ready from the host).
 
 x-nebular-storage-env: &nebular-storage-env
   NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
@@ -17,10 +16,9 @@ x-nebular-storage-env: &nebular-storage-env
   NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
   NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
   NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
-  NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
-  NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-22}
-  NOS_ZSTD_DICT_ENABLED: ${NOS_ZSTD_DICT_ENABLED:-false}
-  NOS_DEDUP_ENABLED: ${NOS_DEDUP_ENABLED:-false}
+  NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-3}
+  NOS_COMPRESS_MIN_SIZE: ${NOS_COMPRESS_MIN_SIZE:-4096}
+  NOS_COMPRESS_BLOCK_SIZE: ${NOS_COMPRESS_BLOCK_SIZE:-1048576}
   NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
   RUST_LOG: info
 
@@ -28,14 +26,14 @@ x-nebular-storage-service: &nebular-storage-service
   build:
     context: ./nebular-os
     dockerfile: ../docker/nebular-os.Dockerfile
-  # Human: Match docker-compose.yml — HTTP listens only after startup recompression completes.
-  # Agent: Long start_period so depends_on service_healthy does not fail on large blob volumes.
+  # Human: Match docker-compose.yml — readiness probe verifies SQLite + blob dir.
+  # Agent: Long start_period so depends_on service_healthy does not fail on cold volumes.
   healthcheck:
-    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
     interval: 10s
     timeout: 5s
     retries: 18
-    start_period: 600s
+    start_period: 120s
 
 services:
   object-storage:

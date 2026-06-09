@@ -112,7 +112,7 @@ pub struct StorageEndpointProbe {
 }
 
 // Human: Live health probe for setup wizard and admin node registration tests.
-// Agent: HTTP GET /health; RETURNS latency + node metadata; NO DB writes.
+// Agent: HTTP GET /health/ready; RETURNS latency + node metadata; NO DB writes.
 pub async fn probe_storage_endpoint(base_url: &str) -> StorageEndpointProbe {
     let probe = probe_storage_node(base_url).await;
     StorageEndpointProbe {
@@ -159,14 +159,14 @@ pub async fn register_setup_storage_node(
     Ok(())
 }
 
-// Human: Quick /health probe — placement skips nodes that fail this check.
-// Agent: READS GET /health; RETURNS false on transport or non-success status.
+// Human: Quick readiness probe — placement skips nodes that fail this check.
+// Agent: READS GET /health/ready; RETURNS false on transport or non-success status.
 pub(crate) async fn probe_reachable(base_url: &str) -> bool {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let health_url = format!("{}/health/ready", base_url.trim_end_matches('/'));
     match client.get(&health_url).send().await {
         Ok(resp) if resp.status().is_success() => resp.json::<NosHealthBody>().await.is_ok(),
         _ => false,
@@ -196,24 +196,29 @@ pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
     }
 }
 
-// Human: Probe Nebular /health and JSON /metrics for one registered node.
+// Human: Probe Nebular readiness plus liveness metadata (/health/ready then /health).
+// Agent: READS GET /health/ready for reachable; GET /health for node_id when ready; GET /metrics for bytes.
 async fn probe_storage_node(base_url: &str) -> NodeProbe {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let ready_url = format!("{}/health/ready", base_url.trim_end_matches('/'));
     let started = Instant::now();
-    let health_resp = client.get(&health_url).send().await;
+    let ready_resp = client.get(&ready_url).send().await;
     let latency_ms = started.elapsed().as_millis();
 
-    let (reachable, health) = match health_resp {
-        Ok(resp) if resp.status().is_success() => {
-            let parsed = resp.json::<NosHealthBody>().await.ok();
-            (parsed.is_some(), parsed)
+    let reachable = matches!(ready_resp, Ok(ref resp) if resp.status().is_success());
+
+    let health = if reachable {
+        let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+        match client.get(&health_url).send().await {
+            Ok(resp) if resp.status().is_success() => resp.json::<NosHealthBody>().await.ok(),
+            _ => None,
         }
-        _ => (false, None),
+    } else {
+        None
     };
 
     let logical_bytes = probe_logical_bytes(base_url).await;

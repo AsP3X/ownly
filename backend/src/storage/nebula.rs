@@ -454,6 +454,8 @@ impl Storage for NebulaStorage {
         let status = response.status();
         let elapsed_ms = started.elapsed().as_millis() as u64;
         if status.as_u16() == 503 {
+            // Human: Defensive handling when storage signals backpressure (legacy Nebular or future limits).
+            // Agent: READ Retry-After header; BAILS with retry hint for put_with_retry.
             let retry_after = response
                 .headers()
                 .get(reqwest::header::RETRY_AFTER)

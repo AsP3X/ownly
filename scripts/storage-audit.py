@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Human: Compare Ownly Postgres logical bytes to Nebular on-disk blob sizes (ops / tuning).
-# Agent: READS DATABASE_URL + NEBULAR_DATA_DIR; SUM files.size_bytes; WALKS blob tree; CLASSIFIES NOS2/NOSZ/NOSD/raw.
+# Agent: READS DATABASE_URL + NEBULAR_DATA_DIR; SUM files.size_bytes; WALKS blob tree; CLASSIFIES NOSB/legacy/raw.
 
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ except ImportError:
     )
     sys.exit(2)
 
+NOSB_MAGIC = b"NOSB"
 NOSZ_MAGIC = b"NOSZ"
 NOS2_MAGIC = b"NOS2"
-NOSD_MAGIC = b"NOSD"
 
 
 def _strip_quotes(value: str) -> str:
@@ -103,19 +103,19 @@ def classify_blob(path: Path) -> tuple[str, int]:
         return ("raw", size)
     with path.open("rb") as f:
         head = f.read(4)
+    if head == NOSB_MAGIC:
+        return ("nosb", size)
     if head == NOS2_MAGIC:
         return ("nos2", size)
     if head == NOSZ_MAGIC:
         return ("nosz", size)
-    if head == NOSD_MAGIC:
-        return ("nosd", size)
     return ("raw", size)
 
 
 def walk_blobs(root: Path) -> dict[str, dict[str, int]]:
     """Human: Aggregate on-disk bytes and file counts by blob kind."""
     totals: dict[str, dict[str, int]] = {
-        k: {"files": 0, "bytes": 0} for k in ("nos2", "nosz", "nosd", "raw", "total")
+        k: {"files": 0, "bytes": 0} for k in ("nosb", "nos2", "nosz", "raw", "total")
     }
     if not root.is_dir():
         return totals
@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print(f"  (missing — set NEBULAR_DATA_DIR to the Nebular NOS_DATA_DIR blobs path)\n")
     else:
-        for kind in ("nos2", "nosz", "nosd", "raw"):
+        for kind in ("nosb", "nos2", "nosz", "raw"):
             t = disk[kind]
             if t["files"]:
                 print(
@@ -222,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             f"({'over' if delta >= 0 else 'under'} catalog sum)"
         )
         print(
-            "  (Gap is normal: HLS sidecars, compression, dedup manifests, orphans, deleted rows.)"
+            "  (Gap is normal: HLS sidecars, compression, legacy formats, orphans, deleted rows.)"
         )
 
     return 0

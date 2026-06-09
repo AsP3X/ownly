@@ -205,7 +205,7 @@ pub async fn test_setup_database(
     Ok(Json(DatabaseTestResponse { ok: true, driver }))
 }
 
-// Human: Verify Nebular /health before the wizard registers the first storage node.
+// Human: Verify Nebular readiness before the wizard registers the first storage node.
 // Agent: POST /setup/storage/test; READS base_url; NO DB writes.
 pub async fn test_setup_storage(
     State(state): State<Arc<AppState>>,

@@ -160,7 +160,7 @@ const processingSteps = [
     icon: Key,
     title: "1. Upload to Nebular OS",
     description:
-      "Drive files are sent as plaintext bytes so Nebular zstd can compress them (NOS2 blobs). Video HLS paths encrypt segments before upload.",
+      "Drive files are sent as plaintext bytes so Nebular zstd can compress them (NOSB block blobs). Video HLS paths encrypt segments before upload.",
     visual: (
       <>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#1A1A1A]">
@@ -179,7 +179,7 @@ const processingSteps = [
     icon: Cpu,
     title: "2. zstd in Nebular OS",
     description:
-      "Nebular applies fast upload zstd (default level 3) and can recompress to a stronger maintenance level in the background.",
+      "Nebular block-compresses eligible payloads with zstd (Compose default level 3). Periodic recompress can rewrite raw blobs as NOSB when smaller.",
     visual: (
       <>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#2563EB]">

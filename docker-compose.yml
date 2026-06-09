@@ -42,7 +42,7 @@ services:
   object-storage:
     build:
       context: ./nebular-os
-      # Human: Ownly Dockerfile adds migrations/ for compile-time include_str (see docker/nebular-os.Dockerfile).
+      # Human: Ownly wrapper Dockerfile adds libsqlite3-dev for embedded SQLite metadata (see docker/nebular-os.Dockerfile).
       # Agent: CONTEXT nebular-os; dockerfile path relative to compose file root.
       dockerfile: ../docker/nebular-os.Dockerfile
     container_name: ownly-object-storage
@@ -51,43 +51,34 @@ services:
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
-      # Human: Reclaim blob disk promptly on delete; re-compress legacy blobs on an interval, not at boot.
-      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — Nebular blocks HTTP until boot recompress finishes (minutes on large volumes).
+      # Human: Reclaim blob disk promptly on delete; optional raw→NOSB recompress on an interval, not at boot.
+      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — when true, HTTP binds only after the startup scan finishes.
       NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
       NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
       NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
       NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
       NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
-      # Human: zstd upload vs maintenance levels — fast PUT then background upgrade (see docs/storage-disk-tuning.md).
-      # Agent: NOS_ZSTD_LEVEL_UPLOAD default 3; NOS_ZSTD_LEVEL default 22; optional dict/dedup off by default.
-      NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
-      NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-22}
-      NOS_ZSTD_DICT_ENABLED: ${NOS_ZSTD_DICT_ENABLED:-false}
-      NOS_DEDUP_ENABLED: ${NOS_DEDUP_ENABLED:-false}
+      # Human: Block-compressed NOSB layout — fast zstd for dev uploads; see docs/storage-disk-tuning.md.
+      # Agent: NOS_ZSTD_LEVEL default 3 in Compose; NOS_COMPRESS_* tune block size and minimum compressible object size.
+      NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-3}
+      NOS_COMPRESS_MIN_SIZE: ${NOS_COMPRESS_MIN_SIZE:-4096}
+      NOS_COMPRESS_BLOCK_SIZE: ${NOS_COMPRESS_BLOCK_SIZE:-1048576}
       # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
-      # Human: When Ownly STORAGE_METADATA_MODE=ownly, set NOS_METADATA_MODE=blob_only (Postgres index lives in Ownly).
-      # Agent: OPTIONAL NOS_METADATA_MODE full|blob_only; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps aggregate PUT body bytes.
-      # Human: Default 2 GiB — must exceed largest single upload (Content-Length budget) and pair with STORAGE_PUT_MAX_CONCURRENT=2.
-      # Agent: 32 MiB rejects drive uploads >~30 MiB with instant 503 backpressure; OVERRIDE via .env on low-RAM hosts.
-      NOS_METADATA_MODE: ${NOS_METADATA_MODE:-full}
-      NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
-      NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
-      NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
       RUST_LOG: info
     ports:
       - "9000:9000"
     volumes:
       - nebular_data:/data
-    # Human: Recompress-on-startup runs in background — HTTP binds immediately (nebular-os v0.1.4+).
-    # Agent: start_period still allows slow first health on cold volumes; backend depends_on service_healthy.
+    # Human: Readiness verifies SQLite metadata + writable blob dir (GET /health/ready).
+    # Agent: start_period allows slow first boot on cold volumes; backend depends_on service_healthy.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 600s
+      start_period: 120s
 
   backend:
     build:
