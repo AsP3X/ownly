@@ -107,11 +107,7 @@ function accumulate(
   };
 }
 
-function resolveCursor(
-  result: MigrateStorageBlobsResponse,
-  nodeId: string | undefined,
-  autoContinue: boolean,
-): string | undefined {
+function resolveCursor(result: MigrateStorageBlobsResponse, autoContinue: boolean): string | undefined {
   if (!autoContinue) return undefined;
   const node = result.nodes[0];
   if (!node?.is_truncated) return undefined;
@@ -195,7 +191,7 @@ export function startStorageMigration(options: {
           return;
         }
 
-        cursor = resolveCursor(result, options.nodeId, options.autoContinue);
+        cursor = resolveCursor(result, options.autoContinue);
         if (!cursor) {
           patchJob({ status: "complete", waitingOnBatch: false });
           return;

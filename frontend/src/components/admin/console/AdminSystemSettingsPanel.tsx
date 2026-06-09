@@ -362,12 +362,7 @@ export function AdminSystemSettingsPanel() {
                         <span className="font-medium">Storage node</span>
                         <select
                           value={migrationNodeId}
-                          onChange={(e) => {
-                            setMigrationNodeId(e.target.value);
-                            setMigrationCursor(null);
-                            setMigrationTruncated(false);
-                            setMigrationMessage(null);
-                          }}
+                          onChange={(e) => setMigrationNodeId(e.target.value)}
                           className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
                         >
                           <option value="">
