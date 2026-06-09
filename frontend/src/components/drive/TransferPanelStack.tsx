@@ -6,7 +6,10 @@ import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel"
 import { StorageMigrationTransferPanel } from "@/components/drive/StorageMigrationTransferPanel";
 import { UploadTransferPanel } from "@/components/drive/UploadTransferPanel";
 import { subscribeDownloadJobs } from "@/lib/download-manager";
-import { subscribeStorageMigrationJob } from "@/lib/storage-migration-manager";
+import {
+  openStorageMigrationLogDialog,
+  subscribeStorageMigrationJob,
+} from "@/lib/storage-migration-manager";
 import { restoreUploadBatchFromStorage, subscribeUploadBatch } from "@/lib/upload-manager";
 
 // Human: Anchor non-blocking transfer trays (migration, uploads, downloads) in the lower-right corner.
@@ -53,7 +56,7 @@ export function TransferPanelStack() {
   useEffect(
     () =>
       subscribeStorageMigrationJob((job) => {
-        setHasStorageMigration(job !== null);
+        setHasStorageMigration(job?.status === "running");
         if (job && job.id !== lastMigrationJobIdRef.current) {
           lastMigrationJobIdRef.current = job.id;
           setMigrationMinimized(false);
@@ -76,6 +79,7 @@ export function TransferPanelStack() {
         <StorageMigrationTransferPanel
           minimized={migrationMinimized}
           onMinimizedChange={setMigrationMinimized}
+          onViewLog={() => openStorageMigrationLogDialog()}
         />
       ) : null}
       {hasUploadBatch ? (

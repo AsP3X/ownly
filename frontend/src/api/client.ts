@@ -692,6 +692,104 @@ export async function migrateStorageBlobs(params: MigrateStorageBlobsParams = {}
   ) as Promise<MigrateStorageBlobsResponse>;
 }
 
+export type StorageMigrationRun = {
+  id: string;
+  kind: "preview" | "migrate";
+  status: "running" | "complete" | "error" | "cancelled";
+  node_id: string | null;
+  prefix: string;
+  total_target: number;
+  migrated: number;
+  skipped: number;
+  failed: number;
+  scanned: number;
+  current_node_id: string | null;
+  batch_number: number;
+  preview_run_id: string | null;
+  error_message: string | null;
+  started_by_user_id: string;
+  dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type StorageMigrationLogEntry = {
+  id: number;
+  level: "info" | "warn" | "error";
+  message: string;
+  node_id: string | null;
+  object_key: string | null;
+  created_at: string;
+};
+
+export type StorageMigrationLogsResponse = {
+  entries: StorageMigrationLogEntry[];
+  has_more: boolean;
+  next_after: number | null;
+};
+
+// Human: Fetch the active or latest undismissed server-side storage migration run.
+// Agent: GET /admin/maintenance/storage-migration/status; VISIBLE to any InstanceAdmin session.
+export async function fetchStorageMigrationStatus() {
+  return apiFetch("/admin/maintenance/storage-migration/status") as Promise<StorageMigrationRun>;
+}
+
+// Human: Start a full per-object preview scan on the API server.
+// Agent: POST /admin/maintenance/storage-migration/preview; RETURNS run row for polling.
+export async function startStorageMigrationPreviewRun(body: {
+  node_id?: string;
+  prefix?: string;
+}) {
+  return apiFetch("/admin/maintenance/storage-migration/preview", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<StorageMigrationRun>;
+}
+
+// Human: Start migrate after a matching preview run completed on the server.
+// Agent: POST /admin/maintenance/storage-migration/migrate; REQUIRES preview totals.
+export async function startStorageMigrationRun(body: {
+  node_id?: string;
+  prefix?: string;
+}) {
+  return apiFetch("/admin/maintenance/storage-migration/migrate", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<StorageMigrationRun>;
+}
+
+// Human: Paginated full log for one storage migration run.
+// Agent: GET /admin/maintenance/storage-migration/{id}/logs; CURSOR via after + limit.
+export async function fetchStorageMigrationLogs(
+  runId: string,
+  params: { after?: number; limit?: number } = {},
+) {
+  const search = new URLSearchParams();
+  if (params.after != null) search.set("after", String(params.after));
+  if (params.limit != null) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return apiFetch(
+    `/admin/maintenance/storage-migration/${runId}/logs${query ? `?${query}` : ""}`,
+  ) as Promise<StorageMigrationLogsResponse>;
+}
+
+// Human: Cancel a running server-side storage migration between batches.
+// Agent: POST /admin/maintenance/storage-migration/{id}/cancel.
+export async function cancelStorageMigrationRun(runId: string) {
+  return apiFetch(`/admin/maintenance/storage-migration/${runId}/cancel`, {
+    method: "POST",
+  }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Dismiss a finished migration run so status restore skips it.
+// Agent: POST /admin/maintenance/storage-migration/{id}/dismiss.
+export async function dismissStorageMigrationRun(runId: string) {
+  return apiFetch(`/admin/maintenance/storage-migration/${runId}/dismiss`, {
+    method: "POST",
+  }) as Promise<{ ok: boolean }>;
+}
+
 export type AdminSecurityOverviewResponse = {
   encryption_standard: string;
   encryption: {

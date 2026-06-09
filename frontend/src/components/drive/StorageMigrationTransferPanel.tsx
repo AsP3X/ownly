@@ -2,7 +2,7 @@
 // Agent: SUBSCRIBES storage-migration-manager; STACKS in TransferPanelStack above uploads/downloads.
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, HardDriveDownload, Loader2, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, HardDriveDownload, Loader2, ScrollText, X } from "lucide-react";
 import {
   cancelStorageMigrationJob,
   dismissStorageMigrationJob,
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 type StorageMigrationTransferPanelProps = {
   minimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
+  onViewLog?: () => void;
 };
 
 // Human: Determinate bar when totalTarget known; shimmer only while a batch HTTP call is in flight.
@@ -103,6 +104,7 @@ function statusLine(job: StorageMigrationJob): string {
 export function StorageMigrationTransferPanel({
   minimized,
   onMinimizedChange,
+  onViewLog,
 }: StorageMigrationTransferPanelProps) {
   const [job, setJob] = useState<StorageMigrationJob | null>(null);
 
@@ -212,6 +214,19 @@ export function StorageMigrationTransferPanel({
           ) : null}
 
           {job.error ? <p className="text-xs text-red-600">{job.error}</p> : null}
+
+          {onViewLog ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full text-xs"
+              onClick={onViewLog}
+            >
+              <ScrollText className="size-3.5" aria-hidden />
+              View full log
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="px-4 py-3">

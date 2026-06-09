@@ -78,6 +78,9 @@ pub struct MigrateBlobsMaintenanceReport {
     pub next_start_after: Option<String>,
     #[serde(default)]
     pub is_truncated: bool,
+    /// Human: True when Nebular honoured dry_run and performed no writes.
+    #[serde(default)]
+    pub dry_run_applied: bool,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -299,20 +302,47 @@ impl NebulaStorage {
         })
     }
 
+    // Human: Read the first bytes of an object — used to detect legacy compression without full GET.
+    // Agent: HTTP GET with Range when possible; RETURNS up to max_bytes prefix.
+    pub async fn get_object_prefix(&self, key: &str, max_bytes: u64) -> anyhow::Result<Vec<u8>> {
+        let url = self.url(key);
+        let end = max_bytes.saturating_sub(1);
+        let range = format!("bytes=0-{end}");
+        let response = self
+            .client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .header(reqwest::header::RANGE, range)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("object storage ranged GET failed: {}", response.status());
+        }
+
+        let bytes = response.bytes().await?;
+        Ok(bytes.to_vec())
+    }
+
     // Human: Server-side legacy blob migration when Nebular ships `/_nos/maintenance/migrate_blobs`.
     // Agent: POST admin JWT; RETURNS None on 404/405 so caller can fall back to client rewrite.
     pub async fn try_migrate_blobs_maintenance(
         &self,
         limit: u64,
         start_after: Option<&str>,
+        dry_run: bool,
     ) -> anyhow::Result<Option<MigrateBlobsMaintenanceReport>> {
         let url = format!("{}/_nos/maintenance/migrate_blobs", self.base_url);
         let limit_param = limit.to_string();
+        let dry_run_param = if dry_run { "true" } else { "false" };
         let mut request = self
             .client
             .post(&url)
             .header(reqwest::header::AUTHORIZATION, self.auth_header())
-            .query(&[("limit", limit_param.as_str())]);
+            .query(&[
+                ("limit", limit_param.as_str()),
+                ("dry_run", dry_run_param),
+            ]);
 
         if let Some(after) = start_after {
             request = request.query(&[("start_after", after)]);

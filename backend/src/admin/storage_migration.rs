@@ -1,5 +1,5 @@
 // Human: Admin maintenance — migrate legacy Nebular blobs (nested paths, old compression) to the current layout.
-// Agent: POST /api/v1/admin/maintenance/migrate-storage-blobs; CALLS Nebular maintenance or GET+PUT rewrite; AUDIT admin.storage_blobs.migrate.
+// Agent: POST /api/v1/admin/maintenance/migrate-storage-blobs; CALLS Nebular maintenance or per-object probe; AUDIT.
 
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub struct MigrateStorageBlobsQuery {
     pub limit: u64,
     /// Human: Pagination cursor from a prior response (`next_start_after`).
     pub start_after: Option<String>,
-    /// Human: When true, list candidates only — no GET/PUT or Nebular maintenance writes.
+    /// Human: When true, inspect each object without writes.
     #[serde(default)]
     pub dry_run: bool,
     /// Human: Prefer Nebular `/_nos/maintenance/migrate_blobs` when available (default true).
@@ -80,9 +80,21 @@ pub struct MigrateStorageBlobsResponse {
     pub nodes: Vec<MigrateStorageBlobsNodeReport>,
 }
 
+/// Human: Optional per-object log line emitted while scanning or migrating a batch.
+/// Agent: USED by storage_migration_run to persist full operator logs.
+#[derive(Debug, Clone)]
+pub struct StorageMigrationObjectLog {
+    pub level: &'static str,
+    pub message: String,
+    pub object_key: Option<String>,
+}
+
+/// Human: Callback for per-object migration log lines during batched work.
+pub type StorageMigrationLogSink = dyn Fn(StorageMigrationObjectLog) + Send + Sync;
+
 // Human: Build an admin JWT Nebular client for one registry row.
 // Agent: READS app_settings bucket + env secrets; RETURNS NebulaStorage for LIST/PUT/maintenance.
-async fn nebula_client_for_node(
+pub(crate) async fn nebula_client_for_node(
     state: &AppState,
     record: &StorageNodeRecord,
 ) -> Result<NebulaStorage, AppError> {
@@ -114,10 +126,33 @@ async fn nebula_client_for_node(
     .map_err(AppError::Internal)
 }
 
+// Human: Legacy compression magics that always require server-side re-encode.
+// Agent: MATCHES scripts/storage-audit.py classification for preview probes.
+fn legacy_magic_prefix(head: &[u8]) -> bool {
+    head.starts_with(b"NOSB") || head.starts_with(b"NOSZ") || head.starts_with(b"NOS2")
+}
+
 // Human: Keys with `/` may still live on the legacy nested on-disk layout until rewritten.
-// Agent: PREDICATE for client-side migration; flat keys may still need format upgrade via recompress env.
-fn key_needs_client_migration(key: &str) -> bool {
+fn key_needs_path_relocation(key: &str) -> bool {
     key.contains('/')
+}
+
+// Human: Inspect one object key to decide whether migration work is still required.
+// Agent: READS ranged GET prefix; CHECKS nested key layout and legacy blob magics.
+pub(crate) async fn object_needs_migration(
+    client: &NebulaStorage,
+    key: &str,
+) -> Result<bool, anyhow::Error> {
+    if key_needs_path_relocation(key) {
+        return Ok(true);
+    }
+
+    let head = client.get_object_prefix(key, 4).await?;
+    if legacy_magic_prefix(&head) {
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 // Human: Rewrite one object by streaming GET → PUT on the same key (idempotent for already-migrated blobs).
@@ -146,14 +181,31 @@ async fn rewrite_object_with_retry(client: &NebulaStorage, key: &str) -> Result<
     unreachable!("rewrite_object_with_retry exits via return or Err")
 }
 
-// Human: Client-side batch — list page, rewrite keys that still need layout migration.
-// Agent: READS list_objects_page; CALLS rewrite_object_stream per key; RETURNS pagination cursor.
-async fn migrate_node_client_batch(
+fn emit_object_log(
+    sink: Option<&StorageMigrationLogSink>,
+    level: &'static str,
+    message: impl Into<String>,
+    object_key: Option<&str>,
+) {
+    if let Some(log) = sink {
+        log(StorageMigrationObjectLog {
+            level,
+            message: message.into(),
+            object_key: object_key.map(str::to_string),
+        });
+    }
+}
+
+// Human: Client-side batch — probe or rewrite each listed object individually.
+// Agent: READS list_objects_page; CALLS object_needs_migration on dry_run; RETURNS pagination cursor.
+pub(crate) async fn migrate_node_client_batch(
     client: &NebulaStorage,
+    node_id: &str,
     prefix: &str,
     limit: u64,
     start_after: Option<&str>,
     dry_run: bool,
+    log_sink: Option<&StorageMigrationLogSink>,
 ) -> Result<MigrateStorageBlobsNodeReport, AppError> {
     let page = client
         .list_objects_page(prefix, None, limit, start_after)
@@ -161,8 +213,12 @@ async fn migrate_node_client_batch(
         .map_err(|e| AppError::BadRequest(format!("object list failed: {e:#}")))?;
 
     let mut report = MigrateStorageBlobsNodeReport {
-        node_id: String::new(),
-        method: "client_rewrite".into(),
+        node_id: node_id.to_string(),
+        method: if dry_run {
+            "client_probe".into()
+        } else {
+            "client_rewrite".into()
+        },
         scanned: page.items.len() as u64,
         migrated: 0,
         skipped: 0,
@@ -173,24 +229,102 @@ async fn migrate_node_client_batch(
     };
 
     for item in &page.items {
-        if !key_needs_client_migration(&item.key) {
-            report.skipped += 1;
-            continue;
-        }
         if dry_run {
-            report.migrated += 1;
+            match object_needs_migration(client, &item.key).await {
+                Ok(true) => {
+                    report.migrated += 1;
+                    emit_object_log(
+                        log_sink,
+                        "info",
+                        format!("Would migrate object on {node_id}"),
+                        Some(&item.key),
+                    );
+                }
+                Ok(false) => {
+                    report.skipped += 1;
+                    emit_object_log(
+                        log_sink,
+                        "info",
+                        format!("Skipped object already current on {node_id}"),
+                        Some(&item.key),
+                    );
+                }
+                Err(error) => {
+                    report.failed += 1;
+                    let message = format!("{error:#}");
+                    if report.failures.len() < 20 {
+                        report.failures.push(MigrateStorageBlobsFailure {
+                            key: item.key.clone(),
+                            message: message.clone(),
+                        });
+                    }
+                    emit_object_log(
+                        log_sink,
+                        "error",
+                        format!("Failed to inspect object on {node_id}: {message}"),
+                        Some(&item.key),
+                    );
+                }
+            }
             continue;
         }
-        match rewrite_object_with_retry(client, &item.key).await {
-            Ok(()) => report.migrated += 1,
+
+        match object_needs_migration(client, &item.key).await {
+            Ok(false) => {
+                report.skipped += 1;
+                emit_object_log(
+                    log_sink,
+                    "info",
+                    format!("Skipped object already current on {node_id}"),
+                    Some(&item.key),
+                );
+                continue;
+            }
+            Ok(true) => {}
             Err(error) => {
                 report.failed += 1;
+                let message = format!("{error:#}");
                 if report.failures.len() < 20 {
                     report.failures.push(MigrateStorageBlobsFailure {
                         key: item.key.clone(),
-                        message: format!("{error:#}"),
+                        message: message.clone(),
                     });
                 }
+                emit_object_log(
+                    log_sink,
+                    "error",
+                    format!("Failed to inspect object on {node_id}: {message}"),
+                    Some(&item.key),
+                );
+                continue;
+            }
+        }
+
+        match rewrite_object_with_retry(client, &item.key).await {
+            Ok(()) => {
+                report.migrated += 1;
+                emit_object_log(
+                    log_sink,
+                    "info",
+                    format!("Migrated object on {node_id}"),
+                    Some(&item.key),
+                );
+            }
+            Err(error) => {
+                report.failed += 1;
+                let message = format!("{error:#}");
+                if report.failures.len() < 20 {
+                    report.failures.push(MigrateStorageBlobsFailure {
+                        key: item.key.clone(),
+                        message: message.clone(),
+                    });
+                }
+                emit_object_log(
+                    log_sink,
+                    "error",
+                    format!("Failed to migrate object on {node_id}: {message}"),
+                    Some(&item.key),
+                );
             }
         }
     }
@@ -198,8 +332,138 @@ async fn migrate_node_client_batch(
     Ok(report)
 }
 
+/// Human: Inputs for one node migration batch — shared by HTTP handler and background runner.
+pub(crate) struct NodeMigrationBatchRequest<'a> {
+    pub prefix: &'a str,
+    pub limit: u64,
+    pub start_after: Option<&'a str>,
+    pub dry_run: bool,
+    pub prefer_server: bool,
+    pub log_sink: Option<&'a StorageMigrationLogSink>,
+}
+
+// Human: Execute one migration batch for a single storage node — shared by HTTP handler and background runner.
+// Agent: TRIES Nebular maintenance when safe; FALLBACK client probe/rewrite with per-object inspection.
+pub(crate) async fn execute_node_migration_batch(
+    state: &AppState,
+    record: &StorageNodeRecord,
+    request: NodeMigrationBatchRequest<'_>,
+) -> Result<MigrateStorageBlobsNodeReport, AppError> {
+    let client = nebula_client_for_node(state, record).await?;
+
+    if request.dry_run {
+        if request.prefer_server {
+            if let Some(server) = client
+                .try_migrate_blobs_maintenance(request.limit, request.start_after, true)
+                .await
+                .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
+            {
+                if server.dry_run_applied {
+                    emit_object_log(
+                        request.log_sink,
+                        "info",
+                        format!(
+                            "Batch on {} via nebular_maintenance: would migrate {}, skipped {}, failed {}",
+                            record.id, server.migrated, server.skipped, server.failed
+                        ),
+                        None,
+                    );
+                    return Ok(MigrateStorageBlobsNodeReport {
+                        node_id: record.id.clone(),
+                        method: "nebular_maintenance".into(),
+                        scanned: server.scanned,
+                        migrated: server.migrated,
+                        skipped: server.skipped,
+                        failed: server.failed,
+                        failures: Vec::new(),
+                        next_start_after: server.next_start_after,
+                        is_truncated: server.is_truncated,
+                    });
+                }
+            }
+        }
+
+        return migrate_node_client_batch(
+            &client,
+            &record.id,
+            request.prefix,
+            request.limit,
+            request.start_after,
+            true,
+            request.log_sink,
+        )
+        .await;
+    }
+
+    if request.prefer_server {
+        if let Some(server) = client
+            .try_migrate_blobs_maintenance(request.limit, request.start_after, false)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
+        {
+            emit_object_log(
+                request.log_sink,
+                "info",
+                format!(
+                    "Batch on {} via nebular_maintenance: migrated {}, skipped {}, failed {}",
+                    record.id, server.migrated, server.skipped, server.failed
+                ),
+                None,
+            );
+            return Ok(MigrateStorageBlobsNodeReport {
+                node_id: record.id.clone(),
+                method: "nebular_maintenance".into(),
+                scanned: server.scanned,
+                migrated: server.migrated,
+                skipped: server.skipped,
+                failed: server.failed,
+                failures: Vec::new(),
+                next_start_after: server.next_start_after,
+                is_truncated: server.is_truncated,
+            });
+        }
+    }
+
+    migrate_node_client_batch(
+        &client,
+        &record.id,
+        request.prefix,
+        request.limit,
+        request.start_after,
+        false,
+        request.log_sink,
+    )
+    .await
+}
+
+// Human: Load enabled storage node rows for a migration request scope.
+pub(crate) async fn load_migration_node_rows(
+    pool: &sqlx::PgPool,
+    node_id: Option<&str>,
+) -> Result<Vec<StorageNodeRecord>, AppError> {
+    if let Some(node_id) = node_id {
+        let id = normalize_node_id(node_id)?;
+        let row: Option<StorageNodeRecord> = sqlx::query_as(
+            "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
+             FROM storage_nodes WHERE enabled = true AND id = $1",
+        )
+        .bind(&id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.into_iter().collect())
+    } else {
+        sqlx::query_as(
+            "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
+             FROM storage_nodes WHERE enabled = true ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(AppError::from)
+    }
+}
+
 // Human: POST /api/v1/admin/maintenance/migrate-storage-blobs — batched legacy blob migration per node.
-// Agent: InstanceAdmin; TRIES Nebular maintenance POST first; FALLBACK client_rewrite; AUDIT with counts.
+// Agent: InstanceAdmin; CALLS execute_node_migration_batch; AUDIT with counts.
 pub async fn migrate_storage_blobs(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -211,25 +475,7 @@ pub async fn migrate_storage_blobs(
     let limit = query.limit.clamp(1, 200);
     let prefix = query.prefix.trim().to_string();
 
-    let node_rows: Vec<StorageNodeRecord> = if let Some(ref node_id) = query.node_id {
-        let id = normalize_node_id(node_id)?;
-        let row: Option<StorageNodeRecord> = sqlx::query_as(
-            "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
-             FROM storage_nodes WHERE enabled = true AND id = $1",
-        )
-        .bind(&id)
-        .fetch_optional(&state.pool)
-        .await?;
-        row.into_iter().collect()
-    } else {
-        sqlx::query_as(
-            "SELECT id, region_label, base_url, architecture, target_capacity_bytes \
-             FROM storage_nodes WHERE enabled = true ORDER BY id",
-        )
-        .fetch_all(&state.pool)
-        .await?
-    };
-
+    let node_rows = load_migration_node_rows(&state.pool, query.node_id.as_deref()).await?;
     if node_rows.is_empty() {
         return Err(AppError::BadRequest(
             "No enabled storage nodes match the request.".into(),
@@ -237,7 +483,6 @@ pub async fn migrate_storage_blobs(
     }
 
     let mut nodes = Vec::with_capacity(node_rows.len());
-    // Human: Pagination cursor is per-node — only honor it when migrating a single explicit node.
     let start_after = if node_rows.len() == 1 {
         query.start_after.as_deref()
     } else {
@@ -245,51 +490,19 @@ pub async fn migrate_storage_blobs(
     };
 
     for record in node_rows {
-        let client = nebula_client_for_node(state.as_ref(), &record).await?;
-        let mut report = if query.prefer_server && !query.dry_run {
-            match client
-                .try_migrate_blobs_maintenance(limit, start_after)
-                .await
-                .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
-            {
-                Some(server) => MigrateStorageBlobsNodeReport {
-                    node_id: record.id.clone(),
-                    method: "nebular_maintenance".into(),
-                    scanned: server.scanned,
-                    migrated: server.migrated,
-                    skipped: server.skipped,
-                    failed: server.failed,
-                    failures: Vec::new(),
-                    next_start_after: server.next_start_after,
-                    is_truncated: server.is_truncated,
-                },
-                None => {
-                    let mut client_report = migrate_node_client_batch(
-                        &client,
-                        &prefix,
-                        limit,
-                        start_after,
-                        query.dry_run,
-                    )
-                    .await?;
-                    client_report.node_id = record.id.clone();
-                    client_report
-                }
-            }
-        } else {
-            let mut client_report = migrate_node_client_batch(
-                &client,
-                &prefix,
+        let report = execute_node_migration_batch(
+            state.as_ref(),
+            &record,
+            NodeMigrationBatchRequest {
+                prefix: &prefix,
                 limit,
                 start_after,
-                query.dry_run,
-            )
-            .await?;
-            client_report.node_id = record.id.clone();
-            client_report
-        };
-
-        report.node_id = record.id.clone();
+                dry_run: query.dry_run,
+                prefer_server: query.prefer_server,
+                log_sink: None,
+            },
+        )
+        .await?;
         nodes.push(report);
     }
 

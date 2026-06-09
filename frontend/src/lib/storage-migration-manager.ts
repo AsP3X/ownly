@@ -1,12 +1,15 @@
-// Human: Background legacy blob migration job — preview scan then batched migrate with real progress.
-// Agent: LOOPS migrateStorageBlobs per node until truncated=false; STORES preview totals; SUBSCRIBE pattern.
+// Human: Server-backed storage migration state — polls API so any admin session restores progress.
+// Agent: POST preview/migrate endpoints; POLL status; EMIT job/preview/result dialog subscribers.
 
 import {
+  cancelStorageMigrationRun,
+  dismissStorageMigrationRun,
+  fetchStorageMigrationStatus,
   getErrorMessage,
-  migrateStorageBlobs,
-  type MigrateStorageBlobsResponse,
+  startStorageMigrationPreviewRun,
+  startStorageMigrationRun,
+  type StorageMigrationRun,
 } from "@/api/client";
-import { createClientId } from "@/lib/utils-app";
 
 export type StorageMigrationJobStatus = "running" | "complete" | "error" | "cancelled";
 export type StorageMigrationJobKind = "preview" | "migrate";
@@ -17,22 +20,20 @@ export type StorageMigrationJob = {
   status: StorageMigrationJobStatus;
   nodeId?: string;
   prefix?: string;
-  /** Human: Objects that need migration — from preview; drives migrate progress percent. */
   totalTarget?: number;
   batchNumber: number;
   migrated: number;
   skipped: number;
   failed: number;
   scanned: number;
-  /** Human: Node currently being scanned or migrated (multi-node runs). */
   currentNodeId?: string;
-  /** Human: True while waiting on the current HTTP batch request. */
   waitingOnBatch: boolean;
   error?: string;
   lastNodeSummaries: string[];
 };
 
 export type StorageMigrationPreview = {
+  runId: string;
   nodeId?: string;
   prefix?: string;
   totalWouldMigrate: number;
@@ -43,15 +44,23 @@ export type StorageMigrationPreview = {
 
 type JobListener = (job: StorageMigrationJob | null) => void;
 type PreviewListener = (preview: StorageMigrationPreview | null) => void;
+type ResultDialogListener = (open: boolean) => void;
+type LogDialogListener = (open: boolean) => void;
 
-const BATCH_LIMIT = 25;
+const POLL_INTERVAL_MS = 2000;
 
 let activeJob: StorageMigrationJob | null = null;
 let storedPreview: StorageMigrationPreview | null = null;
-let cancelRequested = false;
-let runToken = 0;
+let resultDialogOpen = false;
+let logDialogOpen = false;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollInFlight = false;
+let restoreAttempted = false;
+
 const jobListeners = new Set<JobListener>();
 const previewListeners = new Set<PreviewListener>();
+const resultDialogListeners = new Set<ResultDialogListener>();
+const logDialogListeners = new Set<LogDialogListener>();
 
 function emitJob() {
   const snapshot = activeJob ? { ...activeJob } : null;
@@ -67,10 +76,113 @@ function emitPreview() {
   }
 }
 
-function patchJob(patch: Partial<StorageMigrationJob>) {
-  if (!activeJob) return;
-  activeJob = { ...activeJob, ...patch };
+function emitResultDialog() {
+  for (const listener of resultDialogListeners) {
+    listener(resultDialogOpen);
+  }
+}
+
+function emitLogDialog() {
+  for (const listener of logDialogListeners) {
+    listener(logDialogOpen);
+  }
+}
+
+function isTerminal(status: StorageMigrationJobStatus) {
+  return status === "complete" || status === "error" || status === "cancelled";
+}
+
+function runToJob(run: StorageMigrationRun): StorageMigrationJob {
+  return {
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    nodeId: run.node_id ?? undefined,
+    prefix: run.prefix || undefined,
+    totalTarget: run.total_target > 0 ? run.total_target : undefined,
+    batchNumber: run.batch_number,
+    migrated: run.migrated,
+    skipped: run.skipped,
+    failed: run.failed,
+    scanned: run.scanned,
+    currentNodeId: run.current_node_id ?? undefined,
+    waitingOnBatch: run.status === "running",
+    error: run.error_message ?? undefined,
+    lastNodeSummaries: [],
+  };
+}
+
+function syncPreviewFromRun(run: StorageMigrationRun) {
+  if (run.kind !== "preview" || run.status !== "complete") {
+    return;
+  }
+  storedPreview = {
+    runId: run.id,
+    nodeId: run.node_id ?? undefined,
+    prefix: run.prefix || undefined,
+    totalWouldMigrate: run.migrated,
+    totalSkipped: run.skipped,
+    totalScanned: run.scanned,
+    completedAt: run.completed_at ? Date.parse(run.completed_at) : Date.now(),
+  };
+  emitPreview();
+}
+
+function applyRun(run: StorageMigrationRun, options?: { openResultOnTerminal?: boolean }) {
+  const previousStatus = activeJob?.status;
+  const previousId = activeJob?.id;
+
+  activeJob = runToJob(run);
   emitJob();
+  syncPreviewFromRun(run);
+
+  if (run.kind === "preview" && run.status === "complete") {
+    activeJob = {
+      ...activeJob,
+      totalTarget: run.migrated,
+    };
+    emitJob();
+  }
+
+  const becameTerminal =
+    isTerminal(activeJob.status) &&
+    (previousStatus === "running" || previousId !== activeJob.id);
+
+  if ((options?.openResultOnTerminal || becameTerminal) && isTerminal(activeJob.status)) {
+    resultDialogOpen = true;
+    emitResultDialog();
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function pollStorageMigrationStatus() {
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    const run = await fetchStorageMigrationStatus();
+    applyRun(run);
+    if (run.status !== "running") {
+      stopPolling();
+    }
+  } catch {
+    stopPolling();
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  void pollStorageMigrationStatus();
+  pollTimer = setInterval(() => {
+    void pollStorageMigrationStatus();
+  }, POLL_INTERVAL_MS);
 }
 
 // Human: Stable key for matching preview scope to current admin form values.
@@ -90,7 +202,7 @@ export function previewMatchesScope(
   return previewScopeKey(preview.nodeId, preview.prefix) === previewScopeKey(nodeId, prefix);
 }
 
-// Human: Percent complete for migrate jobs; null means indeterminate (preview scan in flight).
+// Human: Percent complete for migrate jobs; null means indeterminate while preview scans.
 // Agent: USES migrated+failed over totalTarget from preview.
 export function migrationProgressPercent(job: StorageMigrationJob): number | null {
   if (job.kind === "migrate" && job.totalTarget && job.totalTarget > 0) {
@@ -103,8 +215,6 @@ export function migrationProgressPercent(job: StorageMigrationJob): number | nul
   return null;
 }
 
-// Human: Subscribe to the active storage migration job (null when dismissed).
-// Agent: CALLS listener immediately; RETURNS unsubscribe.
 export function subscribeStorageMigrationJob(listener: JobListener) {
   jobListeners.add(listener);
   listener(activeJob ? { ...activeJob } : null);
@@ -113,8 +223,6 @@ export function subscribeStorageMigrationJob(listener: JobListener) {
   };
 }
 
-// Human: Subscribe to the last completed preview totals for the admin settings form.
-// Agent: CALLS listener immediately; RETURNS unsubscribe.
 export function subscribeStorageMigrationPreview(listener: PreviewListener) {
   previewListeners.add(listener);
   listener(storedPreview ? { ...storedPreview } : null);
@@ -123,273 +231,143 @@ export function subscribeStorageMigrationPreview(listener: PreviewListener) {
   };
 }
 
+export function subscribeStorageMigrationResultDialog(listener: ResultDialogListener) {
+  resultDialogListeners.add(listener);
+  listener(resultDialogOpen);
+  return () => {
+    resultDialogListeners.delete(listener);
+  };
+}
+
+export function subscribeStorageMigrationLogDialog(listener: LogDialogListener) {
+  logDialogListeners.add(listener);
+  listener(logDialogOpen);
+  return () => {
+    logDialogListeners.delete(listener);
+  };
+}
+
+// Human: Open the reusable log dialog for the active server migration run.
+// Agent: SETS logDialogOpen; READ by StorageMigrationUi subscriber.
+export function openStorageMigrationLogDialog() {
+  if (!activeJob) return;
+  logDialogOpen = true;
+  emitLogDialog();
+}
+
 export function getStorageMigrationPreview(): StorageMigrationPreview | null {
   return storedPreview ? { ...storedPreview } : null;
 }
 
-// Human: Drop stored preview when node or prefix changes in admin settings.
-// Agent: SETS storedPreview null; EMITS preview listeners.
 export function clearStorageMigrationPreview() {
   storedPreview = null;
   emitPreview();
 }
 
-// Human: Clear the finished migration card from the transfer stack.
-// Agent: SETS activeJob null; NO-OP while status running.
-export function dismissStorageMigrationJob() {
-  if (activeJob?.status === "running") return;
+// Human: Restore migration UI after reload — any InstanceAdmin sees the same server run.
+// Agent: GET status once on mount; STARTS polling when running; OPENS result dialog when terminal.
+export async function restoreStorageMigrationFromServer() {
+  if (restoreAttempted) return;
+  restoreAttempted = true;
+  try {
+    const run = await fetchStorageMigrationStatus();
+    applyRun(run, { openResultOnTerminal: isTerminal(run.status) });
+    if (run.status === "running") {
+      startPolling();
+    }
+  } catch {
+    activeJob = null;
+    emitJob();
+  }
+}
+
+// Human: Hide the finished migration card and dismiss on the server.
+// Agent: POST dismiss; CLEARS local active job.
+export async function dismissStorageMigrationJob() {
+  if (!activeJob || activeJob.status === "running") return;
+  try {
+    await dismissStorageMigrationRun(activeJob.id);
+  } catch {
+    return;
+  }
   activeJob = null;
+  resultDialogOpen = false;
+  emitResultDialog();
   emitJob();
 }
 
-// Human: Stop after the in-flight batch completes — does not abort the HTTP request.
-// Agent: SETS cancelRequested; LOOP exits before next migrateStorageBlobs call.
-export function cancelStorageMigrationJob() {
+export function closeStorageMigrationResultDialog() {
+  resultDialogOpen = false;
+  emitResultDialog();
+}
+
+// Human: Cancel the server-side worker between batches.
+// Agent: POST cancel; POLL until status leaves running.
+export async function cancelStorageMigrationJob() {
   if (!activeJob || activeJob.status !== "running") return;
-  cancelRequested = true;
-}
-
-function summarizeNodes(result: MigrateStorageBlobsResponse, dryRun: boolean): string[] {
-  return result.nodes.map((node) => {
-    const verb = dryRun ? "would migrate" : "migrated";
-    return `${node.node_id}: ${verb} ${node.migrated}, skipped ${node.skipped}, failed ${node.failed}`;
-  });
-}
-
-function accumulate(
-  job: StorageMigrationJob,
-  result: MigrateStorageBlobsResponse,
-  dryRun: boolean,
-): StorageMigrationJob {
-  let migrated = job.migrated;
-  let skipped = job.skipped;
-  let failed = job.failed;
-  let scanned = job.scanned;
-  for (const node of result.nodes) {
-    migrated += node.migrated;
-    skipped += node.skipped;
-    failed += node.failed;
-    scanned += node.scanned;
+  try {
+    await cancelStorageMigrationRun(activeJob.id);
+    startPolling();
+  } catch (error) {
+    if (activeJob) {
+      activeJob = {
+        ...activeJob,
+        status: "error",
+        error: getErrorMessage(error),
+        waitingOnBatch: false,
+      };
+      emitJob();
+    }
   }
-  return {
-    ...job,
-    migrated,
-    skipped,
-    failed,
-    scanned,
-    lastNodeSummaries: summarizeNodes(result, dryRun),
-  };
 }
 
-function resolveNodeCursor(result: MigrateStorageBlobsResponse, nodeId: string): string | undefined {
-  const node = result.nodes.find((entry) => entry.node_id === nodeId) ?? result.nodes[0];
-  if (!node?.is_truncated) return undefined;
-  return node.next_start_after ?? undefined;
-}
-
-type RunOptions = {
-  kind: StorageMigrationJobKind;
-  nodeId?: string;
-  nodeIds: string[];
-  prefix?: string;
-  totalTarget?: number;
-};
-
-// Human: Shared batched loop — paginates each storage node until listing is exhausted.
-// Agent: CALLS migrateStorageBlobs with dry_run for preview; WRITES storedPreview on preview complete.
-function startBatchedJob(options: RunOptions) {
-  if (activeJob?.status === "running") {
-    return;
-  }
-
-  const nodesToProcess =
-    options.nodeId?.trim()
-      ? [options.nodeId.trim()]
-      : options.nodeIds.map((id) => id.trim()).filter((id) => id.length > 0);
-
-  if (nodesToProcess.length === 0) {
+async function beginRun(start: () => Promise<StorageMigrationRun>) {
+  try {
+    const run = await start();
+    applyRun(run);
+    startPolling();
+  } catch (error) {
     activeJob = {
-      id: createClientId(),
-      kind: options.kind,
+      id: "error",
+      kind: "preview",
       status: "error",
-      nodeId: options.nodeId,
-      prefix: options.prefix,
-      totalTarget: options.totalTarget,
       batchNumber: 0,
       migrated: 0,
       skipped: 0,
       failed: 0,
       scanned: 0,
       waitingOnBatch: false,
-      error: "No storage nodes available to scan.",
+      error: getErrorMessage(error),
       lastNodeSummaries: [],
     };
     emitJob();
-    return;
   }
-
-  const token = ++runToken;
-  cancelRequested = false;
-  const dryRun = options.kind === "preview";
-
-  if (dryRun) {
-    storedPreview = null;
-    emitPreview();
-  }
-
-  activeJob = {
-    id: createClientId(),
-    kind: options.kind,
-    status: "running",
-    nodeId: options.nodeId,
-    prefix: options.prefix,
-    totalTarget: options.totalTarget,
-    batchNumber: 0,
-    migrated: 0,
-    skipped: 0,
-    failed: 0,
-    scanned: 0,
-    waitingOnBatch: true,
-    lastNodeSummaries: [],
-  };
-  emitJob();
-
-  void (async () => {
-    try {
-      for (const nodeId of nodesToProcess) {
-        if (cancelRequested || token !== runToken) {
-          return;
-        }
-
-        let cursor: string | undefined;
-        while (!cancelRequested && token === runToken) {
-          patchJob({
-            waitingOnBatch: true,
-            batchNumber: (activeJob?.batchNumber ?? 0) + 1,
-            currentNodeId: nodeId,
-          });
-
-          const result = await migrateStorageBlobs({
-            node_id: nodeId,
-            prefix: options.prefix,
-            limit: BATCH_LIMIT,
-            start_after: cursor,
-            dry_run: dryRun,
-          });
-
-          if (token !== runToken || !activeJob) {
-            return;
-          }
-
-          if (cancelRequested) {
-            patchJob({ status: "cancelled", waitingOnBatch: false });
-            return;
-          }
-
-          const updated = accumulate(activeJob, result, dryRun);
-          activeJob = {
-            ...updated,
-            waitingOnBatch: false,
-          };
-          emitJob();
-
-          const truncated = result.nodes.some((node) => node.is_truncated);
-          if (!truncated) {
-            break;
-          }
-
-          cursor = resolveNodeCursor(result, nodeId);
-          if (!cursor) {
-            break;
-          }
-        }
-      }
-
-      if (token !== runToken || !activeJob) {
-        return;
-      }
-
-      if (cancelRequested) {
-        patchJob({ status: "cancelled", waitingOnBatch: false });
-        return;
-      }
-
-      const hasFailures = activeJob.failed > 0;
-
-      if (dryRun) {
-        storedPreview = {
-          nodeId: options.nodeId,
-          prefix: options.prefix,
-          totalWouldMigrate: activeJob.migrated,
-          totalSkipped: activeJob.skipped,
-          totalScanned: activeJob.scanned,
-          completedAt: Date.now(),
-        };
-        emitPreview();
-        patchJob({
-          status: "complete",
-          waitingOnBatch: false,
-          totalTarget: activeJob.migrated,
-        });
-        return;
-      }
-
-      patchJob({
-        status: hasFailures ? "error" : "complete",
-        waitingOnBatch: false,
-        error: hasFailures
-          ? "One or more objects failed to migrate. Check audit logs for details."
-          : undefined,
-      });
-    } catch (error) {
-      if (token !== runToken) return;
-      if (cancelRequested) {
-        patchJob({ status: "cancelled", waitingOnBatch: false });
-        return;
-      }
-      patchJob({
-        status: "error",
-        waitingOnBatch: false,
-        error: getErrorMessage(error),
-      });
-    }
-  })();
 }
 
-// Human: Full dry-run scan — counts all objects that need migration and unlocks Start migration.
-// Agent: PAGINATES every selected node; STORES StorageMigrationPreview on success.
+// Human: Start full per-object preview on the API server.
+// Agent: POST preview endpoint; POLL status for all admin sessions.
 export function startStorageMigrationPreview(options: {
   nodeId?: string;
-  nodeIds: string[];
   prefix?: string;
 }) {
-  startBatchedJob({
-    kind: "preview",
-    nodeId: options.nodeId,
-    nodeIds: options.nodeIds,
-    prefix: options.prefix,
-  });
+  void beginRun(() =>
+    startStorageMigrationPreviewRun({
+      node_id: options.nodeId,
+      prefix: options.prefix,
+    }),
+  );
 }
 
-// Human: Start legacy blob migration after preview — progress uses preview total for percent.
-// Agent: REQUIRES matching storedPreview; RUNS batched migrate until all nodes complete.
+// Human: Start migrate after server preview — progress uses preview total for percent.
+// Agent: POST migrate endpoint; REQUIRES matching completed preview on server.
 export function startStorageMigration(options: {
   nodeId?: string;
-  nodeIds: string[];
   prefix?: string;
 }) {
-  if (!previewMatchesScope(storedPreview, options.nodeId, options.prefix)) {
-    return;
-  }
-  if (!storedPreview || storedPreview.totalWouldMigrate === 0) {
-    return;
-  }
-
-  startBatchedJob({
-    kind: "migrate",
-    nodeId: options.nodeId,
-    nodeIds: options.nodeIds,
-    prefix: options.prefix,
-    totalTarget: storedPreview.totalWouldMigrate,
-  });
+  void beginRun(() =>
+    startStorageMigrationRun({
+      node_id: options.nodeId,
+      prefix: options.prefix,
+    }),
+  );
 }

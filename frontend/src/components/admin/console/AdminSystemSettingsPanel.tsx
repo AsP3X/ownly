@@ -183,7 +183,6 @@ export function AdminSystemSettingsPanel() {
     setActionError(null);
     startStorageMigrationPreview({
       nodeId: migrationNodeId.trim() || undefined,
-      nodeIds: storageNodeIds,
       prefix: migrationPrefix.trim() || undefined,
     });
   }
@@ -213,7 +212,6 @@ export function AdminSystemSettingsPanel() {
     setActionError(null);
     startStorageMigration({
       nodeId,
-      nodeIds: storageNodeIds,
       prefix,
     });
   }

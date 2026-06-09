@@ -101,6 +101,9 @@ pub struct AppState {
     /// Human: Serialize ffmpeg sidecar generation per storage_key on cache miss.
     /// Agent: READ by gif_preview::open_gif_preview_stream; WRITES per-key Mutex map.
     pub gif_preview_transcode_locks: Arc<files::gif_preview::GifPreviewTranscodeLocks>,
+    /// Human: Cooperative cancel flag for the active server-side storage migration worker.
+    /// Agent: READ/WRITE by storage_migration_run cancel endpoint and background loop.
+    pub storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -232,6 +235,7 @@ async fn build_app_state(
         hls_hardware,
         storage_metadata_mode: config.storage_metadata_mode.clone(),
         gif_preview_transcode_locks: Arc::new(files::gif_preview::GifPreviewTranscodeLocks::new()),
+        storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator::new(),
     }))
 }
 
@@ -674,6 +678,30 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(admin::storage_migration::migrate_storage_blobs),
         )
         .route(
+            "/api/v1/admin/maintenance/storage-migration/status",
+            get(admin::storage_migration_run::get_storage_migration_status),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-migration/preview",
+            post(admin::storage_migration_run::start_storage_migration_preview),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-migration/migrate",
+            post(admin::storage_migration_run::start_storage_migration_run),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-migration/{id}/logs",
+            get(admin::storage_migration_run::get_storage_migration_logs),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-migration/{id}/cancel",
+            post(admin::storage_migration_run::cancel_storage_migration_run),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-migration/{id}/dismiss",
+            post(admin::storage_migration_run::dismiss_storage_migration_run),
+        )
+        .route(
             "/api/v1/admin/security",
             get(admin::console::security_overview),
         )
@@ -740,6 +768,7 @@ pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
+    admin::storage_migration_run::resume_running_storage_migrations(state.clone()).await;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
     files::recycle_bin::start_recycle_bin_purger(state.clone());
     temp_cleanup::start_temp_janitor(state.clone());
