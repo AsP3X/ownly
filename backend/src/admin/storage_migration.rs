@@ -92,15 +92,24 @@ pub struct StorageMigrationObjectLog {
 /// Human: Callback for per-object migration log lines during batched work.
 pub type StorageMigrationLogSink = dyn Fn(StorageMigrationObjectLog) + Send + Sync;
 
-/// Human: Per HTTP call to Nebular during migration — long enough for large rewrites, short enough to surface hangs.
-/// Agent: APPLIES to migrate_blobs maintenance POST and per-object GET/PUT in client fallback.
-pub(crate) const MIGRATION_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(900);
+/// Human: Per HTTP call for client-side GET/PUT during migration — caps one stuck Nebular stream.
+/// Agent: APPLIES to list_objects_page, get_stream, put_stream in client_rewrite fallback.
+pub(crate) const MIGRATION_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
-// Human: Build an admin JWT Nebular client for one registry row.
+/// Human: Wall-clock budget for one object rewrite (GET → PUT, including retries) before fail-forward.
+/// Agent: WRAPS rewrite_object_with_retry; PREVENTS one bad blob from freezing a 25-object batch for hours.
+pub(crate) const MIGRATION_PER_OBJECT_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Human: Outer timeout for a single Nebular `migrate_blobs` maintenance POST (server-side batch).
+/// Agent: LONGER than per-object cap because Nebular may rewrite many blobs locally without HTTP streaming.
+pub(crate) const MIGRATION_MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(600);
+
+// Human: Build an admin JWT Nebular client for one registry row with a caller-chosen request timeout.
 // Agent: READS app_settings bucket + env secrets; RETURNS NebulaStorage for LIST/PUT/maintenance.
 pub(crate) async fn nebula_client_for_node(
     state: &AppState,
     record: &StorageNodeRecord,
+    request_timeout: Option<Duration>,
 ) -> Result<NebulaStorage, AppError> {
     if !state.storage_configured {
         return Err(AppError::BadRequest(
@@ -126,7 +135,7 @@ pub(crate) async fn nebula_client_for_node(
         bucket,
         &object_storage_jwt,
         &signing_secret,
-        Some(MIGRATION_HTTP_REQUEST_TIMEOUT),
+        Some(request_timeout.unwrap_or(MIGRATION_HTTP_REQUEST_TIMEOUT)),
     )
     .map_err(AppError::Internal)
 }
@@ -162,14 +171,17 @@ pub(crate) async fn object_needs_migration(
 
 // Human: Rewrite one object by streaming GET → PUT on the same key (idempotent for already-migrated blobs).
 // Agent: RETRIES whole stream on transient PUT errors; WRITES encoded flat path + upload-level NOSI on Nebular.
-async fn rewrite_object_with_retry(client: &NebulaStorage, key: &str) -> Result<(), anyhow::Error> {
-    const MAX_ATTEMPTS: u32 = 5;
+async fn rewrite_object_with_retry(
+    client: &NebulaStorage,
+    key: &str,
+    max_attempts: u32,
+) -> Result<(), anyhow::Error> {
     let mut delay_ms: u64 = 1_500;
 
-    for attempt in 1..=MAX_ATTEMPTS {
+    for attempt in 1..=max_attempts {
         match client.rewrite_object_stream(key).await {
             Ok(()) => return Ok(()),
-            Err(error) if attempt < MAX_ATTEMPTS && is_likely_transient_put_error(&error) => {
+            Err(error) if attempt < max_attempts && is_likely_transient_put_error(&error) => {
                 tracing::warn!(
                     storage_key = %key,
                     attempt,
@@ -185,6 +197,42 @@ async fn rewrite_object_with_retry(client: &NebulaStorage, key: &str) -> Result<
     }
     unreachable!("rewrite_object_with_retry exits via return or Err")
 }
+
+// Human: Probe whether one object still needs migration, bounded by a wall-clock timeout.
+// Agent: CALLS object_needs_migration; RETURNS Err on timeout so caller can fail-forward.
+async fn object_needs_migration_with_timeout(
+    client: &NebulaStorage,
+    key: &str,
+) -> Result<bool, anyhow::Error> {
+    match tokio::time::timeout(MIGRATION_PER_OBJECT_TIMEOUT, object_needs_migration(client, key)).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "object inspection timed out after {}s",
+            MIGRATION_PER_OBJECT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+// Human: Rewrite one object with retry budget and an outer wall-clock cap for migration batches.
+// Agent: WRAPS rewrite_object_with_retry(2 attempts); FAILS FAST when Nebular hangs mid-PUT.
+async fn rewrite_object_for_migration(client: &NebulaStorage, key: &str) -> Result<(), anyhow::Error> {
+    const MIGRATION_REWRITE_ATTEMPTS: u32 = 2;
+    match tokio::time::timeout(
+        MIGRATION_PER_OBJECT_TIMEOUT,
+        rewrite_object_with_retry(client, key, MIGRATION_REWRITE_ATTEMPTS),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "object rewrite timed out after {}s",
+            MIGRATION_PER_OBJECT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+// Human: Optional heartbeat so long client batches still refresh `updated_at` for stale-run detection.
+pub(crate) type StorageMigrationHeartbeat = dyn Fn() + Send + Sync;
 
 fn emit_object_log(
     sink: Option<&StorageMigrationLogSink>,
@@ -211,6 +259,7 @@ pub(crate) async fn migrate_node_client_batch(
     start_after: Option<&str>,
     dry_run: bool,
     log_sink: Option<&StorageMigrationLogSink>,
+    heartbeat: Option<&StorageMigrationHeartbeat>,
 ) -> Result<MigrateStorageBlobsNodeReport, AppError> {
     let page = client
         .list_objects_page(prefix, None, limit, start_after)
@@ -234,8 +283,12 @@ pub(crate) async fn migrate_node_client_batch(
     };
 
     for item in &page.items {
+        if let Some(touch) = heartbeat {
+            touch();
+        }
+
         if dry_run {
-            match object_needs_migration(client, &item.key).await {
+            match object_needs_migration_with_timeout(client, &item.key).await {
                 Ok(true) => {
                     report.migrated += 1;
                     emit_object_log(
@@ -274,7 +327,7 @@ pub(crate) async fn migrate_node_client_batch(
             continue;
         }
 
-        match object_needs_migration(client, &item.key).await {
+        match object_needs_migration_with_timeout(client, &item.key).await {
             Ok(false) => {
                 report.skipped += 1;
                 emit_object_log(
@@ -305,7 +358,7 @@ pub(crate) async fn migrate_node_client_batch(
             }
         }
 
-        match rewrite_object_with_retry(client, &item.key).await {
+        match rewrite_object_for_migration(client, &item.key).await {
             Ok(()) => {
                 report.migrated += 1;
                 emit_object_log(
@@ -345,6 +398,8 @@ pub(crate) struct NodeMigrationBatchRequest<'a> {
     pub dry_run: bool,
     pub prefer_server: bool,
     pub log_sink: Option<&'a StorageMigrationLogSink>,
+    /// Human: Optional DB touch between objects so operators see `updated_at` move during long batches.
+    pub heartbeat: Option<&'a StorageMigrationHeartbeat>,
 }
 
 // Human: Execute one migration batch for a single storage node — shared by HTTP handler and background runner.
@@ -354,11 +409,13 @@ pub(crate) async fn execute_node_migration_batch(
     record: &StorageNodeRecord,
     request: NodeMigrationBatchRequest<'_>,
 ) -> Result<MigrateStorageBlobsNodeReport, AppError> {
-    let client = nebula_client_for_node(state, record).await?;
+    let client = nebula_client_for_node(state, record, Some(MIGRATION_HTTP_REQUEST_TIMEOUT)).await?;
+    let maintenance_client =
+        nebula_client_for_node(state, record, Some(MIGRATION_MAINTENANCE_TIMEOUT)).await?;
 
     if request.dry_run {
         if request.prefer_server {
-            if let Some(server) = client
+            if let Some(server) = maintenance_client
                 .try_migrate_blobs_maintenance(request.limit, request.start_after, true)
                 .await
                 .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
@@ -396,12 +453,13 @@ pub(crate) async fn execute_node_migration_batch(
             request.start_after,
             true,
             request.log_sink,
+            request.heartbeat,
         )
         .await;
     }
 
     if request.prefer_server {
-        if let Some(server) = client
+        if let Some(server) = maintenance_client
             .try_migrate_blobs_maintenance(request.limit, request.start_after, false)
             .await
             .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
@@ -427,6 +485,13 @@ pub(crate) async fn execute_node_migration_batch(
                 is_truncated: server.is_truncated,
             });
         }
+
+        tracing::warn!(
+            node_id = %record.id,
+            limit = request.limit,
+            start_after = ?request.start_after,
+            "nebular migrate_blobs maintenance unavailable; falling back to client_rewrite"
+        );
     }
 
     migrate_node_client_batch(
@@ -437,6 +502,7 @@ pub(crate) async fn execute_node_migration_batch(
         request.start_after,
         false,
         request.log_sink,
+        request.heartbeat,
     )
     .await
 }
@@ -505,6 +571,7 @@ pub async fn migrate_storage_blobs(
                 dry_run: query.dry_run,
                 prefer_server: query.prefer_server,
                 log_sink: None,
+                heartbeat: None,
             },
         )
         .await?;

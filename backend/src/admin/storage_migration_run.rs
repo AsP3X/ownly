@@ -24,7 +24,8 @@ use crate::{
         handlers::require_instance_permission,
         storage_migration::{
             execute_node_migration_batch, load_migration_node_rows, NodeMigrationBatchRequest,
-            MIGRATION_HTTP_REQUEST_TIMEOUT, StorageMigrationLogSink, StorageMigrationObjectLog,
+            MIGRATION_MAINTENANCE_TIMEOUT, MIGRATION_PER_OBJECT_TIMEOUT,
+            StorageMigrationHeartbeat, StorageMigrationLogSink, StorageMigrationObjectLog,
         },
         storage_nodes::StorageNodeRecord,
     },
@@ -37,10 +38,23 @@ use crate::{
 
 const BATCH_LIMIT: u64 = 25;
 
-/// Human: Outer safety net for one migration batch — slightly longer than a single Nebular maintenance POST.
+/// Human: Worst-case client_rewrite wall time — 25 objects × per-object cap plus slack.
+const BATCH_CLIENT_TIMEOUT_SECS: u64 =
+    MIGRATION_PER_OBJECT_TIMEOUT.as_secs() * BATCH_LIMIT + 120;
+
+/// Human: Outer safety net for one migration batch — max of client batch budget and maintenance POST.
 /// Agent: WRAPS execute_node_migration_batch; MARKS run error on timeout instead of leaving status `running`.
-const BATCH_EXECUTION_TIMEOUT: Duration =
-    Duration::from_secs(MIGRATION_HTTP_REQUEST_TIMEOUT.as_secs() + 120);
+const BATCH_EXECUTION_TIMEOUT: Duration = Duration::from_secs(if BATCH_CLIENT_TIMEOUT_SECS
+    > MIGRATION_MAINTENANCE_TIMEOUT.as_secs() + 60
+{
+    BATCH_CLIENT_TIMEOUT_SECS
+} else {
+    MIGRATION_MAINTENANCE_TIMEOUT.as_secs() + 60
+});
+
+/// Human: Running rows with no heartbeat longer than this are marked error before resume on API startup.
+/// Agent: PREVENTS infinite `running` after a worker died mid-batch without per-object fail-forward.
+const STALE_RUNNING_RUN_GRACE: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -290,6 +304,32 @@ struct RunCountUpdate<'a> {
     progress: &'a RunProgress,
 }
 
+// Human: Lightweight touch so status polling and stale-run detection see activity during long batches.
+// Agent: UPDATES updated_at only; CALLED from client_rewrite heartbeat between objects.
+async fn touch_run_updated_at(pool: &PgPool, run_id: Uuid) {
+    let _ = sqlx::query("UPDATE storage_migration_runs SET updated_at = now() WHERE id = $1")
+        .bind(run_id)
+        .execute(pool)
+        .await;
+}
+
+// Human: Mark orphaned `running` rows as error when the worker stopped heartbeating.
+// Agent: RUNS before resume on startup; DOES NOT cancel runs that are actively progressing.
+async fn recover_stale_running_runs(pool: &PgPool) {
+    let cutoff =
+        chrono::Utc::now() - chrono::Duration::seconds(STALE_RUNNING_RUN_GRACE.as_secs() as i64);
+    let message = "Run stalled (no progress for 30 minutes). Check object-storage disk space and logs, cancel if needed, then start a new migration.";
+    let _ = sqlx::query(
+        "UPDATE storage_migration_runs \
+         SET status = 'error', completed_at = now(), updated_at = now(), error_message = $2 \
+         WHERE status = 'running' AND updated_at < $1",
+    )
+    .bind(cutoff)
+    .bind(message)
+    .execute(pool)
+    .await;
+}
+
 async fn update_run_counts(
     pool: &PgPool,
     run_id: Uuid,
@@ -523,6 +563,16 @@ async fn run_storage_migration_worker(
             });
         });
 
+        let heartbeat_pool = state.pool.clone();
+        let heartbeat_run_id = run_id;
+        let heartbeat: Arc<StorageMigrationHeartbeat> = Arc::new(move || {
+            let pool = heartbeat_pool.clone();
+            let run = heartbeat_run_id;
+            tokio::spawn(async move {
+                touch_run_updated_at(&pool, run).await;
+            });
+        });
+
         let batch_future = execute_node_migration_batch(
             state.as_ref(),
             record,
@@ -533,6 +583,7 @@ async fn run_storage_migration_worker(
                 dry_run,
                 prefer_server: true,
                 log_sink: Some(log_sink.as_ref()),
+                heartbeat: Some(heartbeat.as_ref()),
             },
         );
 
@@ -758,6 +809,8 @@ async fn spawn_run(
 // Human: Resume any migration runs left in `running` after an API restart.
 // Agent: CALLED from run() on startup; SPAWNS worker per orphaned row.
 pub async fn resume_running_storage_migrations(state: Arc<AppState>) {
+    recover_stale_running_runs(&state.pool).await;
+
     let rows = sqlx::query_as::<_, StorageMigrationRunRow>(
         "SELECT id, kind, status, node_id, prefix, total_target, migrated, skipped, failed, scanned, \
          current_node_id, batch_number, preview_run_id, progress_json, error_message, started_by_user_id, \
@@ -774,6 +827,15 @@ pub async fn resume_running_storage_migrations(state: Arc<AppState>) {
         let worker_state = state.clone();
         let prefix = row.prefix.clone();
         let run_id = row.id;
+        let _ = append_log(
+            &state.pool,
+            run_id,
+            "info",
+            "Resuming migration run after API restart",
+            None,
+            None,
+        )
+        .await;
         tokio::spawn(async move {
             run_storage_migration_worker(worker_state, run_id, dry_run, prefix).await;
         });
