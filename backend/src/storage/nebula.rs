@@ -63,6 +63,23 @@ struct BatchDeleteApiResult {
     failed: Vec<serde_json::Value>,
 }
 
+/// Human: Report from Nebular `POST /_nos/maintenance/migrate_blobs` when the server supports it.
+/// Agent: DESERIALIZED from Nebular maintenance JSON; USED by admin storage migration fast path.
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct MigrateBlobsMaintenanceReport {
+    #[serde(default)]
+    pub scanned: u64,
+    #[serde(default)]
+    pub migrated: u64,
+    #[serde(default)]
+    pub skipped: u64,
+    #[serde(default)]
+    pub failed: u64,
+    pub next_start_after: Option<String>,
+    #[serde(default)]
+    pub is_truncated: bool,
+}
+
 type HmacSha256 = Hmac<Sha256>;
 
 fn generate_signature(method: &str, secret: &str, bucket: &str, key: &str, expires: u64) -> anyhow::Result<String> {
@@ -280,6 +297,115 @@ impl NebulaStorage {
             is_truncated: page.is_truncated,
             next_start_after: page.next_start_after,
         })
+    }
+
+    // Human: Server-side legacy blob migration when Nebular ships `/_nos/maintenance/migrate_blobs`.
+    // Agent: POST admin JWT; RETURNS None on 404/405 so caller can fall back to client rewrite.
+    pub async fn try_migrate_blobs_maintenance(
+        &self,
+        limit: u64,
+        start_after: Option<&str>,
+    ) -> anyhow::Result<Option<MigrateBlobsMaintenanceReport>> {
+        let url = format!("{}/_nos/maintenance/migrate_blobs", self.base_url);
+        let limit_param = limit.to_string();
+        let mut request = self
+            .client
+            .post(&url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .query(&[("limit", limit_param.as_str())]);
+
+        if let Some(after) = start_after {
+            request = request.query(&[("start_after", after)]);
+        }
+
+        let response = request.send().await?;
+        let status = response.status();
+        if status.as_u16() == 404 || status.as_u16() == 405 {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "nebular migrate_blobs maintenance failed: {} {}",
+                status,
+                body.chars().take(256).collect::<String>()
+            );
+        }
+
+        let report: MigrateBlobsMaintenanceReport = response.json().await?;
+        Ok(Some(report))
+    }
+
+    // Human: Stream PUT without buffering the whole object — used for legacy blob rewrite migration.
+    // Agent: HTTP PUT with Content-Length when known; SURFACES 503 backpressure like Storage::put.
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: Option<u64>,
+        body: reqwest::Body,
+    ) -> anyhow::Result<()> {
+        let url = self.url(key);
+        let started = Instant::now();
+        let mut request = self
+            .client
+            .put(&url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body);
+
+        if let Some(len) = content_length {
+            request = request.header(reqwest::header::CONTENT_LENGTH, len);
+        }
+
+        let response = request.send().await.map_err(|e| {
+            tracing::error!(
+                storage_key = %key,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %e,
+                "nebular storage streaming PUT transport error"
+            );
+            e
+        })?;
+
+        let status = response.status();
+        if status.as_u16() == 503 {
+            let retry_after = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(1);
+            anyhow::bail!(
+                "object storage PUT backpressure (retry after {}s)",
+                retry_after
+            );
+        }
+        if status.as_u16() == 507 {
+            anyhow::bail!("object storage PUT failed: insufficient storage capacity on node");
+        }
+        if !status.is_success() {
+            let body_snippet = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "object storage PUT failed: {} {}",
+                status,
+                body_snippet.chars().take(256).collect::<String>()
+            );
+        }
+        Ok(())
+    }
+
+    // Human: Rewrite one object in place — streams GET body to PUT so Nebular moves legacy layout + re-encodes.
+    // Agent: CALLS get_stream then put_stream same key; IDEMPOTENT when blob already uses flat encoded paths.
+    pub async fn rewrite_object_stream(&self, key: &str) -> anyhow::Result<()> {
+        let (stream, content_length, content_type) = self.get_stream(key).await?;
+        let body = reqwest::Body::wrap_stream(stream);
+        let len = if content_length > 0 {
+            Some(content_length)
+        } else {
+            None
+        };
+        self.put_stream(key, &content_type, len, body).await
     }
 }
 

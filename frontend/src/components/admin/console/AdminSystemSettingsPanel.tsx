@@ -1,9 +1,9 @@
 // Human: Admin Console - System Settings panels (login-signup.pencil HcA0b, uqdvB, F6aAB).
 // Agent: CALLS fetchAdminSettings/updateAdminSettings; RENDERS editable General / Security / SMTP tabs.
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAdminQuery } from "@/hooks/useAdminQuery";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { HardDriveDownload, Loader2, Save, Trash2 } from "lucide-react";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import {
   ENCRYPTION_SUMMARY,
@@ -16,11 +16,16 @@ import {
 import {
   cleanupGifPreviewTempFiles,
   fetchAdminSettings,
+  fetchAdminStorage,
   getErrorMessage,
   updateAdminSettings,
   type AdminSettingsPatch,
   type AdminSettingsResponse,
 } from "@/api/client";
+import {
+  startStorageMigration,
+  subscribeStorageMigrationJob,
+} from "@/lib/storage-migration-manager";
 import {
   AdminConsoleField,
   AdminConsoleOutlineButton,
@@ -42,11 +47,23 @@ export function AdminSystemSettingsPanel() {
   const [smtpPasswordDraft, setSmtpPasswordDraft] = useState("");
   const [cleaningGifPreviewTemp, setCleaningGifPreviewTemp] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [migrationNodeId, setMigrationNodeId] = useState("");
+  const [migrationPrefix, setMigrationPrefix] = useState("");
+  const [migrationRunning, setMigrationRunning] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
   const { data: serverData, loading, error: loadError } = useAdminQuery(loadSettings);
+  const { data: storageOverview } = useAdminQuery(fetchAdminStorage);
   const error = actionError ?? loadError;
+
+  useEffect(
+    () =>
+      subscribeStorageMigrationJob((job) => {
+        setMigrationRunning(job?.status === "running");
+      }),
+    [],
+  );
 
   // Human: Prefer local edits over last server snapshot for controlled inputs.
   // Agent: READS editedForm then serverData; WRITES editedForm via patchForm/save.
@@ -128,6 +145,45 @@ export function AdminSystemSettingsPanel() {
     }
   }
 
+  const storageNodes = storageOverview?.nodes ?? [];
+  const autoContinueMigration =
+    migrationNodeId.trim().length > 0 || storageNodes.length === 1;
+
+  // Human: Kick off background migration — progress appears in the lower-right transfer tray.
+  // Agent: CALLS startStorageMigration; CONFIRMS once; auto-continues when single node selected.
+  function handleStartStorageMigration(dryRun: boolean) {
+    if (migrationRunning) return;
+
+    const nodeId = migrationNodeId.trim() || undefined;
+    const prefix = migrationPrefix.trim() || undefined;
+
+    if (!dryRun) {
+      const scope = nodeId
+        ? `storage node "${nodeId}"`
+        : storageNodes.length > 1
+          ? "all storage nodes"
+          : "the storage node";
+      const detail = autoContinueMigration
+        ? "Objects will be migrated in batches until finished. Progress appears in the lower-right corner."
+        : "The first batch on each node will run now. Select a single node to migrate large buckets automatically.";
+      if (
+        !window.confirm(
+          `Start legacy blob migration on ${scope}? ${detail}`,
+        )
+      ) {
+        return;
+      }
+    }
+
+    setActionError(null);
+    startStorageMigration({
+      nodeId,
+      prefix,
+      dryRun,
+      autoContinue: dryRun ? false : autoContinueMigration,
+    });
+  }
+
   return (
     <div className={adminConsoleContentClassName}>
       <AdminConsolePageHeader
@@ -160,7 +216,6 @@ export function AdminSystemSettingsPanel() {
           {cleanupMessage}
         </p>
       ) : null}
-
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
           <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -287,6 +342,85 @@ export function AdminSystemSettingsPanel() {
                       )}
                       Clean up GIF preview files now
                     </AdminConsoleOutlineButton>
+                  </div>
+                </AdminConsoleSettingsRow>
+                <AdminConsoleSettingsRow
+                  title="Legacy Object Storage Migration"
+                  description="Upgrade blobs written before flat encoded paths and NOSI compression. Run in batches until no objects remain to migrate."
+                >
+                  <div className="flex flex-col gap-4">
+                    <p className="text-xs text-[#888888]">
+                      Moves nested on-disk layouts (keys with{" "}
+                      <code className="text-[11px]">/</code>) to the current flat filename encoding and
+                      upgrades legacy <code className="text-[11px]">NOSB</code> /{" "}
+                      <code className="text-[11px]">NOSZ</code> / raw blobs toward{" "}
+                      <code className="text-[11px]">NOSI</code>. Safe to re-run — already-migrated objects
+                      are skipped.
+                    </p>
+                    {storageNodes.length > 0 ? (
+                      <label className="flex flex-col gap-1 text-sm text-[#1A1A1A]">
+                        <span className="font-medium">Storage node</span>
+                        <select
+                          value={migrationNodeId}
+                          onChange={(e) => {
+                            setMigrationNodeId(e.target.value);
+                            setMigrationCursor(null);
+                            setMigrationTruncated(false);
+                            setMigrationMessage(null);
+                          }}
+                          className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="">
+                            {storageNodes.length > 1
+                              ? "All nodes (first batch per node)"
+                              : "Default node"}
+                          </option>
+                          {storageNodes.map((node) => (
+                            <option key={node.id} value={node.id}>
+                              {node.id} — {node.region_label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    {storageNodes.length > 1 && !migrationNodeId ? (
+                      <p className="text-xs text-amber-800">
+                        Select a single node to migrate large buckets automatically. Progress appears in the
+                        lower-right corner.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-[#888888]">
+                        Progress appears in the lower-right corner while migration runs.
+                      </p>
+                    )}
+                    <AdminConsoleField
+                      label="Key prefix (optional)"
+                      value={migrationPrefix}
+                      placeholder="users/"
+                      onChange={setMigrationPrefix}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <AdminConsoleOutlineButton
+                        onClick={() => handleStartStorageMigration(true)}
+                        disabled={migrationRunning || saving || loading}
+                      >
+                        {migrationRunning ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : null}
+                        Preview batch
+                      </AdminConsoleOutlineButton>
+                      <AdminConsoleOutlineButton
+                        onClick={() => handleStartStorageMigration(false)}
+                        disabled={migrationRunning || saving || loading}
+                      >
+                        {migrationRunning ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <HardDriveDownload className="size-4 shrink-0" aria-hidden />
+                        )}
+                        Start migration
+                      </AdminConsoleOutlineButton>
+                    </div>
                   </div>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow

@@ -670,6 +670,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(admin::console::cleanup_gif_preview_temp),
         )
         .route(
+            "/api/v1/admin/maintenance/migrate-storage-blobs",
+            post(admin::storage_migration::migrate_storage_blobs),
+        )
+        .route(
             "/api/v1/admin/security",
             get(admin::console::security_overview),
         )

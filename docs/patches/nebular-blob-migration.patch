@@ -1,0 +1,329 @@
+# Nebular OS patch export (apply in https://github.com/AsP3X/nebular-os)
+# Ownly pinned commit: 871099fb3a37087266ada3e231908c8fe3a8a019
+# Submodule HEAD:      871099fb3a37087266ada3e231908c8fe3a8a019
+#
+# Working tree changes vs pinned commit:
+diff --git a/src/routes/maintenance.rs b/src/routes/maintenance.rs
+index a2f010e..74940f4 100644
+--- a/src/routes/maintenance.rs
++++ b/src/routes/maintenance.rs
+@@ -119,6 +119,41 @@ pub async fn verify_blobs(
+     }
+ }
+ 
++#[derive(Debug, Deserialize)]
++pub struct MigrateBlobsQuery {
++    pub limit: Option<u64>,
++    pub start_after: Option<String>,
++}
++
++/// Human: Batch-migrate legacy nested paths and compression formats to current Nebular layout.
++/// Agent: POST /_nos/maintenance/migrate_blobs; admin JWT; optional limit + start_after cursor.
++pub async fn migrate_blobs(
++    State(state): State<Arc<AppState>>,
++    Query(query): Query<MigrateBlobsQuery>,
++    req: axum::extract::Request,
++) -> impl IntoResponse {
++    let claims = req.extensions().get::<Claims>();
++    if let Err(resp) = require_admin(claims) {
++        return resp.into_response();
++    }
++
++    let limit = query
++        .limit
++        .unwrap_or(state.engine().recompress_batch_size() as u64)
++        .min(10_000) as usize;
++    match state
++        .engine()
++        .migrate_blobs(limit, query.start_after.as_deref())
++        .await
++    {
++        Ok(report) => Json(report).into_response(),
++        Err(e) => {
++            let (status, json) = crate::routes::errors::map_storage_error(e);
++            (status, json).into_response()
++        }
++    }
++}
++
+ /// Human: Replication queue depth and dead-letter counts for cluster operators.
+ /// Agent: GET /_nos/maintenance/replication_status; admin JWT; zeroed in standalone mode.
+ pub async fn replication_status(
+diff --git a/src/server.rs b/src/server.rs
+index 658cdeb..a22614e 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -92,6 +92,10 @@ pub async fn create_app(
+             "/_nos/maintenance/verify_blobs",
+             axum::routing::post(maintenance::verify_blobs),
+         )
++        .route(
++            "/_nos/maintenance/migrate_blobs",
++            axum::routing::post(maintenance::migrate_blobs),
++        )
+         .route(
+             "/_nos/maintenance/replication_status",
+             get(maintenance::replication_status),
+diff --git a/src/storage/maintenance.rs b/src/storage/maintenance.rs
+index ba80b3b..adc5f60 100644
+--- a/src/storage/maintenance.rs
++++ b/src/storage/maintenance.rs
+@@ -2,7 +2,8 @@ use std::path::Path;
+ 
+ use tokio::fs;
+ 
+-use super::blob_path_variants;
++use super::blob_ops::link_or_copy_blob;
++use super::{blob_path, blob_path_variants, blob_rel_path};
+ use super::blocks::BlockStore;
+ use super::compressibility::CompressionContext;
+ use super::compression::{
+@@ -21,6 +22,16 @@ pub struct RecompressReport {
+     pub bytes_saved: i64,
+ }
+ 
++#[derive(Debug, Default, Clone, serde::Serialize)]
++pub struct MigrateBlobsReport {
++    pub scanned: u64,
++    pub migrated: u64,
++    pub skipped: u64,
++    pub failed: u64,
++    pub next_start_after: Option<String>,
++    pub is_truncated: bool,
++}
++
+ #[derive(Debug, Default, Clone, serde::Serialize)]
+ pub struct DictTrainReport {
+     pub samples: u64,
+@@ -294,6 +305,132 @@ impl StorageEngine {
+         Ok(report)
+     }
+ 
++    /// Human: Move legacy nested blob paths to flat encoded filenames and upgrade old compression formats.
++    /// Agent: READS list_migration_page; WRITES blob_path(); REMOVES legacy path; UPDATES Postgres blob_path.
++    pub async fn migrate_blobs(
++        &self,
++        limit: usize,
++        start_after: Option<&str>,
++    ) -> Result<MigrateBlobsReport, StorageError> {
++        let limit = limit.max(1) as i64;
++        let rows = self
++            .object_meta()
++            .list_migration_page(limit + 1, start_after)
++            .await?;
++
++        let mut report = MigrateBlobsReport::default();
++        let truncated = rows.len() > limit as usize;
++        let page: Vec<_> = rows.into_iter().take(limit as usize).collect();
++        if let Some((_, last_key, _)) = page.last() {
++            report.next_start_after = Some(last_key.clone());
++        }
++        report.is_truncated = truncated;
++
++        let background_level = self.zstd_level();
++        let dict = if self.zstd_dict_enabled() {
++            self.dict_store().global_dict()
++        } else {
++            None
++        };
++        let dict_bytes = dict.as_deref().map(|v| v.as_slice());
++        let dict_loaded = dict.is_some();
++        let target_dict_id = if dict_loaded { 0 } else { 0 };
++
++        for (bucket, key, size) in page {
++            report.scanned += 1;
++            let variants = blob_path_variants(self.data_dir(), &bucket, &key);
++            let Some(current) = super::first_existing_blob_path(&variants)
++                .await
++                .map_err(internal)?
++            else {
++                report.skipped += 1;
++                continue;
++            };
++            let target = blob_path(self.data_dir(), &bucket, &key);
++            let needs_relocate = current != target;
++
++            let Ok(blob) = fs::read(&current).await else {
++                report.failed += 1;
++                continue;
++            };
++
++            let format = detect_blob_format(&blob);
++            let migrating_legacy = is_legacy_format(format);
++            let upgrading_indexed = self.indexed_needs_upgrade(
++                &blob,
++                format,
++                background_level,
++                dict_loaded,
++                target_dict_id,
++            );
++            let needs_reencode = migrating_legacy || upgrading_indexed || format == BlobFormat::Raw;
++
++            if !needs_relocate && !needs_reencode {
++                report.skipped += 1;
++                continue;
++            }
++
++            let write_ok = if needs_reencode {
++                let logical = match self.decode_for_maintenance(&blob, format, size, dict_bytes) {
++                    Ok(v) => v,
++                    Err(_) => {
++                        report.failed += 1;
++                        continue;
++                    }
++                };
++                let ctx = CompressionContext::new(
++                    Some(key.as_str()),
++                    None,
++                    size as u64,
++                    self.compress_min_size(),
++                    self.compress_exclude_extensions(),
++                );
++                let encode_opts = self.maintenance_encode_opts(target_dict_id, dict_bytes);
++                let encoded = encode_blob_for_storage(
++                    &logical,
++                    background_level,
++                    self.block_size(),
++                    ctx,
++                    encode_opts,
++                )?;
++                self.atomic_replace_blob(&target, &encoded).await?
++            } else {
++                link_or_copy_blob(&current, &target).await?;
++                true
++            };
++
++            if !write_ok {
++                report.failed += 1;
++                continue;
++            }
++
++            if current != target && current.exists() {
++                BlockStore::release_blob(self.system_write_pool(), self.data_dir(), &current)
++                    .await?;
++                let _ = fs::remove_file(&current).await;
++            }
++            if !self.metadata_mode().is_blob_only() {
++                let rel = blob_rel_path(&bucket, &key);
++                let _ = self
++                    .object_meta()
++                    .update_blob_path(&bucket, &key, &rel)
++                    .await;
++            }
++            report.migrated += 1;
++        }
++
++        if report.migrated > 0 {
++            tracing::info!(
++                scanned = report.scanned,
++                migrated = report.migrated,
++                skipped = report.skipped,
++                failed = report.failed,
++                "storage::migrate_blobs completed"
++            );
++        }
++        Ok(report)
++    }
++
+     /// Backward-compatible alias for legacy raw blob recompression.
+     pub async fn recompress_legacy_blobs(
+         &self,
+diff --git a/src/storage/mod.rs b/src/storage/mod.rs
+index 26ccaf0..6ee62ff 100644
+--- a/src/storage/mod.rs
++++ b/src/storage/mod.rs
+@@ -20,7 +20,7 @@ pub mod reconcile;
+ pub mod types;
+ 
+ pub use engine::{GetObjectOutcome, StorageEngine};
+-pub use maintenance::{DictTrainReport, RecompressReport, VerifyBlobsReport};
++pub use maintenance::{DictTrainReport, MigrateBlobsReport, RecompressReport, VerifyBlobsReport};
+ 
+ pub fn sanitize_bucket(bucket: &str) -> anyhow::Result<String> {
+     if bucket.is_empty() {
+diff --git a/src/storage/object_meta.rs b/src/storage/object_meta.rs
+index 8e8ec50..fd67487 100644
+--- a/src/storage/object_meta.rs
++++ b/src/storage/object_meta.rs
+@@ -705,6 +705,31 @@ impl ObjectMetaStore {
+         self.hard_delete_object(bucket, key).await
+     }
+ 
++    /// Human: Refresh stored relative blob path after on-disk layout migration (Postgres metadata mode).
++    /// Agent: UPDATE nos_objects.blob_path; NO-OP for SQLite where paths are derived from keys.
++    pub async fn update_blob_path(
++        &self,
++        bucket: &str,
++        key: &str,
++        blob_path: &str,
++    ) -> Result<(), StorageError> {
++        match &self.inner {
++            ObjectMetaInner::Sqlite { .. } => {}
++            ObjectMetaInner::Postgres { write, .. } => {
++                sqlx::query(
++                    "UPDATE nos_objects SET blob_path = $1, updated_at = now() WHERE bucket = $2 AND object_key = $3",
++                )
++                .bind(blob_path)
++                .bind(bucket)
++                .bind(key)
++                .execute(write)
++                .await
++                .map_err(internal)?;
++            }
++        }
++        Ok(())
++    }
++
+     pub async fn list_soft_deleted_before(
+         &self,
+         cutoff_ts: i64,
+@@ -758,6 +783,49 @@ impl ObjectMetaStore {
+         }
+     }
+ 
++    /// Human: Paginated active objects for layout/format migration batches.
++    /// Agent: ORDER BY key; READS start_after as exclusive cursor; RETURNS (bucket, key, size).
++    pub async fn list_migration_page(
++        &self,
++        limit: i64,
++        start_after: Option<&str>,
++    ) -> Result<Vec<(String, String, i64)>, StorageError> {
++        match &self.inner {
++            ObjectMetaInner::Sqlite { read, .. } => {
++                if let Some(after) = start_after {
++                    sqlx::query_as(
++                        "SELECT bucket, key, size FROM objects WHERE deleted_at IS NULL AND key > ? ORDER BY key LIMIT ?",
++                    )
++                    .bind(after)
++                    .bind(limit)
++                    .fetch_all(read)
++                    .await
++                    .map_err(internal)
++                } else {
++                    sqlx::query_as(
++                        "SELECT bucket, key, size FROM objects WHERE deleted_at IS NULL ORDER BY key LIMIT ?",
++                    )
++                    .bind(limit)
++                    .fetch_all(read)
++                    .await
++                    .map_err(internal)
++                }
++            }
++            ObjectMetaInner::Postgres { read, .. } => {
++                sqlx::query_as(
++                    "SELECT bucket, object_key AS key, size_bytes AS size FROM nos_objects \
++                     WHERE deleted_at IS NULL AND ($1::text IS NULL OR object_key > $1) \
++                     ORDER BY object_key LIMIT $2",
++                )
++                .bind(start_after)
++                .bind(limit)
++                .fetch_all(read)
++                .await
++                .map_err(internal)
++            }
++        }
++    }
++
+     // --- Multipart ---
+ 
+     pub async fn init_multipart(

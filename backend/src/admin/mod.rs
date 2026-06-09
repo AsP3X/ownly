@@ -4,6 +4,7 @@
 pub mod console;
 pub mod groups;
 pub mod handlers;
+pub mod storage_migration;
 pub mod storage_nodes;
 
 pub use handlers::{require_admin, require_instance_permission};

@@ -77,6 +77,42 @@ python scripts/storage-audit.py --env-file /path/to/.env
 
 The script sums `files.size_bytes` (non-deleted) and walks the Nebular blob tree, classifying **NOSI**, legacy **NOSB/NOSZ/NOS2**, and **raw** files. Large gaps often mean orphaned blobs, incomplete deletes, or HLS sidecars not reflected in a single file row.
 
+## Migrating legacy blobs (layout + compression)
+
+Deployments that stored objects **before** flat encoded filenames (v0.1.4) or **NOSI** integration may still have:
+
+- **Nested on-disk paths** for keys containing `/` (sidecars such as `…/grid-thumbnail.jpg` under a hash shard).
+- **Legacy compression** (`NOSB`, `NOSZ`, `NOS2`, `NOSD`, or raw files).
+
+### Automatic background upgrade (format only)
+
+Recompression upgrades compression in place but does **not** relocate nested paths:
+
+```bash
+NOS_RECOMPRESS_ON_STARTUP=true
+NOS_RECOMPRESS_INTERVAL_SECS=3600
+```
+
+### Admin migration API (layout + format)
+
+Ownly exposes a batched admin endpoint that prefers Nebular `POST /_nos/maintenance/migrate_blobs`, and otherwise streams **GET → PUT** for keys that still contain `/`.
+
+```bash
+export OWNLY_API_URL=http://localhost:8080
+export OWNLY_ADMIN_TOKEN='<admin JWT>'
+bash scripts/migrate-storage-blobs.sh
+
+# Dry-run without writes
+MIGRATE_DRY_RUN=true bash scripts/migrate-storage-blobs.sh
+
+# Continue from nodes[].next_start_after in the prior response
+MIGRATE_START_AFTER='users/tenant/files/abc...' bash scripts/migrate-storage-blobs.sh
+```
+
+HTTP: `POST /api/v1/admin/maintenance/migrate-storage-blobs?limit=25&node_id=node-primary`
+
+Audit action: `admin.storage_blobs.migrate`. Export local Nebular changes for upstream with `bash scripts/nebular-export-patch.sh`.
+
 ## What Ownly does not do (yet)
 
 - **Content dedup** (“upload same file again”) — would need Ownly metadata + storage key strategy; Nebular block dedup is optional and separate.

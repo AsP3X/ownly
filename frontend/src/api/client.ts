@@ -650,6 +650,48 @@ export async function cleanupGifPreviewTempFiles() {
   }) as Promise<CleanupGifPreviewTempResponse>;
 }
 
+export type MigrateStorageBlobsNodeReport = {
+  node_id: string;
+  method: string;
+  scanned: number;
+  migrated: number;
+  skipped: number;
+  failed: number;
+  failures?: { key: string; message: string }[];
+  next_start_after: string | null;
+  is_truncated: boolean;
+};
+
+export type MigrateStorageBlobsResponse = {
+  nodes: MigrateStorageBlobsNodeReport[];
+};
+
+export type MigrateStorageBlobsParams = {
+  node_id?: string;
+  prefix?: string;
+  limit?: number;
+  start_after?: string;
+  dry_run?: boolean;
+  prefer_server?: boolean;
+};
+
+// Human: Batch-migrate legacy Nebular blobs (nested paths, old compression) toward current layout.
+// Agent: POST /admin/maintenance/migrate-storage-blobs; AUDIT admin.storage_blobs.migrate.
+export async function migrateStorageBlobs(params: MigrateStorageBlobsParams = {}) {
+  const search = new URLSearchParams();
+  if (params.node_id) search.set("node_id", params.node_id);
+  if (params.prefix) search.set("prefix", params.prefix);
+  if (params.limit != null) search.set("limit", String(params.limit));
+  if (params.start_after) search.set("start_after", params.start_after);
+  if (params.dry_run) search.set("dry_run", "true");
+  if (params.prefer_server === false) search.set("prefer_server", "false");
+  const query = search.toString();
+  return apiFetch(
+    `/admin/maintenance/migrate-storage-blobs${query ? `?${query}` : ""}`,
+    { method: "POST" },
+  ) as Promise<MigrateStorageBlobsResponse>;
+}
+
 export type AdminSecurityOverviewResponse = {
   encryption_standard: string;
   encryption: {

@@ -8,6 +8,7 @@ import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { InstanceNameProvider } from "@/context/InstanceNameContext";
 import { useAuth } from "@/hooks/useAuth";
+import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
 import { readSetupStatusCache, writeSetupStatusCache } from "@/lib/setup-status-cache";
 
@@ -149,6 +150,7 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
+          <TransferPanelStack />
         </SetupGuard>
         </InstanceNameProvider>
       </AuthProvider>

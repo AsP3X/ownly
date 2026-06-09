@@ -61,7 +61,6 @@ import {
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
 import { DynamicImportPreview, loadAudioPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
-import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -1784,7 +1783,6 @@ export default function DrivePage() {
           onCopy={handleFolderPickerCopy}
           onMove={handleFolderPickerMove}
         />
-        <TransferPanelStack />
         <MobileSidebarSheet
           open={mobileSidebarOpen}
           onOpenChange={setMobileSidebarOpen}
