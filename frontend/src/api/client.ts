@@ -292,6 +292,8 @@ export type AdminUserRow = {
   enabled: boolean;
   storage_bytes: number;
   file_count: number;
+  /** Human: Explicit per-user cap in GB; null inherits instance default_storage_quota_gb. */
+  storage_quota_gb: number | null;
   quota_bytes: number;
   last_active_at: string | null;
   created_at: string;

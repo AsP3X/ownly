@@ -60,6 +60,9 @@ export function AdminSystemSettingsPanel() {
   const [migrationPreview, setMigrationPreview] = useState<StorageMigrationPreview | null>(null);
   const [migrationJob, setMigrationJob] = useState<StorageMigrationJob | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Human: Local draft for the default quota number field — avoids parseInt-on-keystroke fighting the input.
+  // Agent: SYNCED from server snapshot; PARSED in handleSave into default_storage_quota_gb.
+  const [defaultQuotaDraft, setDefaultQuotaDraft] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
   const { data: serverData, loading, error: loadError } = useAdminQuery(loadSettings);
@@ -105,13 +108,18 @@ export function AdminSystemSettingsPanel() {
     setSaving(true);
     setActionError(null);
     setSavedMessage(null);
+    const parsedDefaultQuotaGb = Number.parseInt(defaultQuotaDraft ?? String(form.default_storage_quota_gb), 10);
+    const defaultStorageQuotaGb = Number.isNaN(parsedDefaultQuotaGb)
+      ? form.default_storage_quota_gb
+      : Math.max(1, parsedDefaultQuotaGb);
+
     const body: AdminSettingsPatch = {
       ...(smtpPasswordDraft.trim() ? { smtp_password: smtpPasswordDraft } : {}),
       instance_name: form.instance_name,
       console_url: form.console_url,
       allow_public_registration: form.allow_public_registration,
       require_account_activation: form.require_account_activation,
-      default_storage_quota_gb: form.default_storage_quota_gb,
+      default_storage_quota_gb: defaultStorageQuotaGb,
       maintenance_mode: form.maintenance_mode,
       default_onboarding_role: form.default_onboarding_role,
       enforce_mfa_on_admin_login: form.enforce_mfa_on_admin_login,
@@ -128,6 +136,7 @@ export function AdminSystemSettingsPanel() {
     try {
       const updated = await updateAdminSettings(body);
       setEditedForm(updated);
+      setDefaultQuotaDraft(String(updated.default_storage_quota_gb));
       setInstanceName(updated.instance_name);
       setSmtpPasswordDraft("");
       setSavedMessage("Settings saved successfully.");
@@ -499,12 +508,15 @@ export function AdminSystemSettingsPanel() {
                   <div className="flex flex-col gap-2">
                     <AdminConsoleField
                       label="Default Allocated Quota"
-                      value={String(form.default_storage_quota_gb)}
+                      value={defaultQuotaDraft ?? String(form.default_storage_quota_gb)}
                       type="number"
                       suffix="GB"
                       onChange={(v) => {
+                        setDefaultQuotaDraft(v);
                         const parsed = Number.parseInt(v, 10);
-                        if (!Number.isNaN(parsed)) patchForm({ default_storage_quota_gb: Math.max(1, parsed) });
+                        if (!Number.isNaN(parsed) && parsed >= 1) {
+                          patchForm({ default_storage_quota_gb: parsed });
+                        }
                       }}
                     />
                     <p className="text-xs text-[#888888]">

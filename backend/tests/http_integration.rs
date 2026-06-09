@@ -1163,6 +1163,87 @@ async fn admin_create_user_succeeds_without_browser_metadata() {
         .ok();
 }
 
+// Human: Admins can raise a user's explicit storage quota via PATCH storage_quota_gb.
+// Agent: POST/PATCH /api/v1/admin/users; WRITES users.storage_quota_gb; legacy role=admin without group still allowed.
+#[tokio::test]
+async fn admin_update_user_storage_quota_gb() {
+    let Some(state) = test_harness::TestHarness::state("admin_update_user_storage_quota_gb").await else {
+        return;
+    };
+
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let target_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(format!("admin-quota-{admin_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled, storage_quota_gb) \
+         VALUES ($1, $2, $3, 'pro', true, 25)",
+    )
+    .bind(&target_id)
+    .bind(format!("target-quota-{target_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert target");
+
+    let admin_token = ownly_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        format!("admin-quota-{admin_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    let app = create_router(state.clone());
+    let patch_body = json!({ "storage_quota_gb": 100 });
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/admin/users/{target_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(patch_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch_response.status(), StatusCode::OK);
+
+    let stored: (Option<i32>,) =
+        sqlx::query_as("SELECT storage_quota_gb FROM users WHERE id = $1")
+            .bind(&target_id)
+            .fetch_one(&state.pool)
+            .await
+            .expect("load quota");
+    assert_eq!(stored.0, Some(100));
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&target_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Admin console overview endpoint must require admin role and return metrics JSON.
 // Agent: GET /api/v1/admin/overview; EXPECT 403 for member, 200 + metrics for admin.
 #[tokio::test]

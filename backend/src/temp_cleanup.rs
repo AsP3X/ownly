@@ -3,7 +3,7 @@
 // NOTE: Object-storage MP4 sidecars (`.ownly-gif-preview.mp4`) are never touched here — only API-host scratch dirs.
 // NOTE: `ownly_upload_*` dirs stay while video HLS ingest is queued/processing — otherwise ffmpeg loses the spool.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use sqlx::PgPool;
@@ -317,6 +317,7 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use std::thread;
     use std::time::UNIX_EPOCH;
 

@@ -189,8 +189,10 @@ function AdminManageUserForm({
   const [view, setView] = useState<ManageView>("edit");
   const [roleTier, setRoleTier] = useState<AdminUserRoleTier>(() => adminUserRoleTierFromApi(user.role));
   const [enabled, setEnabled] = useState(user.enabled);
-  const initialQuotaGb = Math.max(1, Math.round(user.quota_bytes / (1024 * 1024 * 1024)));
-  const [quotaGb, setQuotaGb] = useState(initialQuotaGb);
+  // Human: Effective quota shown in the directory — may come from instance default when override is null.
+  // Agent: READS quota_bytes; USED for display and default-inheritance comparisons.
+  const effectiveQuotaGb = Math.max(1, Math.round(user.quota_bytes / (1024 * 1024 * 1024)));
+  const [quotaGb, setQuotaGb] = useState(effectiveQuotaGb);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -213,7 +215,14 @@ function AdminManageUserForm({
       } = {};
       if (apiRole !== storedRole) body.role = apiRole;
       if (enabled !== user.enabled) body.enabled = enabled;
-      if (quotaGb !== initialQuotaGb) body.storage_quota_gb = quotaGb;
+      // Human: Compare against stored override when present — not only effective quota_bytes.
+      // Agent: PATCH storage_quota_gb when explicit column changes or user leaves instance default.
+      const storedQuotaGb = user.storage_quota_gb;
+      const quotaChanged =
+        storedQuotaGb != null
+          ? quotaGb !== storedQuotaGb
+          : quotaGb !== effectiveQuotaGb;
+      if (quotaChanged) body.storage_quota_gb = quotaGb;
       if (Object.keys(body).length === 0) {
         onClose();
         return;
@@ -302,7 +311,7 @@ export function AdminManageUserDialog({
       >
         {user ? (
           <AdminManageUserForm
-            key={user.id}
+            key={`${user.id}:${user.updated_at}:${user.storage_quota_gb ?? "default"}:${user.quota_bytes}`}
             user={user}
             currentUserId={currentUserId}
             onClose={() => onOpenChange(false)}

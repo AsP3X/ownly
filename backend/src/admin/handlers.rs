@@ -74,6 +74,8 @@ pub struct AdminUserRow {
     pub enabled: bool,
     pub storage_bytes: i64,
     pub file_count: i64,
+    /// Human: Per-user cap in GB when set; null means the instance default applies.
+    pub storage_quota_gb: Option<i32>,
     pub quota_bytes: i64,
     pub last_active_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -196,6 +198,7 @@ pub async fn list_users(
                     enabled,
                     storage_bytes,
                     file_count,
+                    storage_quota_gb,
                     quota_bytes,
                     last_active_at,
                     created_at,

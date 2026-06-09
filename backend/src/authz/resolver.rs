@@ -347,6 +347,19 @@ pub async fn authorize(
     ))
 }
 
+// Human: Phase 1 compat — users.role=admin before admin-group backfill still gates instance APIs.
+// Agent: READS users.role; RETURNS true when role is admin even without group_members row.
+async fn has_legacy_instance_admin_role(pool: &PgPool, user_id: &str) -> Result<bool, AppError> {
+    if user_is_admin_group_member(pool, user_id).await? {
+        return Ok(true);
+    }
+    let row: Option<(String,)> = sqlx::query_as("SELECT role FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.is_some_and(|(role,)| role == "admin"))
+}
+
 // Human: Check instance-level permission (admin group instance.admin satisfies all).
 // Agent: WRAPPER around authorize(Instance) for admin route gates.
 pub async fn authorize_instance(
@@ -354,6 +367,9 @@ pub async fn authorize_instance(
     user_id: &str,
     permission: Permission,
 ) -> Result<(), AppError> {
+    if has_legacy_instance_admin_role(pool, user_id).await? {
+        return Ok(());
+    }
     authorize(pool, user_id, permission, ResourceRef::Instance).await
 }
 
