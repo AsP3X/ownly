@@ -13,10 +13,16 @@ import { cn } from "@/lib/utils";
 type ExplorerVideoThumbnailProps = {
   file: FileItem;
   className?: string;
+  /** Human: Fill a parent preview slot instead of owning the square aspect box. */
+  slotFill?: boolean;
 };
 
 /** Human: Lazy-loaded poster preview for explorer video grid tiles. */
-export function ExplorerVideoThumbnail({ file, className }: ExplorerVideoThumbnailProps) {
+export function ExplorerVideoThumbnail({
+  file,
+  className,
+  slotFill = false,
+}: ExplorerVideoThumbnailProps) {
   const {
     containerRef,
     displaySrc,
@@ -35,8 +41,10 @@ export function ExplorerVideoThumbnail({ file, className }: ExplorerVideoThumbna
     <div
       ref={containerRef}
       className={cn(
-        "relative w-full overflow-hidden rounded-lg bg-[#F3F4F6]",
-        "aspect-[4/3] contain-[layout_paint]",
+        "overflow-hidden contain-[layout_paint]",
+        slotFill
+          ? "absolute inset-0 size-full rounded-none bg-transparent"
+          : "relative aspect-square w-full rounded-lg bg-[#F3F4F6]",
         className,
       )}
     >

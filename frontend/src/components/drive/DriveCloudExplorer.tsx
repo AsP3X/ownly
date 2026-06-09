@@ -27,6 +27,7 @@ import {
   type ExplorerGridEntry,
 } from "@/components/drive/ExplorerGridTiles";
 import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
+import { EXPLORER_GRID_LAYOUT_CLASS } from "@/components/drive/ExplorerGridPreviewSlot";
 import { useExplorerTouchDrag } from "@/components/drive/useExplorerTouchDrag";
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
@@ -577,7 +578,7 @@ export function DriveCloudExplorer({
           </div>
         ) : (
           <ExplorerScrollProvider scrollElementRef={explorerScrollRef}>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 sm:gap-4">
+            <div className={EXPLORER_GRID_LAYOUT_CLASS}>
               {gridEntries.map((entry) =>
                 entry.kind === "folder" ? (
                   <ExplorerFolderGridTile

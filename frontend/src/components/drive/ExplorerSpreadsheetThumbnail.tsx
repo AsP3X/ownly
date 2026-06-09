@@ -19,6 +19,8 @@ const CELL_TEXT_MAX_LEN = 10;
 type ExplorerSpreadsheetThumbnailProps = {
   file: FileItem;
   className?: string;
+  /** Human: Fill a parent preview slot instead of owning the square aspect box. */
+  slotFill?: boolean;
 };
 
 // Human: Read the first worksheet into a small string matrix for the tile preview.
@@ -59,7 +61,11 @@ function thumbnailMatrixFromWorkbook(buffer: ArrayBuffer): string[][] {
 }
 
 /** Human: Lazy-loaded spreadsheet grid preview for explorer tiles. */
-export function ExplorerSpreadsheetThumbnail({ file, className }: ExplorerSpreadsheetThumbnailProps) {
+export function ExplorerSpreadsheetThumbnail({
+  file,
+  className,
+  slotFill = false,
+}: ExplorerSpreadsheetThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const phase = useExplorerTileVisible(containerRef);
   const loadPriority = thumbnailPriorityForPhase(phase);
@@ -105,8 +111,10 @@ export function ExplorerSpreadsheetThumbnail({ file, className }: ExplorerSpread
     <div
       ref={containerRef}
       className={cn(
-        "relative w-full overflow-hidden rounded-lg border border-[#E5E7EB] bg-white",
-        "aspect-[4/3] contain-[layout_paint]",
+        "overflow-hidden contain-[layout_paint]",
+        slotFill
+          ? "absolute inset-0 size-full rounded-none border-0 bg-transparent"
+          : "relative aspect-square w-full rounded-lg border border-[#E5E7EB] bg-white",
         className,
       )}
     >

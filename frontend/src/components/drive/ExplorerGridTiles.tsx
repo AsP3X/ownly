@@ -16,16 +16,18 @@ import {
 } from "lucide-react";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
+import { ExplorerGridPreviewSlot } from "@/components/drive/ExplorerGridPreviewSlot";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
 import { LazyExplorerSpreadsheetThumbnail } from "@/components/drive/lazy-explorer-spreadsheet-thumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
+import { splitFilenameExtension } from "@/lib/explorer-grid-filename";
 import { isFileProcessing } from "@/lib/file-processing";
 import {
   formatBytes,
-  formatFileOpened,
+  formatFileUpdatedRelative,
   isAudioMime,
   isImageMime,
   isPdfMime,
@@ -39,7 +41,7 @@ import { cn } from "@/lib/utils";
 // Human: Browser skips layout/paint for off-screen tiles without JS scroll handlers.
 // Agent: APPLIED to folder/file shells; contain-intrinsic-size reserves scroll height.
 export const EXPLORER_GRID_TILE_PERF =
-  "[content-visibility:auto] [contain-intrinsic-size:auto_176px]";
+  "[content-visibility:auto] [contain-intrinsic-size:auto_192px]";
 
 export type ExplorerGridEntry =
   | { kind: "folder"; folder: FolderItem }
@@ -68,6 +70,29 @@ function ExplorerFileIcon({ mimeType }: { mimeType: string | null }) {
     return <FileText className={className} aria-hidden />;
   }
   return <FileIcon className={className} aria-hidden />;
+}
+
+type ExplorerGridFileNameProps = {
+  name: string;
+  selected?: boolean;
+};
+
+// Human: One-line filename — truncates the base, always shows the extension (.xlsx, .pdf, …).
+// Agent: SPLITS via splitFilenameExtension; CSS truncate on base span only; title holds full name.
+function ExplorerGridFileName({ name, selected = false }: ExplorerGridFileNameProps) {
+  const { base, extension } = splitFilenameExtension(name);
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 w-full items-baseline justify-center text-[13px] font-semibold leading-snug",
+        selected ? "text-blue-950" : "text-[#1A1A1A]",
+      )}
+      title={name}
+    >
+      <span className="min-w-0 truncate">{base}</span>
+      {extension ? <span className="shrink-0">{extension}</span> : null}
+    </span>
+  );
 }
 
 export type ExplorerFolderGridTileProps = {
@@ -106,13 +131,20 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       onDrop={(event) => onDrop(event, folder.id)}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "flex min-h-[108px] flex-col items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-3.5 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
+        "flex w-full flex-col items-stretch gap-1.5 rounded-xl border border-[#E5E7EB] bg-white p-2 text-center transition-[border-color,box-shadow,background-color] hover:border-blue-200 hover:shadow-sm",
         isDropTarget && "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
         !dragEnabled && "cursor-pointer",
       )}
     >
-      <Folder className="size-8 text-[#2563EB]" aria-hidden />
-      <span className="line-clamp-2 w-full text-[13px] font-semibold leading-tight text-[#1A1A1A]">
+      {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
+      {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
+      <ExplorerGridPreviewSlot>
+        <Folder className="size-8 text-[#2563EB]" aria-hidden />
+      </ExplorerGridPreviewSlot>
+      <span
+        className="w-full truncate text-[13px] font-semibold leading-snug text-[#1A1A1A]"
+        title={folder.name}
+      >
         {folder.name}
       </span>
       <span className="text-[11px] text-[#888888]">Folder</span>
@@ -229,7 +261,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const showSpreadsheetPreview = isSpreadsheet && !processing;
   // Human: PDF grid tiles use the file icon — react-pdf canvases per row destroy scroll performance.
   // Agent: full PDF preview remains on tile click via onPreviewPdf; SKIPS live PDF thumbnail in grid.
-  const showThumbnailPreview =
+  const showLiveThumbnailPreview =
     showImagePreview || showVideoPreview || showSpreadsheetPreview;
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
   // Human: Track tap start so scroll gestures on a tile do not toggle selection.
@@ -272,7 +304,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       data-file-id={file.id}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "group relative overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        "group relative w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
         isSelected
           ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
           : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
@@ -362,42 +394,37 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           else if (canPreviewAudio) onPreviewAudio!(file);
         }}
         className={cn(
-          "flex h-full w-full flex-col gap-1.5 text-center",
+          "flex h-full w-full flex-col items-stretch gap-1.5 p-2 text-center",
           // Human: pan-y keeps list scroll working on first touch over a tile; drag arms only after long-press.
           // Agent: AVOIDS touch-none here — that blocks native vertical scroll across the whole grid on mobile.
           touchDragBindings && !mobileSelectionMode && "touch-pan-y",
-          showThumbnailPreview
-            ? "min-h-[148px] items-stretch p-2"
-            : "min-h-[108px] items-center justify-center px-2.5 py-3.5",
         )}
       >
-        {showImagePreview ? (
-          <ExplorerImageThumbnail file={file} />
-        ) : showVideoPreview ? (
-          <ExplorerVideoThumbnail
-            key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
-            file={file}
-          />
-        ) : showSpreadsheetPreview ? (
-          <LazyExplorerSpreadsheetThumbnail file={file} />
-        ) : (
-          <ExplorerFileIcon mimeType={file.mime_type} />
-        )}
-        <span
-          className={cn(
-            "line-clamp-2 w-full text-[13px] font-semibold leading-snug",
-            isSelected ? "text-blue-950" : "text-[#1A1A1A]",
+        {/* Human: Every tile reserves the same preview frame — thumbnails fill it; others show a centered icon. */}
+        {/* Agent: WRAPS lazy thumbnail loaders; KEEPS grid row height uniform across preview and non-preview files. */}
+        <ExplorerGridPreviewSlot centerContent={!showLiveThumbnailPreview}>
+          {showImagePreview ? (
+            <ExplorerImageThumbnail file={file} slotFill />
+          ) : showVideoPreview ? (
+            <ExplorerVideoThumbnail
+              key={`${file.id}-${file.video_thumbnail_selected_index ?? 0}`}
+              file={file}
+              slotFill
+            />
+          ) : showSpreadsheetPreview ? (
+            <LazyExplorerSpreadsheetThumbnail file={file} slotFill />
+          ) : (
+            <ExplorerFileIcon mimeType={file.mime_type} />
           )}
-        >
-          {file.name}
-        </span>
+        </ExplorerGridPreviewSlot>
+        <ExplorerGridFileName name={file.name} selected={isSelected} />
         <span
           className={cn(
             "text-[11px]",
             isSelected ? "text-blue-700/80" : "text-[#888888]",
           )}
         >
-          {formatBytes(file.size_bytes)} · {formatFileOpened(file.updated_at)}
+          {formatBytes(file.size_bytes)} • {formatFileUpdatedRelative(file.updated_at)}
         </span>
         {processing ? (
           <div className="mt-1 flex w-full max-w-full justify-center overflow-hidden px-0.5">

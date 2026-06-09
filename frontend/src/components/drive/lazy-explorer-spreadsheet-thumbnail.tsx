@@ -15,13 +15,24 @@ const ExplorerSpreadsheetThumbnailLazy = lazy(() =>
 type LazyExplorerSpreadsheetThumbnailProps = {
   file: FileItem;
   className?: string;
+  /** Human: Fill a parent preview slot instead of owning the square aspect box. */
+  slotFill?: boolean;
 };
 
-function SpreadsheetThumbnailFallback({ className }: { className?: string }) {
+function SpreadsheetThumbnailFallback({
+  className,
+  slotFill = false,
+}: {
+  className?: string;
+  slotFill?: boolean;
+}) {
   return (
     <div
       className={cn(
-        "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-[#F3F4F6]",
+        "flex items-center justify-center overflow-hidden",
+        slotFill
+          ? "absolute inset-0 size-full rounded-none border-0 bg-transparent"
+          : "relative aspect-square w-full rounded-lg border border-[#E5E7EB] bg-[#F3F4F6]",
         className,
       )}
     >
@@ -31,10 +42,14 @@ function SpreadsheetThumbnailFallback({ className }: { className?: string }) {
 }
 
 /** Human: Explorer grid tile that loads the spreadsheet parser chunk only when an xlsx row renders. */
-export function LazyExplorerSpreadsheetThumbnail({ file, className }: LazyExplorerSpreadsheetThumbnailProps) {
+export function LazyExplorerSpreadsheetThumbnail({
+  file,
+  className,
+  slotFill = false,
+}: LazyExplorerSpreadsheetThumbnailProps) {
   return (
-    <Suspense fallback={<SpreadsheetThumbnailFallback className={className} />}>
-      <ExplorerSpreadsheetThumbnailLazy file={file} className={className} />
+    <Suspense fallback={<SpreadsheetThumbnailFallback className={className} slotFill={slotFill} />}>
+      <ExplorerSpreadsheetThumbnailLazy file={file} className={className} slotFill={slotFill} />
     </Suspense>
   );
 }

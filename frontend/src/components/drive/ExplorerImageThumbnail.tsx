@@ -13,10 +13,16 @@ import { cn } from "@/lib/utils";
 type ExplorerImageThumbnailProps = {
   file: FileItem;
   className?: string;
+  /** Human: Fill a parent preview slot instead of owning the square aspect box. */
+  slotFill?: boolean;
 };
 
 /** Human: Lazy-loaded grid image preview with server-side or client-side thumbnail sources. */
-export function ExplorerImageThumbnail({ file, className }: ExplorerImageThumbnailProps) {
+export function ExplorerImageThumbnail({
+  file,
+  className,
+  slotFill = false,
+}: ExplorerImageThumbnailProps) {
   const {
     containerRef,
     displaySrc,
@@ -39,8 +45,10 @@ export function ExplorerImageThumbnail({ file, className }: ExplorerImageThumbna
     <div
       ref={containerRef}
       className={cn(
-        "relative w-full overflow-hidden rounded-lg bg-[#F3F4F6]",
-        "aspect-[4/3] contain-[layout_paint]",
+        "overflow-hidden contain-[layout_paint]",
+        slotFill
+          ? "absolute inset-0 size-full rounded-none bg-transparent"
+          : "relative aspect-square w-full rounded-lg bg-[#F3F4F6]",
         className,
       )}
     >

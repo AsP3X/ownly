@@ -17,6 +17,9 @@ Configure on the **object-storage** container (see `docker-compose.yml` and `.en
 | `NOS_SOFT_DELETE_DROP_BLOB` | `true` | Drop blob files on soft-delete |
 | `NOS_ZSTD_DICT_ENABLED` | `false` | Global zstd dictionary (optional) |
 | `NOS_DEDUP_ENABLED` | `false` | Block dedup for large objects (optional) |
+| `NOS_UPLOAD_MAX_IN_FLIGHT_BYTES` | `2147483648` (2 GiB) | Aggregate PUT body budget; below largest upload → instant 503 backpressure |
+
+**Upload backpressure:** Nebular rejects PUTs when `Content-Length` would exceed the in-flight byte cap (503 + `Retry-After`). Raise `NOS_UPLOAD_MAX_IN_FLIGHT_BYTES` for large drive uploads; pair with backend `STORAGE_PUT_MAX_CONCURRENT` (default 2) so two large files can run in parallel.
 
 **Production tip:** After a period of fast uploads, keep recompression enabled and `NOS_ZSTD_LEVEL=22` so NOS2 blobs and legacy NOSZ/raw objects are re-stamped at the strong level.
 

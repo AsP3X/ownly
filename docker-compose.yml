@@ -68,9 +68,11 @@ services:
       # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
       # Human: When Ownly STORAGE_METADATA_MODE=ownly, set NOS_METADATA_MODE=blob_only (Postgres index lives in Ownly).
-      # Agent: OPTIONAL NOS_METADATA_MODE full|blob_only; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps concurrent PUT pressure.
+      # Agent: OPTIONAL NOS_METADATA_MODE full|blob_only; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps aggregate PUT body bytes.
+      # Human: Default 2 GiB — must exceed largest single upload (Content-Length budget) and pair with STORAGE_PUT_MAX_CONCURRENT=2.
+      # Agent: 32 MiB rejects drive uploads >~30 MiB with instant 503 backpressure; OVERRIDE via .env on low-RAM hosts.
       NOS_METADATA_MODE: ${NOS_METADATA_MODE:-full}
-      NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-33554432}
+      NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
       NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
       NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
       RUST_LOG: info
