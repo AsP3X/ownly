@@ -285,10 +285,18 @@ export async function restoreStorageMigrationFromServer() {
 // Agent: POST dismiss; CLEARS local active job.
 export async function dismissStorageMigrationJob() {
   if (!activeJob || activeJob.status === "running") return;
-  try {
-    await dismissStorageMigrationRun(activeJob.id);
-  } catch {
-    return;
+  const dismissedKind = activeJob.kind;
+  const dismissedId = activeJob.id;
+  if (dismissedId !== "client-error") {
+    try {
+      await dismissStorageMigrationRun(dismissedId);
+    } catch {
+      return;
+    }
+  }
+  if (dismissedKind === "preview") {
+    storedPreview = null;
+    emitPreview();
   }
   activeJob = null;
   resultDialogOpen = false;
@@ -321,26 +329,42 @@ export async function cancelStorageMigrationJob() {
   }
 }
 
-async function beginRun(start: () => Promise<StorageMigrationRun>) {
+function setFailedJob(kind: StorageMigrationJobKind, message: string) {
+  activeJob = {
+    id: "client-error",
+    kind,
+    status: "error",
+    batchNumber: 0,
+    migrated: 0,
+    skipped: 0,
+    failed: 0,
+    scanned: 0,
+    waitingOnBatch: false,
+    error: message,
+    lastNodeSummaries: [],
+  };
+  resultDialogOpen = true;
+  emitJob();
+  emitResultDialog();
+}
+
+// Human: Start a server run and surface API failures in the result dialog and thrown error.
+// Agent: CALLS POST preview/migrate; STARTS polling; THROWS on failure for admin actionError.
+async function beginRun(
+  kind: StorageMigrationJobKind,
+  start: () => Promise<StorageMigrationRun>,
+): Promise<StorageMigrationRun> {
   try {
     const run = await start();
     applyRun(run);
-    startPolling();
+    if (run.status === "running") {
+      startPolling();
+    }
+    return run;
   } catch (error) {
-    activeJob = {
-      id: "error",
-      kind: "preview",
-      status: "error",
-      batchNumber: 0,
-      migrated: 0,
-      skipped: 0,
-      failed: 0,
-      scanned: 0,
-      waitingOnBatch: false,
-      error: getErrorMessage(error),
-      lastNodeSummaries: [],
-    };
-    emitJob();
+    const message = getErrorMessage(error);
+    setFailedJob(kind, message);
+    throw error;
   }
 }
 
@@ -350,7 +374,7 @@ export function startStorageMigrationPreview(options: {
   nodeId?: string;
   prefix?: string;
 }) {
-  void beginRun(() =>
+  return beginRun("preview", () =>
     startStorageMigrationPreviewRun({
       node_id: options.nodeId,
       prefix: options.prefix,
@@ -359,15 +383,17 @@ export function startStorageMigrationPreview(options: {
 }
 
 // Human: Start migrate after server preview — progress uses preview total for percent.
-// Agent: POST migrate endpoint; REQUIRES matching completed preview on server.
+// Agent: POST migrate endpoint; PINS preview_run_id from stored preview when available.
 export function startStorageMigration(options: {
   nodeId?: string;
   prefix?: string;
+  previewRunId?: string;
 }) {
-  void beginRun(() =>
+  return beginRun("migrate", () =>
     startStorageMigrationRun({
       node_id: options.nodeId,
       prefix: options.prefix,
+      preview_run_id: options.previewRunId ?? storedPreview?.runId,
     }),
   );
 }

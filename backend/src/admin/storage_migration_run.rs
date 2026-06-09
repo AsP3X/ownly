@@ -158,6 +158,8 @@ pub struct StartStorageMigrationRunBody {
     pub node_id: Option<String>,
     #[serde(default)]
     pub prefix: String,
+    /// Human: Completed preview run to migrate — preferred over scope lookup when the UI dismissed the preview card.
+    pub preview_run_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -338,15 +340,15 @@ async fn is_run_cancelled(pool: &PgPool, run_id: Uuid) -> Result<bool, AppError>
 }
 
 async fn ensure_no_running_run(pool: &PgPool) -> Result<(), AppError> {
-    let active: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM storage_migration_runs WHERE status = 'running' LIMIT 1",
+    let active: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, kind FROM storage_migration_runs WHERE status = 'running' LIMIT 1",
     )
     .fetch_optional(pool)
     .await?;
-    if active.is_some() {
-        return Err(AppError::BadRequest(
-            "A storage migration run is already in progress.".into(),
-        ));
+    if let Some((run_id, kind)) = active {
+        return Err(AppError::BadRequest(format!(
+            "A storage {kind} run is already in progress (id {run_id}). Cancel it before starting another."
+        )));
     }
     Ok(())
 }
@@ -361,7 +363,7 @@ async fn find_matching_preview(
          current_node_id, batch_number, preview_run_id, progress_json, error_message, started_by_user_id, \
          dismissed_at, created_at, updated_at, completed_at \
          FROM storage_migration_runs \
-         WHERE kind = 'preview' AND status = 'complete' AND dismissed_at IS NULL \
+         WHERE kind = 'preview' AND status = 'complete' \
            AND COALESCE(node_id, '') = COALESCE($1, '') AND prefix = $2 \
          ORDER BY completed_at DESC NULLS LAST \
          LIMIT 1",
@@ -371,6 +373,44 @@ async fn find_matching_preview(
     .fetch_optional(pool)
     .await?;
     Ok(row)
+}
+
+// Human: Resolve the preview run for migrate — explicit id from the UI wins over scope lookup.
+// Agent: READS preview_run_id when set; VERIFIES kind/status/scope before spawn_run.
+async fn resolve_preview_for_migrate(
+    pool: &PgPool,
+    preview_run_id: Option<Uuid>,
+    node_id: Option<&str>,
+    prefix: &str,
+) -> Result<StorageMigrationRunRow, AppError> {
+    if let Some(run_id) = preview_run_id {
+        let row = fetch_run(pool, run_id)
+            .await?
+            .ok_or(AppError::BadRequest(
+                "The selected preview run was not found. Run preview migration again.".into(),
+            ))?;
+        if row.kind != StorageMigrationRunKind::Preview.as_str() || row.status != "complete" {
+            return Err(AppError::BadRequest(
+                "The selected preview run is not complete. Run preview migration again.".into(),
+            ));
+        }
+        let scope_matches = row.node_id.as_deref() == node_id
+            && row.prefix == prefix;
+        if !scope_matches {
+            return Err(AppError::BadRequest(
+                "The selected preview run does not match the current node and prefix.".into(),
+            ));
+        }
+        return Ok(row);
+    }
+
+    find_matching_preview(pool, node_id, prefix)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "Run preview migration for this node and prefix before starting migration.".into(),
+            )
+        })
 }
 
 // Human: Background worker — paginates each node, persists counts/logs, honours cancel.
@@ -794,13 +834,13 @@ pub async fn start_storage_migration_run(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    let preview = find_matching_preview(&state.pool, node_id.as_deref(), &prefix)
-        .await?
-        .ok_or_else(|| {
-            AppError::BadRequest(
-                "Run preview migration for this node and prefix before starting migration.".into(),
-            )
-        })?;
+    let preview = resolve_preview_for_migrate(
+        &state.pool,
+        body.preview_run_id,
+        node_id.as_deref(),
+        &prefix,
+    )
+    .await?;
 
     if preview.migrated <= 0 {
         return Err(AppError::BadRequest(

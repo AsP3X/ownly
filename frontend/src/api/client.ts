@@ -752,6 +752,7 @@ export async function startStorageMigrationPreviewRun(body: {
 export async function startStorageMigrationRun(body: {
   node_id?: string;
   prefix?: string;
+  preview_run_id?: string;
 }) {
   return apiFetch("/admin/maintenance/storage-migration/migrate", {
     method: "POST",

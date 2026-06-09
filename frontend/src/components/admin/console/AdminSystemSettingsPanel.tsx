@@ -177,20 +177,31 @@ export function AdminSystemSettingsPanel() {
 
   // Human: Full dry-run scan — totals objects to migrate and unlocks Start migration.
   // Agent: CALLS startStorageMigrationPreview; PROGRESS in lower-right transfer tray.
-  function handlePreviewStorageMigration() {
+  async function handlePreviewStorageMigration() {
     if (migrationJobBusy) return;
 
     setActionError(null);
-    startStorageMigrationPreview({
-      nodeId: migrationNodeId.trim() || undefined,
-      prefix: migrationPrefix.trim() || undefined,
-    });
+    try {
+      await startStorageMigrationPreview({
+        nodeId: migrationNodeId.trim() || undefined,
+        prefix: migrationPrefix.trim() || undefined,
+      });
+    } catch (err) {
+      setActionError(getErrorMessage(err));
+    }
   }
 
   // Human: Run migration after preview — progress bar uses preview total for percent.
   // Agent: CALLS startStorageMigration; REQUIRES matching migrationPreview with total > 0.
-  function handleStartStorageMigration() {
-    if (migrationJobBusy || !migrationScopeReady || !migrationPreview) return;
+  async function handleStartStorageMigration() {
+    if (migrationJobBusy) {
+      setActionError("A storage migration or preview is already running.");
+      return;
+    }
+    if (!migrationScopeReady || !migrationPreview) {
+      setActionError("Run preview migration for the current node and prefix before starting migration.");
+      return;
+    }
     if (migrationPreview.totalWouldMigrate === 0) return;
 
     const nodeId = migrationNodeId.trim() || undefined;
@@ -210,10 +221,15 @@ export function AdminSystemSettingsPanel() {
     }
 
     setActionError(null);
-    startStorageMigration({
-      nodeId,
-      prefix,
-    });
+    try {
+      await startStorageMigration({
+        nodeId,
+        prefix,
+        previewRunId: migrationPreview.runId,
+      });
+    } catch (err) {
+      setActionError(getErrorMessage(err));
+    }
   }
 
   return (
@@ -431,7 +447,7 @@ export function AdminSystemSettingsPanel() {
                     />
                     <div className="flex flex-wrap gap-2">
                       <AdminConsoleOutlineButton
-                        onClick={() => handlePreviewStorageMigration()}
+                        onClick={() => void handlePreviewStorageMigration()}
                         disabled={migrationJobBusy || saving || loading || storageNodeIds.length === 0}
                       >
                         {previewRunning ? (
@@ -440,7 +456,7 @@ export function AdminSystemSettingsPanel() {
                         Preview migration
                       </AdminConsoleOutlineButton>
                       <AdminConsoleOutlineButton
-                        onClick={() => handleStartStorageMigration()}
+                        onClick={() => void handleStartStorageMigration()}
                         disabled={
                           migrationJobBusy ||
                           saving ||
