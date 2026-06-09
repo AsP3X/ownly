@@ -122,7 +122,7 @@ services:
       # Human: Compose uses docker network hostnames (postgres, object-storage) — not public internet.
       # Agent: REQUIRED for setup wizard DB/storage tests in local stack; omit in locked-down production.
       OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-1}
-      UPLOAD_RPM: ${UPLOAD_RPM:-600}
+      UPLOAD_RPM: ${UPLOAD_RPM:-1200}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       # Human: Cap parallel Nebular PUTs from API — pairs with SQLite metadata; raise only when using Postgres metadata backend.
       # Agent: READ by StoragePutGate; DEFAULT 2; WRAPS all Storage::put (uploads, thumbnails, HLS).

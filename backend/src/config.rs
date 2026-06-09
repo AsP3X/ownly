@@ -182,8 +182,8 @@ fn default_auth_register_rpm() -> u32 {
 
 fn default_upload_rpm() -> u32 {
     // Human: Bulk folder uploads run ~3 concurrent; small files on localhost exceed ~3/s sustained.
-    // Agent: DEFAULT 600/min (~10/s rolling average); override with UPLOAD_RPM in Compose/.env.
-    600
+    // Agent: DEFAULT 1200/min (~20/s rolling average); override with UPLOAD_RPM in Compose/.env.
+    1200
 }
 
 fn default_max_upload_bytes() -> u64 {
