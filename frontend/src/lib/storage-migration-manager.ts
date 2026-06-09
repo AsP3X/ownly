@@ -48,6 +48,7 @@ type ResultDialogListener = (open: boolean) => void;
 type LogDialogListener = (open: boolean) => void;
 
 const POLL_INTERVAL_MS = 2000;
+const PREVIEW_SESSION_KEY = "ownly:storage-migration-preview";
 
 let activeJob: StorageMigrationJob | null = null;
 let storedPreview: StorageMigrationPreview | null = null;
@@ -66,6 +67,33 @@ function emitJob() {
   const snapshot = activeJob ? { ...activeJob } : null;
   for (const listener of jobListeners) {
     listener(snapshot);
+  }
+}
+
+// Human: Persist completed preview in sessionStorage so dismiss/reload still allows migrate.
+// Agent: WRITES PREVIEW_SESSION_KEY on sync; READ on restore when status endpoint is empty.
+function persistPreviewToSession() {
+  try {
+    if (storedPreview) {
+      sessionStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(storedPreview));
+    } else {
+      sessionStorage.removeItem(PREVIEW_SESSION_KEY);
+    }
+  } catch {
+    // sessionStorage may be unavailable in private mode — migrate still works until dismiss clears memory.
+  }
+}
+
+function restorePreviewFromSession() {
+  try {
+    const raw = sessionStorage.getItem(PREVIEW_SESSION_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as StorageMigrationPreview;
+    if (!parsed?.runId || typeof parsed.totalWouldMigrate !== "number") return;
+    storedPreview = parsed;
+    emitPreview();
+  } catch {
+    sessionStorage.removeItem(PREVIEW_SESSION_KEY);
   }
 }
 
@@ -125,6 +153,7 @@ function syncPreviewFromRun(run: StorageMigrationRun) {
     totalScanned: run.scanned,
     completedAt: run.completed_at ? Date.parse(run.completed_at) : Date.now(),
   };
+  persistPreviewToSession();
   emitPreview();
 }
 
@@ -261,6 +290,7 @@ export function getStorageMigrationPreview(): StorageMigrationPreview | null {
 
 export function clearStorageMigrationPreview() {
   storedPreview = null;
+  persistPreviewToSession();
   emitPreview();
 }
 
@@ -269,6 +299,7 @@ export function clearStorageMigrationPreview() {
 export async function restoreStorageMigrationFromServer() {
   if (restoreAttempted) return;
   restoreAttempted = true;
+  restorePreviewFromSession();
   try {
     const run = await fetchStorageMigrationStatus();
     applyRun(run, { openResultOnTerminal: isTerminal(run.status) });
@@ -278,6 +309,7 @@ export async function restoreStorageMigrationFromServer() {
   } catch {
     activeJob = null;
     emitJob();
+    restorePreviewFromSession();
   }
 }
 
@@ -294,8 +326,11 @@ export async function dismissStorageMigrationJob() {
       return;
     }
   }
-  if (dismissedKind === "preview") {
+  // Human: Dismissing preview only hides the finished run card — migrate eligibility stays until a new preview.
+  // Agent: KEEPS storedPreview + sessionStorage when dismissedKind === preview.
+  if (dismissedKind === "migrate") {
     storedPreview = null;
+    persistPreviewToSession();
     emitPreview();
   }
   activeJob = null;
@@ -374,6 +409,9 @@ export function startStorageMigrationPreview(options: {
   nodeId?: string;
   prefix?: string;
 }) {
+  storedPreview = null;
+  persistPreviewToSession();
+  emitPreview();
   return beginRun("preview", () =>
     startStorageMigrationPreviewRun({
       node_id: options.nodeId,
@@ -396,4 +434,20 @@ export function startStorageMigration(options: {
       preview_run_id: options.previewRunId ?? storedPreview?.runId,
     }),
   );
+}
+
+// Human: Start migrate using the last completed preview without re-reading admin form state.
+// Agent: CALLS startStorageMigration with storedPreview scope + preview_run_id.
+export function startStorageMigrationFromStoredPreview() {
+  if (!storedPreview) {
+    return Promise.reject(new Error("Run preview migration before starting migration."));
+  }
+  if (storedPreview.totalWouldMigrate === 0) {
+    return Promise.reject(new Error("Preview found no objects that need migration."));
+  }
+  return startStorageMigration({
+    nodeId: storedPreview.nodeId,
+    prefix: storedPreview.prefix,
+    previewRunId: storedPreview.runId,
+  });
 }

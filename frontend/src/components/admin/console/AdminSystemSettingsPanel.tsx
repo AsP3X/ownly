@@ -29,6 +29,7 @@ import {
   startStorageMigrationPreview,
   subscribeStorageMigrationJob,
   subscribeStorageMigrationPreview,
+  type StorageMigrationJob,
   type StorageMigrationPreview,
 } from "@/lib/storage-migration-manager";
 import {
@@ -57,6 +58,7 @@ export function AdminSystemSettingsPanel() {
   const [migrationRunning, setMigrationRunning] = useState(false);
   const [previewRunning, setPreviewRunning] = useState(false);
   const [migrationPreview, setMigrationPreview] = useState<StorageMigrationPreview | null>(null);
+  const [migrationJob, setMigrationJob] = useState<StorageMigrationJob | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
@@ -67,6 +69,7 @@ export function AdminSystemSettingsPanel() {
   useEffect(
     () =>
       subscribeStorageMigrationJob((job) => {
+        setMigrationJob(job);
         setPreviewRunning(job?.status === "running" && job.kind === "preview");
         setMigrationRunning(job?.status === "running" && job.kind === "migrate");
       }),
@@ -202,7 +205,10 @@ export function AdminSystemSettingsPanel() {
       setActionError("Run preview migration for the current node and prefix before starting migration.");
       return;
     }
-    if (migrationPreview.totalWouldMigrate === 0) return;
+    if (migrationPreview.totalWouldMigrate === 0) {
+      setActionError("Preview found no objects that need migration.");
+      return;
+    }
 
     const nodeId = migrationNodeId.trim() || undefined;
     const prefix = migrationPrefix.trim() || undefined;
@@ -428,6 +434,16 @@ export function AdminSystemSettingsPanel() {
                       Run preview first to count objects that need migration. Progress appears in the
                       lower-right corner while preview or migration runs.
                     </p>
+                    {migrationJob?.status === "running" ? (
+                      <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        {migrationJob.kind === "preview" ? "Preview" : "Migration"} in progress —{" "}
+                        {migrationJob.kind === "preview"
+                          ? `${migrationJob.migrated} would migrate so far`
+                          : `${migrationJob.migrated}${migrationJob.totalTarget ? ` of ${migrationJob.totalTarget}` : ""} migrated`}
+                        {migrationJob.failed > 0 ? ` · ${migrationJob.failed} failed` : ""}. Watch the
+                        lower-right progress card or open the result dialog when finished.
+                      </p>
+                    ) : null}
                     {migrationScopeReady && migrationPreview ? (
                       <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
                         Preview ready:{" "}
@@ -436,7 +452,7 @@ export function AdminSystemSettingsPanel() {
                         {migrationPreview.totalScanned > 0
                           ? ` (${migrationPreview.totalScanned} scanned)`
                           : ""}
-                        .
+                        . You can start migration here or from the preview summary dialog.
                       </p>
                     ) : null}
                     <AdminConsoleField

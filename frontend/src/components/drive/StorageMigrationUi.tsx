@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, ScrollText } from "lucide-react";
 import {
   fetchStorageMigrationLogs,
+  getErrorMessage,
   type StorageMigrationLogEntry,
 } from "@/api/client";
 import { LogDialog, type LogDialogEntry } from "@/components/ui/LogDialog";
@@ -13,6 +14,7 @@ import {
   dismissStorageMigrationJob,
   openStorageMigrationLogDialog,
   restoreStorageMigrationFromServer,
+  startStorageMigrationFromStoredPreview,
   subscribeStorageMigrationJob,
   subscribeStorageMigrationLogDialog,
   subscribeStorageMigrationResultDialog,
@@ -65,14 +67,21 @@ function StorageMigrationResultDialog({
   open,
   onOpenChange,
   onViewLog,
+  onStartMigration,
+  startMigrationBusy,
+  startMigrationError,
 }: {
   job: StorageMigrationJob;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onViewLog: () => void;
+  onStartMigration?: () => void;
+  startMigrationBusy?: boolean;
+  startMigrationError?: string | null;
 }) {
   const success = job.status === "complete";
   const isPreview = job.kind === "preview";
+  const canStartMigration = isPreview && success && job.migrated > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,21 +128,33 @@ function StorageMigrationResultDialog({
             </p>
           ) : null}
           {job.error ? <p className="text-red-700">{job.error}</p> : null}
+          {startMigrationError ? <p className="text-red-700">{startMigrationError}</p> : null}
+          {isPreview && success && job.migrated === 0 ? (
+            <p className="text-neutral-600">
+              All scanned objects are already on the current storage layout — migration is not needed.
+            </p>
+          ) : null}
         </div>
 
-        <DialogFooter className="flex-row justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
           <Button type="button" variant="outline" onClick={onViewLog}>
             <ScrollText className="size-4" aria-hidden />
             View log
           </Button>
+          {canStartMigration && onStartMigration ? (
+            <Button type="button" disabled={startMigrationBusy} onClick={onStartMigration}>
+              {startMigrationBusy ? "Starting…" : "Start migration"}
+            </Button>
+          ) : null}
           <Button
             type="button"
+            variant={canStartMigration ? "outline" : "default"}
             onClick={() => {
               onOpenChange(false);
               void dismissStorageMigrationJob();
             }}
           >
-            Dismiss
+            {isPreview ? "Close" : "Dismiss"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -152,6 +173,8 @@ export function StorageMigrationUi() {
   const [logLoadingMore, setLogLoadingMore] = useState(false);
   const [logHasMore, setLogHasMore] = useState(false);
   const [logCursor, setLogCursor] = useState<number | null>(null);
+  const [startMigrationBusy, setStartMigrationBusy] = useState(false);
+  const [startMigrationError, setStartMigrationError] = useState<string | null>(null);
 
   const loadLogs = useCallback(
     async (runId: string, after?: number, append = false) => {
@@ -208,6 +231,30 @@ export function StorageMigrationUi() {
     setResultOpen(open);
     if (!open) {
       closeStorageMigrationResultDialog();
+      setStartMigrationError(null);
+    }
+  }
+
+  // Human: One-click migrate from the preview summary — same server run as the admin panel button.
+  // Agent: CALLS startStorageMigrationFromStoredPreview; CLOSES result dialog on success.
+  async function handleStartMigrationFromPreview() {
+    if (
+      !window.confirm(
+        `Migrate ${job?.migrated ?? 0} legacy object(s)? Progress appears in the lower-right corner.`,
+      )
+    ) {
+      return;
+    }
+    setStartMigrationBusy(true);
+    setStartMigrationError(null);
+    try {
+      await startStorageMigrationFromStoredPreview();
+      setResultOpen(false);
+      closeStorageMigrationResultDialog();
+    } catch (error) {
+      setStartMigrationError(getErrorMessage(error));
+    } finally {
+      setStartMigrationBusy(false);
     }
   }
 
@@ -224,6 +271,9 @@ export function StorageMigrationUi() {
           open={resultOpen}
           onOpenChange={handleResultOpenChange}
           onViewLog={openLogDialog}
+          onStartMigration={() => void handleStartMigrationFromPreview()}
+          startMigrationBusy={startMigrationBusy}
+          startMigrationError={startMigrationError}
         />
       ) : null}
 
