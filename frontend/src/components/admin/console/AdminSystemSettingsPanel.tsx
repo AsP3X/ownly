@@ -23,8 +23,13 @@ import {
   type AdminSettingsResponse,
 } from "@/api/client";
 import {
+  clearStorageMigrationPreview,
+  previewMatchesScope,
   startStorageMigration,
+  startStorageMigrationPreview,
   subscribeStorageMigrationJob,
+  subscribeStorageMigrationPreview,
+  type StorageMigrationPreview,
 } from "@/lib/storage-migration-manager";
 import {
   AdminConsoleField,
@@ -50,6 +55,8 @@ export function AdminSystemSettingsPanel() {
   const [migrationNodeId, setMigrationNodeId] = useState("");
   const [migrationPrefix, setMigrationPrefix] = useState("");
   const [migrationRunning, setMigrationRunning] = useState(false);
+  const [previewRunning, setPreviewRunning] = useState(false);
+  const [migrationPreview, setMigrationPreview] = useState<StorageMigrationPreview | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
@@ -60,10 +67,24 @@ export function AdminSystemSettingsPanel() {
   useEffect(
     () =>
       subscribeStorageMigrationJob((job) => {
-        setMigrationRunning(job?.status === "running");
+        setPreviewRunning(job?.status === "running" && job.kind === "preview");
+        setMigrationRunning(job?.status === "running" && job.kind === "migrate");
       }),
     [],
   );
+
+  useEffect(() => subscribeStorageMigrationPreview(setMigrationPreview), []);
+
+  // Human: Changing node or prefix invalidates a prior preview — user must scan again.
+  // Agent: CALLS clearStorageMigrationPreview only when stored preview scope diverges from form.
+  useEffect(() => {
+    if (
+      migrationPreview &&
+      !previewMatchesScope(migrationPreview, migrationNodeId || undefined, migrationPrefix || undefined)
+    ) {
+      clearStorageMigrationPreview();
+    }
+  }, [migrationNodeId, migrationPrefix, migrationPreview]);
 
   // Human: Prefer local edits over last server snapshot for controlled inputs.
   // Agent: READS editedForm then serverData; WRITES editedForm via patchForm/save.
@@ -146,41 +167,54 @@ export function AdminSystemSettingsPanel() {
   }
 
   const storageNodes = storageOverview?.nodes ?? [];
-  const autoContinueMigration =
-    migrationNodeId.trim().length > 0 || storageNodes.length === 1;
+  const storageNodeIds = storageNodes.map((node) => node.id);
+  const migrationScopeReady = previewMatchesScope(
+    migrationPreview,
+    migrationNodeId || undefined,
+    migrationPrefix || undefined,
+  );
+  const migrationJobBusy = previewRunning || migrationRunning;
 
-  // Human: Kick off background migration — progress appears in the lower-right transfer tray.
-  // Agent: CALLS startStorageMigration; CONFIRMS once; auto-continues when single node selected.
-  function handleStartStorageMigration(dryRun: boolean) {
-    if (migrationRunning) return;
+  // Human: Full dry-run scan — totals objects to migrate and unlocks Start migration.
+  // Agent: CALLS startStorageMigrationPreview; PROGRESS in lower-right transfer tray.
+  function handlePreviewStorageMigration() {
+    if (migrationJobBusy) return;
+
+    setActionError(null);
+    startStorageMigrationPreview({
+      nodeId: migrationNodeId.trim() || undefined,
+      nodeIds: storageNodeIds,
+      prefix: migrationPrefix.trim() || undefined,
+    });
+  }
+
+  // Human: Run migration after preview — progress bar uses preview total for percent.
+  // Agent: CALLS startStorageMigration; REQUIRES matching migrationPreview with total > 0.
+  function handleStartStorageMigration() {
+    if (migrationJobBusy || !migrationScopeReady || !migrationPreview) return;
+    if (migrationPreview.totalWouldMigrate === 0) return;
 
     const nodeId = migrationNodeId.trim() || undefined;
     const prefix = migrationPrefix.trim() || undefined;
+    const scope = nodeId
+      ? `storage node "${nodeId}"`
+      : storageNodes.length > 1
+        ? "all storage nodes"
+        : "the storage node";
 
-    if (!dryRun) {
-      const scope = nodeId
-        ? `storage node "${nodeId}"`
-        : storageNodes.length > 1
-          ? "all storage nodes"
-          : "the storage node";
-      const detail = autoContinueMigration
-        ? "Objects will be migrated in batches until finished. Progress appears in the lower-right corner."
-        : "The first batch on each node will run now. Select a single node to migrate large buckets automatically.";
-      if (
-        !window.confirm(
-          `Start legacy blob migration on ${scope}? ${detail}`,
-        )
-      ) {
-        return;
-      }
+    if (
+      !window.confirm(
+        `Migrate ${migrationPreview.totalWouldMigrate} legacy object(s) on ${scope}? Progress appears in the lower-right corner.`,
+      )
+    ) {
+      return;
     }
 
     setActionError(null);
     startStorageMigration({
       nodeId,
+      nodeIds: storageNodeIds,
       prefix,
-      dryRun,
-      autoContinue: dryRun ? false : autoContinueMigration,
     });
   }
 
@@ -366,9 +400,7 @@ export function AdminSystemSettingsPanel() {
                           className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
                         >
                           <option value="">
-                            {storageNodes.length > 1
-                              ? "All nodes (first batch per node)"
-                              : "Default node"}
+                            {storageNodes.length > 1 ? "All nodes" : "Default node"}
                           </option>
                           {storageNodes.map((node) => (
                             <option key={node.id} value={node.id}>
@@ -378,16 +410,21 @@ export function AdminSystemSettingsPanel() {
                         </select>
                       </label>
                     ) : null}
-                    {storageNodes.length > 1 && !migrationNodeId ? (
-                      <p className="text-xs text-amber-800">
-                        Select a single node to migrate large buckets automatically. Progress appears in the
-                        lower-right corner.
+                    <p className="text-xs text-[#888888]">
+                      Run preview first to count objects that need migration. Progress appears in the
+                      lower-right corner while preview or migration runs.
+                    </p>
+                    {migrationScopeReady && migrationPreview ? (
+                      <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                        Preview ready:{" "}
+                        <span className="font-semibold">{migrationPreview.totalWouldMigrate}</span> to
+                        migrate, {migrationPreview.totalSkipped} already up to date
+                        {migrationPreview.totalScanned > 0
+                          ? ` (${migrationPreview.totalScanned} scanned)`
+                          : ""}
+                        .
                       </p>
-                    ) : (
-                      <p className="text-xs text-[#888888]">
-                        Progress appears in the lower-right corner while migration runs.
-                      </p>
-                    )}
+                    ) : null}
                     <AdminConsoleField
                       label="Key prefix (optional)"
                       value={migrationPrefix}
@@ -396,17 +433,24 @@ export function AdminSystemSettingsPanel() {
                     />
                     <div className="flex flex-wrap gap-2">
                       <AdminConsoleOutlineButton
-                        onClick={() => handleStartStorageMigration(true)}
-                        disabled={migrationRunning || saving || loading}
+                        onClick={() => handlePreviewStorageMigration()}
+                        disabled={migrationJobBusy || saving || loading || storageNodeIds.length === 0}
                       >
-                        {migrationRunning ? (
+                        {previewRunning ? (
                           <Loader2 className="size-4 animate-spin" aria-hidden />
                         ) : null}
-                        Preview batch
+                        Preview migration
                       </AdminConsoleOutlineButton>
                       <AdminConsoleOutlineButton
-                        onClick={() => handleStartStorageMigration(false)}
-                        disabled={migrationRunning || saving || loading}
+                        onClick={() => handleStartStorageMigration()}
+                        disabled={
+                          migrationJobBusy ||
+                          saving ||
+                          loading ||
+                          !migrationScopeReady ||
+                          !migrationPreview ||
+                          migrationPreview.totalWouldMigrate === 0
+                        }
                       >
                         {migrationRunning ? (
                           <Loader2 className="size-4 animate-spin" aria-hidden />

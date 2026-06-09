@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, HardDriveDownload, Loader2, X } f
 import {
   cancelStorageMigrationJob,
   dismissStorageMigrationJob,
+  migrationProgressPercent,
   subscribeStorageMigrationJob,
   type StorageMigrationJob,
 } from "@/lib/storage-migration-manager";
@@ -17,8 +18,8 @@ type StorageMigrationTransferPanelProps = {
   onMinimizedChange: (minimized: boolean) => void;
 };
 
-// Human: Shimmer bar while a batch request is in flight; solid green when complete.
-// Agent: INDETERMINATE when waitingOnBatch && running; WIDTH 100% on complete.
+// Human: Determinate bar when totalTarget known; shimmer only while a batch HTTP call is in flight.
+// Agent: READS migrationProgressPercent; INDETERMINATE when percent null and running.
 function MigrationProgressBar({
   job,
 }: {
@@ -26,8 +27,10 @@ function MigrationProgressBar({
 }) {
   const complete = job.status === "complete";
   const running = job.status === "running";
+  const percent = migrationProgressPercent(job);
+  const showShimmer = running && job.waitingOnBatch && percent === null;
 
-  if (running && job.waitingOnBatch) {
+  if (showShimmer) {
     return (
       <div
         className="relative h-2 w-full overflow-hidden rounded-full bg-neutral-200"
@@ -42,11 +45,13 @@ function MigrationProgressBar({
     );
   }
 
+  const clamped = percent ?? (complete ? 100 : 0);
+
   return (
     <div
       className="h-2 w-full overflow-hidden rounded-full bg-neutral-200"
       role="progressbar"
-      aria-valuenow={complete ? 100 : 0}
+      aria-valuenow={clamped}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-label="Storage migration progress"
@@ -54,23 +59,35 @@ function MigrationProgressBar({
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-150 ease-out",
-          complete ? "w-full bg-green-600" : "w-0 bg-blue-600",
+          complete ? "bg-green-600" : "bg-blue-600",
         )}
+        style={{ width: `${clamped}%` }}
       />
     </div>
   );
 }
 
 function statusLine(job: StorageMigrationJob): string {
-  if (job.dryRun) {
-    return job.status === "running"
-      ? `Previewing batch ${job.batchNumber}…`
-      : `Preview complete — ${job.migrated} would migrate`;
+  if (job.kind === "preview") {
+    if (job.status === "running") {
+      const nodeHint = job.currentNodeId ? ` on ${job.currentNodeId}` : "";
+      return `Scanning${nodeHint} — ${job.migrated} would migrate so far`;
+    }
+    if (job.migrated === 0) {
+      return "Preview complete — nothing to migrate";
+    }
+    return `Preview complete — ${job.migrated} to migrate`;
   }
+
   if (job.status === "running") {
+    if (job.totalTarget && job.totalTarget > 0) {
+      const processed = job.migrated + job.failed;
+      const pct = migrationProgressPercent(job) ?? 0;
+      return `${processed} of ${job.totalTarget} (${pct}%)`;
+    }
     return job.waitingOnBatch
       ? `Processing batch ${job.batchNumber}…`
-      : `Continuing migration…`;
+      : "Continuing migration…";
   }
   if (job.status === "cancelled") {
     return `Stopped after batch ${job.batchNumber}`;
@@ -95,7 +112,7 @@ export function StorageMigrationTransferPanel({
 
   const isRunning = job.status === "running";
   const isTerminal = job.status === "complete" || job.status === "error" || job.status === "cancelled";
-  const title = job.dryRun ? "Storage migration preview" : "Storage migration";
+  const title = job.kind === "preview" ? "Storage migration preview" : "Storage migration";
 
   return (
     <div
@@ -158,22 +175,26 @@ export function StorageMigrationTransferPanel({
         <div className="flex flex-col gap-3 px-4 py-3">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-sm font-medium text-neutral-900">{statusLine(job)}</p>
-            {isRunning && !job.waitingOnBatch ? (
-              <span className="shrink-0 text-xs font-semibold text-blue-700">…</span>
+            {isRunning && job.kind === "migrate" && job.totalTarget ? (
+              <span className="shrink-0 text-xs font-semibold text-blue-700">
+                {migrationProgressPercent(job) ?? 0}%
+              </span>
             ) : null}
           </div>
 
           <MigrationProgressBar job={job} />
 
           <p className="text-xs text-neutral-600">
-            {job.migrated} {job.dryRun ? "would migrate" : "migrated"}
+            {job.migrated} {job.kind === "preview" ? "would migrate" : "migrated"}
             {" · "}
             {job.skipped} skipped
             {job.failed > 0 ? ` · ${job.failed} failed` : ""}
             {job.batchNumber > 0 ? ` · batch ${job.batchNumber}` : ""}
           </p>
 
-          {job.nodeId ? (
+          {job.currentNodeId ? (
+            <p className="text-xs text-neutral-500">Node: {job.currentNodeId}</p>
+          ) : job.nodeId ? (
             <p className="text-xs text-neutral-500">Node: {job.nodeId}</p>
           ) : null}
           {job.prefix ? (
