@@ -1,10 +1,12 @@
 // Human: Background janitor for Ownly scratch files under the OS temp directory.
 // Agent: READS std::env::temp_dir; DELETES ownly-prefixed entries idle longer than 2 minutes.
 // NOTE: Object-storage MP4 sidecars (`.ownly-gif-preview.mp4`) are never touched here — only API-host scratch dirs.
+// NOTE: `ownly_upload_*` dirs stay while video HLS ingest is queued/processing — otherwise ffmpeg loses the spool.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use sqlx::PgPool;
 use tempfile::TempDir;
 use tracing::{debug, info, warn};
 
@@ -104,14 +106,49 @@ pub fn is_idle_temp_path(path: &Path, max_idle: Duration) -> bool {
         .unwrap_or(false)
 }
 
+// Human: Extract file id from an `ownly_upload_<id>` scratch directory name.
+// Agent: USED by janitor to query files.hls_encode_status before deleting upload spools.
+pub fn upload_spool_file_id(path: &Path) -> Option<String> {
+    let name = path.file_name().and_then(|n| n.to_str())?;
+    let file_id = name.strip_prefix("ownly_upload_")?;
+    if file_id.is_empty() {
+        return None;
+    }
+    Some(file_id.to_string())
+}
+
+// Human: Keep upload spools while video HLS ingest is still queued or processing.
+// Agent: READS files row; RETURNS true when NOT hls_ready and status is queued|processing.
+pub async fn is_protected_upload_spool(pool: &PgPool, path: &Path) -> bool {
+    let Some(file_id) = upload_spool_file_id(path) else {
+        return false;
+    };
+    let row: Option<(bool, String)> = sqlx::query_as(
+        "SELECT hls_ready, COALESCE(hls_encode_status, 'queued') \
+         FROM files \
+         WHERE id = $1 AND deleted_at IS NULL AND mime_type LIKE 'video/%'",
+    )
+    .bind(&file_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    matches!(
+        row,
+        Some((false, status)) if status == "queued" || status == "processing"
+    )
+}
+
 // Human: Remove one Ownly temp entry when idle (or immediately when forced).
-// Agent: SKIPS non-ownly paths, active gif transcodes, and object storage; CALLS remove_dir_all/remove_file.
+// Agent: SKIPS non-ownly paths, active gif transcodes, protected upload spools; CALLS remove_dir_all/remove_file.
 async fn remove_temp_entry(
     path: &Path,
     max_idle: Duration,
     force: bool,
     include_gif_preview: bool,
     gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
+    pool: Option<&PgPool>,
 ) -> bool {
     if !is_deletable_temp_path(path) {
         return false;
@@ -128,6 +165,13 @@ async fn remove_temp_entry(
     if is_gif_preview_temp_entry(name) {
         if let Some(locks) = gif_preview_locks {
             if locks.is_scratch_dir_in_use(path).await {
+                return false;
+            }
+        }
+    }
+    if name.starts_with("ownly_upload_") {
+        if let Some(pool) = pool {
+            if is_protected_upload_spool(pool, path).await {
                 return false;
             }
         }
@@ -155,8 +199,9 @@ async fn remove_temp_entry(
 }
 
 // Human: Scan the OS temp root and delete expired Ownly scratch entries.
-// Agent: READS direct children only; SKIPS in-flight gif preview dirs; NEVER deletes object-storage sidecars.
+// Agent: READS direct children only; SKIPS in-flight gif preview dirs and active upload spools.
 pub async fn sweep_idle_temp_files(
+    pool: &PgPool,
     max_idle: Duration,
     include_gif_preview: bool,
     gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
@@ -179,6 +224,7 @@ pub async fn sweep_idle_temp_files(
             false,
             include_gif_preview,
             gif_preview_locks,
+            Some(pool),
         )
         .await
         {
@@ -213,7 +259,16 @@ pub async fn sweep_gif_preview_temp_files(
         if !is_gif_preview_temp_entry(name) {
             continue;
         }
-        if remove_temp_entry(&path, TEMP_IDLE_MAX_AGE, true, true, gif_preview_locks).await {
+        if remove_temp_entry(
+            &path,
+            TEMP_IDLE_MAX_AGE,
+            true,
+            true,
+            gif_preview_locks,
+            None,
+        )
+        .await
+        {
             removed += 1;
         }
     }
@@ -244,6 +299,7 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
                 gif_preview_temp_auto_cleanup_enabled(&state.pool).await;
 
             let removed = sweep_idle_temp_files(
+                &state.pool,
                 TEMP_IDLE_MAX_AGE,
                 include_gif_preview,
                 Some(state.gif_preview_transcode_locks.as_ref()),
@@ -263,6 +319,16 @@ mod tests {
     use std::fs;
     use std::thread;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn upload_spool_file_id_parses_uuid_suffix() {
+        let path = PathBuf::from("/tmp/ownly_upload_e2c234ed-dc29-415c-8a71-31f913e1ea81");
+        assert_eq!(
+            upload_spool_file_id(&path).as_deref(),
+            Some("e2c234ed-dc29-415c-8a71-31f913e1ea81")
+        );
+        assert!(upload_spool_file_id(Path::new("/tmp/ownly_hls_abc")).is_none());
+    }
 
     #[test]
     fn ownly_prefixes_are_recognized() {

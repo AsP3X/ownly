@@ -23,6 +23,17 @@ use crate::storage::Storage;
 // Agent: UPDATES files row every N segments instead of after each PUT.
 const HLS_SEGMENT_PROGRESS_STEP: usize = 3;
 
+/// Human: User-visible error when the upload spool was removed before HLS could start.
+// Agent: WRITTEN to files.hls_encode_error; MATCHED by is_permanent_encode_failure for job finalization.
+pub const HLS_SOURCE_UNAVAILABLE: &str =
+    "upload source is no longer available; re-upload the video to finish processing";
+
+// Human: True when an HLS encode failure should not be retried (missing upload spool).
+// Agent: READ by jobs executor; CALLS fail_job_permanent instead of fail_job.
+pub fn is_permanent_encode_failure(message: &str) -> bool {
+    message == HLS_SOURCE_UNAVAILABLE
+}
+
 #[derive(Clone)]
 pub struct HlsEncodeJob {
     pub file_id: String,
@@ -270,7 +281,9 @@ pub async fn run_hls_encode_job(
 
     let file_id = job.file_id.clone();
     let storage_key = job.storage_key.clone();
-    let tmp_video = job.tmp_video.clone();
+    // Human: Resolve canonical upload spool before ffmpeg — payload paths can be stale after restarts.
+    // Agent: READS ownly_upload_<id>/source; RETURNS permanent failure when spool is missing or empty.
+    let tmp_video = resolve_upload_video_path(&pool, &file_id, &job.tmp_video).await?;
     // Human: Keep all scratch files under a per-file work dir — never treat OS temp root as cleanup target.
     // Agent: READS tmp_video parent when safe; WRITES hls_out under work_dir; cleanup removes work_dir only.
     let work_dir = job_work_dir(&tmp_video, &file_id);
@@ -483,6 +496,28 @@ pub async fn run_hls_encode_job(
 
 // Human: Resolve the per-upload scratch directory used for source video + ffmpeg output.
 // Agent: PREFERS tmp_video parent when it is a dedicated ownly_upload_* dir under temp root.
+// Human: Pick the on-disk upload spool for ffmpeg — canonical path wins over job payload.
+// Agent: READS jobs::recovery::upload_spool_source_path; ERRORS with HLS_SOURCE_UNAVAILABLE when absent.
+async fn resolve_upload_video_path(
+    pool: &PgPool,
+    file_id: &str,
+    tmp_video: &Path,
+) -> Result<PathBuf, String> {
+    use crate::jobs::recovery::upload_spool_source_path;
+
+    let canonical = upload_spool_source_path(file_id);
+    for candidate in [canonical.as_path(), tmp_video] {
+        if let Ok(meta) = tokio::fs::metadata(candidate).await {
+            if meta.is_file() && meta.len() > 0 {
+                return Ok(candidate.to_path_buf());
+            }
+        }
+    }
+
+    mark_failed(pool, file_id, HLS_SOURCE_UNAVAILABLE).await;
+    Err(HLS_SOURCE_UNAVAILABLE.to_string())
+}
+
 fn job_work_dir(tmp_video: &Path, file_id: &str) -> PathBuf {
     if let Some(parent) = tmp_video.parent() {
         if is_deletable_work_dir(parent) {

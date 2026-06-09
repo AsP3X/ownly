@@ -122,6 +122,25 @@ pub async fn complete_job(pool: &PgPool, job_id: &str) -> Result<bool, AppError>
     Ok(result.rows_affected() > 0)
 }
 
+/// Human: Mark a running job failed without re-queueing — used when retry cannot help.
+// Agent: WRITES status=failed; CLEARS lock; SKIPS attempts < max_attempts retry path.
+pub async fn fail_job_permanent(pool: &PgPool, job_id: &str, message: &str) -> Result<bool, AppError> {
+    let result = sqlx::query(
+        "UPDATE background_jobs SET \
+            status = 'failed', \
+            error = $2, \
+            locked_by = NULL, \
+            locked_at = NULL, \
+            updated_at = now() \
+         WHERE id = $1 AND status = 'running'",
+    )
+    .bind(job_id)
+    .bind(message)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// Human: Handle job failure — re-queue for retry or mark permanently failed.
 // Agent: CLEARS lock always; ONLY updates running rows so finished jobs are not touched.
 pub async fn fail_job(pool: &PgPool, job_id: &str, message: &str) -> Result<bool, AppError> {

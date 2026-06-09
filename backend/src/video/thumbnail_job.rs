@@ -170,10 +170,20 @@ async fn resolve_video_source(
     storage_key: &str,
     tmp_video: Option<&Path>,
 ) -> Result<LocalVideoSource, String> {
+    // Human: Prefer upload spool paths — job payload may be stale after worker restarts.
+    // Agent: READS canonical ownly_upload_<id>/source before Nebular GET on storage_key.
+    let mut spool_candidates: Vec<PathBuf> = Vec::new();
     if let Some(path) = tmp_video {
+        spool_candidates.push(path.to_path_buf());
+    }
+    let canonical = crate::jobs::recovery::upload_spool_source_path(file_id);
+    if !spool_candidates.iter().any(|p| p == &canonical) {
+        spool_candidates.push(canonical);
+    }
+    for path in spool_candidates {
         if path.exists() {
             set_thumbnail_progress(pool, file_id, 38).await;
-            let file = copy_video_to_temp(path).await.map(LocalVideoSource::File)?;
+            let file = copy_video_to_temp(&path).await.map(LocalVideoSource::File)?;
             set_thumbnail_progress(pool, file_id, 52).await;
             return Ok(file);
         }
@@ -191,6 +201,12 @@ async fn resolve_video_source(
     let Some((mime_type, hls_ready, segment_count, export_ready, export_size)) = row else {
         return Err("file row not found for thumbnail source".into());
     };
+
+    // Human: Raw video blobs are not stored at storage_key until HLS finishes — avoid 404 Nebular GETs.
+    // Agent: ERRORS when spool is gone and hls_ready is still false.
+    if mime_type.as_deref().is_some_and(|m| m.starts_with("video/")) && !hls_ready {
+        return Err(crate::hls::encode_job::HLS_SOURCE_UNAVAILABLE.to_string());
+    }
 
     if is_hls_stored_video(&mime_type, hls_ready) {
         return resolve_hls_video_source(

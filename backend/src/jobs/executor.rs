@@ -19,7 +19,8 @@ use super::model::{
     JobKind, VideoThumbnailPayload, ZipBulkPayload, ZipFolderPayload,
 };
 use super::store::{
-    complete_job, fail_job, finalize_cancelled_running, is_job_cancelled, set_job_progress,
+    complete_job, fail_job, fail_job_permanent, finalize_cancelled_running, is_job_cancelled,
+    set_job_progress,
 };
 
 // Human: Log best-effort cleanup/progress failures instead of discarding them silently.
@@ -130,9 +131,12 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
                 .map_err(|e| e.to_string())?;
         }
         Err(message) => {
-            fail_job(&state.pool, &job_id, &message)
-                .await
-                .map_err(|e| e.to_string())?;
+            let fail_result = if crate::hls::encode_job::is_permanent_encode_failure(&message) {
+                fail_job_permanent(&state.pool, &job_id, &message).await
+            } else {
+                fail_job(&state.pool, &job_id, &message).await
+            };
+            fail_result.map_err(|e| e.to_string())?;
             tracing::warn!(job_id = %job_id, error = %message, "HLS encode job failed");
         }
     }
