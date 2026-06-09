@@ -1,7 +1,8 @@
 // Human: Admin Console - System Settings panels (login-signup.pencil HcA0b, uqdvB, F6aAB).
 // Agent: CALLS fetchAdminSettings/updateAdminSettings; RENDERS editable General / Security / SMTP tabs.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import { Loader2, Save, Trash2 } from "lucide-react";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import {
@@ -35,40 +36,33 @@ import {
 export function AdminSystemSettingsPanel() {
   const { setInstanceName } = useInstanceName();
   const [tab, setTab] = useState("general");
-  const [form, setForm] = useState<AdminSettingsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [editedForm, setEditedForm] = useState<AdminSettingsResponse | null>(null);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [smtpPasswordDraft, setSmtpPasswordDraft] = useState("");
   const [cleaningGifPreviewTemp, setCleaningGifPreviewTemp] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setForm(await fetchAdminSettings());
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadSettings = useCallback(() => fetchAdminSettings(), []);
+  const { data: serverData, loading, error: loadError } = useAdminQuery(loadSettings);
+  const error = actionError ?? loadError;
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load settings on panel mount
-    void load();
-  }, [load]);
+  // Human: Prefer local edits over last server snapshot for controlled inputs.
+  // Agent: READS editedForm then serverData; WRITES editedForm via patchForm/save.
+  const form = editedForm ?? serverData ?? null;
 
   function patchForm(partial: Partial<AdminSettingsResponse>) {
-    setForm((prev) => (prev ? { ...prev, ...partial } : prev));
+    setEditedForm((prev) => {
+      const base = prev ?? serverData;
+      return base ? { ...base, ...partial } : prev;
+    });
   }
 
   async function handleSave() {
     if (!form) return;
     setSaving(true);
-    setError(null);
+    setActionError(null);
     setSavedMessage(null);
     const body: AdminSettingsPatch = {
       ...(smtpPasswordDraft.trim() ? { smtp_password: smtpPasswordDraft } : {}),
@@ -92,12 +86,12 @@ export function AdminSystemSettingsPanel() {
     };
     try {
       const updated = await updateAdminSettings(body);
-      setForm(updated);
+      setEditedForm(updated);
       setInstanceName(updated.instance_name);
       setSmtpPasswordDraft("");
       setSavedMessage("Settings saved successfully.");
     } catch (err) {
-      setError(getErrorMessage(err));
+      setActionError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -116,7 +110,7 @@ export function AdminSystemSettingsPanel() {
     }
 
     setCleaningGifPreviewTemp(true);
-    setError(null);
+    setActionError(null);
     setCleanupMessage(null);
     try {
       const result = await cleanupGifPreviewTempFiles();
@@ -128,7 +122,7 @@ export function AdminSystemSettingsPanel() {
         }.`,
       );
     } catch (err) {
-      setError(getErrorMessage(err));
+      setActionError(getErrorMessage(err));
     } finally {
       setCleaningGifPreviewTemp(false);
     }

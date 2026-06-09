@@ -1,133 +1,30 @@
 // Human: Typed fetch wrapper for the Ownly API with JWT auth and consistent error parsing.
-// Agent: READS localStorage token; EMITS Authorization header; PARSES `{ error: { code, message, fields? } }`.
+// Agent: RE-EXPORTS core client; DOMAIN endpoints live below (split incrementally into sibling modules).
+
+export {
+  ApiError,
+  apiFetch,
+  getAuthToken,
+  getErrorMessage,
+  parseRetryAfterSeconds,
+  normalizeStorageErrorMessage,
+  setUnauthorizedHandler,
+  setupMutationHeaders,
+  API_BASE,
+} from "@/api/core";
 
 import { createClientId } from "@/lib/utils-app";
+import {
+  API_BASE,
+  ApiError,
+  apiFetch,
+  getAuthToken,
+  getErrorMessage,
+  parseRetryAfterSeconds,
+  setupMutationHeaders,
+} from "@/api/core";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
-// Human: Bootstrap secret for first-run setup POST routes — must match backend SETUP_TOKEN.
-// Agent: READ from VITE_SETUP_TOKEN; SENT as X-Setup-Token on setup mutations only.
-const SETUP_TOKEN = import.meta.env.VITE_SETUP_TOKEN ?? "";
-
-function setupMutationHeaders(): HeadersInit | undefined {
-  if (!SETUP_TOKEN) return undefined;
-  return { "X-Setup-Token": SETUP_TOKEN };
-}
-
-export class ApiError extends Error {
-  code: string;
-  status: number;
-  fields?: Record<string, unknown>;
-  /** Seconds from Retry-After when the server throttled the request (429). */
-  retryAfterSeconds?: number;
-
-  constructor(
-    message: string,
-    code: string,
-    status: number,
-    fields?: Record<string, unknown>,
-    retryAfterSeconds?: number,
-  ) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.fields = fields;
-    this.retryAfterSeconds = retryAfterSeconds;
-  }
-}
-
-function getToken(): string | null {
-  return localStorage.getItem("ownly_token");
-}
-
-// Human: Global hook so a 401 from any API call clears the client session (revoked JWT, etc.).
-// Agent: SET by AuthProvider; READ by apiFetch on unauthorized responses.
-type UnauthorizedHandler = () => void;
-let unauthorizedHandler: UnauthorizedHandler | null = null;
-
-export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
-  unauthorizedHandler = handler;
-}
-
-function shouldIgnoreUnauthorizedLogout(path: string, method: string | undefined): boolean {
-  const m = (method ?? "GET").toUpperCase();
-  if (path === "/auth/login" || path === "/auth/register") return true;
-  if (path.startsWith("/setup") && m !== "GET") return true;
-  return false;
-}
-
-// Human: Parse Retry-After from throttled API responses so upload backoff can align with the server window.
-// Agent: READS header string; RETURNS integer seconds or undefined when missing/invalid.
-function parseRetryAfterSeconds(headerValue: string | null): number | undefined {
-  if (!headerValue) return undefined;
-  const parsed = Number.parseInt(headerValue.trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-// Human: User-facing text for storage placement failures from the upload API.
-// Agent: MAPS backend aggregate-capacity errors; USED by getErrorMessage and upload tray.
-export function normalizeStorageErrorMessage(message: string): string {
-  if (/aggregate capacity|sufficient capacity/i.test(message)) {
-    return "Not enough storage space is available for this upload. Free space or add storage nodes, then try again.";
-  }
-  return message;
-}
-
-export function getErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    return normalizeStorageErrorMessage(err.message);
-  }
-  if (err instanceof Error) return normalizeStorageErrorMessage(err.message);
-  return "Something went wrong";
-}
-
-async function apiFetch(path: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  if (!headers.has("Content-Type") && !(init.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  const text = await res.text();
-  let data: unknown = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
-  }
-
-  if (!res.ok) {
-    const body = data as {
-      error?: { code?: string; message?: string; fields?: Record<string, unknown> } | string;
-    };
-    const errorObject = typeof body?.error === "object" ? body.error : undefined;
-    const message =
-      typeof body?.error === "string"
-        ? body.error
-        : errorObject?.message ?? res.statusText;
-    const code = errorObject?.code ?? "request_failed";
-    if (
-      res.status === 401 &&
-      token &&
-      !shouldIgnoreUnauthorizedLogout(path, init.method)
-    ) {
-      unauthorizedHandler?.();
-    }
-    throw new ApiError(
-      message,
-      code,
-      res.status,
-      errorObject?.fields,
-      parseRetryAfterSeconds(res.headers.get("Retry-After")),
-    );
-  }
-
-  return data;
-}
-
+const getToken = getAuthToken;
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }
@@ -1062,15 +959,17 @@ export type FolderItem = {
 
 export type ListFoldersParams = {
   parent_id?: string;
+  q?: string;
   limit?: number;
   offset?: number;
 };
 
-// Human: Paginated folder listing at the drive root or under a parent folder id.
-// Agent: GET /folders?parent_id=; OMITS parent_id query for root listing.
+// Human: Paginated folder listing at the drive root, under a parent, or global name search.
+// Agent: GET /folders?parent_id= or ?q= for search; OMITS parent_id query for root listing.
 export async function listFolders(params?: ListFoldersParams) {
   const search = new URLSearchParams();
   if (params?.parent_id) search.set("parent_id", params.parent_id);
+  if (params?.q) search.set("q", params.q);
   if (params?.limit !== undefined) search.set("limit", String(params.limit));
   if (params?.offset !== undefined) search.set("offset", String(params.offset));
   const qs = search.toString();
@@ -2056,13 +1955,31 @@ export async function emptyRecycleBin() {
   }>;
 }
 
-// Human: Move a file into a folder or back to the drive root (folder_id omitted/null).
-// Agent: PATCH /files/{id} JSON { folder_id? }; RETURNS { file: FileItem }.
+// Human: Move a file into a folder or back to the drive root (folder_id null).
+// Agent: PATCH /files/{id} JSON { folder_id }; RETURNS { file: FileItem }.
 export async function moveFile(id: string, folderId: string | null) {
   return apiFetch(`/files/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ folder_id: folderId }),
   }) as Promise<{ file: FileItem }>;
+}
+
+// Human: Rename a file in place without changing its parent folder.
+// Agent: PATCH /files/{id} JSON { name }; RETURNS { file: FileItem }.
+export async function renameFile(id: string, name: string) {
+  return apiFetch(`/files/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  }) as Promise<{ file: FileItem }>;
+}
+
+// Human: Rename a folder without moving it in the hierarchy.
+// Agent: PATCH /folders/{id} JSON { name }; RETURNS { folder: FolderItem }.
+export async function renameFolder(id: string, name: string) {
+  return apiFetch(`/folders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  }) as Promise<{ folder: FolderItem }>;
 }
 
 // Human: Duplicate a file into another folder or the drive root with new storage blobs.

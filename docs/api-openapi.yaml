@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: Ownly API
+  version: 0.1.0
+  description: |
+    HTTP API for the Ownly self-hosted personal cloud.
+    All authenticated routes require `Authorization: Bearer <jwt>`.
+    Errors use `{ "error": { "code": string, "message": string } }`.
+servers:
+  - url: /api/v1
+paths:
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: API and database reachable
+  /auth/login:
+    post:
+      summary: Authenticate and receive JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Token issued
+        "401":
+          description: Invalid credentials
+  /files:
+    get:
+      summary: List files (optional folder_id, q search, type_filter)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Filename or extension search
+        - in: query
+          name: folder_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated file list
+  /files/{id}:
+    patch:
+      summary: Rename and/or move a file
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, description: Rename in place }
+                folder_id:
+                  nullable: true
+                  type: string
+                  description: Move target folder; null for drive root
+      responses:
+        "200":
+          description: Updated file row
+        "409":
+          description: Name collision in folder
+  /folders:
+    get:
+      summary: List folders or search by name (q)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: parent_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated folder list
+  /folders/{id}:
+    patch:
+      summary: Rename folder
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: Updated folder row
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

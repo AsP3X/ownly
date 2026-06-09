@@ -22,6 +22,21 @@ use super::store::{
     complete_job, fail_job, finalize_cancelled_running, is_job_cancelled, set_job_progress,
 };
 
+// Human: Log best-effort cleanup/progress failures instead of discarding them silently.
+// Agent: CALLED after let _ = style job helper calls; EMITS tracing::warn on Err.
+fn warn_if_err<T, E: std::fmt::Display>(label: &'static str, result: Result<T, E>) {
+    if let Err(error) = result {
+        tracing::warn!(label, error = %error, "background job best-effort step failed");
+    }
+}
+
+async fn warn_if_err_async<T, E: std::fmt::Display>(
+    label: &'static str,
+    result: Result<T, E>,
+) {
+    warn_if_err(label, result);
+}
+
 /// Human: Run one claimed job to completion — the worker pool calls this after claim_next_job.
 // Agent: MATCHES kind; RETURNS Ok on success; CALLS fail_job on Err; CHECKS cancellation for zip jobs.
 pub async fn execute_job(state: Arc<AppState>, job: BackgroundJob) -> Result<(), String> {
@@ -47,9 +62,11 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
         .map_err(|e| e.to_string())?
     {
         crate::hls::encode_job::mark_cancelled(&state.pool, &payload.file_id).await;
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         return Ok(());
     }
 
@@ -132,9 +149,11 @@ async fn run_audio_waveform(state: Arc<AppState>, job: &BackgroundJob) -> Result
         .map_err(|e| e.to_string())?
     {
         crate::audio::waveform_job::mark_cancelled(&state.pool, &payload.file_id).await;
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         return Ok(());
     }
 
@@ -215,9 +234,11 @@ async fn run_video_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
         .map_err(|e| e.to_string())?
     {
         crate::video::thumbnail_job::mark_cancelled(&state.pool, &payload.file_id).await;
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         return Ok(());
     }
 
@@ -295,9 +316,11 @@ async fn run_image_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
         .await
         .map_err(|e| e.to_string())?
     {
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         return Ok(());
     }
 
@@ -324,9 +347,11 @@ async fn run_image_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
         .await
         .map_err(|e| e.to_string())?
     {
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         return Ok(());
     }
 
@@ -453,9 +478,11 @@ async fn run_zip_bulk(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), S
         .await
         .map_err(|e| e.to_string())?
     {
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         state
             .folder_download_jobs
             .remove(&payload.registry_key)
@@ -501,9 +528,11 @@ async fn run_zip_folder(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
         .await
         .map_err(|e| e.to_string())?
     {
-        let _ = finalize_cancelled_running(&state.pool, &job.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
         state
             .folder_download_jobs
             .remove(&payload.registry_key)

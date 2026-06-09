@@ -1,49 +1,12 @@
 //! HTTP integration tests for setup, auth gates, and error envelope contracts.
 
+mod test_harness;
+
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use ownly_backend::{config::Config, create_router, create_test_app_state};
+use ownly_backend::create_router;
 use serde_json::json;
 use tower::ServiceExt;
-
-fn test_config(database_url: &str) -> Config {
-    Config {
-        database_url: database_url.to_string(),
-        jwt_secret: "test-jwt-secret-at-least-32-chars-long!!".to_string(),
-        setup_token: "test-setup-token-at-least-32-chars!!".to_string(),
-        bind_addr: "127.0.0.1:0".to_string(),
-        storage_mode: "proxy".to_string(),
-        object_storage_url: "http://localhost:9000".to_string(),
-        object_storage_public_url: "http://localhost:9000".to_string(),
-        object_storage_bucket: "media".to_string(),
-        signing_secret: "test-signing-secret-not-default-value".to_string(),
-        object_storage_jwt_secret: "test-nos-jwt-secret-not-default-value!!".to_string(),
-        url_expiry_seconds: 3600,
-        ownly_environment: "development".to_string(),
-        git_sha: None,
-        auth_login_rpm: 15,
-        auth_register_rpm: 5,
-        upload_rpm: 30,
-        cors_allowed_origins: String::new(),
-        max_upload_bytes: 1024 * 1024,
-        hls_segment_rpm: 480,
-        job_worker_count: 2,
-        job_stale_minutes: 15,
-        job_heartbeat_seconds: 30,
-        job_recovery_poll_seconds: 60,
-        hls_hardware_encode: "off".into(),
-        hls_vaapi_device: "/dev/dri/renderD128".into(),
-        hls_video_crf: 20,
-        hls_video_quality: 22,
-        hls_full_transcode_quality: 26,
-        hls_large_maxrate: "5M".into(),
-        hls_large_bufsize: "10M".into(),
-        storage_metadata_mode: "nebular".into(),
-        storage_put_max_concurrent: 2,
-        trust_proxy_headers: false,
-        share_password_rpm: 8,
-    }
-}
 
 async fn response_json(response: axum::response::Response) -> serde_json::Value {
     let bytes = to_bytes(response.into_body(), usize::MAX)
@@ -56,21 +19,8 @@ async fn response_json(response: axum::response::Response) -> serde_json::Value 
 // Agent: GET /api/v1/setup/status; EXPECT setup_complete false.
 #[tokio::test]
 async fn setup_status_is_false_before_admin_exists() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping setup_status_is_false_before_admin_exists: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping setup_status_is_false_before_admin_exists: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("setup_status_is_false_before_admin_exists").await else {
+        return;
     };
     let app = create_router(state);
 
@@ -93,21 +43,8 @@ async fn setup_status_is_false_before_admin_exists() {
 // Agent: GET /api/v1/me without Authorization; EXPECT 401 + error.code unauthorized.
 #[tokio::test]
 async fn protected_route_returns_unauthorized_without_token() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping protected_route_returns_unauthorized_without_token: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping setup_status_is_false_before_admin_exists: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("protected_route_returns_unauthorized_without_token").await else {
+        return;
     };
     let app = create_router(state);
 
@@ -130,21 +67,8 @@ async fn protected_route_returns_unauthorized_without_token() {
 // Agent: GET /api/v1/version; EXPECT x-request-id response header present.
 #[tokio::test]
 async fn responses_include_request_id_header() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping responses_include_request_id_header: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping setup_status_is_false_before_admin_exists: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("responses_include_request_id_header").await else {
+        return;
     };
     let app = create_router(state);
 
@@ -173,21 +97,8 @@ async fn responses_include_request_id_header() {
 // Agent: POST /api/v1/setup with X-Setup-Token only; EXPECT 200 + token; WRITES audit_logs setup.complete.
 #[tokio::test]
 async fn setup_creates_admin_and_returns_token_on_empty_database() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping setup_creates_admin_and_returns_token_on_empty_database: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping setup_status_is_false_before_admin_exists: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("setup_creates_admin_and_returns_token_on_empty_database").await else {
+        return;
     };
 
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
@@ -253,21 +164,8 @@ async fn setup_creates_admin_and_returns_token_on_empty_database() {
 // Agent: POST /api/v1/shares without Authorization; EXPECT 401.
 #[tokio::test]
 async fn create_share_requires_authentication() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping create_share_requires_authentication: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping create_share_requires_authentication: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("create_share_requires_authentication").await else {
+        return;
     };
     let app = create_router(state);
 
@@ -295,21 +193,8 @@ async fn create_share_requires_authentication() {
 // Agent: GET /api/v1/public/shares/{token}; EXPECT 404 envelope.
 #[tokio::test]
 async fn public_share_unknown_token_returns_not_found() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping public_share_unknown_token_returns_not_found: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping public_share_unknown_token_returns_not_found: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("public_share_unknown_token_returns_not_found").await else {
+        return;
     };
     let app = create_router(state);
 
@@ -332,21 +217,8 @@ async fn public_share_unknown_token_returns_not_found() {
 // Agent: SEEDS user + two files + share row; GET download for other file EXPECT 404.
 #[tokio::test]
 async fn public_share_download_is_scoped_to_shared_file_only() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping public_share_download_is_scoped_to_shared_file_only: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping public_share_download_is_scoped_to_shared_file_only: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("public_share_download_is_scoped_to_shared_file_only").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -464,21 +336,8 @@ async fn public_share_download_is_scoped_to_shared_file_only() {
 // Agent: POST /api/v1/files/check-upload-names; EXPECT duplicates for matching content_hash only.
 #[tokio::test]
 async fn check_upload_names_finds_library_duplicates_globally() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping check_upload_names_finds_library_duplicates_globally: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping check_upload_names_finds_library_duplicates_globally: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("check_upload_names_finds_library_duplicates_globally").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -594,21 +453,8 @@ async fn check_upload_names_finds_library_duplicates_globally() {
 // Agent: POST /files/check-upload-names; EXPECT recycle_matches when deleted row matches size.
 #[tokio::test]
 async fn check_upload_names_finds_exact_recycle_bin_matches() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping check_upload_names_finds_exact_recycle_bin_matches: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping check_upload_names_finds_exact_recycle_bin_matches: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("check_upload_names_finds_exact_recycle_bin_matches").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -720,21 +566,8 @@ async fn check_upload_names_finds_exact_recycle_bin_matches() {
 // Agent: POST /files/check-upload-names with .html basename; EXPECT 200 and empty duplicate lists.
 #[tokio::test]
 async fn check_upload_names_accepts_html_documents() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping check_upload_names_accepts_html_documents: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping check_upload_names_accepts_html_documents: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("check_upload_names_accepts_html_documents").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -805,21 +638,8 @@ async fn check_upload_names_accepts_html_documents() {
 // Agent: DELETE /files/:id default; GET /recycle-bin lists it; POST restore returns it to /files.
 #[tokio::test]
 async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping soft_delete_moves_file_to_recycle_bin_and_restore_returns_it: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping soft_delete_moves_file_to_recycle_bin_and_restore_returns_it: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("soft_delete_moves_file_to_recycle_bin_and_restore_returns_it").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -951,21 +771,8 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
 // Agent: GET download without/with password; UPDATE block_download; EXPECT 403 when blocked.
 #[tokio::test]
 async fn public_share_password_and_download_block() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping public_share_password_and_download_block: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping public_share_password_and_download_block: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("public_share_password_and_download_block").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -1138,21 +945,8 @@ async fn public_share_password_and_download_block() {
 // Agent: GET /api/v1/admin/users; EXPECT 403 for user role, 200 + users array for admin.
 #[tokio::test]
 async fn admin_users_list_requires_admin_role() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping admin_users_list_requires_admin_role: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping admin_users_list_requires_admin_role: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("admin_users_list_requires_admin_role").await else {
+        return;
     };
 
     let member_id = uuid::Uuid::new_v4().to_string();
@@ -1249,21 +1043,8 @@ async fn admin_users_list_requires_admin_role() {
 // Agent: GET /api/v1/admin/users with forged admin claim; EXPECT 403 because middleware reloads DB role.
 #[tokio::test]
 async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping forged_jwt_admin_role_is_denied_when_db_role_is_user: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping forged_jwt_admin_role_is_denied_when_db_role_is_user: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("forged_jwt_admin_role_is_denied_when_db_role_is_user").await else {
+        return;
     };
 
     let member_id = uuid::Uuid::new_v4().to_string();
@@ -1316,21 +1097,8 @@ async fn forged_jwt_admin_role_is_denied_when_db_role_is_user() {
 // Agent: POST /api/v1/admin/users with Bearer admin token; EXPECT 200 without browser metadata headers.
 #[tokio::test]
 async fn admin_create_user_succeeds_without_browser_metadata() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping admin_create_user_succeeds_without_browser_metadata: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping admin_create_user_succeeds_without_browser_metadata: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("admin_create_user_succeeds_without_browser_metadata").await else {
+        return;
     };
 
     let admin_id = uuid::Uuid::new_v4().to_string();
@@ -1399,21 +1167,8 @@ async fn admin_create_user_succeeds_without_browser_metadata() {
 // Agent: GET /api/v1/admin/overview; EXPECT 403 for member, 200 + metrics for admin.
 #[tokio::test]
 async fn admin_overview_requires_admin_role() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping admin_overview_requires_admin_role: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping admin_overview_requires_admin_role: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("admin_overview_requires_admin_role").await else {
+        return;
     };
 
     let member_id = uuid::Uuid::new_v4().to_string();
@@ -1508,21 +1263,8 @@ async fn admin_overview_requires_admin_role() {
 // Agent: POST /admin/storage/nodes; GET /admin/storage; EXPECT listed node id in JSON.
 #[tokio::test]
 async fn admin_storage_nodes_registry_lists_created_node() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping admin_storage_nodes_registry_lists_created_node: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping admin_storage_nodes_registry_lists_created_node: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("admin_storage_nodes_registry_lists_created_node").await else {
+        return;
     };
 
     let admin_id = uuid::Uuid::new_v4().to_string();
@@ -1659,21 +1401,8 @@ async fn admin_storage_nodes_registry_lists_created_node() {
 // Agent: POST revoke; GET /me with same token; EXPECT 401 after revoke.
 #[tokio::test]
 async fn admin_revoked_session_invalidates_jwt() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping admin_revoked_session_invalidates_jwt: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping admin_revoked_session_invalidates_jwt: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("admin_revoked_session_invalidates_jwt").await else {
+        return;
     };
 
     let admin_id = uuid::Uuid::new_v4().to_string();
@@ -1807,21 +1536,8 @@ async fn admin_revoked_session_invalidates_jwt() {
 // Agent: GET /api/v1/me/profile; EXPECT user email + file_count from DB.
 #[tokio::test]
 async fn user_profile_returns_account_and_storage_summary() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping user_profile_returns_account_and_storage_summary: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping user_profile_returns_account_and_storage_summary: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("user_profile_returns_account_and_storage_summary").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -1895,21 +1611,8 @@ async fn user_profile_returns_account_and_storage_summary() {
 // Agent: PATCH /api/v1/me/password; EXPECT 200 then login succeeds with the new password.
 #[tokio::test]
 async fn user_can_change_own_password() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping user_can_change_own_password: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping user_can_change_own_password: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("user_can_change_own_password").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -1991,21 +1694,8 @@ async fn user_can_change_own_password() {
 // Agent: GET /setup/database without X-Setup-Token; EXPECT 403 on initialized instances.
 #[tokio::test]
 async fn setup_database_info_requires_bootstrap_token() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping setup_database_info_requires_bootstrap_token: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping setup_database_info_requires_bootstrap_token: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("setup_database_info_requires_bootstrap_token").await else {
+        return;
     };
 
     let app = create_router(state);
@@ -2026,21 +1716,8 @@ async fn setup_database_info_requires_bootstrap_token() {
 // Agent: GET /files/{id}/download after deleted_at set; EXPECT 404.
 #[tokio::test]
 async fn trashed_file_download_is_denied() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping trashed_file_download_is_denied: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping trashed_file_download_is_denied: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("trashed_file_download_is_denied").await else {
+        return;
     };
 
     let user_id = uuid::Uuid::new_v4().to_string();
@@ -2108,21 +1785,8 @@ async fn trashed_file_download_is_denied() {
 // Agent: PATCH user to pro; reuse pre-demotion JWT on GET /admin/users; EXPECT 403.
 #[tokio::test]
 async fn demoted_admin_jwt_is_denied_on_admin_routes() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping demoted_admin_jwt_is_denied_on_admin_routes: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping demoted_admin_jwt_is_denied_on_admin_routes: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("demoted_admin_jwt_is_denied_on_admin_routes").await else {
+        return;
     };
 
     let demoter_id = uuid::Uuid::new_v4().to_string();
@@ -2218,21 +1882,8 @@ async fn demoted_admin_jwt_is_denied_on_admin_routes() {
 // Agent: INSERT permission_grants allow; GET download; EXPECT 200 or streaming response.
 #[tokio::test]
 async fn content_read_grant_allows_file_download() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping content_read_grant_allows_file_download: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping content_read_grant_allows_file_download: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("content_read_grant_allows_file_download").await else {
+        return;
     };
 
     let owner_id = uuid::Uuid::new_v4().to_string();
@@ -2336,21 +1987,8 @@ async fn content_read_grant_allows_file_download() {
 // Agent: INSERT allow + deny content.read; GET download; EXPECT 403 or idempotent ok on delete path.
 #[tokio::test]
 async fn content_deny_grant_blocks_file_download() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping content_deny_grant_blocks_file_download: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping content_deny_grant_blocks_file_download: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("content_deny_grant_blocks_file_download").await else {
+        return;
     };
 
     let owner_id = uuid::Uuid::new_v4().to_string();
@@ -2453,21 +2091,8 @@ async fn content_deny_grant_blocks_file_download() {
 // Agent: INSERT folder + nested file + folder content.read grant; GET /files/:id; EXPECT 200 JSON.
 #[tokio::test]
 async fn folder_read_grant_inherits_to_child_file() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping folder_read_grant_inherits_to_child_file: DATABASE_URL unset");
-            return;
-        }
-    };
-
-    let cfg = test_config(&database_url);
-    let state = match create_test_app_state(&cfg).await {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("skipping folder_read_grant_inherits_to_child_file: {error}");
-            return;
-        }
+    let Some(state) = test_harness::TestHarness::state("folder_read_grant_inherits_to_child_file").await else {
+        return;
     };
 
     let owner_id = uuid::Uuid::new_v4().to_string();
@@ -2572,6 +2197,343 @@ async fn folder_read_grant_inherits_to_child_file() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = ANY($1)")
         .bind(&[owner_id, grantee_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Valid credentials must return a JWT the client can use on protected routes.
+// Agent: POST /auth/login; EXPECT 200 + token; GET /me succeeds with returned token.
+#[tokio::test]
+async fn login_returns_token_for_valid_credentials() {
+    let Some(state) = test_harness::TestHarness::state("login_returns_token_for_valid_credentials")
+        .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("login-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let app = create_router(state.clone());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "email": email, "password": "password123" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(login.status(), StatusCode::OK);
+    let login_json = response_json(login).await;
+    let token = login_json["token"]
+        .as_str()
+        .expect("login token");
+
+    let me = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Wrong passwords must not authenticate callers.
+// Agent: POST /auth/login with bad password; EXPECT 401 unauthorized envelope.
+#[tokio::test]
+async fn login_rejects_invalid_password() {
+    let Some(state) = test_harness::TestHarness::state("login_rejects_invalid_password").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("badpw-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "email": email, "password": "wrong-password" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Owners can rename files in place without moving them between folders.
+// Agent: PATCH /files/{id} { name }; EXPECT 200; LIST reflects new display name.
+#[tokio::test]
+async fn file_rename_updates_display_name() {
+    let Some(state) = test_harness::TestHarness::state("file_rename_updates_display_name").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("rename-file-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'draft.txt', 'storage/draft', 'text/plain', 4)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/files/{file_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "name": "final-report.txt" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch.status(), StatusCode::OK);
+    let patch_json = response_json(patch).await;
+    assert_eq!(patch_json["file"]["name"], "final-report.txt");
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Folder rename keeps hierarchy intact and updates the listing name.
+// Agent: PATCH /folders/{id} { name }; EXPECT 200 + updated folder DTO.
+#[tokio::test]
+async fn folder_rename_updates_display_name() {
+    let Some(state) = test_harness::TestHarness::state("folder_rename_updates_display_name").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("rename-folder-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Old Name')")
+        .bind(&folder_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert folder");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/folders/{folder_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "name": "Projects" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch.status(), StatusCode::OK);
+    let patch_json = response_json(patch).await;
+    assert_eq!(patch_json["folder"]["name"], "Projects");
+
+    sqlx::query("DELETE FROM folders WHERE id = $1")
+        .bind(&folder_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Global folder search returns name matches across the library tree.
+// Agent: GET /folders?q=; EXPECT matching folder rows when parent_id is omitted.
+#[tokio::test]
+async fn folder_search_finds_matches_by_name() {
+    let Some(state) = test_harness::TestHarness::state("folder_search_finds_matches_by_name").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("search-folder-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query("INSERT INTO folders (id, user_id, name) VALUES ($1, $2, 'Vacation Photos')")
+        .bind(&folder_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert folder");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/folders?q=vacation")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    let names: Vec<&str> = json["folders"]
+        .as_array()
+        .expect("folders array")
+        .iter()
+        .filter_map(|row| row["name"].as_str())
+        .collect();
+    assert!(names.iter().any(|name| name.contains("Vacation")));
+
+    sqlx::query("DELETE FROM folders WHERE id = $1")
+        .bind(&folder_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
         .execute(&state.pool)
         .await
         .ok();

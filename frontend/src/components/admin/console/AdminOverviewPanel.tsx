@@ -1,7 +1,7 @@
 // Human: Admin Console - Dashboard Overview panel (login-signup.pencil frame Kb6HJ).
 // Agent: CALLS fetchAdminOverview; RENDERS live KPIs, workload chart, resource bars, recent audit alerts.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   AlertTriangle,
   Check,
@@ -14,7 +14,8 @@ import {
   ShieldAlert,
   Users,
 } from "lucide-react";
-import { fetchAdminOverview, getErrorMessage, type AdminOverviewResponse } from "@/api/client";
+import { fetchAdminOverview } from "@/api/client";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import {
   AdminConsoleMetricCard,
   AdminConsoleOutlineButton,
@@ -39,29 +40,8 @@ function severityTone(severity: string): "danger" | "warning" | "primary" {
 
 /** Human: Dashboard overview — live metrics, workload, resource allocation, critical logs. */
 export function AdminOverviewPanel() {
-  const [data, setData] = useState<AdminOverviewResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async (showRefresh: boolean) => {
-    if (showRefresh) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchAdminOverview());
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial overview fetch on mount
-    void load(false);
-  }, [load]);
+  const loadOverview = useCallback(() => fetchAdminOverview(), []);
+  const { data, loading, refreshing, error, reload } = useAdminQuery(loadOverview);
 
   const workloadMax = useMemo(() => {
     const values = data?.workload.map((b) => b.value) ?? [];
@@ -84,7 +64,7 @@ export function AdminOverviewPanel() {
         actions={
           <>
             <AdminConsoleOutlineButton
-              onClick={() => void load(true)}
+              onClick={() => void reload(true)}
               disabled={loading || refreshing}
             >
               {refreshing ? (
@@ -238,7 +218,7 @@ export function AdminOverviewPanel() {
                 <AdminConsolePill tone="danger">
                   {data.recent_alerts.length} Recent Events
                 </AdminConsolePill>
-                <AdminConsoleOutlineButton onClick={() => void load(true)}>
+                <AdminConsoleOutlineButton onClick={() => void reload(true)}>
                   Refresh
                 </AdminConsoleOutlineButton>
               </div>

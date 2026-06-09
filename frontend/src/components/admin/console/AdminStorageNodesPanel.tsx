@@ -1,7 +1,8 @@
 // Human: Admin Console - Storage Nodes panel (login-signup.pencil frame AAH5J).
 // Agent: CALLS fetchAdminStorage; RENDERS live object-storage node health and utilization.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import {
   Check,
   Info,
@@ -15,9 +16,7 @@ import {
 } from "lucide-react";
 import {
   fetchAdminStorage,
-  getErrorMessage,
   type AdminStorageNodeRow,
-  type AdminStorageResponse,
 } from "@/api/client";
 import { AdminAddStorageNodeDialog } from "@/components/admin/console/AdminAddStorageNodeDialog";
 import { AdminEditStorageNodeDialog } from "@/components/admin/console/AdminEditStorageNodeDialog";
@@ -356,34 +355,14 @@ function StorageNodesTable({
 /** Human: Storage nodes network — health metrics and configured backend node table. */
 export function AdminStorageNodesPanel() {
   const [tab, setTab] = useState<StorageTabId>("all");
-  const [data, setData] = useState<AdminStorageResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [addNodeOpen, setAddNodeOpen] = useState(false);
   const [editNodeOpen, setEditNodeOpen] = useState(false);
   const [editNode, setEditNode] = useState<AdminStorageNodeRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailNode, setDetailNode] = useState<AdminStorageNodeRow | null>(null);
 
-  const load = useCallback(async (showRefresh: boolean) => {
-    if (showRefresh) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchAdminStorage());
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial storage fetch on mount
-    void load(false);
-  }, [load]);
+  const loadStorage = useCallback(() => fetchAdminStorage(), []);
+  const { data, loading, refreshing, error, reload } = useAdminQuery(loadStorage);
 
   const metrics = data?.metrics;
   const utilizationPct =
@@ -413,7 +392,7 @@ export function AdminStorageNodesPanel() {
         description="Monitor registered Nebular endpoints, capacity, and health probes."
         actions={
           <>
-            <AdminConsoleOutlineButton onClick={() => void load(true)} disabled={loading || refreshing}>
+            <AdminConsoleOutlineButton onClick={() => void reload(true)} disabled={loading || refreshing}>
               {refreshing ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
               ) : (
@@ -513,7 +492,7 @@ export function AdminStorageNodesPanel() {
       <AdminAddStorageNodeDialog
         open={addNodeOpen}
         onOpenChange={setAddNodeOpen}
-        onCreated={() => void load(true)}
+        onCreated={() => void reload(true)}
       />
 
       <AdminEditStorageNodeDialog
@@ -524,7 +503,7 @@ export function AdminStorageNodesPanel() {
           if (!open) setEditNode(null);
         }}
         node={editNode}
-        onUpdated={() => void load(true)}
+        onUpdated={() => void reload(true)}
       />
 
       <AdminStorageNodeDetailDialog

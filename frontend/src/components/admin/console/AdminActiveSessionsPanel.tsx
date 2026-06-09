@@ -1,7 +1,7 @@
 // Human: Active Sessions sub-panel — login-signup.pencil frame W5NNq inside Edit User flow.
 // Agent: CALLS fetchAdminUserSessions/revoke* APIs; RETURNS to edit view via onBack.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, Info, Laptop, Loader2, Monitor, Smartphone } from "lucide-react";
 import {
   fetchAdminUserSessions,
@@ -9,8 +9,8 @@ import {
   revokeAdminUserSession,
   revokeOtherAdminUserSessions,
   type AdminUserRow,
-  type AdminUserSessionRow,
 } from "@/api/client";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import { AdminEditUserDivider } from "@/components/admin/console/AdminEditUserDialogLayout";
 import { userDisplayName } from "@/lib/utils-app";
 
@@ -33,39 +33,26 @@ export function AdminActiveSessionsPanel({
   user: AdminUserRow;
   onBack: () => void;
 }) {
-  const [sessions, setSessions] = useState<AdminUserSessionRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [revokingOthers, setRevokingOthers] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetchAdminUserSessions(user.id);
-      setSessions(res.sessions);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+    const res = await fetchAdminUserSessions(user.id);
+    return res.sessions;
   }, [user.id]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load sessions when panel opens
-    void loadSessions();
-  }, [loadSessions]);
+  const { data: sessions, loading, error: loadError, reload } = useAdminQuery(loadSessions);
+  const error = actionError ?? loadError;
 
   async function handleRevoke(sessionId: string) {
     setBusyId(sessionId);
-    setError(null);
+    setActionError(null);
     try {
       await revokeAdminUserSession(user.id, sessionId);
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      await loadSessions();
+      await reload(true);
     } catch (err) {
-      setError(getErrorMessage(err));
+      setActionError(getErrorMessage(err));
     } finally {
       setBusyId(null);
     }
@@ -73,16 +60,18 @@ export function AdminActiveSessionsPanel({
 
   async function handleRevokeOthers() {
     setRevokingOthers(true);
-    setError(null);
+    setActionError(null);
     try {
       await revokeOtherAdminUserSessions(user.id);
-      await loadSessions();
+      await reload(true);
     } catch (err) {
-      setError(getErrorMessage(err));
+      setActionError(getErrorMessage(err));
     } finally {
       setRevokingOthers(false);
     }
   }
+
+  const sessionRows = sessions ?? [];
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -122,7 +111,7 @@ export function AdminActiveSessionsPanel({
           </div>
         ) : null}
 
-        {!loading && sessions.length === 0 ? (
+        {!loading && sessionRows.length === 0 ? (
           <p className="py-6 text-center text-sm text-[#666666]">
             No sign-in sessions recorded yet. Sessions appear after the user logs in.
           </p>
@@ -130,7 +119,7 @@ export function AdminActiveSessionsPanel({
 
         {!loading ? (
           <div className="flex flex-col gap-2.5">
-            {sessions.map((session) => {
+            {sessionRows.map((session) => {
               const Icon = sessionIcon(session.device_label);
               return (
                 <div
@@ -177,7 +166,7 @@ export function AdminActiveSessionsPanel({
         <button
           type="button"
           onClick={() => void handleRevokeOthers()}
-          disabled={revokingOthers || loading || sessions.length <= 1}
+          disabled={revokingOthers || loading || sessionRows.length <= 1}
           className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-[13px] font-semibold text-[#DC2626] transition-colors hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {revokingOthers ? "Revoking…" : "Revoke All Other Sessions"}

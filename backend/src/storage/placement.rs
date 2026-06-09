@@ -373,10 +373,8 @@ pub async fn persist_placement(
 pub(crate) struct StripePartRow {
     pub storage_node_id: String,
     pub object_key: String,
-    /// Human: Byte offset in the logical file — persisted for future range-GET; stripe stream uses part order.
-    #[allow(dead_code)]
+    /// Human: Byte offset in the logical file — persisted for future range-GET; logged when stripe parts load.
     pub byte_offset: i64,
-    #[allow(dead_code)]
     pub byte_length: i64,
 }
 
@@ -432,6 +430,16 @@ pub(crate) async fn load_stripe_parts(
     .bind(storage_key)
     .fetch_all(pool)
     .await?;
+    if !rows.is_empty() {
+        let total_bytes: i64 = rows.iter().map(|row| row.byte_length).sum();
+        tracing::debug!(
+            storage_key = %storage_key,
+            parts = rows.len(),
+            total_bytes,
+            first_offset = rows[0].byte_offset,
+            "loaded stripe parts"
+        );
+    }
     Ok(rows)
 }
 

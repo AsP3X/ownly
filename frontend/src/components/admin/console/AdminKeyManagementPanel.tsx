@@ -1,9 +1,10 @@
 // Human: Admin Console - Key Management / Security Policies (login-signup.pencil frame Blt4j).
 // Agent: CALLS fetchAdminSecurity; RENDERS live policies and audit-derived rotation history.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
-import { fetchAdminSecurity, getErrorMessage, type AdminSecurityOverviewResponse } from "@/api/client";
+import { fetchAdminSecurity } from "@/api/client";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import { DEFAULT_ENCRYPTION_PROFILE } from "@/lib/encryption-standards";
 import {
   AdminConsoleMetricCard,
@@ -17,26 +18,8 @@ import {
 /** Human: Security Policies route — key management and global policy tabs from live API. */
 export function AdminKeyManagementPanel() {
   const [tab, setTab] = useState("kms");
-  const [data, setData] = useState<AdminSecurityOverviewResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchAdminSecurity());
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load security overview on mount
-    void load();
-  }, [load]);
+  const loadSecurity = useCallback(() => fetchAdminSecurity(), []);
+  const { data, loading, refreshing, error, reload } = useAdminQuery(loadSecurity);
 
   return (
     <div className={adminConsoleContentClassName}>
@@ -44,8 +27,8 @@ export function AdminKeyManagementPanel() {
         title="Key Management"
         description="Rotate decentralized master keys, monitor KMS nodes, and manage Shamir's recovery custodians."
         actions={
-          <AdminConsolePrimaryButton onClick={() => void load()} disabled={loading}>
-            {loading ? (
+          <AdminConsolePrimaryButton onClick={() => void reload(true)} disabled={loading || refreshing}>
+            {loading || refreshing ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
               <RefreshCw className="size-4 shrink-0" aria-hidden />

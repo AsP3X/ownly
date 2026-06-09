@@ -1,0 +1,86 @@
+# Human: Continuous integration for Ownly — backend, frontend, and security-audit probes.
+# Agent: RUNS on push/PR to dev and master; REQUIRES Postgres for integration tests; FAILS when DATABASE_URL unset in CI.
+
+name: CI
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+    branches: [dev, master]
+
+env:
+  CI: "true"
+  OWNLY_REQUIRE_DATABASE_URL: "1"
+  DATABASE_URL: postgres://ownly:ownly@localhost:5432/ownly
+  JWT_SECRET: test-jwt-secret-at-least-32-chars-long!!
+  SETUP_TOKEN: test-setup-token-at-least-32-chars!!
+
+jobs:
+  backend:
+    name: Backend (test + clippy)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ownly
+          POSTGRES_PASSWORD: ownly
+          POSTGRES_DB: ownly
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ownly -d ownly"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: Run backend tests
+        working-directory: backend
+        run: cargo test -p ownly-backend
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy -p ownly-backend -- -D warnings
+
+  frontend:
+    name: Frontend (build + lint + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  security-audit:
+    name: Security audit unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run security-audit unittests
+        run: make -C scripts/security-audit test

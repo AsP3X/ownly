@@ -193,9 +193,16 @@ pub struct DownloadUrlResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MoveFileRequest {
-    pub folder_id: Option<String>,
+pub struct PatchFileRequest {
+    /// Human: When absent, folder is unchanged. When null, move to root. When set, move to that folder.
+    /// Agent: Option<Option<String>> distinguishes JSON omit vs null vs string for PATCH /files/{id}.
+    #[serde(default)]
+    pub folder_id: Option<Option<String>>,
+    #[serde(default)]
+    pub name: Option<String>,
 }
+
+pub type MoveFileRequest = PatchFileRequest;
 
 #[derive(Debug, Deserialize)]
 pub struct CopyFileRequest {
@@ -203,9 +210,11 @@ pub struct CopyFileRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MoveFileResponse {
+pub struct PatchFileResponse {
     pub file: FileDto,
 }
+
+pub type MoveFileResponse = PatchFileResponse;
 
 #[derive(Debug, Serialize)]
 pub struct CopyFileResponse {
@@ -1141,15 +1150,15 @@ pub async fn preview_url(
     }))
 }
 
-// Human: Move a file into another folder or back to the drive root.
-// Agent: PATCH files.folder_id; VALIDATES folder ownership; AUDIT files.move.
+// Human: Patch a file — rename in place, move folders, or both in one request.
+// Agent: PATCH /files/{id}; OPTIONAL name + folder_id; AUDIT files.rename / files.move.
 pub async fn move_file(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<MoveFileRequest>,
-) -> Result<Json<MoveFileResponse>, AppError> {
+    Json(body): Json<PatchFileRequest>,
+) -> Result<Json<PatchFileResponse>, AppError> {
     crate::files::access::ensure_file_access(
         &state.pool,
         &claims.sub,
@@ -1157,6 +1166,26 @@ pub async fn move_file(
         crate::authz::Permission::ContentWrite,
     )
     .await?;
+
+    if body.name.is_none() && body.folder_id.is_none() {
+        return Err(AppError::BadRequest(
+            "provide name and/or folder_id to update the file".into(),
+        ));
+    }
+
+    if let Some(ref raw_name) = body.name {
+        let file = crate::files::rename::rename_file_in_place(
+            &state.pool,
+            &headers,
+            &claims.sub,
+            &id,
+            raw_name,
+        )
+        .await?;
+        if body.folder_id.is_none() {
+            return Ok(Json(PatchFileResponse { file }));
+        }
+    }
 
     let current: Option<MoveFileCurrentRow> = sqlx::query_as(
         "SELECT folder_id, name, mime_type, hls_ready, hls_encode_status, audio_waveform_ready, \
@@ -1176,6 +1205,17 @@ pub async fn move_file(
         audio_encode_status,
     ) = current.ok_or(AppError::NotFound)?;
 
+    let Some(folder_patch) = body.folder_id else {
+        let file: FileDto = sqlx::query_as(&format!(
+            "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2 AND {ACTIVE_FILES_SQL}"
+        ))
+        .bind(&id)
+        .bind(&claims.sub)
+        .fetch_one(&state.pool)
+        .await?;
+        return Ok(Json(PatchFileResponse { file }));
+    };
+
     ensure_file_not_processing(
         &mime_type,
         hls_ready,
@@ -1184,8 +1224,7 @@ pub async fn move_file(
         &audio_encode_status,
     )?;
 
-    let target_folder_id = body
-        .folder_id
+    let target_folder_id = folder_patch
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
@@ -1232,7 +1271,7 @@ pub async fn move_file(
     .await
     .ok();
 
-    Ok(Json(MoveFileResponse { file }))
+    Ok(Json(PatchFileResponse { file }))
 }
 
 // Human: Duplicate a file into another folder or the drive root with independent storage blobs.

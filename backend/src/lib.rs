@@ -551,7 +551,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/folders/{id}/deletion-preview",
             get(files::folders::folder_deletion_preview),
         )
-        .route("/api/v1/folders/{id}", delete(files::folders::delete_folder))
+        .route(
+            "/api/v1/folders/{id}",
+            patch(files::rename::rename_folder).delete(files::folders::delete_folder),
+        )
         .route("/api/v1/dashboard", get(files::handlers::dashboard_summary))
         .route(
             "/api/v1/recycle-bin",

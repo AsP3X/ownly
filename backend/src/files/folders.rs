@@ -37,6 +37,7 @@ pub struct FolderListResponse {
 #[derive(Debug, Deserialize)]
 pub struct FolderListQuery {
     pub parent_id: Option<String>,
+    pub q: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -273,7 +274,7 @@ pub async fn folder_deletion_preview(
 
 // Human: Normalize and validate a folder name before insert.
 // Agent: TRIMS whitespace; REJECTS empty, slash characters, and names over 255 chars.
-fn normalize_folder_name(name: &str) -> Result<String, AppError> {
+pub(crate) fn normalize_folder_name(name: &str) -> Result<String, AppError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(AppError::BadRequest("folder name is required".into()));
@@ -328,6 +329,7 @@ pub async fn list_folders(
         &claims.sub,
         ListFoldersParams {
             parent_id: query.parent_id,
+            search: query.q,
             limit,
             offset,
         },

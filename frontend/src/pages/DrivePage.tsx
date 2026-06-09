@@ -15,6 +15,8 @@ import {
   FILES_PAGE_SIZE,
   getErrorMessage,
   copyFile,
+  renameFile,
+  renameFolder,
   listFiles,
   listFolders,
   moveFile,
@@ -460,23 +462,30 @@ export default function DrivePage() {
         }
 
         if (search) {
-          const listing = await listFiles({
-            q: search,
-            limit: FILES_INITIAL_PAGE_SIZE,
-            offset: 0,
-            fields: "minimal",
-            type_filter: serverTypeFilter,
-          });
-          setFolders([]);
+          const [listing, folderListing] = await Promise.all([
+            listFiles({
+              q: search,
+              limit: FILES_INITIAL_PAGE_SIZE,
+              offset: 0,
+              fields: "minimal",
+              type_filter: serverTypeFilter,
+            }),
+            listFolders({
+              q: search,
+              limit: FILES_INITIAL_PAGE_SIZE,
+              offset: 0,
+            }),
+          ]);
+          setFolders(folderListing.folders);
           setFiles(listing.files);
           primeExplorerThumbnailCache(listing.files);
           setFileCount(listing.file_count);
           setHasMoreFiles(listing.has_more);
-          setFolderCount(0);
-          setHasMoreFolders(false);
-          const flags = buildShareFlagMaps(listing.files, []);
+          setFolderCount(folderListing.folder_count);
+          setHasMoreFolders(folderListing.has_more);
+          const flags = buildShareFlagMaps(listing.files, folderListing.folders);
           setFileShareFlags(flags.files);
-          setFolderShareFlags({});
+          setFolderShareFlags(flags.folders);
           pruneFileSelection(listing.files);
           return;
         }
@@ -1174,6 +1183,45 @@ export default function DrivePage() {
     setDetailsOpen(true);
   }
 
+  // Human: Prompt for a new display name and PATCH the file row in place.
+  // Agent: CALLS renameFile; REFRESHES listing on success; SURFACES API errors in drive error state.
+  const handleRenameFile = useCallback(
+    async (file: FileItem) => {
+      if (isFileProcessing(file)) return;
+      const nextName = window.prompt("Rename file", file.name);
+      if (!nextName || nextName.trim() === file.name) return;
+      try {
+        await renameFile(file.id, nextName.trim());
+        await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+          silent: true,
+          nav: activeNav,
+        });
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [activeNav, query, refresh],
+  );
+
+  // Human: Prompt for a new folder label and PATCH the folder row.
+  // Agent: CALLS renameFolder; REFRESHES explorer listing after successful rename.
+  const handleRenameFolder = useCallback(
+    async (folder: FolderItem) => {
+      const nextName = window.prompt("Rename folder", folder.name);
+      if (!nextName || nextName.trim() === folder.name) return;
+      try {
+        await renameFolder(folder.id, nextName.trim());
+        await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+          silent: true,
+          nav: activeNav,
+        });
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [activeNav, query, refresh],
+  );
+
   function handleToggleFavourite(fileId: string) {
     const file = files.find((item) => item.id === fileId);
     if (file && isFileProcessing(file)) return;
@@ -1303,8 +1351,8 @@ export default function DrivePage() {
   }, [selectableBrowserFileIds]);
 
   const visibleFolders = useMemo(
-    () => (isSearchingMyFiles ? [] : sortFilesByName(folders)),
-    [folders, isSearchingMyFiles],
+    () => sortFilesByName(folders),
+    [folders],
   );
   const recentFiles = sortFilesByRecentAccess(nameFilteredFiles, 12);
   const overviewFolders = useMemo(
@@ -1313,17 +1361,14 @@ export default function DrivePage() {
   );
   const initials = userInitials(user?.email);
 
-  // Human: Ctrl+A (Cmd+A on macOS) selects all files in the current folder listing.
+  // Human: Ctrl+A selects all files; F2 renames when exactly one file is checked.
   // Agent: LISTENS document keydown on my-files; SKIPS inputs and contenteditable targets.
   useEffect(() => {
-    if (activeNav !== "my-files" || selectableBrowserFileIds.length === 0) {
+    if (activeNav !== "my-files") {
       return;
     }
 
     function onKeyDown(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "a") {
-        return;
-      }
       const target = event.target;
       if (target instanceof HTMLElement) {
         const tag = target.tagName;
@@ -1334,13 +1379,37 @@ export default function DrivePage() {
           return;
         }
       }
+
+      if (event.key === "F2" && selectedFileIds.size === 1) {
+        const fileId = [...selectedFileIds][0];
+        const file = files.find((item) => item.id === fileId);
+        if (file) {
+          event.preventDefault();
+          void handleRenameFile(file);
+        }
+        return;
+      }
+
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "a") {
+        return;
+      }
+      if (selectableBrowserFileIds.length === 0) {
+        return;
+      }
       event.preventDefault();
       handleSelectAllBrowserFiles();
     }
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [activeNav, handleSelectAllBrowserFiles, selectableBrowserFileIds.length]);
+  }, [
+    activeNav,
+    files,
+    handleRenameFile,
+    handleSelectAllBrowserFiles,
+    selectableBrowserFileIds.length,
+    selectedFileIds,
+  ]);
 
   return (
     <DriveContextMenu
@@ -1373,6 +1442,8 @@ export default function DrivePage() {
       onDetailsFolder={handleDetailsFolder}
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}
+      onRenameFile={(file) => void handleRenameFile(file)}
+      onRenameFolder={(folder) => void handleRenameFolder(folder)}
       explorerDragActive={explorerDragActive}
       enableMobileSelectActions={!isDesktopViewport}
       onEnterMobileSelection={handleEnterMobileSelection}

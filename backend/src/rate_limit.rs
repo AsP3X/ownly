@@ -27,17 +27,21 @@ impl PerKeyRateLimiter {
 // Agent: MUTATES hits map; RETURNS AppError::rate_limited when len >= max after prune.
 pub fn enforce(limiter: &PerKeyRateLimiter, key: &str) -> Result<(), AppError> {
     let now = Instant::now();
-    let mut guard = limiter.hits.lock().expect("rate limiter lock");
+    let mut guard = limiter
+        .hits
+        .lock()
+        .map_err(|_| AppError::Internal(anyhow::anyhow!("rate limiter lock poisoned")))?;
     let entries = guard.entry(key.to_string()).or_default();
     entries.retain(|t| now.duration_since(*t) < limiter.window);
     if entries.len() >= limiter.max {
-        let oldest = *entries
-            .iter()
-            .min()
-            .expect("rate limit entries non-empty when at cap");
+        let Some(oldest) = entries.iter().min() else {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "rate limit entries empty at cap"
+            )));
+        };
         let retry_after_secs = limiter
             .window
-            .saturating_sub(now.duration_since(oldest))
+            .saturating_sub(now.duration_since(*oldest))
             .as_secs()
             .max(1);
         return Err(AppError::rate_limited(retry_after_secs));

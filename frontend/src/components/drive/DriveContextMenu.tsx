@@ -54,6 +54,8 @@ type DriveContextMenuProps = {
   onDetailsFolder: (folder: FolderItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
+  onRenameFile?: (file: FileItem) => void;
+  onRenameFolder?: (folder: FolderItem) => void;
   /** Human: True while a file is being dragged — menu closes and won't reopen until drag ends. */
   explorerDragActive?: boolean;
   /** Human: Show "Select" on file rows for mobile multi-select entry. */
@@ -116,6 +118,8 @@ export function DriveContextMenu({
   onDetailsFolder,
   onCopyToFolder,
   onMoveToFolder,
+  onRenameFile,
+  onRenameFolder,
   explorerDragActive = false,
   enableMobileSelectActions = false,
   onEnterMobileSelection,
@@ -347,6 +351,13 @@ export function DriveContextMenu({
             </ContextMenuItem>
 
             <ContextMenuItem
+              disabled={targetProcessing || !onRenameFile}
+              onClick={() => onRenameFile?.(targetFile)}
+            >
+              Rename
+            </ContextMenuItem>
+
+            <ContextMenuItem
               disabled={targetProcessing}
               onClick={() => onToggleFavourite(targetFile.id)}
             >
@@ -392,6 +403,13 @@ export function DriveContextMenu({
 
             <ContextMenuItem onClick={() => onDownloadFolder(targetFolder)}>
               Download
+            </ContextMenuItem>
+
+            <ContextMenuItem
+              disabled={!onRenameFolder}
+              onClick={() => onRenameFolder?.(targetFolder)}
+            >
+              Rename
             </ContextMenuItem>
 
             <ContextMenuSeparator />

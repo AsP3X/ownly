@@ -36,7 +36,11 @@ impl Storage for GatedStorage {
     }
 
     async fn put(&self, key: &str, content_type: &str, data: Vec<u8>) -> anyhow::Result<()> {
-        let _permit = self.put_gate.acquire().await;
+        let _permit = self
+            .put_gate
+            .acquire()
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         self.inner.put(key, content_type, data).await
     }
 

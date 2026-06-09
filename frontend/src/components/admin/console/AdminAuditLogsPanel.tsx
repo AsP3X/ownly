@@ -1,14 +1,13 @@
 // Human: Admin Console - Audit Logs panel (login-signup.pencil frame FzT1n).
 // Agent: CALLS fetchAdminAuditLogs; RENDERS metrics, category tabs, live audit table; export CSV client-side.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, Loader2, Search } from "lucide-react";
 import {
   fetchAdminAuditLogs,
-  getErrorMessage,
   type AdminAuditLogRow,
-  type AdminAuditLogsResponse,
 } from "@/api/client";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import {
   AdminConsoleMetricCard,
   AdminConsoleOutlineButton,
@@ -46,26 +45,14 @@ function exportAuditCsv(logs: AdminAuditLogRow[]) {
 /** Human: System audit logs — filter tabs, integrity metrics, live event table. */
 export function AdminAuditLogsPanel() {
   const [tab, setTab] = useState<AuditTabId>("all");
-  const [data, setData] = useState<AdminAuditLogsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (category: AuditTabId) => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchAdminAuditLogs({ category, limit: 100 }));
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reload when filter tab changes
-    void load(tab);
-  }, [load, tab]);
+  // Human: Re-fetch audit logs when the category filter tab changes.
+  // Agent: CALLS fetchAdminAuditLogs; DEPS tab — useAdminQuery reloads on loader identity change.
+  const loadAuditLogs = useCallback(
+    () => fetchAdminAuditLogs({ category: tab, limit: 100 }),
+    [tab],
+  );
+  const { data, loading, refreshing, error, reload } = useAdminQuery(loadAuditLogs);
 
   const counts = data?.counts_by_category ?? {};
   const summary = data?.summary;
@@ -78,8 +65,8 @@ export function AdminAuditLogsPanel() {
         description="Traceable ledger of all administrative security events, encryption operations, node changes, and file access."
         actions={
           <>
-            <AdminConsoleOutlineButton onClick={() => void load(tab)} disabled={loading}>
-              {loading ? (
+            <AdminConsoleOutlineButton onClick={() => void reload(true)} disabled={loading || refreshing}>
+              {loading || refreshing ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
               ) : (
                 <Search className="size-3.5 shrink-0" aria-hidden />

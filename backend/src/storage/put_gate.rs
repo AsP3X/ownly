@@ -28,13 +28,17 @@ impl StoragePutGate {
     }
 
     // Human: Wait until a PUT slot is free — queues excess upload/thumbnail/HLS tasks instead of hammering Nebular.
-    // Agent: AWAIT acquire_owned; RETURNS permit dropped after inner Storage::put finishes.
-    pub async fn acquire(&self) -> OwnedSemaphorePermit {
+    // Agent: AWAIT acquire_owned; RETURNS AppError::Internal when semaphore is closed.
+    pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, crate::error::AppError> {
         self.permits
             .clone()
             .acquire_owned()
             .await
-            .expect("storage PUT gate semaphore closed")
+            .map_err(|_| {
+                crate::error::AppError::Internal(anyhow::anyhow!(
+                    "storage PUT gate semaphore closed"
+                ))
+            })
     }
 }
 
@@ -45,12 +49,12 @@ mod tests {
     #[tokio::test]
     async fn gate_limits_concurrent_holders() {
         let gate = StoragePutGate::new(1);
-        let first = gate.acquire().await;
+        let first = gate.acquire().await.expect("first acquire");
         let gate2 = Arc::clone(&gate);
         let second = tokio::spawn(async move { gate2.acquire().await });
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         assert!(!second.is_finished());
         drop(first);
-        let _second = second.await.expect("second acquire task panicked");
+        let _second = second.await.expect("second acquire task panicked").expect("second acquire");
     }
 }

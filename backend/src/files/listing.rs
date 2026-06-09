@@ -90,6 +90,7 @@ pub struct FolderListResponse {
 #[derive(Debug, Clone)]
 pub struct ListFoldersParams {
     pub parent_id: Option<String>,
+    pub search: Option<String>,
     pub limit: i64,
     pub offset: i64,
 }
@@ -248,7 +249,7 @@ pub async fn list_owned_files(
         let mut where_parts = vec![
             "f.user_id = $1".to_string(),
             F_ACTIVE_FILES_SQL.to_string(),
-            "LOWER(f.name) LIKE $2".to_string(),
+            "(LOWER(f.name) LIKE $2 OR LOWER(split_part(f.name, '.', -1)) LIKE $2)".to_string(),
         ];
         if let Some(clause) = type_clause {
             where_parts.push(clause.to_string());
@@ -334,37 +335,77 @@ pub async fn list_owned_folders(
     user_id: &str,
     params: ListFoldersParams,
 ) -> Result<FolderListResponse, AppError> {
-    let where_sql = format!(
-        "fo.user_id = $1 AND {FO_ACTIVE_FOLDERS_SQL} \
-         AND (($2::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $2)"
-    );
-
-    let folder_count: (i64,) = sqlx::query_as(&format!(
-        "SELECT COALESCE(COUNT(*), 0) FROM folders fo WHERE {where_sql}"
-    ))
-    .bind(user_id)
-    .bind(&params.parent_id)
-    .fetch_one(pool)
-    .await?;
+    let search = params
+        .search
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
 
     let select_cols = format!(
         "fo.id, fo.name, fo.parent_id, fo.created_at, fo.updated_at, {SHARE_PUBLIC_FOLDER_EXPR}"
     );
-    let list_sql = format!(
-        "SELECT {select_cols} FROM folders fo \
-         WHERE {where_sql} \
-         ORDER BY {ORDER_FOLDERS_BY_NATURAL_NAME} \
-         LIMIT $3 OFFSET $4"
-    );
-    let folders: Vec<FolderListItem> = sqlx::query_as(&list_sql)
+
+    let (folders, folder_count) = if search.is_empty() {
+        let where_sql = format!(
+            "fo.user_id = $1 AND {FO_ACTIVE_FOLDERS_SQL} \
+             AND (($2::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $2)"
+        );
+
+        let folder_count: (i64,) = sqlx::query_as(&format!(
+            "SELECT COALESCE(COUNT(*), 0) FROM folders fo WHERE {where_sql}"
+        ))
         .bind(user_id)
         .bind(&params.parent_id)
-        .bind(params.limit)
-        .bind(params.offset)
-        .fetch_all(pool)
+        .fetch_one(pool)
         .await?;
 
-    let folder_count = folder_count.0;
+        let list_sql = format!(
+            "SELECT {select_cols} FROM folders fo \
+             WHERE {where_sql} \
+             ORDER BY {ORDER_FOLDERS_BY_NATURAL_NAME} \
+             LIMIT $3 OFFSET $4"
+        );
+        let folders: Vec<FolderListItem> = sqlx::query_as(&list_sql)
+            .bind(user_id)
+            .bind(&params.parent_id)
+            .bind(params.limit)
+            .bind(params.offset)
+            .fetch_all(pool)
+            .await?;
+
+        (folders, folder_count.0)
+    } else {
+        let pattern = format!("%{search}%");
+        let where_sql = format!(
+            "fo.user_id = $1 AND {FO_ACTIVE_FOLDERS_SQL} AND LOWER(fo.name) LIKE $2"
+        );
+
+        let folder_count: (i64,) = sqlx::query_as(&format!(
+            "SELECT COALESCE(COUNT(*), 0) FROM folders fo WHERE {where_sql}"
+        ))
+        .bind(user_id)
+        .bind(&pattern)
+        .fetch_one(pool)
+        .await?;
+
+        let list_sql = format!(
+            "SELECT {select_cols} FROM folders fo \
+             WHERE {where_sql} \
+             ORDER BY {ORDER_FOLDERS_BY_NATURAL_NAME} \
+             LIMIT $3 OFFSET $4"
+        );
+        let folders: Vec<FolderListItem> = sqlx::query_as(&list_sql)
+            .bind(user_id)
+            .bind(&pattern)
+            .bind(params.limit)
+            .bind(params.offset)
+            .fetch_all(pool)
+            .await?;
+
+        (folders, folder_count.0)
+    };
+
     let has_more = params.offset + (folders.len() as i64) < folder_count;
 
     Ok(FolderListResponse {
@@ -452,6 +493,15 @@ pub async fn list_accessible_folders(
     params: ListFoldersParams,
 ) -> Result<FolderListResponse, AppError> {
     let mut response = list_owned_folders(pool, user_id, params.clone()).await?;
+
+    let search = params
+        .search
+        .as_deref()
+        .unwrap_or("")
+        .trim();
+    if !search.is_empty() {
+        return Ok(response);
+    }
 
     let readable_folders = crate::files::access::readable_folder_subtree_ids(pool, user_id).await?;
     if readable_folders.is_empty() {

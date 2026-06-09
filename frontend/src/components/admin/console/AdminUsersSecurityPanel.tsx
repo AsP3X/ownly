@@ -1,17 +1,16 @@
 // Human: Admin Console - Users & Security panel (login-signup.pencil frame h9Cwi).
 // Agent: CALLS fetchAdminUsers/fetchAdminUserRoles; RENDERS directory + role catalog from API.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2, Pencil, RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { AdminDeleteUserDialog } from "@/components/admin/console/AdminDeleteUserDialog";
 import {
   fetchAdminUserRoles,
   fetchAdminUsers,
-  getErrorMessage,
   type AdminRoleRow,
   type AdminUserRow,
-  type AdminUsersListResponse,
 } from "@/api/client";
+import { useAdminQuery } from "@/hooks/useAdminQuery";
 import { AdminCreateUserDialog, AdminManageUserDialog } from "@/components/admin/console/AdminUserDialogs";
 import {
   AdminConsolePageHeader,
@@ -31,42 +30,31 @@ import {
 } from "@/lib/utils-app";
 import { useAuth } from "@/hooks/useAuth";
 
+// Human: Combined users list + role catalog returned by the directory loader.
+// Agent: READS fetchAdminUsers/fetchAdminUserRoles; USED by useAdminQuery in this panel.
+type UsersDirectoryData = {
+  users: Awaited<ReturnType<typeof fetchAdminUsers>>;
+  roles: AdminRoleRow[];
+};
+
 /** Human: User directory with underline tabs and live compliance summary cards. */
 export function AdminUsersSecurityPanel() {
   const { user: currentUser } = useAuth();
   const [tab, setTab] = useState("directory");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<AdminUsersListResponse | null>(null);
-  const [roles, setRoles] = useState<AdminRoleRow[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageUser, setManageUser] = useState<AdminUserRow | null>(null);
   const [deleteUser, setDeleteUser] = useState<AdminUserRow | null>(null);
 
-  const loadDirectory = useCallback(async (showRefreshSpinner: boolean) => {
-    if (showRefreshSpinner) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      const [usersRes, rolesRes] = await Promise.all([fetchAdminUsers(), fetchAdminUserRoles()]);
-      setData(usersRes);
-      setRoles(rolesRes.roles);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const loadDirectory = useCallback(async (): Promise<UsersDirectoryData> => {
+    const [usersRes, rolesRes] = await Promise.all([fetchAdminUsers(), fetchAdminUserRoles()]);
+    return { users: usersRes, roles: rolesRes.roles };
   }, []);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial directory fetch on panel mount
-    void loadDirectory(false);
-  }, [loadDirectory]);
+  const { data, loading, refreshing, error, reload } = useAdminQuery(loadDirectory);
 
-  const summary = data?.summary;
-  const users = data?.users ?? [];
+  const summary = data?.users.summary;
+  const users = data?.users.users ?? [];
+  const roles = data?.roles ?? [];
   const enabledCount = summary?.enabled_count ?? 0;
   const total = summary?.total ?? 0;
   const activationPct = summary?.activation_rate_percent ?? 0;
@@ -80,7 +68,7 @@ export function AdminUsersSecurityPanel() {
           <>
             <button
               type="button"
-              onClick={() => void loadDirectory(true)}
+              onClick={() => void reload(true)}
               disabled={loading || refreshing}
               className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
             >
@@ -226,7 +214,7 @@ export function AdminUsersSecurityPanel() {
       <AdminCreateUserDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onSaved={() => void loadDirectory(true)}
+        onSaved={() => void reload(true)}
       />
       <AdminManageUserDialog
         open={manageUser !== null}
@@ -235,7 +223,7 @@ export function AdminUsersSecurityPanel() {
         }}
         user={manageUser}
         currentUserId={currentUser?.id}
-        onSaved={() => void loadDirectory(true)}
+        onSaved={() => void reload(true)}
       />
       <AdminDeleteUserDialog
         user={deleteUser}
@@ -243,7 +231,7 @@ export function AdminUsersSecurityPanel() {
         onOpenChange={(open) => {
           if (!open) setDeleteUser(null);
         }}
-        onDeleted={() => void loadDirectory(true)}
+        onDeleted={() => void reload(true)}
       />
     </div>
   );
