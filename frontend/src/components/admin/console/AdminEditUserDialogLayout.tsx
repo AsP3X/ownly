@@ -1,8 +1,8 @@
 // Human: Presentational shell for Edit User Account — 1:1 login-signup.pencil frame IlfEv.
 // Agent: RENDERS layout only; parent supplies state and handlers.
 
-import type { ReactNode } from "react";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SetupToggleRow } from "@/components/setup/SetupToggleRow";
 import type { AdminUserRoleTier } from "@/lib/utils-app";
@@ -79,17 +79,6 @@ export function AdminEditUserRoleSegments({
   );
 }
 
-/** Human: Preset per-user quota tiers shown in the edit-user storage dropdown. */
-const STORAGE_QUOTA_GB_OPTIONS = [5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000] as const;
-
-// Human: Build a sorted unique option list that always includes the current quota value.
-// Agent: MERGES preset tiers with quotaGb; RETURNS ascending GB values for the select.
-function storageQuotaGbOptions(quotaGb: number): number[] {
-  const values = new Set<number>(STORAGE_QUOTA_GB_OPTIONS);
-  values.add(Math.max(1, quotaGb));
-  return [...values].sort((a, b) => a - b);
-}
-
 /** Human: Storage quota field + usage bar per Pencil jSvhv frame. */
 export function AdminEditUserStorageSection({
   quotaGb,
@@ -102,33 +91,38 @@ export function AdminEditUserStorageSection({
   quotaBytes: number;
   onQuotaGbChange: (quotaGb: number) => void;
 }) {
+  // Human: Local draft avoids fighting the input while the admin types multi-digit GB values.
+  // Agent: SYNCED from quotaGb prop; PARSED into onQuotaGbChange when value is a valid integer >= 1.
+  const [quotaDraft, setQuotaDraft] = useState(String(quotaGb));
+
+  useEffect(() => {
+    setQuotaDraft(String(quotaGb));
+  }, [quotaGb]);
+
   const usedGb = usedBytes / (1024 * 1024 * 1024);
   const pct = quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : 0;
-  const options = storageQuotaGbOptions(quotaGb);
 
   return (
     <div className="flex flex-col gap-2.5">
       <p className="text-sm font-semibold text-[#1A1A1A]">Max Storage Capacity</p>
-      <div className="relative flex h-11 items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
-        <select
-          value={quotaGb}
+      <div className="flex h-11 items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={quotaDraft}
           onChange={(event) => {
-            const parsed = Number.parseInt(event.target.value, 10);
-            if (!Number.isNaN(parsed)) onQuotaGbChange(Math.max(1, parsed));
+            const next = event.target.value;
+            setQuotaDraft(next);
+            const parsed = Number.parseInt(next, 10);
+            if (!Number.isNaN(parsed) && parsed >= 1) {
+              onQuotaGbChange(parsed);
+            }
           }}
-          className="w-full appearance-none bg-transparent pr-8 text-sm font-medium text-[#1A1A1A] outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#1A1A1A] outline-none"
           aria-label="Max storage capacity in gigabytes"
-        >
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option.toLocaleString()}
-            </option>
-          ))}
-        </select>
-        <span className="pointer-events-none absolute right-4 inline-flex items-center gap-1.5 text-sm text-[#666666]">
-          GB
-          <ChevronDown className="size-3.5 text-[#888888]" aria-hidden />
-        </span>
+        />
+        <span className="shrink-0 text-sm text-[#666666]">GB</span>
       </div>
       <div className="flex flex-col gap-1.5">
         <p className="text-[11px] text-[#666666]">

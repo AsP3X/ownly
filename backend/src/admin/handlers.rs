@@ -291,6 +291,73 @@ async fn count_enabled_admins(pool: &sqlx::PgPool) -> Result<i64, AppError> {
     crate::authz::count_enabled_admin_group_members(pool).await
 }
 
+// Human: Enabled admin-group member or legacy users.role=admin counts as an active instance admin.
+// Agent: READS group_members + users.role; RETURNS false when account is disabled.
+async fn user_is_active_instance_admin(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    role: &str,
+    enabled: bool,
+) -> Result<bool, AppError> {
+    if !enabled {
+        return Ok(false);
+    }
+    if crate::authz::user_is_admin_group_member(pool, user_id).await? {
+        return Ok(true);
+    }
+    Ok(role == "admin")
+}
+
+// Human: After a role patch, admin group membership syncs to role == "admin".
+// Agent: READS optional new_role; SKIPS DB when only enabled/quota/password change.
+async fn predicts_active_instance_admin_after_role_patch(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    current_role: &str,
+    new_role: Option<&str>,
+    target_enabled: bool,
+) -> Result<bool, AppError> {
+    if !target_enabled {
+        return Ok(false);
+    }
+    if let Some(role) = new_role {
+        return Ok(role == "admin");
+    }
+    user_is_active_instance_admin(pool, user_id, current_role, target_enabled).await
+}
+
+// Human: Other enabled admins that would remain if this account loses admin access.
+// Agent: READS admin group + legacy role=admin rows; EXCLUDES user_id.
+async fn count_other_active_instance_admins(
+    pool: &sqlx::PgPool,
+    exclude_user_id: &str,
+) -> Result<i64, AppError> {
+    let (group_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM group_members gm \
+         JOIN groups g ON g.id = gm.group_id \
+         JOIN users u ON u.id = gm.user_id \
+         WHERE g.slug = 'admin' AND u.enabled = true AND gm.user_id <> $1",
+    )
+    .bind(exclude_user_id)
+    .fetch_one(pool)
+    .await?;
+
+    let (legacy_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM users u \
+         WHERE u.role = 'admin' AND u.enabled = true AND u.id <> $1 \
+         AND NOT EXISTS ( \
+             SELECT 1 FROM group_members gm \
+             JOIN groups g ON g.id = gm.group_id \
+             WHERE g.slug = 'admin' AND gm.user_id = u.id \
+         )",
+    )
+    .bind(exclude_user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(group_count + legacy_count)
+}
+
 // Human: Create a new local account (admin invite) with optional activation gate.
 // Agent: POST /api/v1/admin/users; WRITES users; AUDIT admin.users.create.
 pub async fn create_user(
@@ -409,25 +476,35 @@ pub async fn update_user(
     };
 
     let new_enabled = body.enabled;
-    let target_role = new_role.as_deref().unwrap_or(&current_role);
     let target_enabled = new_enabled.unwrap_or(current_enabled);
 
-    if target_role != "admin" || !target_enabled {
-        let would_remain_admin = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*)::BIGINT FROM group_members gm \
-             JOIN groups g ON g.id = gm.group_id \
-             JOIN users u ON u.id = gm.user_id \
-             WHERE g.slug = 'admin' AND u.enabled = true AND gm.user_id <> $1",
+    // Human: Quota-only PATCH must not trip last-admin guard for group-backed admins with role != admin.
+    // Agent: RUNS only when role or enabled is in the body; SKIPS storage_quota_gb-only updates.
+    if body.role.is_some() || body.enabled.is_some() {
+        let was_active_admin = user_is_active_instance_admin(
+            &state.pool,
+            &user_id,
+            &current_role,
+            current_enabled,
         )
-        .bind(&user_id)
-        .fetch_one(&state.pool)
-        .await?
-        .0;
-        let this_stays_admin = target_role == "admin" && target_enabled;
-        if !this_stays_admin && would_remain_admin == 0 {
-            return Err(AppError::Forbidden(
-                "cannot remove or deactivate the last active administrator".into(),
-            ));
+        .await?;
+        let will_be_active_admin = predicts_active_instance_admin_after_role_patch(
+            &state.pool,
+            &user_id,
+            &current_role,
+            new_role.as_deref(),
+            target_enabled,
+        )
+        .await?;
+
+        if was_active_admin && !will_be_active_admin {
+            let other_admins =
+                count_other_active_instance_admins(&state.pool, &user_id).await?;
+            if other_admins == 0 {
+                return Err(AppError::Forbidden(
+                    "cannot remove or deactivate the last active administrator".into(),
+                ));
+            }
         }
     }
 
