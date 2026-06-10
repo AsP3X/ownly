@@ -19,7 +19,12 @@ import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
-import { videoDialogPlayerShellClass } from "@/components/drive/video/video-dialog-viewport";
+import {
+  resolveVideoAspectRatioStyle,
+  videoDialogLandscapePlayerShellClass,
+  videoDialogVerticalPlayerShellClass,
+} from "@/components/drive/video/video-player-layout";
+import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -72,16 +77,28 @@ export function VideoPlayerSurface({
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
 
+  // Human: Vertical sources use a height-first shell so portrait video is not letterboxed in a 4:3 band.
+  // Agent: READS videoWidth/height via useVideoNaturalSize; APPLIES inline aspectRatio when metadata loads.
+  const naturalSize = useVideoNaturalSize(videoRef, file.id);
+  const isVerticalVideo = naturalSize?.isVertical ?? false;
+  const shellAspectStyle = naturalSize
+    ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
+    : undefined;
+
   return (
     <div
       ref={cardRef}
+      data-video-orientation={isVerticalVideo ? "vertical" : "horizontal"}
+      style={isFullscreen ? undefined : shellAspectStyle}
       className={cn(
         "relative overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
         "fullscreen:overflow-visible",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen
           ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
-          : videoDialogPlayerShellClass,
+          : isVerticalVideo
+            ? videoDialogVerticalPlayerShellClass
+            : videoDialogLandscapePlayerShellClass,
       )}
       onFocus={revealChrome}
     >

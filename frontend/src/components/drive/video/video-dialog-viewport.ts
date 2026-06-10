@@ -14,5 +14,6 @@ export const videoDialogRowHeightClass =
 
 // Human: Width-first 4:3 card — height follows width; both axes respect viewport and pixel caps.
 // Agent: 100% is flex-row space left after chevrons; calc(100dvh-2rem) matches DialogContent p-4.
+// Human: Vertical sources use videoDialogVerticalPlayerShellClass from video-player-layout.ts instead.
 export const videoDialogPlayerShellClass =
   "h-auto min-w-0 max-h-[min(1125px,calc(100dvh-2rem))] w-[min(1500px,100%,calc(min(1125px,calc(100dvh-2rem))*4/3))] shrink-0 aspect-[4/3]" as const;
