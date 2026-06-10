@@ -19,7 +19,6 @@ import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerGridPreviewSlot } from "@/components/drive/ExplorerGridPreviewSlot";
 import { ExplorerDocumentThumbnail } from "@/components/drive/ExplorerDocumentThumbnail";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
-import { LazyExplorerSpreadsheetThumbnail } from "@/components/drive/lazy-explorer-spreadsheet-thumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
@@ -341,14 +340,11 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     canPreviewAudio;
   const showImagePreview = isImage && !processing;
   const showVideoPreview = isVideo && file.video_thumbnail_ready;
-  const showDocumentPreview =
-    (isPdf || (isSpreadsheet && file.document_thumbnail_ready)) && !processing;
-  const showClientSpreadsheetPreview =
-    isSpreadsheet && !processing && !file.document_thumbnail_ready;
-  // Human: PDF and ready spreadsheet tiles use stored JPEG sidecars; legacy spreadsheets keep client parsing.
-  // Agent: showDocumentPreview READS document_thumbnail_ready; showClientSpreadsheetPreview FALLBACK xlsx parse.
+  const showDocumentPreview = (isPdf || isSpreadsheet) && !processing;
+  // Human: PDF and spreadsheet tiles always wait for stored LibreOffice/pdftoppm JPEG sidecars.
+  // Agent: showDocumentPreview USES ExplorerDocumentThumbnail; SKIPS client-side xlsx mini-grid fallback.
   const showLiveThumbnailPreview =
-    showImagePreview || showVideoPreview || showDocumentPreview || showClientSpreadsheetPreview;
+    showImagePreview || showVideoPreview || showDocumentPreview;
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
   // Human: Track tap start so scroll gestures on a tile do not toggle selection.
   // Agent: READS pointer down/up delta; CALLS onTapToggleFileSelection only within MOBILE_TAP_SLOP_PX.
@@ -499,8 +495,6 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             />
           ) : showDocumentPreview ? (
             <ExplorerDocumentThumbnail file={file} slotFill />
-          ) : showClientSpreadsheetPreview ? (
-            <LazyExplorerSpreadsheetThumbnail file={file} slotFill />
           ) : (
             <ExplorerFileIcon mimeType={file.mime_type} />
           )}

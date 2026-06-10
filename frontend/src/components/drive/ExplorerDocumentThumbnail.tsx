@@ -1,5 +1,5 @@
-// Human: Grid tile document preview — server JPEG sidecar for PDF and spreadsheet explorer tiles.
-// Agent: USES useExplorerGridThumbnail; READS document_thumbnail_ready; FALLBACK icon on error.
+// Human: Grid tile document preview — stored JPEG sidecar rendered like the opened file view.
+// Agent: USES useExplorerGridThumbnail; DISPLAYS object-contain on white; READS document_thumbnail_ready.
 
 import { FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
@@ -16,7 +16,7 @@ type ExplorerDocumentThumbnailProps = {
   slotFill?: boolean;
 };
 
-/** Human: Lazy-loaded grid preview for PDF and spreadsheet tiles backed by object-storage JPEGs. */
+/** Human: Lazy-loaded PDF/spreadsheet tile preview from object-storage JPEG sidecars. */
 export function ExplorerDocumentThumbnail({
   file,
   className,
@@ -63,22 +63,40 @@ export function ExplorerDocumentThumbnail({
           <FailedIcon className={cn("size-8", failedIconClass)} aria-hidden />
         </div>
       ) : displaySrc ? (
-        <img
-          src={displaySrc}
-          alt=""
-          decoding="async"
-          draggable={false}
-          fetchPriority={fetchPriority}
-          className="size-full object-cover"
-          onError={handleImageError}
-        />
+        isPdf ? (
+          // Human: PDF tiles keep the full page visible with top-aligned letterboxing.
+          // Agent: object-contain + items-start mirrors react-pdf explorer layout.
+          <div className="flex size-full items-start justify-center overflow-hidden bg-white">
+            <img
+              src={displaySrc}
+              alt=""
+              decoding="async"
+              draggable={false}
+              fetchPriority={fetchPriority}
+              className="max-h-full max-w-full object-contain"
+              onError={handleImageError}
+            />
+          </div>
+        ) : (
+          // Human: Spreadsheet sidecars are square grid JPEGs — fill the tile edge-to-edge.
+          // Agent: size-full object-cover; MATCHES ExplorerSpreadsheetThumbnail framing.
+          <img
+            src={displaySrc}
+            alt=""
+            decoding="async"
+            draggable={false}
+            fetchPriority={fetchPriority}
+            className="size-full object-cover object-left-top bg-white"
+            onError={handleImageError}
+          />
+        )
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-1">
           <Loader2
             className={cn("size-5 text-[#888888]", loading && "animate-spin")}
             aria-hidden
           />
-          {waitingForServerThumb || isPdf ? (
+          {waitingForServerThumb ? (
             <span className="text-[10px] text-[#888888]">Generating preview…</span>
           ) : null}
         </div>
