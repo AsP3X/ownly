@@ -23,6 +23,62 @@ impl PerKeyRateLimiter {
     }
 }
 
+// Human: Read-only view of one key's rolling-window usage for dashboard / status endpoints.
+// Agent: READS hits map without incrementing; RETURNS limit, used, remaining, optional retry_after_secs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimitSnapshot {
+    pub limit: usize,
+    pub used: usize,
+    pub remaining: usize,
+    pub window_secs: u64,
+    pub retry_after_secs: Option<u64>,
+}
+
+// Human: Peek at current usage for a key without recording a new hit.
+// Agent: PRUNES expired instants; COMPUTES remaining; SETS retry_after_secs when at cap.
+pub fn snapshot(limiter: &PerKeyRateLimiter, key: &str) -> Result<RateLimitSnapshot, AppError> {
+    let now = Instant::now();
+    let guard = limiter
+        .hits
+        .lock()
+        .map_err(|_| AppError::Internal(anyhow::anyhow!("rate limiter lock poisoned")))?;
+    let used = guard
+        .get(key)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|t| now.duration_since(**t) < limiter.window)
+                .count()
+        })
+        .unwrap_or(0);
+    let remaining = limiter.max.saturating_sub(used);
+    let retry_after_secs = if used >= limiter.max {
+        guard.get(key).and_then(|entries| {
+            let active: Vec<Instant> = entries
+                .iter()
+                .filter(|t| now.duration_since(**t) < limiter.window)
+                .copied()
+                .collect();
+            active.iter().min().map(|oldest| {
+                limiter
+                    .window
+                    .saturating_sub(now.duration_since(*oldest))
+                    .as_secs()
+                    .max(1)
+            })
+        })
+    } else {
+        None
+    };
+    Ok(RateLimitSnapshot {
+        limit: limiter.max,
+        used,
+        remaining,
+        window_secs: limiter.window.as_secs(),
+        retry_after_secs,
+    })
+}
+
 // Human: Record one request for the key and reject when the rolling window is full.
 // Agent: MUTATES hits map; RETURNS AppError::rate_limited when len >= max after prune.
 pub fn enforce(limiter: &PerKeyRateLimiter, key: &str) -> Result<(), AppError> {
@@ -109,6 +165,22 @@ mod tests {
             client_ip_from_headers(&headers, true),
             "203.0.113.99"
         );
+    }
+
+    #[test]
+    fn snapshot_reports_usage_without_incrementing() {
+        let limiter = PerKeyRateLimiter::new(3, Duration::from_secs(60));
+        enforce(&limiter, "user-b").expect("first");
+        enforce(&limiter, "user-b").expect("second");
+
+        let snap = snapshot(&limiter, "user-b").expect("snapshot");
+        assert_eq!(snap.limit, 3);
+        assert_eq!(snap.used, 2);
+        assert_eq!(snap.remaining, 1);
+        assert!(snap.retry_after_secs.is_none());
+
+        let snap_again = snapshot(&limiter, "user-b").expect("snapshot again");
+        assert_eq!(snap_again.used, 2, "snapshot must not record a hit");
     }
 
     #[test]

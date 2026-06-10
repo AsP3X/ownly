@@ -850,6 +850,14 @@ export async function fetchAdminSecurity() {
   return apiFetch("/admin/security") as Promise<AdminSecurityOverviewResponse>;
 }
 
+export type UploadRateLimitStatus = {
+  limit_per_minute: number;
+  used_in_window: number;
+  remaining_in_window: number;
+  window_seconds: number;
+  retry_after_seconds: number | null;
+};
+
 export type DashboardResponse = {
   instance_name: string;
   file_count: number;
@@ -859,6 +867,8 @@ export type DashboardResponse = {
   network_remaining_bytes?: number | null;
   /** min(user quota remaining, network remaining); null when unlimited. */
   effective_remaining_bytes?: number | null;
+  /** Per-user upload request budget in the rolling window (typically one minute). */
+  upload_rate_limit?: UploadRateLimitStatus;
 };
 
 export async function fetchDashboard() {

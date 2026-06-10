@@ -1633,6 +1633,10 @@ pub async fn dashboard_summary(
         network_remaining_bytes,
     );
 
+    // Human: Per-user upload throttle — rolling window count for sidebar rate-limit display.
+    // Agent: READS upload_rl snapshot keyed by claims.sub; EXPOSES limit/used/remaining per minute.
+    let upload_rate = crate::rate_limit::snapshot(&state.upload_rl, &claims.sub)?;
+
     Ok(Json(serde_json::json!({
         "instance_name": instance_name.map(|(n,)| n).unwrap_or_else(|| "Ownly".into()),
         "file_count": stats.0,
@@ -1643,6 +1647,13 @@ pub async fn dashboard_summary(
             serde_json::Value::Null
         } else {
             serde_json::Value::from(effective_remaining_bytes)
+        },
+        "upload_rate_limit": {
+            "limit_per_minute": upload_rate.limit,
+            "used_in_window": upload_rate.used,
+            "remaining_in_window": upload_rate.remaining,
+            "window_seconds": upload_rate.window_secs,
+            "retry_after_seconds": upload_rate.retry_after_secs,
         },
     })))
 }

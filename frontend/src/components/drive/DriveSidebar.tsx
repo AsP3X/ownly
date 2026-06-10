@@ -11,7 +11,9 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
+import { UploadRateLimitWidget } from "@/components/drive/UploadRateLimitWidget";
 import { useInstanceName } from "@/hooks/useInstanceName";
+import { useUploadRateLimit } from "@/hooks/useUploadRateLimit";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -110,6 +112,7 @@ export function DriveSidebar({
   onSettingsClick,
 }: DriveSidebarProps) {
   const { instanceName } = useInstanceName();
+  const { status: uploadRateLimit, loading: uploadRateLimitLoading } = useUploadRateLimit();
 
   return (
     <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
@@ -158,7 +161,8 @@ export function DriveSidebar({
         />
       </nav>
 
-      <div className="mt-auto">
+      <div className="mt-auto flex flex-col gap-3">
+        <UploadRateLimitWidget status={uploadRateLimit} loading={uploadRateLimitLoading} />
         <StorageWidget usedBytes={usedBytes} quotaBytes={quotaBytes} />
       </div>
     </aside>
