@@ -34,6 +34,7 @@ pub mod files;
 pub mod hls;
 pub mod health;
 pub mod jobs;
+pub mod logging;
 pub mod quota;
 pub mod stream_ticket;
 pub mod rate_limit;
@@ -673,6 +674,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(admin::console::get_settings).patch(admin::console::patch_settings),
         )
         .route(
+            "/api/v1/admin/logging",
+            get(logging::handlers::get_logging_config)
+                .patch(logging::handlers::patch_logging_config),
+        )
+        .route(
             "/api/v1/admin/maintenance/cleanup-gif-preview-temp",
             post(admin::console::cleanup_gif_preview_temp),
         )
@@ -761,16 +767,12 @@ fn ensure_temp_dir() -> anyhow::Result<()> {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "debug,tower_http=debug".into()),
-        )
-        .init();
+    logging::init_subscriber();
 
     let config = Config::from_env()?;
     ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
+    logging::load_and_apply(&state.pool).await;
     admin::storage_migration_run::resume_running_storage_migrations(state.clone()).await;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));
     files::recycle_bin::start_recycle_bin_purger(state.clone());

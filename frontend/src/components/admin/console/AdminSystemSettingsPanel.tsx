@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAdminQuery } from "@/hooks/useAdminQuery";
-import { HardDriveDownload, Loader2, Save, Trash2 } from "lucide-react";
+import { HardDriveDownload, Loader2, Save, ScrollText, Trash2 } from "lucide-react";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import {
   ENCRYPTION_SUMMARY,
@@ -42,6 +42,7 @@ import {
   AdminConsoleUnderlineTabs,
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
+import { AdminLoggingConfigDialog } from "@/components/admin/console/AdminLoggingConfigDialog";
 
 /** Human: System settings with three underline tabs — loads and saves via admin settings API. */
 export function AdminSystemSettingsPanel() {
@@ -63,6 +64,7 @@ export function AdminSystemSettingsPanel() {
   // Human: Local draft for the default quota number field — avoids parseInt-on-keystroke fighting the input.
   // Agent: SYNCED from server snapshot; PARSED in handleSave into default_storage_quota_gb.
   const [defaultQuotaDraft, setDefaultQuotaDraft] = useState<string | null>(null);
+  const [loggingDialogOpen, setLoggingDialogOpen] = useState(false);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
   const { data: serverData, loading, error: loadError } = useAdminQuery(loadSettings);
@@ -317,6 +319,15 @@ export function AdminSystemSettingsPanel() {
                       onChange={(v) => patchForm({ console_url: v })}
                     />
                   </div>
+                </AdminConsoleSettingsRow>
+                <AdminConsoleSettingsRow
+                  title="Server Logging"
+                  description="Control how much detail the API writes to its process logs. Applies immediately without restart."
+                >
+                  <AdminConsoleOutlineButton onClick={() => setLoggingDialogOpen(true)}>
+                    <ScrollText className="size-4 shrink-0" aria-hidden />
+                    Configure logging…
+                  </AdminConsoleOutlineButton>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow
                   title="System Status"
@@ -689,6 +700,8 @@ export function AdminSystemSettingsPanel() {
           </AdminConsoleSettingsPanel>
         </>
       ) : null}
+
+      <AdminLoggingConfigDialog open={loggingDialogOpen} onOpenChange={setLoggingDialogOpen} />
     </div>
   );
 }

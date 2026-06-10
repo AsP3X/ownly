@@ -639,6 +639,40 @@ export async function updateAdminSettings(body: AdminSettingsPatch) {
   }) as Promise<AdminSettingsResponse>;
 }
 
+export type AdminLoggingCategoryInfo = {
+  id: string;
+  label: string;
+  description: string;
+  target: string;
+};
+
+export type AdminLoggingConfigResponse = {
+  preset: "prod" | "default" | "debug" | "custom";
+  categories: Record<string, string>;
+  available_categories: AdminLoggingCategoryInfo[];
+  available_levels: string[];
+};
+
+export type AdminLoggingConfigPatch = {
+  preset?: "prod" | "default" | "debug" | "custom";
+  categories?: Record<string, string>;
+};
+
+// Human: Load runtime tracing configuration for the admin logging dialog.
+// Agent: GET /admin/logging; REQUIRES instance.settings.read.
+export async function fetchAdminLoggingConfig() {
+  return apiFetch("/admin/logging") as Promise<AdminLoggingConfigResponse>;
+}
+
+// Human: Apply logging preset and/or per-category levels immediately on the API process.
+// Agent: PATCH /admin/logging; AUDIT admin.logging.update server-side.
+export async function updateAdminLoggingConfig(body: AdminLoggingConfigPatch) {
+  return apiFetch("/admin/logging", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  }) as Promise<AdminLoggingConfigResponse>;
+}
+
 export type CleanupGifPreviewTempResponse = {
   temp_dirs_removed: number;
   storage_objects_removed: number;
