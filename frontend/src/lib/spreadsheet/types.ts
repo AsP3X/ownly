@@ -132,6 +132,11 @@ export type RowOutlineLevel = Record<number, number>;
 export type SheetData = {
   name: string;
   rows: SheetCell[][];
+  // Human: Stable OOXML sheet identity from the uploaded workbook (survives rename/reorder).
+  // Agent: SET on parse from workbook.xml sheetId; USED by passthrough save to find worksheet path.
+  sourceSheetId?: string;
+  sourceRelId?: string;
+  sourceWorksheetPath?: string;
   // Human: Per-sheet conditional formatting rules (imported from xlsx or added via ribbon).
   // Agent: READ by grid resolveConditionalFormat; WRITTEN on save via OOXML patch.
   conditionalFormats?: ConditionalFormatRule[];

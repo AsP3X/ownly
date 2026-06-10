@@ -3,7 +3,12 @@
 
 import type { SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 import { readXlsxZipEntries, writeXlsxZipEntries } from "@/lib/spreadsheet/xlsx-ooxml";
-import { listWorksheetLinksByName } from "@/lib/spreadsheet/xlsx-sheet-links";
+import {
+  listWorksheetCatalog,
+  listWorksheetLinksByName,
+} from "@/lib/spreadsheet/xlsx-sheet-links";
+import { applyWorkbookStructureMerge } from "@/lib/spreadsheet/xlsx-workbook-structure";
+import { mergeStylesXml, remapSheetDataStyleIndices } from "@/lib/spreadsheet/xlsx-styles-merge";
 import {
   extractSheetDataBlock,
   replaceSheetDataInWorksheet,
@@ -79,7 +84,6 @@ export async function mergePassthroughXlsx(
   const sourceEntries = await readXlsxZipEntries(sourceBuffer);
   const generatedEntries = await readXlsxZipEntries(generatedBuffer);
   const merged = new Map<string, Uint8Array>(generatedEntries);
-  const structureChanged = workbookSheetStructureChanged(sourceEntries, workbook);
 
   for (const [path, bytes] of sourceEntries) {
     if (shouldPreserveSourceEntry(path)) {
@@ -87,37 +91,59 @@ export async function mergePassthroughXlsx(
     }
   }
 
-  if (!structureChanged) {
-    const preservedPaths = [
-      "[Content_Types].xml",
-      "xl/_rels/workbook.xml.rels",
-      "xl/workbook.xml",
-    ];
-    for (const path of preservedPaths) {
-      const bytes = sourceEntries.get(path);
-      if (bytes) merged.set(path, bytes);
-    }
+  const sourceStylesBytes = sourceEntries.get("xl/styles.xml");
+  const generatedStylesBytes = generatedEntries.get("xl/styles.xml");
+  let cellXfsRemap = new Map<number, number>();
+  if (sourceStylesBytes && generatedStylesBytes) {
+    const { mergedXml, cellXfsRemap: remap } = mergeStylesXml(
+      new TextDecoder().decode(sourceStylesBytes),
+      new TextDecoder().decode(generatedStylesBytes),
+    );
+    merged.set("xl/styles.xml", new TextEncoder().encode(mergedXml));
+    cellXfsRemap = remap;
+  } else if (sourceStylesBytes) {
+    merged.set("xl/styles.xml", sourceStylesBytes);
   }
 
-  const sourceLinks = await listWorksheetLinksByName(sourceBuffer);
+  const sourceCatalog = await listWorksheetCatalog(sourceBuffer);
+  const generatedCatalog = await listWorksheetCatalog(generatedBuffer);
+  applyWorkbookStructureMerge(
+    merged,
+    sourceEntries,
+    generatedEntries,
+    workbook,
+    sourceCatalog,
+    generatedCatalog,
+  );
+
   const generatedLinks = await listWorksheetLinksByName(generatedBuffer);
 
   for (const sheet of workbook.sheets) {
-    const sourceLink = sourceLinks.get(sheet.name);
     const generatedLink = generatedLinks.get(sheet.name);
-    if (!sourceLink || !generatedLink) continue;
+    if (!generatedLink) continue;
 
-    const sourceBytes = sourceEntries.get(sourceLink.sheetPath);
     const generatedBytes = generatedEntries.get(generatedLink.sheetPath);
-    if (!sourceBytes || !generatedBytes) continue;
+    if (!generatedBytes) continue;
 
-    const sourceXml = new TextDecoder().decode(sourceBytes);
     const generatedXml = new TextDecoder().decode(generatedBytes);
-    const sheetData = extractSheetDataBlock(generatedXml);
+    let sheetData = extractSheetDataBlock(generatedXml);
     if (!sheetData) continue;
 
-    const patchedXml = replaceSheetDataInWorksheet(sourceXml, sheetData);
-    merged.set(sourceLink.sheetPath, new TextEncoder().encode(patchedXml));
+    if (cellXfsRemap.size > 0) {
+      sheetData = remapSheetDataStyleIndices(sheetData, cellXfsRemap);
+    }
+
+    const targetPath = sheet.sourceWorksheetPath ?? generatedLink.sheetPath;
+    const shellBytes =
+      sheet.sourceWorksheetPath !== undefined
+        ? (sourceEntries.get(sheet.sourceWorksheetPath) ?? merged.get(sheet.sourceWorksheetPath))
+        : (merged.get(generatedLink.sheetPath) ?? generatedBytes);
+
+    if (!shellBytes) continue;
+
+    const shellXml = new TextDecoder().decode(shellBytes);
+    const patchedXml = replaceSheetDataInWorksheet(shellXml, sheetData);
+    merged.set(targetPath, new TextEncoder().encode(patchedXml));
   }
 
   return writeXlsxZipEntries(merged);

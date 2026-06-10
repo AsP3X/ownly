@@ -17,11 +17,18 @@ function normalizeXlsxEntryPath(target: string): string {
 export type WorksheetLink = {
   name: string;
   sheetPath: string;
+  sheetId?: string;
+  relId?: string;
 };
 
-// Human: Map each workbook sheet name to its xl/worksheets/*.xml path.
-// Agent: USED by merge/dimension exporters so reordered sheets still round-trip.
-export async function listWorksheetLinksByName(buffer: ArrayBuffer): Promise<Map<string, WorksheetLink>> {
+export type WorksheetCatalogEntry = WorksheetLink & {
+  sheetId: string;
+  relId: string;
+};
+
+// Human: Parse workbook.xml + rels into an ordered worksheet catalog.
+// Agent: RETURNS sheetId/relId/path for rename/reorder passthrough save.
+export async function listWorksheetCatalog(buffer: ArrayBuffer): Promise<WorksheetCatalogEntry[]> {
   const entries = await readXlsxZipEntries(buffer);
   const workbookXml = new TextDecoder().decode(entries.get("xl/workbook.xml") ?? new Uint8Array());
   const relsXml = new TextDecoder().decode(entries.get("xl/_rels/workbook.xml.rels") ?? new Uint8Array());
@@ -32,15 +39,27 @@ export async function listWorksheetLinksByName(buffer: ArrayBuffer): Promise<Map
     if (id && target) relMap.set(id, normalizeXlsxEntryPath(target));
   }
 
-  const result = new Map<string, WorksheetLink>();
+  const catalog: WorksheetCatalogEntry[] = [];
   for (const sheetMatch of workbookXml.matchAll(/<sheet\b([^>]*)\/?>/gi)) {
     const attrs = sheetMatch[1];
     const name = readXmlAttribute(attrs, "name");
     const relId = readXmlAttribute(attrs, "r:id");
+    const sheetId = readXmlAttribute(attrs, "sheetId") ?? String(catalog.length + 1);
     if (!name || !relId) continue;
     const sheetPath = relMap.get(relId);
     if (!sheetPath) continue;
-    result.set(name, { name, sheetPath });
+    catalog.push({ name, sheetPath, sheetId, relId });
+  }
+  return catalog;
+}
+
+// Human: Map each workbook sheet name to its xl/worksheets/*.xml path.
+// Agent: USED by merge/dimension exporters so reordered sheets still round-trip.
+export async function listWorksheetLinksByName(buffer: ArrayBuffer): Promise<Map<string, WorksheetLink>> {
+  const catalog = await listWorksheetCatalog(buffer);
+  const result = new Map<string, WorksheetLink>();
+  for (const entry of catalog) {
+    result.set(entry.name, entry);
   }
   return result;
 }

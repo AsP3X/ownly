@@ -38,6 +38,7 @@ import {
   importMergedRegionsFromXlsx,
 } from "@/lib/spreadsheet/xlsx-merge-ooxml";
 import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
+import { listWorksheetCatalog } from "@/lib/spreadsheet/xlsx-sheet-links";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -105,8 +106,11 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const marginsBySheet = await importPageMarginsFromXlsx(buffer);
   const dimensionsBySheet = await importDimensionsFromXlsx(buffer, sheetNames);
   const mergedBySheet = await importMergedRegionsFromXlsx(buffer, sheetNames);
+  const worksheetCatalog = await listWorksheetCatalog(buffer);
+  const catalogByName = new Map(worksheetCatalog.map((entry) => [entry.name, entry]));
 
   const sheets: SheetData[] = sheetNames.map((name) => {
+    const catalogEntry = catalogByName.get(name);
     const worksheet = workbook.Sheets[name];
     const rows = sheetToRows(worksheet);
     const ooxmlDimensions = dimensionsBySheet.get(name);
@@ -129,6 +133,9 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
     );
     const imported: SheetData = {
       name,
+      sourceSheetId: catalogEntry?.sheetId,
+      sourceRelId: catalogEntry?.relId,
+      sourceWorksheetPath: catalogEntry?.sheetPath,
       rows,
       conditionalFormats: conditionalBySheet.get(name),
       columnWidths: applyGridColumnWidths(undefined, mergedColumnWidths),
