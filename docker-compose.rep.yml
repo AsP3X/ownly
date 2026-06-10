@@ -28,7 +28,7 @@ x-nebular-storage-env: &nebular-storage-env
   NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
   NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
   NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
-  RUST_LOG: info
+  RUST_LOG: ${RUST_LOG:-debug}
 
 x-nebular-storage-service: &nebular-storage-service
   build:

@@ -1,5 +1,10 @@
 # Human: Zero-config stack — these literals are injected into containers; no `.env` or init-env required.
 # Agent: NOT ${VAR} — host `.env` and shell exports cannot override; edit here only for custom production secrets.
+# Human: Verbose Rust tracing by default — set RUST_LOG=info (or warn) in production.
+# Agent: SHARED by backend + object-storage; DEFAULT debug; OVERRIDE via host .env or shell export.
+x-ownly-logging: &ownly-logging
+  RUST_LOG: ${RUST_LOG:-debug}
+
 x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
   JWT_SECRET: ownly-compose-local-dev-jwt-secret-not-for-production
   SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
@@ -76,7 +81,7 @@ services:
       NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
       NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
       NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
-      RUST_LOG: info
+      <<: *ownly-logging
     ports:
       - "9000:9000"
     volumes:
@@ -110,7 +115,7 @@ services:
       STORAGE_MODE: ${STORAGE_MODE:-proxy}
       STORAGE_METADATA_MODE: ${STORAGE_METADATA_MODE:-nebular}
       URL_EXPIRY_SECONDS: ${URL_EXPIRY_SECONDS:-3600}
-      RUST_LOG: ${RUST_LOG:-info}
+      <<: *ownly-logging
       BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3000}
       OWNLY_ENVIRONMENT: ${OWNLY_ENVIRONMENT:-development}
       GIT_SHA: ${GIT_SHA:-unknown}
@@ -156,6 +161,9 @@ services:
         # Human: Must match backend SETUP_TOKEN literal for the setup wizard (zero-config, no .env).
         # Agent: BUILD-TIME only; same string as x-ownly-compose-dev-secrets SETUP_TOKEN.
         VITE_SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
+        # Human: Browser console verbosity — debug logs API and UI diagnostics by default.
+        # Agent: BUILD-TIME Vite embed; DEFAULT debug; OVERRIDE VITE_LOG_LEVEL in .env before build.
+        VITE_LOG_LEVEL: ${VITE_LOG_LEVEL:-debug}
     container_name: ownly-frontend
     environment:
       # Human: nginx client_max_body_size uses the same byte cap as the API.

@@ -7,6 +7,11 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Human: Stream all nginx diagnostics to container logs (docker compose logs frontend).
+    # Agent: error_log debug + access_log combined; DEFAULT verbose for local troubleshooting.
+    error_log /dev/stderr debug;
+    access_log /dev/stdout combined;
+
     # Human: Compress text assets — hashed /assets/* benefit on every repeat visit.
     # Agent: gzip on; TYPES include js/css/json/svg/woff2; VARY for downstream caches.
     gzip on;
