@@ -172,6 +172,10 @@ type InternalUploadBatch = {
 
 let batch: InternalUploadBatch | null = null;
 
+// Human: Stable snapshot reference for useSyncExternalStore — rebuilt only in emitBatch.
+// Agent: getUploadBatch READS this pointer; WRITES emitBatch; PREVENTS React #185 update loops.
+let cachedBatchSnapshot: UploadBatchSnapshot | null = null;
+
 let restoreStarted = false;
 
 const batchListeners = new Set<UploadBatchListener>();
@@ -296,13 +300,13 @@ function persistBatchToStorage() {
 
 function emitBatch() {
 
-  const snapshot = toBatchSnapshot();
+  cachedBatchSnapshot = toBatchSnapshot();
 
   persistBatchToStorage();
 
   for (const listener of batchListeners) {
 
-    listener(snapshot);
+    listener(cachedBatchSnapshot);
 
   }
 
@@ -1346,7 +1350,7 @@ export function removeUploadBatchItem(itemId: string) {
 
 export function getUploadBatch(): UploadBatchSnapshot | null {
 
-  return toBatchSnapshot();
+  return cachedBatchSnapshot;
 
 }
 

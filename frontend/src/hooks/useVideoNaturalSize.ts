@@ -28,12 +28,12 @@ export function useVideoNaturalSize(
   const [sizeState, setSizeState] = useState<VideoNaturalSizeState | null>(null);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    let disposed = false;
+    let detach: (() => void) | undefined;
+    let retryTimer: number | undefined;
 
-    const sync = () => {
-      const next = readVideoNaturalSize(video);
-      if (!next) return;
+    const commitSize = (next: VideoNaturalSize) => {
+      if (disposed) return;
       setSizeState((prev) => {
         if (
           prev?.fileId === fileId &&
@@ -46,13 +46,50 @@ export function useVideoNaturalSize(
       });
     };
 
-    video.addEventListener("loadedmetadata", sync);
-    video.addEventListener("resize", sync);
-    sync();
+    const attach = (video: HTMLVideoElement) => {
+      detach?.();
+
+      const sync = () => {
+        const next = readVideoNaturalSize(video);
+        if (!next) return;
+        commitSize(next);
+      };
+
+      video.addEventListener("loadedmetadata", sync);
+      video.addEventListener("resize", sync);
+      const rafId = requestAnimationFrame(sync);
+
+      detach = () => {
+        cancelAnimationFrame(rafId);
+        video.removeEventListener("loadedmetadata", sync);
+        video.removeEventListener("resize", sync);
+      };
+    };
+
+    const tryAttach = () => {
+      const video = videoRef.current;
+      if (!video) return false;
+      attach(video);
+      return true;
+    };
+
+    if (!tryAttach()) {
+      // Human: <video> ref can lag one frame behind the player shell on first mount.
+      // Agent: RETRIES briefly; STOPS once attach succeeds or effect cleans up.
+      retryTimer = window.setInterval(() => {
+        if (tryAttach() && retryTimer !== undefined) {
+          window.clearInterval(retryTimer);
+          retryTimer = undefined;
+        }
+      }, 32);
+    }
 
     return () => {
-      video.removeEventListener("loadedmetadata", sync);
-      video.removeEventListener("resize", sync);
+      disposed = true;
+      detach?.();
+      if (retryTimer !== undefined) {
+        window.clearInterval(retryTimer);
+      }
     };
   }, [videoRef, fileId]);
 
