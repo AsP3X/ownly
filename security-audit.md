@@ -11,14 +11,23 @@ Use the checkboxes below to track remediation as you work through each item.
 ## Executive summary
 
 
-| Severity | Count | Open |
-| -------- | ----- | ---- |
-| High     | 5     | 0    |
-| Medium   | 7     | 0    |
-| Low      | 0     | 0    |
+This document now covers **two audit rounds**:
+
+- **Round 1 (2026-06-02 → 2026-06-07):** SEC-001 – SEC-012, all remediated.
+- **Round 2 (2026-06-10):** SEC-013 – SEC-042, newly discovered, **open**.
 
 
-**Recommended fix order:** SEC-001 → SEC-007 → SEC-002 → SEC-012 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
+| Severity | Total | Open | Notes |
+| -------- | ----- | ---- | ----- |
+| Critical | 1     | 1    | SEC-013 (deployment-conditional) |
+| High     | 12    | 7    | 5 fixed (round 1), 7 open (SEC-014 – SEC-020) |
+| Medium   | 21    | 14   | 7 fixed (round 1), 14 open (SEC-021 – SEC-034) |
+| Low      | 8     | 8    | SEC-035 – SEC-042 |
+
+
+**Round 1 recommended fix order (complete):** SEC-001 → SEC-007 → SEC-002 → SEC-012 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
+
+**Round 2 recommended fix order (open):** SEC-013 → SEC-016 → SEC-015 → SEC-017 → SEC-014 → SEC-018 → SEC-019 → SEC-020 → SEC-027 → SEC-021 → SEC-024 → SEC-025 → (remaining mediums) → (lows)
 
 ---
 
@@ -1032,6 +1041,676 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ---
 
+# Round 2 findings (2026-06-10)
+
+**Scope:** Full-repository static review — backend (Rust/Axum), frontend (Vite/React), Docker/Compose, CI, scripts, and migrations. High and Critical items were manually verified against source. No live penetration testing.
+
+> All Round 2 findings below are **open** unless explicitly marked otherwise.
+
+---
+
+### SEC-013 — Committed Compose dev secrets pass production startup validation
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | Critical (deployment-conditional: only when the running instance uses Compose defaults)                                                             |
+| **Category**       | Authentication bypass / credential disclosure                                                                                                       |
+| **Impacted files** | `backend/src/secrets.rs` (`is_weak_secret`, `validate_startup_secrets`), `backend/src/config.rs` (`COMPOSE_DEV_*` constants), `docker-compose.yml`  |
+| **Routes**         | All — forged JWTs and stream tickets affect every authenticated/ticketed route                                                                      |
+
+**Description**
+
+`validate_startup_secrets` rejects empty values, `GENERATE_ME`, and a short `KNOWN_WEAK_SECRETS` list, plus enforces a 32-char minimum. The publicly committed Compose literals (`ownly-compose-local-dev-jwt-secret-...`, setup token, signing secret) are **not** in that list and are **deliberately accepted** — `secrets.rs` includes a passing test `compose_dev_setup_token_is_acceptable`. `OWNLY_ENVIRONMENT` is never consulted during validation, so `production` does not tighten the policy.
+
+**Evidence**
+
+```rust
+// backend/src/secrets.rs
+const KNOWN_WEAK_SECRETS: &[&str] = &[ "change-me-in-production", /* ... */ "ownly-master-key" ];
+// COMPOSE_DEV_* constants are absent here and explicitly asserted acceptable in tests.
+```
+
+**Exploit scenario**
+
+An operator runs `docker compose up` on an internet-reachable host without rotating secrets. An attacker reads `JWT_SECRET` / `SIGNING_SECRET` from the public repo, forges a JWT with `role: admin` (or signs stream tickets / completes setup with the known `SETUP_TOKEN`), and takes over the instance and all data.
+
+**Impact**
+
+Full account/admin impersonation and data compromise on any deployment left on Compose defaults.
+
+**Remediation**
+
+1. Add the `COMPOSE_DEV_*` constants to a denylist that is **rejected when `OWNLY_ENVIRONMENT=production`**.
+2. Make `OWNLY_ENVIRONMENT=production` enforce a hardened profile (reject dev secrets, require explicit CORS origins, disable private outbound).
+3. Remove the test that asserts the compose token is acceptable, or scope it to development only.
+
+**Verification**
+
+- API refuses to start with any `COMPOSE_DEV_*` secret when `OWNLY_ENVIRONMENT=production`.
+- Startup succeeds with operator-generated `openssl rand -hex 32` secrets.
+
+---
+
+### SEC-014 — Storage quota is never enforced on write paths
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                             |
+| **Category**       | Resource exhaustion / quota bypass                                                                                              |
+| **Impacted files** | `backend/src/files/handlers.rs` (`upload_file`, `copy_file`), `backend/src/shares/handlers.rs` (`save_from_public_share`), `backend/src/quota.rs` |
+| **Routes**         | `POST /api/v1/files/upload`, file copy, save-from-share                                                                          |
+
+**Description**
+
+`crate::quota::resolve_user_quota_bytes` is only called from two **display-only** endpoints (the `/me` profile and the drive dashboard). No write path checks usage against quota before inserting files. The upload handler's comment claims "Reject over quota" but the code only calls the rate limiter.
+
+**Evidence**
+
+```rust
+// backend/src/files/handlers.rs — upload_file
+// Human: Reject over quota but still drain the multipart body so the client gets a clean 429.
+if let Err(e) = rate_limit::enforce(&state.upload_rl, &claims.sub) {
+    drain_multipart(&mut multipart).await;
+    return Err(e);
+}
+```
+
+`rg resolve_user_quota_bytes` returns only `auth/handlers.rs` (profile) and `files/handlers.rs:1573` (dashboard) — never an enforcement path.
+
+**Exploit scenario**
+
+Any authenticated user uploads or copies files (incl. bulk save-from-share, up to 200 files) past their `storage_quota_gb` until the disk fills, regardless of the quota shown in the UI.
+
+**Impact**
+
+Per-user and global storage exhaustion → denial of service for the whole instance.
+
+**Remediation**
+
+Before each storage write, atomically check `used_bytes + incoming_size <= quota_bytes` (transaction / `SELECT ... FOR UPDATE`) and reject with `413`/`400`. Apply to upload, copy, save-from-share, and the video-ingest reservation path.
+
+**Verification**
+
+- Upload that would exceed quota is rejected; usage never exceeds `storage_quota_gb`.
+- Integration test covering upload + copy + save-from-share against a small quota.
+
+---
+
+### SEC-015 — "Leave share" leaves the underlying permission grant intact
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| **Severity**       | High                                                                                                        |
+| **Category**       | Broken access control / stale ACL                                                                           |
+| **Impacted files** | `backend/src/shares/handlers.rs` (`leave_shared_with_me` vs `revoke_user_share`), `backend/src/authz/grants.rs` (`revoke_content_read_for_user_share`) |
+| **Routes**         | `DELETE /api/v1/shares/with-me/{id}`                                                                          |
+
+**Description**
+
+`revoke_user_share` correctly deletes the invite **and** calls `revoke_content_read_for_user_share`. `leave_shared_with_me` only deletes the `resource_user_shares` row; it never revokes the `permission_grants` row created at invite time.
+
+**Evidence**
+
+```rust
+// backend/src/shares/handlers.rs — leave_shared_with_me
+let result = sqlx::query(
+    "DELETE FROM resource_user_shares WHERE id = $1 AND grantee_user_id = $2",
+)
+// no revoke_content_read_for_user_share(...) call follows
+```
+
+**Exploit scenario**
+
+A grantee calls `DELETE /shares/with-me/{id}`. The invite disappears from "shared with me", but the `content.read` (or higher) grant remains, so `authz::authorize()` still permits `GET /files/{id}/download` and other content access.
+
+**Impact**
+
+Users who "leave" a share retain full read/download access to the resource indefinitely.
+
+**Remediation**
+
+In `leave_shared_with_me`, `RETURNING resource_type, resource_id, grantee_user_id` and call `revoke_content_read_for_user_share` (matching `revoke_user_share`).
+
+**Verification**
+
+- After leaving a share, `GET /files/{id}/download` returns 403/404.
+- Integration test: invite → leave → download denied.
+
+---
+
+### SEC-016 — Privilege escalation: `instance.admin` is grantable via the permissions API
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                           |
+| **Category**       | Privilege escalation                                                                                          |
+| **Impacted files** | `backend/src/authz/grants.rs` (`upsert_grant`, `ensure_can_manage_grants`), `backend/src/authz/catalog.rs` (`Permission::parse`, `satisfies`) |
+| **Routes**         | `PUT /api/v1/admin/permissions`                                                                                 |
+
+**Description**
+
+The admin UI picker (`instance_assignable()`) intentionally excludes `InstanceAdmin`, but `upsert_grant` accepts **any** value `Permission::parse` recognizes — including `"instance.admin"`. The only gate is `ensure_can_manage_grants`, satisfied by `InstancePermissionsManage`. Because `satisfies()` makes `InstanceAdmin` supersede every instance permission, a holder of `instance.permissions.manage` can grant themselves full admin.
+
+**Evidence**
+
+```rust
+// backend/src/authz/catalog.rs
+pub fn parse(value: &str) -> Result<Self, AppError> {
+    match value.trim() {
+        "instance.admin" => Ok(Self::InstanceAdmin),
+        // ...
+```
+
+**Exploit scenario**
+
+A user with only `instance.permissions.manage` calls `PUT /api/v1/admin/permissions` with `{ "permission": "instance.admin", "subject_type": "user", "subject_id": "<self>", "resource_type": "instance", "effect": "allow" }`. Subsequent admin calls pass `authorize_instance()` for any permission.
+
+**Impact**
+
+Escalation from a delegated permission-manager role to full instance administrator.
+
+**Remediation**
+
+Reject `instance.admin` in `upsert_grant` (admin must come from admin-group membership only). Optionally require `InstanceAdmin` to grant any instance-scoped permission, and bump the session epoch when instance grants change.
+
+**Verification**
+
+- `PUT /admin/permissions` with `permission=instance.admin` returns 400/403.
+- Integration test: `instance.permissions.manage` holder cannot self-grant admin.
+
+---
+
+### SEC-017 — Self-service password change does not revoke existing sessions
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                 |
+| **Category**       | Session management                                                                                  |
+| **Impacted files** | `backend/src/auth/handlers.rs` (`change_password`), `backend/src/user_sessions.rs` (`bump_session_epoch`) |
+| **Routes**         | `POST /api/v1/auth/password` (change password)                                                        |
+
+**Description**
+
+Admin password reset bumps the session epoch (SEC-002 fix), but the user's own `change_password` updates the hash and writes audit without calling `bump_session_epoch` or revoking the current `sid`. Existing JWTs stay valid until expiry.
+
+**Evidence**
+
+```rust
+// backend/src/auth/handlers.rs — change_password
+sqlx::query("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2")
+    // ... no bump_session_epoch call
+```
+
+**Exploit scenario**
+
+An attacker holding a stolen JWT keeps access after the victim changes their password to "lock them out". The token works until the JWT TTL (up to 24h) expires.
+
+**Impact**
+
+Password change provides a false sense of revocation; stolen tokens survive.
+
+**Remediation**
+
+On successful `change_password`, call `bump_session_epoch` (invalidate all sessions) or revoke other sessions and re-issue a token for the current session.
+
+**Verification**
+
+- After password change, a previously issued token returns 401.
+- Integration test mirroring the admin-reset epoch-bump test.
+
+---
+
+### SEC-018 — Ticket-gated media routes ignore `deleted_at` and do not bind the ticket user
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                                   |
+| **Category**       | Broken access control / soft-delete bypass                                                                            |
+| **Impacted files** | `backend/src/hls/handlers.rs` (`ensure_file_playback`, `stream_file`), `backend/src/files/gif_preview.rs`, `backend/src/stream_ticket.rs` (`validate_ticket`) |
+| **Routes**         | `GET /api/v1/files/{id}/stream`, `GET /api/v1/hls/*`, preview-animation                                                  |
+
+**Description**
+
+`ensure_file_playback`, `stream_file`, and the GIF-preview route look up files by id only — no `deleted_at IS NULL`, no ownership/ACL re-check. `validate_ticket` verifies `file_id`, HMAC, and expiry but discards the `user_id` embedded in the ticket. HLS playback tickets have a 4-hour TTL.
+
+**Evidence**
+
+```rust
+// backend/src/hls/handlers.rs — ensure_file_playback
+let row: Option<HlsPlaybackRow> = sqlx::query_as(
+    "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1",
+).bind(file_id)  // no deleted_at, no user_id
+```
+
+**Exploit scenario**
+
+A user obtains a stream/HLS ticket, then the file is trashed or access revoked. Until the ticket expires (up to 4h), the holder — or anyone who obtains the URL via history, Referer, or logs — can stream the blob and fetch the AES-128 key.
+
+**Impact**
+
+Continued access to deleted/revoked content and decryption keys via leaked or pre-issued tickets.
+
+**Remediation**
+
+Add `AND deleted_at IS NULL` to all ticket-gated lookups; validate the ticket's `user_id` against current access; shorten TTLs and rate-limit `stream_file` and the key endpoint.
+
+**Verification**
+
+- Streaming a trashed file with a previously valid ticket returns 404.
+- Ticket issued for user A does not authorize user B's id mismatch (where applicable).
+
+---
+
+### SEC-019 — Runtime SSRF via admin-registered storage node URLs
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                 |
+| **Category**       | SSRF                                                                                                 |
+| **Impacted files** | `backend/src/admin/storage_nodes.rs` (`create_storage_node`, `update_storage_node`, `probe_storage_node`), `backend/src/storage/placement.rs`, `backend/src/storage/router.rs`, `backend/src/outbound_target.rs` |
+| **Routes**         | `POST/PUT /api/v1/admin/storage/nodes`, node detail/list (probe)                                       |
+
+**Description**
+
+`outbound_target::validate_http_outbound_base_url` is only called from setup. Admin storage-node create/update accept any `http(s)://` URL after `normalize_base_url` only; the server then probes `/health/ready`, `/metrics`, and routes blob PUT/GET to it.
+
+**Exploit scenario**
+
+A compromised admin (or `instance.settings.manage` holder) registers `http://169.254.169.254` or an internal service URL. Listing/viewing nodes triggers server-side requests from the app's network position.
+
+**Impact**
+
+Internal network reconnaissance and cloud metadata access from a trusted server position.
+
+**Remediation**
+
+Apply `validate_http_outbound_base_url` on create/update/probe paths (with an explicit dev opt-in for private targets). Document storage management as a trusted operation.
+
+**Verification**
+
+- Registering a private/metadata URL is rejected unless private outbound is explicitly allowed.
+
+---
+
+### SEC-020 — SSRF filter is hostname-literal only (DNS rebinding + redirect bypass)
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | High                                                                                                 |
+| **Category**       | SSRF                                                                                                 |
+| **Impacted files** | `backend/src/outbound_target.rs` (`host_is_blocked`), `backend/src/setup/handlers.rs` (DB/storage test probes) |
+| **Routes**         | `POST /api/v1/setup/database/test`, `POST /api/v1/setup/storage/test`, plus SEC-019 admin paths        |
+
+**Description**
+
+`host_is_blocked` parses literal IPs and blocklists hostnames, but never resolves DNS. A public hostname that resolves to a private/loopback/metadata IP passes validation. reqwest also follows redirects by default, and IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is not caught.
+
+**Exploit scenario**
+
+During the pre-setup window, an actor with the setup token submits `https://127.0.0.1.nip.io` or a public host returning `302 → http://169.254.169.254`. The probe connects to the internal target. (Residual class on top of the SEC-008/SEC-010 fixes.)
+
+**Impact**
+
+Internal-service and cloud-metadata probing despite literal-IP blocking.
+
+**Remediation**
+
+Resolve the hostname before connecting and re-check every resolved IP with `is_non_public_ip()`; restrict/validate redirects (`redirect::Policy`); block IPv4-mapped IPv6 and alternate encodings. Add tests for `nip.io`, redirects, and `::ffff:` forms.
+
+**Verification**
+
+- A hostname resolving to a private IP is rejected.
+- A redirect to a private IP after validation is blocked.
+
+---
+
+### SEC-021 — Media processing DoS: no ffmpeg timeouts; image/GIF decompression bombs
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                               |
+| **Impacted files** | `backend/src/hls/encoder.rs`, `backend/src/hls/probe.rs`, `backend/src/video/thumbnail.rs`, `backend/src/audio/waveform.rs`, `backend/src/files/gif_preview.rs`, `backend/src/image/thumbnail.rs` |
+
+**Description**
+
+All ffmpeg/ffprobe spawns use `child.wait().await` with no wall-clock timeout or kill-on-drop. The image thumbnailer fully decodes upload bytes before downscaling, with `max_upload_bytes` defaulting to **10 GiB**; GIF/WebP preview canvas dimensions are uncapped (frame count is capped at 480).
+
+**Exploit scenario**
+
+A crafted video/GIF/WebP (huge declared dimensions or pathological metadata) hangs or balloons memory in a worker; with 4 default workers, a few uploads exhaust CPU/RAM.
+
+**Remediation**
+
+Wrap ffmpeg in `tokio::time::timeout` + kill on expiry; cap concurrent transcodes per user; read image/GIF/WebP metadata and reject excessive pixel/canvas dimensions before decode.
+
+---
+
+### SEC-022 — HLS AES content key uploaded to object storage alongside ciphertext
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                               |
+| **Impacted files** | `backend/src/hls/encoder.rs`, `backend/src/hls/handlers.rs` (`resolve_hls_aes_key`), `backend/src/hls/encode_job.rs` |
+
+**Description**
+
+The plain 16-byte HLS key is written to `{storage_key}/key.bin` and uploaded to Nebular; `resolve_hls_aes_key` prefers the object copy over the encrypted DB envelope. This undermines the AES-256-GCM at-rest protection of the `KeyStore`.
+
+**Exploit scenario**
+
+Leaked Nebular credentials, a misconfigured public bucket, or the long-lived service JWT (SEC-023) exposes keys next to the ciphertext segments — encryption adds little at rest.
+
+**Remediation**
+
+Keep keys only in the `KeyStore` (encrypted in Postgres); never upload `key.bin`; migrate existing objects.
+
+---
+
+### SEC-023 — Long-lived admin Nebular service JWT
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/storage/nebula.rs` (`generate_service_token`)              |
+
+**Description**
+
+The backend mints a Nebular service token with `role: "admin"` and `exp: now + 86400 * 365` (one year), sent as `Bearer` on every storage request.
+
+**Exploit scenario**
+
+A leak (memory dump, log misconfig, container inspect) grants full bucket-admin access for a year.
+
+**Remediation**
+
+Short-lived tokens with refresh; least-privilege Nebular role; never log `Authorization` headers.
+
+---
+
+### SEC-024 — Frontend: setup token in JS bundle; JWT and share passwords in web storage
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium (High in combination with any XSS or pre-setup exposure)                                       |
+| **Impacted files** | `frontend/src/api/core.ts` (`VITE_SETUP_TOKEN`), `frontend/src/context/AuthContext.tsx` (`localStorage`), `frontend/src/lib/share-access.ts` (`sessionStorage`), `frontend/Dockerfile`, `docker-compose.yml` |
+
+**Description**
+
+`VITE_SETUP_TOKEN` is baked into the static bundle at build time (extractable from `/assets/*.js`). The session JWT and user profile are stored in `localStorage`, and share passwords in `sessionStorage` — all readable by any XSS.
+
+**Exploit scenario**
+
+Pre-setup: a visitor extracts the setup token and bootstraps the first admin (ties into SEC-005/SEC-013). Post-XSS: an attacker exfiltrates the JWT and cached share passwords.
+
+**Remediation**
+
+Never ship `VITE_SETUP_TOKEN` in production builds (use out-of-band bootstrap). Prefer HttpOnly+Secure+SameSite cookies for the session; keep share passwords in memory only.
+
+---
+
+### SEC-025 — Missing security headers on the nginx/static frontend
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                              |
+| ------------------ | ------------------------------------------------------------------ |
+| **Severity**       | Medium                                                            |
+| **Impacted files** | `frontend/nginx.conf.template`                                     |
+
+**Description**
+
+No `Content-Security-Policy`, `X-Frame-Options`/`frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`, or `Strict-Transport-Security`.
+
+**Exploit scenario**
+
+Clickjacking of login/setup/share-password forms; MIME sniffing; share tokens leaked via `Referer`; no CSP backstop if an XSS is introduced.
+
+**Remediation**
+
+Add a strict CSP, `frame-ancestors 'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS (behind TLS).
+
+---
+
+### SEC-026 — Untrusted spreadsheet parsing in the browser (`xlsx` / SheetJS 0.18.5)
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                               |
+| **Impacted files** | `frontend/package.json` (`xlsx@^0.18.5`), `frontend/src/lib/spreadsheet/parse.ts`, `frontend/src/components/drive/ExplorerSpreadsheetThumbnail.tsx` |
+
+**Description**
+
+Untrusted uploads are parsed with `XLSX.read(buffer, { cellFormula: true, cellStyles: true })` using an older community SheetJS build with known prototype-pollution/ReDoS/memory issues.
+
+**Remediation**
+
+Upgrade to a maintained SheetJS build; parse in a Web Worker with size/time limits; disable `cellFormula` for preview; consider server-side conversion.
+
+---
+
+### SEC-027 — Compose exposes Postgres/storage/API on `0.0.0.0` with dev credentials
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium (High/Critical if reachable beyond localhost)                                                  |
+| **Impacted files** | `docker-compose.yml` (ports `5432`, `9000`, `3000`; `POSTGRES_PASSWORD:-ownly`; `TRUST_PROXY_HEADERS:-true`; `OWNLY_ALLOW_PRIVATE_OUTBOUND:-1`), `docker-compose.rep.yml`, `backend/src/lib.rs` (permissive CORS when origins empty) |
+
+**Description**
+
+Default Compose publishes Postgres (`ownly:ownly`), object storage, and the API on all interfaces; `TRUST_PROXY_HEADERS=true` enables `X-Forwarded-For` rate-limit bypass when the API is hit directly; `OWNLY_ALLOW_PRIVATE_OUTBOUND=1` and permissive CORS are defaults.
+
+**Remediation**
+
+Remove host port mappings for DB/storage (internal network only) in production; require strong DB passwords; set `TRUST_PROXY_HEADERS=false` unless solely behind a trusted proxy; default `OWNLY_ALLOW_PRIVATE_OUTBOUND=0` and require explicit `CORS_ALLOWED_ORIGINS` in production.
+
+---
+
+### SEC-028 — Login brute-force and account enumeration weaknesses
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/auth/handlers.rs` (`login`), `backend/src/rate_limit.rs`   |
+
+**Description**
+
+Login is rate-limited per IP only (no per-account lockout). When the email is not found, Argon2 is skipped, creating a timing oracle. Disabled accounts return `403` with a distinct message vs `401` for bad credentials, enabling account-state enumeration.
+
+**Remediation**
+
+Composite `login:{email_hash}:{ip}` key + exponential backoff/lockout; always run a dummy Argon2 verify on missing users; return a uniform `401` for all credential failures.
+
+---
+
+### SEC-029 — Last-admin guard gap in `delete_user`
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/admin/handlers.rs` (`delete_user` vs `update_user`)        |
+
+**Description**
+
+`update_user` uses `user_is_active_instance_admin()` (group **or** legacy `users.role='admin'`), but `delete_user` only checks admin-group membership before the last-admin block. An instance with a single legacy-role admin (not in the admin group) could be left with zero admins.
+
+**Remediation**
+
+Reuse `user_is_active_instance_admin()` + `count_other_active_instance_admins()` in `delete_user`, matching `update_user`.
+
+---
+
+### SEC-030 — Zip-slip via `..` folder names and unsanitized zip entry paths
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/files/folders.rs` (`normalize_folder_name`), `backend/src/files/folder_download.rs`, `backend/src/files/zip_job.rs` (`zip.start_file`) |
+
+**Description**
+
+`normalize_folder_name` rejects `/` and `\` but allows literal `..`. Zip entry paths are built as `{prefix}/{name}` and passed to `zip.start_file` without component sanitization.
+
+**Exploit scenario**
+
+A folder named `..` produces archive entries with `..` segments; a naive extractor writes outside the target directory (classic zip-slip) on the victim's machine.
+
+**Remediation**
+
+Reject `.`/`..` and any `..` segment in folder/file names; normalize each zip entry path (reject absolute paths and `..`) in a shared sanitizer used by folder/bulk/share zip builders.
+
+---
+
+### SEC-031 — No server-side logout / session-revocation endpoint
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/lib.rs` (auth routes), `backend/src/user_sessions.rs`      |
+
+**Description**
+
+There is no `POST /auth/logout`. The frontend "logout" only deletes the client-side token; the server-side `sid` stays valid until expiry. Server-side revocation exists only via admin APIs.
+
+**Remediation**
+
+Add `POST /api/v1/auth/logout` that revokes the current `sid` (and optionally all sessions); audit as `auth.logout`.
+
+---
+
+### SEC-032 — Plaintext secrets stored in `app_settings`
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/setup/handlers.rs` (DB URL persisted), `backend/src/admin/console.rs` (`smtp_password`) |
+
+**Description**
+
+Setup writes the full `database_url` (with credentials) into `app_settings`, and admin settings store `smtp_password` verbatim. GETs return `password_set: bool` (good), but a DB/backup compromise exposes the secrets.
+
+**Remediation**
+
+Encrypt secrets at rest (app-level or KMS); avoid persisting the full DB URL when env-only suffices post-setup.
+
+---
+
+### SEC-033 — Unbounded per-user background job enqueue
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                 |
+| **Impacted files** | `backend/src/jobs/store.rs`, upload handlers calling `enqueue_job`      |
+
+**Description**
+
+Job dedup is per `(kind, resource_type, resource_id)` only. Each upload can enqueue HLS/thumbnail/waveform jobs with no per-user or global cap, enabling queue saturation and ffmpeg CPU/disk pressure.
+
+**Remediation**
+
+Per-user queued-job cap; throttle concurrent encodes per user; global queue-depth alerting.
+
+---
+
+### SEC-034 — Public share leaks trashed subfolders; grantee uploads create owner-invisible files
+
+- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+
+
+| Field              | Detail                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Severity**       | Medium                                                                                               |
+| **Impacted files** | `backend/src/shares/handlers.rs` (`public_share_contents`), `backend/src/files/handlers.rs` (grantee upload `user_id`/`folder_id`) |
+
+**Description**
+
+(a) `public_share_contents` lists child folders without `deleted_at IS NULL`, so trashed subfolder names leak to anonymous visitors (files inside are already hidden). (b) Grantee uploads into a shared folder store `user_id = grantee` with the owner's `folder_id`; the owner's listings filter `f.user_id = $1`, so the file is invisible to the owner while the grantee retains control.
+
+**Remediation**
+
+Add `AND deleted_at IS NULL` to the share subfolder query; define a clear ownership/visibility model for grantee uploads (set owner `user_id`, or reject uploads into non-owned folders).
+
+---
+
+### SEC-035 – SEC-042 — Low-severity findings
+
+All open. Tracked in one table for brevity.
+
+
+| ID      | Title                                                | Severity | Impacted files                                              | Remediation summary |
+| ------- | ---------------------------------------------------- | -------- | ----------------------------------------------------------- | ------------------- |
+| SEC-035 | Non-constant-time setup-token comparison             | Low      | `backend/src/setup/handlers.rs` (`provided != setup_token`) | Use `subtle::ConstantTimeEq`. |
+| SEC-036 | JWT algorithm not explicitly pinned                  | Low      | `backend/src/auth/handlers.rs` (`Validation::default()`)    | `Validation::new(Algorithm::HS256)`. |
+| SEC-037 | `rand::thread_rng()` for HLS keys / share tokens     | Low      | `backend/src/hls/key_store.rs`, `backend/src/shares/store.rs` | Use `OsRng`/`getrandom` for all key/token material. |
+| SEC-038 | Master key derived by truncation, not a KDF          | Low      | `backend/src/hls/key_store.rs` (`KeyStore::new`)            | Derive via HKDF-SHA256/SHA-256 of the full secret. |
+| SEC-039 | Legacy HLS key blobs decrypt with a static zero nonce| Low      | `backend/src/hls/key_store.rs` (`is_legacy_encrypted_blob`) | Force migration to random-nonce envelope at startup. |
+| SEC-040 | Audit write failures silently swallowed (`.ok()`)    | Low      | `backend/src/admin/*`, share/auth handlers                  | Log audit failures at `error`; consider retry/fail-closed for critical mutations. |
+| SEC-041 | `graphify-out/` and `ios/**/xcuserdata/` tracked     | Low      | `.gitignore`, repo tree                                     | Add to `.gitignore`; remove from history; treat as build artifacts. |
+| SEC-042 | `init-env.sh` does not restrict `.env` permissions   | Low      | `init-env.sh`                                               | `umask 077` + `chmod 600` on generated env files. |
+
+
+---
+
 ## Areas reviewed — no critical issues found
 
 
@@ -1052,7 +1731,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ## Assumptions and limits
 
-- **Static review only** — no dynamic scanning, dependency CVE audit, or infrastructure review in this document.
+- **Static review only** — no dynamic scanning or dependency CVE audit. (Round 2 added infrastructure, Docker/Compose, CI, and frontend review; Round 1 was backend + access control only.)
 - **Header spoofing (SEC-006)** severity depends on whether the API is exposed directly or only behind a correctly configured reverse proxy.
 - **Setup race (SEC-005)** exploitability depends on network exposure during first boot.
 - **Nebular OS / object storage** — not fully audited here; focus was API + Postgres access control.
@@ -1092,5 +1771,6 @@ Add or extend integration tests in `backend/tests/` for:
 | 2026-06-03 | Audit scripts           | SEC-010–SEC-011 probe scripts added |
 | 2026-06-04 | Audit scripts           | SEC-012 live setup-hijack exploit script added |
 | 2026-06-07 | Security remediation    | SEC-001–SEC-012 implemented in backend + frontend |
+| 2026-06-10 | Round 2 static review   | SEC-013–SEC-042 added (full-repo: backend, frontend, Docker/CI/scripts/migrations); High/Critical verified in source |
 
 
