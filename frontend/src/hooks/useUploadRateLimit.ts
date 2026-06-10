@@ -1,45 +1,66 @@
 // Human: Polls GET /dashboard for the signed-in user's upload rate-limit headroom.
-// Agent: READS upload_rate_limit from dashboard; REFRESHES on interval and after upload batch changes.
+// Agent: READS upload_rate_limit; DEDUPES in-flight fetches; NEVER hooks upload progress events.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchDashboard, type UploadRateLimitStatus } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
-import { subscribeUploadBatch } from "@/lib/upload-manager";
+import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 
-const POLL_INTERVAL_MS = 8_000;
+const POLL_INTERVAL_MS = 15_000;
+/** Human: Minimum spacing between dashboard polls so bursts cannot stampede the API. */
+const MIN_REFRESH_GAP_MS = 5_000;
 
 // Human: Live upload throttle snapshot for sidebar widgets — null while loading or signed out.
-// Agent: CALLS fetchDashboard; SUBSCRIBES subscribeUploadBatch for faster refresh during uploads.
+// Agent: CALLS fetchDashboard on interval + after each completed upload (throttled); DEDUPES concurrent requests.
 export function useUploadRateLimit() {
   const { token } = useAuth();
   const [status, setStatus] = useState<UploadRateLimitStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const lastRefreshAtRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    setLoading(true);
-    try {
-      const dashboard = await fetchDashboard();
-      setStatus(dashboard.upload_rate_limit ?? null);
-    } catch {
-      // Human: Keep the last known snapshot when a background poll fails.
-      // Agent: SWALLOWS transient errors so the sidebar does not flicker empty.
-    } finally {
-      setLoading(false);
+
+    const now = Date.now();
+    if (now - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
+      return inFlightRef.current ?? undefined;
     }
+    if (inFlightRef.current) {
+      return inFlightRef.current;
+    }
+
+    setLoading(true);
+    const promise = fetchDashboard()
+      .then((dashboard) => {
+        setStatus(dashboard.upload_rate_limit ?? null);
+        lastRefreshAtRef.current = Date.now();
+      })
+      .catch(() => {
+        // Human: Keep the last known snapshot when a background poll fails.
+        // Agent: SWALLOWS transient errors so the sidebar does not flicker empty.
+      })
+      .finally(() => {
+        inFlightRef.current = null;
+        setLoading(false);
+      });
+
+    inFlightRef.current = promise;
+    return promise;
   }, [token]);
 
   useEffect(() => {
     if (!token) return;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial poll on mount and token change
     void refresh();
 
     const intervalId = window.setInterval(() => {
       void refresh();
     }, POLL_INTERVAL_MS);
 
-    const unsubscribe = subscribeUploadBatch(() => {
+    // Human: Refresh after a file finishes uploading — not on every progress tick.
+    // Agent: SUBSCRIBES subscribeUploadFileComplete only; THROTTLED by MIN_REFRESH_GAP_MS + inFlightRef.
+    const unsubscribe = subscribeUploadFileComplete(() => {
       void refresh();
     });
 
