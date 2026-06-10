@@ -29,6 +29,7 @@ import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-format
 import { isCellInRange, isFullSheetSelection, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import { mergeInfoAt } from "@/lib/spreadsheet/merge-regions";
 import { ExcelSheetChartsOverlay } from "@/components/drive/excel/ExcelSheetChartsOverlay";
+import type { ChartAnchorPatch } from "@/lib/spreadsheet/chart-layout";
 import type {
   CellAddress,
   CellStyle,
@@ -77,6 +78,7 @@ type ExcelSpreadsheetGridProps = {
   // Human: Lets dialog flush in-progress resize preview into workbook before xlsx serialize.
   // Agent: CALLS onColumnWidthsChange/onRowHeightsChange with live preview refs when registered.
   onRegisterDimensionFlush?: (flush: (() => void) | null) => void;
+  onChartAnchorChange?: (chartId: string, anchor: ChartAnchorPatch) => void;
 };
 
 type ColumnResizeDrag = { axis: "column"; index: number };
@@ -278,6 +280,7 @@ export function ExcelSpreadsheetGrid({
   onColumnWidthsChange,
   onRowHeightsChange,
   onRegisterDimensionFlush,
+  onChartAnchorChange,
 }: ExcelSpreadsheetGridProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -964,6 +967,8 @@ export function ExcelSpreadsheetGrid({
         rowHeights={rowHeights}
         gridWidth={gridWidth}
         gridHeight={rowVirtualizer.getTotalSize() + GRID_HEADER_ROW_HEIGHT}
+        readOnly={readOnly}
+        onChartAnchorChange={onChartAnchorChange}
       />
 
       {/* Human: Ink strokes from Draw tab rendered above the grid. */}

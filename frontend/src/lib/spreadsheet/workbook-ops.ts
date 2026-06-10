@@ -768,6 +768,35 @@ export function insertChartOnSheet(
   };
 }
 
+// Human: Update one embedded chart anchor after the user drags it on the grid.
+// Agent: PATCHES anchor row/col (+ EMU offsets) on the active sheet chart entry.
+export function updateChartAnchorOnSheet(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  chartId: string,
+  anchor: Pick<
+    SheetChart,
+    | "anchorRow"
+    | "anchorCol"
+    | "anchorEndRow"
+    | "anchorEndCol"
+    | "anchorColOff"
+    | "anchorRowOff"
+    | "anchorEndColOff"
+    | "anchorEndRowOff"
+  >,
+): SpreadsheetWorkbook {
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const charts = sheet.charts?.map((chart) =>
+        chart.id === chartId ? { ...chart, ...anchor } : chart,
+      );
+      return charts ? { ...sheet, charts } : sheet;
+    }),
+  };
+}
+
 export function setSheetZoom(
   workbook: SpreadsheetWorkbook,
   sheetIndex: number,

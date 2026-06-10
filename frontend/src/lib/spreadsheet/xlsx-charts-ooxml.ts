@@ -99,17 +99,99 @@ function parseChartTitle(chartXml: string): string {
   return vMatch?.[1]?.trim() || "Chart";
 }
 
-function parseSeriesDataRange(chartXml: string): {
+type ParsedSeriesRef = {
   startRow: number;
   startCol: number;
   endRow: number;
   endCol: number;
-} | null {
-  let range: ReturnType<typeof parseFormulaRange> = null;
-  for (const match of chartXml.matchAll(/<c:(?:strRef|numRef)\b[\s\S]*?<c:f>([^<]*)<\/c:f>/gi)) {
-    range = mergeRanges(range, parseFormulaRange(match[1]));
+};
+
+function toSeriesRef(range: ParsedSeriesRef | null): ParsedSeriesRef | undefined {
+  return range ?? undefined;
+}
+
+function firstSeriesXml(chartXml: string): string {
+  const match = /<c:ser\b[\s\S]*?<\/c:ser>/i.exec(chartXml);
+  return match?.[0] ?? chartXml;
+}
+
+function formulaFromAxis(axisXml: string): string | null {
+  const refMatch = /<c:(?:strRef|numRef)\b[\s\S]*?<c:f>([^<]*)<\/c:f>/i.exec(axisXml);
+  return refMatch?.[1]?.trim() ?? null;
+}
+
+// Human: Parse c:cat / c:val / c:xVal / c:yVal formulas from the first chart series.
+// Agent: RETURNS distinct category and value ranges for vertical or horizontal Excel layouts.
+function parseFirstSeriesRefs(chartXml: string): {
+  category: ParsedSeriesRef | null;
+  value: ParsedSeriesRef | null;
+} {
+  const serXml = firstSeriesXml(chartXml);
+  const catXml = /<c:cat\b[\s\S]*?<\/c:cat>/i.exec(serXml)?.[0] ?? "";
+  const valXml = /<c:val\b[\s\S]*?<\/c:val>/i.exec(serXml)?.[0] ?? "";
+  const xValXml = /<c:xVal\b[\s\S]*?<\/c:xVal>/i.exec(serXml)?.[0] ?? "";
+  const yValXml = /<c:yVal\b[\s\S]*?<\/c:yVal>/i.exec(serXml)?.[0] ?? "";
+
+  const categoryFormula = formulaFromAxis(catXml) ?? formulaFromAxis(xValXml);
+  const valueFormula = formulaFromAxis(valXml) ?? formulaFromAxis(yValXml);
+
+  return {
+    category: categoryFormula ? parseFormulaRange(categoryFormula) : null,
+    value: valueFormula ? parseFormulaRange(valueFormula) : null,
+  };
+}
+
+function parseCacheValues(blockXml: string, cacheTag: "strCache" | "numCache"): string[] {
+  const cacheMatch = new RegExp(`<c:${cacheTag}\\b[\\s\\S]*?<\\/c:${cacheTag}>`, "i").exec(blockXml);
+  if (!cacheMatch) return [];
+  const values: string[] = [];
+  for (const point of cacheMatch[0].matchAll(/<c:pt\b[^>]*\bidx="(\d+)"[^>]*>[\s\S]*?<c:v>([^<]*)<\/c:v>/gi)) {
+    values[Number(point[1])] = point[2];
   }
-  return range;
+  return values;
+}
+
+// Human: Read cached c:strCache/c:numCache points when worksheet formulas cannot be resolved.
+// Agent: PAIRS label/value arrays from the first series; RETURNS undefined when no numeric cache.
+function parseFallbackSeries(chartXml: string): Array<{ label: string; value: number }> | undefined {
+  const serXml = firstSeriesXml(chartXml);
+  const catXml = /<c:cat\b[\s\S]*?<\/c:cat>/i.exec(serXml)?.[0] ?? "";
+  const valXml = /<c:val\b[\s\S]*?<\/c:val>/i.exec(serXml)?.[0] ?? "";
+  const labels = [
+    ...parseCacheValues(catXml, "strCache"),
+    ...parseCacheValues(catXml, "numCache"),
+  ];
+  const values = parseCacheValues(valXml, "numCache");
+  if (values.length === 0) return undefined;
+
+  return values
+    .map((rawValue, index) => {
+      const parsed = Number(String(rawValue).replace(/[$,%\s,]/g, ""));
+      if (!Number.isFinite(parsed)) return null;
+      const label = labels[index]?.trim();
+      return { label: label && label.length > 0 ? label : `Point ${index + 1}`, value: parsed };
+    })
+    .filter((point): point is { label: string; value: number } => point !== null);
+}
+
+function readAnchorPoint(blockXml: string, edge: "from" | "to"): {
+  row: number;
+  col: number;
+  rowOff: number;
+  colOff: number;
+} | null {
+  const edgeMatch = new RegExp(`<xdr:${edge}>([\\s\\S]*?)<\\/xdr:${edge}>`, "i").exec(blockXml);
+  if (!edgeMatch) return null;
+  const edgeXml = edgeMatch[1];
+  const col = /<xdr:col>(\d+)<\/xdr:col>/i.exec(edgeXml)?.[1];
+  const row = /<xdr:row>(\d+)<\/xdr:row>/i.exec(edgeXml)?.[1];
+  if (!col || !row) return null;
+  return {
+    col: Number(col),
+    row: Number(row),
+    colOff: Number(/<xdr:colOff>(\d+)<\/xdr:colOff>/i.exec(edgeXml)?.[1] ?? 0),
+    rowOff: Number(/<xdr:rowOff>(\d+)<\/xdr:rowOff>/i.exec(edgeXml)?.[1] ?? 0),
+  };
 }
 
 function parseDrawingAnchor(drawingXml: string, chartRelId: string): {
@@ -117,26 +199,35 @@ function parseDrawingAnchor(drawingXml: string, chartRelId: string): {
   anchorCol: number;
   anchorEndRow?: number;
   anchorEndCol?: number;
+  anchorColOff?: number;
+  anchorRowOff?: number;
+  anchorEndColOff?: number;
+  anchorEndRowOff?: number;
 } | null {
   const anchorPattern = /<xdr:(?:twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/gi;
   for (const anchorBlock of drawingXml.matchAll(anchorPattern)) {
     if (!anchorBlock[0].includes(chartRelId)) continue;
-    const fromCol = /<xdr:from>[\s\S]*?<xdr:col>(\d+)<\/xdr:col>/i.exec(anchorBlock[0]);
-    const fromRow = /<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/i.exec(anchorBlock[0]);
-    if (!fromCol || !fromRow) continue;
-    const anchorCol = Number(fromCol[1]);
-    const anchorRow = Number(fromRow[1]);
-    const toCol = /<xdr:to>[\s\S]*?<xdr:col>(\d+)<\/xdr:col>/i.exec(anchorBlock[0]);
-    const toRow = /<xdr:to>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/i.exec(anchorBlock[0]);
-    if (toCol && toRow) {
+    const from = readAnchorPoint(anchorBlock[0], "from");
+    if (!from) continue;
+    const to = readAnchorPoint(anchorBlock[0], "to");
+    if (to) {
       return {
-        anchorRow,
-        anchorCol,
-        anchorEndRow: Number(toRow[1]),
-        anchorEndCol: Number(toCol[1]),
+        anchorRow: from.row,
+        anchorCol: from.col,
+        anchorColOff: from.colOff,
+        anchorRowOff: from.rowOff,
+        anchorEndRow: to.row,
+        anchorEndCol: to.col,
+        anchorEndColOff: to.colOff,
+        anchorEndRowOff: to.rowOff,
       };
     }
-    return { anchorRow, anchorCol };
+    return {
+      anchorRow: from.row,
+      anchorCol: from.col,
+      anchorColOff: from.colOff,
+      anchorRowOff: from.rowOff,
+    };
   }
   return null;
 }
@@ -216,19 +307,67 @@ function buildChartXml(chart: SheetChart, sheetName: string): string {
 </c:chartSpace>`;
 }
 
-function buildDrawingAnchorXml(
-  anchorRow: number,
-  anchorCol: number,
-  anchorEndRow: number,
-  anchorEndCol: number,
-  chartRelId: string,
-): string {
+function buildDrawingAnchorXml(chart: SheetChart, chartRelId: string): string {
+  const endRow = chart.anchorEndRow ?? chart.anchorRow + 12;
+  const endCol = chart.anchorEndCol ?? chart.anchorCol + 8;
+  const fromColOff = chart.anchorColOff ?? 0;
+  const fromRowOff = chart.anchorRowOff ?? 0;
+  const toColOff = chart.anchorEndColOff ?? 0;
+  const toRowOff = chart.anchorEndRowOff ?? 0;
   return `<xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>${anchorCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${anchorRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:to><xdr:col>${anchorEndCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${anchorEndRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:from><xdr:col>${chart.anchorCol}</xdr:col><xdr:colOff>${fromColOff}</xdr:colOff><xdr:row>${chart.anchorRow}</xdr:row><xdr:rowOff>${fromRowOff}</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>${endCol}</xdr:col><xdr:colOff>${toColOff}</xdr:colOff><xdr:row>${endRow}</xdr:row><xdr:rowOff>${toRowOff}</xdr:rowOff></xdr:to>
     <xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Chart"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="${chartRelId}"/></a:graphicData></a:graphic></xdr:graphicFrame>
     <xdr:clientData/>
   </xdr:twoCellAnchor>`;
+}
+
+function replaceAnchorPoint(edgeXml: string, point: { row: number; col: number; rowOff: number; colOff: number }): string {
+  let next = edgeXml;
+  next = next.replace(/<xdr:col>\d+<\/xdr:col>/i, `<xdr:col>${point.col}</xdr:col>`);
+  next = next.replace(/<xdr:row>\d+<\/xdr:row>/i, `<xdr:row>${point.row}</xdr:row>`);
+  next = next.replace(/<xdr:colOff>\d+<\/xdr:colOff>/i, `<xdr:colOff>${point.colOff}</xdr:colOff>`);
+  next = next.replace(/<xdr:rowOff>\d+<\/xdr:rowOff>/i, `<xdr:rowOff>${point.rowOff}</xdr:rowOff>`);
+  if (!/<xdr:colOff>/i.test(next)) {
+    next = next.replace(/<\/xdr:col>/i, `</xdr:col><xdr:colOff>${point.colOff}</xdr:colOff>`);
+  }
+  if (!/<xdr:rowOff>/i.test(next)) {
+    next = next.replace(/<\/xdr:row>/i, `</xdr:row><xdr:rowOff>${point.rowOff}</xdr:rowOff>`);
+  }
+  return next;
+}
+
+// Human: Patch an existing twoCellAnchor block with moved chart coordinates.
+// Agent: MATCHES c:chart r:id; UPDATES xdr:from/xdr:to like Excel after drag-resize.
+function patchDrawingAnchorInXml(drawingXml: string, chartRelId: string, chart: SheetChart): string {
+  const anchorPattern = /<xdr:(?:twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/gi;
+  let patched = false;
+  const nextXml = drawingXml.replace(anchorPattern, (block) => {
+    if (!block.includes(chartRelId)) return block;
+    patched = true;
+    const endRow = chart.anchorEndRow ?? chart.anchorRow + 12;
+    const endCol = chart.anchorEndCol ?? chart.anchorCol + 8;
+    let updated = block;
+    updated = updated.replace(/<xdr:from>[\s\S]*?<\/xdr:from>/i, (fromBlock) =>
+      replaceAnchorPoint(fromBlock, {
+        col: chart.anchorCol,
+        row: chart.anchorRow,
+        colOff: chart.anchorColOff ?? 0,
+        rowOff: chart.anchorRowOff ?? 0,
+      }),
+    );
+    updated = updated.replace(/<xdr:to>[\s\S]*?<\/xdr:to>/i, (toBlock) =>
+      replaceAnchorPoint(toBlock, {
+        col: endCol,
+        row: endRow,
+        colOff: chart.anchorEndColOff ?? 0,
+        rowOff: chart.anchorEndRowOff ?? 0,
+      }),
+    );
+    return updated;
+  });
+  if (patched) return nextXml;
+  return nextXml.replace("</xdr:wsDr>", `${buildDrawingAnchorXml(chart, chartRelId)}</xdr:wsDr>`);
 }
 
 const EMPTY_DRAWING_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -292,8 +431,10 @@ export async function importChartsFromXlsx(
       if (!/\/charts\/chart\d+\.xml$/i.test(chartPath)) continue;
       const chartXml = new TextDecoder().decode(entries.get(chartPath) ?? new Uint8Array());
       if (!chartXml.includes("<c:chart")) continue;
-      const dataRange = parseSeriesDataRange(chartXml);
-      if (!dataRange) continue;
+      const seriesRefs = parseFirstSeriesRefs(chartXml);
+      const dataRange = mergeRanges(seriesRefs.category, seriesRefs.value);
+      const fallbackSeries = parseFallbackSeries(chartXml);
+      if (!dataRange && !fallbackSeries?.length) continue;
       const anchor = parseDrawingAnchor(drawingXml, relId);
       if (!anchor) continue;
       charts.push({
@@ -304,13 +445,21 @@ export async function importChartsFromXlsx(
         anchorCol: anchor.anchorCol,
         anchorEndRow: anchor.anchorEndRow,
         anchorEndCol: anchor.anchorEndCol,
-        dataStartRow: dataRange.startRow,
-        dataStartCol: dataRange.startCol,
-        dataEndRow: dataRange.endRow,
-        dataEndCol: dataRange.endCol,
+        dataStartRow: dataRange?.startRow ?? 0,
+        dataStartCol: dataRange?.startCol ?? 0,
+        dataEndRow: dataRange?.endRow ?? 0,
+        dataEndCol: dataRange?.endCol ?? 0,
+        categoryRef: toSeriesRef(seriesRefs.category),
+        valueRef: toSeriesRef(seriesRefs.value),
+        fallbackSeries,
         imported: true,
         sourceChartPath: chartPath,
         sourceDrawingPath: drawingPath,
+        drawingChartRelId: relId,
+        anchorColOff: anchor.anchorColOff,
+        anchorRowOff: anchor.anchorRowOff,
+        anchorEndColOff: anchor.anchorEndColOff,
+        anchorEndRowOff: anchor.anchorEndRowOff,
       });
     }
 
@@ -320,88 +469,106 @@ export async function importChartsFromXlsx(
   return result;
 }
 
-// Human: Export user-inserted charts into xl/charts + xl/drawings for Excel compatibility.
-// Agent: SKIPS imported charts (passthrough keeps them); WRITES only inserted charts.
+// Human: Resolve or create the worksheet drawing part path for chart anchor export.
+// Agent: READS worksheet drawing rel; CREATES drawing part when missing.
+function resolveSheetDrawingContext(
+  entries: Map<string, Uint8Array>,
+  sheet: SheetData,
+  sheetIndex: number,
+): { sheetPath: string; drawingPath: string; worksheetRelsPathValue: string } {
+  const sheetPath = sheet.sourceWorksheetPath ?? `xl/worksheets/sheet${sheetIndex + 1}.xml`;
+  const worksheetRelsPathValue = worksheetRelsPath(sheetPath);
+  let worksheetRels = new TextDecoder().decode(entries.get(worksheetRelsPathValue) ?? new Uint8Array());
+  if (!worksheetRels) {
+    worksheetRels =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  }
+
+  const worksheetXml = new TextDecoder().decode(entries.get(sheetPath) ?? new Uint8Array());
+  let drawingRelId = /<drawing\b[^>]*r:id="([^"]+)"/i.exec(worksheetXml)?.[1] ?? null;
+  let drawingPath: string;
+
+  if (drawingRelId) {
+    const relMap = readRelationshipMap(worksheetRels, worksheetRelsPathValue.replace(/\/[^/]+$/, ""));
+    drawingPath =
+      relMap.get(drawingRelId) ?? `xl/drawings/drawing${nextNumericPathSuffix(entries, "xl/drawings/drawing")}.xml`;
+  } else {
+    drawingRelId = `rId${nextNumericPathSuffix(entries, "xl/worksheets/_rels/")}`;
+    const drawingIndex = nextNumericPathSuffix(entries, "xl/drawings/drawing");
+    drawingPath = `xl/drawings/drawing${drawingIndex}.xml`;
+    worksheetRels = upsertRelationship(
+      worksheetRels,
+      drawingRelId,
+      `../drawings/${drawingPath.split("/").pop()}`,
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing",
+    );
+    const patchedWorksheet = worksheetXml.includes("<drawing ")
+      ? worksheetXml
+      : worksheetXml.replace("</worksheet>", `<drawing r:id="${drawingRelId}"/></worksheet>`);
+    entries.set(sheetPath, new TextEncoder().encode(patchedWorksheet));
+  }
+
+  entries.set(worksheetRelsPathValue, new TextEncoder().encode(worksheetRels));
+  return { sheetPath, drawingPath, worksheetRelsPathValue };
+}
+
+// Human: Export chart anchors and inserted chart parts into xl/drawings + xl/charts.
+// Agent: PATCHES twoCellAnchor for moved charts; WRITES new chart parts for Ownly inserts.
 export async function exportChartsToXlsx(buffer: ArrayBuffer, sheets: SheetData[]): Promise<ArrayBuffer> {
-  const hasInsertedCharts = sheets.some((sheet) => (sheet.charts ?? []).some((chart) => !chart.imported));
-  if (!hasInsertedCharts) return buffer;
+  const hasCharts = sheets.some((sheet) => (sheet.charts ?? []).length);
+  if (!hasCharts) return buffer;
 
   return patchXlsxZipEntries(buffer, (entries) => {
-    for (const sheet of sheets) {
-      const inserted = (sheet.charts ?? []).filter((chart) => !chart.imported);
-      if (!inserted.length) continue;
+    for (const [sheetIndex, sheet] of sheets.entries()) {
+      const charts = sheet.charts ?? [];
+      if (!charts.length) continue;
 
-      const sheetPath =
-        sheet.sourceWorksheetPath ??
-        `xl/worksheets/sheet${sheets.indexOf(sheet) + 1}.xml`;
-      const worksheetXml = new TextDecoder().decode(entries.get(sheetPath) ?? new Uint8Array());
-      let drawingRelId = /<drawing\b[^>]*r:id="([^"]+)"/i.exec(worksheetXml)?.[1] ?? null;
-
-      const worksheetRelsPathValue = worksheetRelsPath(sheetPath);
-      let worksheetRels = new TextDecoder().decode(entries.get(worksheetRelsPathValue) ?? new Uint8Array());
-      if (!worksheetRels) {
-        worksheetRels =
-          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+      const chartsByDrawing = new Map<string, SheetChart[]>();
+      for (const chart of charts) {
+        const drawingKey = chart.sourceDrawingPath ?? `__sheet__${sheet.name}`;
+        const bucket = chartsByDrawing.get(drawingKey) ?? [];
+        bucket.push(chart);
+        chartsByDrawing.set(drawingKey, bucket);
       }
 
-      let drawingPath: string;
-      if (drawingRelId) {
-        const relMap = readRelationshipMap(worksheetRels, worksheetRelsPathValue.replace(/\/[^/]+$/, ""));
-        drawingPath = relMap.get(drawingRelId) ?? `xl/drawings/drawing${nextNumericPathSuffix(entries, "xl/drawings/drawing")}.xml`;
-      } else {
-        drawingRelId = `rId${nextNumericPathSuffix(entries, "xl/worksheets/_rels/")}`;
-        const drawingIndex = nextNumericPathSuffix(entries, "xl/drawings/drawing");
-        drawingPath = `xl/drawings/drawing${drawingIndex}.xml`;
-        worksheetRels = upsertRelationship(
-          worksheetRels,
-          drawingRelId,
-          `../drawings/${drawingPath.split("/").pop()}`,
-          "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing",
-        );
-        const patchedWorksheet = worksheetXml.includes("<drawing ")
-          ? worksheetXml
-          : worksheetXml.replace("</worksheet>", `<drawing r:id="${drawingRelId}"/></worksheet>`);
-        entries.set(sheetPath, new TextEncoder().encode(patchedWorksheet));
+      for (const [drawingKey, drawingCharts] of chartsByDrawing) {
+        let drawingPath = drawingKey;
+        if (drawingKey.startsWith("__sheet__")) {
+          drawingPath = resolveSheetDrawingContext(entries, sheet, sheetIndex).drawingPath;
+        }
+
+        let drawingXml = new TextDecoder().decode(entries.get(drawingPath) ?? new Uint8Array());
+        if (!drawingXml) drawingXml = EMPTY_DRAWING_XML;
+
+        const drawingRelsPathValue = drawingRelsPath(drawingPath);
+        let drawingRels = new TextDecoder().decode(entries.get(drawingRelsPathValue) ?? new Uint8Array());
+        if (!drawingRels) {
+          drawingRels =
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+        }
+
+        for (const chart of drawingCharts) {
+          let chartRelId = chart.drawingChartRelId;
+          if (!chart.imported) {
+            const chartIndex = nextNumericPathSuffix(entries, "xl/charts/chart");
+            const chartPath = `xl/charts/chart${chartIndex}.xml`;
+            chartRelId = chartRelId ?? `rId${chartIndex}`;
+            entries.set(chartPath, new TextEncoder().encode(buildChartXml(chart, sheet.name)));
+            drawingRels = upsertRelationship(
+              drawingRels,
+              chartRelId,
+              `../charts/chart${chartIndex}.xml`,
+              "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+            );
+          }
+
+          if (!chartRelId) continue;
+          drawingXml = patchDrawingAnchorInXml(drawingXml, chartRelId, chart);
+        }
+
+        entries.set(drawingPath, new TextEncoder().encode(drawingXml));
+        entries.set(drawingRelsPathValue, new TextEncoder().encode(drawingRels));
       }
-
-      let drawingXml = new TextDecoder().decode(entries.get(drawingPath) ?? new Uint8Array());
-      if (!drawingXml) drawingXml = EMPTY_DRAWING_XML;
-
-      const drawingRelsPathValue = drawingRelsPath(drawingPath);
-      let drawingRels = new TextDecoder().decode(entries.get(drawingRelsPathValue) ?? new Uint8Array());
-      if (!drawingRels) {
-        drawingRels =
-          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
-      }
-
-      for (const chart of inserted) {
-        const chartIndex = nextNumericPathSuffix(entries, "xl/charts/chart");
-        const chartPath = `xl/charts/chart${chartIndex}.xml`;
-        const chartRelId = `rId${chartIndex}`;
-        entries.set(chartPath, new TextEncoder().encode(buildChartXml(chart, sheet.name)));
-
-        drawingRels = upsertRelationship(
-          drawingRels,
-          chartRelId,
-          `../charts/chart${chartIndex}.xml`,
-          "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
-        );
-
-        const endRow = chart.anchorEndRow ?? chart.anchorRow + 12;
-        const endCol = chart.anchorEndCol ?? chart.anchorCol + 8;
-        const anchorBlock = buildDrawingAnchorXml(
-          chart.anchorRow,
-          chart.anchorCol,
-          endRow,
-          endCol,
-          chartRelId,
-        );
-        drawingXml = drawingXml.replace("</xdr:wsDr>", `${anchorBlock}</xdr:wsDr>`);
-      }
-
-      entries.set(drawingPath, new TextEncoder().encode(drawingXml));
-      entries.set(drawingRelsPathValue, new TextEncoder().encode(drawingRels));
-      entries.set(worksheetRelsPathValue, new TextEncoder().encode(worksheetRels));
     }
   });
 }

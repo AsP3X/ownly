@@ -1,9 +1,9 @@
-// Human: Renders embedded charts on top of the spreadsheet grid like Excel chart objects.
-// Agent: READS SheetChart[] + live cell data; DRAWS SVG via chart-render helpers.
+// Human: Renders draggable embedded charts on top of the spreadsheet grid.
+// Agent: READS SheetChart[]; EMITS anchor updates; DRAWS SVG via chart-render helpers.
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { chartSeriesFromChart } from "@/lib/spreadsheet/chart-data";
-import { chartLayoutRect } from "@/lib/spreadsheet/chart-layout";
+import { chartAnchorFromPixelRect, chartLayoutRect, type ChartAnchorPatch } from "@/lib/spreadsheet/chart-layout";
 import { buildChartSvgModel, type ChartSvgElement } from "@/lib/spreadsheet/chart-render";
 import type { SheetChart, SheetData } from "@/lib/spreadsheet/types";
 
@@ -14,6 +14,16 @@ type ExcelSheetChartsOverlayProps = {
   rowHeights: number[];
   gridWidth: number;
   gridHeight: number;
+  readOnly?: boolean;
+  onChartAnchorChange?: (chartId: string, anchor: ChartAnchorPatch) => void;
+};
+
+type ChartDragState = {
+  chartId: string;
+  startClientX: number;
+  startClientY: number;
+  originX: number;
+  originY: number;
 };
 
 function renderSvgElement(element: ChartSvgElement, key: string) {
@@ -87,7 +97,13 @@ export function ExcelSheetChartsOverlay({
   rowHeights,
   gridWidth,
   gridHeight,
+  readOnly = false,
+  onChartAnchorChange,
 }: ExcelSheetChartsOverlayProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [dragState, setDragState] = useState<ChartDragState | null>(null);
+  const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 });
+
   const renderedCharts = useMemo(() => {
     if (!charts?.length) return [];
     return charts.map((chart) => {
@@ -98,20 +114,105 @@ export function ExcelSheetChartsOverlay({
     });
   }, [charts, columnWidths, rowHeights, sheet]);
 
+  const finishDrag = useCallback(
+    (state: ChartDragState, deltaX: number, deltaY: number) => {
+      const entry = renderedCharts.find((item) => item.chart.id === state.chartId);
+      if (!entry || !onChartAnchorChange) return;
+      const anchor = chartAnchorFromPixelRect(
+        state.originX + deltaX,
+        state.originY + deltaY,
+        entry.layout.width,
+        entry.layout.height,
+        columnWidths,
+        rowHeights,
+      );
+      onChartAnchorChange(state.chartId, anchor);
+    },
+    [columnWidths, onChartAnchorChange, renderedCharts, rowHeights],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      if (!dragState) return;
+      setDragDelta({
+        x: event.clientX - dragState.startClientX,
+        y: event.clientY - dragState.startClientY,
+      });
+    },
+    [dragState],
+  );
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      if (!dragState) return;
+      const deltaX = event.clientX - dragState.startClientX;
+      const deltaY = event.clientY - dragState.startClientY;
+      finishDrag(dragState, deltaX, deltaY);
+      setDragState(null);
+      setDragDelta({ x: 0, y: 0 });
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    },
+    [dragState, finishDrag],
+  );
+
+  const handleChartPointerDown = useCallback(
+    (event: React.PointerEvent<SVGGElement>, chartId: string, originX: number, originY: number) => {
+      if (readOnly || !onChartAnchorChange) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDragState({
+        chartId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        originX,
+        originY,
+      });
+      setDragDelta({ x: 0, y: 0 });
+      svgRef.current?.setPointerCapture(event.pointerId);
+    },
+    [onChartAnchorChange, readOnly],
+  );
+
   if (renderedCharts.length === 0) return null;
 
   return (
     <svg
-      className="pointer-events-none absolute left-0 top-0"
+      ref={svgRef}
+      className="absolute left-0 top-0 touch-none"
       width={gridWidth}
       height={gridHeight}
-      aria-hidden
+      aria-hidden={readOnly}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
-      {renderedCharts.map(({ chart, layout, model }) => (
-        <g key={chart.id} transform={`translate(${layout.x}, ${layout.y})`}>
-          {model.elements.map((element, index) => renderSvgElement(element, `${chart.id}-${index}`))}
-        </g>
-      ))}
+      {renderedCharts.map(({ chart, layout, model }) => {
+        const isDragging = dragState?.chartId === chart.id;
+        const translateX = layout.x + (isDragging ? dragDelta.x : 0);
+        const translateY = layout.y + (isDragging ? dragDelta.y : 0);
+        return (
+          <g
+            key={chart.id}
+            transform={`translate(${translateX}, ${translateY})`}
+            style={{ pointerEvents: readOnly ? "none" : "auto", cursor: readOnly ? undefined : "move" }}
+            onPointerDown={(event) => handleChartPointerDown(event, chart.id, layout.x, layout.y)}
+          >
+            {/* Human: Transparent hit target so the full chart area is draggable. */}
+            {/* Agent: CAPTURES pointer before grid cell selection underneath. */}
+            <rect
+              x={0}
+              y={0}
+              width={layout.width}
+              height={layout.height}
+              fill="transparent"
+              stroke={isDragging ? "#2563EB" : "#CBD5E1"}
+              strokeWidth={isDragging ? 2 : 1}
+              rx={4}
+            />
+            {model.elements.map((element, index) => renderSvgElement(element, `${chart.id}-${index}`))}
+          </g>
+        );
+      })}
     </svg>
   );
 }

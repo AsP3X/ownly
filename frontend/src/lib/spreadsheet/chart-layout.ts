@@ -59,6 +59,94 @@ export type ChartLayoutRect = {
   height: number;
 };
 
+export type ChartAnchorPatch = Pick<
+  SheetChart,
+  | "anchorRow"
+  | "anchorCol"
+  | "anchorEndRow"
+  | "anchorEndCol"
+  | "anchorColOff"
+  | "anchorRowOff"
+  | "anchorEndColOff"
+  | "anchorEndRowOff"
+>;
+
+// Human: Excel DrawingML EMU scale at 96 dpi — 914400 EMU per inch / 96 px.
+// Agent: USED when converting drag pixel deltas to xdr:colOff/xdr:rowOff on save.
+export const CHART_EMU_PER_PX = 9525;
+const EMU_PER_PX = CHART_EMU_PER_PX;
+
+type AnchorPoint = {
+  row: number;
+  col: number;
+  colOff: number;
+  rowOff: number;
+};
+
+// Human: Map a grid content pixel to Excel twoCellAnchor cell + EMU offset.
+// Agent: READS columnWidths/rowHeights; RETURNS 0-based row/col with sub-cell EMU offsets.
+function pixelToAnchorPoint(
+  contentX: number,
+  contentY: number,
+  columnWidths: number[],
+  rowHeights: number[],
+): AnchorPoint {
+  let col = 0;
+  let xAcc = 0;
+  while (col < columnWidths.length - 1 && xAcc + columnWidths[col] <= contentX) {
+    xAcc += columnWidths[col];
+    col += 1;
+  }
+  const colRemainder = Math.max(0, contentX - xAcc);
+
+  let row = 0;
+  let yAcc = 0;
+  while (row < rowHeights.length - 1 && yAcc + rowHeights[row] <= contentY) {
+    yAcc += rowHeights[row];
+    row += 1;
+  }
+  const rowRemainder = Math.max(0, contentY - yAcc);
+
+  return {
+    col,
+    row,
+    colOff: Math.round(colRemainder * EMU_PER_PX),
+    rowOff: Math.round(rowRemainder * EMU_PER_PX),
+  };
+}
+
+// Human: Convert a dragged chart pixel rect into Excel twoCellAnchor bounds.
+// Agent: INVERSE of chartLayoutRect; WRITES anchor row/col + EMU offsets for OOXML export.
+export function chartAnchorFromPixelRect(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  columnWidths: number[],
+  rowHeights: number[],
+): ChartAnchorPatch {
+  const contentX = Math.max(0, x - GRID_ROW_INDEX_WIDTH);
+  const contentY = Math.max(0, y - GRID_HEADER_ROW_HEIGHT);
+  const from = pixelToAnchorPoint(contentX, contentY, columnWidths, rowHeights);
+  const to = pixelToAnchorPoint(
+    Math.max(contentX, contentX + width - 1),
+    Math.max(contentY, contentY + height - 1),
+    columnWidths,
+    rowHeights,
+  );
+
+  return {
+    anchorRow: from.row,
+    anchorCol: from.col,
+    anchorColOff: from.colOff,
+    anchorRowOff: from.rowOff,
+    anchorEndRow: Math.max(from.row, to.row),
+    anchorEndCol: Math.max(from.col, to.col),
+    anchorEndColOff: to.colOff,
+    anchorEndRowOff: to.rowOff,
+  };
+}
+
 // Human: Resolve on-grid position and size for one embedded chart.
 // Agent: PREFERS two-cell anchor span; FALLS BACK to widthPx/heightPx or Excel-like defaults.
 export function chartLayoutRect(
@@ -66,8 +154,11 @@ export function chartLayoutRect(
   columnWidths: number[],
   rowHeights: number[],
 ): ChartLayoutRect {
-  const x = GRID_ROW_INDEX_WIDTH + columnOffsetPx(columnWidths, chart.anchorCol);
-  const y = rowOffsetPx(rowHeights, chart.anchorRow);
+  const x =
+    GRID_ROW_INDEX_WIDTH +
+    columnOffsetPx(columnWidths, chart.anchorCol) +
+    (chart.anchorColOff ?? 0) / CHART_EMU_PER_PX;
+  const y = rowOffsetPx(rowHeights, chart.anchorRow) + (chart.anchorRowOff ?? 0) / CHART_EMU_PER_PX;
 
   if (
     typeof chart.anchorEndRow === "number" &&

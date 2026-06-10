@@ -64,7 +64,7 @@ import {
   statusBadgePresetRules,
 } from "@/lib/spreadsheet/conditional-formatting";
 import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
-import { chartBarsFromSelection, chartDataBoundsFromSelection } from "@/lib/spreadsheet/chart-data";
+import { chartBarsFromSelection, chartSeriesRefsFromSelection } from "@/lib/spreadsheet/chart-data";
 import { normalizeRange } from "@/lib/spreadsheet/selection";
 import type { SheetChartType } from "@/lib/spreadsheet/types";
 import { clearCellStylePatch } from "@/lib/spreadsheet/cell-styles";
@@ -85,6 +85,7 @@ import {
   freezePanesAt,
   importCsvAsNewSheet,
   insertChartOnSheet,
+  updateChartAnchorOnSheet,
   insertColumn,
   insertPivotSummaryAsNewSheet,
   insertRow,
@@ -207,7 +208,7 @@ export function ExcelSpreadsheetDialog({
     (type: SheetChartType) => {
       if (readOnly || !activeSheet) return;
       const range = normalizeRange(editor.selectionRange);
-      const dataBounds = chartDataBoundsFromSelection(activeSheet, range);
+      const { categoryRef, valueRef, merged } = chartSeriesRefsFromSelection(activeSheet, range);
       editor.commitWorkbookMutation((current) =>
         insertChartOnSheet(current, editor.activeSheetIndex, {
           id: `ownly-chart-${Date.now()}`,
@@ -217,15 +218,28 @@ export function ExcelSpreadsheetDialog({
           anchorCol: range.start.col,
           anchorEndRow: Math.min(range.end.row + 14, activeSheet.rows.length + 12),
           anchorEndCol: range.start.col + 7,
-          dataStartRow: dataBounds.start.row,
-          dataStartCol: dataBounds.start.col,
-          dataEndRow: dataBounds.end.row,
-          dataEndCol: dataBounds.end.col,
+          dataStartRow: merged.start.row,
+          dataStartCol: merged.start.col,
+          dataEndRow: merged.end.row,
+          dataEndCol: merged.end.col,
+          categoryRef,
+          valueRef,
+          drawingChartRelId: `rId${Date.now() % 100000}`,
           imported: false,
         }),
       );
     },
     [activeSheet, editor, readOnly],
+  );
+
+  const handleChartAnchorChange = useCallback(
+    (chartId: string, anchor: Parameters<typeof updateChartAnchorOnSheet>[3]) => {
+      if (readOnly) return;
+      editor.commitWorkbookMutation((current) =>
+        updateChartAnchorOnSheet(current, editor.activeSheetIndex, chartId, anchor),
+      );
+    },
+    [editor, readOnly],
   );
 
   const filterColumnValues = useMemo(() => {
@@ -834,6 +848,7 @@ export function ExcelSpreadsheetDialog({
                     onColumnWidthsChange={editor.setSheetColumnWidths}
                     onRowHeightsChange={editor.setSheetRowHeights}
                     onRegisterDimensionFlush={handleRegisterDimensionFlush}
+                    onChartAnchorChange={handleChartAnchorChange}
                   />
                   <ExcelSheetTabsBar
                     sheets={editor.workbook?.sheets.map((sheet) => sheet.name) ?? []}

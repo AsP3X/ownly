@@ -156,14 +156,16 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
     return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
   });
 
-  return {
+  // Human: Evaluate formula cells on load so chart series can read computed numeric values.
+  // Agent: CALLS recalculateWorkbook after OOXML/cell import completes.
+  return recalculateWorkbook({
     sheets:
       sheets.length > 0
         ? sheets
         : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
     namedRanges: namedRanges.length > 0 ? namedRanges : undefined,
     sourceBuffer: buffer,
-  };
+  });
 }
 
 // Human: Prefer OOXML dimension arrays over SheetJS !cols/!rows (SheetJS often omits them).

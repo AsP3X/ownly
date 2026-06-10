@@ -77,6 +77,13 @@ export type MergedRegion = {
 // Agent: IMPORTED from c:barChart/c:lineChart/etc.; EXPORTED on insert for new charts.
 export type SheetChartType = "bar" | "line" | "pie" | "column" | "area" | "scatter" | "doughnut";
 
+export type SheetChartSeriesRef = {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+};
+
 export type SheetChart = {
   id: string;
   type: SheetChartType;
@@ -85,10 +92,23 @@ export type SheetChart = {
   anchorCol: number;
   anchorEndRow?: number;
   anchorEndCol?: number;
+  // Human: Sub-cell offsets in EMUs — matches Excel xdr:colOff/xdr:rowOff on twoCellAnchor.
+  // Agent: IMPORTED from drawing XML; UPDATED on chart drag; EXPORTED on save.
+  anchorColOff?: number;
+  anchorRowOff?: number;
+  anchorEndColOff?: number;
+  anchorEndRowOff?: number;
   dataStartRow: number;
   dataStartCol: number;
   dataEndRow: number;
   dataEndCol: number;
+  // Human: Distinct category/value ranges from Excel c:cat and c:val refs.
+  // Agent: IMPORTED from OOXML; SET on insert; USED before merged dataStart/End bounds.
+  categoryRef?: SheetChartSeriesRef;
+  valueRef?: SheetChartSeriesRef;
+  // Human: Cached OOXML series points when live sheet cells are unavailable.
+  // Agent: PARSED from c:strCache/c:numCache; FALLBACK when grid lookup is empty.
+  fallbackSeries?: Array<{ label: string; value: number }>;
   // Human: Pixel size when anchor end cells are unknown (user-inserted charts).
   // Agent: DEFAULTS in overlay layout when anchorEndRow/anchorEndCol omitted.
   widthPx?: number;
@@ -98,6 +118,9 @@ export type SheetChart = {
   imported?: boolean;
   sourceChartPath?: string;
   sourceDrawingPath?: string;
+  // Human: r:id on c:chart inside the worksheet drawing part — used to patch anchor on save.
+  // Agent: SET on import/insert; USED by exportChartsToXlsx to find twoCellAnchor block.
+  drawingChartRelId?: string;
 };
 
 export type PageOrientation = "portrait" | "landscape";
