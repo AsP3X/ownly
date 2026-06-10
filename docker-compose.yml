@@ -5,6 +5,12 @@
 x-ownly-logging: &ownly-logging
   RUST_LOG: ${RUST_LOG:-debug}
 
+# Human: App mesh — postgres, API, storage, and nginx proxy_pass targets share this network.
+# Agent: ATTACH all inter-service DNS names here; NOT the external reverse-proxy network alone.
+x-ownly-internal-networks: &ownly-internal-networks
+  networks:
+    - ownly-internal
+
 x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
   JWT_SECRET: ownly-compose-local-dev-jwt-secret-not-for-production
   SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
@@ -28,6 +34,7 @@ services:
       - init
 
   postgres:
+    <<: *ownly-internal-networks
     image: postgres:16-alpine
     container_name: ownly-postgres
     environment:
@@ -45,6 +52,7 @@ services:
       retries: 5
 
   object-storage:
+    <<: *ownly-internal-networks
     build:
       context: ./nebular-os
       # Human: Ownly wrapper Dockerfile adds libsqlite3-dev for embedded SQLite metadata (see docker/nebular-os.Dockerfile).
@@ -52,7 +60,7 @@ services:
       dockerfile: ../docker/nebular-os.Dockerfile
     container_name: ownly-object-storage
     environment:
-      <<: *ownly-compose-dev-secrets
+      <<: [*ownly-compose-dev-secrets, *ownly-logging]
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
@@ -81,7 +89,6 @@ services:
       NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
       NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
       NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
-      <<: *ownly-logging
     ports:
       - "9000:9000"
     volumes:
@@ -96,6 +103,7 @@ services:
       start_period: 120s
 
   backend:
+    <<: *ownly-internal-networks
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -103,7 +111,7 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     container_name: ownly-backend
     environment:
-      <<: *ownly-compose-dev-secrets
+      <<: [*ownly-compose-dev-secrets, *ownly-logging]
       OWNLY_SKIP_DOTENV: "1"
       DATABASE_URL: ${DATABASE_URL:-postgres://ownly:ownly@postgres:5432/ownly}
       TMPDIR: /tmp
@@ -115,7 +123,6 @@ services:
       STORAGE_MODE: ${STORAGE_MODE:-proxy}
       STORAGE_METADATA_MODE: ${STORAGE_METADATA_MODE:-nebular}
       URL_EXPIRY_SECONDS: ${URL_EXPIRY_SECONDS:-3600}
-      <<: *ownly-logging
       BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3000}
       OWNLY_ENVIRONMENT: ${OWNLY_ENVIRONMENT:-development}
       GIT_SHA: ${GIT_SHA:-unknown}
@@ -154,6 +161,11 @@ services:
         condition: service_healthy
 
   frontend:
+    # Human: Join proxy-network for Traefik/Caddy/nginx-proxy; ownly-internal for API and /media upstreams.
+    # Agent: DUAL-HOMED; external proxy reaches frontend:80 on proxy-network; nginx still proxies backend/object-storage on ownly-internal.
+    networks:
+      - ownly-internal
+      - proxy-network
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -180,3 +192,12 @@ services:
 volumes:
   postgres_data:
   nebular_data:
+
+networks:
+  ownly-internal:
+    driver: bridge
+    internal: false
+  # Human: Pre-create before first up: docker network create proxy-network
+  # Agent: EXTERNAL; reverse proxy stack attaches here to publish frontend without host port 8080.
+  proxy-network:
+    external: true

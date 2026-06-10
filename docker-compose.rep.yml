@@ -50,6 +50,8 @@ services:
 
   object-storage-b:
     <<: *nebular-storage-service
+    networks:
+      - ownly-internal
     container_name: ownly-object-storage-b
     environment:
       <<: *nebular-storage-env
