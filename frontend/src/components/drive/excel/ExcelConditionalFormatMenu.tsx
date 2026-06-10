@@ -2,7 +2,7 @@
 // Agent: EMITS ConditionalFormatRule[]; READS selection context from dialog parent.
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Palette } from "lucide-react";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { cn } from "@/lib/utils";
@@ -146,13 +146,14 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A] disabled:opacity-50",
-          open && "border-[#BFDBFE] bg-[#EFF6FF]",
+          "inline-flex items-center gap-1 rounded-sm text-[#323130] transition-colors hover:bg-[#F3F2F1] disabled:opacity-50",
+          open && "bg-[#E1DFDD]",
         )}
-        style={{ padding: `${scaledPx(4)}px ${scaledPx(8)}px`, fontSize: scaledPx(11) }}
+        style={{ padding: `${scaledPx(2)}px ${scaledPx(4)}px`, fontSize: scaledPx(8) }}
       >
+        <Palette style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
         Conditional Formatting
-        <ChevronDown className="size-3 text-[#666666]" aria-hidden />
+        <ChevronDown style={{ width: scaledPx(10), height: scaledPx(10) }} className="opacity-70" aria-hidden />
       </button>
 
       {open ? (

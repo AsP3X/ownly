@@ -291,7 +291,7 @@ export function mergeCellsInRange(
           return {
             ...cell,
             display: mergedDisplay,
-            style: { ...cell.style, horizontalAlign: "center" as const },
+            style: cell.style,
           };
         }
         return { ...cell, value: null, formula: undefined, display: "" };

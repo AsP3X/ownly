@@ -58,15 +58,15 @@ export function numberFormatFromXlsxCode(zCode: string | undefined, display?: st
 }
 
 // Human: Resolve the Excel z-code to write for a cell style on export.
-// Agent: PREFERS customNumberFormat when numberFormat is custom.
+// Agent: PREFERS preserved customNumberFormat from import for exact Excel round-trip.
 export function xlsxFormatCodeFromStyle(
   numberFormat: NumberFormat | undefined,
   customNumberFormat?: string,
 ): string | undefined {
+  const preserved = customNumberFormat?.trim();
+  if (preserved) return preserved;
   const format = numberFormat ?? "general";
-  if (format === "custom") {
-    return customNumberFormat?.trim() || undefined;
-  }
+  if (format === "custom") return undefined;
   return BUILTIN_FORMAT_CODES[format];
 }
 

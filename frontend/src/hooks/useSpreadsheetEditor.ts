@@ -2,7 +2,7 @@
 // Agent: OWNS workbook snapshot; PUSHES undo; RECALCULATES formulas after edits.
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { applyStylePatchToCell } from "@/lib/spreadsheet/cell-styles";
+import { applyStylePatchToCell, replaceCellStyleOnCell } from "@/lib/spreadsheet/cell-styles";
 import {
   clearRangeInWorkbook,
   clipboardToTsv,
@@ -446,11 +446,37 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   // Human: Apply stored painter style to current selection and deactivate.
   // Agent: CALLS applyStyleToSelection with copied style patch.
   const applyFormatPainter = useCallback(() => {
-    if (!formatPainterStyle || readOnly || isSheetProtected()) return;
-    applyStyleToSelection(formatPainterStyle);
+    if (!formatPainterStyle || readOnly || isSheetProtected() || !workbook) return;
+    commitWorkbookMutation((current) => {
+      const range = selectionRange;
+      const nextSheets = current.sheets.map((sheet, index) => {
+        if (index !== activeSheetIndex) return sheet;
+        const nextRows = sheet.rows.map((row, rowIndex) =>
+          row.map((cell, colIndex) => {
+            const inRange =
+              rowIndex >= range.start.row &&
+              rowIndex <= range.end.row &&
+              colIndex >= range.start.col &&
+              colIndex <= range.end.col;
+            if (!inRange) return cell;
+            return replaceCellStyleOnCell(cell, formatPainterStyle);
+          }),
+        );
+        return { ...sheet, rows: nextRows };
+      });
+      return { ...current, sheets: nextSheets };
+    });
     setFormatPainterActive(false);
     setFormatPainterStyle(null);
-  }, [applyStyleToSelection, formatPainterStyle, isSheetProtected, readOnly]);
+  }, [
+    activeSheetIndex,
+    commitWorkbookMutation,
+    formatPainterStyle,
+    isSheetProtected,
+    readOnly,
+    selectionRange,
+    workbook,
+  ]);
 
   // Human: Cancel Format Painter without applying copied style.
   // Agent: CLEARS painter state when user toggles off from ribbon.

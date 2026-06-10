@@ -91,6 +91,19 @@ function stripDefinedNames(workbookXml: string): string {
   return workbookXml.replace(/<definedNames[\s\S]*?<\/definedNames>/g, "");
 }
 
+function extractDefinedNameTags(workbookXml: string): string[] {
+  const tags: string[] = [];
+  for (const match of workbookXml.matchAll(/<definedName\b[^>]*>[\s\S]*?<\/definedName>/gi)) {
+    tags.push(match[0]);
+  }
+  return tags;
+}
+
+function definedNameFromTag(tag: string): string | null {
+  const nameMatch = /name="([^"]*)"/i.exec(tag);
+  return nameMatch?.[1]?.trim() ?? null;
+}
+
 function cellRefFromIndices(row: number, col: number): string {
   return `${columnIndexToLetters(col)}${row + 1}`;
 }
@@ -347,12 +360,23 @@ export async function exportWorkbookMetadataToXlsx(
 
     if (hasNames && workbook.namedRanges) {
       const stripped = stripDefinedNames(workbookXmlRaw);
-      const namesXml = workbook.namedRanges
-        .map((range) => `<definedName name="${escapeXmlText(range.name)}">${definedNameToSqref(range)}</definedName>`)
-        .join("");
+      const managedNames = new Set(workbook.namedRanges.map((range) => range.name.trim().toLowerCase()));
+      const preserved = extractDefinedNameTags(workbookXmlRaw).filter((tag) => {
+        const name = definedNameFromTag(tag);
+        if (!name) return false;
+        const normalized = name.toLowerCase();
+        if (normalized === "_xlnm.print_area" || normalized === "print_area") return true;
+        return !managedNames.has(normalized);
+      });
+      const modelTags = workbook.namedRanges.map(
+        (range) =>
+          `<definedName name="${escapeXmlText(range.name)}">${definedNameToSqref(range)}</definedName>`,
+      );
+      const allTags = [...preserved, ...modelTags];
+      const namesXml = allTags.join("");
       const patchedWorkbook = stripped.replace(
         "</workbook>",
-        `<definedNames count="${workbook.namedRanges.length}">${namesXml}</definedNames></workbook>`,
+        `<definedNames count="${allTags.length}">${namesXml}</definedNames></workbook>`,
       );
       entries.set("xl/workbook.xml", new TextEncoder().encode(patchedWorkbook));
     }

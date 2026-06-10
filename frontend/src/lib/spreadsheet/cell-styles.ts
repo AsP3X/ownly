@@ -2,8 +2,31 @@
 // Agent: READS raw.s from XLSX.read({ cellStyles: true }); RETURNS background/font fields.
 
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
+import { resolveXlsxColor } from "@/lib/spreadsheet/excel-theme-colors";
 import { numberFormatFromXlsxCode, xlsxFormatCodeFromStyle } from "@/lib/spreadsheet/number-formats";
 import type { CellStyle, HorizontalAlign, NumberFormat, SheetCell } from "@/lib/spreadsheet/types";
+
+const CELL_STYLE_KEYS: (keyof CellStyle)[] = [
+  "bold",
+  "italic",
+  "underline",
+  "horizontalAlign",
+  "verticalAlign",
+  "numberFormat",
+  "customNumberFormat",
+  "backgroundColor",
+  "textColor",
+  "fontFamily",
+  "fontSize",
+  "wrapText",
+  "borderTop",
+  "borderRight",
+  "borderBottom",
+  "borderLeft",
+  "borderColor",
+  "isHeaderRow",
+  "isTotalRow",
+];
 
 type XlsxColor = {
   rgb?: string;
@@ -34,15 +57,37 @@ export type XlsxCellStyle = {
 };
 
 // Human: Merge ribbon style patches onto an existing cell style object.
-// Agent: SPREADS partial patch; USED by applyStylePatchToCell and format painter.
+// Agent: SPREADS partial patch; USED by format painter full style copy.
 export function mergeCellStyle(base: CellStyle | undefined, patch: Partial<CellStyle>): CellStyle {
   return { ...(base ?? {}), ...patch };
+}
+
+// Human: Apply a toolbar patch where `undefined` explicitly removes a style property.
+// Agent: DELETES keys on undefined; USED by ribbon toggles and clear-formatting.
+export function applyCellStylePatch(base: CellStyle | undefined, patch: Partial<CellStyle>): CellStyle {
+  const next: CellStyle = { ...(base ?? {}) };
+  for (const key of CELL_STYLE_KEYS) {
+    if (!(key in patch)) continue;
+    const value = patch[key];
+    if (value === undefined) {
+      delete next[key];
+    } else {
+      (next as Record<keyof CellStyle, CellStyle[keyof CellStyle]>)[key] = value;
+    }
+  }
+  return next;
+}
+
+// Human: Patch that clears every modeled style field from a cell.
+// Agent: RETURNS all keys undefined for applyCellStylePatch.
+export function clearCellStylePatch(): Partial<CellStyle> {
+  return Object.fromEntries(CELL_STYLE_KEYS.map((key) => [key, undefined])) as Partial<CellStyle>;
 }
 
 // Human: Apply a ribbon style patch to one cell and refresh its display string.
 // Agent: SKIPS display rewrite for formula cells — recalculateWorkbook handles those.
 export function applyStylePatchToCell(cell: SheetCell, patch: Partial<CellStyle>): SheetCell {
-  const style = mergeCellStyle(cell.style, patch);
+  const style = applyCellStylePatch(cell.style, patch);
   if (cell.formula) {
     return { ...cell, style };
   }
@@ -55,6 +100,16 @@ export function applyStylePatchToCell(cell: SheetCell, patch: Partial<CellStyle>
       style.customNumberFormat,
     ),
   };
+}
+
+// Human: Replace a cell's entire style (Format Painter) after clearing prior formatting.
+// Agent: CLEARS all style keys first; THEN applies copied style snapshot.
+export function replaceCellStyleOnCell(cell: SheetCell, style: CellStyle): SheetCell {
+  const cleared = applyStylePatchToCell(cell, clearCellStylePatch());
+  if (Object.keys(style).length === 0) {
+    return { ...cleared, style: undefined };
+  }
+  return applyStylePatchToCell(cleared, style);
 }
 
 // Human: Resolve effective horizontal alignment like Excel (explicit style beats type defaults).
@@ -114,7 +169,7 @@ export function argbToDisplayHex(raw: string | undefined): string | undefined {
 }
 
 function resolveFillColor(fgColor?: XlsxColor, bgColor?: XlsxColor): string | undefined {
-  return argbToDisplayHex(fgColor?.rgb) ?? argbToDisplayHex(bgColor?.rgb);
+  return resolveXlsxColor(fgColor) ?? resolveXlsxColor(bgColor);
 }
 
 function mapHorizontalAlign(raw: string | undefined): CellStyle["horizontalAlign"] {
@@ -144,7 +199,7 @@ function hasBorderSide(side: { style?: string } | undefined): boolean {
 }
 
 function borderSideColor(side: { color?: XlsxColor } | undefined): string | undefined {
-  return argbToDisplayHex(side?.color?.rgb);
+  return resolveXlsxColor(side?.color);
 }
 
 // Human: Build CellStyle from SheetJS cell.s plus optional number format hint.
@@ -156,10 +211,12 @@ export function cellStyleFromXlsx(
   zCode?: string,
 ): CellStyle {
   const resolvedFormat = zCode ? numberFormatFromXlsxCode(zCode) : numberFormat;
+  const preservedFormat =
+    zCode && zCode.trim().toLowerCase() !== "general" ? zCode.trim() : undefined;
   const style: CellStyle = {
     ...rowDefaults,
     numberFormat: resolvedFormat,
-    customNumberFormat: resolvedFormat === "custom" ? zCode : undefined,
+    customNumberFormat: preservedFormat ?? (resolvedFormat === "custom" ? zCode : undefined),
   };
 
   if (!sheetStyle || typeof sheetStyle !== "object") return style;
@@ -171,7 +228,7 @@ export function cellStyleFromXlsx(
     if (fill) style.backgroundColor = fill;
   }
 
-  const textColor = argbToDisplayHex(xlsxStyle.color?.rgb);
+  const textColor = resolveXlsxColor(xlsxStyle.color);
   if (textColor) style.textColor = textColor;
   if (xlsxStyle.bold) style.bold = true;
   if (xlsxStyle.italic) style.italic = true;

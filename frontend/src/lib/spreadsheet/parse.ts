@@ -61,7 +61,7 @@ function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCe
       ? raw.w
       : formatCellDisplay(value, resolvedNumberFormat, zCode);
 
-  const style = cellStyleFromXlsx(raw.s, resolvedNumberFormat, { bold: row === 0, isHeaderRow: row === 0 }, zCode);
+  const style = cellStyleFromXlsx(raw.s, resolvedNumberFormat, {}, zCode);
   const linkTarget = (raw.l as { Target?: string } | undefined)?.Target;
   const hyperlink = typeof linkTarget === "string" ? linkTarget : undefined;
 
@@ -249,7 +249,11 @@ export function applyFormulaBarEdit(
               ...cell,
               formula: undefined,
               value,
-              display: formatCellDisplay(value, cell.style?.numberFormat ?? "general"),
+              display: formatCellDisplay(
+                value,
+                cell.style?.numberFormat ?? "general",
+                cell.style?.customNumberFormat,
+              ),
             };
           })
         : [...sheetRow],

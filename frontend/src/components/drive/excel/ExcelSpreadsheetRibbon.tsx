@@ -1,12 +1,16 @@
-// Human: Microsoft Excel 365 ribbon — File tab, standard tabs, labeled command groups.
-// Agent: READS activeRibbonTab + cellStyle; EMITS callbacks; USES excel-ribbon-primitives + login-screen tokens.
+// Human: macOS Excel toolbar — title bar, tab strip, and ribbon content per excel-editor-dialog.pen.
+// Agent: READS activeRibbonTab + cellStyle; EMITS callbacks; COMPOSES ExcelToolbarTitleBar + ribbon primitives.
 
 import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlignCenter,
+  AlignCenterVertical,
+  AlignEndVertical,
   AlignLeft,
   AlignRight,
+  AlignStartVertical,
+  ArrowDown,
   ArrowDownAZ,
   ArrowUpAZ,
   BarChart3,
@@ -14,6 +18,7 @@ import {
   Calculator,
   ClipboardPaste,
   Copy,
+  Eraser,
   Eye,
   FileText,
   Filter,
@@ -22,6 +27,7 @@ import {
   Italic,
   MessageSquare,
   Paintbrush,
+  Palette,
   PanelTop,
   Printer,
   Scissors,
@@ -46,6 +52,12 @@ import {
 import { ExcelDrawPanel } from "@/components/drive/excel/ExcelDrawPanel";
 import { ExcelHelpPanel } from "@/components/drive/excel/ExcelHelpPanel";
 import {
+  ExcelToolbarTitleBar,
+  spreadsheetDisplayTitle,
+} from "@/components/drive/excel/ExcelToolbarTitleBar";
+import {
+  RibbonColorButton,
+  RibbonCompactButton,
   RibbonContent,
   RibbonGroup,
   RibbonGroupDivider,
@@ -53,6 +65,7 @@ import {
   RibbonIconStack,
   RibbonLargeButton,
   RibbonSelect,
+  RibbonSquareIconButton,
   RibbonTabStrip,
   RibbonToggleButton,
 } from "@/components/drive/excel/excel-ribbon-primitives";
@@ -72,16 +85,21 @@ export type RibbonTabId =
   | "help"
   | "automate";
 
-/** Human: Excel 365 default tab order (File is separate green tab). */
-const RIBBON_TABS: { id: Exclude<RibbonTabId, "file">; label: string }[] = [
+/** Human: Primary tabs from excel-editor-dialog.pen (macOS toolbar). */
+const RIBBON_PRIMARY_TABS: { id: Exclude<RibbonTabId, "file" | "draw" | "help" | "automate">; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "insert", label: "Insert" },
-  { id: "draw", label: "Draw" },
   { id: "page-layout", label: "Page Layout" },
   { id: "formulas", label: "Formulas" },
   { id: "data", label: "Data" },
   { id: "review", label: "Review" },
   { id: "view", label: "View" },
+];
+
+/** Human: Extra tabs reachable via overflow select (preserves prior functionality). */
+const RIBBON_OVERFLOW_TABS: { id: RibbonTabId; label: string }[] = [
+  { id: "file", label: "File" },
+  { id: "draw", label: "Draw" },
   { id: "help", label: "Help" },
   { id: "automate", label: "Automate" },
 ];
@@ -153,6 +171,16 @@ type ExcelSpreadsheetRibbonProps = {
   onClearDrawings?: () => void;
   zoomPercent?: number;
   onZoomChange?: (percent: number) => void;
+  /** Human: Title bar — workbook display name (defaults from fileName). */
+  fileName?: string;
+  autoSaveEnabled?: boolean;
+  onAutoSaveChange?: (enabled: boolean) => void;
+  onSave?: () => void;
+  onShare?: () => void;
+  onFormatAsTable?: () => void;
+  onClearFormatting?: () => void;
+  /** Human: Ribbon Fill-down — extends selection by one row via fill handle logic. */
+  onFillDown?: () => void;
 };
 
 // Human: Map border preset names to CellStyle patches for the Borders gallery.
@@ -171,7 +199,13 @@ function borderPatchForPreset(preset: BorderPreset, current: CellStyle): Partial
     case "right":
       return { borderRight: true, borderColor: color };
     case "clear":
-      return { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false };
+      return {
+        borderTop: undefined,
+        borderRight: undefined,
+        borderBottom: undefined,
+        borderLeft: undefined,
+        borderColor: undefined,
+      };
     default:
       return {};
   }
@@ -184,8 +218,6 @@ function iconSize() {
 function HomeTabPanel({
   cellStyle,
   readOnly,
-  canUndo,
-  canRedo,
   onStyleChange,
   onConditionalFormatPreset,
   onCopy,
@@ -194,8 +226,6 @@ function HomeTabPanel({
   onPasteSpecial,
   onFormatPainter,
   formatPainterActive,
-  onUndo,
-  onRedo,
   onSortAsc,
   onSortDesc,
   onFilter,
@@ -203,15 +233,14 @@ function HomeTabPanel({
   onAutoSum,
   onInsertRow,
   onDeleteRow,
-  onInsertColumn,
-  onDeleteColumn,
   onMergeCells,
+  onFormatAsTable,
+  onClearFormatting,
+  onFillDown,
 }: Pick<
   ExcelSpreadsheetRibbonProps,
   | "cellStyle"
   | "readOnly"
-  | "canUndo"
-  | "canRedo"
   | "onStyleChange"
   | "onConditionalFormatPreset"
   | "onCopy"
@@ -220,8 +249,6 @@ function HomeTabPanel({
   | "onPasteSpecial"
   | "onFormatPainter"
   | "formatPainterActive"
-  | "onUndo"
-  | "onRedo"
   | "onSortAsc"
   | "onSortDesc"
   | "onFilter"
@@ -229,19 +256,28 @@ function HomeTabPanel({
   | "onAutoSum"
   | "onInsertRow"
   | "onDeleteRow"
-  | "onInsertColumn"
-  | "onDeleteColumn"
   | "onMergeCells"
+  | "onFormatAsTable"
+  | "onClearFormatting"
+  | "onFillDown"
 >) {
   const sz = iconSize();
+  const sm = scaledPx(14);
   const setAlign = (horizontalAlign: HorizontalAlign) => onStyleChange({ horizontalAlign });
+  const currentSize = cellStyle.fontSize ?? 11;
+
+  const bumpFontSize = (delta: number) => {
+    const next = Math.min(72, Math.max(8, currentSize + delta));
+    onStyleChange({ fontSize: next });
+  };
 
   return (
     <>
-      <RibbonGroup label="Clipboard">
+      {/* Human: Group Clipboard — large Paste + cut/copy stack + format painter (pen layout). */}
+      <RibbonGroup>
         <RibbonLargeButton
           label="Paste"
-          icon={<ClipboardPaste style={{ width: sz, height: sz }} aria-hidden />}
+          icon={<ClipboardPaste style={{ width: scaledPx(24), height: scaledPx(24) }} aria-hidden />}
           disabled={readOnly}
           onClick={onPaste}
         />
@@ -249,20 +285,21 @@ function HomeTabPanel({
           <RibbonIconButton
             label="Cut"
             showLabel={false}
-            icon={<Scissors style={{ width: sz, height: sz }} aria-hidden />}
+            icon={<Scissors style={{ width: sm, height: sm }} aria-hidden />}
             disabled={readOnly}
             onClick={onCut}
           />
           <RibbonIconButton
             label="Copy"
             showLabel={false}
-            icon={<Copy style={{ width: sz, height: sz }} aria-hidden />}
+            icon={<Copy style={{ width: sm, height: sm }} aria-hidden />}
             onClick={onCopy}
           />
         </RibbonIconStack>
         <RibbonIconButton
           label="Format Painter"
-          icon={<Paintbrush style={{ width: sz, height: sz }} aria-hidden />}
+          showLabel={false}
+          icon={<Paintbrush style={{ width: sm, height: sm }} aria-hidden />}
           disabled={readOnly}
           active={formatPainterActive}
           title="Format Painter"
@@ -271,6 +308,7 @@ function HomeTabPanel({
         {onPasteSpecial ? (
           <RibbonIconButton
             label="Paste Special"
+            showLabel={false}
             icon={<span style={{ fontSize: scaledPx(9) }}>▾</span>}
             disabled={readOnly}
             onClick={onPasteSpecial}
@@ -279,16 +317,18 @@ function HomeTabPanel({
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Font">
+      {/* Human: Group Font — Aptos-style family row + decoration row with color swatches. */}
+      <RibbonGroup>
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1">
             <RibbonSelect
               ariaLabel="Font"
               disabled={readOnly}
               width={100}
-              value={cellStyle.fontFamily ?? "Inter"}
+              value={cellStyle.fontFamily ?? "Aptos Narrow"}
               onChange={(value) => onStyleChange({ fontFamily: value })}
               options={[
+                { value: "Aptos Narrow", label: "Aptos Narrow" },
                 { value: "Inter", label: "Inter" },
                 { value: "Calibri", label: "Calibri" },
                 { value: "Arial", label: "Arial" },
@@ -299,119 +339,131 @@ function HomeTabPanel({
             <RibbonSelect
               ariaLabel="Font size"
               disabled={readOnly}
-              width={44}
-              value={cellStyle.fontSize ?? 11}
+              width={36}
+              value={currentSize}
               onChange={(value) => onStyleChange({ fontSize: Number(value) })}
               options={[8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((size) => ({
                 value: size,
                 label: String(size),
               }))}
             />
+            <RibbonToggleButton ariaLabel="Increase font size" disabled={readOnly} onClick={() => bumpFontSize(1)}>
+              <span style={{ fontSize: scaledPx(10), fontWeight: 600 }}>A^</span>
+            </RibbonToggleButton>
+            <RibbonToggleButton ariaLabel="Decrease font size" disabled={readOnly} onClick={() => bumpFontSize(-1)}>
+              <span style={{ fontSize: scaledPx(10), fontWeight: 600 }}>A˅</span>
+            </RibbonToggleButton>
           </div>
           <div className="flex items-center gap-0.5">
             <RibbonToggleButton
               ariaLabel="Bold"
               disabled={readOnly}
               active={cellStyle.bold}
-              onClick={() => onStyleChange({ bold: !cellStyle.bold })}
+              onClick={() => onStyleChange({ bold: cellStyle.bold ? undefined : true })}
             >
-              <Bold style={{ width: sz, height: sz }} />
+              <Bold style={{ width: sm, height: sm }} />
             </RibbonToggleButton>
             <RibbonToggleButton
               ariaLabel="Italic"
               disabled={readOnly}
               active={cellStyle.italic}
-              onClick={() => onStyleChange({ italic: !cellStyle.italic })}
+              onClick={() => onStyleChange({ italic: cellStyle.italic ? undefined : true })}
             >
-              <Italic style={{ width: sz, height: sz }} />
+              <Italic style={{ width: sm, height: sm }} />
             </RibbonToggleButton>
             <RibbonToggleButton
               ariaLabel="Underline"
               disabled={readOnly}
               active={cellStyle.underline}
-              onClick={() => onStyleChange({ underline: !cellStyle.underline })}
+              onClick={() => onStyleChange({ underline: cellStyle.underline ? undefined : true })}
             >
-              <Underline style={{ width: sz, height: sz }} />
+              <Underline style={{ width: sm, height: sm }} />
             </RibbonToggleButton>
-            <label
-              className="ml-1 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-1 py-0.5 hover:bg-[#E5E5E5]"
-              style={{ fontSize: scaledPx(10), borderColor: "#E5E7EB" }}
+            <RibbonToggleButton ariaLabel="Strikethrough" disabled={readOnly}>
+              <span style={{ fontSize: scaledPx(11), fontWeight: 600 }}>ab</span>
+            </RibbonToggleButton>
+            <RibbonToggleButton
+              ariaLabel="Borders"
+              disabled={readOnly}
+              onClick={() => onStyleChange(borderPatchForPreset("all", cellStyle))}
             >
-              Font
-              <input
-                type="color"
-                aria-label="Font color"
-                disabled={readOnly}
-                value={cellStyle.textColor ?? "#1a1a1a"}
-                onChange={(event) => onStyleChange({ textColor: event.target.value })}
-                className="size-4 cursor-pointer border-0 bg-transparent p-0"
-              />
-            </label>
-            <label
-              className="inline-flex cursor-pointer items-center gap-1 rounded-sm border px-1 py-0.5 hover:bg-[#E5E5E5]"
-              style={{ fontSize: scaledPx(10), borderColor: "#E5E7EB" }}
-            >
-              Fill
-              <input
-                type="color"
-                aria-label="Fill color"
-                disabled={readOnly}
-                value={cellStyle.backgroundColor ?? "#ffffff"}
-                onChange={(event) => onStyleChange({ backgroundColor: event.target.value })}
-                className="size-4 cursor-pointer border-0 bg-transparent p-0"
-              />
-            </label>
+              <Grid3X3 style={{ width: sm, height: sm }} />
+            </RibbonToggleButton>
+            <RibbonColorButton
+              ariaLabel="Fill color"
+              disabled={readOnly}
+              variant="fill"
+              value={cellStyle.backgroundColor ?? "#FFD700"}
+              onChange={(color) => onStyleChange({ backgroundColor: color })}
+            />
+            <RibbonColorButton
+              ariaLabel="Font color"
+              disabled={readOnly}
+              variant="font"
+              value={cellStyle.textColor ?? "#E81123"}
+              onChange={(color) => onStyleChange({ textColor: color })}
+            />
           </div>
         </div>
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Alignment">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-0.5">
-            {(["left", "center", "right"] as HorizontalAlign[]).map((align) => (
-              <RibbonToggleButton
-                key={align}
-                ariaLabel={`Align ${align}`}
-                disabled={readOnly}
-                active={cellStyle.horizontalAlign === align || (!cellStyle.horizontalAlign && align === "left")}
-                onClick={() => setAlign(align)}
-              >
-                {align === "left" ? (
-                  <AlignLeft style={{ width: sz, height: sz }} />
-                ) : align === "center" ? (
-                  <AlignCenter style={{ width: sz, height: sz }} />
-                ) : (
-                  <AlignRight style={{ width: sz, height: sz }} />
-                )}
-              </RibbonToggleButton>
-            ))}
-            <RibbonToggleButton
-              ariaLabel="Wrap text"
+      {/* Human: Group Alignment — 3×3 icon grid + wrap/merge compact buttons. */}
+      <RibbonGroup>
+        <div className="flex items-center gap-1">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex gap-0.5">
+              {(["top", "middle", "bottom"] as VerticalAlign[]).map((align) => (
+                <RibbonSquareIconButton
+                  key={align}
+                  ariaLabel={`Vertical ${align}`}
+                  disabled={readOnly}
+                  active={cellStyle.verticalAlign === align}
+                  onClick={() => onStyleChange({ verticalAlign: align })}
+                >
+                  {align === "top" ? (
+                    <AlignStartVertical style={{ width: sm, height: sm }} />
+                  ) : align === "middle" ? (
+                    <AlignCenterVertical style={{ width: sm, height: sm }} />
+                  ) : (
+                    <AlignEndVertical style={{ width: sm, height: sm }} />
+                  )}
+                </RibbonSquareIconButton>
+              ))}
+            </div>
+            <div className="flex gap-0.5">
+              {(["left", "center", "right"] as HorizontalAlign[]).map((align) => (
+                <RibbonSquareIconButton
+                  key={align}
+                  ariaLabel={`Align ${align}`}
+                  disabled={readOnly}
+                  active={
+                    cellStyle.horizontalAlign === align || (!cellStyle.horizontalAlign && align === "left")
+                  }
+                  onClick={() => setAlign(align)}
+                >
+                  {align === "left" ? (
+                    <AlignLeft style={{ width: sm, height: sm }} />
+                  ) : align === "center" ? (
+                    <AlignCenter style={{ width: sm, height: sm }} />
+                  ) : (
+                    <AlignRight style={{ width: sm, height: sm }} />
+                  )}
+                </RibbonSquareIconButton>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <RibbonCompactButton
+              label="Wrap Text"
+              icon={<WrapText style={{ width: sm, height: sm }} aria-hidden />}
               disabled={readOnly}
               active={cellStyle.wrapText}
               onClick={() => onStyleChange({ wrapText: !cellStyle.wrapText })}
-            >
-              <WrapText style={{ width: sz, height: sz }} />
-            </RibbonToggleButton>
-          </div>
-          <div className="flex items-center gap-0.5">
-            {(["top", "middle", "bottom"] as VerticalAlign[]).map((align) => (
-              <RibbonToggleButton
-                key={align}
-                ariaLabel={`Vertical ${align}`}
-                disabled={readOnly}
-                active={cellStyle.verticalAlign === align}
-                onClick={() => onStyleChange({ verticalAlign: align })}
-              >
-                <span style={{ fontSize: scaledPx(9), fontWeight: 600, width: sz, textAlign: "center" }}>
-                  {align === "top" ? "T" : align === "middle" ? "M" : "B"}
-                </span>
-              </RibbonToggleButton>
-            ))}
-            <RibbonIconButton
-              label="Merge"
-              icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />}
+            />
+            <RibbonCompactButton
+              label="Merge & Center"
+              icon={<Table2 style={{ width: sm, height: sm }} aria-hidden />}
               disabled={readOnly}
               onClick={onMergeCells}
             />
@@ -420,12 +472,13 @@ function HomeTabPanel({
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Number">
+      {/* Human: Group Number — General dropdown + quick format icons. */}
+      <RibbonGroup>
         <div className="flex flex-col gap-1">
           <RibbonSelect
             ariaLabel="Number format"
             disabled={readOnly}
-            width={108}
+            width={84}
             value={cellStyle.numberFormat ?? "general"}
             onChange={(value) =>
               onStyleChange({ numberFormat: value as NumberFormat, customNumberFormat: undefined })
@@ -434,19 +487,8 @@ function HomeTabPanel({
           />
           <div className="flex gap-0.5">
             <RibbonIconButton
-              label="Accounting"
-              icon={<span style={{ fontSize: scaledPx(9), fontWeight: 700 }}>$±</span>}
-              disabled={readOnly}
-              active={cellStyle.numberFormat === "accounting"}
-              onClick={() =>
-                onStyleChange({
-                  numberFormat: cellStyle.numberFormat === "accounting" ? "general" : "accounting",
-                  customNumberFormat: undefined,
-                })
-              }
-            />
-            <RibbonIconButton
               label="Currency"
+              showLabel={false}
               icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>$</span>}
               disabled={readOnly}
               active={cellStyle.numberFormat === "currency"}
@@ -459,6 +501,7 @@ function HomeTabPanel({
             />
             <RibbonIconButton
               label="Percent"
+              showLabel={false}
               icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>%</span>}
               disabled={readOnly}
               active={cellStyle.numberFormat === "percent"}
@@ -471,7 +514,8 @@ function HomeTabPanel({
             />
             <RibbonIconButton
               label="Comma"
-              icon={<span style={{ fontSize: scaledPx(9), fontWeight: 700 }}>,</span>}
+              showLabel={false}
+              icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>,</span>}
               disabled={readOnly}
               active={cellStyle.numberFormat === "number"}
               onClick={() =>
@@ -481,74 +525,127 @@ function HomeTabPanel({
                 })
               }
             />
+            <RibbonIconButton
+              label="Increase decimals"
+              showLabel={false}
+              icon={<span style={{ fontSize: scaledPx(9) }}>.00↑</span>}
+              disabled={readOnly}
+            />
+            <RibbonIconButton
+              label="Decrease decimals"
+              showLabel={false}
+              icon={<span style={{ fontSize: scaledPx(9) }}>.0↓</span>}
+              disabled={readOnly}
+            />
           </div>
         </div>
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Styles">
-        <ExcelConditionalFormatMenu
-          disabled={readOnly || !onConditionalFormatPreset}
-          onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
-        />
-        <div className="flex flex-wrap gap-0.5" style={{ maxWidth: scaledPx(160) }}>
-          {(
-            [
-              ["All", "all"],
-              ["Outline", "outline"],
-              ["Top", "top"],
-              ["Bottom", "bottom"],
-              ["Left", "left"],
-              ["Right", "right"],
-              ["Clear", "clear"],
-            ] as const
-          ).map(([label, preset]) => (
-            <button
-              key={preset}
-              type="button"
-              disabled={readOnly}
-              className="rounded-sm px-1.5 py-0.5 hover:bg-[#E5E5E5] disabled:opacity-40"
-              style={{ fontSize: scaledPx(9), fontFamily: EXCEL_RIBBON_FONT }}
-              onClick={() => onStyleChange(borderPatchForPreset(preset, cellStyle))}
-            >
-              {label}
-            </button>
-          ))}
+      {/* Human: Group Styles — conditional format + table + cell styles (pen layout). */}
+      <RibbonGroup>
+        <div className="flex flex-col gap-0.5">
+          <ExcelConditionalFormatMenu
+            disabled={readOnly || !onConditionalFormatPreset}
+            onApplyPreset={(preset) => onConditionalFormatPreset?.(preset)}
+          />
+          <RibbonCompactButton
+            label="Format as Table"
+            icon={<Palette style={{ width: sm, height: sm }} aria-hidden />}
+            disabled={readOnly}
+            onClick={onFormatAsTable}
+          />
+          <RibbonCompactButton
+            label="Cell Styles"
+            icon={<Palette style={{ width: sm, height: sm }} aria-hidden />}
+            disabled={readOnly}
+            onClick={() => onStyleChange(borderPatchForPreset("outline", cellStyle))}
+          />
         </div>
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Cells">
-        <RibbonIconStack>
-          <RibbonIconButton label="Insert" icon={<span style={{ fontSize: scaledPx(10) }}>▾ Ins</span>} disabled={readOnly} onClick={onInsertRow} title="Insert row" />
-          <RibbonIconButton label="Delete" icon={<span style={{ fontSize: scaledPx(10) }}>▾ Del</span>} disabled={readOnly} onClick={onDeleteRow} title="Delete row" />
-        </RibbonIconStack>
-        <RibbonIconStack>
-          <RibbonIconButton label="Format" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertColumn} title="Insert column" />
-          <RibbonIconButton label="Delete Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={readOnly} onClick={onDeleteColumn} title="Delete column" />
-        </RibbonIconStack>
+      {/* Human: Group Cells — Insert / Delete / Format with chevrons. */}
+      <RibbonGroup>
+        <div className="flex flex-col gap-0.5">
+          <RibbonCompactButton
+            label="Insert"
+            icon={<Table2 style={{ width: sm, height: sm }} aria-hidden />}
+            disabled={readOnly}
+            showChevron
+            onClick={onInsertRow}
+          />
+          <RibbonCompactButton
+            label="Delete"
+            icon={<Table2 style={{ width: sm, height: sm }} aria-hidden />}
+            disabled={readOnly}
+            showChevron
+            onClick={onDeleteRow}
+          />
+          <RibbonCompactButton
+            label="Format"
+            icon={<Table2 style={{ width: sm, height: sm }} aria-hidden />}
+            disabled={readOnly}
+            showChevron
+            onClick={onClearFormatting}
+            title="Clear cell formatting"
+          />
+        </div>
       </RibbonGroup>
       <RibbonGroupDivider />
 
-      <RibbonGroup label="Editing">
-        <RibbonLargeButton
-          label="AutoSum"
-          icon={<Sigma style={{ width: sz, height: sz }} aria-hidden />}
-          disabled={readOnly}
-          onClick={onAutoSum}
-        />
-        <RibbonIconStack>
-          <RibbonIconButton label="Sort A→Z" icon={<ArrowDownAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={onSortAsc} />
-          <RibbonIconButton label="Sort Z→A" icon={<ArrowUpAZ style={{ width: sz, height: sz }} aria-hidden />} onClick={onSortDesc} />
-        </RibbonIconStack>
-        <RibbonIconStack>
-          <RibbonIconButton label="Filter" icon={<Filter style={{ width: sz, height: sz }} aria-hidden />} onClick={onFilter} />
-          <RibbonIconButton label="Find" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={onFindReplace} />
-        </RibbonIconStack>
-        <RibbonIconStack>
-          <RibbonIconButton label="Undo" icon={<span style={{ fontSize: scaledPx(10) }}>↶</span>} disabled={!canUndo} onClick={onUndo} />
-          <RibbonIconButton label="Redo" icon={<span style={{ fontSize: scaledPx(10) }}>↷</span>} disabled={!canRedo} onClick={onRedo} />
-        </RibbonIconStack>
+      {/* Human: Group Editing — AutoSum, Fill, Clear, Sort & Filter, Find (undo/redo live in title bar). */}
+      <RibbonGroup>
+        <div className="flex items-center gap-1">
+          <div className="flex flex-col gap-0.5">
+            <RibbonCompactButton
+              label="AutoSum"
+              icon={<Sigma style={{ width: sm, height: sm }} aria-hidden />}
+              disabled={readOnly}
+              onClick={onAutoSum}
+            />
+            <RibbonCompactButton
+              label="Fill"
+              icon={<ArrowDown style={{ width: sm, height: sm }} aria-hidden />}
+              disabled={readOnly}
+              onClick={onFillDown}
+            />
+            <RibbonCompactButton
+              label="Clear"
+              icon={<Eraser style={{ width: sm, height: sm }} aria-hidden />}
+              disabled={readOnly}
+              onClick={onClearFormatting}
+            />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <RibbonCompactButton
+              label="Sort & Filter"
+              icon={<span style={{ fontSize: scaledPx(10), fontWeight: 700 }}>F</span>}
+              showChevron
+              onClick={onFilter}
+            />
+            <RibbonCompactButton
+              label="Find & Select"
+              icon={<span style={{ fontSize: scaledPx(10), fontWeight: 700 }}>F</span>}
+              showChevron
+              onClick={onFindReplace}
+            />
+            <div className="flex gap-0.5">
+              <RibbonIconButton
+                label="Sort A→Z"
+                showLabel={false}
+                icon={<ArrowDownAZ style={{ width: sz, height: sz }} aria-hidden />}
+                onClick={onSortAsc}
+              />
+              <RibbonIconButton
+                label="Sort Z→A"
+                showLabel={false}
+                icon={<ArrowUpAZ style={{ width: sz, height: sz }} aria-hidden />}
+                onClick={onSortDesc}
+              />
+            </div>
+          </div>
+        </div>
       </RibbonGroup>
     </>
   );
@@ -786,8 +883,10 @@ function AutomateTabPanel() {
 
 export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
   const { activeTab, onTabChange } = props;
-  const [collapsed, setCollapsed] = useState(false);
-  const fileActive = activeTab === "file";
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const autoSaveEnabled = props.autoSaveEnabled ?? true;
+
+  const documentTitle = spreadsheetDisplayTitle(props.fileName ?? "Book1");
 
   let panel: ReactNode;
   switch (activeTab) {
@@ -836,18 +935,55 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
       panel = null;
   }
 
+  const isPrimaryTab = RIBBON_PRIMARY_TABS.some((tab) => tab.id === activeTab);
+
   return (
-    <div className="shrink-0" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
-      <RibbonTabStrip
-        tabs={RIBBON_TABS}
-        activeTab={fileActive ? "" : activeTab}
-        fileActive={fileActive}
-        onFileTab={() => onTabChange("file")}
-        onTabChange={(id) => onTabChange(id as RibbonTabId)}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((current) => !current)}
+    <div className="shrink-0 bg-white" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
+      <ExcelToolbarTitleBar
+        documentTitle={documentTitle}
+        readOnly={props.readOnly}
+        autoSaveEnabled={autoSaveEnabled}
+        onAutoSaveChange={(enabled) => props.onAutoSaveChange?.(enabled)}
+        canUndo={props.canUndo}
+        canRedo={props.canRedo}
+        onSave={props.onSave}
+        onUndo={props.onUndo}
+        onRedo={props.onRedo}
+        onQuickAccessMenu={() => setQuickMenuOpen((open) => !open)}
+        onSearch={props.onFindReplace}
+        onComments={props.onEditComment}
+        onShare={props.onShare}
       />
-      <RibbonContent collapsed={collapsed}>{panel}</RibbonContent>
+
+      {quickMenuOpen ? (
+        <div
+          className="flex flex-wrap gap-2 border-b bg-[#FAFAFA] px-3 py-2"
+          style={{ borderColor: "#EDEBE9", fontSize: scaledPx(11) }}
+        >
+          <button type="button" className="rounded px-2 py-1 hover:bg-[#F3F2F1]" onClick={props.onSaveCopy}>
+            Save a Copy
+          </button>
+          <button type="button" className="rounded px-2 py-1 hover:bg-[#F3F2F1]" onClick={props.onPrint}>
+            Print
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 hover:bg-[#F3F2F1]"
+            onClick={props.onExportPdf ?? props.onPrint}
+          >
+            Export PDF
+          </button>
+        </div>
+      ) : null}
+
+      <RibbonTabStrip
+        tabs={RIBBON_PRIMARY_TABS}
+        activeTab={isPrimaryTab ? activeTab : ""}
+        onTabChange={(id) => onTabChange(id as RibbonTabId)}
+        overflowTabs={RIBBON_OVERFLOW_TABS}
+        onOverflowTab={(id) => onTabChange(id as RibbonTabId)}
+      />
+      <RibbonContent>{panel}</RibbonContent>
     </div>
   );
 }

@@ -65,6 +65,7 @@ import {
 } from "@/lib/spreadsheet/conditional-formatting";
 import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
 import { chartBarsFromSelection } from "@/lib/spreadsheet/chart-data";
+import { clearCellStylePatch } from "@/lib/spreadsheet/cell-styles";
 import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spreadsheet/parse";
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import { precedentCellKey, precedentCellsFromFormula } from "@/lib/spreadsheet/trace-precedents";
@@ -165,6 +166,7 @@ export function ExcelSpreadsheetDialog({
   const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [protectOpen, setProtectOpen] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [textToColumnsOpen, setTextToColumnsOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<"pen" | "eraser" | null>(null);
   const [drawColor, setDrawColor] = useState("#2563EB");
@@ -338,6 +340,42 @@ export function ExcelSpreadsheetDialog({
     }
   }, [editor, file, handleDialogOpenChange, onFileSaved, readOnly]);
 
+  // Human: Title-bar Save — persist workbook without closing the dialog.
+  // Agent: Same upload path as Save & Close; RETURNS early when read-only or clean.
+  const handleSave = useCallback(async () => {
+    flushGridDimensionsRef.current?.();
+    const workbook = editor.getWorkbookForSave();
+    if (!file || !workbook || readOnly || !editor.isWorkbookDirty(workbook)) return;
+
+    setSaving(true);
+    setSaveError("");
+    try {
+      const blob = await serializeSpreadsheetWorkbook(workbook);
+      const nextFileObject = new File([blob], file.name, {
+        type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      await deleteFile(file.id, { permanent: true });
+      const result = await uploadFileWithProgress(nextFileObject, undefined, {
+        folderId: file.folder_id,
+      });
+      onFileSaved?.(file.id, result.file);
+    } catch (error) {
+      setSaveError(getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [editor, file, onFileSaved, readOnly]);
+
+  // Human: When AutoSave is on, debounce cloud save after dirty edits (title bar toggle).
+  // Agent: READS autoSaveEnabled + editor.dirty; CALLS handleSave after 2s idle; SKIPS read-only.
+  useEffect(() => {
+    if (!autoSaveEnabled || readOnly || !editor.dirty || !open) return;
+    const timer = window.setTimeout(() => {
+      void handleSave();
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [autoSaveEnabled, editor.dirty, handleSave, open, readOnly]);
+
   const handleSaveCopy = useCallback(async () => {
     flushGridDimensionsRef.current?.();
     const workbook = editor.getWorkbookForSave();
@@ -506,10 +544,30 @@ export function ExcelSpreadsheetDialog({
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ExcelSpreadsheetRibbon
                 activeTab={ribbonTab}
+                fileName={file?.name}
                 cellStyle={cellStyle}
                 readOnly={readOnly}
                 canUndo={editor.canUndo}
                 canRedo={editor.canRedo}
+                onSave={() => void handleSave()}
+                autoSaveEnabled={autoSaveEnabled}
+                onAutoSaveChange={setAutoSaveEnabled}
+                onShare={file && onShare ? () => onShare(file) : undefined}
+                onFillDown={() => {
+                  if (readOnly) return;
+                  const end = editor.selectionRange.end;
+                  editor.performFill({ row: end.row + 1, col: end.col });
+                }}
+                onFormatAsTable={() => {
+                  if (readOnly || !editor.workbook) return;
+                  const name =
+                    window.prompt("Table name", `Table${(activeSheet?.tables?.length ?? 0) + 1}`) ?? "";
+                  if (!name.trim()) return;
+                  editor.commitWorkbookMutation((current) =>
+                    formatRangeAsTable(current, editor.activeSheetIndex, editor.selectionRange, name),
+                  );
+                }}
+                onClearFormatting={() => editor.applyStyleToSelection(clearCellStylePatch())}
                 showGridlines={editor.viewFlags.showGridlines}
                 showFormulas={editor.viewFlags.showFormulas || activeSheet?.showFormulas}
                 onTabChange={setRibbonTab}

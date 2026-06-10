@@ -1,37 +1,42 @@
-// Human: Excel ribbon design tokens — Office layout colors + Ownly tokens from docs/design/mobile/login-screen.
-// Agent: READ by excel-ribbon-primitives and ExcelSpreadsheetRibbon; MATCHES Excel 365 tab/group chrome.
+// Human: Excel ribbon design tokens — macOS Office toolbar from docs/design/excel-editor-dialog.pen.
+// Agent: READ by excel-ribbon-primitives, ExcelToolbarTitleBar, ExcelSpreadsheetRibbon.
 
 /** Human: Ownly accent from login-screen variables ($accent-primary). */
 export const EXCEL_RIBBON_ACCENT = "#2563EB";
 
-/** Human: Excel File tab + spreadsheet brand green (Office Excel). */
+/** Human: Excel brand green (File tab, AutoSave, title-bar Share). */
 export const EXCEL_RIBBON_FILE_TAB = "#107C41";
 export const EXCEL_RIBBON_FILE_TAB_HOVER = "#0E6B38";
 
-/** Human: login-screen $text-primary / $text-secondary / $text-muted. */
-export const EXCEL_RIBBON_TEXT = "#1A1A1A";
-export const EXCEL_RIBBON_TEXT_SECONDARY = "#666666";
+/** Human: Office neutral text from pen Title Bar / ribbon controls. */
+export const EXCEL_RIBBON_TEXT = "#323130";
+export const EXCEL_RIBBON_TEXT_SECONDARY = "#605E5C";
 export const EXCEL_RIBBON_TEXT_MUTED = "#888888";
 
-/** Human: login-screen $border-color and Office group dividers. */
-export const EXCEL_RIBBON_BORDER = "#E5E7EB";
-export const EXCEL_RIBBON_GROUP_DIVIDER = "#D1D1D1";
+/** Human: Ownly dialog header still uses #1A1A1A / #666666 — ribbon uses Office neutrals above. */
+export const EXCEL_RIBBON_OWNLY_TEXT = "#1A1A1A";
 
-/** Human: login-screen $bg-secondary; Office ribbon tab strip. */
+/** Human: macOS toolbar borders (#EDEBE9) and group dividers (#E1DFDD). */
+export const EXCEL_RIBBON_BORDER = "#EDEBE9";
+export const EXCEL_RIBBON_GROUP_DIVIDER = "#E1DFDD";
+
+/** Human: Tab strip and search field backgrounds. */
 export const EXCEL_RIBBON_TAB_STRIP_BG = "#F3F2F1";
 export const EXCEL_RIBBON_CONTENT_BG = "#FFFFFF";
-export const EXCEL_RIBBON_HOVER = "#E5E5E5";
+export const EXCEL_RIBBON_HOVER = "#F3F2F1";
 export const EXCEL_RIBBON_ACTIVE_TAB = "#FFFFFF";
 
-/** Human: Office group caption under each ribbon cluster. */
+/** Human: Optional group caption (hidden in macOS pen layout). */
 export const EXCEL_RIBBON_GROUP_LABEL = "#605E5C";
 
-/** Human: Selected non-File tab indicator (Excel green underline). */
+/** Human: Selected tab green underline. */
 export const EXCEL_RIBBON_TAB_INDICATOR = "#107C41";
 
-/** Human: login-screen $font-sans — Inter matches Fluent UI fallback stack. */
+/** Human: Segoe UI / Inter stack from pen file. */
 export const EXCEL_RIBBON_FONT = "Inter, \"Segoe UI\", Calibri, Arial, sans-serif";
 
-/** Human: Standard Excel ribbon content height (~96px at 100% zoom). */
+/** Human: macOS toolbar heights from excel-editor-dialog.pen. */
+export const EXCEL_RIBBON_TITLE_BAR_HEIGHT_PX = 40;
 export const EXCEL_RIBBON_CONTENT_HEIGHT_PX = 96;
-export const EXCEL_RIBBON_TAB_HEIGHT_PX = 28;
+export const EXCEL_RIBBON_TAB_HEIGHT_PX = 32;
+export const EXCEL_RIBBON_GROUP_HEIGHT_PX = 72;

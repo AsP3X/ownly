@@ -1,7 +1,8 @@
 // Human: OOXML import/export for worksheet mergeCells regions.
-// Agent: PATCHES xl/worksheets/sheetN.xml; READS on parse; WRITES on serialize.
+// Agent: PATCHES xl/worksheets/*.xml via workbook rels; READS on parse; WRITES on serialize.
 
 import { columnIndexToLetters } from "@/lib/spreadsheet/cells";
+import { listWorksheetLinksByName } from "@/lib/spreadsheet/xlsx-sheet-links";
 import { patchXlsxZipEntries, readXlsxZipEntries } from "@/lib/spreadsheet/xlsx-ooxml";
 import type { MergedRegion, SheetData } from "@/lib/spreadsheet/types";
 
@@ -69,37 +70,45 @@ function parseMergeCellsFromWorksheet(xml: string): MergedRegion[] {
 }
 
 // Human: Import merged regions per sheet from worksheet XML.
-// Agent: READS mergeCells blocks; RETURNS map keyed by sheet name.
+// Agent: READS mergeCells blocks via workbook rels; RETURNS map keyed by sheet name.
 export async function importMergedRegionsFromXlsx(
   buffer: ArrayBuffer,
   sheetNames: string[],
 ): Promise<Map<string, MergedRegion[]>> {
   const entries = await readXlsxZipEntries(buffer);
+  const links = await listWorksheetLinksByName(buffer);
   const result = new Map<string, MergedRegion[]>();
 
-  sheetNames.forEach((name, index) => {
-    const path = `xl/worksheets/sheet${index + 1}.xml`;
-    const xml = new TextDecoder().decode(entries.get(path) ?? new Uint8Array());
+  for (const name of sheetNames) {
+    const link = links.get(name);
+    if (!link) continue;
+    const xml = new TextDecoder().decode(entries.get(link.sheetPath) ?? new Uint8Array());
     const regions = parseMergeCellsFromWorksheet(xml);
     if (regions.length > 0) result.set(name, regions);
-  });
+  }
 
   return result;
 }
 
 // Human: Export merged regions into worksheet XML on save.
-// Agent: PATCHES each sheet's mergeCells block from workbook model.
+// Agent: PATCHES only sheets with modeled mergedRegions; preserves OOXML when undefined.
 export async function exportMergedRegionsToXlsx(
   buffer: ArrayBuffer,
   sheets: SheetData[],
 ): Promise<ArrayBuffer> {
+  const links = await listWorksheetLinksByName(buffer);
+  const hasModeledMerges = sheets.some((sheet) => sheet.mergedRegions !== undefined);
+  if (!hasModeledMerges) return buffer;
+
   return patchXlsxZipEntries(buffer, (entries) => {
-    sheets.forEach((sheet, index) => {
-      const path = `xl/worksheets/sheet${index + 1}.xml`;
-      const original = new TextDecoder().decode(entries.get(path) ?? new Uint8Array());
-      if (!original) return;
-      const patched = upsertMergeCells(original, sheet.mergedRegions ?? []);
-      entries.set(path, new TextEncoder().encode(patched));
-    });
+    for (const sheet of sheets) {
+      if (sheet.mergedRegions === undefined) continue;
+      const link = links.get(sheet.name);
+      if (!link) continue;
+      const original = new TextDecoder().decode(entries.get(link.sheetPath) ?? new Uint8Array());
+      if (!original) continue;
+      const patched = upsertMergeCells(original, sheet.mergedRegions);
+      entries.set(link.sheetPath, new TextEncoder().encode(patched));
+    }
   });
 }
