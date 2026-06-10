@@ -140,16 +140,21 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   const getWorkbookForSave = useCallback((): SpreadsheetWorkbook | null => workbookRef.current, []);
 
   // Human: After a successful cloud save, point passthrough sourceBuffer at the uploaded bytes.
-  // Agent: UPDATES workbook + saved snapshot so the next save preserves prior OOXML parts.
-  const commitSavedBuffer = useCallback((buffer: ArrayBuffer) => {
-    setWorkbookState((current) => {
-      if (!current) return current;
-      const next = { ...current, sourceBuffer: buffer };
-      setSavedWorkbook(cloneWorkbook(next));
-      setUndoStack(createUndoStack(next));
-      return next;
-    });
-  }, []);
+  // Agent: UPDATES workbook + saved snapshot; OPTIONAL preserveUndo for silent autosave.
+  const commitSavedBuffer = useCallback(
+    (buffer: ArrayBuffer, options?: { preserveUndo?: boolean }) => {
+      setWorkbookState((current) => {
+        if (!current) return current;
+        const next = { ...current, sourceBuffer: buffer };
+        setSavedWorkbook(cloneWorkbook(next));
+        if (!options?.preserveUndo) {
+          setUndoStack(createUndoStack(next));
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   const isWorkbookDirty = useCallback(
     (candidate?: SpreadsheetWorkbook | null) => {

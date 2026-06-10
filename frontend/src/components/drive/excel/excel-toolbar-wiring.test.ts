@@ -49,6 +49,6 @@ describe("excel toolbar wiring", () => {
   it("debounces auto-save when AutoSave toggle is enabled", () => {
     expect(dialogSource).toContain("autoSaveEnabled");
     expect(dialogSource).toContain("void handleSave()");
-    expect(dialogSource).toMatch(/setTimeout\(\(\) => \{\s*void handleSave\(\)/);
+    expect(dialogSource).toMatch(/setTimeout\(\(\) => \{\s*void handleSave\(\{ silent: true \}\)/);
   });
 });

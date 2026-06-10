@@ -142,6 +142,10 @@ export function ExcelSpreadsheetDialog({
   const editor = useSpreadsheetEditor({ readOnly });
   const { loadWorkbook: loadEditorWorkbook, resetEditor } = editor;
   const flushGridDimensionsRef = useRef<(() => void) | null>(null);
+  // Human: Track which file id was loaded so replace-on-save does not re-fetch the workbook.
+  // Agent: SET after load/save; READ in open effect to skip disruptive reload.
+  const loadedFileIdRef = useRef<string | null>(null);
+  const skipReloadAfterSaveRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [ribbonTab, setRibbonTab] = useState<RibbonTabId>("home");
@@ -235,10 +239,20 @@ export function ExcelSpreadsheetDialog({
     [loadEditorWorkbook, resetEditor, sharePassword, shareToken],
   );
 
-  // Human: Defer fetch/parse to a microtask so setState is not synchronous inside the effect body.
-  // Agent: SATISFIES react-hooks/set-state-in-effect; LOADS when dialog opens or file id changes.
+  // Human: Load workbook when the dialog opens or user picks a different file — not after autosave.
+  // Agent: SKIPS reload when parent swaps file id after replace-on-save upload.
   useEffect(() => {
     if (!open || !file) return;
+
+    if (skipReloadAfterSaveRef.current) {
+      skipReloadAfterSaveRef.current = false;
+      loadedFileIdRef.current = file.id;
+      return;
+    }
+
+    if (loadedFileIdRef.current === file.id) return;
+
+    loadedFileIdRef.current = file.id;
     queueMicrotask(() => {
       void loadFile(file);
     });
@@ -247,6 +261,8 @@ export function ExcelSpreadsheetDialog({
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
+        loadedFileIdRef.current = null;
+        skipReloadAfterSaveRef.current = false;
         resetEditor();
         setLoadError("");
         setSaving(false);
@@ -333,6 +349,7 @@ export function ExcelSpreadsheetDialog({
       const result = await uploadFileWithProgress(nextFileObject, undefined, {
         folderId: file.folder_id,
       });
+      skipReloadAfterSaveRef.current = true;
       onFileSaved?.(file.id, result.file);
       handleDialogOpenChange(false);
     } catch (error) {
@@ -343,39 +360,44 @@ export function ExcelSpreadsheetDialog({
   }, [editor, file, handleDialogOpenChange, onFileSaved, readOnly]);
 
   // Human: Title-bar Save — persist workbook without closing the dialog.
-  // Agent: Same upload path as Save & Close; RETURNS early when read-only or clean.
-  const handleSave = useCallback(async () => {
-    flushGridDimensionsRef.current?.();
-    const workbook = editor.getWorkbookForSave();
-    if (!file || !workbook || readOnly || !editor.isWorkbookDirty(workbook)) return;
+  // Agent: Same upload path as Save & Close; silent mode for autosave (no reload, no saving banner).
+  const handleSave = useCallback(
+    async (options?: { silent?: boolean }) => {
+      flushGridDimensionsRef.current?.();
+      const workbook = editor.getWorkbookForSave();
+      if (!file || !workbook || readOnly || !editor.isWorkbookDirty(workbook)) return;
 
-    setSaving(true);
-    setSaveError("");
-    try {
-      const blob = await serializeSpreadsheetWorkbook(workbook);
-      const savedBuffer = await blob.arrayBuffer();
-      editor.commitSavedBuffer(savedBuffer);
-      const nextFileObject = new File([blob], file.name, {
-        type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      await deleteFile(file.id, { permanent: true });
-      const result = await uploadFileWithProgress(nextFileObject, undefined, {
-        folderId: file.folder_id,
-      });
-      onFileSaved?.(file.id, result.file);
-    } catch (error) {
-      setSaveError(getErrorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }, [editor, file, onFileSaved, readOnly]);
+      const silent = options?.silent ?? false;
+      if (!silent) setSaving(true);
+      setSaveError("");
+      try {
+        const blob = await serializeSpreadsheetWorkbook(workbook);
+        const savedBuffer = await blob.arrayBuffer();
+        editor.commitSavedBuffer(savedBuffer, { preserveUndo: silent });
+        const nextFileObject = new File([blob], file.name, {
+          type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        await deleteFile(file.id, { permanent: true });
+        const result = await uploadFileWithProgress(nextFileObject, undefined, {
+          folderId: file.folder_id,
+        });
+        skipReloadAfterSaveRef.current = true;
+        onFileSaved?.(file.id, result.file);
+      } catch (error) {
+        setSaveError(getErrorMessage(error));
+      } finally {
+        if (!silent) setSaving(false);
+      }
+    },
+    [editor, file, onFileSaved, readOnly],
+  );
 
   // Human: When AutoSave is on, debounce cloud save after dirty edits (title bar toggle).
   // Agent: READS autoSaveEnabled + editor.dirty; CALLS handleSave after 2s idle; SKIPS read-only.
   useEffect(() => {
     if (!autoSaveEnabled || readOnly || !editor.dirty || !open) return;
     const timer = window.setTimeout(() => {
-      void handleSave();
+      void handleSave({ silent: true });
     }, 2000);
     return () => window.clearTimeout(timer);
   }, [autoSaveEnabled, editor.dirty, handleSave, open, readOnly]);
