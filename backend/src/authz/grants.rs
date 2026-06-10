@@ -105,13 +105,12 @@ async fn validate_resource_exists(
     resource_id: Option<&str>,
 ) -> Result<(), AppError> {
     match resource_type {
-        "instance" => {
-            if resource_id.is_some() {
-                return Err(AppError::BadRequest(
-                    "instance grants must not include resource_id".into(),
-                ));
-            }
+        "instance" if resource_id.is_some() => {
+            return Err(AppError::BadRequest(
+                "instance grants must not include resource_id".into(),
+            ));
         }
+        "instance" => {}
         "folder" => {
             let id = resource_id.ok_or(AppError::BadRequest(
                 "folder grants require resource_id".into(),

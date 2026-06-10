@@ -353,7 +353,7 @@ pub fn apply_config(config: &LoggingConfig) -> Result<(), String> {
     let handle = FILTER_HANDLE
         .get()
         .ok_or_else(|| "logging subscriber is not initialized".to_string())?;
-    let filter = EnvFilter::try_new(&config.to_env_filter_string())
+    let filter = EnvFilter::try_new(config.to_env_filter_string())
         .map_err(|error| format!("invalid logging filter: {error}"))?;
     handle
         .reload(filter)

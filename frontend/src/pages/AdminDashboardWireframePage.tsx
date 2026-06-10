@@ -59,6 +59,12 @@ export default function AdminDashboardWireframePage() {
   // Agent: CALLS useAdminUrlState; WRITES ADMIN_SECTION_PARAM when sidebar changes.
   useAdminUrlState(activeNav, setActiveNav);
 
+  const initials = userInitials(user?.email);
+  const displayName = useMemo(
+    () => (user?.email ? displayNameFromEmail(user.email) : "Administrator"),
+    [user?.email],
+  );
+
   // Human: Admin console requires any instance.* grant or legacy JWT admin role (Phase 1 compat).
   // Agent: READS hasAnyInstanceAccess + user.role; NAVIGATE away when neither holds.
   if (
@@ -72,12 +78,6 @@ export default function AdminDashboardWireframePage() {
   if (visibleNav.length === 0) {
     return <Navigate to="/" replace />;
   }
-
-  const initials = userInitials(user?.email);
-  const displayName = useMemo(
-    () => (user?.email ? displayNameFromEmail(user.email) : "Administrator"),
-    [user?.email],
-  );
   const roleLabel = userRoleLabel(user?.role);
   const activeNavLabel =
     ADMIN_NAV.find((item) => item.id === activeNav)?.label ?? "Overview";

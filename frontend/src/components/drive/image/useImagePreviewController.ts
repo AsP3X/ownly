@@ -518,11 +518,10 @@ export function useImagePreviewController({
         }
         setError(getErrorMessage(err));
       } finally {
-        if (cancelled || !isCacheSessionActive(session) || activeFileIdRef.current !== requestFileId) {
-          return;
+        if (!cancelled && isCacheSessionActive(session) && activeFileIdRef.current === requestFileId) {
+          setLoading(false);
+          refreshAdjacentUrlsIfChanged();
         }
-        setLoading(false);
-        refreshAdjacentUrlsIfChanged();
       }
 
       await Promise.all(

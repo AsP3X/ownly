@@ -1944,8 +1944,7 @@ pub async fn list_shared_by_me(
             .bind(&claims.sub)
             .fetch_optional(&state.pool)
             .await?;
-            row.map(|(name, mime, size)| (name, mime, size))
-                .unwrap_or((resource.resource_id.clone(), None, 0))
+            row.unwrap_or((resource.resource_id.clone(), None, 0))
         } else {
             type FolderMeta = (String,);
             let row: Option<FolderMeta> = sqlx::query_as(

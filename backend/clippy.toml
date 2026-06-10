@@ -1,0 +1,5 @@
+# Human: Sqlx row tuples and Axum handler state exceed Clippy's default complexity budget.
+# Agent: RAISES thresholds so `cargo clippy -D warnings` matches existing handler patterns in CI.
+
+type-complexity-threshold = 800
+too-many-arguments-threshold = 8

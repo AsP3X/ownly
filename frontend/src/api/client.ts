@@ -1272,8 +1272,8 @@ export async function downloadFolderItem(
 ): Promise<{ method: DownloadMethod; archiveName: string }> {
   await startFolderDownload(folder.id);
 
-  let archiveName = `${folder.name}.zip`;
-  let sizeBytes = 0;
+  let archiveName!: string;
+  let sizeBytes!: number;
 
   for (;;) {
     const status = await fetchFolderDownloadStatus(folder.id);
@@ -1329,8 +1329,8 @@ export async function downloadBulkFiles(
 ): Promise<{ method: DownloadMethod; archiveName: string; jobId: string }> {
   const started = await startBulkDownload(files.map((file) => file.id));
   onJobStarted?.(started.job_id);
-  let archiveName = started.archive_name;
-  let sizeBytes = 0;
+  let archiveName!: string;
+  let sizeBytes!: number;
 
   for (;;) {
     const status = await fetchBulkDownloadStatus(started.job_id);
@@ -2591,7 +2591,7 @@ export async function downloadFileItem(
 ): Promise<{ method: DownloadMethod }> {
   const token = getToken();
   let presignedUrl: string | null = null;
-  let lastError: unknown = null;
+  let lastError: unknown;
 
   const hlsVideo = isHlsStoredVideo(file);
   let downloadName = file.name;
@@ -2612,10 +2612,11 @@ export async function downloadFileItem(
     saveBlobAsFile(blob, downloadName);
     return { method: "api-blob" };
   } catch (error) {
-    lastError = error;
     if (error instanceof ApiError && error.message.includes("cancelled")) {
       throw error;
     }
+    // Human: API-proxy download failed — fall through to presigned/direct paths below.
+    // Agent: SKIPS storing error here; lastError is set only when fallback paths also fail.
   }
 
   try {
@@ -2626,13 +2627,17 @@ export async function downloadFileItem(
       saveBlobAsFile(blob, downloadName);
       return { method: "presigned-blob" };
     } catch (error) {
-      lastError = error;
       if (error instanceof ApiError && error.message.includes("cancelled")) {
         throw error;
       }
+      lastError = error;
     }
   } catch (error) {
-    lastError = error;
+    if (!(error instanceof ApiError && error.message.includes("cancelled"))) {
+      lastError = error;
+    } else {
+      throw error;
+    }
   }
 
   if (presignedUrl) {
@@ -2643,7 +2648,7 @@ export async function downloadFileItem(
 
   throw lastError instanceof Error
     ? lastError
-    : new ApiError(getErrorMessage(lastError), "download_failed", 0);
+    : new ApiError(getErrorMessage(lastError ?? "Download failed"), "download_failed", 0);
 }
 
 export async function versionInfo() {

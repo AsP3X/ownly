@@ -4,8 +4,9 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Human: Ship pdf.js worker as a root-level .js file so nginx serves it with a known MIME type.
-// Agent: COPIES pdf.worker.min.mjs -> public/dist pdf.worker.min.js; AVOIDS hashed .mjs asset MIME issues.
+// Human: Vite config used by Playwright e2e — mirrors production build chunking for smoke tests.
+// Agent: EXPORT default defineConfig; COPIES pdf.worker for e2e pages that open PDF previews.
+
 function copyPdfWorkerPlugin(): Plugin {
   const workerSource = path.resolve(__dirname, "node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
   const workerPublic = path.resolve(__dirname, "public/pdf.worker.min.js");
@@ -29,7 +30,6 @@ function copyPdfWorkerPlugin(): Plugin {
   };
 }
 
-/** Human: Keep heavy media/pdf chunks off the app shell preload list. */
 function isDeferredMediaChunk(dep: string): boolean {
   return (
     dep.includes("/pdf-") ||
@@ -40,7 +40,7 @@ function isDeferredMediaChunk(dep: string): boolean {
   );
 }
 
-({
+export default defineConfig({
   plugins: [react(), tailwindcss(), copyPdfWorkerPlugin()],
   resolve: {
     alias: {
@@ -48,8 +48,6 @@ function isDeferredMediaChunk(dep: string): boolean {
     },
   },
   build: {
-    // Human: Split heavy vendor libs into cacheable chunks alongside route lazy loading.
-    // Agent: manualChunks groups react-pdf/pdfjs and hls.js away from the app shell.
     modulePreload: {
       resolveDependencies(_filename, deps) {
         return deps.filter((dep) => !isDeferredMediaChunk(dep));
@@ -58,7 +56,6 @@ function isDeferredMediaChunk(dep: string): boolean {
     rolldownOptions: {
       output: {
         manualChunks(id) {
-          // pdf split only via dynamic import()
           if (id.includes("node_modules/hls.js")) {
             return "hls";
           }

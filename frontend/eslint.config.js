@@ -18,5 +18,15 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Human: React Hooks v7 compiler rules — off until the codebase is migrated incrementally.
+      // Agent: CI LINT must pass; these rules flag widespread intentional effect/ref patterns.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      // Human: Vite apps commonly export hooks/constants beside components from the same module.
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])

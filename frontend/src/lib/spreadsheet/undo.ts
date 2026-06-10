@@ -27,7 +27,8 @@ export function cloneWorkbook(workbook: SpreadsheetWorkbook): SpreadsheetWorkboo
 // Human: Stable JSON fingerprint for dirty detection — excludes non-serializable sourceBuffer.
 // Agent: USED by useSpreadsheetEditor isWorkbookDirty.
 export function workbookDirtyFingerprint(workbook: SpreadsheetWorkbook): string {
-  const { sourceBuffer: _source, ...serializable } = workbook;
+  const { sourceBuffer, ...serializable } = workbook;
+  void sourceBuffer;
   return JSON.stringify(serializable);
 }
 

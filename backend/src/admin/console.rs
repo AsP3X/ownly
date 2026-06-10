@@ -155,11 +155,11 @@ async fn build_workload_diagnostics(pool: &PgPool) -> Result<Vec<AdminOverviewWo
     }
 
     let mut workload = Vec::with_capacity(8);
-    for slot in 0usize..8 {
+    for (slot, count) in counts.into_iter().enumerate() {
         let label_time = since + Duration::seconds((slot as i64) * SLOT_SECONDS);
         workload.push(AdminOverviewWorkloadBar {
             label: label_time.format("%H:%M").to_string(),
-            value: counts[slot],
+            value: count,
         });
     }
     Ok(workload)

@@ -83,7 +83,10 @@ pub fn normalize_upload_filename(name: &str) -> Result<String, AppError> {
         ));
     }
 
-    let basename = std::path::Path::new(trimmed)
+    // Human: Browsers on Unix may send Windows-style paths — normalize `\` before taking the basename.
+    // Agent: REPLACES backslashes so `C:\dir\file.html` yields `file.html` in CI/Linux uploads.
+    let normalized = trimmed.replace('\\', "/");
+    let basename = std::path::Path::new(&normalized)
         .file_name()
         .and_then(|segment| segment.to_str())
         .unwrap_or(trimmed);

@@ -619,9 +619,9 @@ pub async fn upload_file(
         .to_string();
     // Human: Prefer filename-based MIME when clients spoof video/* on non-video uploads.
     // Agent: PREVENTS text/html and other documents from inheriting a forged Content-Type header.
-    let mime = if content_type.is_empty() {
-        guessed_mime
-    } else if content_type.starts_with("video/") && !guessed_mime.starts_with("video/") {
+    let mime = if content_type.is_empty()
+        || (content_type.starts_with("video/") && !guessed_mime.starts_with("video/"))
+    {
         guessed_mime
     } else {
         content_type
