@@ -4,8 +4,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCellStylePatch,
+  cellFontSizeCss,
   cellStyleFromXlsx,
   clearCellStylePatch,
+  DEFAULT_CELL_FONT_SIZE_PT,
+  resolveCellFontSizePt,
+  ribbonFontSizeOptions,
+  ribbonFontSizeSelectValue,
 } from "@/lib/spreadsheet/cell-styles";
 import { xlsxFormatCodeFromStyle } from "@/lib/spreadsheet/number-formats";
 
@@ -32,6 +37,19 @@ describe("applyCellStylePatch", () => {
       clearCellStylePatch(),
     );
     expect(result).toEqual({});
+  });
+});
+
+describe("font size display", () => {
+  it("defaults to Excel 11pt when style has no fontSize", () => {
+    expect(resolveCellFontSizePt(undefined)).toBe(DEFAULT_CELL_FONT_SIZE_PT);
+    expect(ribbonFontSizeSelectValue(undefined)).toBe(11);
+    expect(cellFontSizeCss(undefined)).toBe("11pt");
+  });
+
+  it("includes non-preset imported sizes in ribbon options", () => {
+    const options = ribbonFontSizeOptions(13);
+    expect(options.some((entry) => entry.value === 13)).toBe(true);
   });
 });
 

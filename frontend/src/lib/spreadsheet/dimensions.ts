@@ -2,6 +2,7 @@
 // Agent: READS SheetJS !cols/!rows; WRITES display px arrays; RETURNS auto-fit widths/heights for grid.
 
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
+import { cellFontSizePx } from "@/lib/spreadsheet/cell-styles";
 import type { SheetCell, SheetData } from "@/lib/spreadsheet/types";
 import type * as XLSX from "xlsx";
 
@@ -223,7 +224,6 @@ function measureTextWidth(text: string, fontSize: number, bold: boolean): number
 // Human: Auto-fit one column to its widest cell content (Excel double-click column divider).
 // Agent: SCANS rows[colIndex]; RETURNS clamped display width including cell padding.
 export function autoFitColumnWidth(rows: SheetCell[][], colIndex: number): number {
-  const fontSize = scaledPx(12);
   const badgeFontSize = scaledPx(10);
   const horizontalPadding = scaledPx(16);
 
@@ -232,7 +232,7 @@ export function autoFitColumnWidth(rows: SheetCell[][], colIndex: number): numbe
     const cell = row[colIndex];
     if (!cell?.display) continue;
     const bold = Boolean(cell.style?.bold);
-    const width = measureTextWidth(cell.display, fontSize, bold) + horizontalPadding;
+    const width = measureTextWidth(cell.display, cellFontSizePx(cell.style), bold) + horizontalPadding;
     maxContent = Math.max(maxContent, width);
     if (cell.style?.isHeaderRow) {
       const badgeWidth = measureTextWidth(cell.display, badgeFontSize, true) + scaledPx(16);
@@ -251,7 +251,6 @@ export function autoFitRowHeight(
   columnWidths: number[],
 ): number {
   const row = rows[rowIndex] ?? [];
-  const fontSize = scaledPx(12);
   const lineHeight = scaledPx(16);
   const verticalPadding = scaledPx(8);
   const minHeight = GRID_MIN_ROW_HEIGHT;
@@ -261,7 +260,11 @@ export function autoFitRowHeight(
     if (!cell?.display) return;
     const colWidth = columnWidths[colIndex] ?? GRID_DEFAULT_COL_WIDTH;
     const innerWidth = Math.max(colWidth - scaledPx(16), scaledPx(20));
-    const textWidth = measureTextWidth(cell.display, fontSize, Boolean(cell.style?.bold));
+    const textWidth = measureTextWidth(
+      cell.display,
+      cellFontSizePx(cell.style),
+      Boolean(cell.style?.bold),
+    );
     const lines = Math.max(1, Math.ceil(textWidth / innerWidth));
     maxLines = Math.max(maxLines, lines);
   });

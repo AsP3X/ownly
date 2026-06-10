@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { flushSync } from "react-dom";
 import { cellAddressLabel, columnIndexToLetters, statusBadgeTone } from "@/lib/spreadsheet/cells";
 import {
+  cellFontSizeCss,
   horizontalAlignJustifyClass,
   resolveFontWeight,
   resolveHorizontalAlign,
@@ -183,7 +184,7 @@ function CellContent({
         horizontalAlign === "right" && "text-right",
       )}
       style={{
-        fontSize: cell.style?.fontSize ?? scaledPx(12),
+        fontSize: cellFontSizeCss(cell.style),
         fontFamily: cell.style?.fontFamily,
         color: cf?.textColor ?? cell.style?.textColor ?? (cell.hyperlink ? "#2563EB" : "#1A1A1A"),
         fontWeight: resolveFontWeight(cell.style, { headerRow, conditionalBold: cf?.bold }),
@@ -788,7 +789,7 @@ export function ExcelSpreadsheetGrid({
                             onBlur={() => onCommitEdit()}
                             onKeyDown={(event) => event.stopPropagation()}
                             className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
-                            style={{ fontSize: cell.style?.fontSize ?? scaledPx(12) }}
+                            style={{ fontSize: cellFontSizeCss(cell.style) }}
                             aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                           />
                         ) : null}
@@ -916,7 +917,7 @@ export function ExcelSpreadsheetGrid({
                           onBlur={() => onCommitEdit()}
                           onKeyDown={(event) => event.stopPropagation()}
                           className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
-                          style={{ fontSize: cell.style?.fontSize ?? scaledPx(12) }}
+                          style={{ fontSize: cellFontSizeCss(cell.style) }}
                           aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                         />
                       ) : null}

@@ -44,6 +44,10 @@ import type {
   NumberFormat,
   VerticalAlign,
 } from "@/lib/spreadsheet/types";
+import {
+  ribbonFontSizeOptions,
+  ribbonFontSizeSelectValue,
+} from "@/lib/spreadsheet/cell-styles";
 import { RIBBON_NUMBER_FORMAT_OPTIONS } from "@/lib/spreadsheet/number-formats";
 import {
   ExcelConditionalFormatMenu,
@@ -264,7 +268,8 @@ function HomeTabPanel({
   const sz = iconSize();
   const sm = scaledPx(14);
   const setAlign = (horizontalAlign: HorizontalAlign) => onStyleChange({ horizontalAlign });
-  const currentSize = cellStyle.fontSize ?? 11;
+  const currentSize = ribbonFontSizeSelectValue(cellStyle);
+  const fontSizeOptions = ribbonFontSizeOptions(currentSize);
 
   const bumpFontSize = (delta: number) => {
     const next = Math.min(72, Math.max(8, currentSize + delta));
@@ -342,10 +347,7 @@ function HomeTabPanel({
               width={36}
               value={currentSize}
               onChange={(value) => onStyleChange({ fontSize: Number(value) })}
-              options={[8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((size) => ({
-                value: size,
-                label: String(size),
-              }))}
+              options={fontSizeOptions}
             />
             <RibbonToggleButton ariaLabel="Increase font size" disabled={readOnly} onClick={() => bumpFontSize(1)}>
               <span style={{ fontSize: scaledPx(10), fontWeight: 600 }}>A^</span>

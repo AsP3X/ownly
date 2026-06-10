@@ -112,6 +112,49 @@ export function replaceCellStyleOnCell(cell: SheetCell, style: CellStyle): Sheet
   return applyStylePatchToCell(cleared, style);
 }
 
+// Human: Excel default body font size in points (matches ribbon Font size dropdown default).
+// Agent: USED when cell.style.fontSize is unset after import or clear-formatting.
+export const DEFAULT_CELL_FONT_SIZE_PT = 11;
+
+// Human: Effective font size in Excel points for ribbon display and grid rendering.
+// Agent: READS cell.style.fontSize from import/ribbon; FALLBACK 11pt like Excel Calibri default.
+export function resolveCellFontSizePt(style?: CellStyle): number {
+  const size = style?.fontSize;
+  if (typeof size === "number" && Number.isFinite(size) && size > 0) {
+    return size;
+  }
+  return DEFAULT_CELL_FONT_SIZE_PT;
+}
+
+// Human: CSS font-size string using pt units so grid matches Excel point sizes.
+// Agent: RENDERED on cell text spans in ExcelSpreadsheetGrid.
+export function cellFontSizeCss(style?: CellStyle): string {
+  return `${resolveCellFontSizePt(style)}pt`;
+}
+
+// Human: Convert Excel points to CSS pixels for canvas text measurement (96 dpi).
+// Agent: USED by dimensions auto-fit helpers.
+export function cellFontSizePx(style?: CellStyle): number {
+  return resolveCellFontSizePt(style) * (96 / 72);
+}
+
+// Human: Rounded point size for the ribbon Font size select value attribute.
+// Agent: MATCHES option list; INCLUDES non-preset sizes via ribbonFontSizeOptions.
+export function ribbonFontSizeSelectValue(style?: CellStyle): number {
+  return Math.round(resolveCellFontSizePt(style));
+}
+
+// Human: Font size dropdown entries — always includes the active cell size when non-standard.
+// Agent: PREVENTS blank select when imported xlsx uses sizes outside the preset list.
+export function ribbonFontSizeOptions(currentPt: number): Array<{ value: number; label: string }> {
+  const presets = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+  const display = Math.round(currentPt);
+  const sizes = presets.includes(display)
+    ? presets
+    : [...new Set([...presets, display])].sort((first, second) => first - second);
+  return sizes.map((size) => ({ value: size, label: String(size) }));
+}
+
 // Human: Resolve effective horizontal alignment like Excel (explicit style beats type defaults).
 // Agent: RETURNS left for text, right for numbers, center when set on style.
 export function resolveHorizontalAlign(cell: SheetCell): HorizontalAlign {
