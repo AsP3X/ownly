@@ -5,11 +5,18 @@
 x-ownly-logging: &ownly-logging
   RUST_LOG: ${RUST_LOG:-debug}
 
-# Human: App mesh — postgres, API, storage, and nginx proxy_pass targets share this network.
-# Agent: ATTACH all inter-service DNS names here; NOT the external reverse-proxy network alone.
+# Human: Private app mesh — database and object storage stay here only (not on proxy-network).
+# Agent: ATTACH postgres + object-storage; backend/frontend also join for internal DNS (postgres, object-storage, backend).
 x-ownly-internal-networks: &ownly-internal-networks
   networks:
     - ownly-internal
+
+# Human: Services published through the external reverse proxy (Traefik/Caddy/nginx-proxy).
+# Agent: DUAL-HOME backend + frontend on ownly-internal and proxy-network; NOT postgres or object-storage.
+x-ownly-proxy-networks: &ownly-proxy-networks
+  networks:
+    - ownly-internal
+    - proxy-network
 
 x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
   JWT_SECRET: ownly-compose-local-dev-jwt-secret-not-for-production
@@ -103,7 +110,7 @@ services:
       start_period: 120s
 
   backend:
-    <<: *ownly-internal-networks
+    <<: *ownly-proxy-networks
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -161,11 +168,7 @@ services:
         condition: service_healthy
 
   frontend:
-    # Human: Join proxy-network for Traefik/Caddy/nginx-proxy; ownly-internal for API and /media upstreams.
-    # Agent: DUAL-HOMED; external proxy reaches frontend:80 on proxy-network; nginx still proxies backend/object-storage on ownly-internal.
-    networks:
-      - ownly-internal
-      - proxy-network
+    <<: *ownly-proxy-networks
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -198,6 +201,6 @@ networks:
     driver: bridge
     internal: false
   # Human: Pre-create before first up: docker network create proxy-network
-  # Agent: EXTERNAL; reverse proxy stack attaches here to publish frontend without host port 8080.
+  # Agent: EXTERNAL; reverse proxy routes to frontend:80 and/or backend:3000 — not postgres or object-storage.
   proxy-network:
     external: true
