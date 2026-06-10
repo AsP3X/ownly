@@ -888,6 +888,10 @@ export type FileItem = {
   hls_encode_error?: string | null;
   conversion_progress: number;
   duration_seconds?: number | null;
+  /** Intrinsic width probed during HLS ingest — hints player shell before stream metadata loads. */
+  video_width?: number | null;
+  /** Intrinsic height probed during HLS ingest — hints player shell before stream metadata loads. */
+  video_height?: number | null;
   audio_waveform_ready?: boolean;
   audio_encode_status?: string | null;
   audio_encode_error?: string | null;

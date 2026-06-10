@@ -193,6 +193,51 @@ async fn probe_stream_codec(path: &Path, selector: &str) -> Option<String> {
     }
 }
 
+/// Human: Intrinsic pixel size of the primary video stream — used for player aspect hints in the API.
+/// Agent: SPAWNS ffprobe on v:0 width/height; RETURNS None when probe fails or values are invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VideoDimensions {
+    pub width: i32,
+    pub height: i32,
+}
+
+pub async fn probe_video_dimensions(path: &Path) -> Option<VideoDimensions> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            path.to_str().unwrap_or(""),
+        ])
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_video_dimensions_line(&String::from_utf8_lossy(&output.stdout))
+}
+
+// Human: Parse ffprobe csv `width x height` output into positive pixel dimensions.
+// Agent: RETURNS None for empty, malformed, or non-positive values; UNIT-TESTED without ffprobe.
+pub fn parse_video_dimensions_line(raw: &str) -> Option<VideoDimensions> {
+    let trimmed = raw.trim();
+    let (width_raw, height_raw) = trimmed.split_once('x')?;
+    let width: i32 = width_raw.trim().parse().ok()?;
+    let height: i32 = height_raw.trim().parse().ok()?;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    Some(VideoDimensions { width, height })
+}
+
 pub async fn probe_duration_seconds(path: &Path) -> i32 {
     let output = Command::new("ffprobe")
         .args([
@@ -257,6 +302,26 @@ mod tests {
         assert!(needs_hls_segment_align(Some(23.976)));
         assert!(!needs_hls_segment_align(Some(30.0)));
         assert!(!needs_hls_segment_align(None));
+    }
+
+    #[test]
+    fn parse_video_dimensions_line_accepts_positive_sizes() {
+        assert_eq!(
+            parse_video_dimensions_line("1080x1920"),
+            Some(VideoDimensions {
+                width: 1080,
+                height: 1920
+            })
+        );
+        assert_eq!(
+            parse_video_dimensions_line(" 1920x1080 \n"),
+            Some(VideoDimensions {
+                width: 1920,
+                height: 1080
+            })
+        );
+        assert_eq!(parse_video_dimensions_line("0x1080"), None);
+        assert_eq!(parse_video_dimensions_line("bad"), None);
     }
 
     #[test]

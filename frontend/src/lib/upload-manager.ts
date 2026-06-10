@@ -28,6 +28,10 @@ import {
 
 } from "@/api/client";
 
+import {
+  publishUploadBatchSnapshot,
+  readUploadBatchSnapshot,
+} from "@/lib/upload-batch-snapshot";
 import { createClientId } from "@/lib/utils-app";
 import {
   acquirePipelineStage,
@@ -172,10 +176,6 @@ type InternalUploadBatch = {
 
 let batch: InternalUploadBatch | null = null;
 
-// Human: Stable snapshot reference for useSyncExternalStore — rebuilt only in emitBatch.
-// Agent: getUploadBatch READS this pointer; WRITES emitBatch; PREVENTS React #185 update loops.
-let cachedBatchSnapshot: UploadBatchSnapshot | null = null;
-
 let restoreStarted = false;
 
 const batchListeners = new Set<UploadBatchListener>();
@@ -300,13 +300,14 @@ function persistBatchToStorage() {
 
 function emitBatch() {
 
-  cachedBatchSnapshot = toBatchSnapshot();
+  const snapshot = toBatchSnapshot();
+  publishUploadBatchSnapshot(snapshot);
 
   persistBatchToStorage();
 
   for (const listener of batchListeners) {
 
-    listener(cachedBatchSnapshot);
+    listener(snapshot);
 
   }
 
@@ -1180,7 +1181,7 @@ export function subscribeUploadBatch(listener: UploadBatchListener) {
 
   batchListeners.add(listener);
 
-  listener(toBatchSnapshot());
+  listener(readUploadBatchSnapshot());
 
   return () => {
 
@@ -1350,7 +1351,7 @@ export function removeUploadBatchItem(itemId: string) {
 
 export function getUploadBatch(): UploadBatchSnapshot | null {
 
-  return cachedBatchSnapshot;
+  return readUploadBatchSnapshot();
 
 }
 

@@ -2,6 +2,7 @@
 // Agent: POST preview/migrate endpoints; POLL status; EMIT job/preview/result dialog subscribers.
 
 import {
+  ApiError,
   cancelStorageMigrationRun,
   dismissStorageMigrationRun,
   fetchStorageMigrationStatus,
@@ -306,7 +307,12 @@ export async function restoreStorageMigrationFromServer() {
     if (run.status === "running") {
       startPolling();
     }
-  } catch {
+  } catch (error) {
+    // Human: Older deployments may not expose the migration status route — treat 404 as unavailable.
+    // Agent: SKIPS console noise from fetchStorageMigrationStatus when the admin API is not shipped.
+    if (!(error instanceof ApiError && error.status === 404)) {
+      console.warn("[storage-migration] restore failed", error);
+    }
     activeJob = null;
     emitJob();
     restorePreviewFromSession();

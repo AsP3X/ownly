@@ -37,8 +37,15 @@ export function PublicShareInlineVideo({
   onStreamError,
 }: PublicShareInlineVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const naturalSize = useVideoNaturalSize(videoRef, file.id);
-  const inlineAspectClass = resolveInlineVideoAspectClass(naturalSize?.isVertical ?? null);
+  const { naturalSize, setVideoRef } = useVideoNaturalSize({
+    videoRef,
+    fileId: file.id,
+    serverWidth: file.video_width,
+    serverHeight: file.video_height,
+  });
+  const inlineAspectClass = resolveInlineVideoAspectClass(
+    naturalSize?.orientation ?? null,
+  );
   const inlineAspectStyle = naturalSize
     ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
     : undefined;
@@ -85,10 +92,10 @@ export function PublicShareInlineVideo({
       </div>
       <div
         className={cn("relative bg-black", inlineAspectClass)}
-        data-video-orientation={naturalSize?.isVertical ? "vertical" : "horizontal"}
+        data-video-orientation={naturalSize?.orientation ?? "landscape"}
         style={inlineAspectStyle}
       >
-        <video ref={videoRef} className="size-full object-contain" controls playsInline />
+        <video ref={setVideoRef} className="size-full object-contain" controls playsInline />
         {streamLoading ? (
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 text-sm text-white">
             <Loader2 className="size-5 animate-spin" />

@@ -29,6 +29,10 @@ pub struct FileListItem {
     pub hls_encode_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_seconds: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_height: Option<i32>,
     pub conversion_progress: i32,
     pub share_public: bool,
     pub audio_waveform_ready: bool,
@@ -172,10 +176,21 @@ pub(crate) fn file_list_select_columns(minimal: bool) -> String {
     } else {
         "f.duration_seconds"
     };
+    let video_width_col = if minimal {
+        "NULL::INT AS video_width"
+    } else {
+        "f.video_width"
+    };
+    let video_height_col = if minimal {
+        "NULL::INT AS video_height"
+    } else {
+        "f.video_height"
+    };
 
     format!(
         "f.id, f.name, f.mime_type, f.size_bytes, f.folder_id, f.created_at, f.updated_at, \
          f.hls_ready, f.hls_encode_status, {hls_error_col}, f.conversion_progress, {duration_col}, \
+         {video_width_col}, {video_height_col}, \
          f.audio_waveform_ready, f.audio_encode_status, {audio_error_col}, \
          f.video_thumbnail_ready, f.video_thumbnail_status, {thumbnail_error_col}, \
          f.video_thumbnail_progress, f.video_thumbnail_selected_index, \

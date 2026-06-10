@@ -20,9 +20,8 @@ import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
 import {
+  resolveMobileVideoShellClass,
   resolveVideoAspectRatioStyle,
-  videoMobileLandscapeVideoShellClass,
-  videoMobileVerticalVideoShellClass,
 } from "@/components/drive/video/video-player-layout";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
@@ -80,10 +79,15 @@ export function VideoPlayerSurfaceMobile({
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
 
-  // Human: Portrait phone + vertical source — taller column instead of the landscape preview band.
+  // Human: Portrait phone shell follows source orientation — landscape band, square box, or vertical column.
   // Agent: READS useVideoNaturalSize; video-landscape still full-bleeds regardless of source orientation.
-  const naturalSize = useVideoNaturalSize(videoRef, file.id);
-  const isVerticalVideo = naturalSize?.isVertical ?? false;
+  const { naturalSize, setVideoRef } = useVideoNaturalSize({
+    videoRef,
+    fileId: file.id,
+    serverWidth: file.video_width,
+    serverHeight: file.video_height,
+  });
+  const orientation = naturalSize?.orientation ?? "landscape";
   const shellAspectStyle = naturalSize
     ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
     : undefined;
@@ -91,14 +95,12 @@ export function VideoPlayerSurfaceMobile({
   return (
     <div
       ref={shellRef}
-      data-video-orientation={isVerticalVideo ? "vertical" : "horizontal"}
+      data-video-orientation={orientation}
       style={isFullscreen ? undefined : shellAspectStyle}
       className={cn(
         "relative w-full shrink-0 touch-manipulation overflow-hidden bg-black",
-        // Human: Pencil Mobile Portrait — landscape band or vertical column based on source aspect.
-        isVerticalVideo
-          ? videoMobileVerticalVideoShellClass
-          : videoMobileLandscapeVideoShellClass,
+        // Human: Pencil Mobile Portrait — shell class from landscape/square/portrait orientation.
+        resolveMobileVideoShellClass(orientation),
         // Human: Pencil Mobile Landscape — full-bleed overrides when data-video-layout=landscape.
         "video-landscape:mx-0 video-landscape:flex video-landscape:h-full video-landscape:min-h-0 video-landscape:w-full video-landscape:max-h-none video-landscape:max-w-none video-landscape:flex-1 video-landscape:shrink video-landscape:flex-col video-landscape:aspect-auto",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-1 flex-col",
@@ -107,7 +109,7 @@ export function VideoPlayerSurfaceMobile({
       )}
     >
       <video
-        ref={videoRef}
+        ref={setVideoRef}
         className="relative z-0 size-full bg-black object-contain video-landscape:min-h-0 video-landscape:flex-1"
         playsInline
         onClick={isFullscreen ? undefined : togglePlay}

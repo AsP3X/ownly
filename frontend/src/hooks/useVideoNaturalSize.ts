@@ -1,97 +1,103 @@
-// Human: Read intrinsic video dimensions from the <video> element for orientation-aware player shells.
-// Agent: LISTENS loadedmetadata/resize on videoRef; RESETS on fileId change; RETURNS width/height/isVertical.
+// Human: Read intrinsic video dimensions — server metadata first, then <video> element events.
+// Agent: RETURNS merged naturalSize + setVideoRef callback; AVOIDS polling timers on late ref attach.
 
-import { useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  readServerVideoNaturalSize,
+  toVideoNaturalSize,
+  type VideoNaturalSize,
+} from "@/components/drive/video/video-player-layout";
 
-export type VideoNaturalSize = {
-  width: number;
-  height: number;
-  isVertical: boolean;
-};
-
-function readVideoNaturalSize(video: HTMLVideoElement | null): VideoNaturalSize | null {
-  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return null;
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  return { width, height, isVertical: height > width };
-}
+export type { VideoNaturalSize };
 
 type VideoNaturalSizeState = {
   fileId: string;
   size: VideoNaturalSize;
 };
 
-export function useVideoNaturalSize(
-  videoRef: RefObject<HTMLVideoElement | null>,
-  fileId: string,
-): VideoNaturalSize | null {
-  const [sizeState, setSizeState] = useState<VideoNaturalSizeState | null>(null);
+function readVideoNaturalSize(video: HTMLVideoElement | null): VideoNaturalSize | null {
+  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return null;
+  return toVideoNaturalSize(video.videoWidth, video.videoHeight);
+}
 
-  useEffect(() => {
-    let disposed = false;
-    let detach: (() => void) | undefined;
-    let retryTimer: number | undefined;
+type UseVideoNaturalSizeOptions = {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  fileId: string;
+  serverWidth?: number | null;
+  serverHeight?: number | null;
+};
 
-    const commitSize = (next: VideoNaturalSize) => {
-      if (disposed) return;
-      setSizeState((prev) => {
-        if (
-          prev?.fileId === fileId &&
-          prev.size.width === next.width &&
-          prev.size.height === next.height
-        ) {
-          return prev;
-        }
-        return { fileId, size: next };
-      });
-    };
+// Human: Merge server-stored dimensions with live element metadata for orientation-aware shells.
+// Agent: CALLS setVideoRef on <video>; PREFERS element size once loadedmetadata provides pixels.
+export function useVideoNaturalSize({
+  videoRef,
+  fileId,
+  serverWidth,
+  serverHeight,
+}: UseVideoNaturalSizeOptions): {
+  naturalSize: VideoNaturalSize | null;
+  setVideoRef: (node: HTMLVideoElement | null) => void;
+} {
+  const [elementSize, setElementSize] = useState<VideoNaturalSizeState | null>(null);
+  const detachRef = useRef<(() => void) | null>(null);
 
-    const attach = (video: HTMLVideoElement) => {
-      detach?.();
+  const serverSize = useMemo(
+    () => readServerVideoNaturalSize(serverWidth, serverHeight),
+    [serverHeight, serverWidth],
+  );
+
+  const setVideoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      videoRef.current = node;
+      detachRef.current?.();
+      detachRef.current = null;
+      setElementSize(null);
+
+      if (!node) return;
+
+      const commitSize = (next: VideoNaturalSize) => {
+        setElementSize((prev) => {
+          if (
+            prev?.fileId === fileId &&
+            prev.size.width === next.width &&
+            prev.size.height === next.height &&
+            prev.size.orientation === next.orientation
+          ) {
+            return prev;
+          }
+          return { fileId, size: next };
+        });
+      };
 
       const sync = () => {
-        const next = readVideoNaturalSize(video);
-        if (!next) return;
-        commitSize(next);
+        const next = readVideoNaturalSize(node);
+        if (next) commitSize(next);
       };
 
-      video.addEventListener("loadedmetadata", sync);
-      video.addEventListener("resize", sync);
+      node.addEventListener("loadedmetadata", sync);
+      node.addEventListener("resize", sync);
       const rafId = requestAnimationFrame(sync);
 
-      detach = () => {
+      detachRef.current = () => {
         cancelAnimationFrame(rafId);
-        video.removeEventListener("loadedmetadata", sync);
-        video.removeEventListener("resize", sync);
+        node.removeEventListener("loadedmetadata", sync);
+        node.removeEventListener("resize", sync);
       };
-    };
+    },
+    [fileId, videoRef],
+  );
 
-    const tryAttach = () => {
-      const video = videoRef.current;
-      if (!video) return false;
-      attach(video);
-      return true;
-    };
+  useEffect(
+    () => () => {
+      detachRef.current?.();
+      detachRef.current = null;
+    },
+    [fileId],
+  );
 
-    if (!tryAttach()) {
-      // Human: <video> ref can lag one frame behind the player shell on first mount.
-      // Agent: RETRIES briefly; STOPS once attach succeeds or effect cleans up.
-      retryTimer = window.setInterval(() => {
-        if (tryAttach() && retryTimer !== undefined) {
-          window.clearInterval(retryTimer);
-          retryTimer = undefined;
-        }
-      }, 32);
-    }
+  const elementNatural =
+    elementSize?.fileId === fileId ? elementSize.size : null;
+  const naturalSize = elementNatural ?? serverSize;
 
-    return () => {
-      disposed = true;
-      detach?.();
-      if (retryTimer !== undefined) {
-        window.clearInterval(retryTimer);
-      }
-    };
-  }, [videoRef, fileId]);
-
-  return sizeState?.fileId === fileId ? sizeState.size : null;
+  return { naturalSize, setVideoRef };
 }

@@ -933,6 +933,7 @@ async fn copy_share_file_into_library(
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, hls_ready, \
          hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+         video_width, video_height, \
          audio_waveform_ready, audio_encode_status, audio_waveform_key \
          FROM files WHERE id = $1 AND user_id = $2",
     )
@@ -980,9 +981,9 @@ async fn copy_share_file_into_library(
 
     let file: FileDto = sqlx::query_as(&format!(
         "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, \
-         duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
-         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
+         duration_seconds, video_width, video_height, hls_ready, hls_encode_status, hls_encode_error, \
+         conversion_progress, segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -993,6 +994,8 @@ async fn copy_share_file_into_library(
     .bind(&source.mime_type)
     .bind(source.size_bytes)
     .bind(source.duration_seconds)
+    .bind(source.video_width)
+    .bind(source.video_height)
     .bind(source.hls_ready)
     .bind(&source.hls_encode_status)
     .bind(&source.hls_encode_error)

@@ -115,6 +115,22 @@ async fn resolve_duration_seconds(
     probed
 }
 
+// Human: Persist intrinsic video dimensions so the player can pick shells before stream metadata loads.
+// Agent: READS ffprobe width/height; WRITES files.video_width/video_height when probe succeeds.
+async fn resolve_video_dimensions(pool: &PgPool, file_id: &str, tmp_video: &Path) {
+    let Some(dimensions) = crate::hls::probe::probe_video_dimensions(tmp_video).await else {
+        return;
+    };
+    let _ = sqlx::query(
+        "UPDATE files SET video_width = $1, video_height = $2 WHERE id = $3",
+    )
+    .bind(dimensions.width)
+    .bind(dimensions.height)
+    .bind(file_id)
+    .execute(pool)
+    .await;
+}
+
 // Human: Inputs for parallel HLS segment upload after ffmpeg packaging.
 // Agent: PASSED to upload_hls_segments; storage_key used for post-upload verification list.
 struct SegmentUploadRequest<'a> {
@@ -310,6 +326,7 @@ pub async fn run_hls_encode_job(
 
     let duration_seconds =
         resolve_duration_seconds(&pool, &file_id, &tmp_video, job.duration_seconds).await;
+    resolve_video_dimensions(&pool, &file_id, &tmp_video).await;
 
     let codec_probe = probe::probe_codecs(&tmp_video).await;
     let source_size_bytes = tokio::fs::metadata(&tmp_video)

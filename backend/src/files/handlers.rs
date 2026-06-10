@@ -44,6 +44,7 @@ use crate::{
 // Agent: USED in SELECT/RETURNING for list, get, upload, and move handlers.
 pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
     hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+    video_width, video_height, \
     audio_waveform_ready, audio_encode_status, audio_encode_error, \
     video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_progress, \
     video_thumbnail_selected_index, \
@@ -117,6 +118,10 @@ pub struct FileDto {
     pub hls_encode_error: Option<String>,
     pub conversion_progress: i32,
     pub duration_seconds: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_height: Option<i32>,
     pub audio_waveform_ready: bool,
     pub audio_encode_status: Option<String>,
     pub audio_encode_error: Option<String>,
@@ -1345,6 +1350,7 @@ pub async fn copy_file(
     let source: Option<CopyFileSourceRow> = sqlx::query_as(
         "SELECT storage_key, segment_count, name, mime_type, size_bytes, content_hash, hls_ready, \
          hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
+         video_width, video_height, \
          audio_waveform_ready, audio_encode_status, audio_waveform_key, \
          video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
          video_thumbnail_selected_index \
@@ -1399,11 +1405,11 @@ pub async fn copy_file(
 
     let file: FileDto = sqlx::query_as(&format!(
         "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
-         duration_seconds, hls_ready, hls_encode_status, hls_encode_error, conversion_progress, \
-         segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key, \
+         duration_seconds, video_width, video_height, hls_ready, hls_encode_status, hls_encode_error, \
+         conversion_progress, segment_count, audio_waveform_ready, audio_encode_status, audio_waveform_key, \
          video_thumbnail_ready, video_thumbnail_status, video_thumbnail_manifest_key, \
          video_thumbnail_selected_index) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) \
          RETURNING {FILE_COLUMNS}"
     ))
     .bind(&new_file_id)
@@ -1415,6 +1421,8 @@ pub async fn copy_file(
     .bind(source.size_bytes)
     .bind(&source.content_hash)
     .bind(source.duration_seconds)
+    .bind(source.video_width)
+    .bind(source.video_height)
     .bind(source.hls_ready)
     .bind(&source.hls_encode_status)
     .bind(&source.hls_encode_error)

@@ -20,9 +20,8 @@ import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
 import {
+  resolveDesktopVideoShellClass,
   resolveVideoAspectRatioStyle,
-  videoDialogLandscapePlayerShellClass,
-  videoDialogVerticalPlayerShellClass,
 } from "@/components/drive/video/video-player-layout";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
@@ -77,10 +76,15 @@ export function VideoPlayerSurface({
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
 
-  // Human: Vertical sources use a height-first shell so portrait video is not letterboxed in a 4:3 band.
-  // Agent: READS videoWidth/height via useVideoNaturalSize; APPLIES inline aspectRatio when metadata loads.
-  const naturalSize = useVideoNaturalSize(videoRef, file.id);
-  const isVerticalVideo = naturalSize?.isVertical ?? false;
+  // Human: Orientation-aware shell — portrait column, square 1:1, or landscape band from server/element size.
+  // Agent: READS useVideoNaturalSize; APPLIES inline aspectRatio when width/height are known.
+  const { naturalSize, setVideoRef } = useVideoNaturalSize({
+    videoRef,
+    fileId: file.id,
+    serverWidth: file.video_width,
+    serverHeight: file.video_height,
+  });
+  const orientation = naturalSize?.orientation ?? "landscape";
   const shellAspectStyle = naturalSize
     ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
     : undefined;
@@ -88,7 +92,7 @@ export function VideoPlayerSurface({
   return (
     <div
       ref={cardRef}
-      data-video-orientation={isVerticalVideo ? "vertical" : "horizontal"}
+      data-video-orientation={orientation}
       style={isFullscreen ? undefined : shellAspectStyle}
       className={cn(
         "relative overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
@@ -96,14 +100,12 @@ export function VideoPlayerSurface({
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen
           ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
-          : isVerticalVideo
-            ? videoDialogVerticalPlayerShellClass
-            : videoDialogLandscapePlayerShellClass,
+          : resolveDesktopVideoShellClass(orientation),
       )}
       onFocus={revealChrome}
     >
       <video
-        ref={videoRef}
+        ref={setVideoRef}
         className={cn(
           "relative z-0 size-full bg-black object-contain",
           isFullscreen ? "min-h-0 flex-1" : "",
