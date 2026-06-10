@@ -5,23 +5,26 @@ import { useEffect, useRef, useState } from "react";
 import { DownloadTransferPanel } from "@/components/drive/DownloadTransferPanel";
 import { StorageMigrationTransferPanel } from "@/components/drive/StorageMigrationTransferPanel";
 import { UploadTransferPanel } from "@/components/drive/UploadTransferPanel";
+import { useUploadBatch } from "@/hooks/useUploadBatch";
 import { subscribeDownloadJobs } from "@/lib/download-manager";
 import {
   openStorageMigrationLogDialog,
   subscribeStorageMigrationJob,
 } from "@/lib/storage-migration-manager";
-import { restoreUploadBatchFromStorage, subscribeUploadBatch } from "@/lib/upload-manager";
+import { restoreUploadBatchFromStorage } from "@/lib/upload-manager";
 
 // Human: Anchor non-blocking transfer trays (migration, uploads, downloads) in the lower-right corner.
 // Agent: RENDERS panels when respective managers report active jobs; FIXED bottom-right stack.
 export function TransferPanelStack() {
-  const [hasUploadBatch, setHasUploadBatch] = useState(false);
+  const uploadBatch = useUploadBatch();
+  const hasUploadBatch = uploadBatch !== null;
   const [hasDownloads, setHasDownloads] = useState(false);
   const [hasStorageMigration, setHasStorageMigration] = useState(false);
   const [uploadMinimized, setUploadMinimized] = useState(false);
   const [downloadMinimized, setDownloadMinimized] = useState(false);
   const [migrationMinimized, setMigrationMinimized] = useState(false);
   const lastUploadBatchIdRef = useRef<string | null>(null);
+  const lastUploadItemCountRef = useRef(0);
   const lastMigrationJobIdRef = useRef<string | null>(null);
 
   // Human: Reopen the upload tray after reload when server-side processing is still running.
@@ -30,20 +33,24 @@ export function TransferPanelStack() {
     void restoreUploadBatchFromStorage();
   }, []);
 
-  useEffect(
-    () =>
-      subscribeUploadBatch((batch) => {
-        setHasUploadBatch(batch !== null);
-        if (batch && batch.id !== lastUploadBatchIdRef.current) {
-          lastUploadBatchIdRef.current = batch.id;
-          setUploadMinimized(false);
-        }
-        if (!batch) {
-          lastUploadBatchIdRef.current = null;
-        }
-      }),
-    [],
-  );
+  // Human: Expand the upload tray when a new batch starts or more files join an in-flight batch.
+  // Agent: COMPARES batch id + item count; WRITES uploadMinimized false so appended uploads stay visible.
+  useEffect(() => {
+    if (!uploadBatch) {
+      lastUploadBatchIdRef.current = null;
+      lastUploadItemCountRef.current = 0;
+      return;
+    }
+
+    const isNewBatch = uploadBatch.id !== lastUploadBatchIdRef.current;
+    const hasMoreItems = uploadBatch.items.length > lastUploadItemCountRef.current;
+    if (isNewBatch || hasMoreItems) {
+      setUploadMinimized(false);
+    }
+
+    lastUploadBatchIdRef.current = uploadBatch.id;
+    lastUploadItemCountRef.current = uploadBatch.items.length;
+  }, [uploadBatch]);
 
   useEffect(
     () =>

@@ -1,8 +1,8 @@
 // Human: Floating upload tray — shows batch progress in the lower-right while the drive stays usable.
 // Agent: SUBSCRIBES upload-manager; RENDERS UploadBatchProgressView; DISMISS when batch complete.
 
-import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Upload, X } from "lucide-react";
+import { useUploadBatch } from "@/hooks/useUploadBatch";
 import {
   UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS,
   UploadBatchProgressView,
@@ -15,8 +15,6 @@ import {
   dismissUploadBatch,
   getUploadBatchDisplayCounts,
   removeUploadBatchItem,
-  subscribeUploadBatch,
-  type UploadBatchSnapshot,
 } from "@/lib/upload-manager";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -60,9 +58,7 @@ function UploadHeaderStatusLine({
 // Human: Non-blocking upload progress card — stacks above downloads in TransferPanelStack.
 // Agent: READS UploadBatchSnapshot; TOGGLES minimized header-only mode; CALLS dismissUploadBatch.
 export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTransferPanelProps) {
-  const [batch, setBatch] = useState<UploadBatchSnapshot | null>(null);
-
-  useEffect(() => subscribeUploadBatch(setBatch), []);
+  const batch = useUploadBatch();
 
   if (!batch) return null;
 
