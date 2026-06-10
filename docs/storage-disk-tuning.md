@@ -18,6 +18,12 @@ Configure on the **object-storage** container (see `docker-compose.yml` and `.en
 | `NOS_RECOMPRESS_ON_STARTUP` | `false` | Background legacy→NOSI migration at boot (non-blocking HTTP) |
 | `NOS_RECOMPRESS_INTERVAL_SECS` | `3600` | Periodic recompress; `0` disables |
 | `NOS_VERIFY_INTERVAL_SECS` | `0` | Optional integrity scrub interval; `0` disables |
+| `NOS_VERIFY_BATCH_SIZE` | `100` | Max objects per periodic scrub pass |
+| `NOS_SCRUB_SAMPLE_DENOM` | `1024` | Hash-sample rate for periodic scrub (~1/N keys per pass) |
+| `NOS_SCRUB_MODE` | `deep` | `light` (headers/sizes) or `deep` (checksums/decode) |
+| `NOS_VERIFY_ON_READ` | `false` | When `true`, full raw-object GET verifies on-disk xxh3 against metadata etag |
+| `NOS_READ_BUFFER_SIZE` | `262144` | Pooled read buffer for raw GET streaming |
+| `NOS_WEBHOOKS_JSON` | *(empty)* | Per-bucket webhook URLs on PUT/DELETE, e.g. `{"media":["https://app/hooks/storage"]}` |
 | `NOS_SOFT_DELETE_DROP_BLOB` | `true` | Drop blob files on soft-delete |
 | `NOS_ZSTD_DICT_ENABLED` | `false` | Global zstd dictionary (optional) |
 | `NOS_DEDUP_ENABLED` | `false` | Unified block dedup for large objects (optional) |
@@ -27,6 +33,12 @@ Configure on the **object-storage** container (see `docker-compose.yml` and `.en
 **On-disk format (NOSI):** New writes use indexed block blobs (`NOSI`) with per-block checksums and optional dedup refs. Legacy `NOSB`, `NOSZ`, `NOS2`, and `NOSD` remain readable; background recompress migrates them to `NOSI` when smaller.
 
 **Upload backpressure:** Nebular rejects PUTs when in-flight body bytes would exceed the cap (503 + `Retry-After`). Raise `NOS_UPLOAD_MAX_IN_FLIGHT_BYTES` for large drive uploads; pair with backend `STORAGE_PUT_MAX_CONCURRENT` (default 2).
+
+**Integrity scrub:** `POST /_nos/maintenance/verify_blobs` (admin JWT) accepts `?mode=light|deep&sample_denom=&start_after=&limit=`. Periodic scrub uses `NOS_VERIFY_INTERVAL_SECS` with hash sampling (`NOS_SCRUB_SAMPLE_DENOM`) and a rotating key cursor. `NOS_VERIFY_ON_READ=true` checks raw blob etags on full-object GET without a separate scrub pass.
+
+**Replication ops:** `POST /_nos/maintenance/replication_replay?event_id=<uuid>` (admin JWT) re-queues a dead-letter replication event. Chunked replicate payloads include a wire checksum verified on receive.
+
+**Webhooks:** `NOS_WEBHOOKS_JSON` maps bucket names to URL lists; Nebular POSTs JSON on single-object PUT and DELETE (copy-object PUT and batch/prefix delete are not wired yet upstream).
 
 **Node capacity:** Optional `NOS_MAX_LOGICAL_BYTES` on each Nebular instance should align with Ownly admin `target_capacity_bytes` for that storage node (HTTP 507 when full).
 

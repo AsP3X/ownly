@@ -715,7 +715,7 @@ Frontend surfacing is the main gap.
 
 - **Multi-node registration** — `storage_nodes` table, admin UI, placement in `backend/src/storage/placement.rs`
 - **Second node Compose** — `docker-compose.rep.yml` profile (node B on port 9001)
-- **Nebular cluster modes** — implemented upstream on `feat/cluster-replication` (see `nebular-os/docs/plans/cluster-modes.md`); bump submodule when ready
+- **Nebular cluster modes** — scrub sampling, wire checksums, dead-letter replay, and webhooks shipped upstream (`1e94546` on `master`; see `nebular-os/docs/plans/cluster-modes.md`)
 - **Recycle bin** — 30-day retention (`RECYCLE_BIN_RETENTION_DAYS`); **background purger exists** — `start_recycle_bin_purger()` in `lib.rs`, runs every 6 hours via `purge_expired_recycle_bin`
 - **Content hash** — per-user duplicate preflight, not cross-user dedup
 - **Storage audit** — `scripts/storage-audit.py` walks Nebular blob tree vs Postgres sums

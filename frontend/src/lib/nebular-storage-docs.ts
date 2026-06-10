@@ -49,6 +49,35 @@ export const NEBULAR_ON_DISK_FORMAT_ROWS = [
   },
 ] as const;
 
+/** Human: Integrity scrub, verify-on-read, and webhook env knobs (Nebular 1e94546+). */
+export const NEBULAR_INTEGRITY_ROWS = [
+  {
+    env: "NOS_VERIFY_INTERVAL_SECS",
+    default: "0 (disabled)",
+    note: "Periodic hash-sampled scrub interval; pairs with NOS_SCRUB_*",
+  },
+  {
+    env: "NOS_SCRUB_SAMPLE_DENOM",
+    default: "1024",
+    note: "Approximate 1/N keys checked per periodic pass",
+  },
+  {
+    env: "NOS_SCRUB_MODE",
+    default: "deep",
+    note: "light = headers/sizes; deep = checksums and decode",
+  },
+  {
+    env: "NOS_VERIFY_ON_READ",
+    default: "false",
+    note: "Full raw GET verifies on-disk xxh3 against metadata etag",
+  },
+  {
+    env: "NOS_WEBHOOKS_JSON",
+    default: "empty",
+    note: "Per-bucket webhook URLs fired on PUT/DELETE",
+  },
+] as const;
+
 /** Human: How Ownly uses Nebular vs Postgres encryption (honest operator summary). */
 export const OWNLY_STORAGE_ENCRYPTION_SUMMARY =
   "Drive uploads send plaintext bytes to Nebular so zstd can compress documents, images, and source files. " +

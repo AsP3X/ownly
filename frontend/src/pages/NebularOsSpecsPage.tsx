@@ -12,6 +12,7 @@ import {
 import { MarketingHeroSection } from "@/components/marketing/MarketingHeroSection";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import {
+  NEBULAR_INTEGRITY_ROWS,
   NEBULAR_ON_DISK_FORMAT_ROWS,
   NEBULAR_ZSTD_PHASE_ROWS,
 } from "@/lib/nebular-storage-docs";
@@ -219,6 +220,35 @@ export default function NebularOsSpecsPage() {
               <div className="bg-white px-4 py-3 text-xs text-[#666666]">
                 {row.level} — {row.note}
               </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Human: Section 4b — integrity scrub, verify-on-read, webhooks (Nebular 1e94546+). */}
+      {/* Agent: Static docs only; env keys match docker-compose.yml and docs/storage-disk-tuning.md. */}
+      <section className="flex w-full flex-col gap-6 py-8">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-bold text-[#2563EB]">04b — INTEGRITY &amp; EVENTS</span>
+          <h2 className="text-2xl font-bold text-[#1A1A1A]">Scrub sampling, verify-on-read, and webhooks</h2>
+          <p className="max-w-3xl text-sm leading-relaxed text-[#666666]">
+            Periodic scrub walks a hash-sampled subset of keys with a rotating cursor. Admin{" "}
+            <code className="rounded bg-[#F7F8FA] px-1 py-0.5 font-mono text-xs">POST /_nos/maintenance/verify_blobs</code>{" "}
+            accepts mode and sample overrides. Dead-letter replication events can be replayed via{" "}
+            <code className="rounded bg-[#F7F8FA] px-1 py-0.5 font-mono text-xs">POST /_nos/maintenance/replication_replay</code>.
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">
+          <div className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-xs font-bold text-[#666666]">
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Environment</div>
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Default</div>
+            <div className="bg-[#F7F8FA] px-4 py-2.5">Purpose</div>
+          </div>
+          {NEBULAR_INTEGRITY_ROWS.map((row) => (
+            <div key={row.env} className="grid grid-cols-3 gap-px bg-[#E5E7EB] text-sm">
+              <div className="bg-white px-4 py-3 font-mono text-[10px] text-[#666666]">{row.env}</div>
+              <div className="bg-white px-4 py-3 text-xs text-[#1A1A1A]">{row.default}</div>
+              <div className="bg-white px-4 py-3 text-xs text-[#666666]">{row.note}</div>
             </div>
           ))}
         </div>

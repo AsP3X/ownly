@@ -96,6 +96,15 @@ services:
       NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
       NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
       NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
+      # Human: Hash-sampled integrity scrub + optional verify-on-read for raw blobs (see docs/storage-disk-tuning.md).
+      # Agent: NOS_VERIFY_INTERVAL_SECS 0 disables periodic scrub; NOS_WEBHOOKS_JSON maps bucket → webhook URL list.
+      NOS_VERIFY_INTERVAL_SECS: ${NOS_VERIFY_INTERVAL_SECS:-0}
+      NOS_VERIFY_BATCH_SIZE: ${NOS_VERIFY_BATCH_SIZE:-100}
+      NOS_SCRUB_SAMPLE_DENOM: ${NOS_SCRUB_SAMPLE_DENOM:-1024}
+      NOS_SCRUB_MODE: ${NOS_SCRUB_MODE:-deep}
+      NOS_VERIFY_ON_READ: ${NOS_VERIFY_ON_READ:-false}
+      NOS_READ_BUFFER_SIZE: ${NOS_READ_BUFFER_SIZE:-262144}
+      NOS_WEBHOOKS_JSON: ${NOS_WEBHOOKS_JSON:-}
     ports:
       - "9000:9000"
     volumes:
