@@ -28,7 +28,7 @@ pub fn generate_grid_thumbnail_jpeg(source_bytes: &[u8]) -> Result<Vec<u8>, Stri
 
 // Human: Preserve aspect ratio while bounding the longest edge to max_edge pixels.
 // Agent: USES thumbnail() for fast downscale; RETURNS DynamicImage RGB8.
-fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
+pub(crate) fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
     let (width, height) = (image.width(), image.height());
     if width <= max_edge && height <= max_edge {
         return image;
@@ -38,7 +38,7 @@ fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
 
 // Human: Encode RGB8 image data as JPEG with a fixed quality suitable for grid tiles.
 // Agent: WRITES into Vec<u8>; RETURNS bytes for storage.put.
-fn encode_jpeg(image: &DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_jpeg(image: &DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     let rgb = image.to_rgb8();
     let (width, height) = rgb.dimensions();
     let mut out = Vec::new();

@@ -32,7 +32,7 @@ use crate::{
     hls::export::export_cache_is_valid,
     jobs::{
         self,
-        model::{AudioWaveformPayload, HlsEncodePayload, ImageThumbnailPayload, VideoThumbnailPayload},
+        model::{AudioWaveformPayload, DocumentThumbnailPayload, HlsEncodePayload, ImageThumbnailPayload, VideoThumbnailPayload},
         JobKind,
     },
     rate_limit,
@@ -47,7 +47,8 @@ pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_i
     audio_waveform_ready, audio_encode_status, audio_encode_error, \
     video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_progress, \
     video_thumbnail_selected_index, \
-    image_thumbnail_ready, image_thumbnail_status, image_thumbnail_error";
+    image_thumbnail_ready, image_thumbnail_status, image_thumbnail_error, \
+    document_thumbnail_ready, document_thumbnail_status, document_thumbnail_error";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
@@ -127,6 +128,9 @@ pub struct FileDto {
     pub image_thumbnail_ready: bool,
     pub image_thumbnail_status: Option<String>,
     pub image_thumbnail_error: Option<String>,
+    pub document_thumbnail_ready: bool,
+    pub document_thumbnail_status: Option<String>,
+    pub document_thumbnail_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -890,6 +894,52 @@ pub async fn upload_file(
                     Some(&file_id),
                     serde_json::to_value(payload).map_err(|e| {
                         AppError::Internal(anyhow::anyhow!("image thumbnail job payload: {e}"))
+                    })?,
+                )
+                .await?;
+
+                file
+            } else if crate::document::mime::qualifies_for_document_grid_thumbnail(&mime, &filename) {
+                let file: FileDto = sqlx::query_as(&format!(
+                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
+                     document_thumbnail_status) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued') \
+                     RETURNING {FILE_COLUMNS}"
+                ))
+                .bind(&file_id)
+                .bind(&claims.sub)
+                .bind(&folder_id)
+                .bind(&filename)
+                .bind(&storage_key)
+                .bind(&mime)
+                .bind(size_bytes as i64)
+                .bind(&content_hash)
+                .fetch_one(&state.pool)
+                .await?;
+
+                tracing::info!(
+                    request_id = %request_id.0,
+                    file_id = %file_id,
+                    "files.upload document grid thumbnail queued"
+                );
+
+                let payload = DocumentThumbnailPayload {
+                    file_id: file_id.clone(),
+                    storage_key: storage_key.clone(),
+                    mime_type: mime.clone(),
+                    filename: filename.clone(),
+                    tmp_source: Some(tmp_path.to_string_lossy().to_string()),
+                };
+
+                jobs::enqueue_job(
+                    &state.pool,
+                    &claims.sub,
+                    JobKind::DocumentThumbnail,
+                    &filename,
+                    Some("file"),
+                    Some(&file_id),
+                    serde_json::to_value(payload).map_err(|e| {
+                        AppError::Internal(anyhow::anyhow!("document thumbnail job payload: {e}"))
                     })?,
                 )
                 .await?;

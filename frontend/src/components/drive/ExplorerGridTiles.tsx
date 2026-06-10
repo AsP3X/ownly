@@ -17,6 +17,7 @@ import {
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import { ExplorerGridPreviewSlot } from "@/components/drive/ExplorerGridPreviewSlot";
+import { ExplorerDocumentThumbnail } from "@/components/drive/ExplorerDocumentThumbnail";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
 import { LazyExplorerSpreadsheetThumbnail } from "@/components/drive/lazy-explorer-spreadsheet-thumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
@@ -340,11 +341,14 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     canPreviewAudio;
   const showImagePreview = isImage && !processing;
   const showVideoPreview = isVideo && file.video_thumbnail_ready;
-  const showSpreadsheetPreview = isSpreadsheet && !processing;
-  // Human: PDF grid tiles use the file icon — react-pdf canvases per row destroy scroll performance.
-  // Agent: full PDF preview remains on tile click via onPreviewPdf; SKIPS live PDF thumbnail in grid.
+  const showDocumentPreview =
+    (isPdf || (isSpreadsheet && file.document_thumbnail_ready)) && !processing;
+  const showClientSpreadsheetPreview =
+    isSpreadsheet && !processing && !file.document_thumbnail_ready;
+  // Human: PDF and ready spreadsheet tiles use stored JPEG sidecars; legacy spreadsheets keep client parsing.
+  // Agent: showDocumentPreview READS document_thumbnail_ready; showClientSpreadsheetPreview FALLBACK xlsx parse.
   const showLiveThumbnailPreview =
-    showImagePreview || showVideoPreview || showSpreadsheetPreview;
+    showImagePreview || showVideoPreview || showDocumentPreview || showClientSpreadsheetPreview;
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
   // Human: Track tap start so scroll gestures on a tile do not toggle selection.
   // Agent: READS pointer down/up delta; CALLS onTapToggleFileSelection only within MOBILE_TAP_SLOP_PX.
@@ -493,7 +497,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
               file={file}
               slotFill
             />
-          ) : showSpreadsheetPreview ? (
+          ) : showDocumentPreview ? (
+            <ExplorerDocumentThumbnail file={file} slotFill />
+          ) : showClientSpreadsheetPreview ? (
             <LazyExplorerSpreadsheetThumbnail file={file} slotFill />
           ) : (
             <ExplorerFileIcon mimeType={file.mime_type} />

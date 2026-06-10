@@ -94,6 +94,32 @@ export async function loadExplorerImageThumbnailBlob(
   return blob;
 }
 
+// Human: Load a PDF or spreadsheet grid preview blob from the server JPEG sidecar when ready.
+// Agent: READS cache; PREFERS /grid-thumbnail when document_thumbnail_ready; THROWS when pending.
+export async function loadExplorerDocumentThumbnailBlob(
+  file: FileItem,
+  options: {
+    priority: ExplorerThumbnailPriority;
+    signal?: AbortSignal;
+  },
+): Promise<Blob> {
+  const cacheKey = makeExplorerThumbnailCacheKey(file);
+  const cached = getCachedExplorerThumbnailBlob(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const blob = await runExplorerThumbnailLoad({
+    fileId: file.id,
+    priority: options.priority,
+    parentSignal: options.signal,
+    task: async (signal) => fetchFileGridThumbnailBlob(file.id, signal),
+  });
+
+  putCachedExplorerThumbnailBlob(cacheKey, blob);
+  return blob;
+}
+
 // Human: Load a video poster blob — server JPEG plus optional client downscale for oversized posters.
 // Agent: CALLS /thumbnail; RESIZES when blob dimensions exceed grid tile budget.
 export async function loadExplorerVideoThumbnailBlob(

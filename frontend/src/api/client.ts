@@ -889,6 +889,9 @@ export type FileItem = {
   image_thumbnail_ready?: boolean;
   image_thumbnail_status?: string | null;
   image_thumbnail_error?: string | null;
+  document_thumbnail_ready?: boolean;
+  document_thumbnail_status?: string | null;
+  document_thumbnail_error?: string | null;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
 };

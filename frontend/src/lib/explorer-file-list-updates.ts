@@ -37,6 +37,8 @@ export function explorerFileRowRenderEqual(a: FileItem, b: FileItem): boolean {
     a.video_thumbnail_selected_index === b.video_thumbnail_selected_index &&
     a.image_thumbnail_ready === b.image_thumbnail_ready &&
     a.image_thumbnail_status === b.image_thumbnail_status &&
+    a.document_thumbnail_ready === b.document_thumbnail_ready &&
+    a.document_thumbnail_status === b.document_thumbnail_status &&
     a.share_public === b.share_public
   );
 }

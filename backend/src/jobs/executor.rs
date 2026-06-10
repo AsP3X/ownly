@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::model::{
-    AudioWaveformPayload, BackgroundJob, HlsEncodePayload, HlsExportPayload, ImageThumbnailPayload,
-    JobKind, VideoThumbnailPayload, ZipBulkPayload, ZipFolderPayload,
+    AudioWaveformPayload, BackgroundJob, DocumentThumbnailPayload, HlsEncodePayload, HlsExportPayload,
+    ImageThumbnailPayload, JobKind, VideoThumbnailPayload, ZipBulkPayload, ZipFolderPayload,
 };
 use super::store::{
     complete_job, fail_job, fail_job_permanent, finalize_cancelled_running, is_job_cancelled,
@@ -49,6 +49,7 @@ pub async fn execute_job(state: Arc<AppState>, job: BackgroundJob) -> Result<(),
         JobKind::AudioWaveform => run_audio_waveform(state, &job).await,
         JobKind::VideoThumbnail => run_video_thumbnail(state, &job).await,
         JobKind::ImageThumbnail => run_image_thumbnail(state, &job).await,
+        JobKind::DocumentThumbnail => run_document_thumbnail(state, &job).await,
         JobKind::ZipBulk => run_zip_bulk(state, &job).await,
         JobKind::ZipFolder => run_zip_folder(state, &job).await,
     }
@@ -371,6 +372,73 @@ async fn run_image_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
                 .await
                 .map_err(|e| e.to_string())?;
             tracing::warn!(job_id = %job_id, error = %message, "image thumbnail job failed");
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_document_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), String> {
+    let payload: DocumentThumbnailPayload = serde_json::from_value(job.payload.clone())
+        .map_err(|e| format!("invalid document_thumbnail payload: {e}"))?;
+
+    if is_job_cancelled(&state.pool, &job.id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
+        return Ok(());
+    }
+
+    let pool = state.pool.clone();
+    let job_id = job.id.clone();
+    let file_id = payload.file_id.clone();
+
+    let thumbnail_job = crate::document::thumbnail_job::DocumentThumbnailJob {
+        file_id: payload.file_id,
+        storage_key: payload.storage_key,
+        mime_type: payload.mime_type,
+        filename: payload.filename,
+        tmp_source: payload
+            .tmp_source
+            .map(std::path::PathBuf::from),
+    };
+
+    let result = crate::document::thumbnail_job::run_document_thumbnail_job(
+        pool,
+        state.storage.clone(),
+        thumbnail_job,
+    )
+    .await;
+
+    if is_job_cancelled(&state.pool, &job_id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        warn_if_err_async(
+            "finalize_cancelled_running",
+            finalize_cancelled_running(&state.pool, &job.id).await,
+        )
+        .await;
+        return Ok(());
+    }
+
+    match result {
+        Ok(()) => {
+            complete_job(&state.pool, &job_id)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Err(message) => {
+            crate::document::thumbnail_job::mark_failed(&state.pool, &file_id, &message).await;
+            fail_job(&state.pool, &job_id, &message)
+                .await
+                .map_err(|e| e.to_string())?;
+            tracing::warn!(job_id = %job_id, error = %message, "document thumbnail job failed");
         }
     }
 

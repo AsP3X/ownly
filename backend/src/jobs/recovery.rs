@@ -8,8 +8,8 @@ use sqlx::PgPool;
 use crate::error::AppError;
 
 use super::model::{
-    AudioWaveformPayload, BackgroundJob, HlsEncodePayload, ImageThumbnailPayload, JobKind,
-    VideoThumbnailPayload,
+    AudioWaveformPayload, BackgroundJob, DocumentThumbnailPayload, HlsEncodePayload,
+    ImageThumbnailPayload, JobKind, VideoThumbnailPayload,
 };
 use super::store::enqueue_job;
 
@@ -82,6 +82,7 @@ async fn recover_orphaned_ingest_jobs(pool: &PgPool, stale_minutes: i64) -> Resu
     restarted += recover_orphaned_hls_encodes(pool, stale_minutes).await?;
     restarted += recover_orphaned_audio_waveforms(pool, stale_minutes).await?;
     restarted += recover_orphaned_image_thumbnails(pool, stale_minutes).await?;
+    restarted += recover_orphaned_document_thumbnails(pool, stale_minutes).await?;
     restarted += recover_orphaned_video_thumbnails(pool, stale_minutes).await?;
 
     Ok(restarted)
@@ -343,6 +344,71 @@ async fn recover_orphaned_video_thumbnails(pool: &PgPool, stale_minutes: i32) ->
     Ok(restarted)
 }
 
+async fn recover_orphaned_document_thumbnails(pool: &PgPool, stale_minutes: i32) -> Result<u64, AppError> {
+    let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT f.id, f.user_id, f.name, f.storage_key, f.mime_type \
+         FROM files f \
+         WHERE NOT f.document_thumbnail_ready \
+           AND f.deleted_at IS NULL \
+           AND COALESCE(f.document_thumbnail_status, 'queued') IN ('queued', 'processing') \
+           AND f.created_at < now() - ($1::int * INTERVAL '1 minute') \
+           AND (f.mime_type ILIKE '%pdf%' \
+                OR f.mime_type ILIKE '%spreadsheet%' \
+                OR f.mime_type ILIKE '%excel%' \
+                OR (f.mime_type ILIKE '%sheet%' AND f.mime_type NOT ILIKE '%word%')) \
+           {INGEST_ORPHAN_GUARD}"
+    ))
+    .bind(stale_minutes)
+    .bind(JobKind::DocumentThumbnail.as_str())
+    .fetch_all(pool)
+    .await?;
+
+    let mut restarted = 0u64;
+    for (file_id, user_id, name, storage_key, mime_type) in rows {
+        sqlx::query(
+            "UPDATE files SET document_thumbnail_status = 'queued', document_thumbnail_error = NULL \
+             WHERE id = $1 AND NOT document_thumbnail_ready",
+        )
+        .bind(&file_id)
+        .execute(pool)
+        .await?;
+
+        let mime = mime_type.unwrap_or_else(|| "application/octet-stream".to_string());
+        if !crate::document::mime::qualifies_for_document_grid_thumbnail(&mime, &name) {
+            continue;
+        }
+
+        let payload = DocumentThumbnailPayload {
+            file_id: file_id.clone(),
+            storage_key,
+            mime_type: mime,
+            filename: name.clone(),
+            tmp_source: None,
+        };
+
+        enqueue_job(
+            pool,
+            &user_id,
+            JobKind::DocumentThumbnail,
+            &name,
+            Some("file"),
+            Some(&file_id),
+            serde_json::to_value(payload)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("document_thumbnail payload: {e}")))?,
+        )
+        .await?;
+
+        restarted += 1;
+        tracing::warn!(
+            file_id = %file_id,
+            kind = JobKind::DocumentThumbnail.as_str(),
+            "re-enqueued orphaned document thumbnail job"
+        );
+    }
+
+    Ok(restarted)
+}
+
 /// Human: Refresh ingest payloads before restarting a job that waited in queued too long.
 // Agent: STRIPS stale upload spool paths; REWRITES HLS tmp_video when canonical spool still exists.
 pub fn refresh_queued_job_payload(job: &BackgroundJob) -> serde_json::Value {
@@ -358,6 +424,10 @@ pub fn refresh_queued_job_payload(job: &BackgroundJob) -> serde_json::Value {
             |payload| payload.tmp_audio = None,
         ),
         JobKind::ImageThumbnail => refresh_optional_spool_payload::<ImageThumbnailPayload>(
+            &job.payload,
+            |payload| payload.tmp_source = None,
+        ),
+        JobKind::DocumentThumbnail => refresh_optional_spool_payload::<DocumentThumbnailPayload>(
             &job.payload,
             |payload| payload.tmp_source = None,
         ),

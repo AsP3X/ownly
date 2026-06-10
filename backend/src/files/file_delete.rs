@@ -47,16 +47,21 @@ pub fn storage_object_count(segment_count: Option<i32>) -> u32 {
     STORAGE_SIDECAR_OBJECT_COUNT.saturating_add(segment_count.unwrap_or(0).max(0) as u32)
 }
 
-// Human: Skip Nebular LIST for finished image uploads — sidecar keys are deterministic.
-// Agent: TRUE when mime is image/* and there are no HLS segments to discover.
+// Human: Skip Nebular LIST for finished uploads with deterministic sidecar keys.
+// Agent: TRUE for image/pdf/spreadsheet rows without HLS segments to discover.
 pub fn should_skip_prefix_listing(mime_type: &Option<String>, segment_count: Option<i32>) -> bool {
     let has_segments = segment_count.is_some_and(|count| count > 0);
     if has_segments {
         return false;
     }
-    mime_type
-        .as_deref()
-        .is_some_and(|mime| mime.to_ascii_lowercase().starts_with("image/"))
+    mime_type.as_deref().is_some_and(|mime| {
+        let mime = mime.to_ascii_lowercase();
+        mime.starts_with("image/")
+            || crate::document::mime::is_pdf_mime(&mime)
+            || mime.contains("spreadsheet")
+            || mime.contains("excel")
+            || (mime.contains("sheet") && !mime.contains("word"))
+    })
 }
 
 // Human: Known object keys for a file row when Nebular list is unavailable.

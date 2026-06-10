@@ -21,6 +21,7 @@ pub mod audit;
 pub mod auth;
 pub mod authz;
 pub mod audio;
+pub mod document;
 pub mod image;
 pub mod video;
 pub mod browser_guard;

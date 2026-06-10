@@ -1,4 +1,4 @@
-// Human: HTTP handlers for server-generated image grid thumbnails.
+// Human: HTTP handlers for server-generated grid thumbnail JPEG sidecars.
 // Agent: GET /files/:id/grid-thumbnail streams JPEG bytes with private cache headers.
 
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 
 use crate::{
     auth::handlers::Claims,
+    document::mime,
     error::AppError,
     files::processing::ensure_file_not_processing,
     image::grid_thumbnail_storage_key,
@@ -22,6 +23,9 @@ use crate::{
 type GridThumbnailRow = (
     Option<String>,
     String,
+    String,
+    bool,
+    Option<String>,
     bool,
     Option<String>,
     bool,
@@ -30,8 +34,8 @@ type GridThumbnailRow = (
     Option<String>,
 );
 
-// Human: Stream the grid JPEG sidecar for an owned image file.
-// Agent: GET /files/:id/grid-thumbnail; READS image_thumbnail_ready; RETURNS image/jpeg body.
+// Human: Stream the grid JPEG sidecar for an owned image or document file.
+// Agent: GET /files/:id/grid-thumbnail; READS image/document thumbnail ready flags; RETURNS image/jpeg body.
 pub async fn get_grid_thumbnail(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -46,7 +50,8 @@ pub async fn get_grid_thumbnail(
     .await?;
 
     let row: Option<GridThumbnailRow> = sqlx::query_as(
-        "SELECT mime_type, storage_key, image_thumbnail_ready, image_thumbnail_status, \
+        "SELECT mime_type, storage_key, name, image_thumbnail_ready, image_thumbnail_status, \
+         document_thumbnail_ready, document_thumbnail_status, \
          hls_ready, hls_encode_status, audio_waveform_ready, audio_encode_status \
          FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
@@ -57,8 +62,11 @@ pub async fn get_grid_thumbnail(
     let (
         mime_type,
         storage_key,
+        name,
         image_thumbnail_ready,
         image_thumbnail_status,
+        document_thumbnail_ready,
+        document_thumbnail_status,
         hls_ready,
         hls_encode_status,
         audio_waveform_ready,
@@ -66,8 +74,12 @@ pub async fn get_grid_thumbnail(
     ) = row.ok_or(AppError::NotFound)?;
 
     let mime = mime_type.as_deref().unwrap_or("");
-    if !mime.starts_with("image/") {
-        return Err(AppError::BadRequest("file is not an image".into()));
+    let is_image = mime.starts_with("image/");
+    let is_document = mime::qualifies_for_document_grid_thumbnail(mime, &name);
+    if !is_image && !is_document {
+        return Err(AppError::BadRequest(
+            "file does not support grid thumbnail preview".into(),
+        ));
     }
 
     ensure_file_not_processing(
@@ -78,8 +90,17 @@ pub async fn get_grid_thumbnail(
         &audio_encode_status,
     )?;
 
-    if !image_thumbnail_ready {
-        let _detail = image_thumbnail_status.as_deref().unwrap_or("pending");
+    let preview_ready = if is_image {
+        image_thumbnail_ready
+    } else {
+        document_thumbnail_ready
+    };
+    if !preview_ready {
+        let _detail = if is_image {
+            image_thumbnail_status.as_deref().unwrap_or("pending")
+        } else {
+            document_thumbnail_status.as_deref().unwrap_or("pending")
+        };
         return Err(AppError::NotFound);
     }
 

@@ -12,6 +12,7 @@ pub enum JobKind {
     AudioWaveform,
     VideoThumbnail,
     ImageThumbnail,
+    DocumentThumbnail,
     ZipBulk,
     ZipFolder,
 }
@@ -24,6 +25,7 @@ impl JobKind {
             Self::AudioWaveform => "audio_waveform",
             Self::VideoThumbnail => "video_thumbnail",
             Self::ImageThumbnail => "image_thumbnail",
+            Self::DocumentThumbnail => "document_thumbnail",
             Self::ZipBulk => "zip_bulk",
             Self::ZipFolder => "zip_folder",
         }
@@ -36,6 +38,7 @@ impl JobKind {
             "audio_waveform" => Some(Self::AudioWaveform),
             "video_thumbnail" => Some(Self::VideoThumbnail),
             "image_thumbnail" => Some(Self::ImageThumbnail),
+            "document_thumbnail" => Some(Self::DocumentThumbnail),
             "zip_bulk" => Some(Self::ZipBulk),
             "zip_folder" => Some(Self::ZipFolder),
             _ => None,
@@ -125,6 +128,18 @@ pub struct AudioWaveformPayload {
 pub struct ImageThumbnailPayload {
     pub file_id: String,
     pub storage_key: String,
+    /// Human: Upload spool path when available; avoids re-downloading the original from Nebular.
+    #[serde(default)]
+    pub tmp_source: Option<String>,
+}
+
+/// Human: Payload for grid JPEG generation after PDF or spreadsheet upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentThumbnailPayload {
+    pub file_id: String,
+    pub storage_key: String,
+    pub mime_type: String,
+    pub filename: String,
     /// Human: Upload spool path when available; avoids re-downloading the original from Nebular.
     #[serde(default)]
     pub tmp_source: Option<String>,
