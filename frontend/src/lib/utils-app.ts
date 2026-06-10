@@ -113,6 +113,20 @@ export function userRoleLabel(role?: string | null): string {
 
 // Human: Admin directory "Last Active" column — relative time from audit activity timestamps.
 // Agent: READS ISO string|null; RETURNS human phrases (Active now, 2m ago, Never).
+// Human: Admin panel refresh stamp — short relative phrase from a local Date.
+// Agent: READS Date|null from useAdminQuery.lastUpdatedAt; RETURNS empty when null.
+export function formatLastRefreshed(at: Date | null): string {
+  if (!at) return "";
+  const diffMs = Date.now() - at.getTime();
+  if (diffMs < 5_000) return "Updated just now";
+  const seconds = Math.floor(diffMs / 1_000);
+  if (seconds < 60) return `Updated ${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `Updated ${hours}h ago`;
+}
+
 export function formatRelativeActive(iso: string | null | undefined): string {
   if (!iso) return "Never";
   const then = new Date(iso).getTime();

@@ -14,6 +14,8 @@ type UseAdminQueryResult<T> = {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
+  /** Human: Timestamp of the last successful fetch — drives "Updated … ago" copy in admin panels. */
+  lastUpdatedAt: Date | null;
   reload: (showRefresh?: boolean) => Promise<void>;
 };
 
@@ -28,6 +30,7 @@ export function useAdminQuery<T>(
   const [loading, setLoading] = useState(enabled);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const reload = useCallback(
     async (showRefresh = false) => {
@@ -36,6 +39,7 @@ export function useAdminQuery<T>(
       setError(null);
       try {
         setData(await loader());
+        setLastUpdatedAt(new Date());
       } catch (err) {
         setError(getErrorMessage(err));
       } finally {
@@ -51,5 +55,5 @@ export function useAdminQuery<T>(
     void reload(false);
   }, [enabled, reload]);
 
-  return { data, loading, refreshing, error, reload };
+  return { data, loading, refreshing, error, lastUpdatedAt, reload };
 }
