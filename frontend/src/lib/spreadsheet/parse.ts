@@ -37,6 +37,10 @@ import {
   exportMergedRegionsToXlsx,
   importMergedRegionsFromXlsx,
 } from "@/lib/spreadsheet/xlsx-merge-ooxml";
+import {
+  exportChartsToXlsx,
+  importChartsFromXlsx,
+} from "@/lib/spreadsheet/xlsx-charts-ooxml";
 import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
 import { listWorksheetCatalog } from "@/lib/spreadsheet/xlsx-sheet-links";
 
@@ -106,6 +110,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const marginsBySheet = await importPageMarginsFromXlsx(buffer);
   const dimensionsBySheet = await importDimensionsFromXlsx(buffer, sheetNames);
   const mergedBySheet = await importMergedRegionsFromXlsx(buffer, sheetNames);
+  const chartsBySheet = await importChartsFromXlsx(buffer, sheetNames);
   const worksheetCatalog = await listWorksheetCatalog(buffer);
   const catalogByName = new Map(worksheetCatalog.map((entry) => [entry.name, entry]));
 
@@ -146,6 +151,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       printArea: printAreasBySheet.get(name),
       pageMargins: marginsBySheet.get(name),
       mergedRegions: mergedBySheet.get(name),
+      charts: chartsBySheet.get(name),
     };
     return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
   });
@@ -229,6 +235,7 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
   bytes = await exportPageSettingsToXlsx(bytes, workbook.sheets);
   bytes = await exportDimensionsToXlsx(bytes, workbook.sheets);
   bytes = await exportMergedRegionsToXlsx(bytes, workbook.sheets);
+  bytes = await exportChartsToXlsx(bytes, workbook.sheets);
 
   return new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

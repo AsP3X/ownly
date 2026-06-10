@@ -73,7 +73,9 @@ export type MergedRegion = {
   endCol: number;
 };
 
-export type SheetChartType = "bar" | "line" | "pie" | "column";
+// Human: Chart kinds we render in-grid — maps from common Excel OOXML plotArea elements.
+// Agent: IMPORTED from c:barChart/c:lineChart/etc.; EXPORTED on insert for new charts.
+export type SheetChartType = "bar" | "line" | "pie" | "column" | "area" | "scatter" | "doughnut";
 
 export type SheetChart = {
   id: string;
@@ -81,10 +83,21 @@ export type SheetChart = {
   title: string;
   anchorRow: number;
   anchorCol: number;
+  anchorEndRow?: number;
+  anchorEndCol?: number;
   dataStartRow: number;
   dataStartCol: number;
   dataEndRow: number;
   dataEndCol: number;
+  // Human: Pixel size when anchor end cells are unknown (user-inserted charts).
+  // Agent: DEFAULTS in overlay layout when anchorEndRow/anchorEndCol omitted.
+  widthPx?: number;
+  heightPx?: number;
+  // Human: True when parsed from an uploaded workbook — passthrough save keeps OOXML.
+  // Agent: FALSE for charts inserted in Ownly; EXPORT writes new chart/drawing parts.
+  imported?: boolean;
+  sourceChartPath?: string;
+  sourceDrawingPath?: string;
 };
 
 export type PageOrientation = "portrait" | "landscape";

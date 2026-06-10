@@ -28,11 +28,13 @@ import {
 import type { ConditionalFormatRule } from "@/lib/spreadsheet/conditional-formatting";
 import { isCellInRange, isFullSheetSelection, normalizeRange, type CellRange } from "@/lib/spreadsheet/selection";
 import { mergeInfoAt } from "@/lib/spreadsheet/merge-regions";
+import { ExcelSheetChartsOverlay } from "@/components/drive/excel/ExcelSheetChartsOverlay";
 import type {
   CellAddress,
   CellStyle,
   MergedRegion,
   SheetCell,
+  SheetChart,
   SheetDrawingStroke,
   SheetPrintArea,
 } from "@/lib/spreadsheet/types";
@@ -59,6 +61,7 @@ type ExcelSpreadsheetGridProps = {
   precedentHighlight?: Set<string>;
   printArea?: SheetPrintArea | null;
   zoomPercent?: number;
+  charts?: SheetChart[];
   drawings?: SheetDrawingStroke[];
   drawMode?: "pen" | "eraser" | null;
   drawColor?: string;
@@ -263,6 +266,7 @@ export function ExcelSpreadsheetGrid({
   precedentHighlight,
   printArea,
   zoomPercent = 100,
+  charts,
   drawings,
   onSelectCell,
   onSelectAll,
@@ -950,6 +954,17 @@ export function ExcelSpreadsheetGrid({
           })}
         </div>
       </div>
+
+      {/* Human: Embedded charts from Excel files or Insert Chart rendered above cells. */}
+      {/* Agent: READS charts[]; RENDERS SVG overlays positioned by chart-layout helpers. */}
+      <ExcelSheetChartsOverlay
+        charts={charts}
+        sheet={{ rows, columnWidths: columnWidthsProp, rowHeights: rowHeightsProp }}
+        columnWidths={columnWidths}
+        rowHeights={rowHeights}
+        gridWidth={gridWidth}
+        gridHeight={rowVirtualizer.getTotalSize() + GRID_HEADER_ROW_HEIGHT}
+      />
 
       {/* Human: Ink strokes from Draw tab rendered above the grid. */}
       {/* Agent: READS drawings[]; RENDERS SVG polylines in grid coordinate space. */}

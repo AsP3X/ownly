@@ -64,7 +64,9 @@ import {
   statusBadgePresetRules,
 } from "@/lib/spreadsheet/conditional-formatting";
 import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
-import { chartBarsFromSelection } from "@/lib/spreadsheet/chart-data";
+import { chartBarsFromSelection, chartDataBoundsFromSelection } from "@/lib/spreadsheet/chart-data";
+import { normalizeRange } from "@/lib/spreadsheet/selection";
+import type { SheetChartType } from "@/lib/spreadsheet/types";
 import { clearCellStylePatch } from "@/lib/spreadsheet/cell-styles";
 import {
   readExcelAutoSaveEnabled,
@@ -82,6 +84,7 @@ import {
   formatRangeAsTable,
   freezePanesAt,
   importCsvAsNewSheet,
+  insertChartOnSheet,
   insertColumn,
   insertPivotSummaryAsNewSheet,
   insertRow,
@@ -195,10 +198,35 @@ export function ExcelSpreadsheetDialog({
     return formatSelectionStatsLine(stats);
   }, [activeSheet?.rows, editor.activeCellAddress]);
 
-  const chartBars = useMemo(() => {
+  const chartSeries = useMemo(() => {
     if (!activeSheet) return [];
     return chartBarsFromSelection(activeSheet, editor.selectionRange);
   }, [activeSheet, editor.selectionRange]);
+
+  const handleInsertChart = useCallback(
+    (type: SheetChartType) => {
+      if (readOnly || !activeSheet) return;
+      const range = normalizeRange(editor.selectionRange);
+      const dataBounds = chartDataBoundsFromSelection(activeSheet, range);
+      editor.commitWorkbookMutation((current) =>
+        insertChartOnSheet(current, editor.activeSheetIndex, {
+          id: `ownly-chart-${Date.now()}`,
+          type,
+          title: "Chart",
+          anchorRow: Math.min(range.end.row + 2, activeSheet.rows.length),
+          anchorCol: range.start.col,
+          anchorEndRow: Math.min(range.end.row + 14, activeSheet.rows.length + 12),
+          anchorEndCol: range.start.col + 7,
+          dataStartRow: dataBounds.start.row,
+          dataStartCol: dataBounds.start.col,
+          dataEndRow: dataBounds.end.row,
+          dataEndCol: dataBounds.end.col,
+          imported: false,
+        }),
+      );
+    },
+    [activeSheet, editor, readOnly],
+  );
 
   const filterColumnValues = useMemo(() => {
     if (!activeSheet) return [];
@@ -785,6 +813,7 @@ export function ExcelSpreadsheetDialog({
                     hiddenRows={activeSheet.hiddenRows}
                     hiddenCols={activeSheet.hiddenCols}
                     zoomPercent={activeSheet.zoomPercent ?? 100}
+                    charts={activeSheet.charts}
                     drawings={activeSheet.drawings}
                     drawMode={drawMode}
                     drawColor={drawColor}
@@ -927,7 +956,8 @@ export function ExcelSpreadsheetDialog({
           open={chartOpen}
           onOpenChange={setChartOpen}
           title={`Chart — ${file?.name ?? "Spreadsheet"}`}
-          bars={chartBars}
+          series={chartSeries}
+          onInsert={handleInsertChart}
         />
 
         <ExcelAutoFilterDialog
