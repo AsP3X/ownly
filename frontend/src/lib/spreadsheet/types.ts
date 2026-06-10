@@ -217,6 +217,9 @@ export type PageMargins = {
 
 export type SpreadsheetWorkbook = {
   sheets: SheetData[];
+  // Human: Original uploaded .xlsx bytes for passthrough save (charts, drawings, macros).
+  // Agent: SET on parse; READ by serializeSpreadsheetWorkbook; NOT part of dirty JSON compare.
+  sourceBuffer?: ArrayBuffer;
   // Human: Workbook-level named ranges for formulas and name manager UI.
   // Agent: IMPORTED/EXPORTED via xl/workbook.xml definedNames.
   namedRanges?: NamedRange[];

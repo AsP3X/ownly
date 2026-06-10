@@ -794,11 +794,17 @@ function stripExistingConditionalFormatting(sheetXml: string): string {
 
 function injectDxfs(stylesXml: string, dxfs: string[]): string {
   if (dxfs.length === 0) return stylesXml;
-  const dxfBlock = `<dxfs count="${dxfs.length}">${dxfs.join("")}</dxfs>`;
 
-  if (/<dxfs[\s\S]*?<\/dxfs>/.test(stylesXml)) {
-    return stylesXml.replace(/<dxfs[\s\S]*?<\/dxfs>/, dxfBlock);
+  const existing = /<dxfs\b[^>]*count="(\d+)"[^>]*>([\s\S]*?)<\/dxfs>/i.exec(stylesXml);
+  if (existing) {
+    const existingCount = Number.parseInt(existing[1], 10) || 0;
+    const existingBody = existing[2];
+    const nextCount = existingCount + dxfs.length;
+    const nextBlock = `<dxfs count="${nextCount}">${existingBody}${dxfs.join("")}</dxfs>`;
+    return stylesXml.replace(/<dxfs\b[\s\S]*?<\/dxfs>/i, nextBlock);
   }
+
+  const dxfBlock = `<dxfs count="${dxfs.length}">${dxfs.join("")}</dxfs>`;
   return stylesXml.replace("</styleSheet>", `${dxfBlock}</styleSheet>`);
 }
 
@@ -917,10 +923,12 @@ function buildSheetViewsXml(frozenRows: number, frozenCols: number): string {
 }
 
 function injectFreezePanes(sheetXml: string, frozenRows: number, frozenCols: number): string {
-  const stripped = sheetXml.replace(/<sheetViews[\s\S]*?<\/sheetViews>/g, "");
-  if (!frozenRows && !frozenCols) return stripped;
+  if (!frozenRows && !frozenCols) return sheetXml;
   const views = buildSheetViewsXml(frozenRows, frozenCols);
-  return stripped.replace(/(<worksheet\b[^>]*>)/i, `$1${views}`);
+  if (/<sheetViews\b[\s\S]*?<\/sheetViews>/i.test(sheetXml)) {
+    return sheetXml.replace(/<sheetViews\b[\s\S]*?<\/sheetViews>/i, views);
+  }
+  return sheetXml.replace(/(<worksheet\b[^>]*>)/i, `$1${views}`);
 }
 
 async function mapWorksheetEntries(buffer: ArrayBuffer): Promise<{

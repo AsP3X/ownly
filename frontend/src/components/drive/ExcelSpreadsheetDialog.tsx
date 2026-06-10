@@ -324,6 +324,8 @@ export function ExcelSpreadsheetDialog({
     setSaveError("");
     try {
       const blob = await serializeSpreadsheetWorkbook(workbook);
+      const savedBuffer = await blob.arrayBuffer();
+      editor.commitSavedBuffer(savedBuffer);
       const nextFileObject = new File([blob], file.name, {
         type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -351,6 +353,8 @@ export function ExcelSpreadsheetDialog({
     setSaveError("");
     try {
       const blob = await serializeSpreadsheetWorkbook(workbook);
+      const savedBuffer = await blob.arrayBuffer();
+      editor.commitSavedBuffer(savedBuffer);
       const nextFileObject = new File([blob], file.name, {
         type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });

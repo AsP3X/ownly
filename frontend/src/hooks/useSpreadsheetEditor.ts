@@ -30,6 +30,7 @@ import {
   pushUndo,
   redo,
   undo,
+  workbookDirtyFingerprint,
   type UndoStack,
 } from "@/lib/spreadsheet/undo";
 import type { CellAddress, CellStyle, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
@@ -138,11 +139,23 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
 
   const getWorkbookForSave = useCallback((): SpreadsheetWorkbook | null => workbookRef.current, []);
 
+  // Human: After a successful cloud save, point passthrough sourceBuffer at the uploaded bytes.
+  // Agent: UPDATES workbook + saved snapshot so the next save preserves prior OOXML parts.
+  const commitSavedBuffer = useCallback((buffer: ArrayBuffer) => {
+    setWorkbookState((current) => {
+      if (!current) return current;
+      const next = { ...current, sourceBuffer: buffer };
+      setSavedWorkbook(cloneWorkbook(next));
+      setUndoStack(createUndoStack(next));
+      return next;
+    });
+  }, []);
+
   const isWorkbookDirty = useCallback(
     (candidate?: SpreadsheetWorkbook | null) => {
       const current = candidate ?? workbookRef.current;
       if (!current || !savedWorkbook) return false;
-      return JSON.stringify(current) !== JSON.stringify(savedWorkbook);
+      return workbookDirtyFingerprint(current) !== workbookDirtyFingerprint(savedWorkbook);
     },
     [savedWorkbook],
   );
@@ -704,6 +717,7 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
     setSheetColumnWidths,
     setSheetRowHeights,
     getWorkbookForSave,
+    commitSavedBuffer,
     isWorkbookDirty,
     performFill,
     handleGridKeyDown,

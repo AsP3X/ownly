@@ -18,7 +18,17 @@ export function createUndoStack(initial: SpreadsheetWorkbook | null): UndoStack 
 }
 
 export function cloneWorkbook(workbook: SpreadsheetWorkbook): SpreadsheetWorkbook {
-  return JSON.parse(JSON.stringify(workbook)) as SpreadsheetWorkbook;
+  const { sourceBuffer, ...serializable } = workbook;
+  const cloned = JSON.parse(JSON.stringify(serializable)) as SpreadsheetWorkbook;
+  if (sourceBuffer) cloned.sourceBuffer = sourceBuffer;
+  return cloned;
+}
+
+// Human: Stable JSON fingerprint for dirty detection — excludes non-serializable sourceBuffer.
+// Agent: USED by useSpreadsheetEditor isWorkbookDirty.
+export function workbookDirtyFingerprint(workbook: SpreadsheetWorkbook): string {
+  const { sourceBuffer: _source, ...serializable } = workbook;
+  return JSON.stringify(serializable);
 }
 
 export function pushUndo(stack: UndoStack, workbook: SpreadsheetWorkbook): UndoStack {

@@ -37,6 +37,7 @@ import {
   exportMergedRegionsToXlsx,
   importMergedRegionsFromXlsx,
 } from "@/lib/spreadsheet/xlsx-merge-ooxml";
+import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -148,6 +149,7 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
         ? sheets
         : [normalizeSheetGrid({ name: "Sheet1", rows: [[{ value: null, display: "" }]] })],
     namedRanges: namedRanges.length > 0 ? namedRanges : undefined,
+    sourceBuffer: buffer,
   };
 }
 
@@ -165,9 +167,9 @@ function mergeImportedDimensions(
   });
 }
 
-// Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
-// Agent: WRITES SheetJS workbook; PATCHES OOXML with conditional formatting rules; RETURNS Blob.
-export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook): Promise<Blob> {
+// Human: Build a fresh SheetJS xlsx package from the in-memory workbook model.
+// Agent: USED as the cell-data layer for passthrough merge or standalone new workbooks.
+async function writeWorkbookViaSheetJS(workbook: SpreadsheetWorkbook): Promise<ArrayBuffer> {
   const xlsxWorkbook = XLSX.utils.book_new();
 
   for (const sheet of workbook.sheets) {
@@ -203,7 +205,17 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
     XLSX.utils.book_append_sheet(xlsxWorkbook, worksheet, sheet.name);
   }
 
-  let bytes = XLSX.write(xlsxWorkbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  return XLSX.write(xlsxWorkbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+}
+
+// Human: Serialize the edited workbook back to an .xlsx Blob for cloud save.
+// Agent: MERGES SheetJS cell data into source zip when available; PATCHES modeled OOXML.
+export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook): Promise<Blob> {
+  const generatedBytes = await writeWorkbookViaSheetJS(workbook);
+  let bytes =
+    workbook.sourceBuffer && workbook.sourceBuffer.byteLength > 0
+      ? await mergePassthroughXlsx(workbook.sourceBuffer, generatedBytes, workbook)
+      : generatedBytes;
   bytes = await exportConditionalFormatsToXlsx(bytes, workbook.sheets);
   bytes = await exportFreezePanesToXlsx(bytes, workbook.sheets);
   bytes = await exportWorkbookMetadataToXlsx(bytes, workbook);
