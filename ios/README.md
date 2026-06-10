@@ -21,6 +21,8 @@ Select the **Ownly** scheme and an iPhone simulator, then run (⌘R).
 
 Default API base URL: `http://127.0.0.1:3000/api/v1` (Docker on your Mac).
 
+The web UI (favicon, public share pages at `/s/{token}`) is on port **8080** in the default Docker stack. When the API port is 3000, the app automatically uses `8080` for those SPA routes.
+
 On auth screens, use the **gear** button to change host, port, and HTTPS. The status pill checks `GET /api/v1/setup/status`.
 
 For a physical device, set the host to your Mac's LAN IP instead of `127.0.0.1`.

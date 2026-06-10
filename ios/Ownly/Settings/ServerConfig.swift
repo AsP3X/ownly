@@ -9,6 +9,9 @@ struct ServerConfig: Equatable {
 
     static let defaultHost = "127.0.0.1"
     static let defaultPort = 3000
+    /// Human: Docker Compose nginx SPA port when API is exposed separately on 3000.
+    /// Agent: USED by resolvedWebPort heuristic; favicon + `/s/{token}` pages live here, not on the API port.
+    static let defaultWebPort = 8080
     static let apiPathPrefix = "api/v1"
 
     static let defaults = ServerConfig(
@@ -47,14 +50,61 @@ struct ServerConfig: Equatable {
     }
 
     /// Resolves absolute `http(s)://…` URLs or API paths (`/api/v1/…` or `/files/…`) against `apiBaseURL`.
-    /// Web app origin for public share pages (`/s/{token}`), without the `/api/v1` prefix.
+    /// Human: Nginx/Vite origin for static assets and SPA routes — not always the same port as `apiBaseURL`.
+    /// Agent: READS host/useHTTPS + resolvedWebPort; RETURNS scheme/host/port with path `/`.
     var webOriginURL: URL? {
+        guard let port = resolvedWebPort else { return nil }
+        return webOriginURL(port: port)
+    }
+
+    /// Human: Build a web origin when probing alternate SPA ports (Docker dev fallback).
+    /// Agent: NIL when port invalid; DOES NOT append `/api/v1`.
+    func webOriginURL(port: Int) -> URL? {
+        guard port > 0 else { return nil }
         var components = URLComponents()
         components.scheme = useHTTPS ? "https" : "http"
         components.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        components.port = port > 0 ? port : nil
+        components.port = port
         components.path = "/"
         return components.url
+    }
+
+    /// Human: Ordered SPA origins to try for favicon and other static files.
+    /// Agent: PRIMARY resolvedWebPort; ADDS defaultWebPort when API port is 3000 and differs from SPA port.
+    var webOriginCandidates: [URL] {
+        var seen = Set<String>()
+        var urls: [URL] = []
+        for port in webOriginPortsToTry() {
+            guard let url = webOriginURL(port: port) else { continue }
+            let key = url.absoluteString
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func webOriginPortsToTry() -> [Int] {
+        let primary = resolvedWebPort
+        var ports: [Int] = []
+        if let primary, primary > 0 {
+            ports.append(primary)
+        }
+        if port == ServerConfig.defaultPort,
+           ServerConfig.defaultWebPort != primary {
+            ports.append(ServerConfig.defaultWebPort)
+        }
+        if port > 0, port != primary, !ports.contains(port) {
+            ports.append(port)
+        }
+        return ports
+    }
+
+    private var resolvedWebPort: Int? {
+        if port == ServerConfig.defaultPort {
+            return ServerConfig.defaultWebPort
+        }
+        return port > 0 ? port : nil
     }
 
     func publicSharePageURL(token: String) -> URL? {

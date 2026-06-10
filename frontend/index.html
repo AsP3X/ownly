@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <!-- Human: SVG for desktop; PNG + apple-touch-icon for iOS Safari (no reliable SVG favicon). -->
+  <!-- Agent: STATIC assets from public/; apple-touch-icon 180px for iOS tabs and home screen. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ownly</title>
   </head>

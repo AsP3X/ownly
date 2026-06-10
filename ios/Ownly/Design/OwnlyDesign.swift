@@ -8,6 +8,7 @@
 
 import os
 import SwiftUI
+import UIKit
 
 // Human: Shared “liquid glass” visuals, brand colors, motion, favicon loading, and small reusable SwiftUI widgets for the whole app.
 // Agent: OwnlyColors adaptive UIColor; View glassPanel glassButtonPrimary glassField glassCard iOS26 glassEffect fallback material; elasticSlide; OwnlySpinner; FaviconImageView URLSession no-cache Bearer; Color hex extension.
@@ -362,6 +363,107 @@ struct OwnlySpinner: View {
             .rotationEffect(.degrees(isAnimating ? 360 : 0))
             .frame(width: 20, height: 20)
             .onAppear { withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { isAnimating = true } }
+    }
+}
+
+// MARK: - Server favicon (PNG — iOS UIImage cannot decode SVG favicons)
+
+private enum FaviconAsset {
+    static let filenames = ["apple-touch-icon.png", "favicon-32.png", "favicon.svg"]
+}
+
+// Human: Loads the Ownly cloud mark from the nginx/Vite origin (not the API port).
+// Agent: URLSession GET static PNG paths; TRIES config.webOriginCandidates; FALLBACK cloud.fill SF Symbol.
+struct FaviconImageView: View {
+    let config: ServerConfig
+    var size: CGFloat = 56
+
+    @State private var image: UIImage?
+    @State private var didFail = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else if didFail {
+                Image(systemName: "cloud.fill")
+                    .font(.system(size: size * 0.52, weight: .semibold))
+                    .foregroundStyle(OwnlyColors.primary600)
+            } else {
+                OwnlySpinner(tint: OwnlyColors.primary400)
+                    .scaleEffect(size / 22)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityLabel("Ownly")
+        .task(id: taskKey) {
+            await loadFavicon()
+        }
+    }
+
+    private var taskKey: String {
+        config.webOriginCandidates.map(\.absoluteString).joined(separator: "|")
+    }
+
+    private func loadFavicon() async {
+        await MainActor.run {
+            image = nil
+            didFail = false
+        }
+
+        for origin in config.webOriginCandidates {
+            for filename in FaviconAsset.filenames {
+                let url = origin.appending(path: filename)
+                if let fetched = await fetchRasterImage(from: url) {
+                    await MainActor.run {
+                        image = fetched
+                        didFail = false
+                    }
+                    return
+                }
+            }
+        }
+
+        await MainActor.run { didFail = true }
+    }
+
+    private func fetchRasterImage(from url: URL) async -> UIImage? {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let uiImage = UIImage(data: data) else { return nil }
+            return uiImage
+        } catch {
+            return nil
+        }
+    }
+}
+
+// Human: Splash/auth brand row — remote favicon when reachable, else SF Symbol cloud.
+// Agent: WRAPS FaviconImageView + optional instance title; READS ServerConfig web origins.
+struct OwnlyBrandMark: View {
+    let config: ServerConfig
+    var title: String = "Ownly"
+    var iconSize: CGFloat = 56
+    var showsTitle: Bool = true
+
+    var body: some View {
+        HStack(spacing: 12) {
+            FaviconImageView(config: config, size: iconSize)
+            if showsTitle {
+                Text(title)
+                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .foregroundStyle(OwnlyColors.textOnGradient)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -3,6 +3,7 @@
 // Human: Marketing splash with sign-in and register entry points on the gradient shell.
 // Agent: DISPLAYS Ownly greeting + welcome copy; CALLS onLogin/onRegister closures from AuthFlowController.
 struct SplashView: View {
+    @Environment(\.appState) private var appState
     @State private var appeared = false
     var onLogin: () -> Void = {}
     var onRegister: () -> Void = {}
@@ -20,10 +21,7 @@ struct SplashView: View {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 14) {
-                    Text("Ownly")
-                        .font(.system(size: 44, weight: .bold, design: .rounded))
-                        .foregroundStyle(OwnlyColors.textOnGradient)
-                        .multilineTextAlignment(.center)
+                    OwnlyBrandMark(config: appState.config, title: "Ownly", iconSize: 56)
 
                     Text("Welcome. Store, stream, and share your media on your own terms.")
                         .font(.system(size: 18, weight: .medium))
@@ -73,4 +71,5 @@ struct SplashView: View {
 
 #Preview {
     SplashView()
+        .environment(\.appState, AppState())
 }
