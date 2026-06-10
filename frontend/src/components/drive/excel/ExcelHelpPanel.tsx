@@ -8,7 +8,7 @@ import { RibbonGroup } from "@/components/drive/excel/excel-ribbon-primitives";
 
 const HELP_TOPICS = [
   { title: "Formulas", body: "Use the formula bar or Insert Function. Cross-sheet refs: Sheet2!A1. Dynamic arrays: FILTER, SORT, UNIQUE." },
-  { title: "Save", body: "Save & Close uploads an updated .xlsx to Ownly. Save Copy downloads locally." },
+  { title: "Save", body: "AutoSave uploads changes automatically. Use Save when AutoSave is off, or Save Copy to download locally." },
   { title: "Merge cells", body: "Select a range → Insert → Merge Cells. Merges round-trip on save." },
   { title: "Print", body: "Page Layout → Print Preview. Export PDF from the File tab." },
   { title: "Copilot", body: "Ask Copilot in the sidebar for formula hints and cell analysis." },

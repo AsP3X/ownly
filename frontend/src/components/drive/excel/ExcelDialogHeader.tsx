@@ -1,7 +1,7 @@
-// Human: Excel dialog header — filename, cloud save badge, share, save & close.
-// Agent: READS file metadata + dirty flag; EMITS share/save callbacks per Pencil sgOxg header.
+// Human: Excel dialog header — filename, cloud save badge, share, save, and close.
+// Agent: READS file metadata + dirty flag; EMITS share/save/close callbacks per Pencil sgOxg header.
 
-import { FileSpreadsheet, Share2 } from "lucide-react";
+import { FileSpreadsheet, Share2, X } from "lucide-react";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import type { FileItem } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -13,8 +13,10 @@ type ExcelDialogHeaderProps = {
   loading?: boolean;
   loaded?: boolean;
   readOnly: boolean;
+  autoSaveEnabled?: boolean;
   onShare?: () => void;
-  onSaveAndClose: () => void;
+  onSave?: () => void;
+  onClose: () => void;
 };
 
 export function ExcelDialogHeader({
@@ -24,8 +26,10 @@ export function ExcelDialogHeader({
   loading = false,
   loaded = true,
   readOnly,
+  autoSaveEnabled = false,
   onShare,
-  onSaveAndClose,
+  onSave,
+  onClose,
 }: ExcelDialogHeaderProps) {
   const savedLabel = loading
     ? "Loading spreadsheet…"
@@ -36,6 +40,8 @@ export function ExcelDialogHeader({
         : dirty
           ? "Unsaved changes"
           : "Saved to Ownly Cloud";
+
+  const showSaveButton = !readOnly && !autoSaveEnabled && onSave;
 
   return (
     <header
@@ -63,8 +69,8 @@ export function ExcelDialogHeader({
         </span>
       </div>
 
-      {/* Human: Right actions — share and primary save & close per Pencil. */}
-      <div className="flex shrink-0 items-center gap-4">
+      {/* Human: Right actions — share, optional save, and dedicated close control. */}
+      <div className="flex shrink-0 items-center gap-2">
         {onShare ? (
           <button
             type="button"
@@ -81,17 +87,32 @@ export function ExcelDialogHeader({
           </button>
         ) : null}
 
+        {showSaveButton ? (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!dirty || saving}
+            className="rounded-lg bg-[#2563EB] font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
+              fontSize: scaledPx(13),
+            }}
+          >
+            Save
+          </button>
+        ) : null}
+
         <button
           type="button"
-          onClick={onSaveAndClose}
-          disabled={readOnly && !dirty}
-          className="rounded-lg bg-[#2563EB] font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={onClose}
+          aria-label="Close spreadsheet"
+          className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#666666] transition-colors hover:bg-[#F7F8FA]"
           style={{
-            padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
-            fontSize: scaledPx(13),
+            width: scaledPx(36),
+            height: scaledPx(36),
           }}
         >
-          {readOnly ? "Close" : "Save & Close"}
+          <X style={{ width: scaledPx(16), height: scaledPx(16) }} aria-hidden />
         </button>
       </div>
     </header>

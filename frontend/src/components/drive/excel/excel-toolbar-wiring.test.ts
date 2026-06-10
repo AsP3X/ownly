@@ -16,7 +16,7 @@ const dialogSource = readFileSync(
 /** Human: Title bar + ribbon handlers that must reach ExcelSpreadsheetDialog. */
 const REQUIRED_DIALOG_HANDLERS = [
   "onSave={() => void handleSave()}",
-  "onAutoSaveChange={setAutoSaveEnabled}",
+  "onAutoSaveChange={handleAutoSaveChange}",
   "autoSaveEnabled={autoSaveEnabled}",
   "onFillDown={() =>",
   "onFindReplace={() => setFindOpen(true)}",
@@ -50,5 +50,22 @@ describe("excel toolbar wiring", () => {
     expect(dialogSource).toContain("autoSaveEnabled");
     expect(dialogSource).toContain("void handleSave()");
     expect(dialogSource).toMatch(/setTimeout\(\(\) => \{\s*void handleSave\(\{ silent: true \}\)/);
+  });
+
+  it("hides manual save controls when AutoSave is enabled", () => {
+    const titleBarSource = readFileSync(
+      path.resolve(here, "ExcelToolbarTitleBar.tsx"),
+      "utf8",
+    );
+    const headerSource = readFileSync(path.resolve(here, "ExcelDialogHeader.tsx"), "utf8");
+    expect(titleBarSource).toContain("!autoSaveEnabled");
+    expect(headerSource).toContain("!autoSaveEnabled");
+    expect(headerSource).toContain('aria-label="Close spreadsheet"');
+  });
+
+  it("persists AutoSave preference via excel-editor-preferences helpers", () => {
+    expect(dialogSource).toContain("readExcelAutoSaveEnabled");
+    expect(dialogSource).toContain("writeExcelAutoSaveEnabled");
+    expect(dialogSource).toContain("handleAutoSaveChange");
   });
 });

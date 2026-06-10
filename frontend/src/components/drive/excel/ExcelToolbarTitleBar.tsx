@@ -116,9 +116,11 @@ export function ExcelToolbarTitleBar({
         </div>
 
         <div className="flex items-center gap-1">
-          <QuickAccessIconButton label="Save" disabled={readOnly} onClick={onSave}>
-            <Save style={{ width: iconSize, height: iconSize }} aria-hidden />
-          </QuickAccessIconButton>
+          {!autoSaveEnabled ? (
+            <QuickAccessIconButton label="Save" disabled={readOnly} onClick={onSave}>
+              <Save style={{ width: iconSize, height: iconSize }} aria-hidden />
+            </QuickAccessIconButton>
+          ) : null}
           <QuickAccessIconButton label="Undo" disabled={!canUndo} onClick={onUndo}>
             <Undo2 style={{ width: iconSize, height: iconSize }} aria-hidden />
           </QuickAccessIconButton>

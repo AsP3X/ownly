@@ -66,6 +66,10 @@ import {
 import { buildAutoSumFormula } from "@/lib/spreadsheet/formulas";
 import { chartBarsFromSelection } from "@/lib/spreadsheet/chart-data";
 import { clearCellStylePatch } from "@/lib/spreadsheet/cell-styles";
+import {
+  readExcelAutoSaveEnabled,
+  writeExcelAutoSaveEnabled,
+} from "@/lib/spreadsheet/excel-editor-preferences";
 import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spreadsheet/parse";
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import { precedentCellKey, precedentCellsFromFormula } from "@/lib/spreadsheet/trace-precedents";
@@ -170,7 +174,7 @@ export function ExcelSpreadsheetDialog({
   const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [protectOpen, setProtectOpen] = useState(false);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => readExcelAutoSaveEnabled());
   const [textToColumnsOpen, setTextToColumnsOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<"pen" | "eraser" | null>(null);
   const [drawColor, setDrawColor] = useState("#2563EB");
@@ -323,42 +327,6 @@ export function ExcelSpreadsheetDialog({
     [activeSheet, editor, readOnly],
   );
 
-  const handleSaveAndClose = useCallback(async () => {
-    flushGridDimensionsRef.current?.();
-    const workbook = editor.getWorkbookForSave();
-    if (!file || !workbook) {
-      handleDialogOpenChange(false);
-      return;
-    }
-
-    if (readOnly || !editor.isWorkbookDirty(workbook)) {
-      handleDialogOpenChange(false);
-      return;
-    }
-
-    setSaving(true);
-    setSaveError("");
-    try {
-      const blob = await serializeSpreadsheetWorkbook(workbook);
-      const savedBuffer = await blob.arrayBuffer();
-      editor.commitSavedBuffer(savedBuffer);
-      const nextFileObject = new File([blob], file.name, {
-        type: file.mime_type ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      await deleteFile(file.id, { permanent: true });
-      const result = await uploadFileWithProgress(nextFileObject, undefined, {
-        folderId: file.folder_id,
-      });
-      skipReloadAfterSaveRef.current = true;
-      onFileSaved?.(file.id, result.file);
-      handleDialogOpenChange(false);
-    } catch (error) {
-      setSaveError(getErrorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }, [editor, file, handleDialogOpenChange, onFileSaved, readOnly]);
-
   // Human: Title-bar Save — persist workbook without closing the dialog.
   // Agent: Same upload path as Save & Close; silent mode for autosave (no reload, no saving banner).
   const handleSave = useCallback(
@@ -417,6 +385,13 @@ export function ExcelSpreadsheetDialog({
 
   const handleRegisterDimensionFlush = useCallback((flush: (() => void) | null) => {
     flushGridDimensionsRef.current = flush;
+  }, []);
+
+  // Human: Persist AutoSave toggle so manual-save chrome stays hidden on next open.
+  // Agent: WRITES localStorage; UPDATES React state for ribbon/header visibility.
+  const handleAutoSaveChange = useCallback((enabled: boolean) => {
+    setAutoSaveEnabled(enabled);
+    writeExcelAutoSaveEnabled(enabled);
   }, []);
 
   const handleFindNext = useCallback(
@@ -555,8 +530,10 @@ export function ExcelSpreadsheetDialog({
             loading={loading}
             loaded={editor.isLoaded}
             readOnly={readOnly}
+            autoSaveEnabled={autoSaveEnabled}
             onShare={file && onShare ? () => onShare(file) : undefined}
-            onSaveAndClose={() => void handleSaveAndClose()}
+            onSave={() => void handleSave()}
+            onClose={() => handleDialogOpenChange(false)}
           />
 
           {saveError ? (
@@ -577,7 +554,7 @@ export function ExcelSpreadsheetDialog({
                 canRedo={editor.canRedo}
                 onSave={() => void handleSave()}
                 autoSaveEnabled={autoSaveEnabled}
-                onAutoSaveChange={setAutoSaveEnabled}
+                onAutoSaveChange={handleAutoSaveChange}
                 onShare={file && onShare ? () => onShare(file) : undefined}
                 onFillDown={() => {
                   if (readOnly) return;
