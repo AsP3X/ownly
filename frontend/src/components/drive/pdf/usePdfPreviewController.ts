@@ -20,7 +20,6 @@ import {
   PDF_PAGE_AREA_PADDING_DESKTOP_PX,
   PDF_PAGE_AREA_PADDING_X_MOBILE_PX,
   PDF_PAGE_AREA_PADDING_Y_MOBILE_PX,
-  PDF_MOBILE_NEXT_PAGE_PEEK_PX,
   PDF_PAGE_STACK_GAP_DESKTOP_PX,
   PDF_PAGE_STACK_GAP_MOBILE_PX,
   PDF_SEARCH_DEBOUNCE_MS,
@@ -140,8 +139,6 @@ export function usePdfPreviewController(
     if (!open || !documentAreaNode || !pageNativeSize) return;
 
     const updateFitWidth = () => {
-      const mobilePeekPx = isDesktop ? 0 : PDF_MOBILE_NEXT_PAGE_PEEK_PX;
-
       setFitPageWidth(
         computeFitPageWidth(
           pageNativeSize.width,
@@ -149,7 +146,7 @@ export function usePdfPreviewController(
           documentAreaNode.clientWidth,
           documentAreaNode.clientHeight,
           pageAreaPaddingX,
-          pageAreaPaddingY + mobilePeekPx,
+          pageAreaPaddingY,
         ),
       );
     };
@@ -160,11 +157,14 @@ export function usePdfPreviewController(
     return () => observer.disconnect();
   }, [open, documentAreaNode, pageNativeSize, isDesktop, pageAreaPaddingX, pageAreaPaddingY]);
 
-  // Human: Mobile opens at scrollTop 0 so page 1 is centered in the first viewport slot, not offset upward.
-  // Agent: Runs when sizing is ready; desktop keeps native scroll position from zoom/resize handling.
+  // Human: Mobile centers page 1 vertically when sizing is ready — matches per-page snap-center slots.
+  // Agent: scrollIntoView block center; desktop keeps native scroll position from zoom/resize handling.
   useEffect(() => {
     if (!open || isDesktop || !documentAreaNode || numPages === 0 || fitPageWidth === undefined) return;
-    documentAreaNode.scrollTop = 0;
+    const frameId = requestAnimationFrame(() => {
+      pageRefs.current.get(1)?.scrollIntoView({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frameId);
   }, [open, isDesktop, documentAreaNode, numPages, fitPageWidth, file?.id]);
 
   useEffect(() => {
@@ -204,10 +204,10 @@ export function usePdfPreviewController(
     (page: number) => {
       const clamped = clampPage(page, numPages);
       setCurrentPage(clamped);
-      // Human: Mobile slots are exactly one viewport tall — align slot top so centered page fills the screen.
-      // Agent: block "start" avoids snap-center overscroll that hid the top of page 1 on load.
+      // Human: Mobile page slots use snap-center — scroll the target page into the vertical middle.
+      // Agent: block "center" aligns with min-h-full flex centering in PdfPreviewSurfaceMobile.
       pageRefs.current.get(clamped)?.scrollIntoView({
-        block: "start",
+        block: "center",
         behavior: "smooth",
       });
     },

@@ -207,7 +207,7 @@ export function PdfPreviewSurfaceMobile({
                             if (node) pageRefs.current.set(pageNumber, node);
                             else pageRefs.current.delete(pageNumber);
                           }}
-                          className="box-border flex h-[calc(100%-var(--pdf-mobile-page-peek))] w-full shrink-0 snap-start snap-always items-center justify-center px-3"
+                          className="box-border mb-[var(--pdf-mobile-page-peek)] flex min-h-full w-full shrink-0 snap-center snap-always items-center justify-center px-3"
                         >
                           <div className="max-w-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                             <Page
