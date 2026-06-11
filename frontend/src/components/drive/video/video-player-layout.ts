@@ -72,10 +72,10 @@ export const videoDialogSquarePlayerShellClass =
 export const videoMobileImmersiveShellClass =
   "relative flex min-h-0 w-full flex-1 flex-col bg-black" as const;
 
-// Human: Letterboxed landscape/square band on portrait phone — Pencil 390×220 centered stage.
-// Agent: APPLIED to <video> wrapper when source is not portrait and phone is upright.
+// Human: Landscape source on portrait phone — full view width; height from aspect ratio unless taller than viewport.
+// Agent: w-full + max-h-full; object-contain shrinks width only when intrinsic height exceeds the shell.
 export const videoMobileLetterboxVideoClass =
-  "w-full max-h-[min(220px,42dvh)] object-contain" as const;
+  "h-auto w-full max-h-full max-w-full object-contain" as const;
 
 // Human: Full-bleed vertical source on portrait phone — Reels-style edge-to-edge frame.
 // Agent: object-cover fills viewport; paired with immersive chrome overlays.

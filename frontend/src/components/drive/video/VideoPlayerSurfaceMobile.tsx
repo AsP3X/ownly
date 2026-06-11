@@ -185,8 +185,9 @@ export function VideoPlayerSurfaceMobile({
       <div
         data-video-gallery-swipe-zone
         className={cn(
-          "absolute inset-0 z-0",
-          !isVerticalSource && "video-portrait:flex video-portrait:items-center video-portrait:justify-center video-portrait:bg-black",
+          "absolute inset-0 z-0 size-full min-h-0",
+          !isVerticalSource &&
+            "video-portrait:flex video-portrait:items-center video-portrait:justify-center video-portrait:bg-black",
         )}
       >
         <video
@@ -200,7 +201,7 @@ export function VideoPlayerSurfaceMobile({
                 )
               : isSquareSource
                 ? cn(
-                    "aspect-square w-full max-h-[min(390px,52dvh)] object-contain",
+                    "h-auto w-full max-h-full max-w-full aspect-square object-contain",
                     "video-landscape:size-full video-landscape:max-h-none video-landscape:object-contain",
                   )
                 : cn(
@@ -300,7 +301,7 @@ export function VideoPlayerSurfaceMobile({
           </MobileChromeCircleButton>
         </div>
 
-        <div className="absolute bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+4.5rem)] right-4 z-30 flex flex-col gap-[18px]">
+        <div className="absolute bottom-[calc(max(0px,env(safe-area-inset-bottom))+6.5rem)] right-4 z-30 flex flex-col gap-[18px]">
           <MobileActionRailItem
             label="Save"
             icon={Download}
@@ -322,7 +323,7 @@ export function VideoPlayerSurfaceMobile({
 
         {showGalleryHint ? (
           <div
-            className="absolute inset-x-0 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+7.5rem)] z-20 flex flex-col items-center gap-1 text-white/60"
+            className="absolute inset-x-0 bottom-[calc(max(0px,env(safe-area-inset-bottom))+9.5rem)] z-20 flex flex-col items-center gap-1 text-white/60"
             aria-hidden
           >
             <div className="flex flex-col items-center gap-0.5">
@@ -336,61 +337,65 @@ export function VideoPlayerSurfaceMobile({
           </div>
         ) : null}
 
-        <div className="absolute inset-x-4 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+2.75rem)] z-30 max-w-[294px]">
-          <p className="truncate text-base font-bold text-white">{file.name}</p>
-          {metaDetailLine ? (
-            <p className="mt-1.5 truncate text-xs text-[#E5E7EB]">{metaDetailLine}</p>
-          ) : null}
-        </div>
-
-        <div className="absolute inset-x-4 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+1rem)] z-30 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={togglePlay}
-              disabled={transportDisabled}
-              aria-label={isPlaying ? "Pause" : "Play"}
-              className="text-white disabled:opacity-40"
-            >
-              {isPlaying ? (
-                <Pause className="size-4" fill="currentColor" aria-hidden />
-              ) : (
-                <Play className="size-4" fill="currentColor" aria-hidden />
-              )}
-            </button>
-            <span className="text-[11px] tabular-nums text-[#E5E7EB]">{timeLabel}</span>
+        {/* Human: Bottom chrome stack — title, meta, transport, then edge seek bar pinned to safe area. */}
+        {/* Agent: single flex column at bottom; REPLACES scattered bottom-[calc(...+5.75rem)] offsets. */}
+        <div
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col pb-[max(0px,env(safe-area-inset-bottom))]"
+        >
+          <div className="max-w-[min(294px,calc(100%-5rem))] px-4 pb-1.5 pt-2">
+            <p className="truncate text-base font-bold text-white">{file.name}</p>
+            {metaDetailLine ? (
+              <p className="mt-1.5 truncate text-xs text-[#E5E7EB]">{metaDetailLine}</p>
+            ) : null}
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleMute}
-              disabled={transportDisabled}
-              aria-label={muted ? "Unmute" : "Mute"}
-              className="text-white disabled:opacity-40"
-            >
-              {muted ? (
-                <VolumeX className="size-4" aria-hidden />
-              ) : (
-                <Volume2 className="size-4" aria-hidden />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              disabled={transportDisabled}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className="text-white disabled:opacity-40"
-            >
-              {isFullscreen ? (
-                <Minimize className="size-4" aria-hidden />
-              ) : (
-                <Maximize className="size-4" aria-hidden />
-              )}
-            </button>
-          </div>
-        </div>
 
-        <div className="absolute inset-x-0 bottom-[max(0px,env(safe-area-inset-bottom))] z-30 px-0 pb-0">
+          <div className="flex items-center justify-between px-4 pb-2">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={togglePlay}
+                disabled={transportDisabled}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="text-white disabled:opacity-40"
+              >
+                {isPlaying ? (
+                  <Pause className="size-4" fill="currentColor" aria-hidden />
+                ) : (
+                  <Play className="size-4" fill="currentColor" aria-hidden />
+                )}
+              </button>
+              <span className="text-[11px] tabular-nums text-[#E5E7EB]">{timeLabel}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleMute}
+                disabled={transportDisabled}
+                aria-label={muted ? "Unmute" : "Mute"}
+                className="text-white disabled:opacity-40"
+              >
+                {muted ? (
+                  <VolumeX className="size-4" aria-hidden />
+                ) : (
+                  <Volume2 className="size-4" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                disabled={transportDisabled}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                className="text-white disabled:opacity-40"
+              >
+                {isFullscreen ? (
+                  <Minimize className="size-4" aria-hidden />
+                ) : (
+                  <Maximize className="size-4" aria-hidden />
+                )}
+              </button>
+            </div>
+          </div>
+
           <VideoSeekBar
             variant="mobile-edge"
             progress={progress}
