@@ -8,6 +8,7 @@ import {
   attachVodSeekRecovery,
   createHlsInstance,
   isHlsStreamUrl,
+  shouldPreferNativeHlsPlayback,
 } from "@/lib/hls-player";
 
 type UseHlsVideoAttachOptions = {
@@ -42,7 +43,9 @@ export function useHlsVideoAttach({
 
     const isActive = () => !disposed;
 
-    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
+    if (isHlsStreamUrl(streamUrl) && shouldPreferNativeHlsPlayback(video)) {
+      video.src = streamUrl;
+    } else if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance((xhr) => {
         if (shareToken && sharePassword) {
           xhr.setRequestHeader("X-Share-Password", sharePassword);
@@ -64,8 +67,6 @@ export function useHlsVideoAttach({
         }
       });
       detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrl;
     } else if (isHlsStreamUrl(streamUrl)) {
       onError("This browser cannot play HLS video.");
     } else {

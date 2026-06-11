@@ -15,6 +15,7 @@ import {
   attachVodSeekRecovery,
   createHlsInstance,
   isHlsStreamUrl,
+  shouldPreferNativeHlsPlayback,
 } from "@/lib/hls-player";
 import { createSharePasswordXhrSetup } from "@/lib/share-access";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,9 @@ export function PublicShareInlineVideo({
     let detachSeek: (() => void) | undefined;
     const isActive = () => !disposed;
 
-    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
+    if (isHlsStreamUrl(streamUrl) && shouldPreferNativeHlsPlayback(video)) {
+      video.src = streamUrl;
+    } else if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance(createSharePasswordXhrSetup(sharePassword));
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -66,8 +69,6 @@ export function PublicShareInlineVideo({
         if (!disposed) onStreamError?.(message);
       });
       detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrl;
     }
 
     return () => {

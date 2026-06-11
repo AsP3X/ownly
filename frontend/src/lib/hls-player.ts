@@ -12,6 +12,20 @@ export function isHlsStreamUrl(url: string): boolean {
   return lower.includes(".m3u8") || lower.includes("/playlist");
 }
 
+// Human: Prefer AVPlayer native HLS on Apple touch devices — MSE/hls.js is flaky for AES fMP4 on iOS.
+// Agent: READS canPlayType + userAgent; RETURNS true before Hls.isSupported() on iPhone/iPad.
+export function shouldPreferNativeHlsPlayback(video: HTMLVideoElement): boolean {
+  if (!video.canPlayType("application/vnd.apple.mpegurl")) return false;
+  if (typeof navigator === "undefined") return false;
+
+  const ua = navigator.userAgent;
+  const isAppleMobile = /iPad|iPhone|iPod/.test(ua);
+  const isIpadDesktopUa =
+    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+
+  return isAppleMobile || isIpadDesktopUa || !Hls.isSupported();
+}
+
 // Human: Build hls.js for AES-128 VOD — main-thread decrypt + transmux for encrypted fMP4.
 // Agent: enableWorker false (worker breaks AES-128 fMP4 in hls.js); maxAudioFramesDrift 4.
 export function createHlsInstance(xhrSetup?: HlsAuthSetup): Hls {

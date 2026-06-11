@@ -154,10 +154,18 @@ fn append_ticket_to_playlist_line(line: &str, encoded_ticket: &str) -> String {
     }
 
     let trimmed = line.trim();
-    if trimmed.starts_with('/') && !trimmed.starts_with('#') {
-        if trimmed.contains("ticket=") {
-            return line.to_string();
-        }
+    if trimmed.starts_with('#') || trimmed.is_empty() {
+        return line.to_string();
+    }
+    if trimmed.contains("ticket=") {
+        return line.to_string();
+    }
+
+    // Human: Absolute API paths and relative `segments/…` lines (Safari does not inherit manifest ?ticket=).
+    // Agent: APPENDS ticket= query; SKIPS http(s) URLs rewritten elsewhere.
+    let needs_ticket = trimmed.starts_with('/')
+        || (trimmed.contains("segments/") && !trimmed.starts_with("http"));
+    if needs_ticket {
         let sep = if trimmed.contains('?') { '&' } else { '?' };
         return format!("{trimmed}{sep}ticket={encoded_ticket}");
     }
@@ -263,6 +271,19 @@ pub(crate) async fn storage_hls_uses_fmp4(storage: &dyn Storage, storage_key: &s
     storage.exists(&first_m4s).await.unwrap_or(false)
 }
 
+// Human: Map object-storage transport failures to API errors — avoid 404 when JWT/auth is wrong.
+// Agent: READS anyhow message; RETURNS Storage on 401/403; NotFound only for missing objects.
+fn map_hls_segment_storage_error(err: anyhow::Error) -> AppError {
+    let msg = err.to_string();
+    if msg.contains("401") || msg.contains("403") {
+        AppError::Storage("object storage authentication failed".into())
+    } else if msg.contains("404") {
+        AppError::NotFound
+    } else {
+        AppError::Storage(msg)
+    }
+}
+
 // Human: Open an encrypted HLS media segment, trying `.ts` / `.m4s` aliases when needed.
 // Agent: READS `{storage_key}/segments/*`; RETURNS resolved basename for Content-Type.
 pub(crate) async fn open_hls_segment(
@@ -270,12 +291,28 @@ pub(crate) async fn open_hls_segment(
     storage_key: &str,
     segment_name: &str,
 ) -> Result<(StorageStream, u64, String), AppError> {
-    for name in hls_segment_storage_aliases(segment_name) {
+    let aliases = hls_segment_storage_aliases(segment_name);
+    let mut last_err: Option<anyhow::Error> = None;
+
+    for name in aliases {
         let key = format!("{storage_key}/segments/{name}");
         match storage.get_stream(&key).await {
             Ok((stream, size, _)) => return Ok((stream, size, name)),
-            Err(_) => continue,
+            Err(err) => {
+                tracing::warn!(
+                    storage_key,
+                    segment = %name,
+                    storage_object = %key,
+                    error = %err,
+                    "HLS segment object-storage GET failed"
+                );
+                last_err = Some(err);
+            }
         }
+    }
+
+    if let Some(err) = last_err {
+        return Err(map_hls_segment_storage_error(err));
     }
     Err(AppError::NotFound)
 }
@@ -955,6 +992,18 @@ mod tests {
         assert!(out.contains("/api/v1/files/f/key?ticket="));
         assert!(out.contains("/api/v1/files/f/hls/segments/0000.m4s?ticket="));
         assert!(!out.contains("ticket=ticket="));
+    }
+
+    #[test]
+    fn append_ticket_to_playlist_relative_segment_paths() {
+        let ticket = "file.user.9999.deadbeef";
+        let input = concat!(
+            "#EXTM3U\n",
+            "#EXTINF:6.000,\n",
+            "segments/0000.m4s\n",
+        );
+        let out = append_ticket_to_playlist(input, ticket);
+        assert!(out.contains("segments/0000.m4s?ticket="));
     }
 
     #[test]
