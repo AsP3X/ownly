@@ -165,13 +165,23 @@ export function VideoVerticalGallery({
     }
   }, [recenterTrack]);
 
-  useEffect(() => {
+  // Human: Measure swipe viewport height — sync read on mount, then ResizeObserver for rotation.
+  // Agent: READS galleryRef.clientHeight; WRITES containerHeight for track panel sizing.
+  useLayoutEffect(() => {
     const node = galleryRef.current;
     if (!node) return;
 
-    const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? 0;
-      setContainerHeight(height);
+    const syncHeight = () => {
+      const height = node.clientHeight;
+      if (height > 0) {
+        setContainerHeight(height);
+      }
+    };
+
+    syncHeight();
+
+    const observer = new ResizeObserver(() => {
+      syncHeight();
     });
 
     observer.observe(node);
@@ -387,7 +397,7 @@ export function VideoVerticalGallery({
   return (
     <div
       ref={galleryRef}
-      className="relative min-h-0 flex-1 touch-none overflow-hidden"
+      className="absolute inset-0 touch-none overflow-hidden"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -397,7 +407,7 @@ export function VideoVerticalGallery({
       {containerHeight > 0 ? (
         <div
           ref={trackRef}
-          className="relative flex w-full flex-col"
+          className="absolute left-0 w-full flex flex-col"
           style={trackHeightStyle}
         >
           <div style={{ height: containerHeight }} className="w-full shrink-0">
@@ -406,8 +416,13 @@ export function VideoVerticalGallery({
               label={previousFile?.name ?? "Previous video"}
             />
           </div>
-          <div style={{ height: containerHeight }} className="w-full shrink-0">
-            {children}
+          <div
+            style={{ height: containerHeight }}
+            className="relative w-full shrink-0 overflow-hidden"
+          >
+            {/* Human: Player shell needs a sized flex parent — fixed-height panel alone collapses flex-1. */}
+            {/* Agent: absolute inset-0 flex column; FILLS center gallery slot for VideoPlayerSurfaceMobile. */}
+            <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
           </div>
           <div style={{ height: containerHeight }} className="w-full shrink-0">
             <VideoGalleryAdjacentPanel
@@ -417,7 +432,7 @@ export function VideoVerticalGallery({
           </div>
         </div>
       ) : (
-        <div className="absolute inset-0">{children}</div>
+        <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
       )}
     </div>
   );

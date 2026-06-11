@@ -291,7 +291,10 @@ export function VideoPreviewDialog({
           className={cn(
             "flex w-full min-h-0 outline-none",
             isNarrow
-              ? "min-h-0 flex-1 flex-col"
+              ? cn(
+                  "min-h-0 flex-1 flex-col",
+                  useVerticalGalleryScroll && "relative",
+                )
               : cn(
                   videoDialogRowHeightClass,
                   "max-w-full shrink-0 items-stretch justify-center gap-6",

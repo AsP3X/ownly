@@ -87,7 +87,7 @@ export function resolveDesktopVideoFallbackAspectClass(
 // Human: Mobile immersive shell — Pencil MV Mobile Vertical / Portrait Video Landscape (full viewport).
 // Agent: FILLS dialog viewport; letterboxing for non-portrait sources handled inside the player surface.
 export const videoMobileImmersiveShellClass =
-  "relative flex min-h-0 w-full flex-1 flex-col bg-black" as const;
+  "relative flex h-full min-h-0 w-full flex-1 flex-col bg-black" as const;
 
 // Human: Landscape source on portrait phone — full view width; height from aspect ratio unless taller than viewport.
 // Agent: w-full + max-h-full; object-contain shrinks width only when intrinsic height exceeds the shell.
