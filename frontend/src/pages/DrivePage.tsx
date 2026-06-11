@@ -1187,6 +1187,7 @@ export default function DrivePage() {
   }, [files, previewText]);
 
   const textEditorBranchLabel = folderStack.at(-1)?.name ?? "My Cloud";
+  const videoPlayerFolderLabel = textEditorBranchLabel;
 
   function handleGalleryAudioChange(file: FileItem) {
     recordFileAccess(file.id);
@@ -1649,6 +1650,7 @@ export default function DrivePage() {
               onFileChange: handleGalleryVideoChange,
               onDownload: handleDownload,
               onShare: handleShareFile,
+              folderLabel: videoPlayerFolderLabel,
             }}
           />
         ) : null}

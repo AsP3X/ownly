@@ -6,7 +6,11 @@ import type { BufferedSegment } from "@/components/drive/audio/audio-buffered";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { cn } from "@/lib/utils";
 
-export type VideoSeekBarVariant = "desktop" | "mobile-portrait" | "mobile-landscape";
+export type VideoSeekBarVariant =
+  | "desktop"
+  | "mobile-portrait"
+  | "mobile-landscape"
+  | "mobile-edge";
 
 type VideoSeekBarProps = {
   progress: number;
@@ -64,6 +68,7 @@ export function VideoSeekBar({
 
   const isPortrait = variant === "mobile-portrait";
   const isLandscape = variant === "mobile-landscape";
+  const isEdge = variant === "mobile-edge";
 
   const bufferedBars = bufferedSegments
     .map((segment, index) => {
@@ -83,8 +88,8 @@ export function VideoSeekBar({
     onSeek(Number(event.target.value));
   }
 
-  const railHeight = isPortrait ? "h-1" : isLandscape ? "h-1" : "h-1.5";
-  const showThumb = isPortrait || isLandscape;
+  const railHeight = isEdge ? "h-[3px]" : isPortrait || isLandscape ? "h-1" : "h-1.5";
+  const showThumb = isPortrait || isLandscape || isEdge;
 
   return (
     <div
@@ -92,6 +97,7 @@ export function VideoSeekBar({
         "min-w-0",
         isPortrait && "w-[110px] shrink-0",
         isLandscape && "min-w-0 flex-1",
+        isEdge && "w-full",
         variant === "desktop" && "flex-1 max-w-[540px]",
         className,
       )}
@@ -101,7 +107,7 @@ export function VideoSeekBar({
           className={cn(
             "relative w-full overflow-visible",
             disabled ? "opacity-50" : "cursor-pointer",
-            isPortrait && "h-3 flex items-center",
+            (isPortrait || isEdge) && "flex h-5 items-center",
           )}
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
@@ -110,7 +116,7 @@ export function VideoSeekBar({
             <div
               className={cn(
                 "relative w-full rounded-sm",
-                isLandscape ? "bg-[#FFFFFF40]" : "bg-[#FFFFFF33]",
+                isLandscape ? "bg-[#FFFFFF40]" : "bg-white/20",
                 railHeight,
               )}
             >
@@ -124,8 +130,9 @@ export function VideoSeekBar({
                 ))}
               <div
                 className={cn(
-                  "absolute top-0 left-0 z-[1] rounded-sm bg-[#2563EB] transition-[width] duration-150 ease-linear",
-                  railHeight,
+                  "absolute top-0 left-0 z-[1] rounded-sm transition-[width] duration-150 ease-linear",
+                  isEdge ? "h-[3px] bg-white" : "bg-[#2563EB]",
+                  !isEdge && railHeight,
                 )}
                 style={{ width: `${progressPercent}%` }}
               />
@@ -155,8 +162,11 @@ export function VideoSeekBar({
 
             {showThumb ? (
               <div
-                className="pointer-events-none absolute top-1/2 z-10 size-3 -translate-y-1/2 rounded-full bg-white shadow-sm"
-                style={{ left: `calc(${progressPercent}% - 6px)` }}
+                className={cn(
+                  "pointer-events-none absolute top-1/2 z-10 -translate-y-1/2 rounded-full bg-white shadow-sm",
+                  isEdge ? "size-[9px]" : "size-3",
+                )}
+                style={{ left: `calc(${progressPercent}% - ${isEdge ? 4.5 : 6}px)` }}
               />
             ) : null}
           </div>

@@ -36,6 +36,8 @@ export type VideoPreviewDialogProps = {
   shareToken?: string;
   /** Visitor password for protected public shares — sent as X-Share-Password. */
   sharePassword?: string | null;
+  /** Folder or library label shown in mobile immersive meta line. */
+  folderLabel?: string | null;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
 };
@@ -62,6 +64,7 @@ export function VideoPreviewDialog({
   onFileChange,
   shareToken,
   sharePassword,
+  folderLabel,
   onDownload,
   onShare,
 }: VideoPreviewDialogProps) {
@@ -76,7 +79,7 @@ export function VideoPreviewDialog({
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
-  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const currentIndex = useMemo(
     () => (file ? videos.findIndex((item) => item.id === file.id) : -1),
@@ -85,7 +88,8 @@ export function VideoPreviewDialog({
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < videos.length - 1;
   const positionLabel =
-    currentIndex >= 0 && videos.length > 1 ? `${currentIndex + 1} of ${videos.length}` : null;
+    currentIndex >= 0 && videos.length > 1 ? `${currentIndex + 1} / ${videos.length}` : null;
+  const showGalleryHint = isNarrow && videos.length > 1;
 
   useEffect(() => {
     setStreamUrl(null);
@@ -232,32 +236,44 @@ export function VideoPreviewDialog({
     }
   };
 
-  // Human: Mobile gallery — horizontal swipe on the player viewport (no side chevrons on narrow screens).
-  // Agent: READS touchstart clientX; on touchend CALLS goPrevious/goNext when delta exceeds threshold.
+  // Human: Mobile gallery — vertical swipe on portrait phone, horizontal on landscape phone.
+  // Agent: READS touchstart x/y; on touchend CALLS goPrevious/goNext when delta exceeds threshold.
   const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (!isNarrow || videos.length <= 1) return;
-    swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+    const touch = event.touches[0];
+    if (!touch) return;
+    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
   }, [isNarrow, videos.length]);
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
-      if (!isNarrow || videos.length <= 1 || swipeStartXRef.current === null) return;
-      const endX = event.changedTouches[0]?.clientX;
-      if (endX === undefined) return;
-      const delta = endX - swipeStartXRef.current;
-      swipeStartXRef.current = null;
+      if (!isNarrow || videos.length <= 1 || !swipeStartRef.current) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const deltaX = touch.clientX - swipeStartRef.current.x;
+      const deltaY = touch.clientY - swipeStartRef.current.y;
+      swipeStartRef.current = null;
+
+      const useVertical = narrowLayout === "portrait" && Math.abs(deltaY) >= Math.abs(deltaX);
+      const delta = useVertical ? deltaY : deltaX;
       if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
-      if (delta > 0) goPrevious();
-      else goNext();
+      if (useVertical) {
+        if (delta < 0) goNext();
+        else goPrevious();
+      } else if (delta > 0) {
+        goPrevious();
+      } else {
+        goNext();
+      }
     },
-    [goNext, goPrevious, isNarrow, videos.length],
+    [goNext, goPrevious, isNarrow, narrowLayout, videos.length],
   );
 
   const descriptionParts = [
     file?.name ?? "Video preview",
     positionLabel,
     "Encrypted HLS playback.",
-    isNarrow ? "Swipe left or right to change videos." : null,
+    isNarrow ? "Swipe up or sideways to change videos." : null,
   ].filter(Boolean);
 
   const playerProps = {
@@ -300,7 +316,7 @@ export function VideoPreviewDialog({
           className={cn(
             "flex w-full min-h-0 outline-none",
             isNarrow
-              ? "min-h-0 flex-1 flex-col items-center justify-center video-landscape:items-stretch video-landscape:justify-stretch"
+              ? "min-h-0 flex-1 flex-col"
               : cn(
                   videoDialogRowHeightClass,
                   "max-w-full shrink-0 items-center justify-center gap-4 sm:gap-6",
@@ -331,6 +347,8 @@ export function VideoPreviewDialog({
             <VideoPlayerSurfaceMobile
               key={file.id}
               positionLabel={positionLabel}
+              folderLabel={folderLabel}
+              showGalleryHint={showGalleryHint}
               {...playerProps}
             />
           ) : null}
@@ -347,39 +365,6 @@ export function VideoPreviewDialog({
             </button>
           ) : null}
         </div>
-
-        {/* Human: Portrait gallery footer — landscape relies on swipe only (control bar sits at bottom). */}
-        {isNarrow && videos.length > 1 ? (
-          <div
-            className={cn(
-              "shrink-0 items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2",
-              narrowLayout === "portrait" ? "flex" : "hidden",
-            )}
-          >
-            <button
-              type="button"
-              disabled={!hasPrevious}
-              onClick={goPrevious}
-              aria-label="Previous video"
-              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white disabled:opacity-30"
-            >
-              Previous
-            </button>
-            {positionLabel ? (
-              <span className="text-xs tabular-nums text-[#E5E7EB]">{positionLabel}</span>
-            ) : null}
-            <button
-              type="button"
-              disabled={!hasNext}
-              onClick={goNext}
-              aria-label="Next video"
-              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white disabled:opacity-30"
-            >
-              Next
-            </button>
-          </div>
-        ) : null}
-
       </DialogContent>
     </Dialog>
   );

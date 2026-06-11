@@ -12,6 +12,7 @@ import {
   videoDialogLandscapePlayerShellClass,
   videoDialogSquarePlayerShellClass,
   videoDialogVerticalPlayerShellClass,
+  videoMobileImmersiveShellClass,
   videoMobileLandscapeVideoShellClass,
   videoMobileSquareVideoShellClass,
   videoMobileVerticalVideoShellClass,
@@ -63,16 +64,19 @@ describe("resolve video shell classes", () => {
     );
   });
 
-  it("maps orientation to mobile shells", () => {
+  it("maps orientation to mobile immersive shells", () => {
     expect(resolveMobileVideoShellClass("landscape")).toBe(
-      videoMobileLandscapeVideoShellClass,
+      videoMobileImmersiveShellClass,
     );
     expect(resolveMobileVideoShellClass("portrait")).toBe(
-      videoMobileVerticalVideoShellClass,
+      videoMobileImmersiveShellClass,
     );
     expect(resolveMobileVideoShellClass("square")).toBe(
-      videoMobileSquareVideoShellClass,
+      videoMobileImmersiveShellClass,
     );
+    expect(videoMobileLandscapeVideoShellClass).toBe(videoMobileImmersiveShellClass);
+    expect(videoMobileVerticalVideoShellClass).toBe(videoMobileImmersiveShellClass);
+    expect(videoMobileSquareVideoShellClass).toBe(videoMobileImmersiveShellClass);
   });
 
   it("maps orientation to inline public-share aspect classes", () => {

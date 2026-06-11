@@ -67,20 +67,24 @@ export const videoDialogVerticalPlayerShellClass =
 export const videoDialogSquarePlayerShellClass =
   "h-[min(900px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(900px,100%)] shrink-0 aspect-square" as const;
 
-// Human: Mobile portrait band for landscape video — Pencil 390×220 preview strip.
-// Agent: USED when phone is upright and source is wider than tall; video-landscape overrides still apply.
-export const videoMobileLandscapeVideoShellClass =
-  "mx-auto aspect-[390/220] min-h-[180px] max-h-[min(220px,42dvh)] max-w-[min(100%,390px)]" as const;
+// Human: Mobile immersive shell — Pencil MV Mobile Vertical / Portrait Video Landscape (full viewport).
+// Agent: FILLS dialog viewport; letterboxing for non-portrait sources handled inside the player surface.
+export const videoMobileImmersiveShellClass =
+  "relative flex min-h-0 w-full flex-1 flex-col bg-black" as const;
 
-// Human: Mobile portrait column for vertical video — taller stage using available viewport height.
-// Agent: max-h reserves space for gallery footer + safe areas; aspect falls back to 9:16 until metadata.
-export const videoMobileVerticalVideoShellClass =
-  "mx-auto aspect-[9/16] min-h-[240px] max-h-[min(calc(100dvh-10rem),720px)] max-w-[min(100%,min(390px,calc(min(calc(100dvh-10rem),720px)*9/16)))]" as const;
+// Human: Letterboxed landscape/square band on portrait phone — Pencil 390×220 centered stage.
+// Agent: APPLIED to <video> wrapper when source is not portrait and phone is upright.
+export const videoMobileLetterboxVideoClass =
+  "w-full max-h-[min(220px,42dvh)] object-contain" as const;
 
-// Human: Mobile portrait square stage — 1:1 box sized to available viewport height.
-// Agent: USED for near-square sources on narrow portrait layout; landscape phone still full-bleeds.
-export const videoMobileSquareVideoShellClass =
-  "mx-auto aspect-square min-h-[240px] max-h-[min(calc(100dvh-10rem),min(100vw-2rem,720px))] max-w-[min(100%,min(390px,calc(100dvh-10rem)))]" as const;
+// Human: Full-bleed vertical source on portrait phone — Reels-style edge-to-edge frame.
+// Agent: object-cover fills viewport; paired with immersive chrome overlays.
+export const videoMobileVerticalFullBleedVideoClass = "size-full object-cover" as const;
+
+// Human: Legacy exports kept for tests — map to immersive shell (gallery footer removed from dialog).
+export const videoMobileLandscapeVideoShellClass = videoMobileImmersiveShellClass;
+export const videoMobileVerticalVideoShellClass = videoMobileImmersiveShellClass;
+export const videoMobileSquareVideoShellClass = videoMobileImmersiveShellClass;
 
 // Human: Pick desktop/mobile shell classes from orientation bucket.
 // Agent: RETURNS landscape band by default when orientation is unknown.

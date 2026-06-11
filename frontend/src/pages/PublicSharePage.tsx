@@ -723,6 +723,7 @@ export default function PublicSharePage() {
             onFileChange: setPreviewVideo,
             shareToken: token,
             sharePassword: sharePassword,
+            folderLabel: breadcrumbs.at(-1)?.name ?? overview?.name ?? "Share",
             onDownload: overview?.block_download ? undefined : (file) => void handleDownload(file),
           }}
         />

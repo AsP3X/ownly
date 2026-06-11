@@ -1,9 +1,12 @@
-// Human: Pencil mobile video player — portrait/landscape via CSS orientation (Safari-safe), not JS layout state.
-// Agent: READS videoRef; USES useVideoTransport; video-landscape/portrait variants follow data-video-layout on ancestor.
+// Human: Pencil mobile video — immersive portrait phone (Reels-style) + full-bleed landscape phone.
+// Agent: READS videoRef; USES useVideoTransport; video-portrait / video-landscape variants from ancestor layout.
 
-import { useRef, type RefObject } from "react";
+import { useRef, type ComponentProps, type RefObject } from "react";
 import {
+  ChevronUp,
   Download,
+  EllipsisVertical,
+  Info,
   Loader2,
   Maximize,
   Minimize,
@@ -18,14 +21,15 @@ import type { FileItem } from "@/api/client";
 import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
-import { DialogClose } from "@/components/ui/dialog";
 import {
   resolveMobileVideoShellClass,
-  resolveVideoAspectRatioStyle,
+  videoMobileLetterboxVideoClass,
+  videoMobileVerticalFullBleedVideoClass,
 } from "@/components/drive/video/video-player-layout";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
+import { DialogClose } from "@/components/ui/dialog";
 
 type VideoPlayerSurfaceMobileProps = {
   file: FileItem;
@@ -33,9 +37,61 @@ type VideoPlayerSurfaceMobileProps = {
   loading?: boolean;
   error?: string;
   positionLabel?: string | null;
+  folderLabel?: string | null;
+  showGalleryHint?: boolean;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
 };
+
+// Human: Floating blur circle used for top chrome buttons (close, more).
+// Agent: PRESENTATIONAL; matches Pencil #00000066 + border white/10.
+function MobileChromeCircleButton({
+  className,
+  children,
+  ...props
+}: ComponentProps<"button">) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex size-8 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/55",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Human: Right-side action rail item — icon circle + caption (Save, Share, Info).
+// Agent: CALLS optional handler; disabled when action unavailable.
+function MobileActionRailItem({
+  label,
+  icon: Icon,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  icon: typeof Download;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="flex flex-col items-center gap-1 disabled:opacity-40"
+    >
+      <span className="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur-sm">
+        <Icon className="size-5 text-white" aria-hidden />
+      </span>
+      <span className="text-[10px] font-medium text-white/80">{label}</span>
+    </button>
+  );
+}
 
 export function VideoPlayerSurfaceMobile({
   file,
@@ -43,6 +99,8 @@ export function VideoPlayerSurfaceMobile({
   loading = false,
   error = "",
   positionLabel,
+  folderLabel,
+  showGalleryHint = false,
   onDownload,
   onShare,
 }: VideoPlayerSurfaceMobileProps) {
@@ -74,13 +132,24 @@ export function VideoPlayerSurfaceMobile({
   });
 
   const timeLabel = `${formatVideoTime(progress)} / ${formatVideoTime(duration)}`;
-  const metaLabel = `${file.name} • ${formatBytes(file.size_bytes)}`;
+  const durationLabel = duration > 0 ? formatVideoTime(duration) : null;
+  const metaDetailParts = [
+    formatBytes(file.size_bytes),
+    durationLabel,
+    folderLabel,
+  ].filter(Boolean);
+  const metaDetailLine = metaDetailParts.join(" • ");
+  const landscapeMetaLabel = `${file.name} • ${formatBytes(file.size_bytes)}`;
   const showCenterPlay = !isPlaying && !loading && !error && file.hls_ready;
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
+  const chromeClass = cn(
+    "transition-opacity duration-200",
+    chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
+  );
 
-  // Human: Portrait phone shell follows source orientation — landscape band, square box, or vertical column.
-  // Agent: READS useVideoNaturalSize; video-landscape still full-bleeds regardless of source orientation.
+  // Human: Source orientation drives letterbox vs full-bleed on portrait phone.
+  // Agent: READS useVideoNaturalSize; portrait sources fill viewport; landscape/square band centered.
   const { naturalSize, setVideoRef } = useVideoNaturalSize({
     videoRef,
     fileId: file.id,
@@ -88,34 +157,54 @@ export function VideoPlayerSurfaceMobile({
     serverHeight: file.video_height,
   });
   const orientation = naturalSize?.orientation ?? "landscape";
-  const shellAspectStyle = naturalSize
-    ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
-    : undefined;
+  const isVerticalSource = orientation === "portrait";
+  const isSquareSource = orientation === "square";
 
   return (
     <div
       ref={shellRef}
       data-video-orientation={orientation}
-      style={isFullscreen ? undefined : shellAspectStyle}
       className={cn(
-        "relative w-full shrink-0 touch-manipulation overflow-hidden bg-black",
-        // Human: Pencil Mobile Portrait — shell class from landscape/square/portrait orientation.
         resolveMobileVideoShellClass(orientation),
-        // Human: Pencil Mobile Landscape — full-bleed overrides when data-video-layout=landscape.
-        "video-landscape:mx-0 video-landscape:flex video-landscape:h-full video-landscape:min-h-0 video-landscape:w-full video-landscape:max-h-none video-landscape:max-w-none video-landscape:flex-1 video-landscape:shrink video-landscape:flex-col video-landscape:aspect-auto",
-        isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-1 flex-col",
-        isFullscreen && !isImmersive && "max-h-none max-w-none",
+        "touch-manipulation overflow-hidden",
+        "video-landscape:h-full video-landscape:min-h-0 video-landscape:w-full",
+        isImmersive && "fixed inset-0 z-[60]",
         "fullscreen:overflow-visible",
       )}
+      onFocus={revealChrome}
     >
-      <video
-        ref={setVideoRef}
-        className="relative z-0 size-full bg-black object-contain video-landscape:min-h-0 video-landscape:flex-1"
-        playsInline
-        onClick={isFullscreen ? undefined : togglePlay}
-        onPointerMove={revealChrome}
-        onMouseMove={revealChrome}
-      />
+      {/* Human: Video layer — full bleed on portrait source or landscape phone; letterbox when upright + landscape source. */}
+      <div
+        className={cn(
+          "absolute inset-0 z-0",
+          !isVerticalSource && "video-portrait:flex video-portrait:items-center video-portrait:justify-center video-portrait:bg-black",
+        )}
+      >
+        <video
+          ref={setVideoRef}
+          className={cn(
+            "bg-black",
+            isVerticalSource
+              ? cn(
+                  videoMobileVerticalFullBleedVideoClass,
+                  "video-landscape:object-contain",
+                )
+              : isSquareSource
+                ? cn(
+                    "aspect-square w-full max-h-[min(390px,52dvh)] object-contain",
+                    "video-landscape:size-full video-landscape:max-h-none video-landscape:object-contain",
+                  )
+                : cn(
+                    videoMobileLetterboxVideoClass,
+                    "video-landscape:size-full video-landscape:max-h-none video-landscape:object-contain",
+                  ),
+          )}
+          playsInline
+          onClick={isFullscreen ? undefined : togglePlay}
+          onPointerMove={revealChrome}
+          onMouseMove={revealChrome}
+        />
+      </div>
 
       {isFullscreen ? (
         <div
@@ -126,15 +215,6 @@ export function VideoPlayerSurfaceMobile({
           onClick={togglePlay}
         />
       ) : null}
-
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 hidden h-[120px] bg-gradient-to-b from-[#000000B3] to-transparent video-landscape:block"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden h-[150px] bg-gradient-to-t from-[#000000B3] to-transparent video-landscape:block"
-        aria-hidden
-      />
 
       {error ? (
         <p
@@ -165,7 +245,7 @@ export function VideoPlayerSurfaceMobile({
           disabled={transportDisabled}
           aria-label="Play video"
           className={cn(
-            "absolute left-1/2 top-1/2 z-20 flex size-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[#FFFFFF40] bg-[#FFFFFF20] text-white backdrop-blur-md transition hover:bg-[#FFFFFF30] disabled:opacity-40",
+            "absolute left-1/2 top-1/2 z-20 flex size-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white backdrop-blur-md transition hover:bg-white/20 disabled:opacity-40",
             !chromeVisible && "opacity-0",
           )}
         >
@@ -173,75 +253,73 @@ export function VideoPlayerSurfaceMobile({
         </button>
       ) : null}
 
-      <div
-        className={cn(
-          "absolute left-4 top-4 z-30 flex max-w-[calc(100%-5rem)] items-center gap-2 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-3 py-1.5 text-white backdrop-blur-sm transition-opacity duration-200",
-          "video-landscape:left-6 video-landscape:top-6 video-landscape:bg-[#000000B3] video-landscape:px-4 video-landscape:py-2",
-          chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      >
-        <p className="min-w-0 truncate text-[11px] font-bold video-landscape:text-xs video-landscape:font-medium">
-          {metaLabel}
-        </p>
-        {positionLabel ? (
-          <span className="shrink-0 text-[10px] text-[#E5E7EB]">{positionLabel}</span>
-        ) : null}
-        {(showDownloadAction || showShareAction) ? (
-          <div className="hidden shrink-0 items-center gap-1 border-l border-white/20 pl-2 video-landscape:flex">
-            {showDownloadAction ? (
-              <button
-                type="button"
-                onClick={() => onDownload?.(file)}
-                className="rounded p-1 hover:bg-white/10"
-                aria-label={`Download ${file.name}`}
+      {/* Human: Portrait phone — Pencil MV Mobile Vertical / Portrait Video Landscape immersive chrome. */}
+      <div className={cn("video-landscape:hidden", chromeClass)}>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[140px] bg-gradient-to-b from-black/70 to-transparent"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[280px] bg-gradient-to-t from-black/80 to-transparent"
+          aria-hidden
+        />
+
+        <div className="absolute inset-x-0 top-0 z-30 h-14 pt-[max(1.25rem,env(safe-area-inset-top))]">
+          <DialogClose
+            render={
+              <MobileChromeCircleButton
+                className="absolute left-4 top-[max(1.25rem,env(safe-area-inset-top))]"
+                aria-label="Close video preview"
               >
-                <Download className="size-3.5" aria-hidden />
-              </button>
-            ) : null}
-            {showShareAction ? (
-              <button
-                type="button"
-                onClick={() => onShare?.(file)}
-                className="rounded p-1 hover:bg-white/10"
-                aria-label={`Share ${file.name}`}
-              >
-                <Share2 className="size-3.5" aria-hidden />
-              </button>
-            ) : null}
+                <X className="size-3.5" aria-hidden />
+              </MobileChromeCircleButton>
+            }
+          />
+          {positionLabel ? (
+            <span className="absolute left-1/2 top-[max(1.35rem,env(safe-area-inset-top))] flex h-6 min-w-14 -translate-x-1/2 items-center justify-center rounded-xl bg-black/40 px-3 text-[11px] font-semibold tabular-nums text-white backdrop-blur-sm">
+              {positionLabel}
+            </span>
+          ) : null}
+          <MobileChromeCircleButton
+            className="absolute right-4 top-[max(1.25rem,env(safe-area-inset-top))]"
+            aria-label="More options"
+          >
+            <EllipsisVertical className="size-4" aria-hidden />
+          </MobileChromeCircleButton>
+        </div>
+
+        <div className="absolute bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+4.5rem)] right-4 z-30 flex flex-col gap-[18px]">
+          <MobileActionRailItem
+            label="Save"
+            icon={Download}
+            disabled={!showDownloadAction}
+            onClick={showDownloadAction ? () => onDownload?.(file) : undefined}
+          />
+          <MobileActionRailItem
+            label="Share"
+            icon={Share2}
+            disabled={!showShareAction}
+            onClick={showShareAction ? () => onShare?.(file) : undefined}
+          />
+          <MobileActionRailItem label="Info" icon={Info} />
+        </div>
+
+        {showGalleryHint ? (
+          <div className="absolute inset-x-0 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+7.5rem)] z-20 flex flex-col items-center gap-0.5 text-white/60">
+            <ChevronUp className="size-4" aria-hidden />
+            <span className="text-[10px] font-medium">Swipe up for next</span>
           </div>
         ) : null}
-      </div>
 
-      <DialogClose
-        render={
-          <button
-            type="button"
-            className={cn(
-              "absolute right-4 top-4 z-30 flex size-8 items-center justify-center rounded-full border border-[#FFFFFF1A] bg-[#00000099] text-white backdrop-blur-sm transition hover:bg-black/80",
-              "video-landscape:right-6 video-landscape:top-6 video-landscape:bg-[#000000B3]",
-              chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
-            )}
-            aria-label="Close video preview"
-          />
-        }
-      >
-        <X className="size-3.5" aria-hidden />
-      </DialogClose>
+        <div className="absolute inset-x-4 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+2.75rem)] z-30 max-w-[294px]">
+          <p className="truncate text-base font-bold text-white">{file.name}</p>
+          {metaDetailLine ? (
+            <p className="mt-1.5 truncate text-xs text-[#E5E7EB]">{metaDetailLine}</p>
+          ) : null}
+        </div>
 
-      <div
-        className={cn(
-          "absolute inset-x-4 bottom-4 z-30 transition-opacity duration-200",
-          "video-landscape:bottom-6 video-landscape:left-6 video-landscape:right-6",
-          chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center justify-between border border-[#FFFFFF1A] bg-[#000000B3] backdrop-blur-md",
-            "h-12 gap-2 rounded-xl px-4 video-landscape:h-14 video-landscape:gap-4 video-landscape:rounded-2xl",
-          )}
-        >
-          <div className="flex shrink-0 items-center gap-3">
+        <div className="absolute inset-x-4 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+1rem)] z-30 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={togglePlay}
@@ -250,35 +328,129 @@ export function VideoPlayerSurfaceMobile({
               className="text-white disabled:opacity-40"
             >
               {isPlaying ? (
-                <Pause
-                  className="size-3.5 video-landscape:size-5"
-                  fill="currentColor"
-                  aria-hidden
-                />
+                <Pause className="size-4" fill="currentColor" aria-hidden />
               ) : (
-                <Play
-                  className="size-3.5 video-landscape:size-5"
-                  fill="currentColor"
-                  aria-hidden
-                />
+                <Play className="size-4" fill="currentColor" aria-hidden />
               )}
             </button>
-            <span className="shrink-0 text-[11px] tabular-nums text-[#E5E7EB] video-landscape:text-xs video-landscape:text-white">
-              {timeLabel}
-            </span>
+            <span className="text-[11px] tabular-nums text-[#E5E7EB]">{timeLabel}</span>
           </div>
-
-          <div className="block video-landscape:hidden">
-            <VideoSeekBar
-              variant="mobile-portrait"
-              progress={progress}
-              duration={duration}
-              bufferedSegments={bufferedSegments}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleMute}
               disabled={transportDisabled}
-              onSeek={handleSeek}
-            />
+              aria-label={muted ? "Unmute" : "Mute"}
+              className="text-white disabled:opacity-40"
+            >
+              {muted ? (
+                <VolumeX className="size-4" aria-hidden />
+              ) : (
+                <Volume2 className="size-4" aria-hidden />
+              )}
+            </button>
+            {!isVerticalSource ? (
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                disabled={transportDisabled}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                className="text-white disabled:opacity-40"
+              >
+                {isFullscreen ? (
+                  <Minimize className="size-4" aria-hidden />
+                ) : (
+                  <Maximize className="size-4" aria-hidden />
+                )}
+              </button>
+            ) : null}
           </div>
-          <div className="hidden min-w-0 flex-1 video-landscape:block">
+        </div>
+
+        <div className="absolute inset-x-0 bottom-[max(0px,env(safe-area-inset-bottom))] z-30 px-0 pb-0">
+          <VideoSeekBar
+            variant="mobile-edge"
+            progress={progress}
+            duration={duration}
+            bufferedSegments={bufferedSegments}
+            disabled={transportDisabled}
+            onSeek={handleSeek}
+          />
+        </div>
+      </div>
+
+      {/* Human: Landscape phone — Pencil MV Mobile Landscape Video full-bleed chrome. */}
+      <div className={cn("hidden video-landscape:block", chromeClass)}>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[120px] bg-gradient-to-b from-black/70 to-transparent"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[150px] bg-gradient-to-t from-black/70 to-transparent"
+          aria-hidden
+        />
+
+        <div className="absolute left-6 top-[max(1.5rem,env(safe-area-inset-top))] z-30 flex max-w-[calc(100%-6rem)] items-center gap-2 rounded-[18px] bg-black/70 px-4 py-2 text-white backdrop-blur-sm">
+          <p className="min-w-0 truncate text-xs font-medium">{landscapeMetaLabel}</p>
+          {positionLabel ? (
+            <span className="shrink-0 text-[10px] text-[#E5E7EB]">{positionLabel}</span>
+          ) : null}
+          {(showDownloadAction || showShareAction) && (
+            <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
+              {showDownloadAction ? (
+                <button
+                  type="button"
+                  onClick={() => onDownload?.(file)}
+                  className="rounded p-1 hover:bg-white/10"
+                  aria-label={`Download ${file.name}`}
+                >
+                  <Download className="size-3.5" aria-hidden />
+                </button>
+              ) : null}
+              {showShareAction ? (
+                <button
+                  type="button"
+                  onClick={() => onShare?.(file)}
+                  className="rounded p-1 hover:bg-white/10"
+                  aria-label={`Share ${file.name}`}
+                >
+                  <Share2 className="size-3.5" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <DialogClose
+          render={
+            <MobileChromeCircleButton
+              className="absolute right-6 top-[max(1.5rem,env(safe-area-inset-top))] z-30 bg-black/70"
+              aria-label="Close video preview"
+            >
+              <X className="size-3.5" aria-hidden />
+            </MobileChromeCircleButton>
+          }
+        />
+
+        <div className="absolute inset-x-6 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-30">
+          <div className="flex h-14 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/70 px-4 backdrop-blur-md">
+            <div className="flex shrink-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={togglePlay}
+                disabled={transportDisabled}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="text-white disabled:opacity-40"
+              >
+                {isPlaying ? (
+                  <Pause className="size-5" fill="currentColor" aria-hidden />
+                ) : (
+                  <Play className="size-5" fill="currentColor" aria-hidden />
+                )}
+              </button>
+              <span className="shrink-0 text-xs tabular-nums text-white">{timeLabel}</span>
+            </div>
+
             <VideoSeekBar
               variant="mobile-landscape"
               progress={progress}
@@ -286,37 +458,37 @@ export function VideoPlayerSurfaceMobile({
               bufferedSegments={bufferedSegments}
               disabled={transportDisabled}
               onSeek={handleSeek}
-              className="w-full max-w-none"
+              className="min-w-0 flex-1"
             />
-          </div>
 
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleMute}
-              disabled={transportDisabled}
-              aria-label={muted ? "Unmute" : "Mute"}
-              className="hidden text-white disabled:opacity-40 video-landscape:block"
-            >
-              {muted ? (
-                <VolumeX className="size-5" aria-hidden />
-              ) : (
-                <Volume2 className="size-5" aria-hidden />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              disabled={transportDisabled}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className="text-white disabled:opacity-40"
-            >
-              {isFullscreen ? (
-                <Minimize className="size-3.5 video-landscape:size-5" aria-hidden />
-              ) : (
-                <Maximize className="size-3.5 video-landscape:size-5" aria-hidden />
-              )}
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleMute}
+                disabled={transportDisabled}
+                aria-label={muted ? "Unmute" : "Mute"}
+                className="text-white disabled:opacity-40"
+              >
+                {muted ? (
+                  <VolumeX className="size-5" aria-hidden />
+                ) : (
+                  <Volume2 className="size-5" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                disabled={transportDisabled}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                className="text-white disabled:opacity-40"
+              >
+                {isFullscreen ? (
+                  <Minimize className="size-5" aria-hidden />
+                ) : (
+                  <Maximize className="size-5" aria-hidden />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
