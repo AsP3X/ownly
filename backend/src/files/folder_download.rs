@@ -146,11 +146,12 @@ pub async fn collect_zip_entries_for_folder(
             segment_count,
         ) in rows
         {
-            let zip_path = if prefix.is_empty() {
+            let raw_zip_path = if prefix.is_empty() {
                 name.clone()
             } else {
                 format!("{prefix}/{name}")
             };
+            let zip_path = crate::files::zip_job::sanitize_zip_entry_path(&raw_zip_path)?;
             entries.push(ZipFileEntry {
                 zip_path,
                 file_id,

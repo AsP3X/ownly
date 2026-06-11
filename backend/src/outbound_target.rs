@@ -1,7 +1,7 @@
 // Human: Block SSRF-style probes to private/internal hosts during setup connection tests.
 // Agent: READS http(s) and postgres URLs; RETURNS AppError::BadRequest when target is reserved.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, ToSocketAddrs};
 
 use crate::error::AppError;
 
@@ -37,9 +37,19 @@ fn normalize_host(host: &str) -> String {
     host
 }
 
+// Human: Map IPv4-mapped IPv6 literals to IPv4 for consistent private-range checks (SEC-020).
+// Agent: CALLS to_ipv4_mapped; USED before is_non_public_ip.
+fn normalize_ip(addr: IpAddr) -> IpAddr {
+    match addr {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        other => other,
+    }
+}
+
 // Human: True when an IP is loopback, private, link-local, or otherwise non-internet-routable.
 // Agent: USED for literal IPs in URLs; COVERS IPv4 RFC1918 and IPv6 ULA/link-local.
 fn is_non_public_ip(addr: IpAddr) -> bool {
+    let addr = normalize_ip(addr);
     match addr {
         IpAddr::V4(v4) => {
             v4.is_private()
@@ -111,9 +121,61 @@ fn extract_url_host(url: &str) -> Result<String, AppError> {
     Ok(host.to_string())
 }
 
+// Human: Resolve hostnames and reject when any A/AAAA record is non-public (SEC-020 DNS rebinding).
+// Agent: USES std ToSocketAddrs in spawn_blocking; SKIPPED when private_targets_allowed.
+async fn ensure_resolved_host_is_public(host: &str) -> Result<(), AppError> {
+    if private_targets_allowed() {
+        return Ok(());
+    }
+    if host.parse::<IpAddr>().is_ok() {
+        return Ok(());
+    }
+
+    let lookup_host = host.to_string();
+    let lookup_target = lookup_host.clone();
+    let addrs = tokio::task::spawn_blocking(move || {
+        format!("{lookup_target}:0")
+            .to_socket_addrs()
+            .map(|iter| iter.map(|addr| addr.ip()).collect::<Vec<_>>())
+    })
+    .await
+    .map_err(|error| AppError::Internal(anyhow::anyhow!("dns lookup task failed: {error}")))?
+    .map_err(|error| {
+        AppError::BadRequest(format!(
+            "could not resolve storage/database host '{lookup_host}': {error}"
+        ))
+    })?;
+
+    if addrs.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "could not resolve host '{lookup_host}'"
+        )));
+    }
+
+    for addr in addrs {
+        if is_non_public_ip(addr) {
+            return Err(AppError::BadRequest(
+                "endpoint host resolves to a private or internal address which is not allowed"
+                    .into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+// Human: Build reqwest client that does not follow redirects to internal targets (SEC-020).
+// Agent: redirect::Policy::limited(0); USED by storage node probes.
+pub fn outbound_probe_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(0))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 // Human: Gate outbound HTTP storage health probes against internal network ranges.
 // Agent: RETURNS Err before reqwest when host is private/reserved and allow flag is off.
-pub fn validate_http_outbound_base_url(base_url: &str) -> Result<(), AppError> {
+pub async fn validate_http_outbound_base_url(base_url: &str) -> Result<(), AppError> {
     if private_targets_allowed() {
         return Ok(());
     }
@@ -123,12 +185,12 @@ pub fn validate_http_outbound_base_url(base_url: &str) -> Result<(), AppError> {
             "storage endpoint targets a private or internal address which is not allowed".into(),
         ));
     }
-    Ok(())
+    ensure_resolved_host_is_public(&host).await
 }
 
 // Human: Gate setup database connection tests against loopback and RFC1918 Postgres hosts.
 // Agent: RETURNS Err before sqlx connect when host is blocked and allow flag is off.
-pub fn validate_database_connection_url(database_url: &str) -> Result<(), AppError> {
+pub async fn validate_database_connection_url(database_url: &str) -> Result<(), AppError> {
     if private_targets_allowed() {
         return Ok(());
     }
@@ -138,30 +200,51 @@ pub fn validate_database_connection_url(database_url: &str) -> Result<(), AppErr
             "database URL targets a private or internal address which is not allowed".into(),
         ));
     }
-    Ok(())
+    ensure_resolved_host_is_public(&host).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn blocks_loopback_http() {
-        assert!(validate_http_outbound_base_url("http://127.0.0.1:9000").is_err());
+    #[tokio::test]
+    async fn blocks_loopback_http_async() {
+        assert!(
+            validate_http_outbound_base_url("http://127.0.0.1:9000")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn blocks_metadata_host() {
+        assert!(
+            validate_http_outbound_base_url("http://169.254.169.254")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_public_http() {
+        assert!(
+            validate_http_outbound_base_url("https://93.184.216.34")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn blocks_private_postgres() {
+        assert!(
+            validate_database_connection_url("postgres://u:p@10.0.0.5:5432/db")
+                .await
+                .is_err()
+        );
     }
 
     #[test]
-    fn blocks_metadata_host() {
-        assert!(validate_http_outbound_base_url("http://169.254.169.254").is_err());
-    }
-
-    #[test]
-    fn allows_public_http() {
-        assert!(validate_http_outbound_base_url("https://storage.example.com").is_ok());
-    }
-
-    #[test]
-    fn blocks_private_postgres() {
-        assert!(validate_database_connection_url("postgres://u:p@10.0.0.5:5432/db").is_err());
+    fn blocks_ipv4_mapped_loopback() {
+        assert!(host_is_blocked("::ffff:127.0.0.1"));
     }
 }

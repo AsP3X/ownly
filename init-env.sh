@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+umask 077
 
 # Human: Values the API rejects at startup (must match backend/src/secrets.rs KNOWN_WEAK + GENERATE_ME).
 # Agent: USED by is_weak_env_value and replace_weak_secret_keys before init-env exits.
@@ -61,6 +62,7 @@ init_env_file() {
     done
 
     mv "$tmp_file" "$env_file"
+    chmod 600 "$env_file" 2>/dev/null || true
 
     # Human: Older .env files may still use code defaults (change-me-in-production) — rotate those too.
     # Agent: REPLACES weak values on named keys; CALLS generate_secret per weak key found.

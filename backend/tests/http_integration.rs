@@ -2941,3 +2941,414 @@ async fn folder_move_rejects_cycle_into_subfolder() {
         .await
         .ok();
 }
+
+// Human: Leaving a user share must revoke content.read grants (SEC-015 exploit regression).
+// Agent: DELETE /shares/with-me/{id}; EXPECT subsequent download forbidden for grantee.
+#[tokio::test]
+async fn leave_shared_with_me_revokes_content_read_grant() {
+    let Some(state) = test_harness::TestHarness::state("leave_shared_with_me_revokes_content_read_grant").await else {
+        return;
+    };
+
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    let grantee_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let share_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (owner_id.as_str(), format!("owner-{owner_id}@example.com")),
+        (grantee_id.as_str(), format!("grantee-{grantee_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'leave-share.txt', $3, 'text/plain', 4)",
+    )
+    .bind(&file_id)
+    .bind(&owner_id)
+    .bind(format!("users/{owner_id}/files/{file_id}/blob"))
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    sqlx::query(
+        "INSERT INTO resource_user_shares \
+         (id, owner_user_id, grantee_user_id, resource_type, resource_id, permission) \
+         VALUES ($1, $2, $3, 'file', $4, 'read')",
+    )
+    .bind(&share_id)
+    .bind(&owner_id)
+    .bind(&grantee_id)
+    .bind(&file_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert user share");
+
+    ownly_backend::authz::grant_content_read_for_user_share(
+        &state.pool,
+        &owner_id,
+        &grantee_id,
+        "file",
+        &file_id,
+    )
+    .await
+    .expect("grant content.read");
+
+    let grantee_token = ownly_backend::auth::handlers::create_token(
+        grantee_id.clone(),
+        format!("grantee-{grantee_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("grantee token");
+
+    let app = create_router(state.clone());
+    let leave = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/shares/with-me/{share_id}"))
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(leave.status(), StatusCode::OK);
+
+    let download = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download"))
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("DELETE FROM permission_grants WHERE resource_id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM resource_user_shares WHERE id = $1")
+        .bind(&share_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(&[owner_id, grantee_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: instance.admin must not be self-granted via permissions API (SEC-016 exploit regression).
+#[tokio::test]
+async fn instance_admin_grant_via_permissions_api_is_rejected() {
+    let Some(state) = test_harness::TestHarness::state("instance_admin_grant_via_permissions_api_is_rejected").await
+    else {
+        return;
+    };
+
+    let manager_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&manager_id)
+    .bind(format!("perm-mgr-{manager_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert manager");
+
+    let grant_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'instance', NULL, 'instance.permissions.manage', 'allow', $2)",
+    )
+    .bind(&grant_id)
+    .bind(&manager_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert manage grant");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        manager_id.clone(),
+        format!("perm-mgr-{manager_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("manager token");
+
+    let app = create_router(state.clone());
+    let body = json!({
+        "subject_type": "user",
+        "subject_id": manager_id,
+        "resource_type": "instance",
+        "permission": "instance.admin",
+        "effect": "allow"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/admin/permissions")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("DELETE FROM permission_grants WHERE subject_id = $1")
+        .bind(&manager_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&manager_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Self-service password change must invalidate existing JWTs (SEC-017 exploit regression).
+#[tokio::test]
+async fn change_password_invalidates_existing_jwt() {
+    let Some(state) = test_harness::TestHarness::state("change_password_invalidates_existing_jwt").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("pw-change-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let old_token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("old token");
+
+    let app = create_router(state.clone());
+    let patch_body = json!({
+        "current_password": "password123",
+        "new_password": "newpassword456"
+    });
+    let patch = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/me/password")
+                .header("authorization", format!("Bearer {old_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(patch_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch.status(), StatusCode::OK);
+
+    let me = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {old_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::UNAUTHORIZED);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Stream tickets must not authorize trashed files (SEC-018 exploit regression).
+#[tokio::test]
+async fn trashed_file_stream_ticket_is_denied() {
+    let Some(state) = test_harness::TestHarness::state("trashed_file_stream_ticket_is_denied").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(format!("stream-ticket-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, deleted_at) \
+         VALUES ($1, $2, 'trashed-stream.txt', 'storage/trashed-stream', 'text/plain', 4, now())",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert trashed file");
+
+    let ticket = ownly_backend::stream_ticket::generate_ticket(
+        &file_id,
+        &user_id,
+        &state.signing_secret,
+        3600,
+    );
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/stream?ticket={ticket}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Storage quota must block copy operations that would exceed the cap (SEC-014 exploit regression).
+#[tokio::test]
+async fn copy_file_rejected_when_quota_exceeded() {
+    let Some(state) = test_harness::TestHarness::state("copy_file_rejected_when_quota_exceeded").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let source_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+    let gb: i64 = 1024 * 1024 * 1024;
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled, storage_quota_gb) \
+         VALUES ($1, $2, $3, 'user', true, 1)",
+    )
+    .bind(&user_id)
+    .bind(format!("quota-copy-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'big.bin', $3, 'application/octet-stream', $4)",
+    )
+    .bind(&source_id)
+    .bind(&user_id)
+    .bind(format!("users/{user_id}/files/{source_id}/blob"))
+    .bind(gb - 1024)
+    .execute(&state.pool)
+    .await
+    .expect("insert source file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        format!("quota-copy-{user_id}@example.com"),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/files/{source_id}/copy"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}".to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

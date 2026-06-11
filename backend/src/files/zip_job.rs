@@ -205,6 +205,25 @@ async fn ensure_hls_export_ready(
     }
 }
 
+// Human: Reject zip-slip paths before writing archive members (SEC-030).
+// Agent: NORMALIZES slashes; REJECTS absolute paths and `..` segments.
+pub fn sanitize_zip_entry_path(path: &str) -> Result<String, AppError> {
+    let normalized = path.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.contains(":/") {
+        return Err(AppError::BadRequest(
+            "invalid zip entry path".into(),
+        ));
+    }
+    for component in normalized.split('/') {
+        if component == ".." {
+            return Err(AppError::BadRequest(
+                "invalid zip entry path".into(),
+            ));
+        }
+    }
+    Ok(normalized)
+}
+
 async fn resolve_object_key(
     pool: &sqlx::PgPool,
     storage: Arc<dyn crate::storage::Storage>,
@@ -227,7 +246,9 @@ async fn resolve_object_key(
             member_path,
         ))
     } else {
-        Ok((entry.storage_key.clone(), entry.zip_path.clone()))
+        let member_path = sanitize_zip_entry_path(&entry.zip_path)
+            .map_err(|error| error.to_string())?;
+        Ok((entry.storage_key.clone(), member_path))
     }
 }
 

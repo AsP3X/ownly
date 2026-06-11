@@ -7,7 +7,9 @@ use argon2::{
 };
 use axum::{extract::State, http::HeaderMap, Extension, Json};
 use chrono::Utc;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use std::sync::OnceLock;
+
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -99,10 +101,12 @@ pub fn create_token(
 }
 
 pub fn decode_token(token: &str, secret: &str) -> anyhow::Result<Claims> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
     Ok(decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
+        &validation,
     )?
     .claims)
 }
@@ -231,14 +235,21 @@ pub async fn login(
     .fetch_optional(&state.pool)
     .await?;
 
-    let (user_id, password_hash, role, enabled) = row.ok_or(AppError::Unauthorized)?;
+    let (user_id, password_hash, role, enabled) = match row {
+        Some(values) => values,
+        None => {
+            // Human: Constant-time-ish path when email is unknown — reduces account enumeration timing (SEC-028).
+            // Agent: RUNS dummy Argon2 verify; RETURNS generic 401.
+            let _ = verify_password(&body.password, dummy_login_hash());
+            return Err(AppError::Unauthorized);
+        }
+    };
+
     if !verify_password(&body.password, &password_hash).unwrap_or(false) {
         return Err(AppError::Unauthorized);
     }
     if !enabled {
-        return Err(AppError::Forbidden(
-            "account is not activated. Contact an administrator.".into(),
-        ));
+        return Err(AppError::Unauthorized);
     }
 
     let session_id = audit::write_audit(
@@ -411,10 +422,49 @@ pub async fn change_password(
         .execute(&state.pool)
         .await?;
 
+    // Human: Invalidate all other sessions when the password rotates (SEC-017).
+    // Agent: CALLS bump_session_epoch; auth_middleware rejects stale JWT sids/epochs.
+    crate::user_sessions::bump_session_epoch(&state.pool, &claims.sub).await?;
+
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),
         "auth.password_change",
+        Some("user"),
+        Some(&claims.sub),
+        None,
+        &headers,
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// Human: Timing-fill hash for login attempts against unknown emails (SEC-028).
+// Agent: LAZY OnceLock; NEVER matches a real user password.
+fn dummy_login_hash() -> &'static str {
+    static DUMMY: OnceLock<String> = OnceLock::new();
+    DUMMY.get_or_init(|| {
+        hash_password("ownly-login-timing-fill-not-a-real-account")
+            .expect("dummy login hash")
+    })
+}
+
+// Human: Revoke the caller's current session server-side (SEC-031).
+// Agent: POST /auth/logout; REVOKES sid from JWT; AUDIT auth.logout.
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if let Some(sid) = claims.sid.as_deref() {
+        crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
+    }
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "auth.logout",
         Some("user"),
         Some(&claims.sub),
         None,

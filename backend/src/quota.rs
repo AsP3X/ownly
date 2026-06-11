@@ -38,6 +38,49 @@ pub async fn resolve_user_quota_bytes(pool: &PgPool, user_id: &str) -> Result<i6
     load_default_quota_bytes(pool).await
 }
 
+// Human: Sum active file bytes owned by one user — used before storage writes.
+// Agent: READS files WHERE user_id AND deleted_at IS NULL; RETURNS COALESCE SUM size_bytes.
+pub async fn load_user_used_bytes(pool: &PgPool, user_id: &str) -> Result<i64, AppError> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
+         WHERE user_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(bytes,)| bytes).unwrap_or(0))
+}
+
+// Human: Reject storage mutations that would exceed the user's effective quota (SEC-014).
+// Agent: READS used_bytes + quota_bytes; RETURNS PayloadTooLarge when incoming would exceed cap.
+pub async fn ensure_within_quota(
+    pool: &PgPool,
+    user_id: &str,
+    incoming_bytes: i64,
+) -> Result<(), AppError> {
+    if incoming_bytes <= 0 {
+        return Ok(());
+    }
+    let quota_bytes = resolve_user_quota_bytes(pool, user_id).await?;
+    let used_bytes = load_user_used_bytes(pool, user_id).await?;
+    if used_bytes.saturating_add(incoming_bytes) > quota_bytes {
+        return Err(AppError::PayloadTooLarge(
+            "storage quota exceeded — delete files or contact an administrator".into(),
+        ));
+    }
+    Ok(())
+}
+
+// Human: Reject bulk saves when the combined incoming size exceeds quota.
+// Agent: SUMS per-file sizes; CALLS ensure_within_quota once with total.
+pub async fn ensure_within_quota_for_total(
+    pool: &PgPool,
+    user_id: &str,
+    total_incoming_bytes: i64,
+) -> Result<(), AppError> {
+    ensure_within_quota(pool, user_id, total_incoming_bytes).await
+}
+
 // Human: Minimum GB quota that still fits the user's active library usage.
 // Agent: CEIL(used_bytes / GB); USED by admin PATCH validation before lowering caps.
 pub fn minimum_quota_gb_for_usage(used_bytes: i64) -> i64 {

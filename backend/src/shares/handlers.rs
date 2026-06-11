@@ -1136,7 +1136,7 @@ pub async fn public_share_contents(
     let folders: Vec<FolderDto> = sqlx::query_as(
         "SELECT id, name, parent_id, created_at, updated_at \
          FROM folders \
-         WHERE user_id = $1 AND parent_id = $2 \
+         WHERE user_id = $1 AND parent_id = $2 AND deleted_at IS NULL \
          ORDER BY name ASC",
     )
     .bind(&share.user_id)
@@ -1787,6 +1787,15 @@ pub async fn save_from_public_share(
 
     ensure_file_ids_in_share(&state.pool, &share, &file_ids).await?;
 
+    let total_bytes: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
+         WHERE id = ANY($1) AND deleted_at IS NULL",
+    )
+    .bind(&file_ids)
+    .fetch_one(&state.pool)
+    .await?;
+    crate::quota::ensure_within_quota(&state.pool, &claims.sub, total_bytes).await?;
+
     let target_folder = body
         .folder_id
         .as_ref()
@@ -2017,17 +2026,27 @@ pub async fn leave_shared_with_me(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let result = sqlx::query(
-        "DELETE FROM resource_user_shares WHERE id = $1 AND grantee_user_id = $2",
+    let result = sqlx::query_as::<_, (String, String)>(
+        "DELETE FROM resource_user_shares WHERE id = $1 AND grantee_user_id = $2 \
+         RETURNING resource_type, resource_id",
     )
     .bind(&id)
     .bind(&claims.sub)
-    .execute(&state.pool)
+    .fetch_optional(&state.pool)
     .await?;
 
-    if result.rows_affected() == 0 {
+    let Some((resource_type, resource_id)) = result else {
         return Err(AppError::NotFound);
-    }
+    };
+
+    crate::authz::revoke_content_read_for_user_share(
+        &state.pool,
+        &claims.sub,
+        &resource_type,
+        &resource_id,
+    )
+    .await
+    .ok();
 
     audit::write_audit(
         &state.pool,

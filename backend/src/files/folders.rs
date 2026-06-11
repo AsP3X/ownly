@@ -287,6 +287,11 @@ pub(crate) fn normalize_folder_name(name: &str) -> Result<String, AppError> {
             "folder name cannot contain path separators".into(),
         ));
     }
+    if trimmed == "." || trimmed == ".." {
+        return Err(AppError::BadRequest(
+            "folder name cannot be '.' or '..'".into(),
+        ));
+    }
     Ok(trimmed.to_string())
 }
 

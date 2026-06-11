@@ -488,7 +488,7 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<String> {
         sub: "ownly-backend".to_string(),
         email: "backend@ownly.local".to_string(),
         role: "admin".to_string(),
-        exp: now + 86400 * 365,
+        exp: now + 3600 * 4,
         iat: now,
     };
 

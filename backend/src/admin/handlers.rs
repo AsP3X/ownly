@@ -631,11 +631,11 @@ pub async fn delete_user(
             .fetch_optional(&state.pool)
             .await?;
 
-    let (email, _role, enabled) = row.ok_or(AppError::NotFound)?;
+    let (email, role, enabled) = row.ok_or(AppError::NotFound)?;
 
-    if crate::authz::user_is_admin_group_member(&state.pool, &user_id).await? && enabled {
-        let remaining = count_enabled_admins(&state.pool).await?;
-        if remaining <= 1 {
+    if user_is_active_instance_admin(&state.pool, &user_id, &role, enabled).await? {
+        let remaining = count_other_active_instance_admins(&state.pool, &user_id).await?;
+        if remaining == 0 {
             return Err(AppError::Forbidden(
                 "cannot delete the last active administrator".into(),
             ));

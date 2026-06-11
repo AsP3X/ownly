@@ -143,6 +143,7 @@ pub async fn register_setup_storage_node(
 ) -> Result<(), AppError> {
     let id = normalize_node_id(id)?;
     let base_url = normalize_base_url(base_url)?;
+    crate::outbound_target::validate_http_outbound_base_url(&base_url).await?;
 
     sqlx::query(
         "INSERT INTO storage_nodes (id, region_label, base_url, architecture, target_capacity_bytes) \
@@ -162,10 +163,7 @@ pub async fn register_setup_storage_node(
 // Human: Quick readiness probe — placement skips nodes that fail this check.
 // Agent: READS GET /health/ready; RETURNS false on transport or non-success status.
 pub(crate) async fn probe_reachable(base_url: &str) -> bool {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = crate::outbound_target::outbound_probe_client();
     let health_url = format!("{}/health/ready", base_url.trim_end_matches('/'));
     match client.get(&health_url).send().await {
         Ok(resp) if resp.status().is_success() => resp.json::<NosHealthBody>().await.is_ok(),
@@ -176,10 +174,7 @@ pub(crate) async fn probe_reachable(base_url: &str) -> bool {
 // Human: Fetch logical_bytes from Nebular /metrics — used for capacity-aware placement.
 // Agent: READS GET /metrics JSON; RETURNS 0 when unreachable.
 pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = crate::outbound_target::outbound_probe_client();
     let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
     match client
         .get(&metrics_url)
@@ -199,10 +194,7 @@ pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
 // Human: Probe Nebular readiness plus liveness metadata (/health/ready then /health).
 // Agent: READS GET /health/ready for reachable; GET /health for node_id when ready; GET /metrics for bytes.
 async fn probe_storage_node(base_url: &str) -> NodeProbe {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = crate::outbound_target::outbound_probe_client();
 
     let ready_url = format!("{}/health/ready", base_url.trim_end_matches('/'));
     let started = Instant::now();
@@ -722,6 +714,7 @@ pub async fn create_storage_node(
 
     let id = normalize_node_id(&body.id)?;
     let base_url = normalize_base_url(&body.base_url)?;
+    crate::outbound_target::validate_http_outbound_base_url(&base_url).await?;
 
     let target_capacity_bytes = match (body.target_capacity_value, body.target_capacity_unit.as_deref()) {
         (Some(value), Some(unit)) => Some(parse_target_capacity_bytes(value, unit)?),
@@ -838,6 +831,7 @@ pub async fn update_storage_node(
         Some(raw) => normalize_base_url(raw)?,
         None => existing.base_url.clone(),
     };
+    crate::outbound_target::validate_http_outbound_base_url(&base_url).await?;
 
     if base_url != existing.base_url {
         let url_taken: bool = sqlx::query_scalar(

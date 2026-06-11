@@ -23,13 +23,19 @@ pub fn generate_ticket(file_id: &str, user_id: &str, secret: &str, ttl_secs: u64
     format!("{}.{}", payload, sig)
 }
 
-pub fn validate_ticket(ticket: &str, expected_file_id: &str, secret: &str) -> Result<(), AppError> {
+// Human: Verify ticket integrity and expiry; return embedded user id for access re-checks (SEC-018).
+// Agent: RETURNS ticket user_id on success; REJECTS malformed, mismatched file_id, bad HMAC, or expired tickets.
+pub fn validate_ticket(
+    ticket: &str,
+    expected_file_id: &str,
+    secret: &str,
+) -> Result<String, AppError> {
     let parts: Vec<&str> = ticket.split('.').collect();
     if parts.len() != 4 {
         return Err(reject_ticket(expected_file_id, "malformed_segment_count"));
     }
 
-    let (file_id, _user_id, expiry_str, provided_sig) = (parts[0], parts[1], parts[2], parts[3]);
+    let (file_id, user_id, expiry_str, provided_sig) = (parts[0], parts[1], parts[2], parts[3]);
 
     if file_id != expected_file_id {
         return Err(reject_ticket(expected_file_id, "file_id_mismatch"));
@@ -53,7 +59,7 @@ pub fn validate_ticket(ticket: &str, expected_file_id: &str, secret: &str) -> Re
         return Err(reject_ticket(expected_file_id, "expired"));
     }
 
-    Ok(())
+    Ok(user_id.to_string())
 }
 
 fn reject_ticket(expected_file_id: &str, reason: &'static str) -> AppError {

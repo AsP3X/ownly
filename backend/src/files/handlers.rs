@@ -653,6 +653,8 @@ pub async fn upload_file(
         return Err(AppError::BadRequest("file is required".into()));
     }
 
+    crate::quota::ensure_within_quota(&state.pool, &claims.sub, *size_bytes as i64).await?;
+
     // Human: Persist the SHA-256 digest of uploaded bytes for content-based duplicate detection.
     // Agent: READS spooled tmp_path; WRITES content_hash on every files INSERT below.
     let content_hash = crate::files::content_hash::hash_file_sha256(tmp_path).await?;
@@ -1361,6 +1363,8 @@ pub async fn copy_file(
     .await?;
 
     let source = source.ok_or(AppError::NotFound)?;
+
+    crate::quota::ensure_within_quota(&state.pool, &claims.sub, source.size_bytes).await?;
 
     ensure_file_not_processing(
         &source.mime_type,

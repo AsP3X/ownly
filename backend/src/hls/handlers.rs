@@ -69,14 +69,24 @@ async fn ensure_file_owned(
     row.ok_or(AppError::NotFound)
 }
 
-// Human: HLS playback row lookup by file id only — used for ticket-gated public HLS routes.
-// Agent: READS files without user_id; NOT FOUND when id missing; ticket still binds user in HMAC.
-async fn ensure_file_playback(
+// Human: HLS playback row lookup for ticket-gated routes — enforces active file + ticket user access (SEC-018).
+// Agent: READS files with deleted_at IS NULL; CALLS ensure_file_access for ticket user_id.
+async fn ensure_file_playback_for_ticket(
     state: &AppState,
     file_id: &str,
+    ticket_user_id: &str,
 ) -> Result<HlsPlaybackRow, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        ticket_user_id,
+        file_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1",
+        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files \
+         WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
     .fetch_optional(&state.pool)
@@ -86,12 +96,12 @@ async fn ensure_file_playback(
 }
 
 // Human: Require a valid stream ticket on public HLS sub-resource requests.
-// Agent: READS TicketParams.ticket; CALLS stream_ticket::validate_ticket; RETURNS Unauthorized when missing/invalid.
+// Agent: READS TicketParams.ticket; CALLS stream_ticket::validate_ticket; RETURNS ticket user_id.
 fn require_hls_ticket(
     params: &TicketParams,
     file_id: &str,
     secret: &str,
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
     let ticket = params.ticket.as_deref().ok_or(AppError::Unauthorized)?;
     stream_ticket::validate_ticket(ticket, file_id, secret)
 }
@@ -288,46 +298,14 @@ async fn read_storage_text(storage: &dyn Storage, key: &str) -> Result<String, A
     String::from_utf8(out).map_err(|e| AppError::Storage(format!("playlist not UTF-8: {e}")))
 }
 
-// Human: Read a small binary object from storage (AES key, segment blob header).
-// Agent: READS full stream into Vec; USED by resolve_hls_aes_key before key_store fallback.
-async fn read_storage_bytes(storage: &dyn Storage, key: &str) -> Result<Vec<u8>, AppError> {
-    use futures_util::TryStreamExt;
-
-    let (mut stream, _, _) = storage
-        .get_stream(key)
-        .await
-        .map_err(|_| AppError::NotFound)?;
-    let mut out = Vec::new();
-    while let Some(chunk) = stream.try_next().await.map_err(|e| {
-        AppError::Storage(format!("read storage object {key}: {e}"))
-    })? {
-        out.extend_from_slice(&chunk);
-    }
-    Ok(out)
-}
-
-// Human: Resolve the 16-byte AES-128 key used to encrypt uploaded HLS segments.
-// Agent: PREFERS {storage_key}/key.bin from encode upload; FALLBACK key_store DB decrypt.
+// Human: Resolve the 16-byte AES-128 key from encrypted Postgres storage only (SEC-022).
+// Agent: READS key_store; NEVER fetches plaintext key.bin from object storage.
 pub(crate) async fn resolve_hls_aes_key(
-    storage: &dyn Storage,
+    _storage: &dyn Storage,
     key_store: &KeyStore,
-    storage_key: &str,
+    _storage_key: &str,
     file_id: &str,
 ) -> Result<AesKey, AppError> {
-    let object_key = format!("{storage_key}/key.bin");
-    if let Ok(bytes) = read_storage_bytes(storage, &object_key).await {
-        if bytes.len() == 16 {
-            let mut key = [0u8; 16];
-            key.copy_from_slice(&bytes);
-            return Ok(key);
-        }
-        tracing::warn!(
-            %file_id,
-            len = bytes.len(),
-            "stored key.bin has unexpected length; falling back to key_store"
-        );
-    }
-
     key_store
         .get_key(file_id)
         .await
@@ -512,11 +490,11 @@ pub async fn get_hls_manifest(
     Path(id): Path<String>,
     Query(params): Query<TicketParams>,
 ) -> Result<Response, AppError> {
-    require_hls_ticket(&params, &id, &state.signing_secret)?;
+    let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
     let ticket = params.ticket.as_deref().expect("ticket checked");
 
     let (storage_key, hls_ready, segment_count, size_bytes) =
-        ensure_file_playback(state.as_ref(), &id).await?;
+        ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::NotFound);
@@ -560,9 +538,10 @@ pub async fn get_hls_key(
     Path(id): Path<String>,
     Query(params): Query<TicketParams>,
 ) -> Result<Response, AppError> {
-    require_hls_ticket(&params, &id, &state.signing_secret)?;
+    let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, _, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+    let (storage_key, _, _, _) =
+        ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     let key = resolve_hls_aes_key(
         state.storage.as_ref(),
@@ -589,9 +568,10 @@ pub async fn get_hls_init(
     Path(id): Path<String>,
     Query(params): Query<TicketParams>,
 ) -> Result<Response, AppError> {
-    require_hls_ticket(&params, &id, &state.signing_secret)?;
+    let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, hls_ready, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+    let (storage_key, hls_ready, _, _) =
+        ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::NotFound);
@@ -617,9 +597,10 @@ pub async fn get_hls_segment(
     Path((id, segment_name)): Path<(String, String)>,
     Query(params): Query<TicketParams>,
 ) -> Result<Response, AppError> {
-    require_hls_ticket(&params, &id, &state.signing_secret)?;
+    let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, hls_ready, _, _) = ensure_file_playback(state.as_ref(), &id).await?;
+    let (storage_key, hls_ready, _, _) =
+        ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::NotFound);
@@ -691,13 +672,22 @@ pub async fn stream_file(
     Query(params): Query<TicketParams>,
 ) -> Result<impl IntoResponse, AppError> {
     let ticket = params.ticket.ok_or(AppError::Unauthorized)?;
-    stream_ticket::validate_ticket(&ticket, &id, &state.signing_secret)?;
+    let ticket_user = stream_ticket::validate_ticket(&ticket, &id, &state.signing_secret)?;
 
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT storage_key FROM files WHERE id = $1")
-            .bind(&id)
-            .fetch_optional(&state.pool)
-            .await?;
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &ticket_user,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT storage_key FROM files WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
 
     let (storage_key,) = row.ok_or(AppError::NotFound)?;
     let (stream, size, mime) = state

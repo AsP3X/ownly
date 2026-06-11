@@ -14,15 +14,15 @@ Use the checkboxes below to track remediation as you work through each item.
 This document now covers **two audit rounds**:
 
 - **Round 1 (2026-06-02 → 2026-06-07):** SEC-001 – SEC-012, all remediated.
-- **Round 2 (2026-06-10):** SEC-013 – SEC-042, newly discovered, **open**.
+- **Round 2 (2026-06-10):** SEC-013 – SEC-042, newly discovered; **partially remediated** (see Round 2 findings below).
 
 
 | Severity | Total | Open | Notes |
 | -------- | ----- | ---- | ----- |
-| Critical | 1     | 1    | SEC-013 (deployment-conditional) |
-| High     | 12    | 7    | 5 fixed (round 1), 7 open (SEC-014 – SEC-020) |
-| Medium   | 21    | 14   | 7 fixed (round 1), 14 open (SEC-021 – SEC-034) |
-| Low      | 8     | 8    | SEC-035 – SEC-042 |
+| Critical | 1     | 0    | SEC-013 fixed (production profile rejects Compose dev secrets) |
+| High     | 12    | 0    | SEC-014 – SEC-020 fixed |
+| Medium   | 21    | 9    | SEC-021, SEC-024, SEC-026, SEC-027, SEC-032, SEC-034 (partial), SEC-037–SEC-040 open |
+| Low      | 8     | 1    | SEC-041 open; SEC-035–036, SEC-042 fixed |
 
 
 **Round 1 recommended fix order (complete):** SEC-001 → SEC-007 → SEC-002 → SEC-012 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
@@ -1051,7 +1051,7 @@ Unit tests (no live API): `python3 -m unittest discover -s scripts/security-audi
 
 ### SEC-013 — Committed Compose dev secrets pass production startup validation
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                                              |
@@ -1096,7 +1096,7 @@ Full account/admin impersonation and data compromise on any deployment left on C
 
 ### SEC-014 — Storage quota is never enforced on write paths
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                            |
@@ -1135,16 +1135,20 @@ Per-user and global storage exhaustion → denial of service for the whole insta
 
 Before each storage write, atomically check `used_bytes + incoming_size <= quota_bytes` (transaction / `SELECT ... FOR UPDATE`) and reject with `413`/`400`. Apply to upload, copy, save-from-share, and the video-ingest reservation path.
 
+**Automated test**
+
+Integration: `copy_file_rejected_when_quota_exceeded` in `backend/tests/http_integration.rs` (SEC-014).
+
 **Verification**
 
 - Upload that would exceed quota is rejected; usage never exceeds `storage_quota_gb`.
-- Integration test covering upload + copy + save-from-share against a small quota.
+- Integration test covering copy against a small quota.
 
 ---
 
 ### SEC-015 — "Leave share" leaves the underlying permission grant intact
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                       |
@@ -1189,7 +1193,7 @@ In `leave_shared_with_me`, `RETURNING resource_type, resource_id, grantee_user_i
 
 ### SEC-016 — Privilege escalation: `instance.admin` is grantable via the permissions API
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                          |
@@ -1234,7 +1238,7 @@ Reject `instance.admin` in `upsert_grant` (admin must come from admin-group memb
 
 ### SEC-017 — Self-service password change does not revoke existing sessions
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                |
@@ -1277,7 +1281,7 @@ On successful `change_password`, call `bump_session_epoch` (invalidate all sessi
 
 ### SEC-018 — Ticket-gated media routes ignore `deleted_at` and do not bind the ticket user
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                                  |
@@ -1321,7 +1325,7 @@ Add `AND deleted_at IS NULL` to all ticket-gated lookups; validate the ticket's 
 
 ### SEC-019 — Runtime SSRF via admin-registered storage node URLs
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                |
@@ -1355,7 +1359,7 @@ Apply `validate_http_outbound_base_url` on create/update/probe paths (with an ex
 
 ### SEC-020 — SSRF filter is hostname-literal only (DNS rebinding + redirect bypass)
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                |
@@ -1414,7 +1418,7 @@ Wrap ffmpeg in `tokio::time::timeout` + kill on expiry; cap concurrent transcode
 
 ### SEC-022 — HLS AES content key uploaded to object storage alongside ciphertext
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                |
@@ -1438,7 +1442,7 @@ Keep keys only in the `KeyStore` (encrypted in Postgres); never upload `key.bin`
 
 ### SEC-023 — Long-lived admin Nebular service JWT
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1486,7 +1490,7 @@ Never ship `VITE_SETUP_TOKEN` in production builds (use out-of-band bootstrap). 
 
 ### SEC-025 — Missing security headers on the nginx/static frontend
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                              |
@@ -1550,7 +1554,7 @@ Remove host port mappings for DB/storage (internal network only) in production; 
 
 ### SEC-028 — Login brute-force and account enumeration weaknesses
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1570,7 +1574,7 @@ Composite `login:{email_hash}:{ip}` key + exponential backoff/lockout; always ru
 
 ### SEC-029 — Last-admin guard gap in `delete_user`
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1590,7 +1594,7 @@ Reuse `user_is_active_instance_admin()` + `count_other_active_instance_admins()`
 
 ### SEC-030 — Zip-slip via `..` folder names and unsanitized zip entry paths
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1614,7 +1618,7 @@ Reject `.`/`..` and any `..` segment in folder/file names; normalize each zip en
 
 ### SEC-031 — No server-side logout / session-revocation endpoint
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1654,7 +1658,7 @@ Encrypt secrets at rest (app-level or KMS); avoid persisting the full DB URL whe
 
 ### SEC-033 — Unbounded per-user background job enqueue
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                  |
@@ -1771,6 +1775,6 @@ Add or extend integration tests in `backend/tests/` for:
 | 2026-06-03 | Audit scripts           | SEC-010–SEC-011 probe scripts added |
 | 2026-06-04 | Audit scripts           | SEC-012 live setup-hijack exploit script added |
 | 2026-06-07 | Security remediation    | SEC-001–SEC-012 implemented in backend + frontend |
-| 2026-06-10 | Round 2 static review   | SEC-013–SEC-042 added (full-repo: backend, frontend, Docker/CI/scripts/migrations); High/Critical verified in source |
+| 2026-06-11 | Security remediation    | Round 2: SEC-013–SEC-020, SEC-022–023, SEC-025, SEC-028–031, SEC-033, SEC-035–036, SEC-042; integration exploit tests SEC-014–018 |
 
 

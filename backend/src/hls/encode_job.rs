@@ -387,7 +387,7 @@ pub async fn run_hls_encode_job(
                     let mut current_step = 0usize;
                     let mut stored_bytes: u64 = 0;
 
-                    let (playlist_data, key_data, init_data) = match tokio::try_join!(
+                    let (playlist_data, _key_data, init_data) = match tokio::try_join!(
                         tokio::fs::read(&output.playlist_path),
                         tokio::fs::read(&output.key_path),
                         tokio::fs::read(&output.init_path),
@@ -400,10 +400,9 @@ pub async fn run_hls_encode_job(
                             return Err(msg);
                         }
                     };
-                    stored_bytes += (playlist_data.len() + key_data.len() + init_data.len()) as u64;
+                    stored_bytes += (playlist_data.len() + init_data.len()) as u64;
 
                     let playlist_key = format!("{prefix}stream.m3u8");
-                    let key_object_key = format!("{prefix}key.bin");
                     let init_object_key = format!("{prefix}{HLS_INIT_FILENAME}");
                     let storage_for_manifest = storage.clone();
 
@@ -412,11 +411,6 @@ pub async fn run_hls_encode_job(
                             &playlist_key,
                             "application/vnd.apple.mpegurl",
                             playlist_data,
-                        ),
-                        storage_for_manifest.put(
-                            &key_object_key,
-                            "application/octet-stream",
-                            key_data,
                         ),
                         storage_for_manifest.put(&init_object_key, "video/mp4", init_data),
                     );

@@ -52,6 +52,9 @@ pub enum AppError {
     #[error("conflict: {0}")]
     Conflict(String),
 
+    #[error("payload too large: {0}")]
+    PayloadTooLarge(String),
+
     #[error("internal error: {0}")]
     Internal(#[from] anyhow::Error),
 
@@ -84,6 +87,7 @@ impl AppError {
             AppError::Validation(_, _) => "validation_error",
             AppError::RateLimited { .. } => "rate_limited",
             AppError::Conflict(_) => "conflict",
+            AppError::PayloadTooLarge(_) => "payload_too_large",
             AppError::Internal(_) => "internal_error",
             AppError::Storage(_) => "storage_error",
         }
@@ -99,6 +103,7 @@ impl AppError {
             AppError::Validation(msg, _) => msg.clone(),
             AppError::RateLimited { .. } => "rate limit exceeded; try again shortly".into(),
             AppError::Conflict(msg) => msg.clone(),
+            AppError::PayloadTooLarge(msg) => msg.clone(),
             AppError::Internal(_) => "internal server error".into(),
             AppError::Storage(_) => "storage error".into(),
         }
@@ -122,6 +127,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) | AppError::Validation(_, _) => StatusCode::BAD_REQUEST,
             AppError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };

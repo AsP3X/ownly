@@ -316,13 +316,22 @@ pub async fn stream_gif_preview_animation(
     Query(params): Query<TicketParams>,
 ) -> Result<Response, AppError> {
     let ticket = params.ticket.ok_or(AppError::Unauthorized)?;
-    stream_ticket::validate_ticket(&ticket, &id, &state.signing_secret)?;
+    let ticket_user = stream_ticket::validate_ticket(&ticket, &id, &state.signing_secret)?;
 
-    let row: Option<(String, String, i64)> =
-        sqlx::query_as("SELECT storage_key, mime_type, size_bytes FROM files WHERE id = $1")
-            .bind(&id)
-            .fetch_optional(&state.pool)
-            .await?;
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &ticket_user,
+        &id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT storage_key, mime_type, size_bytes FROM files WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
 
     let (storage_key, mime_type, size_bytes) = row.ok_or(AppError::NotFound)?;
     if !qualifies_for_animated_preview(&mime_type) {

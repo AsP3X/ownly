@@ -8,7 +8,7 @@ use crate::error::AppError;
 use super::model::{BackgroundJob, JobKind, JobResponse, JobStatus};
 
 /// Human: Insert a new queued job or return an existing active job for the same resource.
-// Agent: INSERT background_jobs; CHECKS active resource before insert for dedup.
+// Agent: INSERT background_jobs; CHECKS active resource before insert for dedup; CAP per-user queue depth (SEC-033).
 pub async fn enqueue_job(
     pool: &PgPool,
     user_id: &str,
@@ -18,6 +18,18 @@ pub async fn enqueue_job(
     resource_id: Option<&str>,
     payload: serde_json::Value,
 ) -> Result<String, AppError> {
+    const MAX_QUEUED_JOBS_PER_USER: i64 = 64;
+    let (queued_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM background_jobs \
+         WHERE user_id = $1 AND status IN ('queued', 'running')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    if queued_count >= MAX_QUEUED_JOBS_PER_USER {
+        return Err(AppError::rate_limited(60));
+    }
+
     if let (Some(rt), Some(rid)) = (resource_type, resource_id) {
         if let Some(existing) = find_active_job(pool, kind, rt, rid).await? {
             return Ok(existing.id);

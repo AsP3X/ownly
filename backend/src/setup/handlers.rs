@@ -25,6 +25,8 @@ const SETUP_ADVISORY_LOCK_ID: i64 = 0x4f57_4e4c_5900;
 /// Agent: MATCHES SEC-005/SEC-012 bootstrap probe; compared to AppState.setup_token.
 pub const SETUP_TOKEN_HEADER: &str = "X-Setup-Token";
 
+use subtle::ConstantTimeEq;
+
 // Human: Reject setup mutations unless the caller presents the configured bootstrap secret.
 // Agent: READS X-Setup-Token header; RETURNS 403 when missing or wrong (checked before setup_complete gate).
 fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppError> {
@@ -32,7 +34,7 @@ fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppE
         .get(SETUP_TOKEN_HEADER)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if provided != state.setup_token {
+    if provided.as_bytes().ct_ne(state.setup_token.as_bytes()).into() {
         return Err(AppError::Forbidden(
             "valid setup token is required to complete instance setup".into(),
         ));
@@ -195,7 +197,7 @@ pub async fn test_setup_database(
     let driver = db::driver_from_url(url.as_str())
         .ok_or_else(|| AppError::BadRequest("unsupported database_url scheme".into()))?
         .to_string();
-    outbound_target::validate_database_connection_url(url.as_str())?;
+    outbound_target::validate_database_connection_url(url.as_str()).await?;
     db::test_connection(url.as_str()).await.map_err(|_| {
         AppError::BadRequest(
             "could not connect to database; check host, credentials, and network".into(),
@@ -215,7 +217,7 @@ pub async fn test_setup_storage(
     require_setup_token(&headers, &state)?;
     ensure_not_complete(&state).await?;
     let base_url = storage_nodes::normalize_base_url(&body.base_url)?;
-    outbound_target::validate_http_outbound_base_url(&base_url)?;
+    outbound_target::validate_http_outbound_base_url(&base_url).await?;
     if state.setup_relaxes_storage_probe {
         return Ok(Json(StorageTestResponse {
             ok: true,
@@ -324,7 +326,7 @@ pub async fn setup(
     if db::driver_from_url(target_url.as_str()).is_none() {
         return Err(AppError::BadRequest("unsupported database_url scheme".into()));
     }
-    outbound_target::validate_database_connection_url(target_url.as_str())?;
+    outbound_target::validate_database_connection_url(target_url.as_str()).await?;
 
     let (
         storage_node_id,

@@ -224,6 +224,12 @@ pub async fn upsert_grant(
     let resource_type = parse_resource_type(&body.resource_type)?;
     let effect = parse_effect(body.effect.as_deref())?;
     let permission = Permission::parse(&body.permission)?;
+    if permission == Permission::InstanceAdmin {
+        return Err(AppError::Forbidden(
+            "instance.admin cannot be granted via the permissions API — use admin group membership"
+                .into(),
+        ));
+    }
 
     if resource_type == "instance" && body.resource_id.is_some() {
         return Err(AppError::BadRequest(
