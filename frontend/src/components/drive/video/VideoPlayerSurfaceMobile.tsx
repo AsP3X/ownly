@@ -3,7 +3,6 @@
 
 import { useRef, useState, type ComponentProps, type RefObject } from "react";
 import {
-  ChevronDown,
   ChevronUp,
   Download,
   EllipsisVertical,
@@ -44,6 +43,7 @@ type VideoPlayerSurfaceMobileProps = {
   positionLabel?: string | null;
   folderLabel?: string | null;
   showGalleryHint?: boolean;
+  onVideoNodeChange?: (node: HTMLVideoElement | null) => void;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
 };
@@ -106,6 +106,7 @@ export function VideoPlayerSurfaceMobile({
   positionLabel,
   folderLabel,
   showGalleryHint = false,
+  onVideoNodeChange,
   onDownload,
   onShare,
 }: VideoPlayerSurfaceMobileProps) {
@@ -162,6 +163,7 @@ export function VideoPlayerSurfaceMobile({
     fileId: file.id,
     serverWidth: file.video_width,
     serverHeight: file.video_height,
+    onVideoNodeChange,
   });
   const orientation = naturalSize?.orientation ?? "landscape";
   const isVerticalSource = orientation === "portrait";
@@ -321,27 +323,22 @@ export function VideoPlayerSurfaceMobile({
           />
         </div>
 
-        {showGalleryHint ? (
-          <div
-            className="absolute inset-x-0 bottom-[calc(max(0px,env(safe-area-inset-bottom))+9.5rem)] z-20 flex flex-col items-center gap-1 text-white/60"
-            aria-hidden
-          >
-            <div className="flex flex-col items-center gap-0.5">
-              <ChevronUp className="size-4" />
-              <span className="text-[10px] font-medium">Swipe up for next</span>
-            </div>
-            <div className="flex flex-col items-center gap-0.5">
-              <ChevronDown className="size-4" />
-              <span className="text-[10px] font-medium">Swipe down for previous</span>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Human: Bottom chrome stack — title, meta, transport, then edge seek bar pinned to safe area. */}
-        {/* Agent: single flex column at bottom; REPLACES scattered bottom-[calc(...+5.75rem)] offsets. */}
+        {/* Human: Bottom chrome stack — gallery hint, title, transport, edge seek bar (Pencil MV Mobile Vertical). */}
+        {/* Agent: flex column at safe-area bottom; hint sits above file info, not floating mid-viewport. */}
         <div
           className="absolute inset-x-0 bottom-0 z-30 flex flex-col pb-[max(0px,env(safe-area-inset-bottom))]"
         >
+          {showGalleryHint ? (
+            <div
+              className="flex flex-col items-center gap-0.5 px-4 pb-2 pt-1 text-white/60"
+              aria-hidden
+            >
+              <ChevronUp className="size-4 shrink-0 text-white/60" strokeWidth={2} />
+              <span className="text-[10px] font-medium leading-none text-white/60">
+                Swipe up for next
+              </span>
+            </div>
+          ) : null}
           <div className="max-w-[min(294px,calc(100%-5rem))] px-4 pb-1.5 pt-2">
             <p className="truncate text-base font-bold text-white">{file.name}</p>
             {metaDetailLine ? (

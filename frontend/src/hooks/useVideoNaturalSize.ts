@@ -25,6 +25,8 @@ type UseVideoNaturalSizeOptions = {
   fileId: string;
   serverWidth?: number | null;
   serverHeight?: number | null;
+  /** Human: Notifies parent when the <video> node mounts or unmounts (HLS attach). */
+  onVideoNodeChange?: (node: HTMLVideoElement | null) => void;
 };
 
 // Human: Merge server-stored dimensions with live element metadata for orientation-aware shells.
@@ -34,6 +36,7 @@ export function useVideoNaturalSize({
   fileId,
   serverWidth,
   serverHeight,
+  onVideoNodeChange,
 }: UseVideoNaturalSizeOptions): {
   naturalSize: VideoNaturalSize | null;
   setVideoRef: (node: HTMLVideoElement | null) => void;
@@ -49,6 +52,7 @@ export function useVideoNaturalSize({
   const setVideoRef = useCallback(
     (node: HTMLVideoElement | null) => {
       videoRef.current = node;
+      onVideoNodeChange?.(node);
       detachRef.current?.();
       detachRef.current = null;
       setElementSize(null);
@@ -84,7 +88,7 @@ export function useVideoNaturalSize({
         node.removeEventListener("resize", sync);
       };
     },
-    [fileId, videoRef],
+    [fileId, onVideoNodeChange, videoRef],
   );
 
   useEffect(

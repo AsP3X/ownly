@@ -33,6 +33,7 @@ type VideoPlayerSurfaceProps = {
   videoRef: RefObject<HTMLVideoElement | null>;
   loading?: boolean;
   error?: string;
+  onVideoNodeChange?: (node: HTMLVideoElement | null) => void;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
 };
@@ -42,6 +43,7 @@ export function VideoPlayerSurface({
   videoRef,
   loading = false,
   error = "",
+  onVideoNodeChange,
   onDownload,
   onShare,
 }: VideoPlayerSurfaceProps) {
@@ -84,6 +86,7 @@ export function VideoPlayerSurface({
     fileId: file.id,
     serverWidth: file.video_width,
     serverHeight: file.video_height,
+    onVideoNodeChange,
   });
   const orientation = naturalSize?.orientation ?? "landscape";
   const shellAspectStyle = naturalSize

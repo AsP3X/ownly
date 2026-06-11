@@ -2,20 +2,14 @@
 // Agent: FETCHES stream URL; ATTACHES hls.js; MOUNTS one surface via useIsDesktopPlayer; GALLERY swipe on narrow.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Hls from "hls.js";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
 import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
 import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
+import { useHlsVideoAttach } from "@/hooks/useHlsVideoAttach";
 import { useNarrowVideoLayout } from "@/hooks/useNarrowVideoLayout";
 import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
-import {
-  attachHlsErrorHandler,
-  attachVodSeekRecovery,
-  createHlsInstance,
-  isHlsStreamUrl,
-} from "@/lib/hls-player";
 import {
   Dialog,
   DialogContent,
@@ -44,10 +38,6 @@ export type VideoPreviewDialogProps = {
 };
 
 const SWIPE_THRESHOLD_PX = 48;
-
-function getToken(): string | null {
-  return localStorage.getItem("ownly_token");
-}
 
 // Human: Resolve playlist/segment URLs against the site origin for hls.js XHR loads.
 // Agent: RETURNS absolute href; CALLS window.location.origin for relative `/api/v1/...` paths.
@@ -80,7 +70,16 @@ export function VideoPreviewDialog({
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleVideoNodeChange = useCallback((node: HTMLVideoElement | null) => {
+    setVideoElement(node);
+  }, []);
+
+  const handleHlsError = useCallback((message: string) => {
+    setError(message);
+  }, []);
 
   const currentIndex = useMemo(
     () => (file ? videos.findIndex((item) => item.id === file.id) : -1),
@@ -95,7 +94,12 @@ export function VideoPreviewDialog({
   useEffect(() => {
     setStreamUrl(null);
     setError("");
+    setVideoElement(null);
   }, [file?.id]);
+
+  useEffect(() => {
+    if (!open) setVideoElement(null);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !file?.id || !file.hls_ready) {
@@ -131,54 +135,14 @@ export function VideoPreviewDialog({
     };
   }, [open, file?.id, file?.hls_ready, shareToken, sharePassword]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !streamUrl || !open) return;
-
-    let hls: Hls | null = null;
-    let disposed = false;
-    let detachSeek: (() => void) | undefined;
-
-    const isActive = () => !disposed;
-
-    if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
-      hls = createHlsInstance((xhr) => {
-        if (shareToken && sharePassword) {
-          xhr.setRequestHeader("X-Share-Password", sharePassword);
-          return;
-        }
-        if (shareToken) return;
-        const token = getToken();
-        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      });
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-
-      attachHlsErrorHandler(hls, video, isActive, (message) => {
-        if (!disposed) setError(message);
-      });
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) {
-          console.warn("[hls]", data.type, data.details, data);
-        }
-      });
-      detachSeek = attachVodSeekRecovery(hls, video, isActive);
-    } else if (isHlsStreamUrl(streamUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrl;
-    } else if (isHlsStreamUrl(streamUrl)) {
-      setError("This browser cannot play HLS video.");
-    } else {
-      video.src = streamUrl;
-    }
-
-    return () => {
-      disposed = true;
-      detachSeek?.();
-      if (hls) hls.destroy();
-      video.removeAttribute("src");
-      video.load();
-    };
-  }, [streamUrl, open, shareToken, sharePassword]);
+  useHlsVideoAttach({
+    video: videoElement,
+    streamUrl,
+    open,
+    shareToken,
+    sharePassword,
+    onError: handleHlsError,
+  });
 
   const goPrevious = useCallback(() => {
     if (!hasPrevious || !onFileChange) return;
@@ -283,6 +247,7 @@ export function VideoPreviewDialog({
     videoRef,
     loading: loadingStream,
     error,
+    onVideoNodeChange: handleVideoNodeChange,
     onDownload,
     onShare,
   };
