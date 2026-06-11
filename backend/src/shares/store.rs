@@ -8,7 +8,7 @@ use crate::{
     auth::handlers::verify_password,
     error::AppError,
     files::{
-        handlers::FileDto,
+        handlers::{FileDto, FILE_COLUMNS},
         processing::ensure_file_not_processing,
         recycle_bin::{ACTIVE_FILES_SQL, ACTIVE_FOLDERS_SQL},
     },
@@ -274,16 +274,12 @@ pub async fn ensure_folder_owned_for_share(
 }
 
 // Human: Reuse the drive file DTO columns when listing public folder contents.
-// Agent: READS FILE_COLUMNS subset via share-scoped folder_id filter.
+// Agent: SELECT FILE_COLUMNS so FileDto FromRow stays aligned with authenticated list handlers.
 pub async fn list_share_folder_files(
     pool: &PgPool,
     share: &ShareRecord,
     folder_id: &str,
 ) -> Result<Vec<FileDto>, AppError> {
-    const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
-        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
-        audio_waveform_ready, audio_encode_status, audio_encode_error";
-
     let files: Vec<FileDto> = sqlx::query_as(&format!(
         "SELECT {FILE_COLUMNS} FROM files \
          WHERE user_id = $1 AND folder_id = $2 AND {ACTIVE_FILES_SQL} \
@@ -378,15 +374,11 @@ pub async fn compute_share_tree_stats(
 }
 
 // Human: Flat list of every file reachable through a share link (for search, zip, save-to-library).
-// Agent: RECURSIVE subtree for folder shares; SINGLE row for file shares; ORDER BY name ASC.
+// Agent: SELECT FILE_COLUMNS via recursive subtree; MUST match FileDto fields (video_width, thumbnails).
 pub async fn list_all_files_in_share(
     pool: &PgPool,
     share: &ShareRecord,
 ) -> Result<Vec<FileDto>, AppError> {
-    const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_id, created_at, updated_at, \
-        hls_ready, hls_encode_status, hls_encode_error, conversion_progress, duration_seconds, \
-        audio_waveform_ready, audio_encode_status, audio_encode_error";
-
     if share.resource_type == "file" {
         let file: Option<FileDto> = sqlx::query_as(&format!(
             "SELECT {FILE_COLUMNS} FROM files \
