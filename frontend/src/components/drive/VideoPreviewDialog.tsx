@@ -7,6 +7,7 @@ import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
 import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
 import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
+import { VideoVerticalGallery } from "@/components/drive/video/VideoVerticalGallery";
 import { useHlsVideoAttach } from "@/hooks/useHlsVideoAttach";
 import { useNarrowVideoLayout } from "@/hooks/useNarrowVideoLayout";
 import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
@@ -90,6 +91,13 @@ export function VideoPreviewDialog({
   const positionLabel =
     currentIndex >= 0 && videos.length > 1 ? `${currentIndex + 1} / ${videos.length}` : null;
   const showGalleryHint = isNarrow && videos.length > 1;
+  // Human: Portrait phone — TikTok-style vertical gallery scroll between videos.
+  // Agent: ENABLED when narrow + portrait layout + gallery; landscape phone keeps instant swipe.
+  const useVerticalGalleryScroll =
+    isNarrow &&
+    narrowLayout === "portrait" &&
+    videos.length > 1 &&
+    Boolean(onFileChange);
 
   useEffect(() => {
     setStreamUrl(null);
@@ -290,8 +298,8 @@ export function VideoPreviewDialog({
                 ),
           )}
           aria-label="Video player"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          onTouchStart={useVerticalGalleryScroll ? undefined : handleTouchStart}
+          onTouchEnd={useVerticalGalleryScroll ? undefined : handleTouchEnd}
         >
           {/* Human: Desktop — flanking chevrons per Pencil Ownly Video Player Normal. */}
           {isDesktop && videos.length > 1 ? (
@@ -313,13 +321,33 @@ export function VideoPreviewDialog({
           ) : null}
 
           {file && isNarrow ? (
-            <VideoPlayerSurfaceMobile
-              key={file.id}
-              positionLabel={positionLabel}
-              folderLabel={folderLabel}
-              showGalleryHint={showGalleryHint}
-              {...playerProps}
-            />
+            useVerticalGalleryScroll ? (
+              <VideoVerticalGallery
+                videos={videos}
+                currentIndex={currentIndex}
+                hasPrevious={hasPrevious}
+                hasNext={hasNext}
+                goPrevious={goPrevious}
+                goNext={goNext}
+                activeFileId={file.id}
+              >
+                <VideoPlayerSurfaceMobile
+                  key={file.id}
+                  positionLabel={positionLabel}
+                  folderLabel={folderLabel}
+                  showGalleryHint={showGalleryHint}
+                  {...playerProps}
+                />
+              </VideoVerticalGallery>
+            ) : (
+              <VideoPlayerSurfaceMobile
+                key={file.id}
+                positionLabel={positionLabel}
+                folderLabel={folderLabel}
+                showGalleryHint={showGalleryHint}
+                {...playerProps}
+              />
+            )
           ) : null}
 
           {isDesktop && videos.length > 1 ? (
