@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { videoDialogRowHeightClass } from "@/components/drive/video/video-dialog-viewport";
+import { isVideoGallerySwipeZone } from "@/components/drive/video/video-gallery-swipe";
 import { cn } from "@/lib/utils";
 
 export type VideoPreviewDialogProps = {
@@ -237,9 +238,10 @@ export function VideoPreviewDialog({
   };
 
   // Human: Mobile gallery — vertical swipe on portrait phone, horizontal on landscape phone.
-  // Agent: READS touchstart x/y; on touchend CALLS goPrevious/goNext when delta exceeds threshold.
+  // Agent: ONLY tracks touches on video layer; chrome/seek bar excluded via isVideoGallerySwipeZone.
   const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (!isNarrow || videos.length <= 1) return;
+    if (!isVideoGallerySwipeZone(event.target)) return;
     const touch = event.touches[0];
     if (!touch) return;
     swipeStartRef.current = { x: touch.clientX, y: touch.clientY };

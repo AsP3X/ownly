@@ -1,8 +1,9 @@
 // Human: Pencil mobile video — immersive portrait phone (Reels-style) + full-bleed landscape phone.
 // Agent: READS videoRef; USES useVideoTransport; video-portrait / video-landscape variants from ancestor layout.
 
-import { useRef, type ComponentProps, type RefObject } from "react";
+import { useRef, useState, type ComponentProps, type RefObject } from "react";
 import {
+  ChevronDown,
   ChevronUp,
   Download,
   EllipsisVertical,
@@ -18,6 +19,10 @@ import {
   X,
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import {
+  VideoPlayerInfoSheet,
+  VideoPlayerMoreMenuSheet,
+} from "@/components/drive/video/VideoPlayerMobileSheets";
 import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
@@ -105,6 +110,8 @@ export function VideoPlayerSurfaceMobile({
   onShare,
 }: VideoPlayerSurfaceMobileProps) {
   const shellRef = useRef<HTMLDivElement>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   const {
     isPlaying,
@@ -174,7 +181,9 @@ export function VideoPlayerSurfaceMobile({
       onFocus={revealChrome}
     >
       {/* Human: Video layer — full bleed on portrait source or landscape phone; letterbox when upright + landscape source. */}
+      {/* Agent: data-video-gallery-swipe-zone — gallery navigation only when swipe starts here. */}
       <div
+        data-video-gallery-swipe-zone
         className={cn(
           "absolute inset-0 z-0",
           !isVerticalSource && "video-portrait:flex video-portrait:items-center video-portrait:justify-center video-portrait:bg-black",
@@ -283,6 +292,9 @@ export function VideoPlayerSurfaceMobile({
           <MobileChromeCircleButton
             className="absolute right-4 top-[max(1.25rem,env(safe-area-inset-top))]"
             aria-label="More options"
+            aria-haspopup="dialog"
+            aria-expanded={moreMenuOpen}
+            onClick={() => setMoreMenuOpen(true)}
           >
             <EllipsisVertical className="size-4" aria-hidden />
           </MobileChromeCircleButton>
@@ -301,13 +313,26 @@ export function VideoPlayerSurfaceMobile({
             disabled={!showShareAction}
             onClick={showShareAction ? () => onShare?.(file) : undefined}
           />
-          <MobileActionRailItem label="Info" icon={Info} />
+          <MobileActionRailItem
+            label="Info"
+            icon={Info}
+            onClick={() => setInfoOpen(true)}
+          />
         </div>
 
         {showGalleryHint ? (
-          <div className="absolute inset-x-0 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+7.5rem)] z-20 flex flex-col items-center gap-0.5 text-white/60">
-            <ChevronUp className="size-4" aria-hidden />
-            <span className="text-[10px] font-medium">Swipe up for next</span>
+          <div
+            className="absolute inset-x-0 bottom-[calc(max(5.75rem,env(safe-area-inset-bottom))+7.5rem)] z-20 flex flex-col items-center gap-1 text-white/60"
+            aria-hidden
+          >
+            <div className="flex flex-col items-center gap-0.5">
+              <ChevronUp className="size-4" />
+              <span className="text-[10px] font-medium">Swipe up for next</span>
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <ChevronDown className="size-4" />
+              <span className="text-[10px] font-medium">Swipe down for previous</span>
+            </div>
           </div>
         ) : null}
 
@@ -349,21 +374,19 @@ export function VideoPlayerSurfaceMobile({
                 <Volume2 className="size-4" aria-hidden />
               )}
             </button>
-            {!isVerticalSource ? (
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                disabled={transportDisabled}
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                className="text-white disabled:opacity-40"
-              >
-                {isFullscreen ? (
-                  <Minimize className="size-4" aria-hidden />
-                ) : (
-                  <Maximize className="size-4" aria-hidden />
-                )}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              disabled={transportDisabled}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              className="text-white disabled:opacity-40"
+            >
+              {isFullscreen ? (
+                <Minimize className="size-4" aria-hidden />
+              ) : (
+                <Maximize className="size-4" aria-hidden />
+              )}
+            </button>
           </div>
         </div>
 
@@ -492,6 +515,26 @@ export function VideoPlayerSurfaceMobile({
           </div>
         </div>
       </div>
+
+      <VideoPlayerInfoSheet
+        open={infoOpen}
+        onOpenChange={setInfoOpen}
+        file={file}
+        folderLabel={folderLabel}
+        durationSeconds={duration}
+        videoWidth={naturalSize?.width ?? file.video_width}
+        videoHeight={naturalSize?.height ?? file.video_height}
+      />
+      <VideoPlayerMoreMenuSheet
+        open={moreMenuOpen}
+        onOpenChange={setMoreMenuOpen}
+        file={file}
+        showDownloadAction={showDownloadAction}
+        showShareAction={showShareAction}
+        onDownload={onDownload}
+        onShare={onShare}
+        onShowInfo={() => setInfoOpen(true)}
+      />
     </div>
   );
 }

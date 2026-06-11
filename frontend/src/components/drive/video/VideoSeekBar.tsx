@@ -1,4 +1,4 @@
-// Human: Video timeline — desktop rail, mobile portrait compact slider, mobile landscape wide track.
+// Human: Video timeline — desktop rail, mobile edge strip, mobile landscape wide track.
 // Agent: PROPS variant + progress/duration; EMITS onSeek(seconds); READS pointer for hover tooltip (desktop).
 
 import { useCallback, useRef, useState } from "react";
@@ -6,11 +6,7 @@ import type { BufferedSegment } from "@/components/drive/audio/audio-buffered";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { cn } from "@/lib/utils";
 
-export type VideoSeekBarVariant =
-  | "desktop"
-  | "mobile-portrait"
-  | "mobile-landscape"
-  | "mobile-edge";
+export type VideoSeekBarVariant = "desktop" | "mobile-landscape" | "mobile-edge";
 
 type VideoSeekBarProps = {
   progress: number;
@@ -66,7 +62,6 @@ export function VideoSeekBar({
     isHovering && trackDuration ? (trackDuration * (hoverPercent ?? 0)) / 100 : 0;
   const seekInputDisabled = disabled || trackDuration <= 0;
 
-  const isPortrait = variant === "mobile-portrait";
   const isLandscape = variant === "mobile-landscape";
   const isEdge = variant === "mobile-edge";
 
@@ -88,14 +83,13 @@ export function VideoSeekBar({
     onSeek(Number(event.target.value));
   }
 
-  const railHeight = isEdge ? "h-[3px]" : isPortrait || isLandscape ? "h-1" : "h-1.5";
-  const showThumb = isPortrait || isLandscape || isEdge;
+  const railHeight = isEdge ? "h-[3px]" : isLandscape ? "h-1" : "h-1.5";
+  const showThumb = isLandscape || isEdge;
 
   return (
     <div
       className={cn(
         "min-w-0",
-        isPortrait && "w-[110px] shrink-0",
         isLandscape && "min-w-0 flex-1",
         isEdge && "w-full",
         variant === "desktop" && "flex-1 max-w-[540px]",
@@ -107,7 +101,7 @@ export function VideoSeekBar({
           className={cn(
             "relative w-full overflow-visible",
             disabled ? "opacity-50" : "cursor-pointer",
-            (isPortrait || isEdge) && "flex h-5 items-center",
+            isEdge && "flex h-5 items-center",
           )}
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
