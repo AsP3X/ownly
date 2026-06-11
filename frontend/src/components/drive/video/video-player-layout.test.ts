@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyVideoOrientation,
   readServerVideoNaturalSize,
+  resolveDesktopVideoFallbackAspectClass,
   resolveDesktopVideoShellClass,
   resolveInlineVideoAspectClass,
   resolveMobileVideoShellClass,
@@ -77,6 +78,13 @@ describe("resolve video shell classes", () => {
     expect(videoMobileLandscapeVideoShellClass).toBe(videoMobileImmersiveShellClass);
     expect(videoMobileVerticalVideoShellClass).toBe(videoMobileImmersiveShellClass);
     expect(videoMobileSquareVideoShellClass).toBe(videoMobileImmersiveShellClass);
+  });
+
+  it("maps desktop fallback aspect before metadata loads", () => {
+    expect(resolveDesktopVideoFallbackAspectClass("landscape", false)).toBe("aspect-[4/3]");
+    expect(resolveDesktopVideoFallbackAspectClass("portrait", false)).toBe("aspect-[9/16]");
+    expect(resolveDesktopVideoFallbackAspectClass("square", false)).toBe("aspect-square");
+    expect(resolveDesktopVideoFallbackAspectClass("landscape", true)).toBe("");
   });
 
   it("maps orientation to inline public-share aspect classes", () => {

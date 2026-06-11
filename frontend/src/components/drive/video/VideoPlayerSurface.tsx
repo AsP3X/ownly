@@ -20,6 +20,7 @@ import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import { DialogClose } from "@/components/ui/dialog";
 import {
+  resolveDesktopVideoFallbackAspectClass,
   resolveDesktopVideoShellClass,
   resolveVideoAspectRatioStyle,
 } from "@/components/drive/video/video-player-layout";
@@ -100,7 +101,10 @@ export function VideoPlayerSurface({
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen
           ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
-          : resolveDesktopVideoShellClass(orientation),
+          : cn(
+              resolveDesktopVideoShellClass(orientation),
+              resolveDesktopVideoFallbackAspectClass(orientation, Boolean(naturalSize)),
+            ),
       )}
       onFocus={revealChrome}
     >
@@ -165,7 +169,7 @@ export function VideoPlayerSurface({
 
       <div
         className={cn(
-          "absolute left-6 top-6 z-30 flex max-w-[calc(100%-10rem)] items-center gap-4 rounded-full bg-[#00000099] px-6 py-3 text-white backdrop-blur-md transition-opacity duration-200",
+          "absolute left-6 top-6 z-30 flex h-12 max-w-[calc(100%-7.5rem)] items-center gap-4 rounded-full bg-black/60 px-6 text-white backdrop-blur-md transition-opacity duration-200",
           chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
@@ -176,7 +180,7 @@ export function VideoPlayerSurface({
               <button
                 type="button"
                 onClick={() => onDownload?.(file)}
-                className="rounded-md p-1 transition hover:bg-white/10"
+                className="flex size-7 items-center justify-center rounded-md transition hover:bg-white/10"
                 aria-label={`Download ${file.name}`}
               >
                 <Download className="size-5" aria-hidden />
@@ -186,7 +190,7 @@ export function VideoPlayerSurface({
               <button
                 type="button"
                 onClick={() => onShare?.(file)}
-                className="rounded-md p-1 transition hover:bg-white/10"
+                className="flex size-7 items-center justify-center rounded-md transition hover:bg-white/10"
                 aria-label={`Share ${file.name}`}
               >
                 <Share2 className="size-5" aria-hidden />
@@ -201,7 +205,7 @@ export function VideoPlayerSurface({
           <button
             type="button"
             className={cn(
-              "absolute right-6 top-6 z-30 flex size-[4.125rem] items-center justify-center rounded-full border border-white/20 bg-[#00000099] text-white backdrop-blur-md transition hover:bg-black/80",
+              "absolute right-6 top-6 z-30 flex size-[4.125rem] items-center justify-center rounded-full border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80",
               chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
             )}
             aria-label="Close video preview"
@@ -217,7 +221,7 @@ export function VideoPlayerSurface({
           chromeVisible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <div className="mx-auto flex h-24 max-w-[1710px] items-center justify-between gap-6 rounded-xl bg-[#000000CC] px-8 backdrop-blur-md">
+        <div className="flex h-24 w-full items-center justify-between gap-6 rounded-xl bg-black/80 px-8 backdrop-blur-md">
           <div className="flex shrink-0 items-center gap-6">
             <button
               type="button"

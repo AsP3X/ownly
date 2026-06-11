@@ -92,7 +92,7 @@ export function VideoSeekBar({
         "min-w-0",
         isLandscape && "min-w-0 flex-1",
         isEdge && "w-full",
-        variant === "desktop" && "flex-1 max-w-[540px]",
+        variant === "desktop" && "flex-1 max-w-[420px]",
         className,
       )}
     >

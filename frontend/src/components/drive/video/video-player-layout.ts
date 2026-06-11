@@ -52,20 +52,37 @@ export function resolveVideoAspectRatioStyle(
   return { aspectRatio: `${naturalWidth} / ${naturalHeight}` };
 }
 
-// Human: Desktop landscape shell — width-first 4:3 card capped by viewport and pixel limits.
-// Agent: DEFAULT before metadata; REPLACED by vertical/square shells from orientation.
-export const videoDialogLandscapePlayerShellClass =
-  "h-auto min-w-0 max-h-[min(1125px,calc(100dvh-2rem))] w-[min(1500px,100%,calc(min(1125px,calc(100dvh-2rem))*4/3))] shrink-0 aspect-[4/3]" as const;
+// Human: Shared desktop shell base — height fills dialog row; width follows aspect (Pencil 1180×885 / 540×960).
+// Agent: USED by orientation-specific shells; pair with inline aspectRatio or fallback aspect class.
+export const videoDialogDesktopShellHeightClass =
+  "h-full max-h-[min(1125px,calc(100dvh-2rem))]" as const;
 
-// Human: Desktop vertical shell — height-first column so portrait sources fill height without side gutters.
-// Agent: max-w keeps phone-like proportions; inline aspectRatio refines width once metadata loads.
+// Human: Desktop landscape shell — 4:3 stage at row height (Pencil Normal: 1180×885).
+// Agent: max-w 1500px cap; width derived from height × aspect when metadata loads.
+export const videoDialogLandscapePlayerShellClass =
+  `${videoDialogDesktopShellHeightClass} w-auto min-w-0 max-w-[min(1500px,100%)] shrink-0` as const;
+
+// Human: Desktop vertical shell — 9:16 column (Pencil Portrait Vertical: 540×960).
+// Agent: max-w 540px; inline aspectRatio refines width once metadata loads.
 export const videoDialogVerticalPlayerShellClass =
-  "h-[min(1125px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(540px,100%)] shrink-0" as const;
+  `${videoDialogDesktopShellHeightClass} w-auto min-w-0 max-w-[min(540px,100%)] shrink-0` as const;
 
 // Human: Desktop square shell — 1:1 stage centered in the dialog row.
-// Agent: height-capped like portrait; width follows square aspect via inline style when known.
+// Agent: height-capped; width follows square aspect via inline style when known.
 export const videoDialogSquarePlayerShellClass =
-  "h-[min(900px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(900px,100%)] shrink-0 aspect-square" as const;
+  "h-full max-h-[min(900px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(900px,100%)] shrink-0" as const;
+
+// Human: Fallback aspect before stream metadata — avoids conflicting with inline aspectRatio style.
+// Agent: RETURNS empty when natural size known; USED by VideoPlayerSurface desktop shell.
+export function resolveDesktopVideoFallbackAspectClass(
+  orientation: VideoOrientation,
+  hasNaturalSize: boolean,
+): string {
+  if (hasNaturalSize) return "";
+  if (orientation === "portrait") return "aspect-[9/16]";
+  if (orientation === "square") return "aspect-square";
+  return "aspect-[4/3]";
+}
 
 // Human: Mobile immersive shell — Pencil MV Mobile Vertical / Portrait Video Landscape (full viewport).
 // Agent: FILLS dialog viewport; letterboxing for non-portrait sources handled inside the player surface.

@@ -12,8 +12,7 @@ export const VIDEO_PLAYER_MAX_WIDTH_PX = 1500;
 export const videoDialogRowHeightClass =
   "h-[min(1125px,calc(100dvh-2rem))]" as const;
 
-// Human: Width-first 4:3 card — height follows width; both axes respect viewport and pixel caps.
-// Agent: 100% is flex-row space left after chevrons; calc(100dvh-2rem) matches DialogContent p-4.
-// Human: Vertical sources use videoDialogVerticalPlayerShellClass from video-player-layout.ts instead.
+// Human: Default landscape shell alias — height-first 4:3 card inside the dialog row.
+// Agent: Vertical/square sources use orientation shells from video-player-layout.ts instead.
 export const videoDialogPlayerShellClass =
-  "h-auto min-w-0 max-h-[min(1125px,calc(100dvh-2rem))] w-[min(1500px,100%,calc(min(1125px,calc(100dvh-2rem))*4/3))] shrink-0 aspect-[4/3]" as const;
+  "h-full max-h-[min(1125px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(1500px,100%)] shrink-0 aspect-[4/3]" as const;

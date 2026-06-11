@@ -300,8 +300,8 @@ export function VideoPreviewDialog({
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center p-4 sm:max-w-[108rem]",
         )}
         overlayClassName={cn(
-          "bg-[#0A0A10]/80 backdrop-blur-2xl",
-          isNarrow && "bg-[#0A0A10]/90 backdrop-blur-3xl",
+          "bg-[#0A0A10]/80 backdrop-blur-[40px]",
+          isNarrow && "bg-[#0A0A10]/90 backdrop-blur-[48px]",
         )}
         showCloseButton={false}
         onKeyDown={handleContentKeyDown}
@@ -321,7 +321,7 @@ export function VideoPreviewDialog({
               ? "min-h-0 flex-1 flex-col"
               : cn(
                   videoDialogRowHeightClass,
-                  "max-w-full shrink-0 items-center justify-center gap-4 sm:gap-6",
+                  "max-w-full shrink-0 items-stretch justify-center gap-6",
                 ),
           )}
           aria-label="Video player"
@@ -335,14 +335,16 @@ export function VideoPreviewDialog({
               disabled={!hasPrevious}
               onClick={goPrevious}
               aria-label="Previous video"
-              className="flex size-[5.625rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+              className="flex size-[5.625rem] shrink-0 items-center justify-center self-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
               <ChevronLeft className="size-10" aria-hidden />
             </button>
           ) : null}
 
           {file && isDesktop ? (
-            <VideoPlayerSurface key={file.id} {...playerProps} />
+            <div className="flex h-full min-h-0 flex-1 justify-center">
+              <VideoPlayerSurface key={file.id} {...playerProps} />
+            </div>
           ) : null}
 
           {file && isNarrow ? (
@@ -361,7 +363,7 @@ export function VideoPreviewDialog({
               disabled={!hasNext}
               onClick={goNext}
               aria-label="Next video"
-              className="flex size-[5.625rem] shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
+              className="flex size-[5.625rem] shrink-0 items-center justify-center self-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30"
             >
               <ChevronRight className="size-10" aria-hidden />
             </button>
