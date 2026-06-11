@@ -1,7 +1,8 @@
 // Human: PDF preview state — fetch bytes, page nav, search, zoom, and fit-to-pane sizing for desktop/mobile shells.
-// Agent: FETCHES fetchFileBlobForPreview; WRITES pdfData, currentPage, searchMatches; READS pdf-viewer worker via importers.
+// Agent: FETCHES fetchFileBlobForPreview; WRITES pdfObjectUrl, currentPage, searchMatches; READS pdf-viewer worker via importers.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type UIEvent } from "react";
+import { createPdfBlobObjectUrl, revokePdfBlobObjectUrl } from "@/lib/pdf-document-source";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { TextItem } from "react-pdf";
 import { fetchFileBlobForPreview, fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
@@ -86,7 +87,8 @@ export function usePdfPreviewController(
   const pageStackGapPx = isDesktop ? PDF_PAGE_STACK_GAP_DESKTOP_PX : PDF_PAGE_STACK_GAP_MOBILE_PX;
   const thumbnailWidth = isDesktop ? PDF_THUMBNAIL_WIDTH_DESKTOP : PDF_THUMBNAIL_WIDTH_MOBILE;
 
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
+  const pdfObjectUrlRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [numPages, setNumPages] = useState(0);
@@ -114,8 +116,14 @@ export function usePdfPreviewController(
     setDocumentAreaNode(node);
   }, []);
 
+  const replacePdfObjectUrl = useCallback((next: string | null) => {
+    revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+    pdfObjectUrlRef.current = next;
+    setPdfObjectUrl(next);
+  }, []);
+
   useEffect(() => {
-    setPdfData(null);
+    replacePdfObjectUrl(null);
     setError("");
     setNumPages(0);
     setCurrentPage(1);
@@ -129,7 +137,14 @@ export function usePdfPreviewController(
     setSearchMatches([]);
     setActiveSearchMatchIndex(0);
     setSearching(false);
-  }, [file?.id]);
+  }, [file?.id, replacePdfObjectUrl]);
+
+  useEffect(() => {
+    return () => {
+      revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+      pdfObjectUrlRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     setPageInputValue(String(currentPage));
@@ -180,11 +195,9 @@ export function usePdfPreviewController(
     void (shareToken
       ? fetchPublicShareBlobForPreview(shareToken, file.id, sharePassword)
       : fetchFileBlobForPreview(file))
-      .then(async (blob) => {
-        if (cancelled) return;
-        const buffer = await blob.arrayBuffer();
+      .then((blob) => {
         if (cancelled || activeFileIdRef.current !== requestFileId) return;
-        setPdfData(buffer);
+        replacePdfObjectUrl(createPdfBlobObjectUrl(blob));
       })
       .catch((err) => {
         if (cancelled || activeFileIdRef.current !== requestFileId) return;
@@ -198,7 +211,7 @@ export function usePdfPreviewController(
     return () => {
       cancelled = true;
     };
-  }, [open, file, shareToken, sharePassword]);
+  }, [open, file?.id, shareToken, sharePassword, replacePdfObjectUrl]);
 
   const goToPage = useCallback(
     (page: number) => {
@@ -560,7 +573,7 @@ export function usePdfPreviewController(
 
   return {
     file,
-    pdfData,
+    pdfObjectUrl,
     error,
     loading,
     numPages,

@@ -51,7 +51,7 @@ export function PdfPreviewSurfaceMobile({
 
   const {
     file,
-    pdfData,
+    pdfObjectUrl,
     error,
     loading,
     numPages,
@@ -163,16 +163,16 @@ export function PdfPreviewSurfaceMobile({
             </p>
           ) : null}
 
-          {loading && !pdfData ? (
+          {loading && !pdfObjectUrl ? (
             <div className="absolute inset-0 z-20 flex items-center justify-center text-sm text-white/80">
               <Loader2 className="size-7 animate-spin" aria-hidden />
               <span className="sr-only">Loading PDF…</span>
             </div>
           ) : null}
 
-          {pdfData && !error ? (
+          {pdfObjectUrl && !error ? (
             <Document
-              file={pdfData}
+              file={pdfObjectUrl}
               loading={
                 <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-white/80">
                   <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -239,7 +239,7 @@ export function PdfPreviewSurfaceMobile({
               </div>
 
               {/* Human: Thumbnail drawer — shares the parent Document so pdf.js does not reload and blank the viewer. */}
-              {/* Agent: Absolute overlay inside Document; Page thumbnails reuse loaded pdfData without a nested Document. */}
+              {/* Agent: Absolute overlay inside Document; Page thumbnails reuse loaded pdfObjectUrl without a nested Document. */}
               {sidebarOpen ? (
                 <>
                   <button

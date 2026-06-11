@@ -104,6 +104,19 @@ function HomeRoute() {
   );
 }
 
+function AuthenticatedDriveShellExtras() {
+  const { token } = useAuth();
+  // Human: Public share visitors are anonymous — skip admin migration and upload job polling (401 noise).
+  // Agent: READS token; RENDERS StorageMigrationUi + TransferPanelStack only when authenticated.
+  if (!token) return null;
+  return (
+    <>
+      <StorageMigrationUi />
+      <TransferPanelStack />
+    </>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -151,8 +164,7 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
-          <StorageMigrationUi />
-          <TransferPanelStack />
+          <AuthenticatedDriveShellExtras />
         </SetupGuard>
         </InstanceNameProvider>
       </AuthProvider>

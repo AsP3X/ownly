@@ -6,6 +6,7 @@ import { FileText, Loader2 } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview } from "@/api/client";
+import { createPdfBlobObjectUrl, revokePdfBlobObjectUrl } from "@/lib/pdf-document-source";
 import { useExplorerTileVisible } from "@/hooks/useExplorerTileVisible";
 import "@/lib/pdf-viewer";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,8 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useExplorerTileVisible(containerRef);
   const [pageWidth, setPageWidth] = useState(0);
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
+  const pdfObjectUrlRef = useRef<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   // Human: Scale the rendered page to the tile width so the top of the document fills the preview frame.
@@ -41,20 +43,22 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
   }, []);
 
   // Human: Load PDF bytes once the tile is visible, then hand them to react-pdf for page-one rendering.
-  // Agent: CALLS fetchFileBlobForPreview; WRITES ArrayBuffer; CLEARS state on file change or unmount.
+  // Agent: CALLS fetchFileBlobForPreview; WRITES blob object URL; REVOKES on file change or unmount.
   useEffect(() => {
     if (!visible) return;
 
     let cancelled = false;
     setFailed(false);
-    setPdfData(null);
+    revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+    pdfObjectUrlRef.current = null;
+    setPdfObjectUrl(null);
 
     void fetchFileBlobForPreview(file)
-      .then(async (blob) => {
+      .then((blob) => {
         if (cancelled) return;
-        const buffer = await blob.arrayBuffer();
-        if (cancelled) return;
-        setPdfData(buffer);
+        const url = createPdfBlobObjectUrl(blob);
+        pdfObjectUrlRef.current = url;
+        setPdfObjectUrl(url);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -62,6 +66,8 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
 
     return () => {
       cancelled = true;
+      revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+      pdfObjectUrlRef.current = null;
     };
   }, [visible, file.id]);
 
@@ -78,12 +84,12 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
         <div className="flex size-full items-center justify-center">
           <FileText className="size-8 text-[#2563EB]" aria-hidden />
         </div>
-      ) : pdfData && pageWidth > 0 ? (
+      ) : pdfObjectUrl && pageWidth > 0 ? (
         // Human: Top-aligned page — overflow clips the bottom so the tile shows the document header area.
         // Agent: items-start + overflow-hidden on ancestors; Page width matches tile for full-bleed width.
         <div className="flex size-full items-start justify-center overflow-hidden bg-white">
           <Document
-            file={pdfData}
+            file={pdfObjectUrl}
             loading={
               <div className="flex size-full items-center justify-center">
                 <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />

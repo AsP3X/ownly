@@ -50,7 +50,7 @@ export function PdfPreviewDialogDesktop({
 }: PdfPreviewDialogDesktopProps) {
   const {
     file,
-    pdfData,
+    pdfObjectUrl,
     error,
     loading,
     numPages,
@@ -284,16 +284,16 @@ export function PdfPreviewDialogDesktop({
               </p>
             ) : null}
 
-            {loading && !pdfData ? (
+            {loading && !pdfObjectUrl ? (
               <div className="flex flex-1 items-center justify-center text-sm text-[#666666]">
                 <Loader2 className="size-6 animate-spin" aria-hidden />
                 <span className="sr-only">Loading PDF…</span>
               </div>
             ) : null}
 
-            {pdfData && !error ? (
+            {pdfObjectUrl && !error ? (
               <Document
-                file={pdfData}
+                file={pdfObjectUrl}
                 loading={
                   <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-[#666666]">
                     <Loader2 className="size-5 animate-spin" aria-hidden />

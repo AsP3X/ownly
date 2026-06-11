@@ -1,11 +1,12 @@
 // Human: Inline PDF viewer for single-file public shares — Pencil PDF Preview variant (toolbar + scroll).
 // Agent: FETCHES fetchPublicShareBlobForPreview; RENDERS react-pdf Document; READS pdf-viewer worker setup.
 
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileText, Loader2, Printer, ZoomIn, ZoomOut } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import type { FileItem } from "@/api/client";
 import { fetchPublicShareBlobForPreview, getErrorMessage } from "@/api/client";
+import { createPdfBlobObjectUrl, revokePdfBlobObjectUrl } from "@/lib/pdf-document-source";
 import "@/lib/pdf-viewer";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -26,7 +27,8 @@ function clampZoom(value: number): number {
 }
 
 export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShareInlinePdfProps) {
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
+  const pdfObjectUrlRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [numPages, setNumPages] = useState(0);
@@ -43,14 +45,18 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
     let cancelled = false;
     setLoading(true);
     setError("");
-    setPdfData(null);
+    revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+    pdfObjectUrlRef.current = null;
+    setPdfObjectUrl(null);
     setNumPages(0);
     setCurrentPage(1);
     setZoom(DEFAULT_ZOOM);
     void fetchPublicShareBlobForPreview(token, file.id, sharePassword)
-      .then(async (blob) => {
+      .then((blob) => {
         if (cancelled) return;
-        setPdfData(await blob.arrayBuffer());
+        const url = createPdfBlobObjectUrl(blob);
+        pdfObjectUrlRef.current = url;
+        setPdfObjectUrl(url);
       })
       .catch((e) => {
         if (!cancelled) setError(getErrorMessage(e));
@@ -60,6 +66,8 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
       });
     return () => {
       cancelled = true;
+      revokePdfBlobObjectUrl(pdfObjectUrlRef.current);
+      pdfObjectUrlRef.current = null;
     };
   }, [token, file.id, sharePassword]);
 
@@ -141,9 +149,9 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
           </div>
         ) : null}
         {error ? <p className="py-12 text-center text-sm text-red-300">{error}</p> : null}
-        {pdfData && !error ? (
+        {pdfObjectUrl && !error ? (
           <Document
-            file={{ data: pdfData }}
+            file={pdfObjectUrl}
             onLoadSuccess={({ numPages: total }) => setNumPages(total)}
             loading={null}
             className="mx-auto flex flex-col items-center gap-4"
