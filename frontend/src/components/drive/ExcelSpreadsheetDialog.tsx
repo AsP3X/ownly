@@ -2,7 +2,7 @@
 // Agent: FETCHES blob; PARSES xlsx; RENDERS ribbon/grid/copilot; SAVE replace upload on Save & Close.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
   deleteFile,
@@ -503,8 +503,83 @@ export function ExcelSpreadsheetDialog({
   const formulaValue = formulaBarValue(activeCell);
 
   // Human: Narrow viewports get read-only grid (no ribbon) instead of a hard block.
-  // Agent: LOADS workbook on mobile; RENDERS scaled grid when activeSheet is ready.
+  // Agent: PUBLIC SHARE uses full-bleed mobile shell like PDF; DRIVE keeps compact card on phone.
   if (!isDesktopViewport) {
+    const mobileGrid = activeSheet ? (
+      <ExcelSpreadsheetGrid
+        sheetKey={activeSheet.name}
+        rows={activeSheet.rows}
+        conditionalFormats={activeSheet.conditionalFormats}
+        columnWidths={activeSheet.columnWidths}
+        rowHeights={activeSheet.rowHeights}
+        readOnly
+        selectionRange={editor.selectionRange}
+        editingCell={null}
+        editDraft=""
+        showFormulas={false}
+        showGridlines
+        filterHiddenRows={editor.filterHiddenRows}
+        frozenRows={activeSheet.frozenRows ?? 0}
+        frozenCols={activeSheet.frozenCols ?? 0}
+        mergedRegions={activeSheet.mergedRegions}
+        hiddenRows={activeSheet.hiddenRows}
+        hiddenCols={activeSheet.hiddenCols}
+        zoomPercent={activeSheet.zoomPercent ?? 100}
+        onSelectCell={handleSelectCell}
+        onStartEditing={() => undefined}
+        onEditDraftChange={() => undefined}
+        onCommitEdit={() => undefined}
+        onGridKeyDown={() => undefined}
+      />
+    ) : null;
+
+    if (readOnly) {
+      return (
+        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+          <DialogContent
+            motionlessPopup
+            className="flex h-[100svh] max-h-[100svh] w-full min-h-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#F7F8FA] p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+            overlayClassName="bg-[#0A0A10]/95 backdrop-blur-3xl"
+            showCloseButton={false}
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{file?.name ?? "Spreadsheet"}</DialogTitle>
+              <DialogDescription>Read-only spreadsheet preview.</DialogDescription>
+            </DialogHeader>
+
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] bg-white px-4 py-3">
+              <p className="min-w-0 truncate text-sm font-semibold text-[#1A1A1A]">
+                {file?.name ?? "Spreadsheet"}
+              </p>
+              <button
+                type="button"
+                onClick={() => handleDialogOpenChange(false)}
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F7F8FA] text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF]"
+                aria-label="Close spreadsheet preview"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+
+            <div className="relative min-h-0 flex-1 overflow-auto">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+                  <Loader2 className="size-5 animate-spin" aria-hidden />
+                  Loading spreadsheet…
+                </div>
+              ) : null}
+              {loadError ? (
+                <p className="px-4 py-8 text-center text-sm text-[#EF4444]" role="alert">
+                  {loadError}
+                </p>
+              ) : null}
+              {mobileGrid}
+            </div>
+          </DialogContent>
+        </Dialog>
+      );
+    }
+
     return (
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="gap-2 border border-[#E5E7EB] bg-white p-3 sm:max-w-full" overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl">
@@ -514,35 +589,7 @@ export function ExcelSpreadsheetDialog({
           </DialogHeader>
           {loading ? <p className="text-sm text-[#666666]">Loading…</p> : null}
           {loadError ? <p className="text-sm text-[#EF4444]">{loadError}</p> : null}
-          {activeSheet ? (
-            <div className="max-h-[70vh] overflow-auto">
-              <ExcelSpreadsheetGrid
-                sheetKey={activeSheet.name}
-                rows={activeSheet.rows}
-                conditionalFormats={activeSheet.conditionalFormats}
-                columnWidths={activeSheet.columnWidths}
-                rowHeights={activeSheet.rowHeights}
-                readOnly
-                selectionRange={editor.selectionRange}
-                editingCell={null}
-                editDraft=""
-                showFormulas={false}
-                showGridlines
-                filterHiddenRows={editor.filterHiddenRows}
-                frozenRows={activeSheet.frozenRows ?? 0}
-                frozenCols={activeSheet.frozenCols ?? 0}
-                mergedRegions={activeSheet.mergedRegions}
-                hiddenRows={activeSheet.hiddenRows}
-                hiddenCols={activeSheet.hiddenCols}
-                zoomPercent={activeSheet.zoomPercent ?? 100}
-                onSelectCell={handleSelectCell}
-                onStartEditing={() => undefined}
-                onEditDraftChange={() => undefined}
-                onCommitEdit={() => undefined}
-                onGridKeyDown={() => undefined}
-              />
-            </div>
-          ) : null}
+          {activeSheet ? <div className="max-h-[70vh] overflow-auto">{mobileGrid}</div> : null}
           <DialogFooter className="border-0 bg-transparent px-0 py-0">
             <Button type="button" onClick={() => handleDialogOpenChange(false)}>Close</Button>
           </DialogFooter>

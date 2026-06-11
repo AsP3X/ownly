@@ -406,16 +406,14 @@ export function PublicShareExplorer({
               >
                 Open
               </button>
-              {allowDownload ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenFolder(folder)}
-                  className="inline-flex shrink-0 items-center justify-center p-1 text-[#666666] transition-colors hover:text-[#2563EB] lg:hidden"
-                  aria-label={`Open ${folder.name}`}
-                >
-                  <ChevronRight className="size-4" aria-hidden />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => onOpenFolder(folder)}
+                className="inline-flex shrink-0 items-center justify-center p-1 text-[#666666] transition-colors hover:text-[#2563EB] lg:hidden"
+                aria-label={`Open ${folder.name}`}
+              >
+                <ChevronRight className="size-4" aria-hidden />
+              </button>
             </div>
           ))}
 
@@ -435,11 +433,20 @@ export function PublicShareExplorer({
                     type="checkbox"
                     checked={selectedIds.has(file.id)}
                     onChange={() => toggleSelect(file.id)}
+                    onClick={(event) => event.stopPropagation()}
                     className="size-4 shrink-0 rounded border border-[#E5E7EB] accent-[#2563EB]"
                     aria-label={`Select ${file.name}`}
                   />
                   <ShareFileTypeIcon mimeType={file.mime_type} compact />
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    disabled={!onPreview}
+                    onClick={() => onPreview?.()}
+                    className={cn(
+                      "min-w-0 flex-1 text-left lg:pointer-events-none",
+                      onPreview ? "cursor-pointer lg:cursor-default" : "cursor-default",
+                    )}
+                  >
                     <div className="flex min-w-0 items-center gap-2">
                       <p className="truncate text-[13px] font-bold text-[#1A1A1A] lg:text-sm lg:font-semibold">
                         {file.name}
@@ -450,14 +457,14 @@ export function PublicShareExplorer({
                       <span className="lg:hidden">{fileMetaLine(file, true)}</span>
                       <span className="hidden lg:inline">{fileMetaLine(file, false)}</span>
                     </p>
-                  </div>
+                  </button>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 lg:gap-2">
                   {onPreview ? (
                     <button
                       type="button"
                       onClick={onPreview}
-                      className="rounded-md bg-[#F7F8FA] px-2 py-1 text-[10px] font-semibold text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF] lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-[13px]"
+                      className="hidden rounded-lg bg-[#F7F8FA] px-3.5 py-2 text-[13px] font-semibold text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF] lg:inline-flex"
                     >
                       Preview
                     </button>

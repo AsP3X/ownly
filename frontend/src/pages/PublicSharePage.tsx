@@ -1,7 +1,7 @@
 // Human: Anonymous viewer page for public share links — Pencil variants for folder list and inline previews.
 // Agent: READS /public/shares/:token*; RENDERS layout shell + type-specific panels; OPENS dialogs inside folders.
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Film, Loader2 } from "lucide-react";
 import {
@@ -13,7 +13,6 @@ import {
   ApiError,
   getErrorMessage,
   saveFromPublicShare,
-  verifyPublicShareAccess,
   type FileItem,
   type FolderItem,
   type PublicShareInfo,
@@ -47,6 +46,8 @@ import {
   isAudioMime,
   isImageMime,
   isPdfMime,
+  isSpreadsheetPreviewMime,
+  isTextCodePreviewMime,
 } from "@/lib/utils-app";
 
 // Human: Build a minimal FileItem from single-file share overview metadata.
@@ -108,83 +109,91 @@ export default function PublicSharePage() {
   const [passwordInput, setPasswordInput] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [passwordError, setPasswordError] = useState("");
+  const autoOpenedPreviewRef = useRef(false);
 
+  // Human: Load overview on mount/token change — retry stored password before showing SEC-007 gate.
+  // Agent: RESETS prior share state; CALLS fetchPublicShareOverview with optional X-Share-Password.
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    setLoading(true);
+
+    setOverview(null);
+    setFiles([]);
+    setFolders([]);
+    setCurrentFolderId(null);
+    setRootFolderId(null);
+    setBreadcrumbs([]);
     setError("");
-    void fetchPublicShareOverview(token)
-      .then((res) => {
+    setAllFiles([]);
+    setAllFolders([]);
+    setSharePassword(null);
+    setPasswordGateOnly(false);
+    setAccessGranted(false);
+    setPasswordInput("");
+    setPasswordError("");
+    setPreviewVideo(null);
+    setPreviewImage(null);
+    setPreviewPdf(null);
+    setPreviewText(null);
+    setPreviewSpreadsheet(null);
+    setPreviewAudio(null);
+    setSaveMessage("");
+    autoOpenedPreviewRef.current = false;
+    setLoading(true);
+
+    const storedPassword = getStoredSharePassword(token);
+
+    function applyOverview(res: { share: PublicShareInfo }, password: string | null) {
+      setPasswordGateOnly(false);
+      setOverview(res.share);
+      if (res.share.resource_type === "folder") {
+        setRootFolderId(res.share.resource_id);
+        setCurrentFolderId(res.share.resource_id);
+        setBreadcrumbs([{ id: res.share.resource_id, name: res.share.name }]);
+      }
+      if (password) {
+        setSharePassword(password);
+        setAccessGranted(true);
+      } else {
+        setSharePassword(null);
+        setAccessGranted(!res.share.requires_password);
+      }
+    }
+
+    async function loadOverview(initialPassword?: string | null) {
+      try {
+        const res = await fetchPublicShareOverview(token, initialPassword ?? undefined);
         if (cancelled) return;
-        setPasswordGateOnly(false);
-        setOverview(res.share);
-        if (res.share.resource_type === "folder") {
-          setRootFolderId(res.share.resource_id);
-          setCurrentFolderId(res.share.resource_id);
-          setBreadcrumbs([{ id: res.share.resource_id, name: res.share.name }]);
-        }
-      })
-      .catch((e) => {
+        applyOverview(res, initialPassword ?? null);
+      } catch (e) {
         if (cancelled) return;
         if (
           e instanceof ApiError
           && e.status === 403
           && /requires a password/i.test(e.message)
         ) {
+          if (initialPassword) {
+            clearStoredSharePassword(token);
+          } else if (storedPassword) {
+            await loadOverview(storedPassword);
+            return;
+          }
           setPasswordGateOnly(true);
           setOverview(null);
+          setAccessGranted(false);
           return;
         }
         setError(getErrorMessage(e));
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    }
+
+    void loadOverview();
     return () => {
       cancelled = true;
     };
   }, [token]);
-
-  useEffect(() => {
-    setSharePassword(null);
-    setPasswordGateOnly(false);
-    setAccessGranted(false);
-    setPasswordInput("");
-    setPasswordError("");
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || !overview) return;
-    if (!overview.requires_password) {
-      setAccessGranted(true);
-      return;
-    }
-
-    const stored = getStoredSharePassword(token);
-    if (!stored) {
-      setAccessGranted(false);
-      return;
-    }
-
-    let cancelled = false;
-    void verifyPublicShareAccess(token, overview.resource_type, overview.resource_id, stored)
-      .then(() => {
-        if (cancelled) return;
-        setSharePassword(stored);
-        setAccessGranted(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        clearStoredSharePassword(token);
-        setSharePassword(null);
-        setAccessGranted(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, overview]);
 
   const loadFolderContents = useCallback(
     async (folderId: string) => {
@@ -350,10 +359,29 @@ export default function PublicSharePage() {
     }
   }
 
-  const singleFileItem = useMemo(
-    () => (overview?.resource_type === "file" ? overviewAsFileItem(overview) : null),
-    [overview],
-  );
+  const singleFileItem = useMemo(() => {
+    if (overview?.resource_type !== "file") return null;
+    const base = overviewAsFileItem(overview);
+    const enriched = allFiles.find((file) => file.id === overview.resource_id);
+    return enriched ?? base;
+  }, [overview, allFiles]);
+
+  // Human: Auto-open dialog previews for single-file text and spreadsheet shares (once per token).
+  // Agent: SETS previewText/previewSpreadsheet after access unlock; REF prevents reopen after user closes.
+  useEffect(() => {
+    if (autoOpenedPreviewRef.current) return;
+    if (!overview || overview.resource_type !== "file" || !singleFileItem || !accessGranted) return;
+
+    if (isTextCodePreviewMime(overview.mime_type, overview.name)) {
+      autoOpenedPreviewRef.current = true;
+      setPreviewText(singleFileItem);
+      return;
+    }
+    if (isSpreadsheetPreviewMime(overview.mime_type, overview.name)) {
+      autoOpenedPreviewRef.current = true;
+      setPreviewSpreadsheet(singleFileItem);
+    }
+  }, [overview, singleFileItem, accessGranted]);
 
   const inlineVideoFileId = useMemo(() => {
     if (overview?.resource_type !== "file") return null;
@@ -396,25 +424,29 @@ export default function PublicSharePage() {
     };
   }, [token, inlineVideoFileId, sharePassword, accessGranted]);
 
+  // Human: Prefer full share tree for gallery siblings; fall back to current folder while tree loads.
+  // Agent: MERGES allFiles when ready else files so mobile swipe galleries work on first open.
+  const gallerySourceFiles = allFiles.length > 0 ? allFiles : files;
+
   const galleryImages = useMemo(() => {
     if (!previewImage) return [];
-    return buildImageGallery(files, previewImage);
-  }, [files, previewImage]);
+    return buildImageGallery(gallerySourceFiles, previewImage);
+  }, [gallerySourceFiles, previewImage]);
 
   const galleryAudio = useMemo(() => {
     if (!previewAudio) return [];
-    return buildAudioGallery(files, previewAudio);
-  }, [files, previewAudio]);
+    return buildAudioGallery(gallerySourceFiles, previewAudio);
+  }, [gallerySourceFiles, previewAudio]);
 
   const galleryVideos = useMemo(() => {
     if (!previewVideo) return [];
-    return buildVideoGallery(files, previewVideo);
-  }, [files, previewVideo]);
+    return buildVideoGallery(gallerySourceFiles, previewVideo);
+  }, [gallerySourceFiles, previewVideo]);
 
   const galleryTextFiles = useMemo(() => {
     if (!previewText) return [];
-    return buildTextCodeGallery(files, previewText);
-  }, [files, previewText]);
+    return buildTextCodeGallery(gallerySourceFiles, previewText);
+  }, [gallerySourceFiles, previewText]);
 
   const downloadHeaderLabel = useMemo(() => {
     if (!overview) return "Download";
@@ -488,6 +520,8 @@ export default function PublicSharePage() {
   const singleIsPdf = isPdfMime(singleMime);
   const singleIsAudio = isAudioMime(singleMime);
   const singleIsVideo = singleMime.startsWith("video/");
+  const singleIsText = isTextCodePreviewMime(singleMime, overview.name);
+  const singleIsSpreadsheet = isSpreadsheetPreviewMime(singleMime, overview.name);
 
   return (
     <>
@@ -513,30 +547,44 @@ export default function PublicSharePage() {
         ) : null}
 
         {isFolderShare ? (
-          <PublicShareExplorer
-            shareName={overview.name}
-            folders={folders}
-            files={files}
-            allFiles={allFiles}
-            allFolders={allFolders}
-            breadcrumbs={breadcrumbs}
-            loading={contentsLoading}
-            downloadingId={downloadingId}
-            onOpenFolder={openFolder}
-            onNavigateBreadcrumb={navigateToCrumb}
-            onDownload={(file) => void handleDownload(file)}
-            onPreviewVideo={(file) => setPreviewVideo(file)}
-            onPreviewImage={(file) => setPreviewImage(file)}
-            onPreviewPdf={(file) => setPreviewPdf(file)}
-            onPreviewText={(file) => setPreviewText(file)}
-            onPreviewSpreadsheet={(file) => setPreviewSpreadsheet(file)}
-            onPreviewAudio={(file) => setPreviewAudio(file)}
-            allowDownload={!overview.block_download}
-            onBulkDownload={(list) => void handleBulkDownload(list)}
-            onDownloadAll={handleHeaderDownload}
-            downloadAllDisabled={overview.block_download}
-            downloadAllLoading={bulkDownloading || treeLoading}
-          />
+          <>
+            <PublicShareExplorer
+              shareName={overview.name}
+              folders={folders}
+              files={files}
+              allFiles={allFiles}
+              allFolders={allFolders}
+              breadcrumbs={breadcrumbs}
+              loading={contentsLoading}
+              downloadingId={downloadingId}
+              onOpenFolder={openFolder}
+              onNavigateBreadcrumb={navigateToCrumb}
+              onDownload={(file) => void handleDownload(file)}
+              onPreviewVideo={(file) => setPreviewVideo(file)}
+              onPreviewImage={(file) => setPreviewImage(file)}
+              onPreviewPdf={(file) => setPreviewPdf(file)}
+              onPreviewText={(file) => setPreviewText(file)}
+              onPreviewSpreadsheet={(file) => setPreviewSpreadsheet(file)}
+              onPreviewAudio={(file) => setPreviewAudio(file)}
+              allowDownload={!overview.block_download}
+              onBulkDownload={(list) => void handleBulkDownload(list)}
+              onDownloadAll={handleHeaderDownload}
+              downloadAllDisabled={overview.block_download}
+              downloadAllLoading={bulkDownloading || treeLoading}
+            />
+            <PublicShareMobileActionStack
+              downloadLabel={downloadHeaderLabel}
+              onDownload={overview.block_download ? undefined : handleHeaderDownload}
+              onSave={() => void handleSaveToOwnly()}
+              downloadDisabled={overview.block_download}
+              downloadLoading={bulkDownloading || treeLoading}
+              saveDisabled={overview.block_download}
+              saveLoading={saveLoading}
+            />
+            <div className="flex justify-center lg:hidden">
+              <PublicShareSecurityBadge variant="pill" />
+            </div>
+          </>
         ) : singleFileItem ? (
           <div className="flex flex-col gap-5 lg:gap-4">
             {singleIsVideo && !overview.hls_ready ? (
@@ -608,7 +656,19 @@ export default function PublicSharePage() {
                 saveLoading={saveLoading}
               />
             ) : null}
-            {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsAudio ? (
+            {(singleIsText || singleIsSpreadsheet) && !previewText && !previewSpreadsheet ? (
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
+                <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
+                {overview.size_bytes != null ? (
+                  <p className="mt-1 text-sm text-[#666666]">{formatBytes(overview.size_bytes)}</p>
+                ) : null}
+                <p className="mt-4 flex items-center justify-center gap-2 text-sm text-[#666666]">
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Loading preview…
+                </p>
+              </div>
+            ) : null}
+            {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsAudio && !singleIsText && !singleIsSpreadsheet ? (
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
                 <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
                 {overview.size_bytes != null ? (

@@ -9,6 +9,7 @@ import {
   fetchFileStreamUrlForPreview,
   fetchPublicShareBlobForPreview,
   fetchPublicShareGifAnimationPreviewUrl,
+  fetchPublicShareStreamUrlForPreview,
   getErrorMessage,
 } from "@/api/client";
 import type { ImagePreviewDialogProps } from "@/components/drive/image/image-preview-types";
@@ -411,10 +412,12 @@ export function useImagePreviewController({
           }
 
           // Human: Same-origin stream bytes keep GIF animation on Android mobile — skip downscale.
-          // Agent: HTTP GET /files/:id/stream?ticket=; SKIPPED on iOS (uses MP4 workaround above).
-          if (isMobilePreview && isGif && !shareToken && !needsIosGifWorkaround) {
+          // Agent: DRIVE uses preview-url ticket; PUBLIC SHARE uses blob object URL from download proxy.
+          if (isMobilePreview && isGif && !needsIosGifWorkaround) {
             try {
-              const stream = await fetchFileStreamUrlForPreview(item);
+              const stream = shareToken
+                ? await fetchPublicShareStreamUrlForPreview(shareToken, item, sharePassword)
+                : await fetchFileStreamUrlForPreview(item);
               if (!isActive() || !isFileInBlobCacheWindow(item.id)) return null;
               return cachePreviewUrl(item.id, stream.url, stream.revokeOnClose, session);
             } catch {

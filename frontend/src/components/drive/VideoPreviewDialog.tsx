@@ -274,10 +274,11 @@ export function VideoPreviewDialog({
       {/* Human: Desktop shell — fixed row height min(1125px, 100dvh − padding) so player + nav always fit. */}
       {/* Agent: NARROW branch stays full-viewport; wide branch mirrors Excel DialogContent padding/overflow. */}
       <DialogContent
+        motionlessPopup={isNarrow}
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
-            ? "!flex fixed inset-0 top-0 left-0 h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 rounded-none p-0 min-h-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+            ? "h-[100svh] max-h-[100svh] w-full min-h-0 rounded-none p-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
             : "w-full max-w-[calc(100%-1rem)] items-center justify-center p-4 sm:max-w-[108rem]",
         )}
         overlayClassName={cn(

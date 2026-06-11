@@ -142,7 +142,8 @@ export function PdfPreviewSurfaceMobile({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="!fixed inset-0 top-0 left-0 flex h-[100svh] max-h-[100svh] w-full !max-w-none -translate-x-0 -translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#374151] p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+        motionlessPopup
+        className="flex h-[100svh] max-h-[100svh] w-full min-h-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#374151] p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
         overlayClassName="bg-[#0A0A10]/95 backdrop-blur-3xl"
         showCloseButton={false}
       >
