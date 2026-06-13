@@ -340,6 +340,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/setup", post(setup::handlers::setup))
         .route("/api/v1/auth/register", post(auth::handlers::register))
         .route("/api/v1/auth/login", post(auth::handlers::login))
+        .route("/api/v1/auth/refresh", post(auth::handlers::refresh))
         .route(
             "/api/v1/settings/registration",
             get(auth::handlers::public_registration_setting),

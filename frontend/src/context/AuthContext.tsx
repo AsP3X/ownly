@@ -3,9 +3,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCurrentUser, fetchMyInstancePermissions, setUnauthorizedHandler } from "@/api/client";
+import { fetchCurrentUser, fetchMyInstancePermissions, setTokenRefreshListener, setUnauthorizedHandler, shouldProactivelyRefreshToken, tryRefreshAuthToken } from "@/api/client";
 import { AuthContext, type User } from "@/context/auth-context";
 import { hasInstancePermission as checkInstancePermission, isInstanceAdmin } from "@/lib/instance-permissions";
+import { getJwtExp } from "@/lib/jwt";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
 
 /** Human: Run session probes after first paint so login shell is not blocked on /me. */
@@ -53,6 +54,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(() => logout());
     return () => setUnauthorizedHandler(null);
   }, [logout]);
+
+  // Human: Keep React token state aligned when apiFetch silently rotates the JWT after refresh.
+  // Agent: LISTENS setTokenRefreshListener; UPDATES token state without clearing user profile.
+  useEffect(() => {
+    setTokenRefreshListener((nextToken) => setToken(nextToken));
+    return () => setTokenRefreshListener(null);
+  }, []);
+
+  // Human: Proactively refresh the access JWT before the 24h exp so idle tabs stay signed in.
+  // Agent: SCHEDULES tryRefreshAuthToken from JWT exp; RE-SCHEDULES after each successful rotation.
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    let timeoutId = 0;
+
+    const scheduleRefresh = () => {
+      const exp = getJwtExp(token);
+      if (!exp) return;
+
+      if (shouldProactivelyRefreshToken(token)) {
+        void tryRefreshAuthToken();
+        return;
+      }
+
+      const refreshAtMs = (exp - 2 * 3600) * 1000;
+      const delayMs = Math.max(refreshAtMs - Date.now(), 60_000);
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        void tryRefreshAuthToken();
+      }, delayMs);
+    };
+
+    scheduleRefresh();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [token]);
 
   // Human: Warm the drive chunk while the user is already signed in on repeat visits.
   // Agent: CALLS prefetchDrivePageChunk when token is present at provider mount.

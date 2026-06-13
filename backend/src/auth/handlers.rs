@@ -5,7 +5,11 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use axum::{extract::State, http::HeaderMap, Extension, Json};
+use axum::{
+    extract::State,
+    http::{header, HeaderMap},
+    Extension, Json,
+};
 use chrono::Utc;
 use std::sync::OnceLock;
 
@@ -16,6 +20,14 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{audit, error::AppError, rate_limit, redact, AppState};
+
+// Human: Access JWT lifetime issued at login, register, and refresh.
+// Agent: READ by create_token; FRONTEND proactive refresh should run well before this window ends.
+pub const JWT_ACCESS_TTL_HOURS: i64 = 24;
+
+// Human: Allow refresh shortly after hard expiry so a missed client timer does not force re-login.
+// Agent: COMPARED in refresh handler; REJECTS tokens older than exp + grace.
+pub const JWT_REFRESH_GRACE_SECS: i64 = 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -83,13 +95,37 @@ pub fn create_token(
     session_id: Option<String>,
     session_version: u64,
 ) -> anyhow::Result<String> {
-    let now = Utc::now();
+    let now = Utc::now().timestamp();
+    create_token_with_timestamps(
+        user_id,
+        email,
+        role,
+        secret,
+        session_id,
+        session_version,
+        now,
+        now + chrono::Duration::try_hours(JWT_ACCESS_TTL_HOURS).unwrap().num_seconds(),
+    )
+}
+
+// Human: Mint a JWT with explicit iat/exp — used by refresh and integration tests simulating expiry.
+// Agent: EMITS Claims JSON; PRESERVES sid + ver so refresh does not spawn a new admin session row.
+pub fn create_token_with_timestamps(
+    user_id: String,
+    email: String,
+    role: String,
+    secret: &str,
+    session_id: Option<String>,
+    session_version: u64,
+    iat: i64,
+    exp: i64,
+) -> anyhow::Result<String> {
     let claims = Claims {
         sub: user_id,
         email,
         role,
-        iat: now.timestamp(),
-        exp: (now + chrono::Duration::try_hours(24).unwrap()).timestamp(),
+        iat,
+        exp,
         sid: session_id,
         ver: session_version,
     };
@@ -103,10 +139,26 @@ pub fn create_token(
 pub fn decode_token(token: &str, secret: &str) -> anyhow::Result<Claims> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
+    decode_token_with_validation(token, secret, &validation)
+}
+
+// Human: Parse a JWT for refresh while ignoring exp — signature and shape must still be valid.
+// Agent: CALLED by refresh handler; CALLER enforces grace window + session revocation gates.
+pub fn decode_token_for_refresh(token: &str, secret: &str) -> anyhow::Result<Claims> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = false;
+    decode_token_with_validation(token, secret, &validation)
+}
+
+fn decode_token_with_validation(
+    token: &str,
+    secret: &str,
+    validation: &Validation,
+) -> anyhow::Result<Claims> {
     Ok(decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
+        validation,
     )?
     .claims)
 }
@@ -285,6 +337,77 @@ pub async fn login(
             email,
             role: effective_role,
             enabled,
+        },
+    }))
+}
+
+// Human: Extend an active session without re-entering credentials — same sid/ver, new 24h exp.
+// Agent: POST /auth/refresh PUBLIC; READS Bearer JWT; RETURNS AuthResponse; NO audit row per refresh.
+pub async fn refresh(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<AuthResponse>, AppError> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or(AppError::Unauthorized)?;
+
+    let claims =
+        decode_token_for_refresh(token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
+
+    let now = Utc::now().timestamp();
+    if now > claims.exp + JWT_REFRESH_GRACE_SECS {
+        return Err(AppError::Unauthorized);
+    }
+
+    let row: Option<(String, bool, String)> = sqlx::query_as(
+        "SELECT email, enabled, role FROM users WHERE id = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (email, user_enabled, db_role) = row.ok_or(AppError::Unauthorized)?;
+    if !user_enabled {
+        return Err(AppError::Forbidden(
+            "account is not activated. Contact an administrator.".into(),
+        ));
+    }
+
+    if !crate::user_sessions::is_token_session_valid(
+        &state.pool,
+        &claims.sub,
+        claims.sid.as_deref(),
+        claims.ver,
+        claims.iat,
+    )
+    .await?
+    {
+        return Err(AppError::Unauthorized);
+    }
+
+    let effective_role =
+        crate::authz::effective_jwt_role(&state.pool, &claims.sub, &db_role).await?;
+    let session_version = crate::user_sessions::load_session_epoch(&state.pool, &claims.sub).await?;
+    let token = create_token(
+        claims.sub.clone(),
+        email.clone(),
+        effective_role.clone(),
+        &state.jwt_secret,
+        claims.sid,
+        session_version,
+    )
+    .map_err(AppError::Internal)?;
+
+    Ok(Json(AuthResponse {
+        token: Some(token),
+        pending_activation: false,
+        user: UserDto {
+            id: claims.sub,
+            email,
+            role: effective_role,
+            enabled: user_enabled,
         },
     }))
 }

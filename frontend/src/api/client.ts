@@ -8,8 +8,11 @@ export {
   getErrorMessage,
   parseRetryAfterSeconds,
   normalizeStorageErrorMessage,
+  setTokenRefreshListener,
   setUnauthorizedHandler,
   setupMutationHeaders,
+  shouldProactivelyRefreshToken,
+  tryRefreshAuthToken,
   API_BASE,
 } from "@/api/core";
 

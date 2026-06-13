@@ -2420,6 +2420,199 @@ async fn login_returns_token_for_valid_credentials() {
         .ok();
 }
 
+// Human: Active sessions should rotate access JWTs without another login POST.
+// Agent: POST /auth/refresh with Bearer token; EXPECT 200 + new token usable on /me.
+#[tokio::test]
+async fn refresh_returns_new_token_for_active_session() {
+    let Some(state) = test_harness::TestHarness::state("refresh_returns_new_token_for_active_session")
+        .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("refresh-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+    let refreshed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed_json = response_json(refreshed).await;
+    let next_token = refreshed_json["token"]
+        .as_str()
+        .expect("refresh token");
+    assert_ne!(next_token, token);
+
+    let me = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {next_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Refresh should still work shortly after hard expiry so clients recover from missed timers.
+// Agent: MINT token with exp 30m ago; POST /auth/refresh; EXPECT 200 inside JWT_REFRESH_GRACE_SECS.
+#[tokio::test]
+async fn refresh_accepts_token_within_grace_after_expiry() {
+    let Some(state) =
+        test_harness::TestHarness::state("refresh_accepts_token_within_grace_after_expiry").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("refresh-grace-{user_id}@example.com");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(ownly_backend::auth::handlers::hash_password("password123").expect("hash password"))
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let now = chrono::Utc::now().timestamp();
+    let token = ownly_backend::auth::handlers::create_token_with_timestamps(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+        now - 86_400,
+        now - 1_800,
+    )
+    .expect("create expired token");
+
+    let app = create_router(state.clone());
+    let refreshed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(refreshed.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Tokens expired beyond the grace window must not refresh — forces a fresh login.
+// Agent: MINT token with exp 2h ago; POST /auth/refresh; EXPECT 401 unauthorized envelope.
+#[tokio::test]
+async fn refresh_rejects_token_past_grace_window() {
+    let Some(state) =
+        test_harness::TestHarness::state("refresh_rejects_token_past_grace_window").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("refresh-stale-{user_id}@example.com");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(ownly_backend::auth::handlers::hash_password("password123").expect("hash password"))
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let now = chrono::Utc::now().timestamp();
+    let token = ownly_backend::auth::handlers::create_token_with_timestamps(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+        now - 172_800,
+        now - 7_200,
+    )
+    .expect("create stale token");
+
+    let app = create_router(state.clone());
+    let refreshed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(refreshed.status(), StatusCode::UNAUTHORIZED);
+    let json = response_json(refreshed).await;
+    assert_eq!(json["error"]["code"], "unauthorized");
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Wrong passwords must not authenticate callers.
 // Agent: POST /auth/login with bad password; EXPECT 401 unauthorized envelope.
 #[tokio::test]

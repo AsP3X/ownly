@@ -9,7 +9,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-pub use handlers::{decode_token, Claims};
+pub use handlers::{decode_token, decode_token_for_refresh, Claims};
 
 use crate::{error::AppError, AppState};
 
