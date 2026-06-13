@@ -3,9 +3,17 @@
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
-    Arc,
+    Arc, RwLock,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+// Human: Backend→Nebular service JWT lifetime — short TTL limits blast radius if leaked (SEC-023).
+// Agent: READ by generate_service_token; REFRESHED proactively in NebulaStorage::bearer_token before expiry.
+const SERVICE_JWT_TTL_SECS: i64 = 4 * 3600;
+
+// Human: Renew the service JWT this many seconds before `exp` so long-running API processes never send stale Bearer tokens.
+// Agent: COMPARED in ServiceJwtCache::needs_refresh; PREVENTS 401 on storage GET/PUT after stack uptime exceeds TTL.
+const SERVICE_JWT_REFRESH_LEEWAY_SECS: i64 = 300;
 
 use futures_util::stream::{self, StreamExt};
 use hmac::{Hmac, Mac};
@@ -92,13 +100,31 @@ fn generate_signature(method: &str, secret: &str, bucket: &str, key: &str, expir
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
+// Human: Cached Nebular service JWT plus its `exp` claim for proactive refresh.
+// Agent: WRAPPED in Arc<RwLock<>> so cloned NebulaStorage clients share one token per node.
+#[derive(Clone, Debug)]
+struct ServiceJwtCache {
+    token: String,
+    exp: i64,
+}
+
+impl ServiceJwtCache {
+    // Human: True when the cached token is missing or within the refresh leeway of expiry.
+    // Agent: READS Utc::now vs exp; CALLED from bearer_token before every storage request.
+    fn needs_refresh(&self) -> bool {
+        let now = chrono::Utc::now().timestamp();
+        self.token.is_empty() || now >= self.exp - SERVICE_JWT_REFRESH_LEEWAY_SECS
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NebulaStorage {
     client: reqwest::Client,
     base_url: String,
     public_base_url: String,
     bucket: String,
-    jwt_token: String,
+    jwt_secret: String,
+    jwt_cache: Arc<RwLock<ServiceJwtCache>>,
     signing_secret: String,
 }
 
@@ -134,7 +160,7 @@ impl NebulaStorage {
         signing_secret: &str,
         request_timeout: Option<Duration>,
     ) -> anyhow::Result<Self> {
-        let token = generate_service_token(jwt_secret)?;
+        let issued = generate_service_token(jwt_secret)?;
         let mut builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(30));
         if let Some(timeout) = request_timeout {
             builder = builder.timeout(timeout);
@@ -145,7 +171,11 @@ impl NebulaStorage {
             base_url: base_url.trim_end_matches('/').to_string(),
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             bucket,
-            jwt_token: token,
+            jwt_secret: jwt_secret.to_string(),
+            jwt_cache: Arc::new(RwLock::new(ServiceJwtCache {
+                token: issued.token,
+                exp: issued.exp,
+            })),
             signing_secret: signing_secret.to_string(),
         })
     }
@@ -158,8 +188,39 @@ impl NebulaStorage {
         format!("{}/{}/{}", self.public_base_url, self.bucket, key)
     }
 
+    // Human: Mint or reuse the backend service JWT so Nebular auth survives multi-day API uptime.
+    // Agent: READS jwt_cache; WRITES refreshed token when within SERVICE_JWT_REFRESH_LEEWAY_SECS of exp.
+    fn bearer_token(&self) -> anyhow::Result<String> {
+        {
+            let cache = self
+                .jwt_cache
+                .read()
+                .map_err(|_| anyhow::anyhow!("service jwt cache lock poisoned"))?;
+            if !cache.needs_refresh() {
+                return Ok(cache.token.clone());
+            }
+        }
+
+        let issued = generate_service_token(&self.jwt_secret)?;
+        let mut cache = self
+            .jwt_cache
+            .write()
+            .map_err(|_| anyhow::anyhow!("service jwt cache lock poisoned"))?;
+        if cache.needs_refresh() {
+            cache.token = issued.token;
+            cache.exp = issued.exp;
+        }
+        Ok(cache.token.clone())
+    }
+
     fn auth_header(&self) -> reqwest::header::HeaderValue {
-        reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.jwt_token))
+        let token = self
+            .bearer_token()
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "failed to mint Nebular service JWT");
+                String::new()
+            });
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
             .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static(""))
     }
 
@@ -466,7 +527,15 @@ impl NebulaStorage {
     }
 }
 
-fn generate_service_token(jwt_secret: &str) -> anyhow::Result<String> {
+#[derive(Debug, Clone)]
+struct IssuedServiceJwt {
+    token: String,
+    exp: i64,
+}
+
+// Human: Mint a short-lived admin JWT for backend→Nebular object-storage calls.
+// Agent: EMITS HS256 token; RETURNS token + exp for ServiceJwtCache refresh decisions.
+fn generate_service_token(jwt_secret: &str) -> anyhow::Result<IssuedServiceJwt> {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde::{Deserialize, Serialize};
 
@@ -484,11 +553,12 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<String> {
         .unwrap_or_default()
         .as_secs() as i64;
 
+    let exp = now + SERVICE_JWT_TTL_SECS;
     let claims = Claims {
         sub: "ownly-backend".to_string(),
         email: "backend@ownly.local".to_string(),
         role: "admin".to_string(),
-        exp: now + 3600 * 4,
+        exp,
         iat: now,
     };
 
@@ -497,7 +567,63 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<String> {
         &claims,
         &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )?;
-    Ok(token)
+    Ok(IssuedServiceJwt { token, exp })
+}
+
+#[cfg(test)]
+mod service_jwt_tests {
+    use super::*;
+
+    // Human: Service JWT refresh must trigger inside the leeway window, not only after hard expiry.
+    // Agent: ASSERTS needs_refresh true when now >= exp - SERVICE_JWT_REFRESH_LEEWAY_SECS.
+    #[test]
+    fn service_jwt_cache_needs_refresh_inside_leeway() {
+        let now = chrono::Utc::now().timestamp();
+        let cache = ServiceJwtCache {
+            token: "token".into(),
+            exp: now + SERVICE_JWT_REFRESH_LEEWAY_SECS,
+        };
+        assert!(cache.needs_refresh());
+    }
+
+    // Human: Fresh tokens should be reused until the leeway window opens.
+    // Agent: ASSERTS needs_refresh false when exp is far in the future.
+    #[test]
+    fn service_jwt_cache_reuses_fresh_token() {
+        let now = chrono::Utc::now().timestamp();
+        let cache = ServiceJwtCache {
+            token: "token".into(),
+            exp: now + SERVICE_JWT_TTL_SECS,
+        };
+        assert!(!cache.needs_refresh());
+    }
+
+    // Human: Cloned storage clients must share one JWT cache so router node clients do not drift.
+    // Agent: CLONES NebulaStorage; MUTATES one cache; EXPECTS other clone to see refreshed token.
+    #[test]
+    fn cloned_nebula_storage_shares_service_jwt_cache() {
+        let storage = NebulaStorage::new(
+            "http://127.0.0.1:9000".into(),
+            "http://127.0.0.1:9000".into(),
+            "ownly".into(),
+            "test-jwt-secret",
+            "test-signing-secret",
+        )
+        .expect("storage client");
+
+        let clone = storage.clone();
+        {
+            let mut cache = storage
+                .jwt_cache
+                .write()
+                .expect("jwt cache write");
+            cache.token = "rotated".into();
+            cache.exp = chrono::Utc::now().timestamp() + SERVICE_JWT_TTL_SECS;
+        }
+
+        let cache = clone.jwt_cache.read().expect("jwt cache read");
+        assert_eq!(cache.token, "rotated");
+    }
 }
 
 #[async_trait::async_trait]
