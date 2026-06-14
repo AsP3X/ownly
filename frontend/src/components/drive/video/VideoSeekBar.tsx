@@ -92,7 +92,9 @@ export function VideoSeekBar({
         "min-w-0",
         isLandscape && "min-w-0 flex-1",
         isEdge && "w-full",
-        variant === "desktop" && "flex-1 max-w-[420px]",
+        // Human: Desktop seek rail grows between transport clusters for finer scrubbing.
+        // Agent: flex-1 without max-width; READS parent control bar width from VideoPlayerSurface.
+        variant === "desktop" && "flex-1",
         className,
       )}
     >
