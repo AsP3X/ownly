@@ -1,7 +1,7 @@
 // Human: Compact sticky header for mobile drive — title, search, profile menu (login-signup.pencil).
 // Agent: lg:hidden only; CALLS DriveProfileMenu; REPLACES cramped desktop header grid below lg breakpoint.
 
-import { type RefObject } from "react";
+import { type RefObject, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -26,6 +26,7 @@ type MobileDriveHeaderProps = {
   folderStack: FolderCrumb[];
   query: string;
   onQueryChange: (value: string) => void;
+  onQuerySubmit: () => void;
   displayName: string;
   roleLabel: string;
   initials: string;
@@ -48,6 +49,7 @@ export function MobileDriveHeader({
   folderStack,
   query,
   onQueryChange,
+  onQuerySubmit,
   displayName,
   roleLabel,
   initials,
@@ -64,6 +66,22 @@ export function MobileDriveHeader({
 }: MobileDriveHeaderProps) {
   const navigate = useNavigate();
   const { instanceName } = useInstanceName();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Human: Mobile search submits on Enter and keeps the field focused for quick edits.
+  // Agent: READS keydown on search input; CALLS onQuerySubmit; REFOCUSES + RESTORES cursor at end.
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    onQuerySubmit();
+    const input = searchInputRef.current;
+    if (!input) return;
+    window.setTimeout(() => {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }, 0);
+  }
 
   // Human: Close the popover before routing — toggle only when open avoids opening it accidentally.
   // Agent: WRITES profileOpen via onProfileToggle; NAVIGATE /admin for administrators.
@@ -200,6 +218,7 @@ export function MobileDriveHeader({
           <div className="relative">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#888888]" />
             <Input
+              ref={searchInputRef}
               className={cn(
                 "h-10 rounded-lg border border-[#E5E7EB] bg-white pl-10 shadow-none",
                 "placeholder:text-[#888888] focus-visible:border-[#2563EB] focus-visible:ring-[#2563EB]/25",
@@ -207,7 +226,8 @@ export function MobileDriveHeader({
               placeholder="Search files"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
-              aria-label="Search files"
+              onKeyDown={handleSearchKeyDown}
+              aria-label="Search files. Press Enter to search."
             />
           </div>
         </div>

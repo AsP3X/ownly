@@ -52,11 +52,14 @@ type DriveCloudExplorerProps = {
   files: FileItem[];
   query: string;
   onQueryChange: (value: string) => void;
+  onQuerySubmit: () => void;
   typeFilter: FileTypeFilter;
   onTypeFilterChange: (filter: FileTypeFilter) => void;
   typeFilterOptions: TypeFilterOption[];
   /** Human: True while filtering by name across the library — hides the Folders section. */
   isSearching?: boolean;
+  /** Human: True while the explorer listing is being fetched — shows a loading indicator without unmounting search. */
+  loading?: boolean;
   dragEnabled?: boolean;
   selectable?: boolean;
   selectedFileIds?: Set<string>;
@@ -303,10 +306,12 @@ export function DriveCloudExplorer({
   files,
   query,
   onQueryChange,
+  onQuerySubmit,
   typeFilter,
   onTypeFilterChange,
   typeFilterOptions,
   isSearching = false,
+  loading = false,
   dragEnabled = false,
   selectable = false,
   selectedFileIds,
@@ -353,8 +358,47 @@ export function DriveCloudExplorer({
   const activeDragRef = useRef<ExplorerDragPayload | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const fallbackScrollRef = useRef<HTMLElement | null>(null);
   const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
+
+  // Human: Search input submits on Enter and stays focused so the user can keep editing.
+  // Agent: READS keydown on search input; CALLS onQuerySubmit; REFOCUSES + RESTORES cursor at end.
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    onQuerySubmit();
+    const input = searchInputRef.current;
+    if (!input) return;
+    // Human: Delay refocus until after parent state flush/re-render so React does not steal focus.
+    window.setTimeout(() => {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }, 0);
+  }
+
+  // Human: Global Cmd/Ctrl+K focuses the drive search bar, matching common cloud-drive UX.
+  // Agent: LISTENS document keydown; SKIPS when inside another input/textarea/dialog.
+  useEffect(() => {
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+      const isInsideDialog = target?.closest("[role='dialog'], dialog") !== null;
+      const isShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+
+      if (!isShortcut || isEditableTarget || isInsideDialog) return;
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const folderById = useMemo(
@@ -714,11 +758,13 @@ export function DriveCloudExplorer({
         <div className="relative flex w-full max-w-[320px] items-center gap-2.5 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5">
           <Search className="size-4 shrink-0 text-[#888888]" aria-hidden />
           <input
+            ref={searchInputRef}
             type="search"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search files..."
-            aria-label="Search files"
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search files... (Ctrl+K)"
+            aria-label="Search files. Press Enter to search, Ctrl+K or Command+K to focus."
             className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#888888] focus:outline-none"
           />
         </div>
@@ -791,7 +837,9 @@ export function DriveCloudExplorer({
       {/* Agent: RENDERS folders when not searching; FILES follow in same grid; EMPTY when both absent. */}
       <section className="flex flex-col gap-5">
         <h2 className="text-base font-bold text-[#1A1A1A]">All Files</h2>
-        {!isSearching && folders.length === 0 && files.length === 0 ? (
+        {loading ? (
+          <p className="py-4 text-center text-sm text-[#666666]">Loading files…</p>
+        ) : !isSearching && folders.length === 0 && files.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <FileIcon className="size-9 text-[#888888]" aria-hidden />
             <p className="font-semibold text-[#1A1A1A]">Nothing here yet</p>

@@ -163,6 +163,7 @@ export default function DrivePage() {
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [folderStack, setFolderStack] = useState<FolderCrumb[]>([]);
   const [query, setQuery] = useState("");
+  const [committedQuery, setCommittedQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
   // Human: Mirror drive view/folder/search into the URL so reload restores the same screen.
@@ -170,11 +171,14 @@ export default function DrivePage() {
   useDriveUrlState({
     activeNav,
     folderStack,
-    query,
+    query: committedQuery,
     typeFilter,
     setActiveNav,
     setFolderStack,
-    setQuery,
+    setQuery: (value) => {
+      setQuery(value);
+      setCommittedQuery(value);
+    },
     setTypeFilter,
   });
   const [usedBytes, setUsedBytes] = useState(0);
@@ -264,7 +268,7 @@ export default function DrivePage() {
   const [sharedFilesError, setSharedFilesError] = useState("");
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
-  const isSearchingMyFiles = activeNav === "my-files" && query.trim().length > 0;
+  const isSearchingMyFiles = activeNav === "my-files" && committedQuery.length > 0;
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
   const dashboardLoadedRef = useRef(false);
   const explorerListContextRef = useRef<ExplorerFileListContext>({
@@ -281,25 +285,25 @@ export default function DrivePage() {
       activeNav,
       currentFolderId,
       searchQuery:
-        activeNav === "my-files" || (activeNav === "home" && query.trim().length > 0)
-          ? query.trim()
+        activeNav === "my-files" || (activeNav === "home" && committedQuery.length > 0)
+          ? committedQuery
           : "",
       typeFilter,
     };
-  }, [activeNav, currentFolderId, query, typeFilter]);
+  }, [activeNav, currentFolderId, committedQuery, typeFilter]);
 
   // Human: Warm the in-memory thumbnail LRU after listing fetches — fewer requests while scrolling.
   // Agent: TOUCHES existing keys; QUEUES low-priority prefetch for ready image/video thumbs.
   const primeExplorerThumbnailCache = useCallback(
     (rows: FileItem[]) => {
       const scope = `${activeNav}:${currentFolderId ?? "root"}:${
-        activeNav === "my-files" && query.trim() ? query.trim() : ""
+        activeNav === "my-files" && committedQuery ? committedQuery : ""
       }`;
       resetExplorerThumbnailWarmScope(scope);
       touchCachedExplorerThumbnailsForFiles(rows);
       warmExplorerThumbnailCache(rows, scope);
     },
-    [activeNav, currentFolderId, query],
+    [activeNav, currentFolderId, committedQuery],
   );
 
   // Human: Insert or patch one uploaded file in local listing state without reloading the folder.
@@ -584,7 +588,7 @@ export default function DrivePage() {
     setError("");
     try {
       const listing = await listFiles({
-        q: isSearchingMyFiles ? query.trim() : undefined,
+        q: isSearchingMyFiles ? committedQuery : undefined,
         folder_id: isSearchingMyFiles ? undefined : (currentFolderId ?? undefined),
         limit: FILES_PAGE_SIZE,
         offset: files.length,
@@ -610,7 +614,7 @@ export default function DrivePage() {
     isSearchingMyFiles,
     loading,
     primeExplorerThumbnailCache,
-    query,
+    committedQuery,
     serverTypeFilter,
   ]);
 
@@ -695,22 +699,21 @@ export default function DrivePage() {
     return () => window.clearInterval(timer);
   }, [processingIdsKey, processingFileIds]);
 
-  // Human: Load file list when the page opens, folder changes, search, or type filter changes.
-  // Agent: DEBOUNCES query 300ms on My files; Home uses batch API via refresh().
+  // Human: Load file list when the page opens, folder changes, committed search, or type filter changes.
+  // Agent: SUBMITS search only on Enter (committedQuery); Home uses batch API via refresh().
   useEffect(() => {
     let cancelled = false;
-    const searchOnMyFiles = activeNav === "my-files" ? query.trim() : "";
-    const delay = searchOnMyFiles ? 300 : 0;
+    const searchOnMyFiles = activeNav === "my-files" ? committedQuery : "";
     const timer = window.setTimeout(() => {
       if (!cancelled) {
         void refresh(searchOnMyFiles || undefined, { nav: activeNav });
       }
-    }, delay);
+    }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query, refresh, activeNav, folderStack, typeFilter]);
+  }, [committedQuery, refresh, activeNav, folderStack, typeFilter]);
 
   function openFolder(folder: FolderItem) {
     setActiveNav("my-files");
@@ -798,7 +801,7 @@ export default function DrivePage() {
       setFolderStack((prev) => prev.filter((crumb) => crumb.id !== target.id));
     }
     void refreshDashboard();
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
       nav: activeNav,
     });
   }
@@ -812,7 +815,7 @@ export default function DrivePage() {
     setError("");
     try {
       await moveFile(fileId, folderId);
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
     } catch (e) {
@@ -827,7 +830,7 @@ export default function DrivePage() {
     try {
       await moveFolder(folderId, parentId);
       setFolderStack((prev) => prev.filter((crumb) => crumb.id !== folderId));
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
     } catch (e) {
@@ -861,7 +864,7 @@ export default function DrivePage() {
       for (const id of batchIds) {
         await moveFile(id, folderId);
       }
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
       handleClearBrowserSelection();
@@ -889,7 +892,7 @@ export default function DrivePage() {
         await moveFolder(id, parentId);
       }
       setFolderStack((prev) => prev.filter((crumb) => !batchIds.includes(crumb.id)));
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
       handleClearBrowserSelection();
@@ -1039,7 +1042,7 @@ export default function DrivePage() {
       for (const file of folderPickerFiles) {
         await copyFile(file.id, folderPickerTargetId);
       }
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
       handleClearBrowserSelection();
@@ -1082,7 +1085,7 @@ export default function DrivePage() {
           prev.filter((crumb) => !foldersToMove.some((folder) => folder.id === crumb.id)),
         );
       }
-      await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
         silent: true,
       });
       handleClearBrowserSelection();
@@ -1203,7 +1206,7 @@ export default function DrivePage() {
     setFiles((current) =>
       current.map((item) => (item.id === previousId ? savedFile : item)),
     );
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
       silent: true,
       nav: activeNav,
     });
@@ -1214,7 +1217,7 @@ export default function DrivePage() {
       current.map((item) => (item.id === previousId ? savedFile : item)),
     );
     setPreviewSpreadsheet(savedFile);
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
       silent: true,
       nav: activeNav,
     });
@@ -1313,7 +1316,7 @@ export default function DrivePage() {
       if (!nextName || nextName.trim() === file.name) return;
       try {
         await renameFile(file.id, nextName.trim());
-        await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
           silent: true,
           nav: activeNav,
         });
@@ -1321,7 +1324,7 @@ export default function DrivePage() {
         setError(getErrorMessage(err));
       }
     },
-    [activeNav, query, refresh],
+    [activeNav, committedQuery, refresh],
   );
 
   // Human: Prompt for a new folder label and PATCH the folder row.
@@ -1332,7 +1335,7 @@ export default function DrivePage() {
       if (!nextName || nextName.trim() === folder.name) return;
       try {
         await renameFolder(folder.id, nextName.trim());
-        await refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+        await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
           silent: true,
           nav: activeNav,
         });
@@ -1340,7 +1343,7 @@ export default function DrivePage() {
         setError(getErrorMessage(err));
       }
     },
-    [activeNav, query, refresh],
+    [activeNav, committedQuery, refresh],
   );
 
   function handleToggleFavourite(fileId: string) {
@@ -1421,7 +1424,7 @@ export default function DrivePage() {
     clearFileSelectionState();
     setBulkDeleteItems([]);
     void refreshDashboard();
-    void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
       nav: activeNav,
     });
   }
@@ -1451,8 +1454,8 @@ export default function DrivePage() {
 
   const usagePercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
   const nameFilteredFiles =
-    activeNav === "home" && query.trim()
-      ? files.filter((file) => file.name.toLowerCase().includes(query.trim().toLowerCase()))
+    activeNav === "home" && committedQuery
+      ? files.filter((file) => file.name.toLowerCase().includes(committedQuery.toLowerCase()))
       : files;
   // Human: Default browser order — A–Z with numeric segments (1, 2, 10 not 1, 10, 2).
   // Agent: MATCHES backend natural_sort_key; RE-SORTS loaded pages for consistent display.
@@ -1593,7 +1596,7 @@ export default function DrivePage() {
       onUpload={() => setUploadDialogOpen(true)}
       onCreateFolder={() => setCreateFolderDialogOpen(true)}
       onRefresh={() =>
-        void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined)
+        void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined)
       }
       onNavChange={handleNavChange}
       onShareFile={handleShareFile}
@@ -1619,7 +1622,7 @@ export default function DrivePage() {
           effectiveRemainingBytes={effectiveRemainingBytes}
           onRefreshStorageLimits={refreshDashboard}
           onLibraryChanged={() =>
-            void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+            void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
               silent: true,
               nav: activeNav,
             })
@@ -1630,7 +1633,7 @@ export default function DrivePage() {
           onOpenChange={setCreateFolderDialogOpen}
           parentFolderId={currentFolderId}
           onFolderCreated={() =>
-            void refresh(activeNav === "my-files" ? query.trim() || undefined : undefined, {
+            void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
               silent: true,
             })
           }
@@ -1835,6 +1838,7 @@ export default function DrivePage() {
         folderStack={folderStack}
         query={query}
         onQueryChange={setQuery}
+        onQuerySubmit={() => setCommittedQuery(query.trim())}
         displayName={profileDisplayName}
         roleLabel={profileRoleLabel}
         initials={initials}
@@ -1930,7 +1934,79 @@ export default function DrivePage() {
               )}
             />
 
-            {loading && activeNav !== "shared-files" ? (
+            {activeNav === "my-files" ? (
+              <div className="flex flex-col gap-4">
+                <BulkActionsBar
+                  selectedCount={totalSelectedCount}
+                  selectableCount={
+                    selectableBrowserFileIds.length + selectableBrowserFolderIds.length
+                  }
+                  allSelected={allBrowserItemsSelected}
+                  onSelectAll={handleSelectAllBrowserFiles}
+                  favouriteLabel={bulkFavouriteLabel}
+                  onDownload={handleBulkDownload}
+                  onToggleFavourite={handleBulkToggleFavourite}
+                  onDelete={handleBulkDeleteRequest}
+                  onClearSelection={handleClearBrowserSelection}
+                  onCopyToFolder={
+                    selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
+                  }
+                  onMoveToFolder={handleOpenFolderPicker}
+                  showMobileFolderActions={!isDesktopViewport}
+                />
+                <DriveCloudExplorer
+                  folderStack={folderStack}
+                  folders={visibleFolders}
+                  files={browserFiles}
+                  query={query}
+                  onQueryChange={setQuery}
+                  onQuerySubmit={() => setCommittedQuery(query.trim())}
+                  typeFilter={typeFilter}
+                  onTypeFilterChange={setTypeFilter}
+                  typeFilterOptions={TYPE_FILTERS}
+                  isSearching={isSearchingMyFiles}
+                  loading={loading}
+                  dragEnabled={!isSearchingMyFiles}
+                  selectable
+                  selectedFileIds={selectedFileIds}
+                  onSelectedFileIdsChange={handleSelectedFileIdsChange}
+                  selectedFolderIds={selectedFolderIds}
+                  onSelectedFolderIdsChange={handleSelectedFolderIdsChange}
+                  fileShareFlags={fileShareFlags}
+                  folderShareFlags={folderShareFlags}
+                  hasMoreFiles={hasMoreFiles}
+                  loadingMoreFiles={filesLoadingMore}
+                  onLoadMoreFiles={() => void loadMoreFiles()}
+                  hasMoreFolders={hasMoreFolders}
+                  loadingMoreFolders={foldersLoadingMore}
+                  onLoadMoreFolders={() => void loadMoreFolders()}
+                  scrollElementRef={mainScrollRef}
+                  onNavigateHome={() => handleNavChange("home")}
+                  onNavigateMyCloudRoot={() => goToFolderIndex(-1)}
+                  onGoToFolderIndex={goToFolderIndex}
+                  onOpenFolder={openFolder}
+                  onCreateFolder={() => setCreateFolderDialogOpen(true)}
+                  onUpload={() => setUploadDialogOpen(true)}
+                  mobileSelectionMode={mobileSelectionMode}
+                  onTapToggleFileSelection={handleTapToggleFileSelection}
+                  onMoveFileToFolder={(fileId, folderId) =>
+                    void handleExplorerMoveFileToFolder(fileId, folderId)
+                  }
+                  onMoveFolderToParent={(folderId, parentId) =>
+                    void handleExplorerMoveFolderToParent(folderId, parentId)
+                  }
+                  onPreviewVideo={handlePreviewVideo}
+                  onPreviewImage={handlePreviewImage}
+                  onPreviewPdf={handlePreviewPdf}
+                  onPreviewText={handlePreviewText}
+                  onPreviewSpreadsheet={handlePreviewSpreadsheet}
+                  onPreviewAudio={handlePreviewAudio}
+                  onOpenActions={handleOpenMobileActions}
+                  onExplorerDragActiveChange={setExplorerDragActive}
+                  onExplorerTouchScrollLockChange={setExplorerTouchScrollLocked}
+                />
+              </div>
+            ) : loading && activeNav !== "shared-files" ? (
               <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
             ) : activeNav === "recycle-bin" ? (
               <RecycleBinPanel
@@ -1979,76 +2055,6 @@ export default function DrivePage() {
                 onPreviewSpreadsheet={handlePreviewSpreadsheet}
                 onPreviewAudio={handlePreviewAudio}
               />
-            ) : activeNav === "my-files" ? (
-              <div className="flex flex-col gap-4">
-                <BulkActionsBar
-                  selectedCount={totalSelectedCount}
-                  selectableCount={
-                    selectableBrowserFileIds.length + selectableBrowserFolderIds.length
-                  }
-                  allSelected={allBrowserItemsSelected}
-                  onSelectAll={handleSelectAllBrowserFiles}
-                  favouriteLabel={bulkFavouriteLabel}
-                  onDownload={handleBulkDownload}
-                  onToggleFavourite={handleBulkToggleFavourite}
-                  onDelete={handleBulkDeleteRequest}
-                  onClearSelection={handleClearBrowserSelection}
-                  onCopyToFolder={
-                    selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
-                  }
-                  onMoveToFolder={handleOpenFolderPicker}
-                  showMobileFolderActions={!isDesktopViewport}
-                />
-                <DriveCloudExplorer
-                  folderStack={folderStack}
-                  folders={visibleFolders}
-                  files={browserFiles}
-                  query={query}
-                  onQueryChange={setQuery}
-                  typeFilter={typeFilter}
-                  onTypeFilterChange={setTypeFilter}
-                  typeFilterOptions={TYPE_FILTERS}
-                  isSearching={isSearchingMyFiles}
-                  dragEnabled={!isSearchingMyFiles}
-                  selectable
-                  selectedFileIds={selectedFileIds}
-                  onSelectedFileIdsChange={handleSelectedFileIdsChange}
-                  selectedFolderIds={selectedFolderIds}
-                  onSelectedFolderIdsChange={handleSelectedFolderIdsChange}
-                  fileShareFlags={fileShareFlags}
-                  folderShareFlags={folderShareFlags}
-                  hasMoreFiles={hasMoreFiles}
-                  loadingMoreFiles={filesLoadingMore}
-                  onLoadMoreFiles={() => void loadMoreFiles()}
-                  hasMoreFolders={hasMoreFolders}
-                  loadingMoreFolders={foldersLoadingMore}
-                  onLoadMoreFolders={() => void loadMoreFolders()}
-                  scrollElementRef={mainScrollRef}
-                  onNavigateHome={() => handleNavChange("home")}
-                  onNavigateMyCloudRoot={() => goToFolderIndex(-1)}
-                  onGoToFolderIndex={goToFolderIndex}
-                  onOpenFolder={openFolder}
-                  onCreateFolder={() => setCreateFolderDialogOpen(true)}
-                  onUpload={() => setUploadDialogOpen(true)}
-                  mobileSelectionMode={mobileSelectionMode}
-                  onTapToggleFileSelection={handleTapToggleFileSelection}
-                  onMoveFileToFolder={(fileId, folderId) =>
-                    void handleExplorerMoveFileToFolder(fileId, folderId)
-                  }
-                  onMoveFolderToParent={(folderId, parentId) =>
-                    void handleExplorerMoveFolderToParent(folderId, parentId)
-                  }
-                  onPreviewVideo={handlePreviewVideo}
-                  onPreviewImage={handlePreviewImage}
-                  onPreviewPdf={handlePreviewPdf}
-                  onPreviewText={handlePreviewText}
-                  onPreviewSpreadsheet={handlePreviewSpreadsheet}
-                  onPreviewAudio={handlePreviewAudio}
-                  onOpenActions={handleOpenMobileActions}
-                  onExplorerDragActiveChange={setExplorerDragActive}
-                  onExplorerTouchScrollLockChange={setExplorerTouchScrollLocked}
-                />
-              </div>
             ) : null}
 
             <p className="mt-auto hidden text-xs text-neutral-500 lg:block">
