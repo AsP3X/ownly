@@ -1,18 +1,10 @@
-# Human: Zero-config stack — these literals are injected into containers; no `.env` or init-env required.
-# Agent: NOT ${VAR} — host `.env` and shell exports cannot override; edit here only for custom production secrets.
-# Human: Verbose Rust tracing by default — set RUST_LOG=info (or warn) in production.
-# Agent: SHARED by backend + object-storage; DEFAULT debug; OVERRIDE via host .env or shell export.
 x-ownly-logging: &ownly-logging
   RUST_LOG: ${RUST_LOG:-debug}
 
-# Human: Private app mesh — database and object storage stay here only (not on proxy-network).
-# Agent: ATTACH postgres + object-storage; backend/frontend also join for internal DNS (postgres, object-storage, backend).
 x-ownly-internal-networks: &ownly-internal-networks
   networks:
     - ownly-internal
 
-# Human: Services published through the external reverse proxy (Traefik/Caddy/nginx-proxy).
-# Agent: DUAL-HOME backend + frontend on ownly-internal and proxy-network; NOT postgres or object-storage.
 x-ownly-proxy-networks: &ownly-proxy-networks
   networks:
     - ownly-internal
@@ -62,8 +54,6 @@ services:
     <<: *ownly-internal-networks
     build:
       context: ./nebular-os
-      # Human: Ownly wrapper Dockerfile adds libsqlite3-dev for embedded SQLite metadata (see docker/nebular-os.Dockerfile).
-      # Agent: CONTEXT nebular-os; dockerfile path relative to compose file root.
       dockerfile: ../docker/nebular-os.Dockerfile
     container_name: ownly-object-storage
     environment:
@@ -71,15 +61,11 @@ services:
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db
-      # Human: Reclaim blob disk promptly on delete; optional raw→NOSB recompress on an interval, not at boot.
-      # Agent: NOS_RECOMPRESS_ON_STARTUP false by default — recompress runs in background without blocking HTTP.
       NOS_SOFT_DELETE_DROP_BLOB: ${NOS_SOFT_DELETE_DROP_BLOB:-true}
       NOS_MULTIPART_UPLOAD_TTL_SECS: ${NOS_MULTIPART_UPLOAD_TTL_SECS:-86400}
       NOS_RECOMPRESS_ON_STARTUP: ${NOS_RECOMPRESS_ON_STARTUP:-false}
       NOS_RECOMPRESS_INTERVAL_SECS: ${NOS_RECOMPRESS_INTERVAL_SECS:-3600}
       NOS_RECOMPRESS_BATCH_SIZE: ${NOS_RECOMPRESS_BATCH_SIZE:-100}
-      # Human: NOSI indexed blobs — fast upload zstd then background upgrade (see docs/storage-disk-tuning.md).
-      # Agent: NOS_ZSTD_LEVEL_UPLOAD default 3; NOS_ZSTD_LEVEL default 22; optional dict/dedup off by default.
       NOS_ZSTD_LEVEL_UPLOAD: ${NOS_ZSTD_LEVEL_UPLOAD:-3}
       NOS_ZSTD_LEVEL: ${NOS_ZSTD_LEVEL:-22}
       NOS_ZSTD_DICT_ENABLED: ${NOS_ZSTD_DICT_ENABLED:-false}
@@ -87,17 +73,11 @@ services:
       NOS_COMPRESS_MIN_SIZE: ${NOS_COMPRESS_MIN_SIZE:-4096}
       NOS_COMPRESS_BLOCK_SIZE: ${NOS_COMPRESS_BLOCK_SIZE:-1048576}
       NOS_BLOCK_CACHE_ENTRIES: ${NOS_BLOCK_CACHE_ENTRIES:-256}
-      # Human: Object PUT limit must be >= backend MAX_UPLOAD_BYTES or large uploads fail at storage.
-      # Agent: READS MAX_UPLOAD_BYTES from .env; DEFAULT 10 GiB when unset.
       NOS_MAX_BODY_SIZE: ${MAX_UPLOAD_BYTES:-10737418240}
-      # Human: When Ownly STORAGE_METADATA_MODE=ownly, set NOS_METADATA_MODE=blob_only on object-storage.
-      # Agent: NOS_METADATA_BACKEND sqlite default; NOS_UPLOAD_MAX_IN_FLIGHT_BYTES caps aggregate PUT body bytes.
       NOS_METADATA_MODE: ${NOS_METADATA_MODE:-full}
       NOS_UPLOAD_MAX_IN_FLIGHT_BYTES: ${NOS_UPLOAD_MAX_IN_FLIGHT_BYTES:-2147483648}
       NOS_BULK_DELETE_CONCURRENCY: ${NOS_BULK_DELETE_CONCURRENCY:-32}
       NOS_BULK_DELETE_BATCH_LIMIT: ${NOS_BULK_DELETE_BATCH_LIMIT:-1000}
-      # Human: Hash-sampled integrity scrub + optional verify-on-read for raw blobs (see docs/storage-disk-tuning.md).
-      # Agent: NOS_VERIFY_INTERVAL_SECS 0 disables periodic scrub; NOS_WEBHOOKS_JSON maps bucket → webhook URL list.
       NOS_VERIFY_INTERVAL_SECS: ${NOS_VERIFY_INTERVAL_SECS:-0}
       NOS_VERIFY_BATCH_SIZE: ${NOS_VERIFY_BATCH_SIZE:-100}
       NOS_SCRUB_SAMPLE_DENOM: ${NOS_SCRUB_SAMPLE_DENOM:-1024}
@@ -109,8 +89,6 @@ services:
       - "9000:9000"
     volumes:
       - nebular_data:/data
-    # Human: Readiness verifies SQLite metadata + writable blob dir (GET /health/ready).
-    # Agent: start_period allows slow first boot on cold volumes; backend depends_on service_healthy.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
       interval: 10s
@@ -132,8 +110,6 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://ownly:ownly@postgres:5432/ownly}
       TMPDIR: /tmp
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
-      # Human: Browser-facing base for presigned GETs — use the web origin (port 8080) when nginx proxies /media/.
-      # Agent: DEFAULT localhost:8080 not :9000; OVERRIDE with public host (e.g. http://corespace.de:8089) in production.
       OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:8080}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-media}
       STORAGE_MODE: ${STORAGE_MODE:-proxy}
@@ -144,25 +120,14 @@ services:
       GIT_SHA: ${GIT_SHA:-unknown}
       AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
-      # Human: nginx sets X-Forwarded-For — trust it for rate limits and audit IPs (SEC-006).
-      # Agent: DEFAULT true in Compose; leave unset/false when API port 3000 is exposed directly.
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
-      # Human: Compose uses docker network hostnames (postgres, object-storage) — not public internet.
-      # Agent: REQUIRED for setup wizard DB/storage tests in local stack; omit in locked-down production.
       OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-1}
       UPLOAD_RPM: ${UPLOAD_RPM:-1200}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
-      # Human: Cap parallel Nebular PUTs from API — pairs with SQLite metadata; raise only when using Postgres metadata backend.
-      # Agent: READ by StoragePutGate; DEFAULT 2; WRAPS all Storage::put (uploads, thumbnails, HLS).
       STORAGE_PUT_MAX_CONCURRENT: ${STORAGE_PUT_MAX_CONCURRENT:-2}
-      # Human: Per-request Nebular HTTP timeout — hung PUTs otherwise block HLS ingest and the global PUT gate.
-      # Agent: READ as OBJECT_STORAGE_REQUEST_TIMEOUT_SECS; DEFAULT 900s.
       OBJECT_STORAGE_REQUEST_TIMEOUT_SECS: ${OBJECT_STORAGE_REQUEST_TIMEOUT_SECS:-900}
-      # Human: Optional GPU HLS ingest — auto|off|nvenc|vaapi|qsv (defaults to auto; CPU when no GPU).
-      # Agent: READ by hls::hardware at startup; for NVENC use docker-compose.gpu.yml (NVIDIA toolkit required).
       HLS_HARDWARE_ENCODE: ${HLS_HARDWARE_ENCODE:-auto}
       HLS_VAAPI_DEVICE: ${HLS_VAAPI_DEVICE:-/dev/dri/renderD128}
-      # Human: Raise CRF/CQ to shrink HLS segments on disk (lower quality). See docs/storage-disk-tuning.md.
       HLS_VIDEO_CRF: ${HLS_VIDEO_CRF:-20}
       HLS_VIDEO_QUALITY: ${HLS_VIDEO_QUALITY:-22}
       HLS_FULL_TRANSCODE_QUALITY: ${HLS_FULL_TRANSCODE_QUALITY:-26}
@@ -182,16 +147,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Human: Must match backend SETUP_TOKEN literal for the setup wizard (zero-config, no .env).
-        # Agent: BUILD-TIME only; same string as x-ownly-compose-dev-secrets SETUP_TOKEN.
         VITE_SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
-        # Human: Browser console verbosity — debug logs API and UI diagnostics by default.
-        # Agent: BUILD-TIME Vite embed; DEFAULT debug; OVERRIDE VITE_LOG_LEVEL in .env before build.
         VITE_LOG_LEVEL: ${VITE_LOG_LEVEL:-debug}
     container_name: ownly-frontend
     environment:
-      # Human: nginx client_max_body_size uses the same byte cap as the API.
-      # Agent: envsubst in nginx.conf.template; NGINX_PROXY_READ_TIMEOUT for multi-GB uploads.
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       NGINX_PROXY_READ_TIMEOUT: ${NGINX_PROXY_READ_TIMEOUT:-3600s}
       NGINX_PROXY_CONNECT_TIMEOUT: ${NGINX_PROXY_CONNECT_TIMEOUT:-120s}
@@ -209,7 +168,6 @@ networks:
   ownly-internal:
     driver: bridge
     internal: false
-  # Human: Pre-create before first up: docker network create proxy-network
-  # Agent: EXTERNAL; reverse proxy routes to frontend:80 and/or backend:3000 — not postgres or object-storage.
   proxy-network:
-    external: true
+    name: proxy-network
+    driver: bridge
