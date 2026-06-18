@@ -286,7 +286,46 @@ export function ConfirmDeleteDialog({
     !folderPreviewLoading &&
     !folderPreviewError &&
     folderPreview.storage_object_count > 0;
-  const showProgress = confirming && deleteJobStatus !== null;
+  const permanentDeleteUsesJob =
+    itemKind === "file"
+      ? filePreview
+        ? shouldUseDeleteJob({
+            file_count: 1,
+            storage_object_count: filePreview.storage_object_count,
+          })
+        : false
+      : folderPreview
+        ? shouldUseDeleteJob({
+            file_count: folderPreview.file_count,
+            storage_object_count: folderPreview.storage_object_count,
+          })
+        : false;
+  // Human: Show blob progress for the whole job, including before the first status poll.
+  // Agent: WHEN confirming permanent job delete; USE preview totals until deleteJobStatus arrives.
+  const progressStatus: DeleteJobStatus | null =
+    deleteJobStatus ??
+    (confirming &&
+    confirmMode === "permanent" &&
+    permanentDeleteUsesJob &&
+    (filePreview || folderPreview)
+      ? {
+          job_id: "",
+          status: "starting",
+          progress: 0,
+          total_blobs:
+            itemKind === "file"
+              ? (filePreview?.storage_object_count ?? 0)
+              : (folderPreview?.storage_object_count ?? 0),
+          deleted_blobs: 0,
+          total_files: itemKind === "file" ? 1 : (folderPreview?.file_count ?? 0),
+          deleted_files: 0,
+          ready: false,
+          error: null,
+          deleted_file_ids: [],
+        }
+      : null);
+  const showProgress =
+    confirming && confirmMode === "permanent" && progressStatus !== null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={confirming}>
@@ -349,7 +388,9 @@ export function ConfirmDeleteDialog({
             </div>
           ) : null}
 
-          {showProgress ? <DeleteJobProgress status={deleteJobStatus} /> : null}
+          {showProgress && progressStatus ? (
+            <DeleteJobProgress status={progressStatus} />
+          ) : null}
 
           {error ? (
             <div className="min-w-0 px-6 pt-4">

@@ -2,12 +2,14 @@
 // Agent: LOW priority queue; ONLY server-ready thumbs; SKIPS legacy full-preview resize paths.
 
 import type { FileItem } from "@/api/client";
+import { isPdfMime, isSpreadsheetPreviewMime } from "@/lib/utils-app";
 import {
   getCachedExplorerThumbnailBlob,
   hasCachedExplorerThumbnailBlob,
   makeExplorerThumbnailCacheKey,
 } from "@/lib/explorer-thumbnail-cache";
 import {
+  loadExplorerDocumentThumbnailBlob,
   loadExplorerImageThumbnailBlob,
   loadExplorerVideoThumbnailBlob,
 } from "@/lib/explorer-thumbnail-loader";
@@ -58,6 +60,19 @@ export function warmExplorerThumbnailCache(files: FileItem[], scopeKey: string) 
       void loadExplorerVideoThumbnailBlob(file, { priority: "low" }).catch(() => {
         // Human: Poster prefetch is best-effort — scroll-into-view load remains the fallback.
       });
+      continue;
+    }
+
+    if (
+      file.document_thumbnail_ready &&
+      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name))
+    ) {
+      const cacheKey = imageCacheKey(file);
+      if (hasCachedExplorerThumbnailBlob(cacheKey)) continue;
+      queued += 1;
+      void loadExplorerDocumentThumbnailBlob(file, { priority: "low" }).catch(() => {
+        // Human: Document sidecar prefetch is best-effort — visible tiles retry at high priority.
+      });
     }
   }
 }
@@ -72,6 +87,13 @@ export function touchCachedExplorerThumbnailsForFiles(files: FileItem[]) {
     }
     if (file.video_thumbnail_ready && (file.mime_type ?? "").startsWith("video/")) {
       getCachedExplorerThumbnailBlob(videoCacheKey(file));
+      continue;
+    }
+    if (
+      file.document_thumbnail_ready &&
+      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name))
+    ) {
+      getCachedExplorerThumbnailBlob(imageCacheKey(file));
     }
   }
 }

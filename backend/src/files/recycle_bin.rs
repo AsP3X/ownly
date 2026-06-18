@@ -277,7 +277,12 @@ pub async fn list_recycle_bin(
              FROM files f \
              LEFT JOIN folders fo ON fo.id = f.folder_id AND fo.user_id = f.user_id \
              WHERE f.user_id = $1 AND f.deleted_at IS NOT NULL \
-               AND (f.folder_id IS NULL OR fo.deleted_at IS NULL) \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM folders parent \
+                 WHERE parent.id = f.folder_id \
+                   AND parent.user_id = f.user_id \
+                   AND parent.deleted_at IS NOT NULL \
+               ) \
              ORDER BY f.deleted_at DESC",
         )
         .bind(&claims.sub)

@@ -257,7 +257,10 @@ pub async fn folder_deletion_preview(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<FolderDeletionPreviewResponse>, AppError> {
-    ensure_folder_owned(&state.pool, &claims.sub, &id).await?;
+    // Human: Recycle-bin folders are trashed — skip active-only ensure_folder_owned gate.
+    // Agent: READS owner row including deleted_at; ALLOWS preview for permanent delete dialog.
+    crate::files::access::ensure_folder_owned_for_delete_preview(&state.pool, &claims.sub, &id)
+        .await?;
 
     let (files, subfolder_count, storage_object_count) =
         folder_files_for_deletion_preview(&state.pool, &claims.sub, &id).await?;

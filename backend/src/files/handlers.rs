@@ -1157,19 +1157,6 @@ pub async fn delete_file(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    if crate::files::access::ensure_file_access(
-        &state.pool,
-        &claims.sub,
-        &id,
-        crate::authz::Permission::ContentDelete,
-    )
-    .await
-    .is_err()
-    {
-        // Human: DELETE is idempotent — missing or forbidden rows return ok for stale UI.
-        return Ok(Json(serde_json::json!({ "ok": true })));
-    }
-
     let row: Option<(String, Option<String>, bool, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> =
         sqlx::query_as(
             "SELECT user_id, mime_type, hls_ready, hls_encode_status, deleted_at, audio_waveform_ready, \
@@ -1193,6 +1180,30 @@ pub async fn delete_file(
         // Agent: RETURNS ok without audit when row missing (retry after partial delete).
         return Ok(Json(serde_json::json!({ "ok": true })));
     };
+
+    if query.permanent {
+        // Human: Recycle-bin purge must not require an active row — owner trashed files still delete.
+        // Agent: CALLS load_files_for_permanent_delete gate; ERRORS NotFound when denied.
+        crate::files::access::load_files_for_permanent_delete(
+            &state.pool,
+            &claims.sub,
+            std::slice::from_ref(&id),
+        )
+            .await?;
+    } else if deleted_at.is_some() {
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    } else if crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        crate::authz::Permission::ContentDelete,
+    )
+    .await
+    .is_err()
+    {
+        // Human: DELETE is idempotent — missing or forbidden rows return ok for stale UI.
+        return Ok(Json(serde_json::json!({ "ok": true })));
+    }
 
     ensure_file_not_processing(
         &mime_type,

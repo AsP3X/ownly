@@ -20,11 +20,11 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
 
   return (
     <div className="space-y-2 border-b border-neutral-100 px-6 py-4">
-      <Progress value={status.progress} className="gap-2">
+      <Progress value={status.progress}>
         <ProgressLabel className="text-sm text-neutral-700">
           Removing {formatStorageObjectCount(status.total_blobs)}…
         </ProgressLabel>
-        <ProgressValue>{() => `${status.progress}%`}</ProgressValue>
+        <ProgressValue />
       </Progress>
       <p className="text-xs text-neutral-500">{blobLabel}</p>
       {status.total_files > 1 ? (

@@ -15,11 +15,13 @@ function Progress({
     <ProgressPrimitive.Root
       value={value}
       data-slot="progress"
-      className={cn("flex flex-wrap gap-3", className)}
+      // Human: Label + value on row one; track spans both columns (Base UI layout).
+      // Agent: GRID cols 1fr/auto; Track col-span-2 so the bar is always full width.
+      className={cn("grid w-full grid-cols-[1fr_auto] gap-x-3 gap-y-2", className)}
       {...props}
     >
       {children}
-      <ProgressTrack>
+      <ProgressTrack className="col-span-2">
         <ProgressIndicator />
       </ProgressTrack>
     </ProgressPrimitive.Root>
@@ -66,7 +68,7 @@ function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
   return (
     <ProgressPrimitive.Value
       className={cn(
-        "ml-auto text-sm text-muted-foreground tabular-nums",
+        "text-right text-sm text-muted-foreground tabular-nums",
         className
       )}
       data-slot="progress-value"

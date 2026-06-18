@@ -2,6 +2,60 @@
 // Agent: READS FileItem HLS + audio fields; USED by drive UI to disable actions and show badges.
 
 import type { FileItem } from "@/api/client";
+import { isImageMime, isPdfMime, isSpreadsheetPreviewMime } from "@/lib/utils-app";
+
+function isThumbnailStatusTerminal(status?: string | null): boolean {
+  return status === "failed" || status === "cancelled";
+}
+
+type ExplorerThumbnailPollState = {
+  expects: boolean;
+  ready: boolean;
+  status?: string | null;
+};
+
+// Human: Resolve which thumbnail sidecar fields apply to a drive row for polling and shimmer UI.
+// Agent: READS mime + name; RETURNS null when the explorer grid does not expect a stored JPEG preview.
+function explorerThumbnailPollState(file: FileItem): ExplorerThumbnailPollState | null {
+  if (isImageMime(file.mime_type)) {
+    return {
+      expects: true,
+      ready: file.image_thumbnail_ready === true,
+      status: file.image_thumbnail_status,
+    };
+  }
+  if (file.mime_type?.startsWith("video/")) {
+    return {
+      expects: true,
+      ready: file.video_thumbnail_ready === true,
+      status: file.video_thumbnail_status,
+    };
+  }
+  if (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+    return {
+      expects: true,
+      ready: file.document_thumbnail_ready === true,
+      status: file.document_thumbnail_status,
+    };
+  }
+  return null;
+}
+
+// Human: True while GET /files/:id should keep polling until a preview sidecar is ready or terminal.
+// Agent: READS *_thumbnail_ready + status; USED by DrivePage background poll (not full folder refresh).
+export function shouldPollFileThumbnail(file: FileItem): boolean {
+  const thumb = explorerThumbnailPollState(file);
+  if (!thumb?.expects || thumb.ready) {
+    return false;
+  }
+  return !isThumbnailStatusTerminal(thumb.status);
+}
+
+// Human: True while a grid-visible preview JPEG is still being generated on the server.
+// Agent: ALIGNS with shouldPollFileThumbnail so shimmer stops when the poll stops.
+export function isThumbnailProcessing(file: FileItem): boolean {
+  return shouldPollFileThumbnail(file);
+}
 
 // Human: True while a video upload is queued or actively transcoding on the server.
 // Agent: READS mime_type, hls_ready, hls_encode_status; FALSE when ingest failed or finished.

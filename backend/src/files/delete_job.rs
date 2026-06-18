@@ -218,7 +218,8 @@ pub async fn file_deletion_preview(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<FileDeletionPreviewResponse>, AppError> {
-    let rows = load_files_for_delete(&state.pool, &claims.sub, &[id]).await?;
+    let rows = crate::files::access::load_files_for_permanent_delete(&state.pool, &claims.sub, &[id])
+        .await?;
     let preview = preview_from_rows(&rows);
     let file = preview
         .files
@@ -254,7 +255,7 @@ pub async fn preview_files_for_permanent_delete(
     file_ids: Vec<String>,
 ) -> Result<BulkDeletionPreviewResponse, AppError> {
     let file_ids = normalize_file_ids(file_ids, false)?;
-    let rows = load_files_for_delete(pool, user_id, &file_ids).await?;
+    let rows = crate::files::access::load_files_for_permanent_delete(pool, user_id, &file_ids).await?;
     Ok(preview_from_rows(&rows))
 }
 
@@ -269,7 +270,12 @@ pub async fn start_delete_job(
 ) -> Result<DeleteJobStatusResponse, AppError> {
     let file_ids = normalize_file_ids(file_ids, false)?;
     ensure_files_not_processing(&state.pool, user_id, &file_ids).await?;
-    let preview_rows = load_files_for_delete(&state.pool, user_id, &file_ids).await?;
+    let preview_rows = if permanent {
+        crate::files::access::load_files_for_permanent_delete(&state.pool, user_id, &file_ids)
+            .await?
+    } else {
+        load_files_for_delete(&state.pool, user_id, &file_ids).await?
+    };
     let preview = preview_from_rows(&preview_rows);
 
     let job_id = Uuid::new_v4().to_string();
@@ -357,7 +363,11 @@ async fn run_delete_job(
         Arc as StdArc,
     };
 
-    let rows = match load_files_for_delete(&state.pool, &user_id, &file_ids).await {
+    let rows = match if permanent {
+        crate::files::access::load_files_for_permanent_delete(&state.pool, &user_id, &file_ids).await
+    } else {
+        load_files_for_delete(&state.pool, &user_id, &file_ids).await
+    } {
         Ok(rows) => rows,
         Err(error) => {
             if let Some(mut job) = state.delete_jobs.get(&registry_key).await {

@@ -153,7 +153,7 @@ pub async fn create_session(
     )
     .await?;
 
-    let work_dir = upload_work_dir(&session.id);
+    let work_dir = upload_work_dir(&session.file_id);
     tokio::fs::create_dir_all(&work_dir)
         .await
         .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload work dir: {error}")))?;
@@ -221,7 +221,7 @@ pub async fn upload_part(
         )));
     }
 
-    let work_dir = upload_work_dir(&session.id);
+    let work_dir = upload_work_dir(&session.file_id);
     tokio::fs::create_dir_all(&work_dir)
         .await
         .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload work dir: {error}")))?;
@@ -281,7 +281,7 @@ pub async fn complete_session(
 
     mark_completing(&state.pool, &session_id, &claims.sub).await?;
 
-    let work_dir = upload_work_dir(&session.id);
+    let work_dir = upload_work_dir(&session.file_id);
     let (tmp_path, size_bytes) = match resolve_session_source(&session, &work_dir).await {
         Ok(result) => result,
         Err(error) => {
@@ -334,7 +334,6 @@ pub async fn complete_session(
     };
 
     mark_complete(&state.pool, &session_id).await?;
-    cleanup_upload_work_dir(&work_dir).await;
 
     tracing::info!(
         request_id = %request_id.0,
@@ -361,7 +360,7 @@ pub async fn abort_session(
         return Err(AppError::NotFound);
     };
 
-    cleanup_upload_work_dir(&upload_work_dir(&session.id)).await;
+    cleanup_upload_work_dir(&upload_work_dir(&session.file_id)).await;
 
     audit::write_audit(
         &state.pool,

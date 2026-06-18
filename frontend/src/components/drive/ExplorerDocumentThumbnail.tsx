@@ -1,8 +1,9 @@
 // Human: Grid tile document preview — stored JPEG sidecar rendered like the opened file view.
 // Agent: USES useExplorerGridThumbnail; DISPLAYS object-contain on white; READS document_thumbnail_ready.
 
-import { FileSpreadsheet, FileText, Loader2 } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { ExplorerThumbnailShimmer } from "@/components/drive/ExplorerThumbnailShimmer";
 import { useExplorerGridThumbnail } from "@/hooks/useExplorerGridThumbnail";
 import { loadExplorerDocumentThumbnailBlob } from "@/lib/explorer-thumbnail-loader";
 import { makeExplorerThumbnailCacheKey } from "@/lib/explorer-thumbnail-cache";
@@ -38,11 +39,6 @@ export function ExplorerDocumentThumbnail({
     enabled: file.document_thumbnail_ready === true,
     loadBlob: loadExplorerDocumentThumbnailBlob,
   });
-
-  const waitingForServerThumb =
-    !file.document_thumbnail_ready &&
-    (file.document_thumbnail_status === "queued" ||
-      file.document_thumbnail_status === "processing");
 
   const FailedIcon = isSpreadsheet ? FileSpreadsheet : FileText;
   const failedIconClass = isSpreadsheet ? "text-[#107C41]" : "text-[#2563EB]";
@@ -91,15 +87,7 @@ export function ExplorerDocumentThumbnail({
           />
         )
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-1">
-          <Loader2
-            className={cn("size-5 text-[#888888]", loading && "animate-spin")}
-            aria-hidden
-          />
-          {waitingForServerThumb ? (
-            <span className="text-[10px] text-[#888888]">Generating preview…</span>
-          ) : null}
-        </div>
+        <ExplorerThumbnailShimmer slotFill label={loading ? "Loading preview" : "Generating preview"} />
       )}
     </div>
   );

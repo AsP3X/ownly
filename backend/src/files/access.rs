@@ -213,14 +213,69 @@ pub async fn ensure_each_file_access(
     Ok(())
 }
 
-// Human: Resolve file rows by id after content.delete authorization (owner or grantee).
-// Agent: READS files without user_id filter; ERRORS when any id missing or denied.
+// Human: Authorize permanent delete/preview for one file row — active or recycle-bin trashed.
+// Agent: READS files without deleted_at filter; OWNER always allowed; grantee only on active rows.
+async fn ensure_file_permanent_delete_access(
+    pool: &PgPool,
+    actor_id: &str,
+    file_id: &str,
+) -> Result<(), AppError> {
+    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT user_id, deleted_at FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((owner_id, deleted_at)) = row else {
+        return Err(AppError::NotFound);
+    };
+
+    if owner_id == actor_id {
+        return Ok(());
+    }
+
+    if deleted_at.is_some() {
+        return Err(AppError::NotFound);
+    }
+
+    ensure_file_access(pool, actor_id, file_id, Permission::ContentDelete).await
+}
+
+// Human: Resolve active file rows by id after content.delete authorization (owner or grantee).
+// Agent: REQUIRES deleted_at IS NULL; USED for drive soft-delete and trash jobs.
 pub async fn load_files_for_delete(
     pool: &PgPool,
     actor_id: &str,
     file_ids: &[String],
 ) -> Result<Vec<(String, String, Option<i32>)>, AppError> {
     ensure_each_file_access(pool, actor_id, file_ids, Permission::ContentDelete).await?;
+
+    let rows: Vec<(String, String, Option<i32>)> = sqlx::query_as(
+        "SELECT id, name, segment_count FROM files WHERE id = ANY($1) AND deleted_at IS NULL \
+         ORDER BY name ASC",
+    )
+    .bind(file_ids)
+    .fetch_all(pool)
+    .await?;
+
+    if rows.len() != file_ids.len() {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(rows)
+}
+
+// Human: Resolve file rows for permanent delete previews and purge jobs (includes recycle bin).
+// Agent: CALLS ensure_file_permanent_delete_access per id; READS trashed + active owned rows.
+pub async fn load_files_for_permanent_delete(
+    pool: &PgPool,
+    actor_id: &str,
+    file_ids: &[String],
+) -> Result<Vec<(String, String, Option<i32>)>, AppError> {
+    for file_id in file_ids {
+        ensure_file_permanent_delete_access(pool, actor_id, file_id).await?;
+    }
 
     let rows: Vec<(String, String, Option<i32>)> = sqlx::query_as(
         "SELECT id, name, segment_count FROM files WHERE id = ANY($1) ORDER BY name ASC",
@@ -234,6 +289,28 @@ pub async fn load_files_for_delete(
     }
 
     Ok(rows)
+}
+
+// Human: Ensure a folder belongs to the caller for delete preview (active or in recycle bin).
+// Agent: READS folders by id + user_id without deleted_at filter; RETURNS NotFound when missing.
+pub async fn ensure_folder_owned_for_delete_preview(
+    pool: &PgPool,
+    user_id: &str,
+    folder_id: &str,
+) -> Result<(), AppError> {
+    let exists: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM folders WHERE id = $1 AND user_id = $2",
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if exists.is_none() {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(())
 }
 
 // Human: Batch-fetch file list items the caller may read (owned or granted).

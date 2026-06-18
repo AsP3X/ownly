@@ -215,25 +215,26 @@ pub async fn mark_complete(pool: &PgPool, session_id: &str) -> Result<(), AppErr
     Ok(())
 }
 
-// Human: Abort expired upload sessions and return their ids for spool cleanup.
-// Agent: UPDATE status aborted WHERE expires_at < now(); CALLED from temp janitor each sweep.
+// Human: Abort expired upload sessions and return file ids for spool cleanup.
+// Agent: UPDATE status aborted WHERE expires_at < now(); spool dirs use ownly_upload_{file_id}.
 pub async fn expire_stale_upload_sessions(pool: &PgPool) -> Result<Vec<String>, AppError> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "UPDATE upload_sessions SET status = 'aborted', updated_at = now() \
          WHERE status IN ('active', 'completing') AND expires_at < now() \
-         RETURNING id",
+         RETURNING file_id",
     )
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows.into_iter().map(|(file_id,)| file_id).collect())
 }
 
 // Human: True when an ownly_upload_* directory belongs to an in-flight resumable session.
-// Agent: READS upload_sessions by spool id; RETURNS true for active or completing rows.
+// Agent: MATCHES spool suffix against session id or pre-assigned file_id while active/completing.
 pub async fn is_active_resumable_upload_spool(pool: &PgPool, spool_id: &str) -> bool {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT status FROM upload_sessions \
-         WHERE id = $1 AND status IN ('active', 'completing')",
+    let row: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM upload_sessions \
+         WHERE (id = $1 OR file_id = $1) AND status IN ('active', 'completing') \
+         LIMIT 1",
     )
     .bind(spool_id)
     .fetch_optional(pool)

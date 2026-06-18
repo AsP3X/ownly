@@ -1,8 +1,9 @@
 // Human: Grid tile image preview — server grid JPEG when ready, worker resize fallback otherwise.
 // Agent: USES useExplorerGridThumbnail; RELOADS on re-enter viewport via cache or queue.
 
-import { ImageIcon, Loader2 } from "lucide-react";
+import { ImageIcon } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { ExplorerThumbnailShimmer } from "@/components/drive/ExplorerThumbnailShimmer";
 import { useExplorerGridThumbnail } from "@/hooks/useExplorerGridThumbnail";
 import {
   loadExplorerImageThumbnailBlob,
@@ -36,11 +37,6 @@ export function ExplorerImageThumbnail({
     loadBlob: loadExplorerImageThumbnailBlob,
   });
 
-  const waitingForServerThumb =
-    !file.image_thumbnail_ready &&
-    (file.image_thumbnail_status === "queued" ||
-      file.image_thumbnail_status === "processing");
-
   return (
     <div
       ref={containerRef}
@@ -67,15 +63,7 @@ export function ExplorerImageThumbnail({
           onError={handleImageError}
         />
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-1">
-          <Loader2
-            className={cn("size-5 text-[#888888]", loading && "animate-spin")}
-            aria-hidden
-          />
-          {waitingForServerThumb ? (
-            <span className="text-[10px] text-[#888888]">Generating preview…</span>
-          ) : null}
-        </div>
+        <ExplorerThumbnailShimmer slotFill label={loading ? "Loading preview" : "Generating preview"} />
       )}
     </div>
   );

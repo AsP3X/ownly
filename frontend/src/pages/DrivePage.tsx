@@ -75,7 +75,7 @@ import {
   shouldReflectUploadInFileList,
   type ExplorerFileListContext,
 } from "@/lib/explorer-file-list-updates";
-import { isFileProcessing } from "@/lib/file-processing";
+import { isFileProcessing, shouldPollFileThumbnail } from "@/lib/file-processing";
 import {
   resetExplorerThumbnailWarmScope,
   touchCachedExplorerThumbnailsForFiles,
@@ -277,6 +277,11 @@ export default function DrivePage() {
     searchQuery: "",
     typeFilter: "all",
   });
+  const filesRef = useRef(files);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   // Human: Keep upload listener context fresh without resubscribing on every nav/filter change.
   // Agent: WRITES explorerListContextRef in effect; READ by applyExplorerUploadFile callbacks.
@@ -667,37 +672,61 @@ export default function DrivePage() {
     });
   }, [applyExplorerUploadFile, refreshDashboard]);
 
-  // Human: Poll only processing file rows instead of reloading the entire folder listing.
-  // Agent: GET /files/:id every 3s; SKIPS ids the upload manager already polls during active batches.
-  const processingFileIds = useMemo(
-    () => files.filter(isFileProcessing).map((file) => file.id),
-    [files],
-  );
-  const processingIdsKey = processingFileIds.join(",");
+  // Human: Poll ingest + pending thumbnail rows — patch local state so previews appear without refresh.
+  // Agent: GET /files/:id every 3s; SKIPS ingest-only ids the upload manager already polls; WARMS LRU on ready.
+  const BACKGROUND_FILE_POLL_MS = 3000;
+  const backgroundPollFileIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const file of files) {
+      if (shouldPollFileThumbnail(file) || isFileProcessing(file)) {
+        ids.add(file.id);
+      }
+    }
+    return [...ids];
+  }, [files]);
+  const backgroundPollIdsKey = backgroundPollFileIds.join(",");
   useEffect(() => {
-    if (!processingIdsKey) return;
-    const timer = window.setInterval(() => {
-      void (async () => {
-        try {
-          const uploadManagedIds = getUploadManagedIngestFileIds();
-          const idsToPoll = processingFileIds.filter((fileId) => !uploadManagedIds.has(fileId));
-          if (idsToPoll.length === 0) return;
-          const updates = await Promise.all(
-            idsToPoll.map((fileId) => fetchFile(fileId)),
-          );
-          setFiles((prev) =>
-            patchExplorerFileRows(
-              prev,
-              updates.map((entry) => entry.file),
-            ),
-          );
-        } catch {
-          // Human: Processing poll failures are non-critical — next interval retries.
+    if (!backgroundPollIdsKey) return;
+
+    const pollBackgroundFileRows = async () => {
+      try {
+        const uploadManagedIds = getUploadManagedIngestFileIds();
+        const idsToPoll = backgroundPollFileIds.filter((fileId) => {
+          const file = filesRef.current.find((row) => row.id === fileId);
+          if (!file) return false;
+          if (shouldPollFileThumbnail(file)) return true;
+          return isFileProcessing(file) && !uploadManagedIds.has(fileId);
+        });
+        if (idsToPoll.length === 0) return;
+
+        const updates = await Promise.all(idsToPoll.map((fileId) => fetchFile(fileId)));
+        const updatedFiles = updates.map((entry) => entry.file);
+        setFiles((prev) => patchExplorerFileRows(prev, updatedFiles));
+
+        const readyThumbnails = updatedFiles.filter(
+          (file) =>
+            file.image_thumbnail_ready ||
+            file.video_thumbnail_ready ||
+            file.document_thumbnail_ready,
+        );
+        if (readyThumbnails.length > 0) {
+          const context = explorerListContextRef.current;
+          const scope = `${context.activeNav}:${context.currentFolderId ?? "root"}:${
+            context.activeNav === "my-files" && context.searchQuery ? context.searchQuery : ""
+          }`;
+          warmExplorerThumbnailCache(readyThumbnails, scope);
         }
-      })();
-    }, 3000);
+      } catch {
+        // Human: Background poll failures are non-critical — next interval retries.
+      }
+    };
+
+    void pollBackgroundFileRows();
+    const timer = window.setInterval(() => {
+      void pollBackgroundFileRows();
+    }, BACKGROUND_FILE_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [processingIdsKey, processingFileIds]);
+  }, [backgroundPollIdsKey, backgroundPollFileIds]);
 
   // Human: Load file list when the page opens, folder changes, committed search, or type filter changes.
   // Agent: SUBMITS search only on Enter (committedQuery); Home uses batch API via refresh().

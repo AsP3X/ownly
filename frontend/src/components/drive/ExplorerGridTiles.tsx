@@ -24,7 +24,8 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
 import { splitFilenameExtension } from "@/lib/explorer-grid-filename";
-import { isFileProcessing } from "@/lib/file-processing";
+import { isFileProcessing, isThumbnailProcessing } from "@/lib/file-processing";
+import { ExplorerThumbnailShimmer } from "@/components/drive/ExplorerThumbnailShimmer";
 import {
   formatBytes,
   formatFileUpdatedRelative,
@@ -321,6 +322,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
   const isAudio = isAudioMime(file.mime_type);
   const processing = isFileProcessing(file);
+  const thumbnailProcessing = isThumbnailProcessing(file);
   const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
   const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
   const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
@@ -484,7 +486,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       >
         {/* Human: Every tile reserves the same preview frame — thumbnails fill it; others show a centered icon. */}
         {/* Agent: WRAPS lazy thumbnail loaders; KEEPS grid row height uniform across preview and non-preview files. */}
-        <ExplorerGridPreviewSlot centerContent={!showLiveThumbnailPreview}>
+        <ExplorerGridPreviewSlot
+          centerContent={!showLiveThumbnailPreview && !thumbnailProcessing}
+        >
           {showImagePreview ? (
             <ExplorerImageThumbnail file={file} slotFill />
           ) : showVideoPreview ? (
@@ -495,6 +499,8 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             />
           ) : showDocumentPreview ? (
             <ExplorerDocumentThumbnail file={file} slotFill />
+          ) : thumbnailProcessing ? (
+            <ExplorerThumbnailShimmer slotFill />
           ) : (
             <ExplorerFileIcon mimeType={file.mime_type} />
           )}

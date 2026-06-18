@@ -302,23 +302,23 @@ async fn gif_preview_temp_auto_cleanup_enabled(pool: &sqlx::PgPool) -> bool {
 }
 
 // Human: Abort expired resumable upload sessions and delete their spool directories.
-// Agent: CALLS uploads::store::expire_stale_upload_sessions; REMOVES ownly_upload_{session_id} dirs.
+// Agent: CALLS uploads::store::expire_stale_upload_sessions; REMOVES ownly_upload_{file_id} dirs.
 async fn sweep_expired_upload_sessions(pool: &PgPool) -> u32 {
-    let Ok(expired_ids) = crate::uploads::store::expire_stale_upload_sessions(pool).await else {
+    let Ok(expired_file_ids) = crate::uploads::store::expire_stale_upload_sessions(pool).await else {
         return 0;
     };
 
     let mut cleaned = 0u32;
-    for session_id in expired_ids {
-        let work_dir = crate::files::upload_spool::upload_work_dir(&session_id);
+    for file_id in expired_file_ids {
+        let work_dir = crate::files::upload_spool::upload_work_dir(&file_id);
         if is_deletable_temp_path(&work_dir) {
             match tokio::fs::remove_dir_all(&work_dir).await {
                 Ok(()) => {
                     cleaned += 1;
-                    debug!(session_id = %session_id, "removed expired upload session spool");
+                    debug!(file_id = %file_id, "removed expired upload session spool");
                 }
                 Err(error) => {
-                    warn!(session_id = %session_id, %error, "failed to remove expired upload spool");
+                    warn!(file_id = %file_id, %error, "failed to remove expired upload spool");
                 }
             }
         }

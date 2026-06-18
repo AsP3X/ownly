@@ -14,9 +14,9 @@ pub fn is_deletable_upload_work_dir(path: &Path) -> bool {
 }
 
 // Human: Stable temp directory for one upload session or single-shot multipart spool.
-// Agent: RETURNS temp_dir/ownly_upload_{id}; CALLER creates with create_dir_all.
-pub fn upload_work_dir(session_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("ownly_upload_{session_id}"))
+// Agent: RETURNS temp_dir/ownly_upload_{id}; resumable uploads use pre-assigned file_id as id.
+pub fn upload_work_dir(upload_id: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("ownly_upload_{upload_id}"))
 }
 
 // Human: Remove an ownly_upload_* directory after bytes are persisted or the session aborts.

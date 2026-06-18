@@ -1,8 +1,9 @@
 // Human: Grid tile video poster — server JPEG with priority queue, cache, and unload on scroll-away.
 // Agent: USES useExplorerGridThumbnail; RE-TRIES poster load whenever tile re-enters viewport.
 
-import { Film, Loader2 } from "lucide-react";
+import { Film } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { ExplorerThumbnailShimmer } from "@/components/drive/ExplorerThumbnailShimmer";
 import { useExplorerGridThumbnail } from "@/hooks/useExplorerGridThumbnail";
 import {
   loadExplorerVideoThumbnailBlob,
@@ -63,12 +64,7 @@ export function ExplorerVideoThumbnail({
           onError={handleImageError}
         />
       ) : (
-        <div className="flex size-full items-center justify-center">
-          <Loader2
-            className={cn("size-5 text-[#888888]", loading && "animate-spin")}
-            aria-hidden
-          />
-        </div>
+        <ExplorerThumbnailShimmer slotFill label={loading ? "Loading preview" : "Generating preview"} />
       )}
     </div>
   );

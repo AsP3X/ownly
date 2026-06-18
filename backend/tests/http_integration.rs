@@ -767,6 +767,134 @@ async fn soft_delete_moves_file_to_recycle_bin_and_restore_returns_it() {
         .ok();
 }
 
+// Human: Recycle-bin permanent delete must preview and purge trashed rows (not 404 active-only gates).
+// Agent: DELETE soft-delete; GET deletion-preview + DELETE ?permanent=true on trashed file id.
+#[tokio::test]
+async fn recycle_bin_permanent_delete_preview_and_purge_trashed_file() {
+    let Some(state) = test_harness::TestHarness::state("recycle_bin_permanent_delete_preview_and_purge_trashed_file").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("recycle-perm-{user_id}@example.com");
+    let password_hash = ownly_backend::auth::handlers::hash_password("password123")
+        .expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
+         VALUES ($1, $2, 'trash-perm.txt', 'storage/trash-perm', 'text/plain', 12)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("create token");
+
+    let app = create_router(state.clone());
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/files/{file_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let preview_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/deletion-preview"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview_response.status(), StatusCode::OK);
+
+    let bin_preview_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/recycle-bin/deletion-preview")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bin_preview_response.status(), StatusCode::OK);
+    let bin_preview_json = response_json(bin_preview_response).await;
+    assert_eq!(bin_preview_json["file_count"], 1);
+
+    let permanent_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/files/{file_id}?permanent=true"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(permanent_response.status(), StatusCode::OK);
+
+    let bin_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/recycle-bin")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bin_json = response_json(bin_response).await;
+    assert_eq!(bin_json["total_count"], 0);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Protected public shares require X-Share-Password and can block downloads.
 // Agent: GET download without/with password; UPDATE block_download; EXPECT 403 when blocked.
 #[tokio::test]

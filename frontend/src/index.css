@@ -143,3 +143,13 @@
     transform: translateX(360%);
   }
 }
+
+/* Human: Soft light band sweeping across skeleton placeholders (explorer thumbnails). */
+@keyframes ownly-shimmer-sweep {
+  0% {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
