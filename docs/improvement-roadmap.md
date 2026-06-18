@@ -246,52 +246,34 @@ Search is **filename substring match on files only**:
 ### 1.4 Resumable large uploads
 
 **Priority:** P1–P2  
-**Effort:** Large
+**Effort:** Large  
+**Follow-ups:** [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) — MVP shipped 2026-06-16; janitor, iOS, disk, and direct-to-storage next steps.
 
-#### Current state
+#### Shipped MVP (2026-06-16)
+
+| Layer | Behavior |
+|-------|----------|
+| **Web client (> 32 MiB)** | Chunked session API — `POST /uploads`, `PUT` parts, `POST /complete`; retry skips received parts |
+| **Web client (≤ 32 MiB)** | Single `POST /api/v1/files/upload` (unchanged) |
+| **API** | `backend/src/uploads/` + migration `029_upload_sessions.sql`; shared `upload_finalize` |
+| **iOS** | Still single multipart POST — see follow-up doc |
+| **Limit** | `MAX_UPLOAD_BYTES` default **10 GiB** |
+
+#### Original gap (pre-MVP)
 
 | Layer | Behavior |
 |-------|----------|
 | **Web client** | Single `multipart/form-data` POST to `POST /api/v1/files/upload` |
-| **API** | `upload_file` in `handlers.rs` — reads entire body via Axum `Multipart`; rate limit drains body on 429 |
-| **Limit** | `MAX_UPLOAD_BYTES` default **10 GiB** (Compose, nginx, Nebular aligned) |
-| **Nebular OS** | Multipart upload API (`init_multipart`, `upload_part`, `complete_multipart`) in submodule — not exposed through Ownly upload UX |
+| **API** | `upload_file` read entire body in one pass |
+| **Nebular OS** | Multipart upload API in submodule — not yet wired through Ownly UX |
 
-Failed uploads mid-stream require **restarting from byte zero**. On mobile or unstable Wi-Fi, 10 GiB uploads are impractical without resume.
+Failed uploads mid-stream required **restarting from byte zero** on web. MVP addresses large web uploads; **iOS**, **temp janitor**, and **API-disk** optimizations are tracked in [`resumable-upload-improvements.md`](resumable-upload-improvements.md).
 
-#### Proposed direction
+#### Remaining direction (post-MVP)
 
-**Protocol options**
+See [`resumable-upload-improvements.md`](resumable-upload-improvements.md) for prioritized follow-ups: janitor protection, session expiry sweeper, iOS parity, video-only threshold, append-on-write, parallel parts, direct-to-Nebular streaming.
 
-| Protocol | Notes |
-|----------|-------|
-| **TUS** | Standard resumable HTTP; client libraries exist; fits browser + desktop |
-| **Custom chunked API** | `POST /uploads` → session id → `PUT /uploads/{id}/parts/{n}` → `POST /uploads/{id}/complete` |
-| **Direct-to-Nebular multipart** | Ownly issues signed URLs/parts; client talks to storage; API registers metadata on complete |
-
-**Minimum viable**
-
-1. Server-side upload session table (`upload_sessions`: user_id, filename, folder_id, bytes_received, storage_key, expires_at).
-2. Chunk size 8–32 MiB; idempotent part uploads.
-3. On complete: compute `content_hash`, insert `files` row, enqueue HLS if video.
-4. Frontend: integrate TUS client or parallel chunk uploader with progress + pause/resume in transfer panel.
-5. iOS: background URLSession upload with resume data.
-
-**Nebular boundary:** Per [`nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc), multipart behavior changes in Nebular belong upstream; Ownly integration (JWT, Compose env, client in `backend/src/storage/`) stays here.
-
-#### Key files
-
-- New `backend/src/uploads/` module + migration
-- `backend/src/files/handlers.rs` — keep simple upload for small files; route large to session API
-- `frontend/src/components/drive/` transfer panel hooks
-- `docker-compose.yml` / nginx — body size and timeout tuning per chunk
-
-#### Verification
-
-- Upload 2 GiB file; kill network at 50%; resume completes; hash matches.
-- Quota enforced at complete time, not per chunk.
-- Audit: `files.upload` on complete only.
-- `cargo test`; manual smoke with throttled network.
+**Nebular boundary:** Per [`nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc), multipart behavior changes in Nebular belong upstream; Ownly integration stays here.
 
 ---
 
@@ -799,6 +781,7 @@ flowchart TD
 | Security audit | [`security-audit.md`](../security-audit.md) |
 | Security audit scripts | [`scripts/security-audit/README.md`](../scripts/security-audit/README.md) |
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](storage-disk-tuning.md) |
+| Resumable upload follow-ups | [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) |
 | Regression testing rule | [`.cursor/rules/regression-testing.mdc`](../.cursor/rules/regression-testing.mdc) |
 | iOS client | [`ios/README.md`](../ios/README.md) |
 | Nebular cluster plan (upstream) | `nebular-os/docs/plans/cluster-modes.md` (submodule) |
