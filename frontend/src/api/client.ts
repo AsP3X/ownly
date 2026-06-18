@@ -17,13 +17,15 @@ export {
 } from "@/api/core";
 export {
   RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+  RESUMABLE_VIDEO_THRESHOLD_BYTES,
   UPLOAD_CHUNK_SIZE_BYTES,
+  shouldUseResumableUpload,
 } from "@/lib/resumable-upload";
 
 import { createClientId } from "@/lib/utils-app";
 import {
   abortResumableUploadSession,
-  RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+  shouldUseResumableUpload,
   uploadFileResumableBytes,
 } from "@/lib/resumable-upload";
 import {
@@ -1821,7 +1823,7 @@ export function uploadFileWithProgress(
     releasePipelineStages?: () => void;
   },
 ): Promise<{ file: FileItem }> {
-  if (file.size > RESUMABLE_UPLOAD_THRESHOLD_BYTES) {
+  if (shouldUseResumableUpload(file)) {
     return uploadFileWithProgressResumable(file, onProgress, options);
   }
   return uploadFileWithProgressMultipart(file, onProgress, options);

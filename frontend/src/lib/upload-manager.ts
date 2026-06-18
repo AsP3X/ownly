@@ -72,6 +72,12 @@ export type UploadItemSnapshot = {
 
   uploadedFileId?: string;
 
+  /** Server resumable session id — persisted for reload resume. */
+  resumableServerSessionId?: string | null;
+
+  /** True when the user must re-pick the same File to continue byte upload after reload. */
+  needsFileReselect?: boolean;
+
   error?: string;
 
   displayBucket: UploadItemDisplayBucket;
@@ -157,6 +163,9 @@ type InternalUploadItem = {
   /** Server resumable session id — reused on retry to skip uploaded parts. */
   resumableServerSessionId?: string | null;
 
+  /** Reload recovery — row waits for the user to re-select the same file bytes. */
+  needsFileReselect?: boolean;
+
   error?: string;
 
 };
@@ -234,6 +243,10 @@ function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
     indeterminate: item.indeterminate,
 
     uploadedFileId: item.uploadedFileId,
+
+    resumableServerSessionId: item.resumableServerSessionId,
+
+    needsFileReselect: item.needsFileReselect,
 
     error: item.error,
 
@@ -419,6 +432,10 @@ function internalFromPersisted(item: PersistedUploadItem): InternalUploadItem {
 
     uploadedFileId: item.uploadedFileId,
 
+    resumableServerSessionId: item.resumableServerSessionId,
+
+    needsFileReselect: item.needsFileReselect,
+
     error: item.error,
 
   };
@@ -450,6 +467,24 @@ function reconcileRestoredItems(items: PersistedUploadItem[]): InternalUploadIte
     }
 
     if (item.status === "uploading" && !item.uploadedFileId) {
+
+      if (item.resumableServerSessionId) {
+
+        return {
+
+          ...internalFromPersisted(item),
+
+          resumableServerSessionId: item.resumableServerSessionId,
+
+          status: "error",
+
+          needsFileReselect: true,
+
+          error: "Select the same file to continue this upload",
+
+        };
+
+      }
 
       return {
 
@@ -1331,6 +1366,41 @@ export function dismissUploadBatch() {
 }
 
 
+
+// Human: Re-attach the same file after reload so byte upload can resume from the server session.
+// Agent: VALIDATES name + size; WRITES localFile; RESTARTS pumpUploadQueue when match succeeds.
+export function reattachUploadFile(uploadId: string, file: File): boolean {
+  if (!batch) return false;
+
+  const item = batch.items.find((entry) => entry.id === uploadId);
+  if (!item?.needsFileReselect || !item.resumableServerSessionId) return false;
+  if (file.name !== item.fileName || file.size !== item.fileSize) return false;
+
+  updateItems((items) =>
+    items.map((entry) =>
+      entry.id === uploadId
+        ? {
+            ...entry,
+            localFile: file,
+            status: "uploading",
+            phase: "uploading",
+            progress: 0,
+            indeterminate: false,
+            error: undefined,
+            needsFileReselect: false,
+          }
+        : entry,
+    ),
+  );
+
+  if (batch.status !== "uploading") {
+    batch.status = "uploading";
+    emitBatch();
+  }
+
+  pumpUploadQueue();
+  return true;
+}
 
 // Human: Drop one failed or cancelled row from the upload panel and delete any partial server file.
 

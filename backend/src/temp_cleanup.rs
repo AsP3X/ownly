@@ -106,29 +106,40 @@ pub fn is_idle_temp_path(path: &Path, max_idle: Duration) -> bool {
         .unwrap_or(false)
 }
 
-// Human: Extract file id from an `ownly_upload_<id>` scratch directory name.
-// Agent: USED by janitor to query files.hls_encode_status before deleting upload spools.
-pub fn upload_spool_file_id(path: &Path) -> Option<String> {
+// Human: Extract spool id from an `ownly_upload_<id>` scratch directory name.
+// Agent: USED by janitor — id may be a resumable session id or a single-shot file id.
+pub fn upload_spool_id(path: &Path) -> Option<String> {
     let name = path.file_name().and_then(|n| n.to_str())?;
-    let file_id = name.strip_prefix("ownly_upload_")?;
-    if file_id.is_empty() {
+    let spool_id = name.strip_prefix("ownly_upload_")?;
+    if spool_id.is_empty() {
         return None;
     }
-    Some(file_id.to_string())
+    Some(spool_id.to_string())
 }
 
-// Human: Keep upload spools while video HLS ingest is still queued or processing.
-// Agent: READS files row; RETURNS true when NOT hls_ready and status is queued|processing.
+/// Human: Back-compat alias for tests and callers that treat the spool suffix as a file id.
+/// Agent: DELEGATES to upload_spool_id; single-shot uploads use file id as the suffix.
+pub fn upload_spool_file_id(path: &Path) -> Option<String> {
+    upload_spool_id(path)
+}
+
+// Human: Keep upload spools while bytes are still in flight or video HLS ingest runs.
+// Agent: READS upload_sessions for resumable spools; READS files.hls_encode_status for video spools.
 pub async fn is_protected_upload_spool(pool: &PgPool, path: &Path) -> bool {
-    let Some(file_id) = upload_spool_file_id(path) else {
+    let Some(spool_id) = upload_spool_id(path) else {
         return false;
     };
+
+    if crate::uploads::store::is_active_resumable_upload_spool(pool, &spool_id).await {
+        return true;
+    }
+
     let row: Option<(bool, String)> = sqlx::query_as(
         "SELECT hls_ready, COALESCE(hls_encode_status, 'queued') \
          FROM files \
          WHERE id = $1 AND deleted_at IS NULL AND mime_type LIKE 'video/%'",
     )
-    .bind(&file_id)
+    .bind(&spool_id)
     .fetch_optional(pool)
     .await
     .ok()
@@ -290,6 +301,32 @@ async fn gif_preview_temp_auto_cleanup_enabled(pool: &sqlx::PgPool) -> bool {
         .unwrap_or(true)
 }
 
+// Human: Abort expired resumable upload sessions and delete their spool directories.
+// Agent: CALLS uploads::store::expire_stale_upload_sessions; REMOVES ownly_upload_{session_id} dirs.
+async fn sweep_expired_upload_sessions(pool: &PgPool) -> u32 {
+    let Ok(expired_ids) = crate::uploads::store::expire_stale_upload_sessions(pool).await else {
+        return 0;
+    };
+
+    let mut cleaned = 0u32;
+    for session_id in expired_ids {
+        let work_dir = crate::files::upload_spool::upload_work_dir(&session_id);
+        if is_deletable_temp_path(&work_dir) {
+            match tokio::fs::remove_dir_all(&work_dir).await {
+                Ok(()) => {
+                    cleaned += 1;
+                    debug!(session_id = %session_id, "removed expired upload session spool");
+                }
+                Err(error) => {
+                    warn!(session_id = %session_id, %error, "failed to remove expired upload spool");
+                }
+            }
+        }
+    }
+
+    cleaned
+}
+
 // Human: Spawn a periodic task that purges idle Ownly temp scratch files.
 // Agent: CALLED from run(); READS gif_preview_temp_auto_cleanup setting each sweep.
 pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
@@ -297,6 +334,11 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
         loop {
             let include_gif_preview =
                 gif_preview_temp_auto_cleanup_enabled(&state.pool).await;
+
+            let expired_sessions = sweep_expired_upload_sessions(&state.pool).await;
+            if expired_sessions > 0 {
+                info!(expired_sessions, "expired upload sessions cleaned");
+            }
 
             let removed = sweep_idle_temp_files(
                 &state.pool,

@@ -11,8 +11,14 @@ import {
 /** Human: Files larger than this use chunked resumable uploads instead of single multipart POST. */
 export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
+/** Human: Video uploads switch to chunked mode at a lower size — phone clips fail more on one-shot POST. */
+export const RESUMABLE_VIDEO_THRESHOLD_BYTES = 8 * 1024 * 1024;
+
 /** Human: Default chunk size — must stay within backend MIN/MAX chunk bounds. */
 export const UPLOAD_CHUNK_SIZE_BYTES = 16 * 1024 * 1024;
+
+/** Human: Parallel part PUTs — aligned with upload-manager MAX_CONCURRENT_UPLOADS. */
+const MAX_CONCURRENT_PART_UPLOADS = 2;
 
 export type ResumableUploadProgress = {
   phase: "uploading" | "processing" | "encrypting" | "storing";
@@ -39,6 +45,16 @@ type UploadFilePayload = {
   size_bytes: number;
   folder_id: string | null;
 };
+
+// Human: Decide whether a browser File should use chunked resumable upload instead of multipart POST.
+// Agent: READS mime + size; RETURNS true below 32 MiB for video/* only.
+export function shouldUseResumableUpload(file: File): boolean {
+  const mime = file.type || "";
+  if (mime.startsWith("video/")) {
+    return file.size > RESUMABLE_VIDEO_THRESHOLD_BYTES;
+  }
+  return file.size > RESUMABLE_UPLOAD_THRESHOLD_BYTES;
+}
 
 async function parseApiError(res: Response, fallbackMessage: string): Promise<ApiError> {
   const text = await res.text();
@@ -77,6 +93,25 @@ function authHeaders(contentType?: string): HeadersInit {
   if (token) headers.Authorization = `Bearer ${token}`;
   if (contentType) headers["Content-Type"] = contentType;
   return headers;
+}
+
+// Human: Run async work over a list with a bounded worker pool.
+// Agent: USED for parallel part PUTs; PRESERVES completion order for progress only.
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const current = items[nextIndex];
+      nextIndex += 1;
+      await worker(current);
+    }
+  });
+  await Promise.all(runners);
 }
 
 // Human: Start or resume a server-side upload session for one file.
@@ -126,7 +161,7 @@ export async function abortResumableUploadSession(sessionId: string): Promise<vo
 }
 
 // Human: Upload all missing parts then call complete — skips parts the server already has.
-// Agent: PUT /uploads/{id}/parts/{n}; POST /uploads/{id}/complete; RETURNS registered file row.
+// Agent: PUT /uploads/{id}/parts/{n} with bounded concurrency; POST /uploads/{id}/complete.
 export async function uploadFileResumableBytes(
   file: File,
   options: {
@@ -149,12 +184,25 @@ export async function uploadFileResumableBytes(
   const chunkSize = session.chunk_size;
   const totalParts = session.total_parts;
 
+  const missingParts: number[] = [];
   for (let partNumber = 0; partNumber < totalParts; partNumber += 1) {
+    if (!received.has(partNumber)) {
+      missingParts.push(partNumber);
+    }
+  }
+
+  const reportProgress = () => {
+    const uploadedParts = received.size;
+    const percent = Math.min(
+      100,
+      Math.round((uploadedParts / totalParts) * 100),
+    );
+    options.onProgress?.({ phase: "uploading", percent });
+  };
+
+  await mapWithConcurrency(missingParts, MAX_CONCURRENT_PART_UPLOADS, async (partNumber) => {
     if (options.isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
-    }
-    if (received.has(partNumber)) {
-      continue;
     }
 
     const start = partNumber * chunkSize;
@@ -175,13 +223,8 @@ export async function uploadFileResumableBytes(
     }
 
     received.add(partNumber);
-    const uploadedBytes = Math.min(end, file.size);
-    const percent = Math.min(
-      100,
-      Math.round((uploadedBytes / file.size) * 100),
-    );
-    options.onProgress?.({ phase: "uploading", percent });
-  }
+    reportProgress();
+  });
 
   if (options.isCancelled?.()) {
     throw new ApiError("Upload cancelled", "upload_cancelled", 0);

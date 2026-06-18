@@ -1,7 +1,7 @@
 // Human: Shared upload batch progress UI — per-file rows and phase-colored progress bars.
 // Agent: READS UploadItemSnapshot[]; RENDERED by UploadTransferPanel when expanded.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Clock, Loader2, X } from "lucide-react";
 import {
   getUploadBatchDisplayCounts,
@@ -281,15 +281,18 @@ export function QueuedFileRow({
 }
 
 // Human: Terminal failed or cancelled upload row — user can dismiss with X to remove from the tray.
-// Agent: READS error message; CALLS onRemove to drop row and delete partial server file when present.
+// Agent: READS error message; CALLS onRemove or onReattachFile when reload resume is possible.
 export function FailedUploadRow({
   item,
   onRemove,
+  onReattachFile,
 }: {
   item: UploadItemSnapshot;
   onRemove?: (itemId: string) => void;
+  onReattachFile?: (itemId: string, file: File) => void;
 }) {
   const isFailed = item.status === "error";
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <div className="flex items-center justify-between gap-2 py-1">
@@ -309,6 +312,30 @@ export function FailedUploadRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {item.needsFileReselect && onReattachFile ? (
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              className="hidden"
+              aria-hidden
+              onChange={(event) => {
+                const picked = event.target.files?.[0];
+                if (picked) onReattachFile(item.id, picked);
+                event.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => inputRef.current?.click()}
+            >
+              Choose file
+            </Button>
+          </>
+        ) : null}
         <span className="text-[11px] text-[#888888]">{isFailed ? "Failed" : "Cancelled"}</span>
         {onRemove ? (
           <Button
@@ -445,10 +472,12 @@ export function UploadBatchProgressView({
   items,
   onCancelItem,
   onRemoveItem,
+  onReattachFile,
 }: {
   items: UploadItemSnapshot[];
   onCancelItem?: (itemId: string) => void;
   onRemoveItem?: (itemId: string) => void;
+  onReattachFile?: (itemId: string, file: File) => void;
 }) {
   const counts = getUploadBatchDisplayCounts(items);
   const activeItems = items.filter((item) => item.displayBucket === "in_flight");
@@ -502,7 +531,12 @@ export function UploadBatchProgressView({
           : null}
 
         {failedItems.map((item) => (
-          <FailedUploadRow key={item.id} item={item} onRemove={onRemoveItem} />
+          <FailedUploadRow
+            key={item.id}
+            item={item}
+            onRemove={onRemoveItem}
+            onReattachFile={onReattachFile}
+          />
         ))}
       </div>
     </>

@@ -5,6 +5,12 @@ import UniformTypeIdentifiers
 // Agent: POST /files/upload with byte progress; GET /files/:id for HLS phases; DELETE + cancel-ingest on abort.
 enum UploadService {
     static let maxConcurrentUploads = 3
+    /// Human: Non-video files switch to chunked upload above this size — matches web RESUMABLE_UPLOAD_THRESHOLD_BYTES.
+    static let resumableUploadThresholdBytes: Int64 = 32 * 1024 * 1024
+    /// Human: Video files use chunked upload above this lower threshold — matches web RESUMABLE_VIDEO_THRESHOLD_BYTES.
+    static let resumableVideoThresholdBytes: Int64 = 8 * 1024 * 1024
+    static let uploadChunkSizeBytes: Int64 = 16 * 1024 * 1024
+    static let resumablePartConcurrency = 2
     private static let processingAsymptote = 99.4
     private static let processingDisplayMax = 99
     private static let processingIndeterminateMs = 2_500
@@ -14,6 +20,15 @@ enum UploadService {
     private static let coordinator = UploadSessionCoordinator()
 
     // MARK: - Public API
+
+    /// Human: Route large or video uploads through the resumable session API instead of one-shot multipart POST.
+    /// Agent: READS mime + file size; RETURNS true below 32 MiB for video/* only.
+    static func shouldUseResumableUpload(fileSize: Int64, mimeType: String) -> Bool {
+        if mimeType.lowercased().hasPrefix("video/") {
+            return fileSize > resumableVideoThresholdBytes
+        }
+        return fileSize > resumableUploadThresholdBytes
+    }
 
     static func uploadFile(
         config: ServerConfig,
@@ -48,7 +63,8 @@ enum UploadService {
             folderId: folderId,
             sessionId: sessionId,
             isVideo: isVideo,
-            onProgress: emitProgress
+            onProgress: emitProgress,
+            existingResumableSessionId: nil
         )
 
         processingSimulation.cancel()
@@ -99,6 +115,16 @@ enum UploadService {
         Task {
             await coordinator.abort(config: config, sessionId: sessionId)
         }
+    }
+
+    /// Human: Abort a partial resumable server session and discard spooled parts on the API host.
+    /// Agent: DELETE /uploads/{id}; BEST-EFFORT when the user cancels a chunked upload.
+    static func abortResumableUploadSession(config: ServerConfig, sessionId: String) async {
+        guard var request = try? authorizedRequest(config: config, path: "/uploads/\(sessionId)", method: "DELETE") else {
+            return
+        }
+        request.httpBody = nil
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     // MARK: - Ingest polling
@@ -355,11 +381,28 @@ private final class UploadPostUploadPhaseGate: @unchecked Sendable {
 
 // MARK: - Multipart upload session
 
+private actor PartUploadProgressCounter {
+    private var completed: Int
+    private let totalParts: Int
+
+    init(initialCompleted: Int, totalParts: Int) {
+        completed = initialCompleted
+        self.totalParts = totalParts
+    }
+
+    func markPartComplete() -> Int {
+        completed += 1
+        guard totalParts > 0 else { return 100 }
+        return min(100, Int((Double(completed) / Double(totalParts) * 100).rounded()))
+    }
+}
+
 private actor UploadSessionCoordinator {
     private struct ActiveSession {
         var cancelled = false
         var uploadedFileId: String?
         var bodyFileURL: URL?
+        var resumableServerSessionId: String?
         var inFlight: Task<DriveFile, Error>?
     }
 
@@ -387,6 +430,10 @@ private actor UploadSessionCoordinator {
             await UploadService.deleteFile(config: config, fileId: fileId)
         }
 
+        if let serverSessionId = entry.resumableServerSessionId {
+            await UploadService.abortResumableUploadSession(config: config, sessionId: serverSessionId)
+        }
+
         if let bodyURL = entry.bodyFileURL {
             try? FileManager.default.removeItem(at: bodyURL)
         }
@@ -401,9 +448,24 @@ private actor UploadSessionCoordinator {
         folderId: String?,
         sessionId: String,
         isVideo: Bool,
-        onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void
+        onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void,
+        existingResumableSessionId: String?
     ) async throws -> DriveFile {
         sessions[sessionId] = ActiveSession()
+
+        if UploadService.shouldUseResumableUpload(fileSize: fileSize(at: fileURL), mimeType: mimeType) {
+            return try await uploadResumable(
+                config: config,
+                fileURL: fileURL,
+                fileName: fileName,
+                mimeType: mimeType,
+                folderId: folderId,
+                sessionId: sessionId,
+                isVideo: isVideo,
+                onProgress: onProgress,
+                existingResumableSessionId: existingResumableSessionId
+            )
+        }
 
         let boundary = "Boundary-\(UUID().uuidString)"
         let bodyURL = try writeMultipartBody(
@@ -491,6 +553,163 @@ private actor UploadSessionCoordinator {
         sessions[sessionId] = entry
     }
 
+    private func fileSize(at url: URL) -> Int64 {
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]), let bytes = values.fileSize {
+            return Int64(bytes)
+        }
+        return 0
+    }
+
+    // Human: Chunked resumable upload — create session, PUT missing parts, POST complete.
+    // Agent: CALLS /uploads/*; PERSISTS resumableServerSessionId for retry; PARALLEL part PUTs (2).
+    private func uploadResumable(
+        config: ServerConfig,
+        fileURL: URL,
+        fileName: String,
+        mimeType: String,
+        folderId: String?,
+        sessionId: String,
+        isVideo: Bool,
+        onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void,
+        existingResumableSessionId: String?
+    ) async throws -> DriveFile {
+        let totalSize = fileSize(at: fileURL)
+        let serverSession = try await ensureResumableSession(
+            config: config,
+            fileName: fileName,
+            mimeType: mimeType,
+            folderId: folderId,
+            totalSize: totalSize,
+            existingSessionId: existingResumableSessionId
+        )
+
+        if var entry = sessions[sessionId] {
+            entry.resumableServerSessionId = serverSession.sessionId
+            sessions[sessionId] = entry
+        }
+
+        let received = Set(serverSession.partsReceived)
+        let chunkSize = Int64(serverSession.chunkSize)
+        var missingParts: [Int] = []
+        for part in 0 ..< serverSession.totalParts where !received.contains(part) {
+            missingParts.append(part)
+        }
+
+        let progressCounter = PartUploadProgressCounter(
+            initialCompleted: received.count,
+            totalParts: serverSession.totalParts
+        )
+
+        let uploadPart: @Sendable (Int) async throws -> Void = { partNumber in
+            if await self.isCancelled(sessionId: sessionId) {
+                throw UploadServiceError.cancelled
+            }
+            let offset = Int64(partNumber) * chunkSize
+            let length = Int(min(chunkSize, totalSize - offset))
+            let chunk = try Self.readFileChunk(fileURL: fileURL, offset: offset, length: length)
+            try await Self.putResumablePart(
+                config: config,
+                sessionId: serverSession.sessionId,
+                partNumber: partNumber,
+                body: chunk
+            )
+            let percent = await progressCounter.markPartComplete()
+            onProgress(UploadProgressUpdate(phase: .uploading, percent: percent, indeterminate: false))
+        }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var nextIndex = 0
+            for _ in 0 ..< min(UploadService.resumablePartConcurrency, missingParts.count) {
+                let part = missingParts[nextIndex]
+                nextIndex += 1
+                group.addTask { try await uploadPart(part) }
+            }
+            while let _ = try await group.next() {
+                if nextIndex < missingParts.count {
+                    let part = missingParts[nextIndex]
+                    nextIndex += 1
+                    group.addTask { try await uploadPart(part) }
+                }
+            }
+        }
+
+        if await isCancelled(sessionId: sessionId) {
+            throw UploadServiceError.cancelled
+        }
+
+        onProgress(UploadProgressUpdate(phase: .uploading, percent: 100, indeterminate: false))
+        if isVideo {
+            onProgress(UploadProgressUpdate(phase: .processing, percent: 0, indeterminate: false))
+        }
+
+        let payload: UploadFileResponse = try await Self.completeResumableSession(
+            config: config,
+            sessionId: serverSession.sessionId
+        )
+
+        if var entry = sessions[sessionId] {
+            entry.uploadedFileId = payload.file.id
+            sessions[sessionId] = entry
+        }
+
+        return payload.file
+    }
+
+    private struct ResumableUploadSessionPayload: Decodable {
+        let sessionId: String
+        let chunkSize: Int
+        let totalParts: Int
+        let partsReceived: [Int]
+
+        enum CodingKeys: String, CodingKey {
+            case sessionId = "session_id"
+            case chunkSize = "chunk_size"
+            case totalParts = "total_parts"
+            case partsReceived = "parts_received"
+        }
+    }
+
+    private func ensureResumableSession(
+        config: ServerConfig,
+        fileName: String,
+        mimeType: String,
+        folderId: String?,
+        totalSize: Int64,
+        existingSessionId: String?
+    ) async throws -> ResumableUploadSessionPayload {
+        if let existingSessionId {
+            guard let request = try? UploadService.authorizedRequest(
+                config: config,
+                path: "/uploads/\(existingSessionId)",
+                method: "GET"
+            ) else {
+                throw UploadServiceError.noServerURL
+            }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return try UploadService.decodeResponse(data: data, response: response)
+        }
+
+        var body: [String: Any] = [
+            "filename": fileName,
+            "total_size": totalSize,
+            "content_type": mimeType,
+            "chunk_size": UploadService.uploadChunkSizeBytes,
+        ]
+        if let folderId {
+            body["folder_id"] = folderId
+        }
+        let json = try JSONSerialization.data(withJSONObject: body)
+
+        guard var request = try? UploadService.authorizedRequest(config: config, path: "/uploads", method: "POST") else {
+            throw UploadServiceError.noServerURL
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = json
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return try UploadService.decodeResponse(data: data, response: response)
+    }
+
     private func writeMultipartBody(
         fileURL: URL,
         fileName: String,
@@ -571,6 +790,55 @@ private final class UploadProgressHandler: NSObject, URLSessionTaskDelegate, @un
 extension UploadService {
     fileprivate static func authorizedRequestForUpload(config: ServerConfig) throws -> URLRequest {
         try authorizedRequest(config: config, path: "/files/upload", method: "POST")
+    }
+
+    fileprivate static func readFileChunk(fileURL: URL, offset: Int64, length: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(offset))
+        guard let data = try handle.read(upToCount: length), !data.isEmpty else {
+            return Data()
+        }
+        return data
+    }
+
+    fileprivate static func putResumablePart(
+        config: ServerConfig,
+        sessionId: String,
+        partNumber: Int,
+        body: Data
+    ) async throws {
+        guard var request = try? UploadService.authorizedRequest(
+            config: config,
+            path: "/uploads/\(sessionId)/parts/\(partNumber)",
+            method: "PUT"
+        ) else {
+            throw UploadServiceError.noServerURL
+        }
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            let message = parseErrorMessagePublic(from: data) ?? "Upload part failed."
+            let code = parseErrorCodePublic(from: data) ?? "request_failed"
+            throw UploadServiceError.server(message: message, code: code)
+        }
+    }
+
+    fileprivate static func completeResumableSession(
+        config: ServerConfig,
+        sessionId: String
+    ) async throws -> UploadFileResponse {
+        guard var request = try? UploadService.authorizedRequest(
+            config: config,
+            path: "/uploads/\(sessionId)/complete",
+            method: "POST"
+        ) else {
+            throw UploadServiceError.noServerURL
+        }
+        request.httpBody = Data()
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return try decodeResponse(data: data, response: response)
     }
 
     fileprivate static func parseErrorMessagePublic(from data: Data) -> String? {

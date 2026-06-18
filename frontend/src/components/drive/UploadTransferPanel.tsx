@@ -14,6 +14,7 @@ import {
   cancelUploadItem,
   dismissUploadBatch,
   getUploadBatchDisplayCounts,
+  reattachUploadFile,
   removeUploadBatchItem,
 } from "@/lib/upload-manager";
 import { cn } from "@/lib/utils";
@@ -195,6 +196,11 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             items={batch.items}
             onCancelItem={cancelUploadItem}
             onRemoveItem={removeUploadBatchItem}
+            onReattachFile={(itemId, file) => {
+              if (!reattachUploadFile(itemId, file)) {
+                window.alert("Choose the same file (matching name and size) to continue the upload.");
+              }
+            }}
           />
         </div>
       ) : null}

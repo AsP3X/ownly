@@ -13,7 +13,7 @@ Ownly is a self-hosted personal cloud (Rust/Axum API, Vite/React web UI, Postgre
 The largest **remaining** gaps versus commercial drives fall into four buckets:
 
 1. **Daily-use file ops** — basic filename search only; no unified folder search or relevance ranking.
-2. **Reliability at scale** — resumable upload follow-ups (iOS, janitor, session expiry, disk optimizations); no file versioning.
+2. **Reliability at scale** — resumable upload hardening (direct-to-Nebular, iOS background resume); no file versioning.
 3. **Client coverage** — web + iOS browse/upload; no desktop sync or Android app.
 4. **Production polish** — email notifications, backup runbooks, API metrics, expanded E2E coverage.
 
@@ -117,22 +117,17 @@ Search is **filename substring match on files only**:
 
 ### 1.2 Resumable upload follow-ups
 
-**Priority:** P1–P2  
+**Priority:** P2  
 **Effort:** Medium–large  
 **Tracker:** [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md)
 
-Web resumable uploads (> 32 MiB, migration `029_upload_sessions.sql`) are **shipped**. Remaining work:
+Chunked uploads (migration `029_upload_sessions.sql`), janitor protection, session expiry sweeper (without expiry audit), append-on-write, web video threshold (8 MiB), parallel parts, reload resume UX, and iOS chunked upload (without background/app-kill resume) are **shipped**. Remaining work:
 
 | Item | Summary |
 |------|---------|
-| Janitor protection | Protect `ownly_upload_{session_id}` spools while `upload_sessions.status` is active/completing |
-| Session expiry sweeper | Abort expired sessions and delete spool dirs (72h `expires_at` today is checked on-demand only) |
-| iOS parity | Chunked `POST/PUT /uploads/*` — iOS still uses single multipart POST |
-| Video threshold | Route `video/*` through chunked upload below 32 MiB |
-| Append-on-write | Avoid 2× disk peak at complete (parts + assemble) |
-| Parallel parts | Bounded concurrent chunk PUTs on web |
-| Reload resume UX | Re-select file to continue after page reload |
-| Direct-to-Nebular | Stream parts to object storage when API disk is the bottleneck |
+| **Direct-to-Nebular** | Stream parts to object storage when API disk is the bottleneck |
+| **iOS background resume** | Background `URLSession` + persist server `session_id` across app kill |
+| **Expiry audit** (optional) | `uploads.session.expire` in `audit_logs` when janitor aborts stale sessions |
 
 **Nebular boundary:** Per [`nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc), multipart behavior changes in Nebular belong upstream; Ownly integration stays here.
 
@@ -508,7 +503,7 @@ flowchart TD
 
 | Phase | Focus | Why first |
 |-------|-------|-----------|
-| **1** | Unified search + resumable upload follow-ups (janitor, iOS) | Daily-use wins; closes self-hosted reliability gaps |
+| **1** | Unified search + resumable hardening (direct-to-Nebular, iOS background) | Daily-use wins; last upload reliability gaps |
 | **2** | Disk savings + backup/restore docs | Production adopters; measurable Nebular disk reduction |
 | **3** | Desktop sync **or** Android | Expands beyond "web locker" |
 | **4** | Versioning, email notifications, 2FA | Production-grade polish |

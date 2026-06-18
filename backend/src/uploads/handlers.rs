@@ -10,7 +10,6 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
 
 use crate::{
     audit,
@@ -28,7 +27,7 @@ use crate::{
     AppState,
 };
 
-use super::assemble::assemble_session_parts;
+use super::assemble::{append_part_to_source, resolve_session_source};
 use super::store::{
     expected_part_size, insert_session, list_received_parts, load_session_for_user, mark_aborted,
     mark_complete, mark_completing, record_part, total_parts, UploadSessionRow, DEFAULT_CHUNK_SIZE,
@@ -155,9 +154,9 @@ pub async fn create_session(
     .await?;
 
     let work_dir = upload_work_dir(&session.id);
-    tokio::fs::create_dir_all(work_dir.join("parts"))
+    tokio::fs::create_dir_all(&work_dir)
         .await
-        .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload parts dir: {error}")))?;
+        .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload work dir: {error}")))?;
 
     audit::write_audit(
         &state.pool,
@@ -223,18 +222,17 @@ pub async fn upload_part(
     }
 
     let work_dir = upload_work_dir(&session.id);
-    tokio::fs::create_dir_all(work_dir.join("parts"))
+    tokio::fs::create_dir_all(&work_dir)
         .await
-        .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload parts dir: {error}")))?;
+        .map_err(|error| AppError::Internal(anyhow::anyhow!("create upload work dir: {error}")))?;
 
-    let part_path = work_dir.join("parts").join(part_number.to_string());
-
-    let mut file = tokio::fs::File::create(&part_path).await.map_err(|error| {
-        AppError::Internal(anyhow::anyhow!("create upload part file: {error}"))
-    })?;
-    file.write_all(&body)
-        .await
-        .map_err(|error| AppError::Internal(anyhow::anyhow!("write upload part: {error}")))?;
+    append_part_to_source(
+        &work_dir,
+        part_number,
+        session.chunk_size as i64,
+        &body,
+    )
+    .await?;
 
     let bytes_received =
         record_part(&state.pool, &session_id, part_number, body.len() as i64).await?;
@@ -284,7 +282,7 @@ pub async fn complete_session(
     mark_completing(&state.pool, &session_id, &claims.sub).await?;
 
     let work_dir = upload_work_dir(&session.id);
-    let (tmp_path, size_bytes) = match assemble_session_parts(&session, &work_dir).await {
+    let (tmp_path, size_bytes) = match resolve_session_source(&session, &work_dir).await {
         Ok(result) => result,
         Err(error) => {
             let _ = sqlx::query(
