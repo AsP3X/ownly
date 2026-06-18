@@ -154,6 +154,9 @@ type InternalUploadItem = {
 
   uploadedFileId?: string;
 
+  /** Server resumable session id — reused on retry to skip uploaded parts. */
+  resumableServerSessionId?: string | null;
+
   error?: string;
 
 };
@@ -1018,6 +1021,16 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
       {
         folderId,
         sessionId: uploadId,
+        resumableServerSessionId: claimed.resumableServerSessionId,
+        onResumableSessionReady: (serverSessionId) => {
+          updateItems((items) =>
+            items.map((item) =>
+              item.id === uploadId
+                ? { ...item, resumableServerSessionId: serverSessionId }
+                : item,
+            ),
+          );
+        },
         deferIngest: true,
         onUploadBytesComplete: () => releaseUploadByteSlot(uploadId),
         onServerFileRegistered: (file) => registerUploadServerFile(uploadId, file),

@@ -15,8 +15,17 @@ export {
   tryRefreshAuthToken,
   API_BASE,
 } from "@/api/core";
+export {
+  RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+  UPLOAD_CHUNK_SIZE_BYTES,
+} from "@/lib/resumable-upload";
 
 import { createClientId } from "@/lib/utils-app";
+import {
+  abortResumableUploadSession,
+  RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+  uploadFileResumableBytes,
+} from "@/lib/resumable-upload";
 import {
   API_BASE,
   ApiError,
@@ -1553,10 +1562,13 @@ async function runGenericPostUploadPhases(
 // Human: Track in-flight uploads so the transfer panel can abort XHR and video ingest polling.
 // Agent: MAP sessionId → ActiveUploadSession; CALL abortUploadSession from upload-manager cancel.
 type ActiveUploadSession = {
-  xhr: XMLHttpRequest;
+  xhr?: XMLHttpRequest;
   cancelled: boolean;
   uploadedFileId: string | null;
   rejectUpload: ((error: ApiError) => void) | null;
+  /** Server upload session id for resumable chunked uploads. */
+  resumableServerSessionId?: string | null;
+  abortController?: AbortController;
 };
 
 const activeUploadSessions = new Map<string, ActiveUploadSession>();
@@ -1595,7 +1607,13 @@ export function abortUploadSession(
   }
 
   session.cancelled = true;
-  session.xhr.abort();
+  session.abortController?.abort();
+  session.xhr?.abort();
+  if (session.resumableServerSessionId) {
+    void abortResumableUploadSession(session.resumableServerSessionId).catch(() => {
+      // Human: Best-effort cleanup of partial server spool on cancel.
+    });
+  }
   cleanupPartialServerFile();
 
   session.rejectUpload?.(new ApiError("Upload cancelled", "upload_cancelled", 0));
@@ -1781,13 +1799,17 @@ export async function waitForFileIngestCompletion(
 }
 
 // Human: Upload one file with XMLHttpRequest so the UI can show byte-level progress.
-// Agent: POST /files/upload multipart; optional folder_id + sessionId for cancel; RETURNS { file: FileItem }.
+// Agent: POST /files/upload multipart for small files; resumable chunked path above threshold.
 export function uploadFileWithProgress(
   file: File,
   onProgress?: (update: UploadProgressUpdate) => void,
   options?: {
     folderId?: string | null;
     sessionId?: string;
+    /** Resume an in-progress server session after a transient failure. */
+    resumableServerSessionId?: string | null;
+    /** Fires when the resumable API allocates or reloads a server session id. */
+    onResumableSessionReady?: (serverSessionId: string) => void;
     /** Fires when the API accepted the upload and returned a file row (before HLS ingest finishes). */
     onServerFileRegistered?: (file: FileItem) => void;
     /** Fires when all request bytes reached the server — frees a browser upload slot before the HTTP response returns. */
@@ -1795,6 +1817,161 @@ export function uploadFileWithProgress(
     /** When true, return after the upload API responds without polling media ingest to completion. */
     deferIngest?: boolean;
     /** Gates each post-upload stage so only three files occupy processing, encrypting, or storing at once. */
+    acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
+    releasePipelineStages?: () => void;
+  },
+): Promise<{ file: FileItem }> {
+  if (file.size > RESUMABLE_UPLOAD_THRESHOLD_BYTES) {
+    return uploadFileWithProgressResumable(file, onProgress, options);
+  }
+  return uploadFileWithProgressMultipart(file, onProgress, options);
+}
+
+function uploadFileWithProgressResumable(
+  file: File,
+  onProgress?: (update: UploadProgressUpdate) => void,
+  options?: {
+    folderId?: string | null;
+    sessionId?: string;
+    resumableServerSessionId?: string | null;
+    onResumableSessionReady?: (serverSessionId: string) => void;
+    onServerFileRegistered?: (file: FileItem) => void;
+    onUploadBytesComplete?: () => void;
+    deferIngest?: boolean;
+    acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
+    releasePipelineStages?: () => void;
+  },
+): Promise<{ file: FileItem }> {
+  return new Promise((resolve, reject) => {
+    const mediaKind = resolveUploadMediaKind(file);
+    const isVideoUpload = mediaKind === "video";
+    const isAudioUpload = mediaKind === "audio";
+    const isGenericUpload = !isVideoUpload && !isAudioUpload;
+    const sessionId = options?.sessionId ?? createClientId();
+    const abortController = new AbortController();
+
+    const session: ActiveUploadSession = {
+      cancelled: false,
+      uploadedFileId: null,
+      rejectUpload: null,
+      resumableServerSessionId: options?.resumableServerSessionId ?? null,
+      abortController,
+    };
+    activeUploadSessions.set(sessionId, session);
+
+    const finishSession = () => {
+      activeUploadSessions.delete(sessionId);
+    };
+
+    let settled = false;
+    const fail = (error: ApiError) => {
+      if (settled) return;
+      settled = true;
+      options?.releasePipelineStages?.();
+      finishSession();
+      reject(error);
+    };
+    session.rejectUpload = fail;
+
+    let genericPostUploadPromise: Promise<void> | null = null;
+    let releaseServerResponseGate: (() => void) | null = null;
+    const serverResponseGate = new Promise<void>((resolveGate) => {
+      releaseServerResponseGate = resolveGate;
+    });
+    const openServerResponseGate = () => {
+      releaseServerResponseGate?.();
+      releaseServerResponseGate = null;
+    };
+
+    const emitPostUploadWaitPhase = () => {
+      if (isGenericUpload) {
+        if (genericPostUploadPromise) return;
+        genericPostUploadPromise = runGenericPostUploadPhases(
+          onProgress,
+          () => session.cancelled,
+          serverResponseGate,
+          options?.acquirePipelineStage,
+        );
+      }
+    };
+
+    onProgress?.({ phase: "uploading", percent: 0 });
+
+    void (async () => {
+      try {
+        const registered = await uploadFileResumableBytes(file, {
+          folderId: options?.folderId,
+          existingSessionId: options?.resumableServerSessionId ?? session.resumableServerSessionId,
+          onProgress: (update) => onProgress?.(update),
+          isCancelled: () => session.cancelled,
+          signal: abortController.signal,
+          onSessionReady: (serverSession) => {
+            session.resumableServerSessionId = serverSession.session_id;
+            options?.onResumableSessionReady?.(serverSession.session_id);
+          },
+        });
+
+        if (session.cancelled) {
+          throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+        }
+
+        options?.onUploadBytesComplete?.();
+        emitPostUploadWaitPhase();
+
+        const payloadFile = registered as FileItem;
+        session.uploadedFileId = payloadFile.id;
+        options?.onServerFileRegistered?.(payloadFile);
+        openServerResponseGate();
+
+        let fileRow = payloadFile;
+        if (isMediaAwaitingIngest(fileRow) && !options?.deferIngest) {
+          onProgress?.(mapFileToUploadProgressUpdate(fileRow, 0));
+          fileRow = await waitForFileIngestCompletion(
+            fileRow.id,
+            onProgress,
+            () => session.cancelled,
+          );
+        } else if (genericPostUploadPromise) {
+          await genericPostUploadPromise;
+        }
+
+        if (session.cancelled) {
+          throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+        }
+
+        options?.releasePipelineStages?.();
+        finishSession();
+        resolve({ file: fileRow });
+      } catch (error) {
+        if (error instanceof ApiError) {
+          fail(error);
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          fail(new ApiError("Upload cancelled", "upload_cancelled", 0));
+          return;
+        }
+        fail(
+          new ApiError(
+            error instanceof Error ? error.message : "Upload failed",
+            error instanceof TypeError ? "network_error" : "upload_failed",
+            0,
+          ),
+        );
+      }
+    })();
+  });
+}
+
+function uploadFileWithProgressMultipart(
+  file: File,
+  onProgress?: (update: UploadProgressUpdate) => void,
+  options?: {
+    folderId?: string | null;
+    sessionId?: string;
+    onServerFileRegistered?: (file: FileItem) => void;
+    onUploadBytesComplete?: () => void;
+    deferIngest?: boolean;
     acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
     releasePipelineStages?: () => void;
   },

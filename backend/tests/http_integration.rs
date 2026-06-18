@@ -2661,6 +2661,156 @@ async fn login_rejects_invalid_password() {
         .ok();
 }
 
+// Human: Resumable chunked upload completes when all parts are received and assembled.
+// Agent: POST /uploads; PUT parts; POST complete; EXPECT files row with matching size_bytes.
+#[tokio::test]
+async fn resumable_upload_assembles_parts_into_file() {
+    let Some(state) =
+        test_harness::TestHarness::state("resumable_upload_assembles_parts_into_file").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("chunk-upload-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let create = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/uploads")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "filename": "chunked.bin",
+                        "total_size": 100,
+                        "chunk_size": 64,
+                        "content_type": "application/octet-stream"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create.status(), StatusCode::OK);
+    let create_json = response_json(create).await;
+    let session_id = create_json["session_id"]
+        .as_str()
+        .expect("session_id")
+        .to_string();
+    assert_eq!(create_json["total_parts"], 2);
+
+    let part0 = vec![b'a'; 64];
+    let put0 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/uploads/{session_id}/parts/0"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(part0))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(put0.status(), StatusCode::OK);
+
+    let status = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/uploads/{session_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status.status(), StatusCode::OK);
+    let status_json = response_json(status).await;
+    assert_eq!(status_json["parts_received"], json!([0]));
+    assert_eq!(status_json["bytes_received"], 64);
+
+    let part1 = vec![b'b'; 36];
+    let put1 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/uploads/{session_id}/parts/1"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(part1))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(put1.status(), StatusCode::OK);
+
+    let complete = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/uploads/{session_id}/complete"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(complete.status(), StatusCode::OK);
+    let complete_json = response_json(complete).await;
+    let file_id = complete_json["file"]["id"].as_str().expect("file id");
+    assert_eq!(complete_json["file"]["size_bytes"], 100);
+
+    let size: i64 = sqlx::query_scalar("SELECT size_bytes FROM files WHERE id = $1")
+        .bind(file_id)
+        .fetch_one(&state.pool)
+        .await
+        .expect("file row");
+    assert_eq!(size, 100);
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Owners can rename files in place without moving them between folders.
 // Agent: PATCH /files/{id} { name }; EXPECT 200; LIST reflects new display name.
 #[tokio::test]

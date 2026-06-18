@@ -28,13 +28,11 @@ use crate::{
         processing::ensure_file_not_processing,
         recycle_bin::{self, DeleteQuery, ACTIVE_FILES_SQL},
         upload_validation::{self, normalize_upload_filename, normalize_upload_size_bytes},
+        upload_finalize::{finalize_spooled_upload, SpooledUploadInput},
+        upload_spool::{upload_is_video, upload_work_dir},
     },
     hls::export::export_cache_is_valid,
-    jobs::{
-        self,
-        model::{AudioWaveformPayload, DocumentThumbnailPayload, HlsEncodePayload, ImageThumbnailPayload, VideoThumbnailPayload},
-        JobKind,
-    },
+    jobs,
     rate_limit,
     request_tracking,
     AppState,
@@ -416,42 +414,6 @@ enum ReceivedUploadBody {
     },
 }
 
-// Human: Guard against deleting the OS temp root when removing upload scratch directories.
-fn is_deletable_upload_work_dir(path: &std::path::Path) -> bool {
-    let temp_root = std::env::temp_dir();
-    path.starts_with(&temp_root) && path != temp_root.as_path()
-}
-
-// Human: Remove an ownly_upload_* directory after a non-media blob is persisted to Nebular.
-async fn cleanup_upload_work_dir(work_dir: &std::path::Path) {
-    if is_deletable_upload_work_dir(work_dir) {
-        let _ = tokio::fs::remove_dir_all(work_dir).await;
-    }
-}
-
-// Human: Read a spooled upload file and PUT it to object storage with transient-error retries.
-// Agent: CALLS put_with_retry; RE-READS spool each attempt; ERRORS on disk read or Nebular failure.
-async fn storage_put_spooled_file(
-    storage: &Arc<dyn crate::storage::Storage>,
-    storage_key: &str,
-    mime: &str,
-    tmp_path: &std::path::Path,
-) -> Result<(), AppError> {
-    let path = tmp_path.to_path_buf();
-    let mime = mime.to_string();
-    let key = storage_key.to_string();
-    crate::storage::put_with_retry(storage.as_ref(), &key, &mime, || {
-        let path = path.clone();
-        async move {
-            tokio::fs::read(&path)
-                .await
-                .map_err(|error| anyhow::anyhow!("read upload spool: {error}"))
-        }
-    })
-    .await
-    .map_err(|error| AppError::Storage(error.to_string()))
-}
-
 // Human: Stream one multipart file field to disk with a rolling size cap check.
 // Agent: WRITES chunks via AsyncWriteExt; RETURNS total bytes; ERRORS when max_bytes exceeded.
 async fn stream_multipart_field_to_path(
@@ -481,16 +443,6 @@ async fn stream_multipart_field_to_path(
     }
 
     Ok(size_bytes)
-}
-
-// Human: Guess whether a multipart part should use the video spool path before reading bytes.
-// Agent: READS filename extension only; IGNORES spoofed Content-Type so HTML cannot hijack HLS ingest.
-fn multipart_part_is_video(filename: &str, _content_type: &str) -> bool {
-    mime_guess::from_path(filename)
-        .first_or_octet_stream()
-        .type_()
-        .as_str()
-        == "video"
 }
 
 // Human: Accept multipart uploads and persist bytes to object storage with metadata in Postgres.
@@ -547,8 +499,8 @@ pub async fn upload_file(
                     "files.upload receiving multipart body"
                 );
 
-                let is_video = multipart_part_is_video(&filename, &content_type);
-                let work_dir = std::env::temp_dir().join(format!("ownly_upload_{file_id}"));
+                let is_video = upload_is_video(&filename, &content_type);
+                let work_dir = upload_work_dir(&file_id);
                 tokio::fs::create_dir_all(&work_dir).await.map_err(|error| {
                     AppError::Internal(anyhow::anyhow!("create upload work dir: {error}"))
                 })?;
@@ -645,360 +597,35 @@ pub async fn upload_file(
     };
 
     let ReceivedUploadBody::DiskSpool {
-        ref tmp_path,
+        work_dir,
+        tmp_path,
         size_bytes,
         ..
-    } = &received_body;
-    if *size_bytes == 0 {
-        return Err(AppError::BadRequest("file is required".into()));
-    }
+    } = received_body;
 
-    crate::quota::ensure_within_quota(&state.pool, &claims.sub, *size_bytes as i64).await?;
-
-    // Human: Persist the SHA-256 digest of uploaded bytes for content-based duplicate detection.
-    // Agent: READS spooled tmp_path; WRITES content_hash on every files INSERT below.
-    let content_hash = crate::files::content_hash::hash_file_sha256(tmp_path).await?;
-
-    let storage_put_started = Instant::now();
-    let db_started = Instant::now();
-
-    let file: FileDto = match received_body {
-        ReceivedUploadBody::DiskSpool {
-            work_dir: _work_dir,
-            tmp_path,
-            size_bytes,
-            is_video: true,
-        } => {
-            if size_bytes == 0 {
-                let _ = tokio::fs::remove_file(&tmp_path).await;
-                return Err(AppError::BadRequest("file is required".into()));
-            }
-
-            tracing::info!(
-                request_id = %request_id.0,
-                file_id = %file_id,
-                storage_key = %storage_key,
-                size_bytes,
-                is_video = true,
-                "files.upload persisting video metadata"
-            );
-
-            // Human: Reserve a node with enough capacity before HLS worker writes segments.
-            // Agent: CALLS placement::reserve_node_for_upload; WRITES files.storage_node_id.
-            let storage_node_id = crate::storage::placement::reserve_node_for_upload(
-                &state.pool,
-                &storage_key,
-                size_bytes,
-            )
-            .await?;
-
-            let _: FileDto = sqlx::query_as(&format!(
-                "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
-                 storage_node_id, duration_seconds, hls_encode_status, conversion_progress, \
-                 video_thumbnail_status) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, 'queued', 0, 'queued') \
-                 RETURNING {FILE_COLUMNS}"
-            ))
-            .bind(&file_id)
-            .bind(&claims.sub)
-            .bind(&folder_id)
-            .bind(&filename)
-            .bind(&storage_key)
-            .bind(&mime)
-            .bind(size_bytes as i64)
-            .bind(&content_hash)
-            .bind(&storage_node_id)
-            .fetch_one(&state.pool)
-            .await?;
-
-            tracing::info!(
-                request_id = %request_id.0,
-                file_id = %file_id,
-                "files.upload HLS ingest queued (duration probed in background worker)"
-            );
-
-            let payload = HlsEncodePayload {
-                file_id: file_id.clone(),
-                storage_key: storage_key.clone(),
-                tmp_video: tmp_path.to_string_lossy().to_string(),
-                duration_seconds: 0,
-            };
-
-            jobs::enqueue_job(
-                &state.pool,
-                &claims.sub,
-                JobKind::HlsEncode,
-                &filename,
-                Some("file"),
-                Some(&file_id),
-                serde_json::to_value(payload)
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("encode job payload: {e}")))?,
-            )
-            .await?;
-
-            let thumbnail_payload = VideoThumbnailPayload {
-                file_id: file_id.clone(),
-                storage_key: storage_key.clone(),
-                tmp_video: Some(tmp_path.to_string_lossy().to_string()),
-            };
-
-            jobs::enqueue_job(
-                &state.pool,
-                &claims.sub,
-                JobKind::VideoThumbnail,
-                &filename,
-                Some("file"),
-                Some(&file_id),
-                serde_json::to_value(thumbnail_payload).map_err(|e| {
-                    AppError::Internal(anyhow::anyhow!("thumbnail job payload: {e}"))
-                })?,
-            )
-            .await?;
-
-            sqlx::query_as(&format!(
-                "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND user_id = $2"
-            ))
-            .bind(&file_id)
-            .bind(&claims.sub)
-            .fetch_one(&state.pool)
-            .await?
-        }
-        ReceivedUploadBody::DiskSpool {
+    let file = finalize_spooled_upload(
+        &state,
+        &request_id,
+        &headers,
+        SpooledUploadInput {
+            file_id,
+            user_id: claims.sub.clone(),
+            folder_id,
+            filename: filename.clone(),
+            storage_key,
+            mime,
             work_dir,
             tmp_path,
             size_bytes,
-            is_video: false,
-        } => {
-            if size_bytes == 0 {
-                cleanup_upload_work_dir(&work_dir).await;
-                return Err(AppError::BadRequest("file is required".into()));
-            }
-            let is_audio = mime.starts_with("audio/");
-            let is_image = mime.starts_with("image/");
-
-            tracing::info!(
-                request_id = %request_id.0,
-                file_id = %file_id,
-                storage_key = %storage_key,
-                size_bytes,
-                is_video = false,
-                is_audio,
-                is_image,
-                "files.upload object storage PUT starting"
-            );
-
-            if let Err(error) = storage_put_spooled_file(
-                &state.storage,
-                &storage_key,
-                &mime,
-                &tmp_path,
-            )
-            .await
-            {
-                cleanup_upload_work_dir(&work_dir).await;
-                tracing::error!(
-                    request_id = %request_id.0,
-                    file_id = %file_id,
-                    storage_key = %storage_key,
-                    size_bytes,
-                    storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
-                    error = %error,
-                    "files.upload object storage PUT failed"
-                );
-                return Err(error);
-            }
-
-            let storage_put_ms = storage_put_started.elapsed().as_millis() as u64;
-            tracing::info!(
-                request_id = %request_id.0,
-                file_id = %file_id,
-                storage_key = %storage_key,
-                size_bytes,
-                storage_put_ms,
-                "files.upload object storage PUT complete"
-            );
-
-            if is_audio {
-                let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
-                     audio_encode_status, conversion_progress) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0) \
-                     RETURNING {FILE_COLUMNS}"
-                ))
-                .bind(&file_id)
-                .bind(&claims.sub)
-                .bind(&folder_id)
-                .bind(&filename)
-                .bind(&storage_key)
-                .bind(&mime)
-                .bind(size_bytes as i64)
-                .bind(&content_hash)
-                .fetch_one(&state.pool)
-                .await?;
-
-                tracing::info!(
-                    request_id = %request_id.0,
-                    file_id = %file_id,
-                    "files.upload audio waveform analysis queued"
-                );
-
-                let payload = AudioWaveformPayload {
-                    file_id: file_id.clone(),
-                    storage_key: storage_key.clone(),
-                    tmp_audio: Some(tmp_path.to_string_lossy().to_string()),
-                };
-
-                jobs::enqueue_job(
-                    &state.pool,
-                    &claims.sub,
-                    JobKind::AudioWaveform,
-                    &filename,
-                    Some("file"),
-                    Some(&file_id),
-                    serde_json::to_value(payload).map_err(|e| {
-                        AppError::Internal(anyhow::anyhow!("audio waveform job payload: {e}"))
-                    })?,
-                )
-                .await?;
-
-                file
-            } else if is_image {
-                let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
-                     image_thumbnail_status) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued') \
-                     RETURNING {FILE_COLUMNS}"
-                ))
-                .bind(&file_id)
-                .bind(&claims.sub)
-                .bind(&folder_id)
-                .bind(&filename)
-                .bind(&storage_key)
-                .bind(&mime)
-                .bind(size_bytes as i64)
-                .bind(&content_hash)
-                .fetch_one(&state.pool)
-                .await?;
-
-                tracing::info!(
-                    request_id = %request_id.0,
-                    file_id = %file_id,
-                    "files.upload image grid thumbnail queued"
-                );
-
-                let payload = ImageThumbnailPayload {
-                    file_id: file_id.clone(),
-                    storage_key: storage_key.clone(),
-                    tmp_source: Some(tmp_path.to_string_lossy().to_string()),
-                };
-
-                jobs::enqueue_job(
-                    &state.pool,
-                    &claims.sub,
-                    JobKind::ImageThumbnail,
-                    &filename,
-                    Some("file"),
-                    Some(&file_id),
-                    serde_json::to_value(payload).map_err(|e| {
-                        AppError::Internal(anyhow::anyhow!("image thumbnail job payload: {e}"))
-                    })?,
-                )
-                .await?;
-
-                file
-            } else if crate::document::mime::qualifies_for_document_grid_thumbnail(&mime, &filename) {
-                let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash, \
-                     document_thumbnail_status) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued') \
-                     RETURNING {FILE_COLUMNS}"
-                ))
-                .bind(&file_id)
-                .bind(&claims.sub)
-                .bind(&folder_id)
-                .bind(&filename)
-                .bind(&storage_key)
-                .bind(&mime)
-                .bind(size_bytes as i64)
-                .bind(&content_hash)
-                .fetch_one(&state.pool)
-                .await?;
-
-                tracing::info!(
-                    request_id = %request_id.0,
-                    file_id = %file_id,
-                    "files.upload document grid thumbnail queued"
-                );
-
-                let payload = DocumentThumbnailPayload {
-                    file_id: file_id.clone(),
-                    storage_key: storage_key.clone(),
-                    mime_type: mime.clone(),
-                    filename: filename.clone(),
-                    tmp_source: Some(tmp_path.to_string_lossy().to_string()),
-                };
-
-                jobs::enqueue_job(
-                    &state.pool,
-                    &claims.sub,
-                    JobKind::DocumentThumbnail,
-                    &filename,
-                    Some("file"),
-                    Some(&file_id),
-                    serde_json::to_value(payload).map_err(|e| {
-                        AppError::Internal(anyhow::anyhow!("document thumbnail job payload: {e}"))
-                    })?,
-                )
-                .await?;
-
-                file
-            } else {
-                let file: FileDto = sqlx::query_as(&format!(
-                    "INSERT INTO files (id, user_id, folder_id, name, storage_key, mime_type, size_bytes, content_hash) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {FILE_COLUMNS}"
-                ))
-                .bind(&file_id)
-                .bind(&claims.sub)
-                .bind(&folder_id)
-                .bind(&filename)
-                .bind(&storage_key)
-                .bind(&mime)
-                .bind(size_bytes as i64)
-                .bind(&content_hash)
-                .fetch_one(&state.pool)
-                .await?;
-                cleanup_upload_work_dir(&work_dir).await;
-                file
-            }
-        }
-    };
-    tracing::info!(
-        request_id = %request_id.0,
-        file_id = %file_id,
-        db_insert_ms = db_started.elapsed().as_millis() as u64,
-        "files.upload database insert complete"
-    );
-
-    // Human: Attach PUT-time placement cache to the new files row (non-video uploads).
-    // Agent: READS storage_blob_placements; UPDATES files.storage_node_id when still NULL.
-    crate::storage::placement::link_file_to_placement(&state.pool, &file_id, &storage_key).await?;
-
-    audit::write_audit(
-        &state.pool,
-        Some(&claims.sub),
-        "files.upload",
-        Some("file"),
-        Some(&file_id),
-        Some(serde_json::json!({ "name": filename, "size_bytes": file.size_bytes })),
-        &headers,
+            resumable: false,
+        },
     )
-    .await
-    .ok();
+    .await?;
 
     tracing::info!(
         request_id = %request_id.0,
         user_id = %claims.sub,
-        file_id = %file_id,
+        file_id = %file.id,
         filename = %filename,
         size_bytes = file.size_bytes,
         total_ms = upload_started.elapsed().as_millis() as u64,

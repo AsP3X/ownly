@@ -5,7 +5,7 @@ use axum::{
     extract::DefaultBodyLimit,
     http::{HeaderValue, Method, Request},
     middleware,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use std::sync::Arc;
@@ -47,6 +47,7 @@ pub mod setup;
 pub mod shares;
 pub mod storage;
 pub mod temp_cleanup;
+pub mod uploads;
 pub mod user_sessions;
 
 use config::Config;
@@ -485,6 +486,21 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/files/upload",
             post(files::handlers::upload_file).layer(DefaultBodyLimit::max(max_upload)),
+        )
+        .route("/api/v1/uploads", post(uploads::handlers::create_session))
+        .route(
+            "/api/v1/uploads/{id}",
+            get(uploads::handlers::get_session).delete(uploads::handlers::abort_session),
+        )
+        .route(
+            "/api/v1/uploads/{id}/parts/{part_number}",
+            put(uploads::handlers::upload_part).layer(DefaultBodyLimit::max(
+                uploads::store::MAX_CHUNK_SIZE as usize + 1024 * 1024,
+            )),
+        )
+        .route(
+            "/api/v1/uploads/{id}/complete",
+            post(uploads::handlers::complete_session),
         )
         .route(
             "/api/v1/files/{id}/cancel-ingest",
