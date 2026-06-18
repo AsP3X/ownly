@@ -1,6 +1,6 @@
 # Ownly Improvement Roadmap
 
-**Date:** 2026-06-08  
+**Date:** 2026-06-18 (storage disk plan added)  
 **Status:** Living document — tracks product, platform, and operational improvements identified from codebase review.  
 **Audience:** Maintainers, contributors, and agents planning feature work.
 
@@ -42,6 +42,7 @@ This document expands each improvement area with **current state**, **proposed d
    - [4.5 Backup and restore tooling](#45-backup-and-restore-tooling)
 5. [Security and identity (next tier)](#5-security-and-identity-next-tier)
 6. [Storage and scale](#6-storage-and-scale)
+   - [6.1 Disk savings follow-ups](#61-disk-savings-follow-ups)
 7. [UX polish (lower cost, high delight)](#7-ux-polish-lower-cost-high-delight)
 8. [Suggested priority order](#suggested-priority-order)
 9. [Related documents](#related-documents)
@@ -699,8 +700,10 @@ Frontend surfacing is the main gap.
 - **Second node Compose** — `docker-compose.rep.yml` profile (node B on port 9001)
 - **Nebular cluster modes** — scrub sampling, wire checksums, dead-letter replay, and webhooks shipped upstream (`1e94546` on `master`; see `nebular-os/docs/plans/cluster-modes.md`)
 - **Recycle bin** — 30-day retention (`RECYCLE_BIN_RETENTION_DAYS`); **background purger exists** — `start_recycle_bin_purger()` in `lib.rs`, runs every 6 hours via `purge_expired_recycle_bin`
-- **Content hash** — per-user duplicate preflight, not cross-user dedup
-- **Storage audit** — `scripts/storage-audit.py` walks Nebular blob tree vs Postgres sums
+- **Content hash** — per-user duplicate preflight on upload; **no shared `storage_key`** yet (each upload stores a full blob)
+- **Storage audit** — `scripts/storage-audit.py` walks Nebular blob tree vs Postgres sums (manual)
+- **HLS export sidecar** — `{storage_key}/export.mp4` written for some thumbnail/zip paths, not only explicit download export
+- **Nebular compression** — NOSI block zstd + optional `NOS_DEDUP_ENABLED` (default off); see [`storage-disk-tuning.md`](storage-disk-tuning.md)
 
 ### Improvements
 
@@ -708,14 +711,29 @@ Frontend surfacing is the main gap.
 |------|--------|
 | **Recycle bin monitoring** | Purger exists; add metric/log alert if purge fails repeatedly; admin UI "last purge" timestamp |
 | **Cross-node replication** | Ownly placement + Nebular replicated mode; failover read path; document in ops guide |
-| **Storage audit automation** | Cron/K8s job runs `storage-audit.py`; alert on drift > threshold |
-| **Blob-level dedup** | Optional global dedup by `content_hash` — saves disk, complex quota accounting and legal/implications; policy decision |
 | **GPU HLS** | Already supported via `docker-compose.gpu.yml`; document capacity planning |
+
+**Detailed disk-savings plan:** [`docs/storage-disk-improvements.md`](storage-disk-improvements.md) (2026-06-18).
+
+### 6.1 Disk savings follow-ups
+
+Prioritized in [`storage-disk-improvements.md`](storage-disk-improvements.md):
+
+| Priority | Item | Summary |
+|----------|------|---------|
+| P1 | **Lazy `export.mp4`** | Persist remuxed MP4 only on explicit download (or stream into zip); use ephemeral local remux for thumbnails; optional TTL eviction |
+| P1 | **Per-user `content_hash` dedup** | Re-upload → new `files` row, shared `storage_key`, refcount; purge blob at zero refs |
+| P2 | **Orphan blob audit automation** | Schedule `storage-audit.py`; alert on logical vs on-disk drift; optional admin repair dry-run |
+| P2 | **Failed HLS / spool cleanup** | Sweeper for partial `{storage_key}/segments/*` and idle `ownly_upload_*` after failed/cancelled encode |
+| P3 | **Archive HLS segment tier** | Policy for 12s+ segments (beyond current >500 MiB rule) — fewer objects, slightly better encoder efficiency |
+| P3 | **Nebular `NOS_DEDUP_ENABLED`** | Ops pilot for block-level dedup across keys; complements Ownly dedup, not a substitute |
+| Deferred | **Cross-user dedup** | Policy decision — quota, isolation, share semantics; see storage-disk-improvements §7 |
 
 ### Verification
 
 - Two-node profile: upload lands on node A; replication visible on B (after Nebular bump)
 - Storage audit CI job fails on injected drift (test fixture)
+- After disk-savings work: video library without unsolicited `export.mp4`; duplicate upload shares one Nebular object (per-user dedup)
 
 ---
 
@@ -781,6 +799,7 @@ flowchart TD
 | Security audit | [`security-audit.md`](../security-audit.md) |
 | Security audit scripts | [`scripts/security-audit/README.md`](../scripts/security-audit/README.md) |
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](storage-disk-tuning.md) |
+| Storage disk savings plan | [`docs/storage-disk-improvements.md`](storage-disk-improvements.md) |
 | Resumable upload follow-ups | [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) |
 | Regression testing rule | [`.cursor/rules/regression-testing.mdc`](../.cursor/rules/regression-testing.mdc) |
 | iOS client | [`ios/README.md`](../ios/README.md) |

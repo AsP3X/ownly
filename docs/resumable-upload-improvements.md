@@ -187,13 +187,21 @@ flowchart LR
 | **TUS protocol** | Custom session API already works; adds dependency without clear win over current design |
 | **Resume after reload without re-picking file** | Browser security prevents access to `File` bytes; poor ROI vs iOS + janitor fixes |
 | **Lower chunk size globally** | More requests and DB rows; tune only if proxies misbehave |
-| **Content-hash dedup at complete** | Duplicate preflight exists on simple upload path; extend later if needed |
+| **Content-hash dedup at complete** | Duplicate preflight exists on simple upload path; full plan in [`storage-disk-improvements.md`](storage-disk-improvements.md) §2 |
 
 ---
 
 ## Related improvements (other conversation themes)
 
 These were identified as high leverage **outside** the resumable upload MVP but worth tracking in the same planning cycle:
+
+### Storage disk savings (API spool + Nebular orphans)
+
+**Problem:** Resumable uploads increase API disk pressure; failed HLS jobs and duplicate uploads waste Nebular space.
+
+**Direction:** See [`storage-disk-improvements.md`](storage-disk-improvements.md) — lazy `export.mp4`, per-user `content_hash` dedup, audit automation, HLS partial-prefix cleanup.
+
+---
 
 ### Unified global search (runner-up to resumable uploads)
 

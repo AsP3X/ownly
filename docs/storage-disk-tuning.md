@@ -127,7 +127,10 @@ Audit action: `admin.storage_blobs.migrate`. Export local Nebular changes for up
 
 ## What Ownly does not do (yet)
 
-- **Content dedup** (“upload same file again”) — would need Ownly metadata + storage key strategy; Nebular block dedup is optional and separate.
+- **Per-user content dedup** — `content_hash` duplicate preflight only; each upload still gets its own `storage_key`. Planned: refcount + shared blob — [`storage-disk-improvements.md`](storage-disk-improvements.md) §2.
+- **Lazy `export.mp4`** — thumbnail/zip paths may persist `{storage_key}/export.mp4` before the user downloads. Planned: on-demand export + TTL — [`storage-disk-improvements.md`](storage-disk-improvements.md) §1.
+- **Automated orphan audit** — `storage-audit.py` is manual. Planned: scheduled run + alerts — [`storage-disk-improvements.md`](storage-disk-improvements.md) §3.
+- **Nebular block dedup** — `NOS_DEDUP_ENABLED` is optional and separate from Ownly metadata dedup — [`storage-disk-improvements.md`](storage-disk-improvements.md) §6.
 - **Per-size zstd tiers in Ownly** — Nebular uses upload vs maintenance levels only; there is no &lt;10 MiB → level 3 table in the engine.
 
 Public pages under `/specs/storage` and `/specs/nebular-os` follow this document.
