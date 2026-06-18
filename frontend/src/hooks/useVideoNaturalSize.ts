@@ -43,6 +43,9 @@ export function useVideoNaturalSize({
 } {
   const [elementSize, setElementSize] = useState<VideoNaturalSizeState | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
+  // Human: Keep last element dimensions when the <video> unmounts during desktop orientation routing.
+  // Agent: READS on ref detach; WRITES lockedElementSizeRef; RESET on fileId change — stops HLS reattach loops.
+  const lockedElementSizeRef = useRef<VideoNaturalSizeState | null>(null);
 
   const serverSize = useMemo(
     () => readServerVideoNaturalSize(serverWidth, serverHeight),
@@ -60,6 +63,8 @@ export function useVideoNaturalSize({
       if (!node) return;
 
       const commitSize = (next: VideoNaturalSize) => {
+        const committed = { fileId, size: next };
+        lockedElementSizeRef.current = committed;
         setElementSize((prev) => {
           if (
             prev?.fileId === fileId &&
@@ -69,7 +74,7 @@ export function useVideoNaturalSize({
           ) {
             return prev;
           }
-          return { fileId, size: next };
+          return committed;
         });
       };
 
@@ -91,16 +96,20 @@ export function useVideoNaturalSize({
     [fileId, onVideoNodeChange, videoRef],
   );
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    lockedElementSizeRef.current = null;
+    return () => {
       detachRef.current?.();
       detachRef.current = null;
-    },
-    [fileId],
-  );
+    };
+  }, [fileId]);
 
   const elementNatural =
-    elementSize?.fileId === fileId ? elementSize.size : null;
+    elementSize?.fileId === fileId
+      ? elementSize.size
+      : lockedElementSizeRef.current?.fileId === fileId
+        ? lockedElementSizeRef.current.size
+        : null;
   const naturalSize = elementNatural ?? serverSize;
 
   return { naturalSize, setVideoRef };

@@ -1,5 +1,5 @@
-// Human: Pencil desktop video player — 1.25× baseline (1500×1125), height capped by calc(100dvh - 2rem).
-// Agent: READS videoRef from parent for HLS attach; USES useVideoTransport; hidden below lg breakpoint.
+// Human: Desktop video player — landscape/square Pencil card, or mobile immersive shell for portrait sources.
+// Agent: READS useVideoNaturalSize; ROUTES portrait to VideoPlayerSurfaceMobile in a height-first desktop shell.
 
 import { useRef, type RefObject } from "react";
 import {
@@ -15,15 +15,16 @@ import {
   X,
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
 import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
 import { formatVideoTime } from "@/components/drive/video/video-time";
-import { DialogClose } from "@/components/ui/dialog";
 import {
-  resolveDesktopVideoFallbackAspectClass,
-  resolveDesktopVideoShellClass,
-  resolveVideoAspectRatioStyle,
+  resolveDesktopShellOrientation,
+  resolveDesktopVideoShellLayout,
+  type VideoNaturalSize,
 } from "@/components/drive/video/video-player-layout";
+import { DialogClose } from "@/components/ui/dialog";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -36,17 +37,65 @@ type VideoPlayerSurfaceProps = {
   onVideoNodeChange?: (node: HTMLVideoElement | null) => void;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
+  positionLabel?: string | null;
+  folderLabel?: string | null;
 };
 
-export function VideoPlayerSurface({
+// Human: Portrait desktop shell — mobile immersive player inside a tall 9:16 column (Pencil 1.25× scale).
+// Agent: READS resolveDesktopVideoShellLayout; WRAPS VideoPlayerSurfaceMobile at explicit width/height.
+function VideoPlayerPortraitDesktop({
   file,
   videoRef,
   loading = false,
   error = "",
+  naturalSize,
   onVideoNodeChange,
   onDownload,
   onShare,
-}: VideoPlayerSurfaceProps) {
+  positionLabel,
+  folderLabel,
+}: VideoPlayerSurfaceProps & { naturalSize: VideoNaturalSize | null }) {
+  const shellLayout = resolveDesktopVideoShellLayout("portrait", naturalSize);
+
+  return (
+    <div
+      data-video-orientation="portrait"
+      style={shellLayout.style}
+      className={cn(
+        "relative flex shrink-0 flex-col overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
+        shellLayout.className,
+      )}
+    >
+      <VideoPlayerSurfaceMobile
+        file={file}
+        videoRef={videoRef}
+        loading={loading}
+        error={error}
+        positionLabel={positionLabel}
+        folderLabel={folderLabel}
+        onVideoNodeChange={onVideoNodeChange}
+        onDownload={onDownload}
+        onShare={onShare}
+      />
+    </div>
+  );
+}
+
+// Human: Landscape/square desktop player — Pencil Normal card with meta pill and control bar.
+// Agent: READS setVideoRef from parent; USES useVideoTransport; hidden below lg breakpoint in dialog router.
+function VideoPlayerLandscapeDesktop({
+  file,
+  videoRef,
+  loading = false,
+  error = "",
+  naturalSize,
+  setVideoRef,
+  onDownload,
+  onShare,
+}: VideoPlayerSurfaceProps & {
+  naturalSize: VideoNaturalSize | null;
+  setVideoRef: (node: HTMLVideoElement | null) => void;
+}) {
   const cardRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -78,36 +127,21 @@ export function VideoPlayerSurface({
   const showCenterPlay = !isPlaying && !loading && !error && file.hls_ready;
   const showDownloadAction = Boolean(onDownload);
   const showShareAction = Boolean(onShare);
-
-  // Human: Orientation-aware shell — portrait column, square 1:1, or landscape band from server/element size.
-  // Agent: READS useVideoNaturalSize; APPLIES inline aspectRatio when width/height are known.
-  const { naturalSize, setVideoRef } = useVideoNaturalSize({
-    videoRef,
-    fileId: file.id,
-    serverWidth: file.video_width,
-    serverHeight: file.video_height,
-    onVideoNodeChange,
-  });
-  const orientation = naturalSize?.orientation ?? "landscape";
-  const shellAspectStyle = naturalSize
-    ? resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height)
-    : undefined;
+  const shellOrientation = resolveDesktopShellOrientation(naturalSize);
+  const shellLayout = resolveDesktopVideoShellLayout(shellOrientation, naturalSize);
 
   return (
     <div
       ref={cardRef}
-      data-video-orientation={orientation}
-      style={isFullscreen ? undefined : shellAspectStyle}
+      data-video-orientation={shellOrientation}
+      style={isFullscreen ? undefined : shellLayout.style}
       className={cn(
         "relative overflow-hidden rounded-2xl bg-black shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
         "fullscreen:overflow-visible",
         isImmersive && "fixed inset-0 z-[60] flex min-h-0 flex-col",
         isFullscreen
           ? "flex max-h-none min-h-0 max-w-none flex-1 flex-col rounded-none"
-          : cn(
-              resolveDesktopVideoShellClass(orientation),
-              resolveDesktopVideoFallbackAspectClass(orientation, Boolean(naturalSize)),
-            ),
+          : shellLayout.className,
       )}
       onFocus={revealChrome}
     >
@@ -282,5 +316,58 @@ export function VideoPlayerSurface({
         </div>
       </div>
     </div>
+  );
+}
+
+// Human: Route desktop preview to mobile immersive UI for portrait sources, Pencil card for landscape/square.
+// Agent: READS useVideoNaturalSize once; CALLS portrait or landscape child (separate hook trees).
+export function VideoPlayerSurface({
+  file,
+  videoRef,
+  loading = false,
+  error = "",
+  onVideoNodeChange,
+  onDownload,
+  onShare,
+  positionLabel,
+  folderLabel,
+}: VideoPlayerSurfaceProps) {
+  const { naturalSize, setVideoRef } = useVideoNaturalSize({
+    videoRef,
+    fileId: file.id,
+    serverWidth: file.video_width,
+    serverHeight: file.video_height,
+    onVideoNodeChange,
+  });
+  const shellOrientation = resolveDesktopShellOrientation(naturalSize);
+
+  if (shellOrientation === "portrait") {
+    return (
+      <VideoPlayerPortraitDesktop
+        file={file}
+        videoRef={videoRef}
+        loading={loading}
+        error={error}
+        naturalSize={naturalSize}
+        onVideoNodeChange={onVideoNodeChange}
+        onDownload={onDownload}
+        onShare={onShare}
+        positionLabel={positionLabel}
+        folderLabel={folderLabel}
+      />
+    );
+  }
+
+  return (
+    <VideoPlayerLandscapeDesktop
+      file={file}
+      videoRef={videoRef}
+      loading={loading}
+      error={error}
+      naturalSize={naturalSize}
+      setVideoRef={setVideoRef}
+      onDownload={onDownload}
+      onShare={onShare}
+    />
   );
 }

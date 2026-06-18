@@ -1,7 +1,14 @@
 // Human: Shared playback state for desktop and mobile video surfaces — progress, mute, fullscreen.
 // Agent: READS videoRef; mobile uses video-native fullscreen + CSS immersive fallback when API fails.
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { FileItem } from "@/api/client";
 import {
   readBufferedSegments,
@@ -120,7 +127,9 @@ export function useVideoTransport({
     };
   }, [isFullscreen, revealChrome]);
 
-  useEffect(() => {
+  // Human: Bind transport listeners after the <video> ref is committed (gallery key remounts swap the element).
+  // Agent: useLayoutEffect READS videoRef.current; RUNS after ref callback, before parent useEffects.
+  useLayoutEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 

@@ -1,7 +1,7 @@
 // Human: HLS video lightbox — desktop player + mobile CSS orientation layouts (Safari-safe).
 // Agent: FETCHES stream URL; ATTACHES hls.js; MOUNTS one surface via useIsDesktopPlayer; GALLERY swipe on narrow.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
@@ -18,7 +18,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { videoDialogRowHeightClass } from "@/components/drive/video/video-dialog-viewport";
+import {
+  videoDialogDesktopContentClass,
+  videoDialogDesktopRowClass,
+} from "@/components/drive/video/video-dialog-viewport";
 import { isVideoGallerySwipeZone } from "@/components/drive/video/video-gallery-swipe";
 import { cn } from "@/lib/utils";
 
@@ -99,10 +102,11 @@ export function VideoPreviewDialog({
     videos.length > 1 &&
     Boolean(onFileChange);
 
-  useEffect(() => {
+  // Human: Reset stream state before paint when gallery selection changes — not videoElement (ref callback owns that).
+  // Agent: useLayoutEffect CLEARS streamUrl/error before useHlsVideoAttach runs; AVOIDS nulling videoElement after ref attach.
+  useLayoutEffect(() => {
     setStreamUrl(null);
     setError("");
-    setVideoElement(null);
   }, [file?.id]);
 
   useEffect(() => {
@@ -262,15 +266,15 @@ export function VideoPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Human: Desktop shell — fixed row height min(1125px, 100dvh − padding) so player + nav always fit. */}
-      {/* Agent: NARROW branch stays full-viewport; wide branch mirrors Excel DialogContent padding/overflow. */}
+      {/* Human: Desktop — full viewport inset (Excel pattern); mobile — edge-to-edge immersive shell. */}
+      {/* Agent: motionlessPopup on both; desktop p-4 margin; landscape player uses explicit height cap. */}
       <DialogContent
-        motionlessPopup={isNarrow}
+        motionlessPopup
         className={cn(
           "flex flex-col gap-0 overflow-hidden border-0 bg-transparent shadow-none ring-0",
           isNarrow
             ? "h-[100svh] max-h-[100svh] w-full min-h-0 rounded-none p-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
-            : "w-full max-w-[calc(100%-1rem)] items-center justify-center p-4 sm:max-w-[108rem]",
+            : videoDialogDesktopContentClass,
         )}
         overlayClassName={cn(
           "bg-[#0A0A10]/80 backdrop-blur-[40px]",
@@ -295,10 +299,7 @@ export function VideoPreviewDialog({
                   "min-h-0 flex-1 flex-col",
                   useVerticalGalleryScroll && "relative",
                 )
-              : cn(
-                  videoDialogRowHeightClass,
-                  "max-w-full shrink-0 items-stretch justify-center gap-6",
-                ),
+              : videoDialogDesktopRowClass,
           )}
           aria-label="Video player"
           onTouchStart={useVerticalGalleryScroll ? undefined : handleTouchStart}
@@ -318,8 +319,13 @@ export function VideoPreviewDialog({
           ) : null}
 
           {file && isDesktop ? (
-            <div className="flex h-full min-h-0 flex-1 justify-center">
-              <VideoPlayerSurface key={file.id} {...playerProps} />
+            <div className="flex min-h-0 flex-1 items-center justify-center self-stretch">
+              <VideoPlayerSurface
+                key={file.id}
+                positionLabel={positionLabel}
+                folderLabel={folderLabel}
+                {...playerProps}
+              />
             </div>
           ) : null}
 

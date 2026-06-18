@@ -6,7 +6,10 @@ import {
   classifyVideoOrientation,
   readServerVideoNaturalSize,
   resolveDesktopVideoFallbackAspectClass,
+  resolveDesktopShellOrientation,
+  resolveDesktopVideoShellAspectStyle,
   resolveDesktopVideoShellClass,
+  resolveDesktopVideoShellLayout,
   resolveInlineVideoAspectClass,
   resolveMobileVideoShellClass,
   toVideoNaturalSize,
@@ -82,9 +85,39 @@ describe("resolve video shell classes", () => {
 
   it("maps desktop fallback aspect before metadata loads", () => {
     expect(resolveDesktopVideoFallbackAspectClass("landscape", false)).toBe("aspect-[4/3]");
+    expect(resolveDesktopVideoFallbackAspectClass("landscape", true)).toBe("aspect-[4/3]");
     expect(resolveDesktopVideoFallbackAspectClass("portrait", false)).toBe("aspect-[9/16]");
     expect(resolveDesktopVideoFallbackAspectClass("square", false)).toBe("aspect-square");
-    expect(resolveDesktopVideoFallbackAspectClass("landscape", true)).toBe("");
+    expect(resolveDesktopVideoFallbackAspectClass("portrait", true)).toBe("");
+  });
+
+  it("keeps landscape desktop shell on Pencil 4:3 after metadata loads", () => {
+    expect(
+      resolveDesktopVideoShellAspectStyle(toVideoNaturalSize(1920, 1080)),
+    ).toBeUndefined();
+    expect(
+      resolveDesktopVideoShellAspectStyle(toVideoNaturalSize(1080, 1920)),
+    ).toEqual({ aspectRatio: "1080 / 1920" });
+  });
+
+  it("sizes desktop shells with inline CSS independent of Tailwind scan", () => {
+    const landscape = resolveDesktopVideoShellLayout("landscape", toVideoNaturalSize(1920, 1080));
+    expect(landscape.style.height).toContain("1125px");
+    expect(landscape.style.width).toContain("1500px");
+    expect(landscape.style.minHeight).toContain("1125px");
+    expect(landscape.style.aspectRatio).toBeUndefined();
+
+    const portrait = resolveDesktopVideoShellLayout("portrait", toVideoNaturalSize(1080, 1920));
+    expect(portrait.style.height).toContain("1125px");
+    expect(portrait.style.minHeight).toContain("1125px");
+    expect(portrait.style.width).toContain("675px");
+    expect(portrait.style.width).toContain("1080 / 1920");
+  });
+
+  it("uses merged natural size for desktop shell orientation", () => {
+    expect(resolveDesktopShellOrientation(toVideoNaturalSize(1920, 1080))).toBe("landscape");
+    expect(resolveDesktopShellOrientation(toVideoNaturalSize(1080, 1920))).toBe("portrait");
+    expect(resolveDesktopShellOrientation(null)).toBe("landscape");
   });
 
   it("maps orientation to inline public-share aspect classes", () => {

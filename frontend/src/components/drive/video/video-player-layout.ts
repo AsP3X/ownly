@@ -2,6 +2,13 @@
 // Agent: READS natural width/height; RETURNS Tailwind shell classes and inline aspectRatio style.
 
 import type { CSSProperties } from "react";
+import {
+  VIDEO_DIALOG_VIEWPORT_INSET_CSS,
+  VIDEO_PLAYER_MAX_HEIGHT_PX,
+  VIDEO_PLAYER_MAX_WIDTH_PX,
+  VIDEO_PLAYER_PORTRAIT_MAX_WIDTH_PX,
+  VIDEO_PLAYER_SQUARE_MAX_HEIGHT_PX,
+} from "@/components/drive/video/video-dialog-viewport";
 
 /** Human: Layout bucket for player chrome — square is near-1:1, not the landscape preview band. */
 export type VideoOrientation = "landscape" | "square" | "portrait";
@@ -52,32 +59,119 @@ export function resolveVideoAspectRatioStyle(
   return { aspectRatio: `${naturalWidth} / ${naturalHeight}` };
 }
 
-// Human: Shared desktop shell base — height fills dialog row; width follows aspect (Pencil 1180×885 / 540×960).
-// Agent: USED by orientation-specific shells; pair with inline aspectRatio or fallback aspect class.
+// Human: Desktop player shell dimensions — inline CSS so sizing survives Tailwind static scan limits.
+// Agent: READS orientation + naturalSize; RETURNS structural className + explicit width/height (no max-width: 100%).
+function desktopViewportHeightCss(): string {
+  return `min(${VIDEO_PLAYER_MAX_HEIGHT_PX}px, calc(100dvh - ${VIDEO_DIALOG_VIEWPORT_INSET_CSS}))`;
+}
+
+function desktopLandscapeWidthCss(): string {
+  return `min(${VIDEO_PLAYER_MAX_WIDTH_PX}px, calc((100dvh - ${VIDEO_DIALOG_VIEWPORT_INSET_CSS}) * 4 / 3))`;
+}
+
+// Human: Desktop shell orientation from merged server/element dimensions — same rule as mobile player.
+// Agent: READS naturalSize; RETURNS portrait for height > width; defaults landscape before metadata loads.
+export function resolveDesktopShellOrientation(
+  naturalSize: VideoNaturalSize | null,
+): VideoOrientation {
+  return naturalSize?.orientation ?? "landscape";
+}
+
+function desktopPortraitWidthCss(naturalSize: VideoNaturalSize | null): string {
+  const aspectWidth = naturalSize?.width ?? 9;
+  const aspectHeight = naturalSize?.height ?? 16;
+  return `min(${VIDEO_PLAYER_PORTRAIT_MAX_WIDTH_PX}px, calc(min(${VIDEO_PLAYER_MAX_HEIGHT_PX}px, calc(100dvh - ${VIDEO_DIALOG_VIEWPORT_INSET_CSS})) * ${aspectWidth} / ${aspectHeight}))`;
+}
+
+export function resolveDesktopVideoShellLayout(
+  orientation: VideoOrientation,
+  naturalSize: VideoNaturalSize | null,
+): { className: string; style: CSSProperties } {
+  const viewportHeight = desktopViewportHeightCss();
+  const structuralClass = "shrink-0";
+
+  if (orientation === "portrait") {
+    const portraitWidth = desktopPortraitWidthCss(naturalSize);
+    return {
+      className: structuralClass,
+      style: {
+        width: portraitWidth,
+        minWidth: portraitWidth,
+        maxWidth: portraitWidth,
+        height: viewportHeight,
+        minHeight: viewportHeight,
+        maxHeight: viewportHeight,
+      },
+    };
+  }
+
+  if (orientation === "square") {
+    const squareCap = `${VIDEO_PLAYER_SQUARE_MAX_HEIGHT_PX}px`;
+    const squareHeight = `min(${VIDEO_PLAYER_SQUARE_MAX_HEIGHT_PX}px, calc(100dvh - ${VIDEO_DIALOG_VIEWPORT_INSET_CSS}))`;
+    return {
+      className: structuralClass,
+      style: {
+        width: squareCap,
+        maxWidth: squareCap,
+        height: squareHeight,
+        maxHeight: squareHeight,
+        aspectRatio: naturalSize
+          ? `${naturalSize.width} / ${naturalSize.height}`
+          : "1 / 1",
+      },
+    };
+  }
+
+  const landscapeWidth = desktopLandscapeWidthCss();
+  return {
+    className: structuralClass,
+    style: {
+      width: landscapeWidth,
+      minWidth: landscapeWidth,
+      maxWidth: landscapeWidth,
+      height: viewportHeight,
+      minHeight: viewportHeight,
+      maxHeight: viewportHeight,
+    },
+  };
+}
+
+// Human: Shared desktop shell base — literal Tailwind token for safelist / legacy class maps.
+// Agent: Prefer resolveDesktopVideoShellLayout; dynamic template strings are not emitted by Tailwind.
 export const videoDialogDesktopShellHeightClass =
-  "h-full max-h-[min(1125px,calc(100dvh-2rem))]" as const;
+  "h-[min(1125px,calc(100dvh-2rem))]" as const;
 
 // Human: Desktop landscape shell — 4:3 stage at row height (Pencil Normal: 1180×885).
-// Agent: max-w 1500px cap; width derived from height × aspect when metadata loads.
+// Agent: Literal Tailwind string; runtime sizing uses resolveDesktopVideoShellLayout inline styles.
 export const videoDialogLandscapePlayerShellClass =
-  `${videoDialogDesktopShellHeightClass} w-auto min-w-0 max-w-[min(1500px,100%)] shrink-0` as const;
+  "h-[min(1125px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(1500px,100%)] shrink-0" as const;
 
 // Human: Desktop vertical shell — 9:16 column (Pencil Portrait Vertical: 540×960).
-// Agent: max-w 540px; inline aspectRatio refines width once metadata loads.
+// Agent: max-w 540px; runtime sizing uses resolveDesktopVideoShellLayout inline styles.
 export const videoDialogVerticalPlayerShellClass =
-  `${videoDialogDesktopShellHeightClass} w-auto min-w-0 max-w-[min(540px,100%)] shrink-0` as const;
+  "h-[min(1125px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(540px,100%)] shrink-0" as const;
 
 // Human: Desktop square shell — 1:1 stage centered in the dialog row.
-// Agent: height-capped; width follows square aspect via inline style when known.
+// Agent: explicit height cap; width follows square aspect via inline style when known.
 export const videoDialogSquarePlayerShellClass =
-  "h-full max-h-[min(900px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(900px,100%)] shrink-0" as const;
+  "h-[min(900px,calc(100dvh-2rem))] w-auto min-w-0 max-w-[min(900px,100%)] shrink-0" as const;
 
-// Human: Fallback aspect before stream metadata — avoids conflicting with inline aspectRatio style.
-// Agent: RETURNS empty when natural size known; USED by VideoPlayerSurface desktop shell.
+// Human: Inline aspect for desktop shell — portrait/square follow source; landscape stays on Pencil 4:3 stage.
+// Agent: RETURNS undefined for landscape so width never tracks 16:9 metadata; video letterboxes via object-contain.
+export function resolveDesktopVideoShellAspectStyle(
+  naturalSize: VideoNaturalSize | null,
+): CSSProperties | undefined {
+  if (!naturalSize || naturalSize.orientation === "landscape") return undefined;
+  return resolveVideoAspectRatioStyle(naturalSize.width, naturalSize.height);
+}
+
+// Human: Tailwind aspect fallback — landscape always 4:3; portrait/square drop fallback once metadata is known.
+// Agent: USED by VideoPlayerSurface; PAIRS with resolveDesktopVideoShellAspectStyle for non-landscape sources.
 export function resolveDesktopVideoFallbackAspectClass(
   orientation: VideoOrientation,
   hasNaturalSize: boolean,
 ): string {
+  if (orientation === "landscape") return "aspect-[4/3]";
   if (hasNaturalSize) return "";
   if (orientation === "portrait") return "aspect-[9/16]";
   if (orientation === "square") return "aspect-square";
