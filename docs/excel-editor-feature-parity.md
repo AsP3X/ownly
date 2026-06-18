@@ -2,7 +2,7 @@
 
 Status legend: ✅ Done · 🚧 Partial · ⏳ Planned · ❌ Out of scope (Ownly)
 
-Last updated: 2026-06-08
+Last updated: 2026-06-18
 
 ## Ribbon UI
 
@@ -30,7 +30,7 @@ Last updated: 2026-06-08
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUMIFS, MAXIFS/MINIFS, ROW/COLUMN/OFFSET, IFNA, text helpers |
+| Formula evaluation / recalc | 🚧 | SUMIFS, MAXIFS/MINIFS, dynamic arrays (FILTER/SORT/UNIQUE/SEQUENCE/SORTBY), extended financial/stat subset; LAMBDA not yet |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
 | Trace Precedents | ✅ | Highlights formula refs in amber on grid |
 | Named ranges | ✅ | Name Manager + formula resolution + OOXML export |
@@ -123,7 +123,8 @@ Last updated: 2026-06-08
 
 ## Remaining high-value work
 
-1. Real Copilot LLM integration (backend)
-2. Structured references for table formulas
-3. Full Excel function library (LAMBDA, dynamic arrays)
-4. Comment VML drawing for Excel-native indicators
+1. Real Copilot LLM integration (`POST /api/v1/spreadsheet/copilot`)
+2. LAMBDA and fuller function library beyond current catalog
+3. Full OOXML style/chart round-trip edge cases
+4. Track changes UI + collaboration session token
+5. Comment VML drawing for Excel-native indicators

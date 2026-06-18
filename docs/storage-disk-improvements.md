@@ -1,7 +1,7 @@
 # Storage disk savings — follow-up improvements
 
-**Date:** 2026-06-18  
-**Status:** Planned — not yet implemented.  
+**Date:** 2026-06-18 (reviewed — all items still open)  
+**Status:** Planned — none of the items below are implemented in Ownly yet.  
 **Audience:** Maintainers reducing Nebular disk use without breaking playback, download, or upload flows.
 
 **Roadmap link:** [§6 Storage and scale](improvement-roadmap.md#6-storage-and-scale) in [`improvement-roadmap.md`](improvement-roadmap.md).

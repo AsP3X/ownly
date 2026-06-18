@@ -1,49 +1,45 @@
 # Ownly Improvement Roadmap
 
-**Date:** 2026-06-18 (storage disk plan added)  
-**Status:** Living document — tracks product, platform, and operational improvements identified from codebase review.  
+**Date:** 2026-06-18 (pruned — completed items removed)  
+**Status:** Living document — tracks **remaining** product, platform, and operational improvements.  
 **Audience:** Maintainers, contributors, and agents planning feature work.
 
 ---
 
 ## Executive summary
 
-Ownly is a self-hosted personal cloud (Rust/Axum API, Vite/React web UI, PostgreSQL, Nebular OS object storage, native iOS client). Core flows work end-to-end: setup wizard, auth, folder/file management, upload with HLS/video processing, public and user shares, recycle bin, admin console, multi-node storage registration, and audit logging. Security audit findings in [`security-audit.md`](../security-audit.md) are marked **fixed**.
+Ownly is a self-hosted personal cloud (Rust/Axum API, Vite/React web UI, PostgreSQL, Nebular OS object storage, native iOS client). Core flows work end-to-end: setup wizard, auth, folder/file management, upload with HLS/video processing, public and user shares, recycle bin, admin console, multi-node storage registration, audit logging, **atomic permissions**, **file/folder rename**, **resumable web uploads (> 32 MiB)**, and **GitHub Actions CI** (backend tests, clippy, frontend build/lint/unit tests, Playwright smoke). Security audit findings in [`security-audit.md`](../security-audit.md) are marked **fixed**.
 
-The largest gaps versus commercial drives (OneDrive, Google Drive, MEGA) fall into four buckets:
+The largest **remaining** gaps versus commercial drives fall into four buckets:
 
-1. **Authorization model** — owner-only + share links; coarse `users.role` instead of granular grants.
-2. **Daily-use file ops** — no rename; basic filename search only.
-3. **Reliability at scale** — single-shot browser uploads up to 10 GiB; no versioning.
-4. **Client coverage** — web + iOS browse/upload; no desktop sync or Android app.
+1. **Daily-use file ops** — basic filename search only; no unified folder search or relevance ranking.
+2. **Reliability at scale** — resumable upload follow-ups (iOS, janitor, session expiry, disk optimizations); no file versioning.
+3. **Client coverage** — web + iOS browse/upload; no desktop sync or Android app.
+4. **Production polish** — email notifications, backup runbooks, API metrics, expanded E2E coverage.
 
-This document expands each improvement area with **current state**, **proposed direction**, **key files**, **dependencies**, **verification**, and **rough effort**. Use the [suggested priority order](#suggested-priority-order) at the end when sequencing work.
+This document lists only **not-yet-implemented** work. Shipped features (atomic permissions migration `022_*`, rename API, resumable upload MVP migration `029_*`, CI workflow, Vitest/Playwright) are omitted here.
 
 ---
 
 ## Table of contents
 
 1. [High impact — product gaps](#1-high-impact--product-gaps)
-   - [1.1 Atomic permissions](#11-atomic-permissions-already-designed)
-   - [1.2 Rename files and folders](#12-rename-files-and-folders)
-   - [1.3 Better search](#13-better-search)
-   - [1.4 Resumable large uploads](#14-resumable-large-uploads)
-   - [1.5 File versioning](#15-file-versioning)
+   - [1.1 Better search](#11-better-search)
+   - [1.2 Resumable upload follow-ups](#12-resumable-upload-follow-ups)
+   - [1.3 File versioning](#13-file-versioning)
 2. [Platform and clients](#2-platform-and-clients)
    - [2.1 Desktop sync client](#21-desktop-sync-client)
    - [2.2 Android client](#22-android-client)
    - [2.3 Expand iOS offline](#23-expand-ios-offline)
-3. [In-app editors (active workstream)](#3-in-app-editors-active-workstream)
+3. [In-app editors (remaining work)](#3-in-app-editors-remaining-work)
 4. [Operations and production readiness](#4-operations-and-production-readiness)
-   - [4.1 CI pipeline](#41-ci-pipeline)
-   - [4.2 Frontend test coverage](#42-frontend-test-coverage)
-   - [4.3 Ownly API observability](#43-ownly-api-observability)
-   - [4.4 Email notifications](#44-email-notifications)
-   - [4.5 Backup and restore tooling](#45-backup-and-restore-tooling)
+   - [4.1 Expand frontend E2E coverage](#41-expand-frontend-e2e-coverage)
+   - [4.2 Ownly API observability](#42-ownly-api-observability)
+   - [4.3 Email notifications](#43-email-notifications)
+   - [4.4 Backup and restore tooling](#44-backup-and-restore-tooling)
 5. [Security and identity (next tier)](#5-security-and-identity-next-tier)
 6. [Storage and scale](#6-storage-and-scale)
-   - [6.1 Disk savings follow-ups](#61-disk-savings-follow-ups)
-7. [UX polish (lower cost, high delight)](#7-ux-polish-lower-cost-high-delight)
+7. [UX polish](#7-ux-polish)
 8. [Suggested priority order](#suggested-priority-order)
 9. [Related documents](#related-documents)
 
@@ -51,132 +47,7 @@ This document expands each improvement area with **current state**, **proposed d
 
 ## 1. High impact — product gaps
 
-### 1.1 Atomic permissions (already designed)
-
-**Priority:** P0 (architectural)  
-**Effort:** Large (multi-sprint)  
-**Spec:** [`docs/superpowers/specs/2026-05-25-atomic-permissions-design.md`](superpowers/specs/2026-05-25-atomic-permissions-design.md)
-
-#### Problem
-
-Today, file and folder access is effectively **owner-only**. Sharing works via:
-
-- **Public links** (`public_shares`) — password, expiry, download limits.
-- **User shares** (`resource_user_shares`) — grant another user access to a file or folder.
-
-Administration uses a coarse **`users.role`** column (`admin`, `pro`, `standard`) checked in JWT claims:
-
-```rust
-// backend/src/admin/handlers.rs — require_admin checks claims.role only
-pub fn require_admin(claims: &Claims) -> Result<(), AppError> {
-    if claims.role == "admin" { Ok(()) } else { Err(AppError::Forbidden(...)) }
-}
-```
-
-The admin UI **Roles** panel (`GET /api/v1/admin/users/roles`) returns a **hard-coded catalog** with permission strings like `instance.admin, users.manage` — these are labels, not enforced grants.
-
-#### What implementing atomic permissions unlocks
-
-| Capability | Today | With atomic grants |
-|------------|-------|-------------------|
-| Shared folder read/write/share | User-share only; no per-permission ACL | `content.read`, `content.write`, `content.share`, `content.delete` on folders |
-| Delegated admin | All-or-nothing `role = admin` | `instance.audit.read`, `instance.users.manage`, etc. via group membership |
-| Deny overrides | Not supported | Explicit deny beats allow on inherited folder grants |
-| Collaboration foundation | Share links + user shares | Permission-aware API for future co-editing, comments, workflows |
-| Audit clarity | Role changes in `users` table | One audit row per grant/revoke (`permissions.grant`, `permissions.revoke`) |
-
-#### Recommended design (from spec)
-
-- **Grant rows:** one row per `(subject, resource, permission, effect)` where subject is a user or group.
-- **Inheritance:** folder grants flow to descendants; **deny wins** over allow.
-- **Admin via groups:** seeded `admin` system group holds `instance.admin`; remove privileged `users.role` over time.
-- **Permission catalog** in Rust — instance scope (`instance.settings.manage`, `instance.audit.read`, …) and content scope (`content.read`, `content.write`, …).
-
-Proposed schema (from spec — next migration after current `021_*`):
-
-- `groups`, `group_members`
-- `permission_grants` (subject_type, subject_id, resource_type, resource_id, permission, effect)
-- Resolver function used by every file/folder/share handler instead of `user_id = $1`
-
-#### Key files to touch
-
-| Layer | Paths |
-|-------|-------|
-| Migration | `backend/migrations/postgres/022_atomic_permissions.sql` (new) |
-| Authz | New `backend/src/authz/` module (resolver, catalog, tests) |
-| Handlers | `backend/src/files/handlers.rs`, `folders.rs`, `shares/handlers.rs` |
-| Admin | `backend/src/admin/handlers.rs`, `console.rs` — replace `require_admin` with grant checks |
-| Frontend | Admin users/security panels, share dialogs, drive listing (shared-with-me already exists) |
-| Audit | `backend/src/audit.rs` — new actions for grant/revoke |
-
-#### Dependencies and risks
-
-- **Breaking change risk:** JWT `role` claims used across frontend (`useAuth`, admin route guard). Plan a migration: dual-read role + grants, then deprecate role in JWT.
-- **Performance:** Resolver must be indexed and cache-friendly; folder ancestry walks need a materialized path or recursive CTE with limits.
-- **Shares overlap:** Existing `resource_user_shares` may map to auto-grants or be replaced — decide in spec approval.
-
-#### Verification
-
-- Integration tests: user A grants `content.read` on folder to user B; B can list/download but not upload/delete.
-- Deny test: allow on folder, deny on file; deny wins.
-- Admin delegation: user in `auditors` group with `instance.audit.read` only cannot PATCH settings.
-- `cargo test`, `cargo clippy`, manual smoke: share folder, login as grantee, upload denied.
-
----
-
-### 1.2 Rename files and folders
-
-**Priority:** P1 (daily use)  
-**Effort:** Small–medium
-
-#### Problem
-
-**Move** exists; **rename** does not.
-
-| Operation | API | Client |
-|-----------|-----|--------|
-| Move file | `PATCH /api/v1/files/{id}` → `move_file` in `backend/src/files/handlers.rs` | `moveFile()` in `frontend/src/api/client.ts` |
-| Rename file | **Missing** | **Missing** |
-| Rename folder | **Missing** | **Missing** |
-
-Users expect inline rename (F2, slow double-click, context menu) in every drive product.
-
-#### Proposed direction
-
-**Backend**
-
-- `PATCH /api/v1/files/{id}` — add optional `name` field (alongside existing `folder_id` for move), or dedicated `PATCH .../rename` if you prefer separation.
-- `PATCH /api/v1/folders/{id}` — add `name` with validation (non-empty, no path separators, natural-sort collision handling in same parent).
-- Audit: `files.rename`, `folders.rename`.
-- Reject rename while file is processing (same guard as `move_file` uses via `ensure_file_not_processing`).
-
-**Frontend**
-
-- Explorer grid/list: inline edit or rename dialog.
-- Context menu + keyboard shortcut (F2).
-- iOS: long-press action parity with web.
-
-**Edge cases**
-
-- Duplicate names in same folder → `409 Conflict` (match upload preflight behavior).
-- Rename shared resource → notify grantees? (future; out of scope for v1 rename).
-
-#### Key files
-
-- `backend/src/files/handlers.rs`, `backend/src/files/folders.rs`
-- `frontend/src/api/client.ts`, `DrivePage.tsx`, explorer components
-- `backend/tests/http_integration.rs` — add rename happy path + conflict test
-- `ios/Ownly/Features/Files/` — mirror API
-
-#### Verification
-
-- Rename file in folder; list reflects new name; download `Content-Disposition` uses new name.
-- Rename folder; children paths unchanged (folder_id stable).
-- `cargo test`; `npm run build`; manual smoke on drive.
-
----
-
-### 1.3 Better search
+### 1.1 Better search
 
 **Priority:** P1  
 **Effort:** Medium (Postgres FTS) to Large (Meilisearch + content indexing)
@@ -203,7 +74,7 @@ Search is **filename substring match on files only**:
 | No ranking | `report.pdf` and `my-report-final-v2.pdf` ordered by natural sort, not relevance |
 | No fuzzy match | Typos miss results |
 | No content search | PDF/doc text not indexed |
-| No shared-library search | Search scoped to owned files (`user_id = $1`) |
+| No shared-library search | Search scoped to owned files (`user_id = $1`) — atomic permissions exist but search does not traverse grants |
 
 #### Option A — Postgres full-text (recommended first step)
 
@@ -227,7 +98,7 @@ Search is **filename substring match on files only**:
 
 - Extract text on upload (PDF via existing preview stack, plain text, Office via future pipeline).
 - Store in `file_search_content` table or Meilisearch field.
-- Background job; respect quota and privacy (owner-only until permissions ship).
+- Background job; respect quota and privacy (grant-aware when permissions apply).
 
 #### Key files
 
@@ -244,55 +115,37 @@ Search is **filename substring match on files only**:
 
 ---
 
-### 1.4 Resumable large uploads
+### 1.2 Resumable upload follow-ups
 
 **Priority:** P1–P2  
-**Effort:** Large  
-**Follow-ups:** [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) — MVP shipped 2026-06-16; janitor, iOS, disk, and direct-to-storage next steps.
+**Effort:** Medium–large  
+**Tracker:** [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md)
 
-#### Shipped MVP (2026-06-16)
+Web resumable uploads (> 32 MiB, migration `029_upload_sessions.sql`) are **shipped**. Remaining work:
 
-| Layer | Behavior |
-|-------|----------|
-| **Web client (> 32 MiB)** | Chunked session API — `POST /uploads`, `PUT` parts, `POST /complete`; retry skips received parts |
-| **Web client (≤ 32 MiB)** | Single `POST /api/v1/files/upload` (unchanged) |
-| **API** | `backend/src/uploads/` + migration `029_upload_sessions.sql`; shared `upload_finalize` |
-| **iOS** | Still single multipart POST — see follow-up doc |
-| **Limit** | `MAX_UPLOAD_BYTES` default **10 GiB** |
-
-#### Original gap (pre-MVP)
-
-| Layer | Behavior |
-|-------|----------|
-| **Web client** | Single `multipart/form-data` POST to `POST /api/v1/files/upload` |
-| **API** | `upload_file` read entire body in one pass |
-| **Nebular OS** | Multipart upload API in submodule — not yet wired through Ownly UX |
-
-Failed uploads mid-stream required **restarting from byte zero** on web. MVP addresses large web uploads; **iOS**, **temp janitor**, and **API-disk** optimizations are tracked in [`resumable-upload-improvements.md`](resumable-upload-improvements.md).
-
-#### Remaining direction (post-MVP)
-
-See [`resumable-upload-improvements.md`](resumable-upload-improvements.md) for prioritized follow-ups: janitor protection, session expiry sweeper, iOS parity, video-only threshold, append-on-write, parallel parts, direct-to-Nebular streaming.
+| Item | Summary |
+|------|---------|
+| Janitor protection | Protect `ownly_upload_{session_id}` spools while `upload_sessions.status` is active/completing |
+| Session expiry sweeper | Abort expired sessions and delete spool dirs (72h `expires_at` today is checked on-demand only) |
+| iOS parity | Chunked `POST/PUT /uploads/*` — iOS still uses single multipart POST |
+| Video threshold | Route `video/*` through chunked upload below 32 MiB |
+| Append-on-write | Avoid 2× disk peak at complete (parts + assemble) |
+| Parallel parts | Bounded concurrent chunk PUTs on web |
+| Reload resume UX | Re-select file to continue after page reload |
+| Direct-to-Nebular | Stream parts to object storage when API disk is the bottleneck |
 
 **Nebular boundary:** Per [`nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc), multipart behavior changes in Nebular belong upstream; Ownly integration stays here.
 
 ---
 
-### 1.5 File versioning
+### 1.3 File versioning
 
 **Priority:** P2  
 **Effort:** Medium–large
 
 #### Current state
 
-Migration `021_file_content_hash.sql` adds:
-
-```sql
-ALTER TABLE files ADD COLUMN content_hash TEXT;
-CREATE INDEX idx_files_user_content_hash ON files (user_id, content_hash) WHERE deleted_at IS NULL;
-```
-
-Used for **duplicate detection** on upload preflight (`check_upload_names`), not history.
+Migration `021_file_content_hash.sql` adds `content_hash` for **duplicate detection** on upload preflight (`check_upload_names`), not history.
 
 There is **no** `file_versions` table, no "restore previous version" UI, no automatic versioning on overwrite.
 
@@ -321,7 +174,7 @@ CREATE TABLE file_versions (
 - Download specific version; restore promotes copy to current.
 - Blob lifecycle: old versions reference same Nebular keys until purge job runs.
 
-**Relation to dedup:** Version rows may share `content_hash` / storage key when content unchanged.
+**Relation to dedup:** Version rows may share `content_hash` / storage key when content unchanged (see [`storage-disk-improvements.md`](storage-disk-improvements.md) §2).
 
 #### Key files
 
@@ -354,8 +207,6 @@ Web and iOS support **manual** browse/upload/download. There is no:
 - Conflict resolution (two devices edit same file)
 - Offline edit queue with sync on reconnect
 
-This is the primary reason users stay on OneDrive/Google Drive for daily work.
-
 #### Proposed direction
 
 **Phase 1 — Read-only mount or selective sync**
@@ -371,13 +222,8 @@ This is the primary reason users stay on OneDrive/Google Drive for daily work.
 
 **Reuse**
 
-- Resumable uploads ([§1.4](#14-resumable-large-uploads)) mandatory for desktop.
+- Resumable uploads ([§1.2](#12-resumable-upload-follow-ups)) mandatory for desktop.
 - `content_hash` for skip-if-unchanged.
-
-#### Key dependencies
-
-- Atomic permissions ([§1.1](#11-atomic-permissions-already-designed)) for shared-folder sync.
-- Stable API versioning and OpenAPI doc.
 
 #### Verification
 
@@ -391,22 +237,15 @@ This is the primary reason users stay on OneDrive/Google Drive for daily work.
 **Priority:** P2  
 **Effort:** Large
 
-#### Current state — iOS reference
+#### Current state
 
-[`ios/README.md`](../ios/README.md) documents:
-
-- Auth with Keychain, server config sheet, health pill
-- `FilesView` — list, pull-to-refresh, long-press actions (details, download, favourites, public link, delete)
-- Upload queue with phased progress (upload → encode → storage for video)
-- Offline: **top-level listing cache only**; session revalidation on reconnect
-
-No `android/` directory in the repo.
+[`ios/README.md`](../ios/README.md) documents the native iOS client (auth, browse, upload queue, offline top-level cache). No `android/` directory in the repo.
 
 #### Proposed direction
 
-- Kotlin + Compose (or Flutter/React Native if cross-platform preferred — iOS is native Swift today).
+- Kotlin + Compose (or cross-platform if preferred — iOS is native Swift today).
 - Mirror `/api/v1` paths and `{ error: { code, message } }` envelope per `frontend/src/api/client.ts`.
-- Feature parity milestones: auth → list/browse → upload queue → shares → offline cache.
+- Feature parity milestones: auth → list/browse → upload queue (resumable) → shares → offline cache.
 
 #### Verification
 
@@ -449,35 +288,25 @@ From `ios/README.md`:
 
 ---
 
-## 3. In-app editors (active workstream)
+## 3. In-app editors (remaining work)
 
 **Trackers:**
 
 - [`docs/excel-editor-feature-parity.md`](excel-editor-feature-parity.md)
 - [`docs/superpowers/plans/2026-06-08-excel-365-full-parity.md`](superpowers/plans/2026-06-08-excel-365-full-parity.md)
 
-The in-browser Excel editor is substantial (ribbon, formulas, pivot summaries, print preview, Copilot sidebar). Mobile is **read-only** (`useIsDesktopExcelViewport` gates edit mode).
+The in-browser Excel editor is substantial (ribbon, formulas including dynamic arrays, pivot summaries, print preview, Copilot sidebar heuristics). Mobile is **read-only** (`useIsDesktopExcelViewport` gates edit mode).
 
 ### Remaining high-value gaps
 
-| Area | Status | Gap | Planned work |
-|------|--------|-----|--------------|
-| **Formulas** | 🚧 Partial | Dynamic arrays (FILTER, SORT, UNIQUE), LAMBDA, fuller function library | Wave 2 in parity plan — `formula-dynamic-arrays.ts`, `formula-extended.ts` |
-| **Save fidelity** | 🚧 Partial | Full OOXML style/chart round-trip | Wave 1–3 — `xlsx-charts-ooxml.ts`, `cell-styles.ts` numFmt |
-| **Structured refs** | ⏳ | `Table[Column]` syntax | `formula-sheet-refs.ts` extensions |
-| **Copilot** | 🚧 | Local heuristics only | Wave 5 — `POST /api/v1/spreadsheet/copilot` + audit |
-| **Collaboration** | ❌ | Real-time co-editing | Requires backend sync session token; explicitly deferred |
-| **Track changes** | ❌ | | Wave 3 workbook ops |
-| **Mobile edit** | ❌ | Read-only preview on small viewports | Wave 4 — optional read-only polish only |
-
-### Implementation file map (from tracker)
-
-| Area | Path |
-|------|------|
-| Ribbon | `frontend/src/components/drive/excel/ExcelSpreadsheetRibbon.tsx` |
-| Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
-| OOXML metadata | `frontend/src/lib/spreadsheet/xlsx-metadata-ooxml.ts` |
-| Copilot UI | `frontend/src/components/drive/excel/ExcelCopilotSidebar.tsx` |
+| Area | Gap | Planned work |
+|------|-----|--------------|
+| **Formulas** | LAMBDA, fuller statistical/financial library | Extend `formula-extended.ts`; catalog in `formula-catalog.ts` |
+| **Save fidelity** | Full OOXML style/chart round-trip | `xlsx-charts-ooxml.ts`, `cell-styles.ts` numFmt edge cases |
+| **Copilot** | Local heuristics only | Wave 5 — `POST /api/v1/spreadsheet/copilot` + audit |
+| **Collaboration** | Real-time co-editing | Requires backend sync session token; explicitly deferred |
+| **Track changes** | Not implemented | Wave 3 workbook ops |
+| **Mobile edit** | Read-only preview on small viewports | Wave 4 — optional read-only polish only |
 
 ### Verification (editor changes)
 
@@ -489,80 +318,33 @@ The in-browser Excel editor is substantial (ribbon, formulas, pivot summaries, p
 
 ## 4. Operations and production readiness
 
-### 4.1 CI pipeline
+### 4.1 Expand frontend E2E coverage
 
-**Priority:** P0 (engineering)  
-**Effort:** Small
-
-#### Current state
-
-- **No** `.github/workflows/` in the repository.
-- Verification is documented manually in README and [`.cursor/rules/regression-testing.mdc`](../.cursor/rules/regression-testing.mdc):
-
-| Area | Command |
-|------|---------|
-| Backend | `cargo test -p ownly-backend`, `cargo clippy -p ownly-backend -- -D warnings` |
-| Frontend | `npm run build`, `npm run lint` |
-| Security audit unit tests | `python -m unittest discover -s scripts/security-audit/tests -v` |
-
-#### Proposed minimal GitHub Actions workflow
-
-**Triggers:** `pull_request`, `push` to `dev` / `master`
-
-**Jobs:**
-
-1. **backend** — Postgres service container; `DATABASE_URL` set; `cargo test`; `cargo clippy -D warnings`
-2. **frontend** — `npm ci`; `npm run build`; `npm run lint`
-3. **security-audit-tests** — stdlib Python only; unittest discover
-4. **frontend-docker** (optional, on frontend lockfile changes) — `docker build -f frontend/Dockerfile frontend` per [`.cursor/rules/frontend-npm-lockfile-docker.mdc`](../.cursor/rules/frontend-npm-lockfile-docker.mdc)
-
-**Optional nightly:** spin Compose stack; run `scripts/security-audit/sec001_*.py` … against `http://127.0.0.1:8080`
-
-#### Verification
-
-- PR cannot merge with failing jobs.
-- Document required secrets (none for unit jobs).
-
----
-
-### 4.2 Frontend test coverage
-
-**Priority:** P1  
+**Priority:** P2  
 **Effort:** Medium
 
 #### Current state
 
-| Layer | Coverage |
-|-------|----------|
-| Backend unit tests | Extensive — `#[cfg(test)]` in most modules (HLS, storage, quota, delete jobs, …) |
-| Backend HTTP integration | Single file `backend/tests/http_integration.rs` (~25 test functions); **requires `DATABASE_URL`** or skips |
-| Frontend | **No** Vitest, Playwright, or Testing Library in `frontend/package.json` |
-| Security audit | Good unit test coverage under `scripts/security-audit/tests/` |
+CI runs Vitest unit tests and Playwright smoke (`npm run test`, `npm run test:e2e` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). Coverage is still thin versus backend integration tests.
 
 #### Proposed direction
 
-**Unit/component (Vitest + React Testing Library)**
+**Additional Playwright scenarios**
 
-- `getErrorMessage` / API client error parsing
-- Explorer helpers (`explorer-file-list-updates.ts`, natural sort)
-- Spreadsheet formula modules (pure functions)
+- Trash/recycle bin restore and permanent delete
+- User share + grantee access (atomic permissions)
+- Admin grants panel smoke
+- Resumable upload interrupt/retry (network throttle)
 
-**E2E smoke (Playwright)**
-
-- Setup wizard → login → upload small file → download → delete
-- Public share link open (no auth)
-- Admin login → users list (if test fixture supports)
-
-Run E2E against Compose in CI or mock API for PR speed.
+Optional: nightly Compose job for full E2E against real Postgres + API.
 
 #### Verification
 
-- `npm test` in frontend package.json
-- CI job green; failures block merge.
+- `npm run test:e2e` green in CI; new scenarios block regressions.
 
 ---
 
-### 4.3 Ownly API observability
+### 4.2 Ownly API observability
 
 **Priority:** P2  
 **Effort:** Medium
@@ -595,30 +377,21 @@ Expose on `GET /api/v1/metrics` (admin-only or internal network) or separate bin
 
 ---
 
-### 4.4 Email notifications
+### 4.3 Email notifications
 
 **Priority:** P2  
 **Effort:** Medium
 
 #### Current state
 
-Admin settings **persist** SMTP configuration in `app_settings`:
-
-- Keys: `smtp_host`, `smtp_port`, `smtp_from`, `smtp_security`, `smtp_username`, `smtp_password`
-- Notification rule toggles: `notification_storage_offline`, `notification_audit_violations`, `notification_quota_alerts`
-
-Implemented in `backend/src/admin/console.rs` (`get_settings` / `patch_settings`).
+Admin settings **persist** SMTP configuration in `app_settings` (host, port, from, security, credentials) and notification rule toggles (storage offline, audit violations, quota alerts) in `backend/src/admin/console.rs`.
 
 **There is no mail-sending code** — no `lettre` dependency, no notification worker.
 
 #### Proposed direction
 
 1. Add `backend/src/notifications/` — SMTP sender from settings, templated HTML/text.
-2. Triggers:
-   - Quota threshold (80%, 100%) — on upload or daily scan
-   - Storage node offline — admin overview probe failure
-   - Share invite (when user-share creates account invite)
-   - Password reset (future)
+2. Triggers: quota threshold, storage node offline, share invite, password reset (future).
 3. Audit: `notifications.send` (no secrets in context).
 4. Admin test email button in System Settings panel.
 
@@ -630,7 +403,7 @@ Implemented in `backend/src/admin/console.rs` (`get_settings` / `patch_settings`
 
 ---
 
-### 4.5 Backup and restore tooling
+### 4.4 Backup and restore tooling
 
 **Priority:** P1 for production adopters  
 **Effort:** Medium
@@ -639,7 +412,6 @@ Implemented in `backend/src/admin/console.rs` (`get_settings` / `patch_settings`
 
 - README recommends **managed PostgreSQL** with backups for production — not Docker volumes.
 - Nebular blobs live on disk/volume under Nebular data dir.
-- `app_settings` and user metadata in Postgres.
 - `scripts/storage-audit.py` compares logical vs on-disk bytes — diagnostic, not backup.
 
 **No** documented runbook or scripted export/import.
@@ -662,27 +434,17 @@ Implemented in `backend/src/admin/console.rs` (`get_settings` / `patch_settings`
 
 ## 5. Security and identity (next tier)
 
-**Baseline:** [`security-audit.md`](../security-audit.md) — 5 High + 7 Medium findings, all marked **Fixed**. Probes under `scripts/security-audit/`.
+**Baseline:** [`security-audit.md`](../security-audit.md) — 5 High + 7 Medium findings, all marked **Fixed**.
 
 ### Recommended next steps
 
 | Item | Rationale | Notes |
 |------|-----------|-------|
 | **2FA / WebAuthn** | Protect admin accounts and high-value libraries | Store credentials per user; backup codes; audit `auth.webauthn.register` |
-| **OAuth/OIDC** | Teams avoiding local passwords | Google, GitHub, Authentik; map to local user or JIT provision; link existing email |
+| **OAuth/OIDC** | Teams avoiding local passwords | Google, GitHub, Authentik; map to local user or JIT provision |
 | **SEC-00x in CI** | Regression on security fixes | Nightly Compose + `sec001`…`sec012` scripts; SARIF upload optional |
-| **Session/device UX** | Users cannot see active sessions today | API exists: `GET /api/v1/admin/users/{id}/sessions`, revoke endpoints in `lib.rs`; add **Profile → Security** for self-service (non-admin: `GET /api/v1/me/sessions`) |
+| **Session/device UX** | Users cannot see active sessions in Profile | Backend: `GET /api/v1/admin/users/{id}/sessions`, revoke endpoints exist; add **`GET /api/v1/me/sessions`** + Profile → Security UI (frontend today uses localStorage stub in `profile-sessions-storage.ts`) |
 | **Passkeys for share links** | Optional | Lower priority than account 2FA |
-
-### Session infrastructure (already present)
-
-`backend/src/user_sessions.rs`:
-
-- Session epoch bump on password change / revoke-all
-- Per-session revoke
-- JWT validated against revocation list in `auth_middleware`
-
-Frontend surfacing is the main gap.
 
 ### Verification
 
@@ -694,98 +456,62 @@ Frontend surfacing is the main gap.
 
 ## 6. Storage and scale
 
-### Current capabilities
+### Current capabilities (baseline — not roadmap items)
 
-- **Multi-node registration** — `storage_nodes` table, admin UI, placement in `backend/src/storage/placement.rs`
-- **Second node Compose** — `docker-compose.rep.yml` profile (node B on port 9001)
-- **Nebular cluster modes** — scrub sampling, wire checksums, dead-letter replay, and webhooks shipped upstream (`1e94546` on `master`; see `nebular-os/docs/plans/cluster-modes.md`)
-- **Recycle bin** — 30-day retention (`RECYCLE_BIN_RETENTION_DAYS`); **background purger exists** — `start_recycle_bin_purger()` in `lib.rs`, runs every 6 hours via `purge_expired_recycle_bin`
-- **Content hash** — per-user duplicate preflight on upload; **no shared `storage_key`** yet (each upload stores a full blob)
-- **Storage audit** — `scripts/storage-audit.py` walks Nebular blob tree vs Postgres sums (manual)
-- **HLS export sidecar** — `{storage_key}/export.mp4` written for some thumbnail/zip paths, not only explicit download export
-- **Nebular compression** — NOSI block zstd + optional `NOS_DEDUP_ENABLED` (default off); see [`storage-disk-tuning.md`](storage-disk-tuning.md)
+Multi-node registration, Nebular cluster modes, recycle bin with background purger, per-user `content_hash` preflight, HLS with optional `export.mp4` sidecar, NOSI block zstd. See [`storage-disk-tuning.md`](storage-disk-tuning.md).
 
-### Improvements
+### Remaining disk-savings work
 
-| Item | Detail |
-|------|--------|
-| **Recycle bin monitoring** | Purger exists; add metric/log alert if purge fails repeatedly; admin UI "last purge" timestamp |
-| **Cross-node replication** | Ownly placement + Nebular replicated mode; failover read path; document in ops guide |
-| **GPU HLS** | Already supported via `docker-compose.gpu.yml`; document capacity planning |
-
-**Detailed disk-savings plan:** [`docs/storage-disk-improvements.md`](storage-disk-improvements.md) (2026-06-18).
-
-### 6.1 Disk savings follow-ups
-
-Prioritized in [`storage-disk-improvements.md`](storage-disk-improvements.md):
+Detailed plan: [`docs/storage-disk-improvements.md`](storage-disk-improvements.md).
 
 | Priority | Item | Summary |
 |----------|------|---------|
-| P1 | **Lazy `export.mp4`** | Persist remuxed MP4 only on explicit download (or stream into zip); use ephemeral local remux for thumbnails; optional TTL eviction |
-| P1 | **Per-user `content_hash` dedup** | Re-upload → new `files` row, shared `storage_key`, refcount; purge blob at zero refs |
-| P2 | **Orphan blob audit automation** | Schedule `storage-audit.py`; alert on logical vs on-disk drift; optional admin repair dry-run |
-| P2 | **Failed HLS / spool cleanup** | Sweeper for partial `{storage_key}/segments/*` and idle `ownly_upload_*` after failed/cancelled encode |
-| P3 | **Archive HLS segment tier** | Policy for 12s+ segments (beyond current >500 MiB rule) — fewer objects, slightly better encoder efficiency |
-| P3 | **Nebular `NOS_DEDUP_ENABLED`** | Ops pilot for block-level dedup across keys; complements Ownly dedup, not a substitute |
-| Deferred | **Cross-user dedup** | Policy decision — quota, isolation, share semantics; see storage-disk-improvements §7 |
+| P1 | **Lazy `export.mp4`** | Persist remuxed MP4 only on explicit download; ephemeral local remux for thumbnails |
+| P1 | **Per-user `content_hash` dedup** | Re-upload → shared `storage_key`, refcount |
+| P2 | **Orphan blob audit automation** | Schedule `storage-audit.py`; alert on drift |
+| P2 | **Failed HLS / spool cleanup** | Sweeper for partial segments and idle spools |
+| P3 | **Archive HLS segment tier** | Policy for 12s+ segments beyond current >500 MiB rule |
+| P3 | **Nebular `NOS_DEDUP_ENABLED`** | Ops pilot for block-level dedup |
+| Deferred | **Cross-user dedup** | Policy decision — see storage-disk-improvements §7 |
 
-### Verification
-
-- Two-node profile: upload lands on node A; replication visible on B (after Nebular bump)
-- Storage audit CI job fails on injected drift (test fixture)
-- After disk-savings work: video library without unsolicited `export.mp4`; duplicate upload shares one Nebular object (per-user dedup)
-
----
-
-## 7. UX polish (lower cost, high delight)
-
-Quick wins that compound:
+### Other storage ops (lower priority)
 
 | Item | Detail |
 |------|--------|
-| **Rename** | See [§1.2](#12-rename-files-and-folders) |
-| **Bulk rename** | Pattern rename (`vacation-{n}.jpg`) — after single rename ships |
-| **Keyboard shortcuts** | Drive: Ctrl+A select all, Delete → recycle bin, arrow navigation, F2 rename |
-| **Search folders** | See [§1.3](#13-better-search) |
+| **Recycle bin monitoring** | Metric/log alert if purge fails; admin UI "last purge" timestamp |
+| **Cross-node replication** | Ownly placement + Nebular replicated mode; failover read path |
+| **GPU HLS** | Supported via `docker-compose.gpu.yml`; document capacity planning |
+
+---
+
+## 7. UX polish
+
+| Item | Detail |
+|------|--------|
+| **Bulk rename** | Pattern rename (`vacation-{n}.jpg`) |
+| **Search folders** | See [§1.1](#11-better-search) |
 | **Mobile web parity** | Transfer panel visibility, offline banner, touch targets — compare to iOS |
-| **Landing/marketing pages** | `LandingPage`, `PricingPage`, `FeaturesPage` — decide: keep for public demo instances vs redirect authenticated users to `/` only |
+| **Landing/marketing pages** | `LandingPage`, `PricingPage`, `FeaturesPage` — decide public demo vs redirect |
 | **Empty states** | Onboarding hints for first upload, share, admin |
-| **Bulk operations** | Multi-select move/delete/share — partial today; polish consistency |
+| **Bulk operations polish** | Multi-select move/delete/share exists; consistency and edge cases |
 
 ---
 
 ## Suggested priority order
 
-Pragmatic sequencing balancing **risk reduction**, **daily-use value**, and **architecture**:
-
 ```mermaid
 flowchart TD
-    A["Phase 0: CI + smoke tests"] --> B["Phase 1: Rename + search"]
-    B --> C["Phase 2: Atomic permissions"]
-    C --> D["Phase 3: Resumable uploads"]
-    D --> E["Phase 4: Desktop sync OR Android"]
-    E --> F["Phase 5: Versioning + email + 2FA"]
+    A["Phase 1: Search + upload follow-ups"] --> B["Phase 2: Disk savings + backup runbook"]
+    B --> C["Phase 3: Desktop sync OR Android"]
+    C --> D["Phase 4: Versioning + email + 2FA"]
 ```
-
-### Phase summary
 
 | Phase | Focus | Why first |
 |-------|-------|-----------|
-| **0** | CI + frontend smoke tests | Cheap; protects all subsequent work |
-| **1** | Rename + improved search | Daily-use wins; small API surface |
-| **2** | Atomic permissions | Unlocks real sharing and collaboration |
-| **3** | Resumable uploads | Matches 10 GiB cap; prerequisite for desktop sync |
-| **4** | Desktop sync **or** Android | Expands beyond "web locker" |
-| **5** | Versioning, email notifications, 2FA | Production-grade polish |
-
-### Effort rough guide
-
-| Size | Calendar (solo maintainer, indicative) |
-|------|--------------------------------------|
-| Small | 1–3 days |
-| Medium | 1–2 weeks |
-| Large | 2–6 weeks |
-| Very large | 2+ months |
+| **1** | Unified search + resumable upload follow-ups (janitor, iOS) | Daily-use wins; closes self-hosted reliability gaps |
+| **2** | Disk savings + backup/restore docs | Production adopters; measurable Nebular disk reduction |
+| **3** | Desktop sync **or** Android | Expands beyond "web locker" |
+| **4** | Versioning, email notifications, 2FA | Production-grade polish |
 
 ---
 
@@ -793,24 +519,21 @@ flowchart TD
 
 | Topic | Location |
 |-------|----------|
-| Atomic permissions design | [`docs/superpowers/specs/2026-05-25-atomic-permissions-design.md`](superpowers/specs/2026-05-25-atomic-permissions-design.md) |
+| Atomic permissions design (shipped) | [`docs/superpowers/specs/2026-05-25-atomic-permissions-design.md`](superpowers/specs/2026-05-25-atomic-permissions-design.md) |
 | Excel editor parity | [`docs/excel-editor-feature-parity.md`](excel-editor-feature-parity.md) |
 | Excel full parity plan | [`docs/superpowers/plans/2026-06-08-excel-365-full-parity.md`](superpowers/plans/2026-06-08-excel-365-full-parity.md) |
 | Security audit | [`security-audit.md`](../security-audit.md) |
-| Security audit scripts | [`scripts/security-audit/README.md`](../scripts/security-audit/README.md) |
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](storage-disk-tuning.md) |
 | Storage disk savings plan | [`docs/storage-disk-improvements.md`](storage-disk-improvements.md) |
 | Resumable upload follow-ups | [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) |
 | Regression testing rule | [`.cursor/rules/regression-testing.mdc`](../.cursor/rules/regression-testing.mdc) |
 | iOS client | [`ios/README.md`](../ios/README.md) |
-| Nebular cluster plan (upstream) | `nebular-os/docs/plans/cluster-modes.md` (submodule) |
 | Project README | [`README.md`](../README.md) |
 
 ---
 
 ## Document maintenance
 
-- Update **Last updated** when adding or completing roadmap items.
-- When an item ships, add a line under it: **Status: Done (YYYY-MM-DD, PR/commit)**.
+- Update **Date** when adding or completing roadmap items.
+- When an item ships, **remove it** from this document (or move detail to README/changelog).
 - Link new migrations, API routes, and docs from the relevant section.
-- Prefer marking recycle-bin purger and other "already done" infrastructure accurately — avoid re-implementing existing background jobs.

@@ -1,26 +1,10 @@
-# Resumable upload — shipped baseline and follow-up improvements
+# Resumable upload — follow-up improvements
 
-**Date:** 2026-06-16  
-**Status:** MVP shipped on `master` (migration `029_upload_sessions.sql`, commit `781e436`).  
+**Date:** 2026-06-18 (pruned — MVP removed)  
+**Status:** Web MVP shipped (`029_upload_sessions.sql`). This doc tracks **remaining** work only.  
 **Audience:** Maintainers planning the next upload reliability pass.
 
----
-
-## Executive summary
-
-Ownly now supports **resumable chunked uploads** for files **> 32 MiB** on web:
-
-| Layer | Behavior |
-|-------|----------|
-| **Small files (≤ 32 MiB)** | Single `POST /api/v1/files/upload` (unchanged) |
-| **Large files (> 32 MiB)** | `POST /uploads` → `PUT /uploads/{id}/parts/{n}` → `POST /uploads/{id}/complete` |
-| **Chunk size** | 16 MiB default (client + server) |
-| **Retry** | Client skips parts already recorded via `GET /uploads/{id}` |
-| **iOS** | Still single-shot multipart only — **not yet implemented** |
-
-Bytes are spooled on the **API host** (parts under `ownly_upload_{session_id}/`), assembled at complete, then finalized through the shared `upload_finalize` path (Nebular PUT + HLS/thumbnail jobs).
-
-This document captures **follow-up improvements** that fit Ownly’s use case: self-hosted personal cloud, large video + HLS, limited API disk, web + iOS clients, flaky home/mobile networks.
+**Shipped baseline (omitted here):** Web chunked uploads for files > 32 MiB (`POST/GET/PUT/POST /uploads/*`), shared `upload_finalize`, Vitest + integration tests. See git history and [`improvement-roadmap.md`](improvement-roadmap.md) executive summary.
 
 ---
 
@@ -30,7 +14,7 @@ Improvements should prioritize:
 
 1. **Large videos** — primary reason users need resume (HLS pipeline after upload).
 2. **API container disk** — parts + assemble can briefly use ~2× file size on the API host.
-3. **Self-hosted ops** — no managed S3; janitor and expiry must not lose in-flight uploads.
+3. **Self-hosted ops** — janitor and expiry must not lose in-flight uploads.
 4. **Client parity** — iOS still uses one-shot POST; phone video on LTE is a core scenario.
 5. **Nebular boundary** — storage multipart changes belong in [AsP3X/nebular-os](https://github.com/AsP3X/nebular-os); Ownly integration stays in this repo per `nebular-os-vendor.mdc`.
 
@@ -55,7 +39,7 @@ Improvements should prioritize:
 
 ### 2. Expire stale upload sessions (DB + disk)
 
-**Problem:** Sessions have `expires_at` (72h) but no sweeper marks them aborted or deletes spool dirs. Abandoned uploads consume API disk indefinitely.
+**Problem:** Sessions have `expires_at` (72h) but no sweeper marks them aborted or deletes spool dirs. Abandoned uploads consume API disk indefinitely. Handlers reject expired sessions on access only.
 
 **Direction:**
 
@@ -71,7 +55,7 @@ Improvements should prioritize:
 
 ### 3. iOS resumable upload parity
 
-**Problem:** `ios/Ownly/Core/API/UploadService.swift` still uses single `POST /files/upload`. Mobile video on unstable networks is a primary Ownly use case.
+**Problem:** `ios/Ownly/Core/API/UploadService.swift` still uses single `POST /files/upload` via `UploadSessionCoordinator` multipart body. Mobile video on unstable networks is a primary Ownly use case.
 
 **Direction:**
 
@@ -102,7 +86,7 @@ Improvements should prioritize:
 
 ### 5. Append parts instead of parts + full assemble
 
-**Problem:** Each part is stored as `parts/{n}`, then concatenated into `source` at complete — peak disk ≈ **2× file size** on the API host during complete.
+**Problem:** Each part is stored as `parts/{n}`, then concatenated into `source` at complete — peak disk ≈ **2× file size** on the API host during complete (`backend/src/uploads/assemble.rs`).
 
 **Direction:**
 
@@ -117,7 +101,7 @@ Improvements should prioritize:
 
 ### 6. Parallel chunk uploads (bounded concurrency)
 
-**Problem:** Web client uploads parts sequentially. Large files are slower than necessary.
+**Problem:** Web client uploads parts sequentially (`resumable-upload.ts` loop). Large files are slower than necessary.
 
 **Direction:**
 
@@ -130,12 +114,11 @@ Improvements should prioritize:
 
 ### 7. Persist session id across reload / honest resume UX
 
-**Problem:** Browser cannot resume bytes after full page reload without a `File` handle. Retry within the same tab works via `resumableServerSessionId` on the upload item, but batch persistence does not yet surface re-select UX.
+**Problem:** Browser cannot resume bytes after full page reload without a `File` handle. `resumableServerSessionId` is persisted in `upload-manager.ts` / localStorage, but there is no **“Re-select file to continue upload”** UX when `localFile` is missing after reload.
 
 **Direction:**
 
-- Persist `resumableServerSessionId` in upload batch localStorage snapshot.
-- On restore without `localFile`, show **“Re-select file to continue upload”** and resume from `GET /uploads/{id}` part list when the user picks the same file again (match name + size).
+- On restore without `localFile`, show re-select prompt and resume from `GET /uploads/{id}` part list when the user picks the same file again (match name + size).
 
 **Key files:** `frontend/src/lib/upload-manager.ts`, `frontend/src/lib/upload-batch-snapshot.ts`, transfer panel UI.
 
@@ -155,8 +138,6 @@ Improvements should prioritize:
 
 **Ownly scope:** `backend/src/storage/`, upload handlers, Compose env.  
 **Nebular scope:** multipart API behavior in upstream repo; bump submodule pointer after merge.
-
-**Reference:** Roadmap §1.4 option “Direct-to-Nebular multipart” in [`improvement-roadmap.md`](improvement-roadmap.md).
 
 ---
 
@@ -184,75 +165,16 @@ flowchart LR
 
 | Idea | Reason |
 |------|--------|
-| **TUS protocol** | Custom session API already works; adds dependency without clear win over current design |
+| **TUS protocol** | Custom session API already works; adds dependency without clear win |
 | **Resume after reload without re-picking file** | Browser security prevents access to `File` bytes; poor ROI vs iOS + janitor fixes |
 | **Lower chunk size globally** | More requests and DB rows; tune only if proxies misbehave |
-| **Content-hash dedup at complete** | Duplicate preflight exists on simple upload path; full plan in [`storage-disk-improvements.md`](storage-disk-improvements.md) §2 |
-
----
-
-## Related improvements (other conversation themes)
-
-These were identified as high leverage **outside** the resumable upload MVP but worth tracking in the same planning cycle:
-
-### Storage disk savings (API spool + Nebular orphans)
-
-**Problem:** Resumable uploads increase API disk pressure; failed HLS jobs and duplicate uploads waste Nebular space.
-
-**Direction:** See [`storage-disk-improvements.md`](storage-disk-improvements.md) — lazy `export.mp4`, per-user `content_hash` dedup, audit automation, HLS partial-prefix cleanup.
-
----
-
-### Unified global search (runner-up to resumable uploads)
-
-**Problem:** Search still uses `LIKE` on filenames in `listing.rs`; no folder search, no relevance ranking (see roadmap §1.3).
-
-**Direction:** Postgres FTS (`search_vector` + GIN), unified `GET /search`, folder + file results, shared drive search UI.
-
-**Key files:** new migration, `backend/src/files/listing.rs` or `backend/src/search/`, `frontend/src/pages/DrivePage.tsx`
-
----
-
-## Shipped MVP reference
-
-### API routes
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/v1/uploads` | Create session |
-| `GET` | `/api/v1/uploads/{id}` | Progress / resume part list |
-| `PUT` | `/api/v1/uploads/{id}/parts/{part_number}` | Upload one chunk |
-| `POST` | `/api/v1/uploads/{id}/complete` | Assemble + register file |
-| `DELETE` | `/api/v1/uploads/{id}` | Abort session |
-
-### Audit actions
-
-- `uploads.session.create`
-- `uploads.session.abort`
-- `files.upload` (on complete, with `resumable: true` in context)
-
-### Key implementation files
-
-| Area | Paths |
-|------|-------|
-| Migration | `backend/migrations/postgres/029_upload_sessions.sql` |
-| Upload module | `backend/src/uploads/` |
-| Shared finalize | `backend/src/files/upload_finalize.rs`, `upload_spool.rs` |
-| Web client | `frontend/src/lib/resumable-upload.ts`, `frontend/src/api/client.ts`, `frontend/src/lib/upload-manager.ts` |
-| Tests | `backend/tests/http_integration.rs` (`resumable_upload_assembles_parts_into_file`), `frontend/src/lib/resumable-upload.test.ts` |
-
-### Verification checklist (MVP)
-
-- [ ] Upload file > 32 MiB on web — uses chunked path in network tab
-- [ ] Throttle network mid-upload — retry skips completed parts
-- [ ] Cancel upload — `DELETE /uploads/{id}` and no orphan `files` row
-- [ ] Video complete — HLS ingest queued as with simple upload
-- [ ] `cargo test -p ownly-backend`, `npm run build`, `npm run test`
+| **Content-hash dedup at complete** | Tracked in [`storage-disk-improvements.md`](storage-disk-improvements.md) §2 |
 
 ---
 
 ## Related documents
 
-- [`improvement-roadmap.md`](improvement-roadmap.md) — §1.4 original resumable upload spec (partially superseded by MVP)
+- [`improvement-roadmap.md`](improvement-roadmap.md) — §1.2 resumable follow-ups summary
+- [`storage-disk-improvements.md`](storage-disk-improvements.md) — lazy `export.mp4`, dedup, HLS cleanup (API/Nebular disk pressure)
 - [`storage-disk-tuning.md`](storage-disk-tuning.md) — API / Nebular disk pressure
 - [`.cursor/rules/nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc) — Nebular integration boundaries
