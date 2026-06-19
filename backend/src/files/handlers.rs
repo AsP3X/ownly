@@ -558,13 +558,16 @@ pub async fn upload_file(
     // Agent: CALLS normalize_upload_filename; REJECTS traversal/control chars; ALLOWS .html documents.
     let filename = normalize_upload_filename(&filename)?;
 
-    // Human: Reject uploads into folders the caller does not own.
-    // Agent: READS folders via ensure_folder_owned before storage PUT.
-    if let Some(ref target_folder_id) = folder_id {
-        ensure_folder_owned(&state.pool, &claims.sub, target_folder_id).await?;
-    }
+    // Human: Grantee uploads into shared folders must persist under the folder owner.
+    // Agent: resolve_upload_file_owner enforces content.write then returns owner user_id.
+    let file_owner_id = crate::files::access::resolve_upload_file_owner(
+        &state.pool,
+        &claims.sub,
+        folder_id.as_deref(),
+    )
+    .await?;
 
-    let storage_key = format!("users/{}/files/{}", claims.sub, file_id);
+    let storage_key = format!("users/{file_owner_id}/files/{file_id}");
 
     let guessed_mime = mime_guess::from_path(&filename)
         .first_or_octet_stream()
@@ -609,7 +612,7 @@ pub async fn upload_file(
         &headers,
         SpooledUploadInput {
             file_id,
-            user_id: claims.sub.clone(),
+            user_id: file_owner_id,
             folder_id,
             filename: filename.clone(),
             storage_key,

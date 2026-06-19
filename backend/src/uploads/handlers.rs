@@ -16,7 +16,7 @@ use crate::{
     auth::handlers::Claims,
     error::AppError,
     files::{
-        folders::ensure_folder_owned,
+        access::resolve_upload_file_owner,
         handlers::UploadResponse,
         upload_finalize::{finalize_spooled_upload, SpooledUploadInput},
         upload_spool::{cleanup_upload_work_dir, upload_is_video, upload_work_dir},
@@ -120,12 +120,15 @@ pub async fn create_session(
         ));
     }
 
-    crate::quota::ensure_within_quota(&state.pool, &claims.sub, body.total_size).await?;
-
     let filename = normalize_upload_filename(&body.filename)?;
-    if let Some(ref folder_id) = body.folder_id {
-        ensure_folder_owned(&state.pool, &claims.sub, folder_id).await?;
-    }
+    let file_owner_id = resolve_upload_file_owner(
+        &state.pool,
+        &claims.sub,
+        body.folder_id.as_deref(),
+    )
+    .await?;
+
+    crate::quota::ensure_within_quota(&state.pool, &file_owner_id, body.total_size).await?;
 
     let chunk_size = normalize_chunk_size(body.chunk_size)?;
     let guessed_mime = mime_guess::from_path(&filename)
@@ -145,6 +148,7 @@ pub async fn create_session(
     let session = insert_session(
         &state.pool,
         &claims.sub,
+        &file_owner_id,
         body.folder_id.as_deref(),
         &filename,
         &mime,
@@ -302,16 +306,24 @@ pub async fn complete_session(
         }
     }
 
+    let file_owner_id = resolve_upload_file_owner(
+        &state.pool,
+        &claims.sub,
+        session.folder_id.as_deref(),
+    )
+    .await?;
+    let storage_key = format!("users/{file_owner_id}/files/{}", session.file_id);
+
     let file = match finalize_spooled_upload(
         &state,
         &request_id,
         &headers,
         SpooledUploadInput {
             file_id: session.file_id.clone(),
-            user_id: claims.sub.clone(),
+            user_id: file_owner_id,
             folder_id: session.folder_id.clone(),
             filename: session.filename.clone(),
-            storage_key: session.storage_key.clone(),
+            storage_key,
             mime,
             work_dir: work_dir.clone(),
             tmp_path,

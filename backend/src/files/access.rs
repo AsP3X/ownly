@@ -74,6 +74,30 @@ pub async fn ensure_upload_folder_access(
     ensure_folder_access(pool, user_id, folder_id, Permission::ContentWrite).await
 }
 
+// Human: Resolve which user_id owns a newly uploaded file row.
+// Agent: Root uploads belong to the uploader; folder uploads belong to the folder owner after write authz.
+pub async fn resolve_upload_file_owner(
+    pool: &PgPool,
+    uploader_id: &str,
+    folder_id: Option<&str>,
+) -> Result<String, AppError> {
+    let Some(folder_id) = folder_id else {
+        return Ok(uploader_id.to_string());
+    };
+
+    ensure_upload_folder_access(pool, uploader_id, Some(folder_id)).await?;
+
+    let owner: Option<(String,)> = sqlx::query_as(
+        "SELECT user_id FROM folders WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(folder_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let (owner_id,) = owner.ok_or(AppError::NotFound)?;
+    Ok(owner_id)
+}
+
 // Human: Collect folder ids where user has content.read via direct folder grant (allow, not deny).
 // Agent: READS permission_grants for user+groups; EXPANDS each granted folder to all descendants.
 pub async fn readable_folder_subtree_ids(
