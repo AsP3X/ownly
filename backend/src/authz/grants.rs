@@ -247,6 +247,8 @@ pub async fn upsert_grant(
     let grant_id = Uuid::new_v4().to_string();
     let perm_str = permission.as_str();
 
+    let mut tx = pool.begin().await?;
+
     let grant: GrantDto = sqlx::query_as(
         "INSERT INTO permission_grants \
          (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by, expires_at) \
@@ -266,7 +268,7 @@ pub async fn upsert_grant(
     .bind(effect)
     .bind(caller_id)
     .bind(body.expires_at)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let action = if effect == "deny" {
@@ -275,8 +277,8 @@ pub async fn upsert_grant(
         "permissions.grant"
     };
 
-    crate::audit::write_audit(
-        pool,
+    crate::audit::write_audit_required_in_tx(
+        &mut tx,
         Some(caller_id),
         action,
         Some("permission_grant"),
@@ -291,8 +293,9 @@ pub async fn upsert_grant(
         })),
         headers,
     )
-    .await
-    .ok();
+    .await?;
+
+    tx.commit().await?;
 
     Ok(grant)
 }
@@ -324,13 +327,15 @@ pub async fn revoke_grant_by_id(
     )
     .await?;
 
+    let mut tx = pool.begin().await?;
+
     sqlx::query("DELETE FROM permission_grants WHERE id = $1")
         .bind(grant_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
-    crate::audit::write_audit(
-        pool,
+    crate::audit::write_audit_required_in_tx(
+        &mut tx,
         Some(caller_id),
         "permissions.revoke",
         Some("permission_grant"),
@@ -345,8 +350,9 @@ pub async fn revoke_grant_by_id(
         })),
         headers,
     )
-    .await
-    .ok();
+    .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }

@@ -3823,3 +3823,95 @@ async fn copy_file_rejected_when_quota_exceeded() {
         .await
         .ok();
 }
+
+// Human: Admin user delete must fail closed when audit rows cannot be written (SEC-040).
+// Agent: RENAME audit_logs; DELETE /admin/users/:id; EXPECT 500; VERIFY target user still exists.
+#[tokio::test]
+async fn admin_delete_user_rolls_back_when_audit_write_fails() {
+    let Some(state) = test_harness::TestHarness::state("admin_delete_user_rolls_back_when_audit_write_fails")
+        .await
+    else {
+        return;
+    };
+
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let target_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(format!("admin-audit-fail-{admin_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&target_id)
+    .bind(format!("target-audit-fail-{target_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert target");
+
+    let admin_token = ownly_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        format!("admin-audit-fail-{admin_id}@example.com"),
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    sqlx::query("ALTER TABLE audit_logs RENAME TO audit_logs_sec040_blocked")
+        .execute(&state.pool)
+        .await
+        .expect("block audit_logs table");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/admin/users/{target_id}"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let still_there: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE id = $1")
+        .bind(&target_id)
+        .fetch_optional(&state.pool)
+        .await
+        .expect("lookup target user");
+    assert!(
+        still_there.is_some(),
+        "user delete must roll back when audit write fails"
+    );
+
+    sqlx::query("ALTER TABLE audit_logs_sec040_blocked RENAME TO audit_logs")
+        .execute(&state.pool)
+        .await
+        .expect("restore audit_logs table");
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&target_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&admin_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

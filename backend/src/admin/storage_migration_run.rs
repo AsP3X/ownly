@@ -884,7 +884,7 @@ pub async fn start_storage_migration_preview(
     )
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.storage_blobs.preview",
@@ -897,8 +897,7 @@ pub async fn start_storage_migration_preview(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(row_to_response(row)))
 }
@@ -946,7 +945,7 @@ pub async fn start_storage_migration_run(
     )
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.storage_blobs.migrate_start",
@@ -961,8 +960,7 @@ pub async fn start_storage_migration_run(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(row_to_response(row)))
 }
@@ -1058,7 +1056,7 @@ pub async fn cancel_storage_migration_run(
     .execute(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.storage_blobs.migrate_cancel",
@@ -1067,8 +1065,7 @@ pub async fn cancel_storage_migration_run(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

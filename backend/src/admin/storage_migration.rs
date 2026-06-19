@@ -587,7 +587,7 @@ pub async fn migrate_storage_blobs(
         "failed_total": nodes.iter().map(|n| n.failed).sum::<u64>(),
     });
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.storage_blobs.migrate",
@@ -596,8 +596,7 @@ pub async fn migrate_storage_blobs(
         Some(audit_context),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(MigrateStorageBlobsResponse { nodes }))
 }
