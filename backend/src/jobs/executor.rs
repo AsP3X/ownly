@@ -15,8 +15,9 @@ use crate::{
 };
 
 use super::model::{
-    AudioWaveformPayload, BackgroundJob, DocumentThumbnailPayload, HlsEncodePayload, HlsExportPayload,
-    ImageThumbnailPayload, JobKind, VideoThumbnailPayload, ZipBulkPayload, ZipFolderPayload,
+    AudioWaveformPayload, BackgroundJob, DocumentThumbnailPayload, HlsEncodePayload,
+    HlsExportPayload, ImageThumbnailPayload, JobKind, VideoThumbnailPayload, ZipBulkPayload,
+    ZipFolderPayload,
 };
 use super::store::{
     complete_job, fail_job, fail_job_permanent, finalize_cancelled_running, is_job_cancelled,
@@ -31,17 +32,15 @@ fn warn_if_err<T, E: std::fmt::Display>(label: &'static str, result: Result<T, E
     }
 }
 
-async fn warn_if_err_async<T, E: std::fmt::Display>(
-    label: &'static str,
-    result: Result<T, E>,
-) {
+async fn warn_if_err_async<T, E: std::fmt::Display>(label: &'static str, result: Result<T, E>) {
     warn_if_err(label, result);
 }
 
 /// Human: Run one claimed job to completion — the worker pool calls this after claim_next_job.
 // Agent: MATCHES kind; RETURNS Ok on success; CALLS fail_job on Err; CHECKS cancellation for zip jobs.
 pub async fn execute_job(state: Arc<AppState>, job: BackgroundJob) -> Result<(), String> {
-    let kind = JobKind::parse(&job.kind).ok_or_else(|| format!("unknown job kind: {}", job.kind))?;
+    let kind =
+        JobKind::parse(&job.kind).ok_or_else(|| format!("unknown job kind: {}", job.kind))?;
 
     match kind {
         JobKind::HlsEncode => run_hls_encode(state, &job).await,
@@ -103,6 +102,7 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
         duration_seconds: payload.duration_seconds,
     };
 
+    let _transcode_permit = state.user_transcode_gate.acquire(&job.user_id).await;
     let result = run_hls_encode_job(
         pool,
         state.storage.clone(),
@@ -187,9 +187,7 @@ async fn run_audio_waveform(state: Arc<AppState>, job: &BackgroundJob) -> Result
     let waveform_job = crate::audio::waveform_job::AudioWaveformJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
-        tmp_audio: payload
-            .tmp_audio
-            .map(std::path::PathBuf::from),
+        tmp_audio: payload.tmp_audio.map(std::path::PathBuf::from),
     };
 
     let result = crate::audio::waveform_job::run_audio_waveform_job(
@@ -336,9 +334,7 @@ async fn run_image_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
     let thumbnail_job = crate::image::thumbnail_job::ImageThumbnailJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
-        tmp_source: payload
-            .tmp_source
-            .map(std::path::PathBuf::from),
+        tmp_source: payload.tmp_source.map(std::path::PathBuf::from),
     };
 
     let result = crate::image::thumbnail_job::run_image_thumbnail_job(
@@ -403,9 +399,7 @@ async fn run_document_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Re
         storage_key: payload.storage_key,
         mime_type: payload.mime_type,
         filename: payload.filename,
-        tmp_source: payload
-            .tmp_source
-            .map(std::path::PathBuf::from),
+        tmp_source: payload.tmp_source.map(std::path::PathBuf::from),
     };
 
     let result = crate::document::thumbnail_job::run_document_thumbnail_job(
@@ -569,13 +563,9 @@ async fn run_zip_bulk(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), S
     )
     .await;
 
-    let entries = collect_zip_entries_for_file_ids(
-        &state.pool,
-        &job.user_id,
-        &payload.file_ids,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let entries = collect_zip_entries_for_file_ids(&state.pool, &job.user_id, &payload.file_ids)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let work_dir = PathBuf::from(&payload.work_dir);
     run_zip_entries_job(
@@ -663,10 +653,7 @@ async fn finalize_zip_job(state: Arc<AppState>, job: &BackgroundJob) -> Result<(
                 .map_err(|e| e.to_string())?;
         }
         Some(ref reg) if reg.status == "failed" => {
-            let message = reg
-                .error
-                .clone()
-                .unwrap_or_else(|| "zip job failed".into());
+            let message = reg.error.clone().unwrap_or_else(|| "zip job failed".into());
             fail_job(&state.pool, &job.id, &message)
                 .await
                 .map_err(|e| e.to_string())?;

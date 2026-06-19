@@ -30,9 +30,7 @@ const KNOWN_WEAK_SECRETS: &[&str] = &[
 // Agent: TRIMS input; MATCHES KNOWN_WEAK_SECRETS or GENERATE_ME; NO side effects.
 pub fn is_weak_secret(value: &str) -> bool {
     let trimmed = value.trim();
-    trimmed.is_empty()
-        || trimmed == "GENERATE_ME"
-        || KNOWN_WEAK_SECRETS.contains(&trimmed)
+    trimmed.is_empty() || trimmed == "GENERATE_ME" || KNOWN_WEAK_SECRETS.contains(&trimmed)
 }
 
 // Human: Operator-facing hint without echoing the secret value.
@@ -129,7 +127,10 @@ mod tests {
     #[test]
     fn compose_dev_secrets_allowed_in_development() {
         for secret in COMPOSE_DEV_SECRETS {
-            assert!(!is_weak_secret(secret), "dev secret should pass weak check: {secret}");
+            assert!(
+                !is_weak_secret(secret),
+                "dev secret should pass weak check: {secret}"
+            );
             assert!(secret.len() >= MIN_SECRET_LEN);
             assert!(is_compose_dev_secret(secret));
         }
@@ -158,6 +159,7 @@ mod tests {
             max_upload_bytes: 1024,
             hls_segment_rpm: 480,
             job_worker_count: 2,
+            max_concurrent_transcodes_per_user: 2,
             job_stale_minutes: 15,
             job_heartbeat_seconds: 30,
             job_recovery_poll_seconds: 60,

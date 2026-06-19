@@ -6,6 +6,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::media::subprocess::{run_command_with_timeout, FFMPEG_SHORT_TIMEOUT};
+
 pub const BAR_COUNT: usize = 32;
 pub const MAX_BAR_HEIGHT: u32 = 64;
 
@@ -41,25 +43,26 @@ pub async fn extract_waveform_bars(input: &Path) -> Result<Vec<u32>, String> {
 }
 
 async fn decode_mono_pcm(input: &Path) -> Result<Vec<i16>, String> {
-    let output = Command::new("ffmpeg")
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            input.to_str().unwrap_or(""),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "8000",
-            "-f",
-            "s16le",
-            "-",
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        input.to_str().unwrap_or(""),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "8000",
+        "-f",
+        "s16le",
+        "-",
+    ]);
+    let output =
+        run_command_with_timeout(&mut command, FFMPEG_SHORT_TIMEOUT, "ffmpeg audio decode")
+            .await
+            .map_err(|e| format!("ffmpeg decode: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

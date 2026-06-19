@@ -8,11 +8,14 @@ use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::hardware::{append_full_transcode_encoder_args, HlsHardwareEncode, ResolvedHardwareEncoder};
-use super::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
+use super::hardware::{
+    append_full_transcode_encoder_args, HlsHardwareEncode, ResolvedHardwareEncoder,
+};
 use super::playlist::HLS_SEGMENT_TARGET_SECS_LARGE;
+use super::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
 use super::probe::{fps_to_ffmpeg_rate, CodecProbe, HlsEncodeMode};
 use super::segment_crypto::encrypt_hls_segments_dir;
+use crate::media::subprocess::{ffmpeg_transcode_timeout, wait_child_with_timeout};
 
 pub struct HlsOutput {
     pub playlist_path: PathBuf,
@@ -90,7 +93,13 @@ impl HlsEncoder {
             })
         });
 
-        let status = child.wait().await.context("waiting for ffmpeg export")?;
+        let status = wait_child_with_timeout(
+            &mut child,
+            ffmpeg_transcode_timeout(3600),
+            "ffmpeg HLS export remux",
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
         if let Some(handle) = stderr_handle {
             let _ = handle.await;
         }
@@ -374,7 +383,13 @@ impl HlsEncoder {
             })
         });
 
-        let status = child.wait().await.context("waiting for ffmpeg")?;
+        let status = wait_child_with_timeout(
+            &mut child,
+            ffmpeg_transcode_timeout(duration_seconds),
+            "ffmpeg HLS packaging",
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
         if let Some(handle) = stderr_handle {
             let _ = handle.await;
@@ -416,12 +431,7 @@ impl HlsEncoder {
             .await
             .context("reading segments directory")?;
         while let Some(entry) = entries.next_entry().await? {
-            if entry
-                .path()
-                .extension()
-                .and_then(|e| e.to_str())
-                == Some(HLS_SEGMENT_EXTENSION)
-            {
+            if entry.path().extension().and_then(|e| e.to_str()) == Some(HLS_SEGMENT_EXTENSION) {
                 segment_count += 1;
             }
         }
@@ -439,10 +449,7 @@ impl HlsEncoder {
 // Human: Input-side flags shared by every HLS ffmpeg session.
 // Agent: APPENDS -fflags +genpts before `-i` to repair missing or corrupt source PTS.
 fn append_common_input_args(pre_input: &mut Vec<String>) {
-    pre_input.extend([
-        "-fflags".into(),
-        "+genpts+discardcorrupt".into(),
-    ]);
+    pre_input.extend(["-fflags".into(), "+genpts+discardcorrupt".into()]);
 }
 
 // Human: fMP4 HLS muxer — CMAF segments + init.mp4 beside stream.m3u8 for hls.js MSE playback.
@@ -588,10 +595,7 @@ fn append_align_segments_video_args(
             ]);
         }
         ResolvedHardwareEncoder::Vaapi => {
-            pre_input.extend([
-                "-vaapi_device".into(),
-                vaapi_device.to_string(),
-            ]);
+            pre_input.extend(["-vaapi_device".into(), vaapi_device.to_string()]);
             encode_args.extend([
                 "-vf".into(),
                 "format=yuv420p,format=nv12,hwupload".into(),
@@ -669,6 +673,8 @@ mod tests {
             12.0,
         )
         .expect("muxer args");
-        assert!(args.windows(2).any(|w| w[0] == "-hls_segment_type" && w[1] == "fmp4"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-hls_segment_type" && w[1] == "fmp4"));
     }
 }
