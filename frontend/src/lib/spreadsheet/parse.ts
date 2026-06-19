@@ -2,6 +2,7 @@
 // Agent: READS ArrayBuffer/Blob; WRITES SpreadsheetWorkbook; SERIALIZES back to xlsx bytes on save.
 
 import * as XLSX from "xlsx";
+import { parseSpreadsheetWorkbookInWorker } from "@/lib/spreadsheet/spreadsheet-parse-client";
 import { cellExportPayload, cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
 import { numberFormatFromXlsxCode } from "@/lib/spreadsheet/number-formats";
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
@@ -99,7 +100,10 @@ function sheetToRows(sheet: XLSX.WorkSheet): SheetCell[][] {
 // Human: Parse uploaded spreadsheet bytes into an in-memory workbook model.
 // Agent: READS ArrayBuffer; IMPORTS conditional formatting from OOXML; RETURNS SpreadsheetWorkbook.
 export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<SpreadsheetWorkbook> {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: true, cellStyles: true });
+  const workbook = await parseSpreadsheetWorkbookInWorker(buffer, {
+    cellFormula: true,
+    cellStyles: true,
+  });
   const sheetNames = workbook.SheetNames;
   const conditionalBySheet = await importConditionalFormatsFromXlsx(buffer, sheetNames);
   const freezeBySheet = await importFreezePanesFromXlsx(buffer, sheetNames);

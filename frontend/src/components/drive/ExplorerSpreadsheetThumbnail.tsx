@@ -3,18 +3,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
-import * as XLSX from "xlsx";
 import type { FileItem } from "@/api/client";
 import { fetchFileBlobForPreview } from "@/api/client";
 import {
   thumbnailPriorityForPhase,
   useExplorerTileVisible,
 } from "@/hooks/useExplorerTileVisible";
+import { parseSpreadsheetThumbnailMatrix } from "@/lib/spreadsheet/spreadsheet-parse-client";
 import { cn } from "@/lib/utils";
-
-const THUMBNAIL_MAX_ROWS = 7;
-const THUMBNAIL_MAX_COLS = 5;
-const CELL_TEXT_MAX_LEN = 10;
 
 type ExplorerSpreadsheetThumbnailProps = {
   file: FileItem;
@@ -22,43 +18,6 @@ type ExplorerSpreadsheetThumbnailProps = {
   /** Human: Fill a parent preview slot instead of owning the square aspect box. */
   slotFill?: boolean;
 };
-
-// Human: Read the first worksheet into a small string matrix for the tile preview.
-// Agent: TRUNCATES long values; PADS short rows to a uniform column count.
-function thumbnailMatrixFromWorkbook(buffer: ArrayBuffer): string[][] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, cellFormula: false });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
-
-  const sheet = workbook.Sheets[sheetName];
-  const ref = sheet["!ref"];
-  if (!ref) return [];
-
-  const range = XLSX.utils.decode_range(ref);
-  const rowEnd = Math.min(range.e.r, range.s.r + THUMBNAIL_MAX_ROWS - 1);
-  const colEnd = Math.min(range.e.c, range.s.c + THUMBNAIL_MAX_COLS - 1);
-  const colCount = colEnd - range.s.c + 1;
-
-  const rows: string[][] = [];
-  for (let row = range.s.r; row <= rowEnd; row += 1) {
-    const cells: string[] = [];
-    for (let col = range.s.c; col <= colEnd; col += 1) {
-      const address = XLSX.utils.encode_cell({ r: row, c: col });
-      const raw = sheet[address] as XLSX.CellObject | undefined;
-      const text =
-        typeof raw?.w === "string" && raw.w.length > 0
-          ? raw.w
-          : raw?.v === undefined || raw.v === null
-            ? ""
-            : String(raw.v);
-      cells.push(text.length > CELL_TEXT_MAX_LEN ? `${text.slice(0, CELL_TEXT_MAX_LEN)}…` : text);
-    }
-    while (cells.length < colCount) cells.push("");
-    rows.push(cells);
-  }
-
-  return rows;
-}
 
 /** Human: Lazy-loaded spreadsheet grid preview for explorer tiles. */
 export function ExplorerSpreadsheetThumbnail({
@@ -91,7 +50,8 @@ export function ExplorerSpreadsheetThumbnail({
         if (cancelled) return;
         const buffer = await blob.arrayBuffer();
         if (cancelled) return;
-        const nextMatrix = thumbnailMatrixFromWorkbook(buffer);
+        const nextMatrix = await parseSpreadsheetThumbnailMatrix(buffer);
+        if (cancelled) return;
         if (nextMatrix.length === 0) {
           setFailed(true);
           return;
