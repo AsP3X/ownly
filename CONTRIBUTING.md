@@ -30,6 +30,17 @@ make -C scripts/security-audit test
 
 CI runs the same checks on pull requests (see `.github/workflows/ci.yml`).
 
+## Generated artifacts (do not commit)
+
+These paths are local build or IDE output and are listed in `.gitignore`. They must not appear in `git ls-files`:
+
+| Path | Source |
+|------|--------|
+| `graphify-out/` | graphify repo analysis (regenerate locally when needed) |
+| `ios/**/xcuserdata/` | Xcode per-user scheme/UI state |
+
+After clone or a local build, `git status` should stay clean for these directories. CI verifies they remain untracked.
+
 ## Nebular OS (object storage)
 
 `nebular-os/` is a **read-only git submodule**. Storage service changes belong in [github.com/AsP3X/nebular-os](https://github.com/AsP3X/nebular-os). Ownly integration (Compose env, HTTP client, docs) lives in this repo only.

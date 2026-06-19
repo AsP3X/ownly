@@ -16,3 +16,9 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# graphify analysis output (generated locally; do not commit)
+graphify-out/
+
+# Xcode user-specific IDE metadata (generated per developer machine)
+ios/**/xcuserdata/
