@@ -62,6 +62,7 @@ pub fn expected_part_size(total_size: i64, chunk_size: i64, part_number: i32) ->
 pub async fn insert_session(
     pool: &PgPool,
     user_id: &str,
+    file_owner_id: &str,
     folder_id: Option<&str>,
     filename: &str,
     mime_type: &str,
@@ -70,7 +71,7 @@ pub async fn insert_session(
 ) -> Result<UploadSessionRow, AppError> {
     let session_id = Uuid::new_v4().to_string();
     let file_id = Uuid::new_v4().to_string();
-    let storage_key = format!("users/{user_id}/files/{file_id}");
+    let storage_key = format!("users/{file_owner_id}/files/{file_id}");
     let expires_at = Utc::now() + chrono::Duration::hours(SESSION_TTL_HOURS);
 
     sqlx::query_as(

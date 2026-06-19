@@ -15,6 +15,33 @@ async fn response_json(response: axum::response::Response) -> serde_json::Value 
     serde_json::from_slice(&bytes).expect("json body")
 }
 
+fn multipart_upload_body(
+    boundary: &str,
+    filename: &str,
+    content: &[u8],
+    folder_id: Option<&str>,
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(b"Content-Type: text/plain\r\n\r\n");
+    body.extend_from_slice(content);
+    body.extend_from_slice(b"\r\n");
+    if let Some(folder_id) = folder_id {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"folder_id\"\r\n\r\n");
+        body.extend_from_slice(folder_id.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    body
+}
+
 // Human: Fresh database should report setup incomplete on the status probe.
 // Agent: GET /api/v1/setup/status; EXPECT setup_complete false.
 #[tokio::test]
@@ -3819,6 +3846,277 @@ async fn copy_file_rejected_when_quota_exceeded() {
         .ok();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Trashed subfolders must not appear in public folder share listings (SEC-034).
+// Agent: INSERT shared root + active/trashed children; GET public contents; EXPECT only active child.
+#[tokio::test]
+async fn public_share_contents_hides_trashed_subfolders() {
+    let Some(state) =
+        test_harness::TestHarness::state("public_share_contents_hides_trashed_subfolders").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let root_folder_id = uuid::Uuid::new_v4().to_string();
+    let active_subfolder_id = uuid::Uuid::new_v4().to_string();
+    let trashed_subfolder_id = uuid::Uuid::new_v4().to_string();
+    let share_id = uuid::Uuid::new_v4().to_string();
+    let token = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(format!("share-trash-{user_id}@example.com"))
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, name, parent_id) VALUES ($1, $2, 'Shared Root', NULL)",
+    )
+    .bind(&root_folder_id)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert root folder");
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, name, parent_id) VALUES ($1, $2, 'Visible', $3)",
+    )
+    .bind(&active_subfolder_id)
+    .bind(&user_id)
+    .bind(&root_folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert active subfolder");
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, name, parent_id, deleted_at) \
+         VALUES ($1, $2, 'Trashed', $3, now())",
+    )
+    .bind(&trashed_subfolder_id)
+    .bind(&user_id)
+    .bind(&root_folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert trashed subfolder");
+
+    sqlx::query(
+        "INSERT INTO public_shares (id, token, user_id, resource_type, resource_id) \
+         VALUES ($1, $2, $3, 'folder', $4)",
+    )
+    .bind(&share_id)
+    .bind(token)
+    .bind(&user_id)
+    .bind(&root_folder_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert share");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/public/shares/{token}/contents"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    let folder_ids: Vec<String> = json["folders"]
+        .as_array()
+        .expect("folders array")
+        .iter()
+        .map(|row| row["id"].as_str().expect("folder id").to_string())
+        .collect();
+
+    assert!(folder_ids.contains(&active_subfolder_id));
+    assert!(!folder_ids.contains(&trashed_subfolder_id));
+
+    sqlx::query("DELETE FROM public_shares WHERE id = $1")
+        .bind(&share_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Grantee uploads into a shared folder must be visible to the folder owner (SEC-034).
+// Agent: content.write grant; grantee POST upload; owner GET folder listing; EXPECT uploaded file.
+#[tokio::test]
+async fn grantee_upload_into_shared_folder_visible_to_owner() {
+    let Some(state) = test_harness::TestHarness::state(
+        "grantee_upload_into_shared_folder_visible_to_owner",
+    )
+    .await
+    else {
+        return;
+    };
+
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    let grantee_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [
+        (owner_id.as_str(), format!("owner-{owner_id}@example.com")),
+        (grantee_id.as_str(), format!("grantee-{grantee_id}@example.com")),
+    ] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query(
+        "INSERT INTO folders (id, user_id, name, parent_id) VALUES ($1, $2, 'Shared', NULL)",
+    )
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder");
+
+    let grant_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'folder', $3, 'content.write', 'allow', $4)",
+    )
+    .bind(&grant_id)
+    .bind(&grantee_id)
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder write grant");
+
+    let grantee_token = ownly_backend::auth::handlers::create_token(
+        grantee_id.clone(),
+        format!("grantee-{grantee_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("grantee token");
+
+    let owner_token = ownly_backend::auth::handlers::create_token(
+        owner_id.clone(),
+        format!("owner-{owner_id}@example.com"),
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("owner token");
+
+    let boundary = "ownly-test-upload-boundary";
+    let upload_body = multipart_upload_body(
+        boundary,
+        "grantee-upload.txt",
+        b"grantee upload payload",
+        Some(&folder_id),
+    );
+
+    let app = create_router(state.clone());
+    let upload_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/upload")
+                .header("authorization", format!("Bearer {grantee_token}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(upload_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(upload_response.status(), StatusCode::OK);
+    let upload_json = response_json(upload_response).await;
+    let uploaded_file_id = upload_json["file"]["id"]
+        .as_str()
+        .expect("uploaded file id")
+        .to_string();
+    assert_eq!(upload_json["file"]["folder_id"], folder_id);
+
+    let stored_owner: (String,) = sqlx::query_as("SELECT user_id FROM files WHERE id = $1")
+        .bind(&uploaded_file_id)
+        .fetch_one(&state.pool)
+        .await
+        .expect("uploaded file row");
+    assert_eq!(stored_owner.0, owner_id);
+
+    let list_response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files?folder_id={folder_id}"))
+                .header("authorization", format!("Bearer {owner_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_json = response_json(list_response).await;
+    let listed_ids: Vec<String> = list_json["files"]
+        .as_array()
+        .expect("files array")
+        .iter()
+        .map(|row| row["id"].as_str().expect("file id").to_string())
+        .collect();
+    assert!(listed_ids.contains(&uploaded_file_id));
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&uploaded_file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM permission_grants WHERE id = $1")
+        .bind(&grant_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE id = $1")
+        .bind(&folder_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(&[owner_id, grantee_id])
         .execute(&state.pool)
         .await
         .ok();
