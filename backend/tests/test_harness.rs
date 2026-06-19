@@ -35,6 +35,7 @@ pub fn test_config(database_url: &str) -> Config {
         max_upload_bytes: 1024 * 1024,
         hls_segment_rpm: 480,
         job_worker_count: 2,
+        max_concurrent_transcodes_per_user: 2,
         job_stale_minutes: 15,
         job_heartbeat_seconds: 30,
         job_recovery_poll_seconds: 60,

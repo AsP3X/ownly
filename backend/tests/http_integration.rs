@@ -3941,10 +3941,6 @@ async fn admin_delete_user_rolls_back_when_audit_write_fails() {
         .await
         .ok();
 }
-        .execute(&state.pool)
-        .await
-        .ok();
-}
 
 // Human: Trashed subfolders must not appear in public folder share listings (SEC-034).
 // Agent: INSERT shared root + active/trashed children; GET public contents; EXPECT only active child.
