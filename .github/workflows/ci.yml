@@ -46,7 +46,9 @@ jobs:
           workspaces: backend
       - name: Run backend tests
         working-directory: backend
-        run: cargo test -p ownly-backend
+        run: |
+          cargo test -p ownly-backend --lib
+          cargo test -p ownly-backend --test http_integration -- --test-threads=1
       - name: Clippy
         working-directory: backend
         run: cargo clippy -p ownly-backend -- -D warnings

@@ -390,13 +390,16 @@ pub async fn refresh(
     let effective_role =
         crate::authz::effective_jwt_role(&state.pool, &claims.sub, &db_role).await?;
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &claims.sub).await?;
-    let token = create_token(
+    let new_iat = now.max(claims.iat.saturating_add(1));
+    let token = create_token_with_timestamps(
         claims.sub.clone(),
         email.clone(),
         effective_role.clone(),
         &state.jwt_secret,
         claims.sid,
         session_version,
+        new_iat,
+        new_iat + chrono::Duration::try_hours(JWT_ACCESS_TTL_HOURS).unwrap().num_seconds(),
     )
     .map_err(AppError::Internal)?;
 
