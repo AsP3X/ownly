@@ -110,7 +110,7 @@ pub struct AppState {
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
-// Agent: READS comma-separated CORS_ALLOWED_ORIGINS; RETURNS permissive CorsLayer when empty.
+// Agent: READS comma-separated CORS_ALLOWED_ORIGINS; RETURNS permissive CorsLayer only in development (production rejects empty at startup).
 fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
     let trimmed = cors_allowed_origins.trim();
     if trimmed.is_empty() {

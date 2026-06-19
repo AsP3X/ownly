@@ -1534,7 +1534,7 @@ Upgrade to a maintained SheetJS build; parse in a Web Worker with size/time limi
 
 ### SEC-027 — Compose exposes Postgres/storage/API on `0.0.0.0` with dev credentials
 
-- [x] **Not started** / [ ] **In progress** / [ ] **Fixed** / [ ] **Accepted risk**
+- [ ] **Not started** / [ ] **In progress** / [x] **Fixed** / [ ] **Accepted risk**
 
 
 | Field              | Detail                                                                                                |

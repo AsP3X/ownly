@@ -38,7 +38,7 @@ services:
     container_name: ownly-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ownly}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ownly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ownly-compose-local-dev-postgres-password-not-for-production}
       POSTGRES_DB: ${POSTGRES_DB:-ownly}
     ports:
       - "5432:5432"
@@ -107,7 +107,7 @@ services:
     environment:
       <<: [*ownly-compose-dev-secrets, *ownly-logging]
       OWNLY_SKIP_DOTENV: "1"
-      DATABASE_URL: ${DATABASE_URL:-postgres://ownly:ownly@postgres:5432/ownly}
+      DATABASE_URL: ${DATABASE_URL:-postgres://ownly:ownly-compose-local-dev-postgres-password-not-for-production@postgres:5432/ownly}
       TMPDIR: /tmp
       OBJECT_STORAGE_URL: ${OBJECT_STORAGE_URL:-http://object-storage:9000}
       OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:8080}
@@ -120,8 +120,9 @@ services:
       GIT_SHA: ${GIT_SHA:-unknown}
       AUTH_LOGIN_RPM: ${AUTH_LOGIN_RPM:-15}
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
-      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
-      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-1}
+      # Human: Default false — set true only when the API is solely reachable via a trusted reverse proxy (SEC-027).
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-0}
       UPLOAD_RPM: ${UPLOAD_RPM:-1200}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       STORAGE_PUT_MAX_CONCURRENT: ${STORAGE_PUT_MAX_CONCURRENT:-2}
