@@ -4,6 +4,7 @@
 #        Ownly routes uploads by remaining capacity and can stripe overflow across nodes (see docs/nebular-os-storage-metadata-prompt.md).
 #
 # Host port: node-b 9001 (curl http://localhost:9001/health/ready from the host).
+# Production: merge docker-compose.prod.yml — object-storage-b has no host port binding.
 
 x-nebular-storage-env: &nebular-storage-env
   NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}

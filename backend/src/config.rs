@@ -14,6 +14,10 @@ pub const COMPOSE_DEV_SIGNING_SECRET: &str =
 pub const COMPOSE_DEV_OBJECT_STORAGE_JWT_SECRET: &str =
     "ownly-compose-local-dev-nos-jwt-secret-not-for-production-use";
 
+/// Human: Same value as `POSTGRES_PASSWORD` default in `docker-compose.yml` (zero-config Compose).
+pub const COMPOSE_DEV_POSTGRES_PASSWORD: &str =
+    "ownly-compose-local-dev-postgres-password-not-for-production";
+
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]

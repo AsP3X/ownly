@@ -1,0 +1,28 @@
+# Human: Production Compose overlay — merge with docker-compose.yml for internet-facing deployments.
+# Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`
+#        REQUIRES strong POSTGRES_PASSWORD, unique secrets, and explicit CORS_ALLOWED_ORIGINS.
+#
+# Postgres and object storage stay on the internal Compose network (no host port bindings).
+# Users reach the app via the frontend/nginx service only.
+
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for production Compose}
+
+  object-storage:
+    ports: !reset []
+
+  object-storage-b:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      OWNLY_ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-ownly}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ownly}}
+      # Human: Frontend nginx is the sole entrypoint — trust its forwarding headers for rate limits.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-0}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS for production Compose}

@@ -67,8 +67,39 @@ fn is_compose_dev_secret(value: &str) -> bool {
 
 // Human: Production profile must not accept development-only secret literals.
 // Agent: READS ownly_environment case-insensitively; MATCHES "production".
-fn is_production_environment(env: &str) -> bool {
+pub(crate) fn is_production_environment(env: &str) -> bool {
     env.trim().eq_ignore_ascii_case("production")
+}
+
+// Human: Production requires explicit browser origins — permissive CORS is dev-only (SEC-027).
+// Agent: CALLED from validate_startup_secrets when OWNLY_ENVIRONMENT=production.
+fn validate_production_cors(cors_allowed_origins: &str) -> anyhow::Result<()> {
+    let trimmed = cors_allowed_origins.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!(
+            "CORS_ALLOWED_ORIGINS is required when OWNLY_ENVIRONMENT=production. \
+             Set comma-separated origins (e.g. https://app.example.com) — permissive CORS is not allowed in production."
+        );
+    }
+    let origins: Vec<&str> = trimmed
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if origins.is_empty() {
+        anyhow::bail!(
+            "CORS_ALLOWED_ORIGINS must include at least one origin when OWNLY_ENVIRONMENT=production."
+        );
+    }
+    for origin in origins {
+        if origin.parse::<axum::http::HeaderValue>().is_err() {
+            anyhow::bail!(
+                "CORS_ALLOWED_ORIGINS contains invalid origin '{origin}'. \
+                 Use full origins such as https://app.example.com (no trailing path)."
+            );
+        }
+    }
+    Ok(())
 }
 
 // Human: Fail fast with a field name so operators know which env var to fix.
@@ -109,6 +140,9 @@ pub fn validate_startup_secrets(config: &Config) -> anyhow::Result<()> {
         &config.object_storage_jwt_secret,
         production,
     )?;
+    if production {
+        validate_production_cors(&config.cors_allowed_origins)?;
+    }
     Ok(())
 }
 
@@ -182,6 +216,51 @@ mod tests {
         config.signing_secret = "operator-generated-signing-secret-32-chars!!".into();
         config.object_storage_jwt_secret =
             "operator-generated-nos-jwt-secret-32-chars-min!!".into();
+        config.cors_allowed_origins = "https://app.example.com".into();
+        assert!(validate_startup_secrets(&config).is_ok());
+    }
+
+    #[test]
+    fn production_requires_cors_origins() {
+        let mut config = crate::config::Config {
+            database_url: "postgres://u:p@localhost/db".into(),
+            jwt_secret: "operator-generated-jwt-secret-with-32-chars-min!!".into(),
+            setup_token: "operator-generated-setup-token-with-32-chars!!".into(),
+            signing_secret: "operator-generated-signing-secret-32-chars!!".into(),
+            object_storage_jwt_secret: "operator-generated-nos-jwt-secret-32-chars-min!!".into(),
+            bind_addr: "127.0.0.1:3000".into(),
+            storage_mode: "proxy".into(),
+            object_storage_url: "http://localhost:9000".into(),
+            object_storage_public_url: "http://localhost:9000".into(),
+            object_storage_bucket: "media".into(),
+            url_expiry_seconds: 3600,
+            ownly_environment: "production".into(),
+            git_sha: None,
+            auth_login_rpm: 15,
+            auth_register_rpm: 5,
+            upload_rpm: 30,
+            cors_allowed_origins: String::new(),
+            max_upload_bytes: 1024,
+            hls_segment_rpm: 480,
+            job_worker_count: 2,
+            job_stale_minutes: 15,
+            job_heartbeat_seconds: 30,
+            job_recovery_poll_seconds: 60,
+            hls_hardware_encode: "off".into(),
+            hls_vaapi_device: "/dev/dri/renderD128".into(),
+            hls_video_crf: 20,
+            hls_video_quality: 22,
+            hls_full_transcode_quality: 26,
+            hls_large_maxrate: "5M".into(),
+            hls_large_bufsize: "10M".into(),
+            storage_metadata_mode: "nebular".into(),
+            storage_put_max_concurrent: 2,
+            object_storage_request_timeout_secs: 900,
+            trust_proxy_headers: false,
+            share_password_rpm: 8,
+        };
+        assert!(validate_startup_secrets(&config).is_err());
+        config.cors_allowed_origins = "https://app.example.com".into();
         assert!(validate_startup_secrets(&config).is_ok());
     }
 

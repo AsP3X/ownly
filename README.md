@@ -100,6 +100,8 @@ Copies `.env.example` → `.env` and `backend/.env.example` → `backend/.env`, 
 
 **Production database:** use managed PostgreSQL (RDS, Cloud SQL, etc.) with backups — not a Docker volume. Set `OWNLY_ENVIRONMENT=production` on API hosts.
 
+**Secure deployment:** see [`docs/secure-deployment.md`](docs/secure-deployment.md) for firewall, secrets, CORS, and the production Compose overlay (`docker-compose.prod.yml`).
+
 **Disk and HLS tuning:** zstd levels, recompression, and video ingest quality — [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md).
 
 ---
@@ -139,6 +141,14 @@ Vite dev server proxies `/api/v1` to `http://localhost:3000`.
 ---
 
 ## Optional Compose profiles
+
+**Production overlay** (no host ports on Postgres/object storage/API; hardened defaults):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+```
+
+Requires `POSTGRES_PASSWORD`, `CORS_ALLOWED_ORIGINS`, and unique secrets. See [`docs/secure-deployment.md`](docs/secure-deployment.md).
 
 **Second storage node** (admin testing with two Nebular instances):
 
@@ -200,6 +210,7 @@ Docker builds `object-storage` from `nebular-os/` using `docker/nebular-os.Docke
 
 | Topic | Location |
 |-------|----------|
+| Secure deployment checklist | [`docs/secure-deployment.md`](docs/secure-deployment.md) |
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md) |
 | Security audit probes (SEC-00x) | [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
 | iOS client | [`ios/README.md`](ios/README.md) |
