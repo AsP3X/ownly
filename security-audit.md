@@ -22,7 +22,7 @@ This document now covers **two audit rounds**:
 | Critical | 1     | 0    | SEC-013 fixed (production profile rejects Compose dev secrets) |
 | High     | 12    | 0    | SEC-014 – SEC-020 fixed |
 | Medium   | 21    | 9    | SEC-021, SEC-024, SEC-026, SEC-027, SEC-032, SEC-034 (partial), SEC-037–SEC-040 open |
-| Low      | 8     | 1    | SEC-041 open; SEC-035–036, SEC-042 fixed |
+| Low      | 8     | 0    | SEC-035–SEC-042 fixed |
 
 
 **Round 1 recommended fix order (complete):** SEC-001 → SEC-007 → SEC-002 → SEC-012 → SEC-003 → SEC-008 → SEC-010 → SEC-004 → SEC-011 → SEC-005 → SEC-006 → SEC-009
@@ -1709,7 +1709,7 @@ All open. Tracked in one table for brevity.
 | SEC-038 | Master key derived by truncation, not a KDF          | Low      | `backend/src/hls/key_store.rs` (`KeyStore::new`)            | Derive via HKDF-SHA256/SHA-256 of the full secret. |
 | SEC-039 | Legacy HLS key blobs decrypt with a static zero nonce| Low      | `backend/src/hls/key_store.rs` (`is_legacy_encrypted_blob`) | Force migration to random-nonce envelope at startup. |
 | SEC-040 | Audit write failures silently swallowed (`.ok()`)    | Low      | `backend/src/admin/*`, share/auth handlers                  | Log audit failures at `error`; consider retry/fail-closed for critical mutations. |
-| SEC-041 | `graphify-out/` and `ios/**/xcuserdata/` tracked     | Low      | `.gitignore`, repo tree                                     | Add to `.gitignore`; remove from history; treat as build artifacts. |
+| SEC-041 | `graphify-out/` and `ios/**/xcuserdata/` tracked     | Low      | `.gitignore`, repo tree                                     | **Fixed:** gitignored; removed from index; CI/docs treat as generated artifacts. History cleanup optional in PR. |
 | SEC-042 | `init-env.sh` does not restrict `.env` permissions   | Low      | `init-env.sh`                                               | `umask 077` + `chmod 600` on generated env files. |
 
 

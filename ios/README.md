@@ -17,6 +17,8 @@ open Ownly.xcodeproj
 
 Select the **Ownly** scheme and an iPhone simulator, then run (⌘R).
 
+Xcode writes per-developer metadata under `**/xcuserdata/` (scheme order, breakpoints). That tree is gitignored — do not commit it.
+
 ## Server configuration
 
 Default API base URL: `http://127.0.0.1:3000/api/v1` (Docker on your Mac).

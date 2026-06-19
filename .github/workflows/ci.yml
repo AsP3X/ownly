@@ -17,6 +17,20 @@ env:
   SETUP_TOKEN: test-setup-token-at-least-32-chars!!
 
 jobs:
+  repo-hygiene:
+    name: Repo hygiene (ignored artifacts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify generated paths are not tracked
+        run: |
+          tracked="$(git ls-files | rg '^(graphify-out/|ios/.+/xcuserdata/)' || true)"
+          if [ -n "$tracked" ]; then
+            echo "Tracked generated artifacts (must be gitignored and removed from the index):"
+            echo "$tracked"
+            exit 1
+          fi
+
   backend:
     name: Backend (test + clippy)
     runs-on: ubuntu-latest
