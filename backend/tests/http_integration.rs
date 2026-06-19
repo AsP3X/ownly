@@ -2290,8 +2290,8 @@ async fn content_read_grant_allows_file_download() {
         .ok();
 }
 
-// Human: Explicit deny on a file beats allow — grantee must not download.
-// Agent: INSERT allow + deny content.read; GET download; EXPECT 403 or idempotent ok on delete path.
+// Human: Explicit deny on a file beats inherited folder allow — grantee must not download.
+// Agent: INSERT folder allow + file deny content.read; GET download; EXPECT 403.
 #[tokio::test]
 async fn content_deny_grant_blocks_file_download() {
     let Some(state) = test_harness::TestHarness::state("content_deny_grant_blocks_file_download").await else {
@@ -2300,7 +2300,10 @@ async fn content_deny_grant_blocks_file_download() {
 
     let owner_id = uuid::Uuid::new_v4().to_string();
     let grantee_id = uuid::Uuid::new_v4().to_string();
+    let folder_id = uuid::Uuid::new_v4().to_string();
     let file_id = uuid::Uuid::new_v4().to_string();
+    let allow_grant_id = uuid::Uuid::new_v4().to_string();
+    let deny_grant_id = uuid::Uuid::new_v4().to_string();
     let password_hash =
         ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
 
@@ -2320,34 +2323,51 @@ async fn content_deny_grant_blocks_file_download() {
     }
 
     sqlx::query(
-        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes) \
-         VALUES ($1, $2, 'deny-test.txt', $3, 'text/plain', 4)",
+        "INSERT INTO folders (id, user_id, name, parent_id) VALUES ($1, $2, 'Shared', NULL)",
+    )
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, folder_id) \
+         VALUES ($1, $2, 'deny-test.txt', $3, 'text/plain', 4, $4)",
     )
     .bind(&file_id)
     .bind(&owner_id)
     .bind(format!("users/{owner_id}/files/{file_id}/blob"))
+    .bind(&folder_id)
     .execute(&state.pool)
     .await
     .expect("insert file");
 
-    for (grant_id, effect) in [
-        (uuid::Uuid::new_v4().to_string(), "allow"),
-        (uuid::Uuid::new_v4().to_string(), "deny"),
-    ] {
-        sqlx::query(
-            "INSERT INTO permission_grants \
-             (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
-             VALUES ($1, 'user', $2, 'file', $3, 'content.read', $4::grant_effect, $5)",
-        )
-        .bind(&grant_id)
-        .bind(&grantee_id)
-        .bind(&file_id)
-        .bind(effect)
-        .bind(&owner_id)
-        .execute(&state.pool)
-        .await
-        .expect("insert grant");
-    }
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'folder', $3, 'content.read', 'allow', $4)",
+    )
+    .bind(&allow_grant_id)
+    .bind(&grantee_id)
+    .bind(&folder_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert folder allow grant");
+
+    sqlx::query(
+        "INSERT INTO permission_grants \
+         (id, subject_type, subject_id, resource_type, resource_id, permission, effect, granted_by) \
+         VALUES ($1, 'user', $2, 'file', $3, 'content.read', 'deny', $4)",
+    )
+    .bind(&deny_grant_id)
+    .bind(&grantee_id)
+    .bind(&file_id)
+    .bind(&owner_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert file deny grant");
 
     let grantee_token = ownly_backend::auth::handlers::create_token(
         grantee_id.clone(),
@@ -2377,13 +2397,18 @@ async fn content_deny_grant_blocks_file_download() {
         "deny must win over allow for content.read"
     );
 
-    sqlx::query("DELETE FROM permission_grants WHERE resource_id = $1")
-        .bind(&file_id)
+    sqlx::query("DELETE FROM permission_grants WHERE id = ANY($1)")
+        .bind(&[allow_grant_id, deny_grant_id])
         .execute(&state.pool)
         .await
         .ok();
     sqlx::query("DELETE FROM files WHERE id = $1")
         .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM folders WHERE id = $1")
+        .bind(&folder_id)
         .execute(&state.pool)
         .await
         .ok();
@@ -2851,6 +2876,9 @@ async fn resumable_upload_assembles_parts_into_file() {
     )
     .expect("token");
 
+    const CHUNK_SIZE: i64 = 1024 * 1024;
+    const TOTAL_SIZE: i64 = CHUNK_SIZE * 2;
+
     let app = create_router(state.clone());
     let create = app
         .clone()
@@ -2863,8 +2891,8 @@ async fn resumable_upload_assembles_parts_into_file() {
                 .body(Body::from(
                     json!({
                         "filename": "chunked.bin",
-                        "total_size": 100,
-                        "chunk_size": 64,
+                        "total_size": TOTAL_SIZE,
+                        "chunk_size": CHUNK_SIZE,
                         "content_type": "application/octet-stream"
                     })
                     .to_string(),
@@ -2882,7 +2910,7 @@ async fn resumable_upload_assembles_parts_into_file() {
         .to_string();
     assert_eq!(create_json["total_parts"], 2);
 
-    let part0 = vec![b'a'; 64];
+    let part0 = vec![b'a'; CHUNK_SIZE as usize];
     let put0 = app
         .clone()
         .oneshot(
@@ -2912,9 +2940,9 @@ async fn resumable_upload_assembles_parts_into_file() {
     assert_eq!(status.status(), StatusCode::OK);
     let status_json = response_json(status).await;
     assert_eq!(status_json["parts_received"], json!([0]));
-    assert_eq!(status_json["bytes_received"], 64);
+    assert_eq!(status_json["bytes_received"], CHUNK_SIZE);
 
-    let part1 = vec![b'b'; 36];
+    let part1 = vec![b'b'; CHUNK_SIZE as usize];
     let put1 = app
         .clone()
         .oneshot(
@@ -2945,14 +2973,14 @@ async fn resumable_upload_assembles_parts_into_file() {
     assert_eq!(complete.status(), StatusCode::OK);
     let complete_json = response_json(complete).await;
     let file_id = complete_json["file"]["id"].as_str().expect("file id");
-    assert_eq!(complete_json["file"]["size_bytes"], 100);
+    assert_eq!(complete_json["file"]["size_bytes"], TOTAL_SIZE);
 
     let size: i64 = sqlx::query_scalar("SELECT size_bytes FROM files WHERE id = $1")
         .bind(file_id)
         .fetch_one(&state.pool)
         .await
         .expect("file row");
-    assert_eq!(size, 100);
+    assert_eq!(size, TOTAL_SIZE);
 
     sqlx::query("DELETE FROM files WHERE user_id = $1")
         .bind(&user_id)
@@ -3483,8 +3511,8 @@ async fn leave_shared_with_me_revokes_content_read_grant() {
 
     sqlx::query(
         "INSERT INTO resource_user_shares \
-         (id, owner_user_id, grantee_user_id, resource_type, resource_id, permission) \
-         VALUES ($1, $2, $3, 'file', $4, 'read')",
+         (id, owner_user_id, grantee_user_id, resource_type, resource_id) \
+         VALUES ($1, $2, $3, 'file', $4)",
     )
     .bind(&share_id)
     .bind(&owner_id)
