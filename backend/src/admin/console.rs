@@ -830,7 +830,7 @@ pub async fn patch_settings(
         upsert_setting(&state.pool, "admin_notification_rules", &json).await?;
     }
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.settings.update",
@@ -839,8 +839,7 @@ pub async fn patch_settings(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(load_settings_response(&state).await?))
 }
@@ -861,7 +860,7 @@ pub async fn cleanup_gif_preview_temp(
         gif_preview::purge_all_cached_preview_sidecars(&state.pool, state.storage.clone())
             .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.gif_preview_temp.cleanup",
@@ -873,8 +872,7 @@ pub async fn cleanup_gif_preview_temp(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(CleanupGifPreviewTempResponse {
         temp_dirs_removed,

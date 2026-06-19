@@ -226,7 +226,7 @@ pub async fn register(
         _ => AppError::Database(e),
     })?;
 
-    let session_id = audit::write_audit(
+    let session_id = audit::write_audit_logged(
         &state.pool,
         Some(&user_id),
         "auth.register",
@@ -235,8 +235,7 @@ pub async fn register(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
     let token = if enabled {
@@ -304,7 +303,7 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
 
-    let session_id = audit::write_audit(
+    let session_id = audit::write_audit_logged(
         &state.pool,
         Some(&user_id),
         "auth.login",
@@ -313,8 +312,7 @@ pub async fn login(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
     let effective_role =
@@ -549,7 +547,7 @@ pub async fn change_password(
     // Agent: CALLS bump_session_epoch; auth_middleware rejects stale JWT sids/epochs.
     crate::user_sessions::bump_session_epoch(&state.pool, &claims.sub).await?;
 
-    audit::write_audit(
+    audit::write_audit_required(
         &state.pool,
         Some(&claims.sub),
         "auth.password_change",
@@ -584,7 +582,7 @@ pub async fn logout(
         crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
     }
 
-    audit::write_audit(
+    audit::write_audit_required(
         &state.pool,
         Some(&claims.sub),
         "auth.logout",

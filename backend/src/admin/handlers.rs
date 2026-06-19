@@ -411,7 +411,7 @@ pub async fn create_user(
 
     crate::authz::sync_user_admin_group_membership(&state.pool, &user_id, &role).await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.users.create",
@@ -420,8 +420,7 @@ pub async fn create_user(
         Some(serde_json::json!({ "email": email, "role": role, "enabled": enabled })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(UserDto {
         id: user_id,
@@ -578,7 +577,7 @@ pub async fn update_user(
             .fetch_one(&state.pool)
             .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.users.update",
@@ -593,8 +592,7 @@ pub async fn update_user(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(UserDto {
         id: user_id,
@@ -642,13 +640,15 @@ pub async fn delete_user(
         }
     }
 
+    let mut tx = state.pool.begin().await?;
+
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&user_id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
 
-    audit::write_audit(
-        &state.pool,
+    audit::write_audit_required_in_tx(
+        &mut tx,
         Some(&claims.sub),
         "admin.users.delete",
         Some("user"),
@@ -656,8 +656,9 @@ pub async fn delete_user(
         Some(serde_json::json!({ "email": email })),
         &headers,
     )
-    .await
-    .ok();
+    .await?;
+
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -752,7 +753,7 @@ pub async fn revoke_user_session(
 
     user_sessions::revoke_session_id(&state.pool, &user_id, &session_id).await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.sessions.revoke",
@@ -761,8 +762,7 @@ pub async fn revoke_user_session(
         Some(serde_json::json!({ "session_id": session_id })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -784,7 +784,7 @@ pub async fn revoke_other_sessions(
 
     user_sessions::revoke_all_other_sessions(&state.pool, &user_id).await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "admin.sessions.revoke_others",
@@ -793,8 +793,7 @@ pub async fn revoke_other_sessions(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

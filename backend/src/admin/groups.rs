@@ -123,7 +123,7 @@ pub async fn create_group(
         _ => AppError::Database(e),
     })?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "groups.create",
@@ -132,8 +132,7 @@ pub async fn create_group(
         Some(serde_json::json!({ "slug": slug, "name": name })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "id": id, "slug": slug })))
 }
@@ -182,7 +181,7 @@ pub async fn update_group(
             .await?;
     }
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "groups.update",
@@ -191,8 +190,7 @@ pub async fn update_group(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -222,7 +220,7 @@ pub async fn delete_group(
         .execute(&state.pool)
         .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "groups.delete",
@@ -231,8 +229,7 @@ pub async fn delete_group(
         Some(serde_json::json!({ "slug": slug })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -306,7 +303,7 @@ pub async fn add_group_member(
         crate::user_sessions::bump_session_epoch(&state.pool, &body.user_id).await?;
     }
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "groups.member.add",
@@ -315,8 +312,7 @@ pub async fn add_group_member(
         Some(serde_json::json!({ "user_id": body.user_id })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -374,7 +370,7 @@ pub async fn remove_group_member(
         crate::user_sessions::bump_session_epoch(&state.pool, &user_id).await?;
     }
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "groups.member.remove",
@@ -383,8 +379,7 @@ pub async fn remove_group_member(
         Some(serde_json::json!({ "user_id": user_id })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

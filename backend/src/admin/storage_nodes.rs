@@ -757,7 +757,7 @@ pub async fn create_storage_node(
     .execute(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "storage_nodes.create",
@@ -772,8 +772,7 @@ pub async fn create_storage_node(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     let response = build_storage_response(&state).await?;
     let node = response
@@ -870,7 +869,7 @@ pub async fn update_storage_node(
     .execute(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "storage_nodes.update",
@@ -884,8 +883,7 @@ pub async fn update_storage_node(
         })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     let response = build_storage_response(&state).await?;
     let node = response

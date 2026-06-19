@@ -543,7 +543,7 @@ pub async fn create_share(
         Err(error) => return Err(error.into()),
     };
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "shares.create",
@@ -552,8 +552,7 @@ pub async fn create_share(
         Some(serde_json::json!({ "share_id": share.id })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(CreateShareResponse {
         share: share_dto_from_record(share),
@@ -601,21 +600,23 @@ pub async fn revoke_share(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let mut tx = state.pool.begin().await?;
+
     let updated = sqlx::query(
         "UPDATE public_shares SET revoked_at = now() \
          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(&id)
     .bind(&claims.sub)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
 
-    audit::write_audit(
-        &state.pool,
+    audit::write_audit_required_in_tx(
+        &mut tx,
         Some(&claims.sub),
         "shares.revoke",
         Some("share"),
@@ -623,8 +624,9 @@ pub async fn revoke_share(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await?;
+
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -695,7 +697,7 @@ pub async fn update_share(
     .execute(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "shares.update",
@@ -704,8 +706,7 @@ pub async fn update_share(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(UpdateShareResponse {
         share: share_dto_from_record(share),
@@ -804,7 +805,7 @@ pub async fn create_user_share(
     .fetch_one(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "shares.user_invite",
@@ -813,8 +814,7 @@ pub async fn create_user_share(
         Some(serde_json::json!({ "grantee_user_id": grantee_user_id })),
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(CreateUserShareResponse { user_share }))
 }
@@ -827,6 +827,8 @@ pub async fn revoke_user_share(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let mut tx = state.pool.begin().await?;
+
     let deleted: Option<(String, String, String)> = sqlx::query_as(
         "DELETE FROM resource_user_shares \
          WHERE id = $1 AND owner_user_id = $2 \
@@ -834,30 +836,31 @@ pub async fn revoke_user_share(
     )
     .bind(&id)
     .bind(&claims.sub)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let Some((resource_type, resource_id, grantee_user_id)) = deleted else {
         return Err(AppError::NotFound);
     };
 
-    crate::authz::revoke_content_read_for_user_share(
-        &state.pool,
-        &grantee_user_id,
-        &resource_type,
-        &resource_id,
-    )
-    .await
-    .ok();
-
-    audit::write_audit(
-        &state.pool,
+    audit::write_audit_required_in_tx(
+        &mut tx,
         Some(&claims.sub),
         "shares.user_revoke",
         Some(&resource_type),
         Some(&resource_id),
         Some(serde_json::json!({ "user_share_id": id })),
         &headers,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    crate::authz::revoke_content_read_for_user_share(
+        &state.pool,
+        &grantee_user_id,
+        &resource_type,
+        &resource_id,
     )
     .await
     .ok();
@@ -1007,7 +1010,7 @@ async fn copy_share_file_into_library(
     .fetch_one(&state.pool)
     .await?;
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(grantee_id),
         "shares.save_from_public",
@@ -1020,8 +1023,7 @@ async fn copy_share_file_into_library(
         })),
         headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(file)
 }
@@ -2048,7 +2050,7 @@ pub async fn leave_shared_with_me(
     .await
     .ok();
 
-    audit::write_audit(
+    audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
         "shares.leave",
@@ -2057,8 +2059,7 @@ pub async fn leave_shared_with_me(
         None,
         &headers,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
