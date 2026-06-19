@@ -147,7 +147,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
         VITE_LOG_LEVEL: ${VITE_LOG_LEVEL:-debug}
     container_name: ownly-frontend
     environment:

@@ -4,10 +4,12 @@
 export {
   ApiError,
   apiFetch,
+  API_FETCH_CREDENTIALS,
   getAuthToken,
   getErrorMessage,
   parseRetryAfterSeconds,
   normalizeStorageErrorMessage,
+  setSessionRefreshListener,
   setTokenRefreshListener,
   setUnauthorizedHandler,
   setupMutationHeaders,
@@ -30,15 +32,13 @@ import {
 } from "@/lib/resumable-upload";
 import {
   API_BASE,
+  API_FETCH_CREDENTIALS,
   ApiError,
   apiFetch,
-  getAuthToken,
   getErrorMessage,
   parseRetryAfterSeconds,
   setupMutationHeaders,
 } from "@/api/core";
-
-const getToken = getAuthToken;
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }
@@ -992,11 +992,10 @@ async function fetchAuthenticatedBlob(
   errorCode: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const token = getToken();
   const response = await fetch(url, {
     cache: "force-cache",
     signal,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: API_FETCH_CREDENTIALS,
   });
   if (!response.ok) {
     throw new ApiError(response.statusText || "Request failed", errorCode, response.status);
@@ -1327,7 +1326,6 @@ export async function downloadFolderItem(
     folderDownloadArchiveUrl(folder.id),
     sizeBytes,
     onProgress,
-    getToken(),
   );
   saveBlobAsFile(blob, archiveName);
   onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
@@ -1384,7 +1382,6 @@ export async function downloadBulkFiles(
     bulkDownloadArchiveUrl(started.job_id),
     sizeBytes,
     onProgress,
-    getToken(),
   );
   saveBlobAsFile(blob, archiveName);
   onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
@@ -2011,7 +2008,6 @@ function uploadFileWithProgressMultipart(
       form.append("folder_id", options.folderId);
     }
     const url = `${API_BASE}/files/upload`;
-    const token = getToken();
 
     const session: ActiveUploadSession = {
       xhr,
@@ -2181,7 +2177,7 @@ function uploadFileWithProgressMultipart(
     });
 
     xhr.open("POST", url);
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.withCredentials = true;
     xhr.send(form);
   });
 }
@@ -2590,10 +2586,10 @@ export async function fetchFileBlobForPreview(
   file: FileItem,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const token = getToken();
-  const authHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-
-  let response = await fetch(fileDownloadUrl(file.id), { headers: authHeaders, signal });
+  let response = await fetch(fileDownloadUrl(file.id), {
+    credentials: API_FETCH_CREDENTIALS,
+    signal,
+  });
   if (!response.ok) {
     const presigned = await fetchFileDownloadUrl(file.id);
     response = await fetch(presigned.url, { signal });
@@ -2675,7 +2671,6 @@ async function downloadBytesWithFetch(
   url: string,
   sizeBytes: number,
   onProgress: ((update: DownloadProgressUpdate) => void) | undefined,
-  authToken: string | null,
 ): Promise<Blob> {
   activeDownloadAbort?.abort();
   const abort = new AbortController();
@@ -2683,12 +2678,10 @@ async function downloadBytesWithFetch(
 
   onProgress?.({ phase: "downloading", percent: 0, indeterminate: false });
 
-  const headers: HeadersInit = {};
-  if (authToken) {
-    headers.Authorization = `Bearer ${authToken}`;
-  }
-
-  const response = await fetch(url, { headers, signal: abort.signal });
+  const response = await fetch(url, {
+    signal: abort.signal,
+    credentials: API_FETCH_CREDENTIALS,
+  });
   if (!response.ok) {
     activeDownloadAbort = null;
     throw new ApiError(response.statusText || "Download failed", "download_failed", response.status);
@@ -2771,7 +2764,6 @@ export async function downloadFileItem(
   file: FileItem,
   onProgress?: (update: DownloadProgressUpdate) => void,
 ): Promise<{ method: DownloadMethod }> {
-  const token = getToken();
   let presignedUrl: string | null = null;
   let lastError: unknown;
 
@@ -2789,7 +2781,6 @@ export async function downloadFileItem(
       fileDownloadUrl(file.id),
       downloadSize,
       onProgress,
-      token,
     );
     saveBlobAsFile(blob, downloadName);
     return { method: "api-blob" };
@@ -2805,7 +2796,7 @@ export async function downloadFileItem(
     const presigned = await fetchFileDownloadUrl(file.id);
     presignedUrl = presigned.url;
     try {
-      const blob = await downloadBytesWithFetch(presignedUrl, downloadSize, onProgress, null);
+      const blob = await downloadBytesWithFetch(presignedUrl, downloadSize, onProgress);
       saveBlobAsFile(blob, downloadName);
       return { method: "presigned-blob" };
     } catch (error) {
@@ -3055,11 +3046,8 @@ export function grantedFileDownloadUrl(fileId: string): string {
 // Agent: GET /shares/granted/files/:id/download; CALLS saveBlobAsFile with Content-Disposition name.
 export async function downloadGrantedFile(fileId: string, filename: string): Promise<void> {
   const path = `/shares/granted/files/${encodeURIComponent(fileId)}/download`;
-  const token = getToken();
-  const headers: HeadersInit = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE}${path}`, { headers });
+  const response = await fetch(`${API_BASE}${path}`, { credentials: API_FETCH_CREDENTIALS });
   if (!response.ok) {
     const text = await response.text();
     let message = response.statusText;

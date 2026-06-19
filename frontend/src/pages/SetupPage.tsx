@@ -15,6 +15,8 @@ import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
 import { DEFAULT_INSTANCE_NAME } from "@/lib/instance-name";
 import { writeSetupStatusCache } from "@/lib/setup-status-cache";
+import { clearSetupToken, setSetupToken } from "@/lib/setup-token";
+import { getJwtExp } from "@/lib/jwt";
 import { SetupActionsRow } from "@/components/setup/SetupActionsRow";
 import { SetupConnectionUrlBox } from "@/components/setup/SetupConnectionUrlBox";
 import { SetupDbStatusBanner } from "@/components/setup/SetupDbStatusBanner";
@@ -64,6 +66,7 @@ export default function SetupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [setupToken, setSetupTokenValue] = useState("");
   const [instanceName, setInstanceName] = useState(DEFAULT_INSTANCE_NAME);
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const [requireAccountActivation, setRequireAccountActivation] = useState(false);
@@ -89,7 +92,9 @@ export default function SetupPage() {
   }
 
   useEffect(() => {
+    if (!setupToken.trim()) return;
     let cancelled = false;
+    setSetupToken(setupToken);
     Promise.all([setupDatabaseInfo(), setupStorageInfo()])
       .then(([dbInfo, storageInfo]) => {
         if (cancelled) return;
@@ -106,9 +111,10 @@ export default function SetupPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setupToken]);
 
   function validateStep1() {
+    if (!setupToken.trim()) return "Setup token is required";
     if (!fullName.trim()) return "Full name is required";
     if (!email.trim()) return "Email is required";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Invalid email address";
@@ -213,13 +219,15 @@ export default function SetupPage() {
         );
         return;
       }
-      if (!res.token) {
-        setError("Setup did not return a session token.");
+      if (!res.user) {
+        setError("Setup did not return an admin account.");
         return;
       }
       applyInstanceName(instanceName.trim());
       writeSetupStatusCache(true);
-      setAuth(res.token, res.user);
+      clearSetupToken();
+      const sessionExpHint = res.token ? getJwtExp(res.token) : null;
+      setAuth(res.user, sessionExpHint);
       navigate("/", { replace: true });
     } catch (e) {
       setError(getErrorMessage(e));
@@ -275,6 +283,18 @@ export default function SetupPage() {
         >
           {step === 1 && (
             <>
+              <SetupField
+                label="Setup Token"
+                type="password"
+                placeholder="Paste the SETUP_TOKEN from your server environment"
+                value={setupToken}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSetupTokenValue(value);
+                  setSetupToken(value);
+                }}
+                autoComplete="off"
+              />
               <SetupField
                 label="Full Name"
                 placeholder="e.g., Alex Johnson"

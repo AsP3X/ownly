@@ -1,4 +1,4 @@
-// Human: React context object holding JWT session state — consumed by useAuth hook and AuthProvider.
+// Human: React context object holding cookie-backed session state — consumed by useAuth hook and AuthProvider.
 // Agent: EXPORTS AuthContext + User type; NO components in this file (fast refresh safe).
 
 import { createContext } from "react";
@@ -10,12 +10,16 @@ export type User = {
   enabled: boolean;
 };
 
+/** Human: Truthy marker for route guards — never holds the raw JWT (SEC-024). */
+export const SESSION_ACTIVE = "cookie";
+
 export type AuthContextValue = {
   token: string | null;
   user: User | null;
+  sessionReady: boolean;
   /** Human: Effective instance permission slugs from GET /me/permissions. */
   instancePermissions: string[];
-  setAuth: (token: string, user: User) => void;
+  setAuth: (user: User, sessionExpHint?: number | null) => void;
   logout: () => void;
   /** Human: Check delegated admin capability without relying on users.role alone. */
   hasInstancePermission: (permission: string) => boolean;
