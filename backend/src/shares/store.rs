@@ -1,7 +1,6 @@
 // Human: DB helpers for public share links — resolve tokens and enforce file/folder scope.
 // Agent: READS public_shares + files/folders; RETURNS ShareRecord; SCOPE checks prevent lateral access.
 
-use rand::RngCore;
 use sqlx::PgPool;
 
 use crate::{
@@ -99,11 +98,30 @@ pub fn ensure_share_download_allowed(share: &ShareRecord) -> Result<(), AppError
     }
     Ok(())
 }
-// Agent: USES rand thread_rng; RETURNS 64-char hex string.
+// Agent: USES OsRng via crypto::fill_random_bytes; RETURNS 64-char hex string.
 pub fn generate_share_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    crate::crypto::fill_random_bytes(&mut bytes);
     hex::encode(bytes)
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn share_token_has_expected_length_and_format() {
+        let token = generate_share_token();
+        assert_eq!(token.len(), 64);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn share_tokens_are_unique() {
+        let tokens: HashSet<String> = (0..100).map(|_| generate_share_token()).collect();
+        assert_eq!(tokens.len(), 100);
+    }
 }
 
 // Human: Load an active share row by token or reject revoked / missing links.

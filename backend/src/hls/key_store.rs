@@ -2,7 +2,6 @@
 // Agent: WRITES file_encryption_keys; USES AES-256-GCM; READS PgPool; RETURNS 16-byte HLS content key when needed.
 
 use anyhow::Context;
-use rand::RngCore;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -91,8 +90,7 @@ impl KeyStore {
     }
 
     pub async fn create_key_for_file(&self, file_id: &str) -> anyhow::Result<(Uuid, AesKey)> {
-        let mut key = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut key);
+        let key = generate_media_key();
         let key_id = Uuid::new_v4();
 
         let encrypted = self.encrypt_key(&key)?;
@@ -135,7 +133,7 @@ impl KeyStore {
             .context("creating AES-256-GCM cipher")?;
 
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        crate::crypto::fill_random_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher
@@ -215,10 +213,29 @@ fn is_legacy_encrypted_blob(encrypted: &[u8]) -> bool {
     encrypted.len() == LEGACY_ENCRYPTED_LEN
 }
 
+fn generate_media_key() -> AesKey {
+    let mut key = [0u8; MEDIA_KEY_LEN];
+    crate::crypto::fill_random_bytes(&mut key);
+    key
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sqlx::PgPool;
+    use std::collections::HashSet;
+
+    #[test]
+    fn media_key_has_expected_length() {
+        let key = generate_media_key();
+        assert_eq!(key.len(), MEDIA_KEY_LEN);
+    }
+
+    #[test]
+    fn media_keys_are_unique() {
+        let keys: HashSet<AesKey> = (0..100).map(|_| generate_media_key()).collect();
+        assert_eq!(keys.len(), 100);
+    }
 
     fn test_keystore(pool: PgPool) -> KeyStore {
         KeyStore::new(pool, test_signing_secret())
