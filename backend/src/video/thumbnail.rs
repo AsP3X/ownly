@@ -8,6 +8,7 @@ use tempfile::TempDir;
 use tokio::process::Command;
 
 use crate::hls::probe::probe_duration_seconds;
+use crate::media::subprocess::{run_command_with_timeout, FFMPEG_SHORT_TIMEOUT};
 
 use super::{thumbnail_manifest_storage_key, thumbnail_option_storage_key};
 
@@ -92,29 +93,30 @@ async fn extract_frame_at(
     let input_str = input.to_str().unwrap_or("");
     let output_str = output_path.to_str().unwrap_or("");
 
-    let output = Command::new("ffmpeg")
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            &coarse.to_string(),
-            "-i",
-            input_str,
-            "-ss",
-            &fine.to_string(),
-            "-frames:v",
-            "1",
-            "-vf",
-            &format!("scale={THUMBNAIL_WIDTH}:-1"),
-            "-q:v",
-            "3",
-            "-y",
-            output_str,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        &coarse.to_string(),
+        "-i",
+        input_str,
+        "-ss",
+        &fine.to_string(),
+        "-frames:v",
+        "1",
+        "-vf",
+        &format!("scale={THUMBNAIL_WIDTH}:-1"),
+        "-q:v",
+        "3",
+        "-y",
+        output_str,
+    ]);
+    let output =
+        run_command_with_timeout(&mut command, FFMPEG_SHORT_TIMEOUT, "ffmpeg frame extract")
+            .await
+            .map_err(|e| format!("ffmpeg frame extract: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -141,31 +143,32 @@ async fn extract_scene_candidates(
     let input_str = input.to_str().unwrap_or("");
     let pattern_str = pattern.to_str().unwrap_or("");
 
-    let output = Command::new("ffmpeg")
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            &skip.to_string(),
-            "-i",
-            input_str,
-            "-t",
-            &analyze_seconds.to_string(),
-            "-vf",
-            &format!("select=gt(scene\\,0.3),scale={THUMBNAIL_WIDTH}:-1"),
-            "-frames:v",
-            &MAX_CANDIDATE_FRAMES.to_string(),
-            "-vsync",
-            "vfr",
-            "-q:v",
-            "3",
-            "-y",
-            pattern_str,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("ffmpeg scene extract spawn failed: {e}"))?;
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        &skip.to_string(),
+        "-i",
+        input_str,
+        "-t",
+        &analyze_seconds.to_string(),
+        "-vf",
+        &format!("select=gt(scene\\,0.3),scale={THUMBNAIL_WIDTH}:-1"),
+        "-frames:v",
+        &MAX_CANDIDATE_FRAMES.to_string(),
+        "-vsync",
+        "vfr",
+        "-q:v",
+        "3",
+        "-y",
+        pattern_str,
+    ]);
+    let output =
+        run_command_with_timeout(&mut command, FFMPEG_SHORT_TIMEOUT, "ffmpeg scene extract")
+            .await
+            .map_err(|e| format!("ffmpeg scene extract: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -223,8 +226,7 @@ pub fn laplacian_variance(gray: &image::GrayImage) -> f64 {
 // Human: Score one JPEG candidate — reject black/white/blur frames before ranking.
 // Agent: READS image bytes; RETURNS None when frame fails quality gates.
 pub fn score_jpeg_bytes(bytes: &[u8]) -> Result<Option<f64>, String> {
-    let img =
-        image::load_from_memory(bytes).map_err(|e| format!("jpeg decode failed: {e}"))?;
+    let img = image::load_from_memory(bytes).map_err(|e| format!("jpeg decode failed: {e}"))?;
     let gray = img.to_luma8();
     let (width, height) = gray.dimensions();
     if width == 0 || height == 0 {
@@ -289,7 +291,9 @@ pub(crate) async fn extract_thumbnail_options(input: &Path) -> Result<Vec<Scored
     let temp_path = temp_dir.path();
 
     let mut candidate_paths: Vec<(f64, PathBuf)> =
-        extract_scene_candidates(input, duration, temp_path).await.unwrap_or_default();
+        extract_scene_candidates(input, duration, temp_path)
+            .await
+            .unwrap_or_default();
 
     for (idx, ts) in evenly_spaced_timestamps(duration, MAX_CANDIDATE_FRAMES)
         .into_iter()
@@ -317,7 +321,8 @@ pub(crate) async fn extract_thumbnail_options(input: &Path) -> Result<Vec<Scored
 
     if scored.is_empty() {
         // Human: Last resort — grab one mid-roll frame even if soft, so grid is never empty.
-        let fallback_ts = intro_skip_seconds(duration) + ((duration * 0.95) - intro_skip_seconds(duration)) * 0.5;
+        let fallback_ts =
+            intro_skip_seconds(duration) + ((duration * 0.95) - intro_skip_seconds(duration)) * 0.5;
         let fallback_path = temp_path.join("fallback.jpg");
         extract_frame_at(input, fallback_ts, &fallback_path).await?;
         let bytes = tokio::fs::read(&fallback_path)

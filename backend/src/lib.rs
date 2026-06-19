@@ -17,38 +17,39 @@ use tower_http::{
 use tracing::{info, Level};
 
 pub mod admin;
+pub mod audio;
 pub mod audit;
 pub mod auth;
 pub mod authz;
-pub mod audio;
-pub mod document;
-pub mod image;
-pub mod video;
 pub mod browser_guard;
 pub mod config;
-pub mod outbound_target;
-pub mod patch_fields;
 pub mod crypto;
 pub mod db;
+pub mod document;
 pub mod error;
 pub mod files;
-pub mod hls;
 pub mod health;
+pub mod hls;
+pub mod image;
 pub mod jobs;
 pub mod logging;
+pub mod media;
+pub mod outbound_target;
+pub mod patch_fields;
+pub mod permissions;
 pub mod quota;
-pub mod stream_ticket;
 pub mod rate_limit;
 pub mod redact;
 pub mod request_tracking;
 pub mod secrets;
-pub mod permissions;
 pub mod setup;
 pub mod shares;
 pub mod storage;
+pub mod stream_ticket;
 pub mod temp_cleanup;
 pub mod uploads;
 pub mod user_sessions;
+pub mod video;
 
 use config::Config;
 use sqlx::PgPool;
@@ -104,6 +105,9 @@ pub struct AppState {
     /// Human: Serialize ffmpeg sidecar generation per storage_key on cache miss.
     /// Agent: READ by gif_preview::open_gif_preview_stream; WRITES per-key Mutex map.
     pub gif_preview_transcode_locks: Arc<files::gif_preview::GifPreviewTranscodeLocks>,
+    /// Human: Per-user concurrent HLS transcode cap — pairs with global JOB_WORKER_COUNT (SEC-021).
+    /// Agent: ACQUIRED in jobs executor before run_hls_encode_job.
+    pub user_transcode_gate: Arc<media::UserTranscodeGate>,
     /// Human: Cooperative cancel flag for the active server-side storage migration worker.
     /// Agent: READ/WRITE by storage_migration_run cancel endpoint and background loop.
     pub storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator,
@@ -241,7 +245,11 @@ async fn build_app_state(
         hls_hardware,
         storage_metadata_mode: config.storage_metadata_mode.clone(),
         gif_preview_transcode_locks: Arc::new(files::gif_preview::GifPreviewTranscodeLocks::new()),
-        storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator::new(),
+        user_transcode_gate: media::UserTranscodeGate::new(
+            config.max_concurrent_transcodes_per_user as usize,
+        ),
+        storage_migration_coordinator:
+            admin::storage_migration_run::StorageMigrationCoordinator::new(),
     }))
 }
 
@@ -277,9 +285,7 @@ async fn wait_for_nebular_health(base_url: &str) -> anyhow::Result<()> {
         }
     }
 
-    anyhow::bail!(
-        "Nebular OS health check failed after {MAX_ATTEMPTS} attempts at {health_url}"
-    )
+    anyhow::bail!("Nebular OS health check failed after {MAX_ATTEMPTS} attempts at {health_url}")
 }
 
 // Human: Production startup path — connect Postgres, verify Nebular OS, then assemble AppState.
@@ -328,8 +334,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/version", get(setup::handlers::release_info))
         .route("/api/v1/health/ready", get(health::readiness))
         .route("/api/v1/setup/status", get(setup::handlers::setup_status))
-        .route("/api/v1/setup/database", get(setup::handlers::setup_database_info))
-        .route("/api/v1/setup/storage", get(setup::handlers::setup_storage_info))
+        .route(
+            "/api/v1/setup/database",
+            get(setup::handlers::setup_database_info),
+        )
+        .route(
+            "/api/v1/setup/storage",
+            get(setup::handlers::setup_storage_info),
+        )
         .route(
             "/api/v1/setup/database/test",
             post(setup::handlers::test_setup_database),
@@ -346,10 +358,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/settings/registration",
             get(auth::handlers::public_registration_setting),
         )
-        .route(
-            "/api/v1/files/{id}/stream",
-            get(hls::handlers::stream_file),
-        )
+        .route("/api/v1/files/{id}/stream", get(hls::handlers::stream_file))
         .route(
             "/api/v1/files/{id}/preview-animation",
             get(files::gif_preview::stream_gif_preview_animation)
@@ -439,7 +448,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/api/v1/me", get(auth::handlers::me))
-        .route("/api/v1/me/permissions", get(auth::handlers::me_permissions))
+        .route(
+            "/api/v1/me/permissions",
+            get(auth::handlers::me_permissions),
+        )
         .route("/api/v1/me/profile", get(auth::handlers::profile))
         .route(
             "/api/v1/me/password",
@@ -524,8 +536,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/files/{id}/export",
             get(hls::handlers::get_export).post(hls::handlers::post_export),
         )
-        .route("/api/v1/files/{id}/download", get(files::handlers::download_file))
-        .route("/api/v1/files/{id}/download-url", get(files::handlers::download_url))
+        .route(
+            "/api/v1/files/{id}/download",
+            get(files::handlers::download_file),
+        )
+        .route(
+            "/api/v1/files/{id}/download-url",
+            get(files::handlers::download_url),
+        )
         .route(
             "/api/v1/files/{id}/preview-url",
             get(files::handlers::preview_url),
@@ -564,7 +582,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/files/{id}",
             patch(files::handlers::move_file).delete(files::handlers::delete_file),
         )
-        .route("/api/v1/folders", get(files::folders::list_folders).post(files::folders::create_folder))
+        .route(
+            "/api/v1/folders",
+            get(files::folders::list_folders).post(files::folders::create_folder),
+        )
         .route(
             "/api/v1/folders/{id}/download",
             get(files::folder_download::get_folder_download_status)
@@ -600,25 +621,46 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/recycle-bin/restore",
             post(files::recycle_bin::restore_recycle_bin_items),
         )
-        .route("/api/v1/shares", post(shares::handlers::create_share).get(shares::handlers::lookup_share))
+        .route(
+            "/api/v1/shares",
+            post(shares::handlers::create_share).get(shares::handlers::lookup_share),
+        )
         .route(
             "/api/v1/shares/save-from-public",
             post(shares::handlers::save_from_public_share),
         )
-        .route("/api/v1/shares/status", post(shares::handlers::share_status_bulk))
-        .route("/api/v1/shares/resource", get(shares::handlers::resource_shares))
-        .route("/api/v1/shares/with-me", get(shares::handlers::list_shared_with_me))
+        .route(
+            "/api/v1/shares/status",
+            post(shares::handlers::share_status_bulk),
+        )
+        .route(
+            "/api/v1/shares/resource",
+            get(shares::handlers::resource_shares),
+        )
+        .route(
+            "/api/v1/shares/with-me",
+            get(shares::handlers::list_shared_with_me),
+        )
         .route(
             "/api/v1/shares/with-me/{id}",
             delete(shares::handlers::leave_shared_with_me),
         )
-        .route("/api/v1/shares/by-me", get(shares::handlers::list_shared_by_me))
+        .route(
+            "/api/v1/shares/by-me",
+            get(shares::handlers::list_shared_by_me),
+        )
         .route(
             "/api/v1/shares/granted/files/{id}/download",
             get(shares::handlers::download_granted_file),
         )
-        .route("/api/v1/shares/user", post(shares::handlers::create_user_share))
-        .route("/api/v1/shares/user/{id}", delete(shares::handlers::revoke_user_share))
+        .route(
+            "/api/v1/shares/user",
+            post(shares::handlers::create_user_share),
+        )
+        .route(
+            "/api/v1/shares/user/{id}",
+            delete(shares::handlers::revoke_user_share),
+        )
         .route(
             "/api/v1/shares/{id}",
             patch(shares::handlers::update_share).delete(shares::handlers::revoke_share),
@@ -664,10 +706,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/admin/permissions/{id}",
             delete(admin::groups::delete_admin_permission),
         )
-        .route(
-            "/api/v1/admin/overview",
-            get(admin::console::overview),
-        )
+        .route("/api/v1/admin/overview", get(admin::console::overview))
         .route(
             "/api/v1/admin/audit-logs",
             get(admin::console::list_audit_logs),
@@ -757,16 +796,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/admin/users/{id}",
             patch(admin::handlers::update_user).delete(admin::handlers::delete_user),
         )
-        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ));
 
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
         .layer(middleware::from_fn(request_tracking::request_id_middleware))
         .layer(
-            TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
-                make_request_span(request)
-            }),
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &Request<_>| make_request_span(request)),
         )
         .layer(cors_layer)
         .with_state(state)
@@ -778,9 +819,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 // Agent: READS TMPDIR or /tmp via std::env::temp_dir; CALLS create_dir_all at startup.
 fn ensure_temp_dir() -> anyhow::Result<()> {
     let temp_dir = std::env::temp_dir();
-    std::fs::create_dir_all(&temp_dir).map_err(|e| {
-        anyhow::anyhow!("create temp dir {}: {e}", temp_dir.display())
-    })?;
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| anyhow::anyhow!("create temp dir {}: {e}", temp_dir.display()))?;
     info!(temp_dir = %temp_dir.display(), "temp directory ready for upload scratch files");
     Ok(())
 }

@@ -4,6 +4,8 @@
 use std::path::Path;
 use tokio::process::Command;
 
+use crate::media::subprocess::{run_command_with_timeout, FFPROBE_TIMEOUT};
+
 const DEFAULT_DURATION_SECONDS: i32 = 3600;
 
 /// Human: How ffmpeg should package this source for browser HLS playback.
@@ -39,11 +41,7 @@ pub async fn probe_codecs(path: &Path) -> CodecProbe {
     let audio = probe_stream_codec(path, "a:0").await;
     let avg_frame_rate = probe_avg_frame_rate(path).await;
 
-    let encode_mode = resolve_encode_mode(
-        video.as_deref(),
-        audio.as_deref(),
-        avg_frame_rate,
-    );
+    let encode_mode = resolve_encode_mode(video.as_deref(), audio.as_deref(), avg_frame_rate);
 
     CodecProbe {
         video_codec: video,
@@ -141,19 +139,19 @@ pub fn parse_frame_rate(raw: &str) -> Option<f64> {
 }
 
 async fn probe_avg_frame_rate(path: &Path) -> Option<f64> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=avg_frame_rate",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            path.to_str().unwrap_or(""),
-        ])
-        .output()
+    let mut command = Command::new("ffprobe");
+    command.args([
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=avg_frame_rate",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path.to_str().unwrap_or(""),
+    ]);
+    let output = run_command_with_timeout(&mut command, FFPROBE_TIMEOUT, "ffprobe avg_frame_rate")
         .await
         .ok()?;
 
@@ -165,27 +163,33 @@ async fn probe_avg_frame_rate(path: &Path) -> Option<f64> {
 }
 
 async fn probe_stream_codec(path: &Path, selector: &str) -> Option<String> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            selector,
-            "-show_entries",
-            "stream=codec_name",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            path.to_str().unwrap_or(""),
-        ])
-        .output()
-        .await
-        .ok()?;
+    let mut command = Command::new("ffprobe");
+    command.args([
+        "-v",
+        "error",
+        "-select_streams",
+        selector,
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path.to_str().unwrap_or(""),
+    ]);
+    let output = run_command_with_timeout(
+        &mut command,
+        FFPROBE_TIMEOUT,
+        &format!("ffprobe codec {selector}"),
+    )
+    .await
+    .ok()?;
 
     if !output.status.success() {
         return None;
     }
 
-    let name = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+    let name = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_lowercase();
     if name.is_empty() {
         None
     } else {
@@ -202,21 +206,22 @@ pub struct VideoDimensions {
 }
 
 pub async fn probe_video_dimensions(path: &Path) -> Option<VideoDimensions> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=p=0:s=x",
-            path.to_str().unwrap_or(""),
-        ])
-        .output()
-        .await
-        .ok()?;
+    let mut command = Command::new("ffprobe");
+    command.args([
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=p=0:s=x",
+        path.to_str().unwrap_or(""),
+    ]);
+    let output =
+        run_command_with_timeout(&mut command, FFPROBE_TIMEOUT, "ffprobe video dimensions")
+            .await
+            .ok()?;
 
     if !output.status.success() {
         return None;
@@ -239,18 +244,17 @@ pub fn parse_video_dimensions_line(raw: &str) -> Option<VideoDimensions> {
 }
 
 pub async fn probe_duration_seconds(path: &Path) -> i32 {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            path.to_str().unwrap_or(""),
-        ])
-        .output()
-        .await;
+    let mut command = Command::new("ffprobe");
+    command.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path.to_str().unwrap_or(""),
+    ]);
+    let output = run_command_with_timeout(&mut command, FFPROBE_TIMEOUT, "ffprobe duration").await;
 
     match output {
         Ok(out) if out.status.success() => {
@@ -270,7 +274,7 @@ pub async fn probe_duration_seconds(path: &Path) -> i32 {
             DEFAULT_DURATION_SECONDS
         }
         Err(e) => {
-            tracing::warn!(error = %e, "ffprobe spawn failed; using default duration");
+            tracing::warn!(error = %e, "ffprobe timed out or failed; using default duration");
             DEFAULT_DURATION_SECONDS
         }
     }

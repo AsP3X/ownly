@@ -12,10 +12,14 @@ use axum::{
     http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
 };
-use tokio::sync::Mutex;
 use futures_util::{stream, StreamExt};
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 
+use crate::media::limits::validate_animated_canvas_dimensions;
+use crate::media::subprocess::{
+    run_ffmpeg_status_with_timeout, FFMPEG_ANIMATED_PREVIEW_TIMEOUT, FFMPEG_SHORT_TIMEOUT,
+};
 use crate::temp_cleanup::{create_ownly_temp_dir, GIF_PREVIEW_TEMP_PREFIX};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -25,8 +29,7 @@ use crate::{
     files::delete_config::DELETE_BLOB_CONCURRENCY,
     hls::handlers::{encode_query_component, TicketParams},
     storage::Storage,
-    stream_ticket,
-    AppState,
+    stream_ticket, AppState,
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -51,7 +54,7 @@ const MAX_WEBP_EXTRACT_FRAMES: u32 = 480;
 
 /// Human: Kill ffmpeg/webpmux work that exceeds this wall time so hung jobs cannot run forever.
 /// Agent: USED by run_ffmpeg_animation_to_mp4 and transcode_webp_via_webpmux wrappers.
-const GIF_PREVIEW_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(60);
+const GIF_PREVIEW_TRANSCODE_TIMEOUT: Duration = FFMPEG_ANIMATED_PREVIEW_TIMEOUT;
 
 // Human: Per-storage-key mutex so concurrent first opens share one ffmpeg transcode.
 // Agent: WRITES HashMap of Arc<Mutex<()>>; TRACKS active scratch dirs for temp janitor exclusion.
@@ -232,8 +235,7 @@ fn preview_mp4_headers(size: u64) -> Result<HeaderMap, AppError> {
         ),
         (
             header::CONTENT_LENGTH,
-            size
-                .to_string()
+            size.to_string()
                 .parse()
                 .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content length")))?,
         ),
@@ -290,8 +292,7 @@ pub async fn preview_animation_url(
     }
 
     let source_size_bytes = size_bytes.max(0) as u64;
-    let ready =
-        preview_sidecar_is_ready(&state.storage, &storage_key, source_size_bytes).await?;
+    let ready = preview_sidecar_is_ready(&state.storage, &storage_key, source_size_bytes).await?;
 
     let ticket = stream_ticket::generate_ticket(
         &id,
@@ -502,8 +503,7 @@ async fn generate_and_store_gif_preview(
     let (gif_dir, source_path, source_format) =
         download_storage_object_to_temp(storage.clone(), gif_storage_key, transcode_locks).await?;
     let source_scratch = gif_dir.path().to_path_buf();
-    let mp4_bytes =
-        transcode_animation_to_mp4(&source_path, source_format, transcode_locks).await;
+    let mp4_bytes = transcode_animation_to_mp4(&source_path, source_format, transcode_locks).await;
     transcode_locks
         .unregister_scratch_dir(&source_scratch)
         .await;
@@ -589,23 +589,16 @@ enum TranscodeAttempt {
 
 fn transcode_attempts(format: SniffedImageFormat) -> Vec<TranscodeAttempt> {
     match format {
-        SniffedImageFormat::Gif => vec![
-            TranscodeAttempt::Auto,
-            TranscodeAttempt::Demuxer("gif"),
-        ],
+        SniffedImageFormat::Gif => vec![TranscodeAttempt::Auto, TranscodeAttempt::Demuxer("gif")],
         SniffedImageFormat::WebP => vec![
             TranscodeAttempt::WebpmuxFrames,
             TranscodeAttempt::Auto,
             TranscodeAttempt::WebpVariableFps,
         ],
-        SniffedImageFormat::Png => vec![
-            TranscodeAttempt::Auto,
-            TranscodeAttempt::Demuxer("png"),
-        ],
-        SniffedImageFormat::Jpeg => vec![
-            TranscodeAttempt::Auto,
-            TranscodeAttempt::Demuxer("image2"),
-        ],
+        SniffedImageFormat::Png => vec![TranscodeAttempt::Auto, TranscodeAttempt::Demuxer("png")],
+        SniffedImageFormat::Jpeg => {
+            vec![TranscodeAttempt::Auto, TranscodeAttempt::Demuxer("image2")]
+        }
         SniffedImageFormat::Unknown => vec![TranscodeAttempt::Auto],
     }
 }
@@ -619,9 +612,7 @@ async fn download_storage_object_to_temp(
 ) -> Result<(TempDir, PathBuf, SniffedImageFormat), AppError> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp dir create: {e}")))?;
-    transcode_locks
-        .register_scratch_dir(work_dir.path())
-        .await;
+    transcode_locks.register_scratch_dir(work_dir.path()).await;
     let staging_path = work_dir.path().join("source.staging");
 
     let (mut stream, _, _) = storage
@@ -664,7 +655,9 @@ async fn download_storage_object_to_temp(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp header read: {e}")))?;
     let source_format = sniff_image_format(&head[..read_len]);
-    let source_path = work_dir.path().join(source_filename_for_format(source_format));
+    let source_path = work_dir
+        .path()
+        .join(source_filename_for_format(source_format));
     tokio::fs::rename(&staging_path, &source_path)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("temp rename: {e}")))?;
@@ -727,11 +720,7 @@ fn preview_mp4_video_filter(canvas_size: Option<(u32, u32)>) -> String {
 // Agent: READS stdout line `Number of frames:`; DEFAULTS to 1 when missing.
 fn parse_webpmux_frame_count(info: &str) -> u32 {
     for line in info.lines() {
-        if let Some(count) = line
-            .trim()
-            .strip_prefix("Number of frames:")
-            .map(str::trim)
-        {
+        if let Some(count) = line.trim().strip_prefix("Number of frames:").map(str::trim) {
             if let Ok(parsed) = count.parse::<u32>() {
                 return parsed.max(1);
             }
@@ -798,12 +787,18 @@ fn probe_gif_logical_screen(head: &[u8]) -> Option<(u32, u32)> {
 
 // Human: Create a transparent RGBA PNG canvas via ffmpeg lavfi for WebP frame compositing.
 // Agent: SPAWNS ffmpeg color source; WRITES canvas PNG at canvas_w x canvas_h.
-async fn create_transparent_canvas_png(path: &Path, canvas_w: u32, canvas_h: u32) -> Result<(), String> {
+async fn create_transparent_canvas_png(
+    path: &Path,
+    canvas_w: u32,
+    canvas_h: u32,
+) -> Result<(), String> {
+    validate_animated_canvas_dimensions(canvas_w, canvas_h)?;
     let path_str = path
         .to_str()
         .ok_or_else(|| "canvas path invalid".to_string())?;
     let color = format!("color=c=0x00000000:s={canvas_w}x{canvas_h}:d=1");
-    let status = Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .arg("-y")
         .arg("-nostdin")
         .arg("-hide_banner")
@@ -812,20 +807,13 @@ async fn create_transparent_canvas_png(path: &Path, canvas_w: u32, canvas_h: u32
         .args(["-f", "lavfi", "-i"])
         .arg(&color)
         .args(["-frames:v", "1", "-pix_fmt", "rgba"])
-        .arg(path_str)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .status()
-        .await
-        .map_err(|e| format!("ffmpeg canvas spawn: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "ffmpeg transparent canvas failed exit={:?}",
-            status.code()
-        ))
-    }
+        .arg(path_str);
+    run_ffmpeg_status_with_timeout(
+        &mut command,
+        FFMPEG_SHORT_TIMEOUT,
+        "ffmpeg transparent canvas",
+    )
+    .await
 }
 
 // Human: Overlay one PNG patch onto a canvas PNG at the animated WebP frame offset.
@@ -852,7 +840,8 @@ async fn ffmpeg_overlay_png(
     } else {
         format!("[0][1]overlay={x_offset}:{y_offset}:format=rgb")
     };
-    let status = Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .arg("-y")
         .arg("-nostdin")
         .arg("-hide_banner")
@@ -861,20 +850,8 @@ async fn ffmpeg_overlay_png(
         .args(["-i", canvas_str, "-i", patch_str, "-filter_complex"])
         .arg(&filter)
         .args(["-frames:v", "1"])
-        .arg(output_str)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .status()
-        .await
-        .map_err(|e| format!("ffmpeg overlay spawn: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "ffmpeg overlay failed exit={:?}",
-            status.code()
-        ))
-    }
+        .arg(output_str);
+    run_ffmpeg_status_with_timeout(&mut command, FFMPEG_SHORT_TIMEOUT, "ffmpeg overlay").await
 }
 
 // Human: Composite animated WebP patches onto a fixed canvas before MP4 encode.
@@ -985,9 +962,7 @@ async fn transcode_webp_via_webpmux(
 ) -> Result<Vec<u8>, String> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| format!("temp dir create: {e}"))?;
-    transcode_locks
-        .register_scratch_dir(work_dir.path())
-        .await;
+    transcode_locks.register_scratch_dir(work_dir.path()).await;
     let transcode_result = transcode_webp_via_webpmux_inner(input, &work_dir).await;
     transcode_locks
         .unregister_scratch_dir(work_dir.path())
@@ -1041,6 +1016,7 @@ async fn transcode_webp_via_webpmux_work(
     let frame_count = parse_webpmux_frame_count(&info);
     let canvas_size = parse_webpmux_canvas_size(&info)
         .ok_or_else(|| "webpmux canvas size missing".to_string())?;
+    validate_animated_canvas_dimensions(canvas_size.0, canvas_size.1)?;
     if frame_count > MAX_WEBP_EXTRACT_FRAMES {
         return Err(format!(
             "webp animation exceeds {MAX_WEBP_EXTRACT_FRAMES} frames ({frame_count})"
@@ -1074,7 +1050,8 @@ async fn transcode_webp_via_webpmux_work(
         canvas_size.0, canvas_size.1
     );
 
-    let status = Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .arg("-y")
         .arg("-nostdin")
         .arg("-hide_banner")
@@ -1095,19 +1072,13 @@ async fn transcode_webp_via_webpmux_work(
             "-vf",
             &setsar_only,
         ])
-        .arg(output_str)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .status()
-        .await
-        .map_err(|e| format!("ffmpeg webpmux spawn: {e}"))?;
-
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg webpmux png sequence failed exit={:?}",
-            status.code()
-        ));
-    }
+        .arg(output_str);
+    run_ffmpeg_status_with_timeout(
+        &mut command,
+        GIF_PREVIEW_TRANSCODE_TIMEOUT,
+        "ffmpeg webpmux png sequence",
+    )
+    .await?;
 
     tokio::fs::read(&output_path)
         .await
@@ -1122,6 +1093,11 @@ async fn transcode_animation_to_mp4(
     transcode_locks: &GifPreviewTranscodeLocks,
 ) -> Result<Vec<u8>, AppError> {
     let fixed_canvas = read_fixed_canvas_size(input, source_format).await;
+    if let Some((width, height)) = fixed_canvas {
+        validate_animated_canvas_dimensions(width, height).map_err(|error| {
+            AppError::Internal(anyhow::anyhow!("animated preview canvas rejected: {error}"))
+        })?;
+    }
     let mut attempt_errors = Vec::new();
 
     for attempt in transcode_attempts(source_format) {
@@ -1183,17 +1159,10 @@ async fn run_ffmpeg_animation_to_mp4(
 ) -> Result<Vec<u8>, String> {
     let work_dir = create_ownly_temp_dir(GIF_PREVIEW_TEMP_PREFIX)
         .map_err(|e| format!("temp dir create: {e}"))?;
-    transcode_locks
-        .register_scratch_dir(work_dir.path())
-        .await;
-    let transcode_result = run_ffmpeg_animation_to_mp4_inner(
-        input,
-        source_format,
-        attempt,
-        fixed_canvas,
-        &work_dir,
-    )
-    .await;
+    transcode_locks.register_scratch_dir(work_dir.path()).await;
+    let transcode_result =
+        run_ffmpeg_animation_to_mp4_inner(input, source_format, attempt, fixed_canvas, &work_dir)
+            .await;
     transcode_locks
         .unregister_scratch_dir(work_dir.path())
         .await;
@@ -1271,9 +1240,7 @@ async fn run_ffmpeg_animation_to_mp4_inner(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
 
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+    let mut child = command.spawn().map_err(|e| format!("ffmpeg spawn: {e}"))?;
 
     let attempt_label = match attempt {
         TranscodeAttempt::WebpmuxFrames => "webpmux",
@@ -1352,10 +1319,7 @@ mod tests {
     #[test]
     fn sniff_image_format_detects_common_containers() {
         assert_eq!(sniff_image_format(b"GIF89a"), SniffedImageFormat::Gif);
-        assert_eq!(
-            sniff_image_format(b"GIF87a\x01"),
-            SniffedImageFormat::Gif
-        );
+        assert_eq!(sniff_image_format(b"GIF87a\x01"), SniffedImageFormat::Gif);
         assert_eq!(
             sniff_image_format(b"RIFF\x00\x00\x00\x00WEBP"),
             SniffedImageFormat::WebP
@@ -1364,7 +1328,10 @@ mod tests {
             sniff_image_format(b"\x89PNG\r\n\x1a\n"),
             SniffedImageFormat::Png
         );
-        assert_eq!(sniff_image_format(b"\xFF\xD8\xFF"), SniffedImageFormat::Jpeg);
+        assert_eq!(
+            sniff_image_format(b"\xFF\xD8\xFF"),
+            SniffedImageFormat::Jpeg
+        );
         assert_eq!(sniff_image_format(b"NOTAFILE"), SniffedImageFormat::Unknown);
     }
 
@@ -1424,8 +1391,20 @@ mod tests {
 
     #[test]
     fn sidecar_meta_matches_source_requires_version_and_size() {
-        assert!(sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION, 1024, 1024));
-        assert!(!sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION - 1, 1024, 1024));
-        assert!(!sidecar_meta_matches_source(GIF_PREVIEW_META_VERSION, 1024, 2048));
+        assert!(sidecar_meta_matches_source(
+            GIF_PREVIEW_META_VERSION,
+            1024,
+            1024
+        ));
+        assert!(!sidecar_meta_matches_source(
+            GIF_PREVIEW_META_VERSION - 1,
+            1024,
+            1024
+        ));
+        assert!(!sidecar_meta_matches_source(
+            GIF_PREVIEW_META_VERSION,
+            1024,
+            2048
+        ));
     }
 }

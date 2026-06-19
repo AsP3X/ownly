@@ -6,8 +6,7 @@
 pub const COMPOSE_DEV_SETUP_TOKEN: &str =
     "ownly-compose-local-dev-setup-token-not-for-production-use";
 
-pub const COMPOSE_DEV_JWT_SECRET: &str =
-    "ownly-compose-local-dev-jwt-secret-not-for-production";
+pub const COMPOSE_DEV_JWT_SECRET: &str = "ownly-compose-local-dev-jwt-secret-not-for-production";
 
 pub const COMPOSE_DEV_SIGNING_SECRET: &str =
     "ownly-compose-local-dev-nos-signing-secret-not-for-production";
@@ -61,6 +60,10 @@ pub struct Config {
     pub hls_segment_rpm: u32,
     #[serde(default = "default_job_worker_count")]
     pub job_worker_count: u32,
+    /// Human: Max simultaneous HLS ffmpeg encodes per user — global pool still capped by job_worker_count.
+    /// Agent: READ by media::UserTranscodeGate; DEFAULT 2; OVERRIDE with MAX_CONCURRENT_TRANSCODES_PER_USER.
+    #[serde(default = "default_max_concurrent_transcodes_per_user")]
+    pub max_concurrent_transcodes_per_user: u32,
     #[serde(default = "default_job_stale_minutes")]
     pub job_stale_minutes: u64,
     #[serde(default = "default_job_heartbeat_seconds")]
@@ -198,6 +201,10 @@ fn default_hls_segment_rpm() -> u32 {
 
 fn default_job_worker_count() -> u32 {
     4
+}
+
+fn default_max_concurrent_transcodes_per_user() -> u32 {
+    2
 }
 
 fn default_job_stale_minutes() -> u64 {
