@@ -233,7 +233,20 @@ async fn build_app_state(
             window,
         )),
         trust_proxy_headers: config.trust_proxy_headers || rate_limit::trust_proxy_from_env(),
-        hls_key_store: hls::key_store::KeyStore::new(pool.clone(), config.signing_secret.clone()),
+        hls_key_store: {
+            let hls_key_store =
+                hls::key_store::KeyStore::new(pool.clone(), config.signing_secret.clone());
+            match hls_key_store.migrate_legacy_blobs_at_startup().await {
+                Ok(count) if count > 0 => {
+                    info!(count, "Migrated legacy HLS key encryption blobs at startup")
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(e.context("legacy HLS key blob migration failed at startup"));
+                }
+            }
+            hls_key_store
+        },
         folder_download_jobs: files::zip_job::FolderDownloadRegistry::new(),
         delete_jobs: files::delete_job::DeleteJobRegistry::new(),
         cors_allowed_origins: config.cors_allowed_origins.clone(),
