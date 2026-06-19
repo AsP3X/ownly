@@ -8,6 +8,7 @@ import { getErrorMessage, login, registrationSetting } from "@/api/client";
 import { AccountNotActivatedDialog } from "@/components/auth/AccountNotActivatedDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { isAccountActivationBlockedMessage } from "@/lib/account-activation";
+import { getJwtExp } from "@/lib/jwt";
 import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthIconField } from "@/components/auth/AuthIconField";
@@ -79,16 +80,13 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await login(email.trim(), password);
-      if (!res.token) {
-        setError("Login did not return a session token.");
-        return;
-      }
       if (rememberMe) {
         sessionStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
       } else {
         sessionStorage.removeItem(REMEMBER_EMAIL_KEY);
       }
-      setAuth(res.token, res.user);
+      const sessionExpHint = res.token ? getJwtExp(res.token) : null;
+      setAuth(res.user, sessionExpHint);
       navigate(redirectTo, { replace: true });
     } catch (err) {
       const message = getErrorMessage(err);

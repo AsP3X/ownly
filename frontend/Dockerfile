@@ -7,10 +7,8 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-ARG VITE_SETUP_TOKEN
 ARG VITE_LOG_LEVEL=debug
 ENV VITE_API_URL=/api/v1
-ENV VITE_SETUP_TOKEN=${VITE_SETUP_TOKEN}
 ENV VITE_LOG_LEVEL=${VITE_LOG_LEVEL}
 RUN npm run build
 

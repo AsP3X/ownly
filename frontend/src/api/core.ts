@@ -1,16 +1,17 @@
-// Human: Core HTTP client — auth header injection, error envelope parsing, and shared helpers.
+// Human: Core HTTP client — cookie session transport, error envelope parsing, and shared helpers.
 // Agent: EXPORTS apiFetch, ApiError, getErrorMessage; READ by domain API modules and client barrel.
 
-import { getJwtExp } from "@/lib/jwt";
+import { getSetupToken } from "@/lib/setup-token";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
-// Human: Bootstrap secret for first-run setup POST routes — must match backend SETUP_TOKEN.
-// Agent: READ from VITE_SETUP_TOKEN; SENT as X-Setup-Token on setup mutations only.
-const SETUP_TOKEN = import.meta.env.VITE_SETUP_TOKEN ?? "";
+
+/** Human: Same-origin API calls must include HttpOnly session cookies (SEC-024). */
+export const API_FETCH_CREDENTIALS: RequestCredentials = "same-origin";
 
 export function setupMutationHeaders(): HeadersInit | undefined {
-  if (!SETUP_TOKEN) return undefined;
-  return { "X-Setup-Token": SETUP_TOKEN };
+  const setupToken = getSetupToken();
+  if (!setupToken) return undefined;
+  return { "X-Setup-Token": setupToken };
 }
 
 export class ApiError extends Error {
@@ -35,14 +36,10 @@ export class ApiError extends Error {
   }
 }
 
-function getToken(): string | null {
-  return localStorage.getItem("ownly_token");
-}
-
-// Human: Read JWT for raw fetch/XHR paths that bypass apiFetch (uploads, blob downloads).
-// Agent: READS localStorage ownly_token; USED by client upload and preview helpers.
+// Human: JWT lives in an HttpOnly cookie — JS must not read or persist access tokens.
+// Agent: RETURNS null; legacy callers should rely on credentials: include instead.
 export function getAuthToken(): string | null {
-  return getToken();
+  return null;
 }
 
 // Human: Global hook so a 401 from any API call clears the client session (revoked JWT, etc.).
@@ -54,32 +51,33 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler;
 }
 
-// Human: Notify React auth state when apiFetch silently rotates the stored JWT.
+// Human: Notify React auth state when apiFetch silently rotates the HttpOnly session cookie.
 // Agent: SET by AuthProvider; CALLED after successful POST /auth/refresh.
-type TokenRefreshListener = (token: string) => void;
-let tokenRefreshListener: TokenRefreshListener | null = null;
+type SessionRefreshListener = () => void;
+let sessionRefreshListener: SessionRefreshListener | null = null;
 
-export function setTokenRefreshListener(listener: TokenRefreshListener | null) {
-  tokenRefreshListener = listener;
+export function setSessionRefreshListener(listener: SessionRefreshListener | null) {
+  sessionRefreshListener = listener;
+}
+
+/** @deprecated Use setSessionRefreshListener — JWT is no longer exposed to JS. */
+export function setTokenRefreshListener(listener: ((token: string) => void) | null) {
+  setSessionRefreshListener(listener ? () => listener("cookie") : null);
 }
 
 // Human: Proactive refresh should start this many seconds before JWT exp (backend TTL is 24h).
 // Agent: USED by AuthContext schedule; MUST stay below JWT_ACCESS_TTL_HOURS on the API.
 const JWT_REFRESH_LEEWAY_SECS = 2 * 3600;
 
-let refreshInFlight: Promise<string | null> | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
 
-function persistRefreshedToken(token: string) {
-  localStorage.setItem("ownly_token", token);
-  tokenRefreshListener?.(token);
+function notifySessionRefreshed() {
+  sessionRefreshListener?.();
 }
 
 // Human: Exchange the current access JWT for a new 24h token without re-entering credentials.
-// Agent: POST /auth/refresh; DEDUPES concurrent callers; WRITES ownly_token on success.
-export async function tryRefreshAuthToken(): Promise<string | null> {
-  const current = getToken();
-  if (!current) return null;
-
+// Agent: POST /auth/refresh with cookies; DEDUPES concurrent callers; UPDATES HttpOnly cookie on success.
+export async function tryRefreshAuthToken(): Promise<boolean> {
   if (refreshInFlight) {
     return refreshInFlight;
   }
@@ -88,17 +86,13 @@ export async function tryRefreshAuthToken(): Promise<string | null> {
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${current}` },
+        credentials: API_FETCH_CREDENTIALS,
       });
-      const text = await res.text();
-      if (!res.ok) return null;
-      const data = text ? (JSON.parse(text) as { token?: string }) : null;
-      const next = data?.token;
-      if (!next) return null;
-      persistRefreshedToken(next);
-      return next;
+      if (!res.ok) return false;
+      notifySessionRefreshed();
+      return true;
     } catch {
-      return null;
+      return false;
     } finally {
       refreshInFlight = null;
     }
@@ -107,13 +101,12 @@ export async function tryRefreshAuthToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-// Human: True when the stored JWT is inside the proactive refresh window.
-// Agent: READS getJwtExp; RETURNS true when now >= exp - JWT_REFRESH_LEEWAY_SECS.
-export function shouldProactivelyRefreshToken(token: string): boolean {
-  const exp = getJwtExp(token);
-  if (!exp) return false;
+// Human: True when proactive refresh should run before cookie expiry.
+// Agent: READS optional exp hint from login/setup responses; RETURNS false when unknown.
+export function shouldProactivelyRefreshToken(expHint?: number | null): boolean {
+  if (!expHint) return false;
   const now = Math.floor(Date.now() / 1000);
-  return now >= exp - JWT_REFRESH_LEEWAY_SECS;
+  return now >= expHint - JWT_REFRESH_LEEWAY_SECS;
 }
 
 function shouldIgnoreUnauthorizedLogout(path: string, method: string | undefined): boolean {
@@ -150,7 +143,12 @@ export function getErrorMessage(err: unknown): string {
 
 // Human: Parse API JSON bodies and map failures to ApiError for callers.
 // Agent: READS Response text; THROWS ApiError on non-2xx.
-async function parseApiResponse(res: Response, path: string, init: RequestInit, hadToken: boolean) {
+async function parseApiResponse(
+  res: Response,
+  path: string,
+  init: RequestInit,
+  hadSession: boolean,
+) {
   const text = await res.text();
   let data: unknown = null;
   if (text) {
@@ -173,7 +171,7 @@ async function parseApiResponse(res: Response, path: string, init: RequestInit, 
     const code = errorObject?.code ?? "request_failed";
     if (
       res.status === 401 &&
-      hadToken &&
+      hadSession &&
       !shouldIgnoreUnauthorizedLogout(path, init.method)
     ) {
       unauthorizedHandler?.();
@@ -191,20 +189,23 @@ async function parseApiResponse(res: Response, path: string, init: RequestInit, 
 }
 
 // Human: Authenticated fetch to `/api/v1` with JSON error envelope parsing.
-// Agent: READS JWT from localStorage; RETRIES once after POST /auth/refresh on 401; THROWS ApiError on failure.
+// Agent: SENDS HttpOnly session cookie; RETRIES once after POST /auth/refresh on 401; THROWS ApiError on failure.
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (!headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const hadSession = init.credentials !== "omit";
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: init.credentials ?? API_FETCH_CREDENTIALS,
+  });
 
   if (
     res.status === 401 &&
-    token &&
+    hadSession &&
     !shouldIgnoreUnauthorizedLogout(path, init.method)
   ) {
     const refreshed = await tryRefreshAuthToken();
@@ -213,14 +214,17 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
       if (!retryHeaders.has("Content-Type") && !(init.body instanceof FormData)) {
         retryHeaders.set("Content-Type", "application/json");
       }
-      retryHeaders.set("Authorization", `Bearer ${refreshed}`);
-      const retryRes = await fetch(`${API_BASE}${path}`, { ...init, headers: retryHeaders });
+      const retryRes = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: retryHeaders,
+        credentials: init.credentials ?? API_FETCH_CREDENTIALS,
+      });
       return parseApiResponse(retryRes, path, init, true);
     }
     unauthorizedHandler?.();
   }
 
-  return parseApiResponse(res, path, init, Boolean(token));
+  return parseApiResponse(res, path, init, hadSession);
 }
 
 export { API_BASE };

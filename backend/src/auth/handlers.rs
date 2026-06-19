@@ -8,6 +8,7 @@ use argon2::{
 use axum::{
     extract::State,
     http::{header, HeaderMap},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use chrono::Utc;
@@ -19,7 +20,7 @@ use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{audit, error::AppError, rate_limit, redact, AppState};
+use crate::{audit, auth::session_cookie, error::AppError, rate_limit, redact, AppState};
 
 // Human: Access JWT lifetime issued at login, register, and refresh.
 // Agent: READ by create_token; FRONTEND proactive refresh should run well before this window ends.
@@ -163,6 +164,21 @@ fn decode_token_with_validation(
     .claims)
 }
 
+pub(crate) fn auth_response_with_session_cookie<T: serde::Serialize>(
+    state: &AppState,
+    headers: &HeaderMap,
+    token: String,
+    body: T,
+) -> Result<Response, AppError> {
+    let cookie = session_cookie::session_set_cookie(state, headers, &token)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    Ok((
+        [(header::SET_COOKIE, cookie)],
+        Json(body),
+    )
+        .into_response())
+}
+
 async fn registration_allowed(pool: &sqlx::PgPool) -> Result<bool, AppError> {
     let value: Option<(String,)> =
         sqlx::query_as("SELECT value FROM app_settings WHERE key = 'allow_public_registration'")
@@ -185,7 +201,7 @@ pub async fn register(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
-) -> Result<Json<AuthResponse>, AppError> {
+) -> Result<Response, AppError> {
     crate::browser_guard::require_browser_user_creation(&headers)?;
     rate_limit::enforce(
         &state.auth_register_rl,
@@ -255,7 +271,7 @@ pub async fn register(
         None
     };
 
-    Ok(Json(AuthResponse {
+    let response = AuthResponse {
         token,
         pending_activation: needs_activation,
         user: UserDto {
@@ -264,7 +280,13 @@ pub async fn register(
             role: "user".into(),
             enabled,
         },
-    }))
+    };
+
+    if let Some(session_token) = response.token.clone() {
+        return auth_response_with_session_cookie(&state, &headers, session_token, response);
+    }
+
+    Ok(Json(response).into_response())
 }
 
 // Human: Validate credentials and return a JWT for enabled accounts.
@@ -273,7 +295,7 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
-) -> Result<Json<AuthResponse>, AppError> {
+) -> Result<Response, AppError> {
     rate_limit::enforce(
         &state.auth_login_rl,
         &rate_limit::client_ip_from_headers(&headers, state.trust_proxy_headers),
@@ -329,32 +351,33 @@ pub async fn login(
     )
     .map_err(AppError::Internal)?;
 
-    Ok(Json(AuthResponse {
-        token: Some(token),
-        pending_activation: false,
-        user: UserDto {
-            id: user_id,
-            email,
-            role: effective_role,
-            enabled,
+    auth_response_with_session_cookie(
+        &state,
+        &headers,
+        token.clone(),
+        AuthResponse {
+            token: Some(token),
+            pending_activation: false,
+            user: UserDto {
+                id: user_id,
+                email,
+                role: effective_role,
+                enabled,
+            },
         },
-    }))
+    )
 }
 
 // Human: Extend an active session without re-entering credentials — same sid/ver, new 24h exp.
-// Agent: POST /auth/refresh PUBLIC; READS Bearer JWT; RETURNS AuthResponse; NO audit row per refresh.
+// Agent: POST /auth/refresh PUBLIC; READS session cookie or Bearer JWT; RETURNS AuthResponse; NO audit row per refresh.
 pub async fn refresh(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<Json<AuthResponse>, AppError> {
-    let token = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or(AppError::Unauthorized)?;
+) -> Result<Response, AppError> {
+    let token = session_cookie::bearer_or_session_token(&headers).ok_or(AppError::Unauthorized)?;
 
     let claims =
-        decode_token_for_refresh(token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
+        decode_token_for_refresh(&token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
 
     let now = Utc::now().timestamp();
     if now > claims.exp + JWT_REFRESH_GRACE_SECS {
@@ -400,16 +423,21 @@ pub async fn refresh(
     )
     .map_err(AppError::Internal)?;
 
-    Ok(Json(AuthResponse {
-        token: Some(token),
-        pending_activation: false,
-        user: UserDto {
-            id: claims.sub,
-            email,
-            role: effective_role,
-            enabled: user_enabled,
+    auth_response_with_session_cookie(
+        &state,
+        &headers,
+        token.clone(),
+        AuthResponse {
+            token: Some(token),
+            pending_activation: false,
+            user: UserDto {
+                id: claims.sub,
+                email,
+                role: effective_role,
+                enabled: user_enabled,
+            },
         },
-    }))
+    )
 }
 
 // Human: Return the authenticated user's profile from JWT claims.
@@ -579,7 +607,7 @@ pub async fn logout(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Response, AppError> {
     if let Some(sid) = claims.sid.as_deref() {
         crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
     }
@@ -595,7 +623,13 @@ pub async fn logout(
     )
     .await?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let cookie = session_cookie::session_clear_cookie(&state, &headers)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    Ok((
+        [(header::SET_COOKIE, cookie)],
+        Json(serde_json::json!({ "ok": true })),
+    )
+        .into_response())
 }
 
 // Human: Expose whether public registration is enabled for the login page.

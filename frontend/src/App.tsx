@@ -77,8 +77,11 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
+  const { token, sessionReady } = useAuth();
   const location = useLocation();
+  if (!sessionReady) {
+    return <RouteLoadingFallback />;
+  }
   // Human: Guests keep the intended URL via `next` so login + reload return to the same page.
   // Agent: NAVIGATE /login?next=<encoded path+search>; READS location from react-router.
   if (!token) {
@@ -91,11 +94,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // Human: Default home — landing page for all guests after setup; drive when authenticated.
 // Agent: READS token from AuthContext; lazy-loads LandingPage or DrivePage on demand.
 function HomeRoute() {
-  const { token } = useAuth();
+  const { token, sessionReady } = useAuth();
 
   useEffect(() => {
     if (token) prefetchDrivePageChunk();
   }, [token]);
+
+  if (!sessionReady) {
+    return <RouteLoadingFallback />;
+  }
 
   return (
     <Suspense fallback={<RouteLoadingFallback />}>

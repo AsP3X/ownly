@@ -139,9 +139,11 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
         .allow_headers([
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,
+            axum::http::header::COOKIE,
             request_tracking::REQUEST_ID_HEADER.clone(),
             axum::http::HeaderName::from_static("x-setup-token"),
         ])
+        .allow_credentials(true)
 }
 
 // Human: Build rate limiters and AppState once storage and database pool are ready.

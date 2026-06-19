@@ -20,10 +20,6 @@ type UseHlsVideoAttachOptions = {
   onError: (message: string) => void;
 };
 
-function getToken(): string | null {
-  return localStorage.getItem("ownly_token");
-}
-
 // Human: Wire encrypted VOD playback to the current dialog video element.
 // Agent: LISTENS video + streamUrl; DESTROYS hls on cleanup; CALLS onError on fatal failures.
 export function useHlsVideoAttach({
@@ -47,13 +43,10 @@ export function useHlsVideoAttach({
       video.src = streamUrl;
     } else if (isHlsStreamUrl(streamUrl) && Hls.isSupported()) {
       hls = createHlsInstance((xhr) => {
+        xhr.withCredentials = true;
         if (shareToken && sharePassword) {
           xhr.setRequestHeader("X-Share-Password", sharePassword);
-          return;
         }
-        if (shareToken) return;
-        const token = getToken();
-        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       });
       hls.loadSource(streamUrl);
       hls.attachMedia(video);

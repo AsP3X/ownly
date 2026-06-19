@@ -3,8 +3,8 @@
 
 import {
   API_BASE,
+  API_FETCH_CREDENTIALS,
   ApiError,
-  getAuthToken,
   parseRetryAfterSeconds,
 } from "@/api/core";
 
@@ -89,10 +89,15 @@ async function parseApiError(res: Response, fallbackMessage: string): Promise<Ap
 
 function authHeaders(contentType?: string): HeadersInit {
   const headers: Record<string, string> = {};
-  const token = getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (contentType) headers["Content-Type"] = contentType;
   return headers;
+}
+
+function uploadFetchInit(init: RequestInit = {}): RequestInit {
+  return {
+    ...init,
+    credentials: API_FETCH_CREDENTIALS,
+  };
 }
 
 // Human: Run async work over a list with a bounded worker pool.
@@ -122,16 +127,16 @@ export async function ensureUploadSession(
   existingSessionId?: string | null,
 ): Promise<ResumableServerSession> {
   if (existingSessionId) {
-    const res = await fetch(`${API_BASE}/uploads/${existingSessionId}`, {
+    const res = await fetch(`${API_BASE}/uploads/${existingSessionId}`, uploadFetchInit({
       headers: authHeaders(),
-    });
+    }));
     if (!res.ok) {
       throw await parseApiError(res, "Could not resume upload session");
     }
     return (await res.json()) as ResumableServerSession;
   }
 
-  const res = await fetch(`${API_BASE}/uploads`, {
+  const res = await fetch(`${API_BASE}/uploads`, uploadFetchInit({
     method: "POST",
     headers: authHeaders("application/json"),
     body: JSON.stringify({
@@ -141,7 +146,7 @@ export async function ensureUploadSession(
       content_type: file.type || undefined,
       chunk_size: UPLOAD_CHUNK_SIZE_BYTES,
     }),
-  });
+  }));
   if (!res.ok) {
     throw await parseApiError(res, "Could not start upload session");
   }
@@ -151,10 +156,10 @@ export async function ensureUploadSession(
 // Human: Abort a partial server session and discard spooled parts.
 // Agent: DELETE /uploads/{id}; BEST-EFFORT on user cancel.
 export async function abortResumableUploadSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/uploads/${sessionId}`, {
+  const res = await fetch(`${API_BASE}/uploads/${sessionId}`, uploadFetchInit({
     method: "DELETE",
     headers: authHeaders(),
-  });
+  }));
   if (!res.ok && res.status !== 404) {
     throw await parseApiError(res, "Could not abort upload session");
   }
@@ -211,12 +216,12 @@ export async function uploadFileResumableBytes(
 
     const res = await fetch(
       `${API_BASE}/uploads/${session.session_id}/parts/${partNumber}`,
-      {
+      uploadFetchInit({
         method: "PUT",
         headers: authHeaders("application/octet-stream"),
         body: chunk,
         signal: options.signal,
-      },
+      }),
     );
     if (!res.ok) {
       throw await parseApiError(res, `Upload part ${partNumber} failed`);
@@ -234,11 +239,11 @@ export async function uploadFileResumableBytes(
 
   const completeRes = await fetch(
     `${API_BASE}/uploads/${session.session_id}/complete`,
-    {
+    uploadFetchInit({
       method: "POST",
       headers: authHeaders(),
       signal: options.signal,
-    },
+    }),
   );
   if (!completeRes.ok) {
     throw await parseApiError(completeRes, "Could not complete upload");

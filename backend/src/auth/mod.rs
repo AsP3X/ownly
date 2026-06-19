@@ -1,9 +1,8 @@
-// Human: Re-export JWT helpers and implement the Axum layer that turns a Bearer token into Claims.
-// Agent: READS Authorization header; CALLS decode_token; READS users.enabled; INSERTS Claims into request extensions.
+// Human: Re-export JWT helpers and implement the Axum layer that turns a session cookie or Bearer token into Claims.
+// Agent: READS HttpOnly cookie or Authorization header; CALLS decode_token; INSERTS Claims into request extensions.
 
 use axum::{
     extract::{Request, State},
-    http::header,
     middleware::Next,
     response::Response,
 };
@@ -14,22 +13,19 @@ pub use handlers::{decode_token, decode_token_for_refresh, Claims};
 use crate::{error::AppError, AppState};
 
 pub mod handlers;
+pub mod session_cookie;
 
-// Human: Parse Bearer JWT, verify expiry, confirm the user row still exists and is enabled.
+// Human: Parse session cookie or Bearer JWT, verify expiry, confirm the user row still exists and is enabled.
 // Agent: READS JWT + postgres users; REQUIRES enabled=true; RELOADS role from DB; MUTATES Request extensions with Claims.
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let token = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
+    let token = session_cookie::bearer_or_session_token(request.headers())
         .ok_or(AppError::Unauthorized)?;
 
-    let mut claims = decode_token(token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
+    let mut claims = decode_token(&token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
 
     if chrono::Utc::now().timestamp() > claims.exp {
         return Err(AppError::Unauthorized);

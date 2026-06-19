@@ -1,7 +1,7 @@
 // Human: First-run setup endpoints — admin account, instance settings, storage node, database test.
 // Agent: READS users COUNT for gating; WRITES users + app_settings + storage_nodes in TX; RETURNS AuthResponse on success once.
 
-use axum::{extract::State, http::HeaderMap, Json};
+use axum::{extract::State, http::HeaderMap, response::Response, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     admin::storage_nodes,
     audit,
-    auth::handlers::{create_token, hash_password, AuthResponse, UserDto},
+    auth::handlers::{auth_response_with_session_cookie, create_token, hash_password, AuthResponse, UserDto},
     db,
     error::AppError,
     outbound_target,
@@ -311,7 +311,7 @@ pub async fn setup(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(body): Json<SetupRequest>,
-) -> Result<Json<SetupResponse>, AppError> {
+) -> Result<Response, AppError> {
     // Human: Bootstrap secret gates setup — browser Sec-Fetch-Site is not required here (Compose zero-config).
     // Agent: require_setup_token only; register/admin use browser_guard (Sec-Fetch-Site or matching Origin).
     require_setup_token(&headers, &state)?;
@@ -501,28 +501,35 @@ pub async fn setup(
 
     let restart_required = !use_startup_pool || !storage_matches_startup;
 
-    Ok(Json(SetupResponse {
-        auth: AuthResponse {
-            token: Some(token),
-            pending_activation: false,
-            user: UserDto {
-                id: user_id,
-                email: body.email.trim().to_lowercase(),
-                role: "admin".into(),
-                enabled: true,
+    let auth = AuthResponse {
+        token: Some(token.clone()),
+        pending_activation: false,
+        user: UserDto {
+            id: user_id,
+            email: body.email.trim().to_lowercase(),
+            role: "admin".into(),
+            enabled: true,
+        },
+    };
+
+    auth_response_with_session_cookie(
+        &state,
+        &headers,
+        token,
+        SetupResponse {
+            auth,
+            restart_required,
+            configured_database_url: if use_startup_pool {
+                None
+            } else {
+                Some(target_url)
+            },
+            configured_object_storage_url: if storage_matches_startup {
+                None
+            } else {
+                Some(storage_base_url)
             },
         },
-        restart_required,
-        configured_database_url: if use_startup_pool {
-            None
-        } else {
-            Some(target_url)
-        },
-        configured_object_storage_url: if storage_matches_startup {
-            None
-        } else {
-            Some(storage_base_url)
-        },
-    }))
+    )
 }
 
