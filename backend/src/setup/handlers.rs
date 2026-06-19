@@ -415,6 +415,9 @@ pub async fn setup(
     .execute(&mut *tx)
     .await?;
 
+    // Human: Persist redacted DB URL only — live credentials stay in DATABASE_URL env (SEC-032).
+    let redacted_database_url = redact::redact_database_url(target_url.as_str());
+
     let settings = [
         ("instance_name", body.instance_name.trim()),
         (
@@ -433,7 +436,7 @@ pub async fn setup(
                 "false"
             },
         ),
-        ("database_url", target_url.as_str()),
+        ("database_url", redacted_database_url.as_str()),
         ("object_storage_bucket", bucket),
         ("default_storage_quota_gb", &quota_gb.to_string()),
         ("storage_mode", state.storage_mode.as_str()),

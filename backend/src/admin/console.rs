@@ -15,6 +15,7 @@ use sqlx::PgPool;
 
 use crate::{
     admin::handlers::require_instance_permission,
+    app_settings_secrets::AppSettingsSecretStore,
     audit,
     auth::handlers::Claims,
     authz::Permission,
@@ -664,10 +665,9 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         true,
     );
 
-    let smtp_password_set = read_setting(&state.pool, "smtp_password")
-        .await
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
+    let smtp_password_set = AppSettingsSecretStore::secret_is_set(
+        read_setting(&state.pool, "smtp_password").await.as_deref(),
+    );
 
     Ok(AdminSettingsResponse {
         instance_name,
@@ -805,7 +805,9 @@ pub async fn patch_settings(
     }
     if let Some(v) = body.smtp_password.as_ref() {
         if !v.is_empty() {
-            upsert_setting(&state.pool, "smtp_password", v).await?;
+            let store = AppSettingsSecretStore::new(&state.signing_secret);
+            let encrypted = store.encrypt(v)?;
+            upsert_setting(&state.pool, "smtp_password", &encrypted).await?;
         }
     }
 

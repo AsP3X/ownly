@@ -17,6 +17,7 @@ use tower_http::{
 use tracing::{info, Level};
 
 pub mod admin;
+pub mod app_settings_secrets;
 pub mod audit;
 pub mod auth;
 pub mod authz;
@@ -154,6 +155,14 @@ async fn build_app_state(
     secrets::validate_startup_secrets(config)?;
     let pool = db::init_pool(&config.database_url).await?;
     info!("Database connected and migrations applied");
+
+    let settings_secrets =
+        app_settings_secrets::AppSettingsSecretStore::new(&config.signing_secret);
+    if let Err(err) =
+        app_settings_secrets::migrate_plaintext_secrets(&pool, &settings_secrets).await
+    {
+        tracing::warn!(error = %err, "Failed to migrate legacy plaintext app_settings secrets");
+    }
 
     let storage: Arc<dyn Storage> = if let Some(storage) = storage_override {
         storage
