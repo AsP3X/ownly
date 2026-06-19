@@ -2,6 +2,7 @@
 // Agent: WRITES file_encryption_keys; USES AES-256-GCM; READS PgPool; RETURNS 16-byte HLS content key when needed.
 
 use anyhow::Context;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -15,18 +16,32 @@ pub type AesKey = [u8; 16];
 #[derive(Clone)]
 pub struct KeyStore {
     pool: PgPool,
-    master_secret: [u8; 32],
+    /// AES-256-GCM key derived from the full signing secret via SHA-256.
+    master_key: [u8; 32],
+    /// Pre-SEC-038 truncation of the secret; kept for decrypting existing blobs.
+    legacy_master_key: [u8; 32],
+}
+
+/// Derive the HLS envelope master key from the full configured secret (SEC-038).
+fn derive_master_key(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
+
+/// Legacy master key material: first 32 bytes of the secret, zero-padded.
+fn legacy_truncate_master_key(secret: &str) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    let bytes = secret.as_bytes();
+    let len = bytes.len().min(32);
+    key[..len].copy_from_slice(&bytes[..len]);
+    key
 }
 
 impl KeyStore {
     pub fn new(pool: PgPool, master_secret: String) -> Self {
-        let mut secret = [0u8; 32];
-        let bytes = master_secret.as_bytes();
-        let len = bytes.len().min(32);
-        secret[..len].copy_from_slice(&bytes[..len]);
         Self {
             pool,
-            master_secret: secret,
+            master_key: derive_master_key(&master_secret),
+            legacy_master_key: legacy_truncate_master_key(&master_secret),
         }
     }
 
@@ -81,7 +96,10 @@ impl KeyStore {
         .context("fetching file encryption key")?;
 
         if let Some((key_id, encrypted)) = row {
-            let key = self.decrypt_key(&encrypted)?;
+            let (key, used_legacy_master) = self.decrypt_key(&encrypted)?;
+            if used_legacy_master {
+                self.migrate_blob(file_id, &key).await;
+            }
             let key_uuid = Uuid::parse_str(&key_id).context("invalid key_id in database")?;
             return Ok((key_uuid, key));
         }
@@ -118,19 +136,34 @@ impl KeyStore {
         .context("fetching file encryption key")?;
 
         match row {
-            Some((encrypted,)) => Ok(Some(self.decrypt_key(&encrypted)?)),
+            Some((encrypted,)) => {
+                let legacy_blob = is_legacy_encrypted_blob(&encrypted);
+                let (key, used_legacy_master) = self.decrypt_key(&encrypted)?;
+                if legacy_blob || used_legacy_master {
+                    self.migrate_blob(file_id, &key).await;
+                }
+                Ok(Some(key))
+            }
             None => Ok(None),
         }
     }
 
     fn encrypt_key(&self, key: &AesKey) -> anyhow::Result<Vec<u8>> {
+        self.encrypt_key_with_master(key, &self.master_key)
+    }
+
+    fn encrypt_key_with_master(
+        &self,
+        key: &AesKey,
+        master_key: &[u8; 32],
+    ) -> anyhow::Result<Vec<u8>> {
         use aes_gcm::{
             aead::{Aead, KeyInit},
             Aes256Gcm, Nonce,
         };
 
-        let cipher = Aes256Gcm::new_from_slice(&self.master_secret)
-            .context("creating AES-256-GCM cipher")?;
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).context("creating AES-256-GCM cipher")?;
 
         let mut nonce_bytes = [0u8; NONCE_LEN];
         crate::crypto::fill_random_bytes(&mut nonce_bytes);
@@ -146,12 +179,45 @@ impl KeyStore {
         Ok(stored)
     }
 
-    fn decrypt_key(&self, encrypted: &[u8]) -> anyhow::Result<AesKey> {
+    #[cfg(test)]
+    fn encrypt_key_with_master_and_nonce(
+        &self,
+        key: &AesKey,
+        master_key: &[u8; 32],
+        nonce_bytes: &[u8; NONCE_LEN],
+    ) -> anyhow::Result<Vec<u8>> {
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
+
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).context("creating AES-256-GCM cipher")?;
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, key.as_ref())
+            .map_err(|e| anyhow::anyhow!("encrypting AES key: {e:?}"))?;
+        Ok(ciphertext)
+    }
+
+    /// Decrypt a stored blob. Returns `(plaintext, used_legacy_master_key)`.
+    fn decrypt_key(&self, encrypted: &[u8]) -> anyhow::Result<(AesKey, bool)> {
+        match self.decrypt_key_with_master(encrypted, &self.master_key) {
+            Ok(key) => Ok((key, false)),
+            Err(derived_err) => self
+                .decrypt_key_with_master(encrypted, &self.legacy_master_key)
+                .map(|key| (key, true))
+                .map_err(|_| derived_err),
+        }
+    }
+
+    fn decrypt_key_with_master(
+        &self,
+        encrypted: &[u8],
+        master_key: &[u8; 32],
+    ) -> anyhow::Result<AesKey> {
         if is_legacy_encrypted_blob(encrypted) {
-            anyhow::bail!(
-                "legacy HLS key blob detected ({LEGACY_ENCRYPTED_LEN} bytes); \
-                 run startup migration to re-encrypt to the random-nonce envelope"
-            );
+            return self.decrypt_with_nonce(encrypted, &[0u8; NONCE_LEN], master_key);
         }
         if encrypted.len() <= NONCE_LEN {
             anyhow::bail!(
@@ -160,7 +226,7 @@ impl KeyStore {
             );
         }
         let (nonce_bytes, ciphertext) = encrypted.split_at(NONCE_LEN);
-        self.decrypt_with_nonce(ciphertext, nonce_bytes)
+        self.decrypt_with_nonce(ciphertext, nonce_bytes, master_key)
     }
 
     /// Human: Legacy envelope used a fixed all-zero GCM nonce — only for one-time startup migration.
@@ -171,13 +237,18 @@ impl KeyStore {
                 encrypted.len()
             );
         }
-        self.decrypt_with_nonce(encrypted, &[0u8; NONCE_LEN])
+        self.decrypt_with_nonce(
+            encrypted,
+            &[0u8; NONCE_LEN],
+            &self.legacy_master_key,
+        )
     }
 
     fn decrypt_with_nonce(
         &self,
         ciphertext: &[u8],
         nonce_bytes: &[u8],
+        master_key: &[u8; 32],
     ) -> anyhow::Result<AesKey> {
         use aes_gcm::{
             aead::{Aead, KeyInit},
@@ -188,8 +259,8 @@ impl KeyStore {
             anyhow::bail!("invalid GCM nonce length {}", nonce_bytes.len());
         }
 
-        let cipher = Aes256Gcm::new_from_slice(&self.master_secret)
-            .context("creating AES-256-GCM cipher")?;
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).context("creating AES-256-GCM cipher")?;
         let nonce = Nonce::from_slice(nonce_bytes);
 
         let plaintext = cipher
@@ -206,6 +277,34 @@ impl KeyStore {
         let mut key = [0u8; MEDIA_KEY_LEN];
         key.copy_from_slice(&plaintext);
         Ok(key)
+    }
+
+    async fn migrate_blob(&self, file_id: &str, key: &AesKey) {
+        match self.encrypt_key(key) {
+            Ok(re_encrypted) => {
+                if let Err(e) = sqlx::query(
+                    "UPDATE file_encryption_keys SET encrypted_key = $1 WHERE file_id = $2",
+                )
+                .bind(&re_encrypted[..])
+                .bind(file_id)
+                .execute(&self.pool)
+                .await
+                {
+                    tracing::warn!(
+                        %file_id,
+                        error = %e,
+                        "failed to migrate HLS encryption blob"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    %file_id,
+                    error = %e,
+                    "failed to re-encrypt HLS key for migration"
+                );
+            }
+        }
     }
 }
 
@@ -237,6 +336,41 @@ mod tests {
         assert_eq!(keys.len(), 100);
     }
 
+    #[test]
+    fn derive_master_key_is_deterministic() {
+        let secret = "signing-secret-longer-than-32-bytes-for-kdf-test";
+        assert_eq!(derive_master_key(secret), derive_master_key(secret));
+    }
+
+    #[test]
+    fn derive_master_key_differs_from_truncation_for_long_secrets() {
+        let secret = "signing-secret-longer-than-32-bytes-for-kdf-test";
+        assert_ne!(
+            derive_master_key(secret),
+            legacy_truncate_master_key(secret),
+            "KDF must use the full secret, not truncate to 32 bytes"
+        );
+    }
+
+    #[test]
+    fn derive_master_key_uses_full_secret_not_prefix() {
+        let prefix = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let extended = format!("{prefix}extra-material-beyond-32-bytes");
+        assert_ne!(
+            derive_master_key(&extended),
+            derive_master_key(prefix),
+            "bytes beyond the first 32 must affect the derived key"
+        );
+    }
+
+    fn test_store(secret: &str) -> KeyStore {
+        KeyStore {
+            pool: PgPool::connect_lazy("postgres://localhost/ownly_test").unwrap(),
+            master_key: derive_master_key(secret),
+            legacy_master_key: legacy_truncate_master_key(secret),
+        }
+    }
+
     fn test_keystore(pool: PgPool) -> KeyStore {
         KeyStore::new(pool, test_signing_secret())
     }
@@ -245,25 +379,13 @@ mod tests {
         "test-signing-secret-not-default-value".into()
     }
 
-    fn test_master_secret() -> [u8; 32] {
-        master_secret_bytes(&test_signing_secret())
-    }
-
-    fn master_secret_bytes(secret: &str) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let bytes = secret.as_bytes();
-        let len = bytes.len().min(32);
-        out[..len].copy_from_slice(&bytes[..len]);
-        out
-    }
-
-    fn encrypt_legacy_blob(master_secret: &[u8; 32], key: &AesKey) -> Vec<u8> {
+    fn encrypt_legacy_blob(master_key: &[u8; 32], key: &AesKey) -> Vec<u8> {
         use aes_gcm::{
             aead::{Aead, KeyInit},
             Aes256Gcm, Nonce,
         };
 
-        let cipher = Aes256Gcm::new_from_slice(master_secret).expect("cipher");
+        let cipher = Aes256Gcm::new_from_slice(master_key).expect("cipher");
         let nonce = Nonce::from_slice(&[0u8; NONCE_LEN]);
         cipher
             .encrypt(nonce, key.as_ref())
@@ -271,21 +393,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_blob_decrypts_only_via_migration_path() {
+    async fn encrypt_with_derived_key_round_trips() {
+        let store = test_store("test-secret");
+        let media_key = [0xAB; MEDIA_KEY_LEN];
+        let encrypted = store.encrypt_key(&media_key).expect("encrypt");
+        let (decrypted, used_legacy) = store.decrypt_key(&encrypted).expect("decrypt");
+        assert_eq!(decrypted, media_key);
+        assert!(!used_legacy);
+    }
+
+    #[tokio::test]
+    async fn decrypts_blobs_encrypted_with_legacy_truncated_master_key() {
+        let secret = "legacy-signing-secret-that-is-definitely-longer-than-32";
+        let store = test_store(secret);
+        let media_key = [0xCD; MEDIA_KEY_LEN];
+        let encrypted = store
+            .encrypt_key_with_master(&media_key, &store.legacy_master_key)
+            .expect("encrypt with legacy master");
+        let (decrypted, used_legacy) = store.decrypt_key(&encrypted).expect("decrypt");
+        assert_eq!(decrypted, media_key);
+        assert!(used_legacy);
+    }
+
+    #[tokio::test]
+    async fn decrypts_legacy_zero_nonce_blobs_with_truncated_master_key() {
+        let secret = "another-legacy-secret-over-32-characters-long";
+        let store = test_store(secret);
+        let media_key = [0xEF; MEDIA_KEY_LEN];
+        let zero_nonce_blob = store
+            .encrypt_key_with_master_and_nonce(
+                &media_key,
+                &store.legacy_master_key,
+                &[0u8; NONCE_LEN],
+            )
+            .expect("encrypt legacy zero-nonce blob");
+        assert!(is_legacy_encrypted_blob(&zero_nonce_blob));
+        let (decrypted, used_legacy) = store
+            .decrypt_key(&zero_nonce_blob)
+            .expect("decrypt legacy blob");
+        assert_eq!(decrypted, media_key);
+        assert!(used_legacy);
+    }
+
+    #[tokio::test]
+    async fn legacy_blob_decrypts_via_dedicated_migration_path() {
         let secret = test_signing_secret();
         let store = KeyStore::new(
             PgPool::connect_lazy("postgres://unused").expect("lazy pool"),
             secret.clone(),
         );
         let plaintext = [0xABu8; MEDIA_KEY_LEN];
-        let legacy = encrypt_legacy_blob(&master_secret_bytes(&secret), &plaintext);
+        let legacy = encrypt_legacy_blob(&store.legacy_master_key, &plaintext);
 
         assert!(is_legacy_encrypted_blob(&legacy));
         assert_eq!(
             store.decrypt_legacy_blob(&legacy).expect("legacy decrypt"),
             plaintext
         );
-        assert!(store.decrypt_key(&legacy).is_err());
     }
 
     #[tokio::test]
@@ -296,7 +460,7 @@ mod tests {
             secret.clone(),
         );
         let plaintext = [0xCDu8; MEDIA_KEY_LEN];
-        let legacy = encrypt_legacy_blob(&master_secret_bytes(&secret), &plaintext);
+        let legacy = encrypt_legacy_blob(&store.legacy_master_key, &plaintext);
 
         let decrypted = store.decrypt_legacy_blob(&legacy).expect("legacy decrypt");
         assert_eq!(decrypted, plaintext);
@@ -305,8 +469,9 @@ mod tests {
         assert!(!is_legacy_encrypted_blob(&modern));
         assert!(modern.len() > LEGACY_ENCRYPTED_LEN);
 
-        let roundtrip = store.decrypt_key(&modern).expect("modern decrypt");
+        let (roundtrip, used_legacy) = store.decrypt_key(&modern).expect("modern decrypt");
         assert_eq!(roundtrip, plaintext);
+        assert!(!used_legacy);
     }
 
     #[tokio::test]
@@ -328,7 +493,7 @@ mod tests {
         let file_id = format!("hls-migrate-file-{}", Uuid::new_v4());
         let key_id = Uuid::new_v4().to_string();
         let plaintext = [0x42u8; MEDIA_KEY_LEN];
-        let legacy = encrypt_legacy_blob(&test_master_secret(), &plaintext);
+        let legacy = encrypt_legacy_blob(&store.legacy_master_key, &plaintext);
 
         sqlx::query(
             "INSERT INTO users (id, email, password_hash, role, enabled) \
