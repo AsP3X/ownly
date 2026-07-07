@@ -196,6 +196,10 @@ async function pollStorageMigrationStatus() {
   pollInFlight = true;
   try {
     const run = await fetchStorageMigrationStatus();
+    if (!run) {
+      stopPolling();
+      return;
+    }
     applyRun(run);
     if (run.status !== "running") {
       stopPolling();
@@ -303,14 +307,19 @@ export async function restoreStorageMigrationFromServer() {
   restorePreviewFromSession();
   try {
     const run = await fetchStorageMigrationStatus();
+    if (!run) {
+      activeJob = null;
+      emitJob();
+      return;
+    }
     applyRun(run, { openResultOnTerminal: isTerminal(run.status) });
     if (run.status === "running") {
       startPolling();
     }
   } catch (error) {
-    // Human: Older deployments may not expose the migration status route — treat 404 as unavailable.
-    // Agent: SKIPS console noise from fetchStorageMigrationStatus when the admin API is not shipped.
-    if (!(error instanceof ApiError && error.status === 404)) {
+    // Human: Skip console noise when unauthenticated or the migration API is unavailable on older builds.
+    // Agent: IGNORES 401 from fetchStorageMigrationStatus during optional tray restore.
+    if (!(error instanceof ApiError && error.status === 401)) {
       console.warn("[storage-migration] restore failed", error);
     }
     activeJob = null;

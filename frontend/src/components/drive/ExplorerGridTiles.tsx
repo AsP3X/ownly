@@ -198,6 +198,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       <button
         type="button"
         draggable={dragEnabled && !touchDragEnabled}
+        aria-label={`Open folder ${folder.name}`}
         onClick={() => {
           if (touchDragBindings?.consumeSuppressedClick()) return;
           onOpenFolder(folder);
@@ -458,6 +459,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       <button
         type="button"
         draggable={dragEnabled && !processing && !touchDragEnabled}
+        aria-label={canPreview ? `Preview ${file.name}` : file.name}
         onDragStart={(event) => onDragStart(event, file.id)}
         onDragEnd={onDragEnd}
         onPointerDown={handleTilePointerDown}

@@ -17,6 +17,7 @@ pub mod listing;
 pub mod processing;
 pub mod recycle_bin;
 pub mod rename;
+pub mod subtree_cache;
 pub mod upload_finalize;
 pub mod upload_spool;
 pub mod upload_validation;

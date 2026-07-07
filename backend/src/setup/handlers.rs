@@ -1,7 +1,7 @@
 // Human: First-run setup endpoints — admin account, instance settings, storage node, database test.
 // Agent: READS users COUNT for gating; WRITES users + app_settings + storage_nodes in TX; RETURNS AuthResponse on success once.
 
-use axum::{extract::State, http::HeaderMap, response::Response, Json};
+use axum::{extract::State, http::HeaderMap, response::{IntoResponse, Response}, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -9,7 +9,9 @@ use uuid::Uuid;
 use crate::{
     admin::storage_nodes,
     audit,
-    auth::handlers::{auth_response_with_session_cookie, create_token, hash_password, AuthResponse, UserDto},
+    auth::handlers::{
+        create_token, hash_password, issue_session_auth_cookies, AuthResponse, UserDto,
+    },
     db,
     error::AppError,
     outbound_target,
@@ -507,6 +509,7 @@ pub async fn setup(
     let auth = AuthResponse {
         token: Some(token.clone()),
         pending_activation: false,
+        csrf_token: None,
         user: UserDto {
             id: user_id,
             email: body.email.trim().to_lowercase(),
@@ -515,11 +518,15 @@ pub async fn setup(
         },
     };
 
-    auth_response_with_session_cookie(
-        &state,
-        &headers,
-        token,
-        SetupResponse {
+    let csrf_token = crate::csrf::generate_csrf_token();
+    let auth = AuthResponse {
+        csrf_token: Some(csrf_token.clone()),
+        ..auth
+    };
+    let cookies = issue_session_auth_cookies(&state, &headers, &token, &csrf_token)?;
+    Ok((
+        cookies,
+        Json(SetupResponse {
             auth,
             restart_required,
             configured_database_url: if use_startup_pool {
@@ -532,7 +539,8 @@ pub async fn setup(
             } else {
                 Some(storage_base_url)
             },
-        },
+        }),
     )
+        .into_response())
 }
 

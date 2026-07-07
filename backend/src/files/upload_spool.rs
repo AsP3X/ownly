@@ -1,10 +1,13 @@
 // Human: Temp spool helpers shared by single-shot and resumable upload finalize paths.
-// Agent: WRITES disk under ownly_upload_*; CALLS put_with_retry for non-video Nebular PUT.
+// Agent: WRITES disk under ownly_upload_*; CALLS put_stream_with_retry for non-video Nebular PUT.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use tokio_util::io::ReaderStream;
+
 use crate::error::AppError;
+use crate::storage::StorageStream;
 
 // Human: Guard against deleting the OS temp root when removing upload scratch directories.
 // Agent: REQUIRES path under std::env::temp_dir and not equal to temp root.
@@ -27,25 +30,40 @@ pub async fn cleanup_upload_work_dir(work_dir: &Path) {
     }
 }
 
-// Human: Read a spooled upload file and PUT it to object storage with transient-error retries.
-// Agent: CALLS put_with_retry; RE-READS spool each attempt; ERRORS on disk read or Nebular failure.
+// Human: Open a spooled upload file as a byte stream for object storage PUT.
+// Agent: RETURNS pinned ReaderStream; RE-OPENED on each retry attempt by put_stream_with_retry.
+async fn open_spool_stream(path: &Path) -> Result<StorageStream, anyhow::Error> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|error| anyhow::anyhow!("open upload spool: {error}"))?;
+    Ok(Box::pin(ReaderStream::new(file)))
+}
+
+// Human: Stream a spooled upload file to object storage with transient-error retries.
+// Agent: CALLS put_stream_with_retry; AVOIDS loading entire spool into RAM; ERRORS on disk read or Nebular failure.
 pub async fn storage_put_spooled_file(
     storage: &Arc<dyn crate::storage::Storage>,
     storage_key: &str,
     mime: &str,
     tmp_path: &Path,
 ) -> Result<(), AppError> {
+    let metadata = tokio::fs::metadata(tmp_path)
+        .await
+        .map_err(|error| AppError::Storage(format!("stat upload spool: {error}")))?;
+    let content_length = metadata.len();
     let path = tmp_path.to_path_buf();
     let mime = mime.to_string();
     let key = storage_key.to_string();
-    crate::storage::put_with_retry(storage.as_ref(), &key, &mime, || {
-        let path = path.clone();
-        async move {
-            tokio::fs::read(&path)
-                .await
-                .map_err(|error| anyhow::anyhow!("read upload spool: {error}"))
-        }
-    })
+    crate::storage::put_stream_with_retry(
+        storage.as_ref(),
+        &key,
+        &mime,
+        content_length,
+        || {
+            let path = path.clone();
+            async move { open_spool_stream(&path).await }
+        },
+    )
     .await
     .map_err(|error| AppError::Storage(error.to_string()))
 }

@@ -15,6 +15,15 @@ pub trait Storage: Send + Sync {
     async fn exists(&self, key: &str) -> anyhow::Result<bool>;
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
     async fn put(&self, key: &str, content_type: &str, data: Vec<u8>) -> anyhow::Result<()>;
+    /// Human: Stream PUT without buffering the entire object in API memory.
+    /// Agent: CALLS Nebular streaming PUT when supported; content_length required for placement planning.
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: u64,
+        stream: StorageStream,
+    ) -> anyhow::Result<()>;
     /// Human: List object keys under a prefix — used to purge partial HLS uploads on cancel/delete.
     /// Agent: CALLS Nebular GET /{bucket}?prefix=… with pagination; MemoryStorage filters HashMap keys.
     async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>>;
@@ -32,4 +41,4 @@ pub mod put_gate;
 pub mod put_retry;
 pub mod router;
 
-pub use put_retry::put_with_retry;
+pub use put_retry::{put_stream_with_retry, put_with_retry};

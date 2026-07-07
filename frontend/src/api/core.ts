@@ -1,17 +1,129 @@
 // Human: Core HTTP client — cookie session transport, error envelope parsing, and shared helpers.
 // Agent: EXPORTS apiFetch, ApiError, getErrorMessage; READ by domain API modules and client barrel.
 
+import { clearCsrfHint, readCsrfHint, setCsrfHint, syncCsrfHintFromCookie } from "@/lib/csrf-hint";
 import { getSetupToken } from "@/lib/setup-token";
+import { hasSessionHint } from "@/lib/session-hint";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
 
 /** Human: Same-origin API calls must include HttpOnly session cookies (SEC-024). */
 export const API_FETCH_CREDENTIALS: RequestCredentials = "same-origin";
 
+const CSRF_COOKIE_NAME = "ownly_csrf";
+export const CSRF_HEADER_NAME = "X-CSRF-Token";
+
+// Human: Read the double-submit CSRF cookie set alongside the HttpOnly session cookie.
+// Agent: Cookie Path is `/` (not /api/v1) so document.cookie on the SPA shell can read it.
+export function readCsrfTokenFromCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${CSRF_COOKIE_NAME}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      const value = trimmed.slice(prefix.length);
+      return value.length > 0 ? value : null;
+    }
+  }
+  return null;
+}
+
+// Human: Resolve CSRF for mutations — prefer readable cookie, fall back to auth JSON sessionStorage hint.
+// Agent: READS ownly_csrf cookie then ownly_csrf_hint; USED before attaching X-CSRF-Token.
+function readCsrfToken(): string | null {
+  return readCsrfTokenFromCookie() ?? readCsrfHint();
+}
+
+/** Human: Persist CSRF from login/setup/refresh JSON and sync when the Path=/ cookie becomes readable. */
+export function captureAuthCsrfToken(csrfToken?: string | null): void {
+  if (csrfToken) {
+    setCsrfHint(csrfToken);
+    return;
+  }
+  syncCsrfHintFromCookie(readCsrfTokenFromCookie);
+}
+
+export { clearCsrfHint };
+
 export function setupMutationHeaders(): HeadersInit | undefined {
   const setupToken = getSetupToken();
   if (!setupToken) return undefined;
   return { "X-Setup-Token": setupToken };
+}
+
+// Human: Attach CSRF header for cookie-authenticated mutations (double-submit pattern).
+// Agent: READS cookie or sessionStorage hint; BOOTSTRAPS via /auth/refresh when session exists without CSRF.
+async function csrfMutationHeaders(method: string | undefined): Promise<HeadersInit | undefined> {
+  const normalized = (method ?? "GET").toUpperCase();
+  if (normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS") {
+    return undefined;
+  }
+  const token = await ensureCsrfTokenForMutation();
+  if (!token) return undefined;
+  return { [CSRF_HEADER_NAME]: token };
+}
+
+let csrfBootstrapInFlight: Promise<boolean> | null = null;
+
+// Human: Legacy Path=/api/v1 CSRF cookies are invisible to document.cookie — rotate via refresh when needed.
+// Agent: POST /auth/refresh (CSRF-exempt); WRITES csrf hint from JSON + cookie after success.
+async function ensureCsrfTokenForMutation(): Promise<string | null> {
+  const existing = readCsrfToken();
+  if (existing) return existing;
+  if (!hasSessionHint()) return null;
+  if (!csrfBootstrapInFlight) {
+    csrfBootstrapInFlight = tryRefreshAuthToken().finally(() => {
+      csrfBootstrapInFlight = null;
+    });
+  }
+  await csrfBootstrapInFlight;
+  syncCsrfHintFromCookie(readCsrfTokenFromCookie);
+  return readCsrfToken();
+}
+
+// Human: Resolve CSRF before XMLHttpRequest or other non-apiFetch mutation transports.
+// Agent: EXPORTED for multipart upload XHR; CALLS refresh bootstrap when hint/cookie missing.
+export async function ensureCsrfToken(): Promise<string | null> {
+  return ensureCsrfTokenForMutation();
+}
+
+// Human: Raw fetch for authenticated mutations outside apiFetch (resumable upload parts, etc.).
+// Agent: SENDS credentials + X-CSRF-Token; RETRIES once after refresh on CSRF 403.
+export async function mutationFetch(
+  url: string,
+  init: RequestInit = {},
+  csrfRetried = false,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const csrfHeaders = await csrfMutationHeaders(init.method);
+  if (csrfHeaders) {
+    for (const [key, value] of Object.entries(csrfHeaders)) {
+      headers.set(key, value as string);
+    }
+  }
+
+  const res = await fetch(url, {
+    ...init,
+    headers,
+    credentials: init.credentials ?? API_FETCH_CREDENTIALS,
+  });
+
+  if (
+    res.status === 403 &&
+    !csrfRetried &&
+    init.credentials !== "omit" &&
+    mayHaveSessionCookie()
+  ) {
+    const preview = await res.clone().text();
+    if (/csrf validation failed/i.test(preview)) {
+      const refreshed = await tryRefreshAuthToken();
+      if (refreshed) {
+        return mutationFetch(url, init, true);
+      }
+    }
+  }
+
+  return res;
 }
 
 export class ApiError extends Error {
@@ -71,6 +183,22 @@ const JWT_REFRESH_LEEWAY_SECS = 2 * 3600;
 
 let refreshInFlight: Promise<boolean> | null = null;
 
+// Human: Prevent recursive logout when many parallel 401s fire the unauthorized handler at once.
+// Agent: SET during dispatchUnauthorized; RESET on microtask after logout clears client state.
+let unauthorizedDispatchInFlight = false;
+
+function dispatchUnauthorized() {
+  if (unauthorizedDispatchInFlight || !unauthorizedHandler) return;
+  unauthorizedDispatchInFlight = true;
+  try {
+    unauthorizedHandler();
+  } finally {
+    queueMicrotask(() => {
+      unauthorizedDispatchInFlight = false;
+    });
+  }
+}
+
 function notifySessionRefreshed() {
   sessionRefreshListener?.();
 }
@@ -89,6 +217,17 @@ export async function tryRefreshAuthToken(): Promise<boolean> {
         credentials: API_FETCH_CREDENTIALS,
       });
       if (!res.ok) return false;
+      const text = await res.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text) as { csrf_token?: string };
+          captureAuthCsrfToken(data.csrf_token);
+        } catch {
+          syncCsrfHintFromCookie(readCsrfTokenFromCookie);
+        }
+      } else {
+        syncCsrfHintFromCookie(readCsrfTokenFromCookie);
+      }
       notifySessionRefreshed();
       return true;
     } catch {
@@ -109,11 +248,35 @@ export function shouldProactivelyRefreshToken(expHint?: number | null): boolean 
   return now >= expHint - JWT_REFRESH_LEEWAY_SECS;
 }
 
+function mayHaveSessionCookie(): boolean {
+  return hasSessionHint() || readCsrfToken() !== null;
+}
+
 function shouldIgnoreUnauthorizedLogout(path: string, method: string | undefined): boolean {
   const m = (method ?? "GET").toUpperCase();
-  if (path === "/auth/login" || path === "/auth/register" || path === "/auth/refresh") return true;
+  if (
+    path === "/auth/login" ||
+    path === "/auth/register" ||
+    path === "/auth/refresh" ||
+    path === "/auth/logout"
+  ) {
+    return true;
+  }
   if (path.startsWith("/setup") && m !== "GET") return true;
   return false;
+}
+
+// Human: Clear server session cookies without triggering apiFetch 401 retry/logout loops.
+// Agent: POST /auth/logout via raw fetch; IGNORES response status; NO unauthorizedHandler side effects.
+export async function postLogoutBestEffort(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      credentials: API_FETCH_CREDENTIALS,
+    });
+  } catch {
+    // ignore network errors during client-side sign-out
+  }
 }
 
 // Human: Parse Retry-After from throttled API responses so upload backoff can align with the server window.
@@ -172,9 +335,10 @@ async function parseApiResponse(
     if (
       res.status === 401 &&
       hadSession &&
+      mayHaveSessionCookie() &&
       !shouldIgnoreUnauthorizedLogout(path, init.method)
     ) {
-      unauthorizedHandler?.();
+      dispatchUnauthorized();
     }
     throw new ApiError(
       message,
@@ -189,14 +353,29 @@ async function parseApiResponse(
 }
 
 // Human: Authenticated fetch to `/api/v1` with JSON error envelope parsing.
-// Agent: SENDS HttpOnly session cookie; RETRIES once after POST /auth/refresh on 401; THROWS ApiError on failure.
+// Agent: SENDS HttpOnly session cookie + CSRF header; RETRIES after refresh on 401/403 CSRF failures.
 export async function apiFetch(path: string, init: RequestInit = {}) {
+  const hadSession = init.credentials !== "omit";
+  return executeApiFetch(path, init, hadSession, false);
+}
+
+async function executeApiFetch(
+  path: string,
+  init: RequestInit,
+  hadSession: boolean,
+  csrfRetried: boolean,
+) {
   const headers = new Headers(init.headers);
   if (!headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
+  const csrfHeaders = await csrfMutationHeaders(init.method);
+  if (csrfHeaders) {
+    for (const [key, value] of Object.entries(csrfHeaders)) {
+      headers.set(key, value as string);
+    }
+  }
 
-  const hadSession = init.credentials !== "omit";
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers,
@@ -208,20 +387,29 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
     hadSession &&
     !shouldIgnoreUnauthorizedLogout(path, init.method)
   ) {
-    const refreshed = await tryRefreshAuthToken();
-    if (refreshed) {
-      const retryHeaders = new Headers(init.headers);
-      if (!retryHeaders.has("Content-Type") && !(init.body instanceof FormData)) {
-        retryHeaders.set("Content-Type", "application/json");
+    if (mayHaveSessionCookie()) {
+      const refreshed = await tryRefreshAuthToken();
+      if (refreshed) {
+        return executeApiFetch(path, init, true, csrfRetried);
       }
-      const retryRes = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: retryHeaders,
-        credentials: init.credentials ?? API_FETCH_CREDENTIALS,
-      });
-      return parseApiResponse(retryRes, path, init, true);
+      dispatchUnauthorized();
     }
-    unauthorizedHandler?.();
+  }
+
+  if (
+    res.status === 403 &&
+    hadSession &&
+    !csrfRetried &&
+    !shouldIgnoreUnauthorizedLogout(path, init.method) &&
+    mayHaveSessionCookie()
+  ) {
+    const preview = await res.clone().text();
+    if (/csrf validation failed/i.test(preview)) {
+      const refreshed = await tryRefreshAuthToken();
+      if (refreshed) {
+        return executeApiFetch(path, init, true, true);
+      }
+    }
   }
 
   return parseApiResponse(res, path, init, hadSession);

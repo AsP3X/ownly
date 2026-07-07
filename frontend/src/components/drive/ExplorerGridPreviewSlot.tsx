@@ -8,8 +8,10 @@ import { cn } from "@/lib/utils";
 export const EXPLORER_GRID_TILE_WIDTH_PX = 168;
 
 /** Human: CSS grid for explorer tiles — fixed 168px tracks, no stretch on partial rows. */
+// Human: Responsive explorer grid — two columns on phones, auto-fill 168px tiles on wider viewports.
+// Agent: USED by DriveCloudExplorer + ExplorerGridSkeleton; MUST stay aligned with tile width constant.
 export const EXPLORER_GRID_LAYOUT_CLASS =
-  "grid grid-cols-[repeat(auto-fill,168px)] justify-start gap-3 sm:gap-4 lg:gap-5";
+  "grid grid-cols-2 min-[400px]:grid-cols-[repeat(auto-fill,168px)] justify-start gap-3 sm:gap-4 lg:gap-5";
 
 /** Human: Shared preview dimensions for explorer grid file and folder tiles. */
 export const EXPLORER_GRID_PREVIEW_SLOT_CLASS =

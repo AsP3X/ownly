@@ -99,11 +99,15 @@ pub async fn resolve_upload_file_owner(
 }
 
 // Human: Collect folder ids where user has content.read via direct folder grant (allow, not deny).
-// Agent: READS permission_grants for user+groups; EXPANDS each granted folder to all descendants.
+// Agent: READS permission_grants for user+groups; EXPANDS each granted folder to all descendants; CACHES 60s.
 pub async fn readable_folder_subtree_ids(
     pool: &PgPool,
     user_id: &str,
 ) -> Result<Vec<String>, AppError> {
+    if let Some(cached) = crate::files::subtree_cache::get_cached_readable_subtree(user_id) {
+        return Ok(cached);
+    }
+
     let group_ids = crate::authz::load_user_group_ids(pool, user_id).await?;
     let mut root_ids = Vec::new();
 
@@ -119,15 +123,15 @@ pub async fn readable_folder_subtree_ids(
     .await?;
     root_ids.extend(user_grants.into_iter().map(|(id,)| id));
 
-    for group_id in &group_ids {
+    if !group_ids.is_empty() {
         let grants: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT resource_id FROM permission_grants \
-             WHERE subject_type = 'group' AND subject_id = $1 \
+             WHERE subject_type = 'group' AND subject_id = ANY($1::text[]) \
                AND resource_type = 'folder' AND resource_id IS NOT NULL \
                AND permission IN ('content.read','content.write','content.delete','content.share','content.manage_acl') \
                AND effect = 'allow' AND (expires_at IS NULL OR expires_at > now())",
         )
-        .bind(group_id)
+        .bind(&group_ids)
         .fetch_all(pool)
         .await?;
         root_ids.extend(grants.into_iter().map(|(id,)| id));
@@ -136,34 +140,38 @@ pub async fn readable_folder_subtree_ids(
     root_ids.sort();
     root_ids.dedup();
 
-    let mut all = Vec::new();
-    for root in root_ids {
-        all.push(root.clone());
-        collect_descendant_folder_ids(pool, &root, &mut all).await?;
+    let mut all = root_ids.clone();
+    if !root_ids.is_empty() {
+        collect_descendant_folder_ids_batch(pool, &root_ids, &mut all).await?;
     }
     all.sort();
     all.dedup();
+
+    crate::files::subtree_cache::set_cached_readable_subtree(user_id, all.clone());
     Ok(all)
 }
 
-async fn collect_descendant_folder_ids(
+// Human: Expand many grant-root folders to all descendants in one recursive CTE.
+// Agent: READS folders; APPENDS descendant ids to out; SKIPS when root_ids empty.
+async fn collect_descendant_folder_ids_batch(
     pool: &PgPool,
-    parent_id: &str,
+    root_ids: &[String],
     out: &mut Vec<String>,
 ) -> Result<(), AppError> {
-    let mut queue = vec![parent_id.to_string()];
-    while let Some(current) = queue.pop() {
-        let children: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM folders WHERE parent_id = $1 AND deleted_at IS NULL",
-        )
-        .bind(&current)
-        .fetch_all(pool)
-        .await?;
-        for (child,) in children {
-            out.push(child.clone());
-            queue.push(child);
-        }
-    }
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "WITH RECURSIVE subtree AS ( \
+           SELECT id FROM folders WHERE id = ANY($1::text[]) AND deleted_at IS NULL \
+           UNION ALL \
+           SELECT f.id FROM folders f \
+           INNER JOIN subtree s ON f.parent_id = s.id \
+           WHERE f.deleted_at IS NULL \
+         ) \
+         SELECT id FROM subtree WHERE id <> ALL($1::text[])",
+    )
+    .bind(root_ids)
+    .fetch_all(pool)
+    .await?;
+    out.extend(rows.into_iter().map(|(id,)| id));
     Ok(())
 }
 

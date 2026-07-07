@@ -1,10 +1,10 @@
 // Human: Resumable chunked upload client — session lifecycle, part PUTs, and complete handshake.
-// Agent: CALLS POST/GET/PUT /uploads/*; SKIPS parts already on server; USES AbortSignal for cancel.
+// Agent: CALLS POST/GET/PUT /uploads/* via mutationFetch; SKIPS parts already on server; USES AbortSignal for cancel.
 
 import {
   API_BASE,
-  API_FETCH_CREDENTIALS,
   ApiError,
+  mutationFetch,
   parseRetryAfterSeconds,
 } from "@/api/core";
 
@@ -87,17 +87,12 @@ async function parseApiError(res: Response, fallbackMessage: string): Promise<Ap
   );
 }
 
-function authHeaders(contentType?: string): HeadersInit {
-  const headers: Record<string, string> = {};
-  if (contentType) headers["Content-Type"] = contentType;
-  return headers;
+function jsonHeaders(): HeadersInit {
+  return { "Content-Type": "application/json" };
 }
 
-function uploadFetchInit(init: RequestInit = {}): RequestInit {
-  return {
-    ...init,
-    credentials: API_FETCH_CREDENTIALS,
-  };
+function octetStreamHeaders(): HeadersInit {
+  return { "Content-Type": "application/octet-stream" };
 }
 
 // Human: Run async work over a list with a bounded worker pool.
@@ -127,18 +122,18 @@ export async function ensureUploadSession(
   existingSessionId?: string | null,
 ): Promise<ResumableServerSession> {
   if (existingSessionId) {
-    const res = await fetch(`${API_BASE}/uploads/${existingSessionId}`, uploadFetchInit({
-      headers: authHeaders(),
-    }));
+    const res = await mutationFetch(`${API_BASE}/uploads/${existingSessionId}`, {
+      headers: jsonHeaders(),
+    });
     if (!res.ok) {
       throw await parseApiError(res, "Could not resume upload session");
     }
     return (await res.json()) as ResumableServerSession;
   }
 
-  const res = await fetch(`${API_BASE}/uploads`, uploadFetchInit({
+  const res = await mutationFetch(`${API_BASE}/uploads`, {
     method: "POST",
-    headers: authHeaders("application/json"),
+    headers: jsonHeaders(),
     body: JSON.stringify({
       filename: file.name,
       folder_id: folderId ?? null,
@@ -146,7 +141,7 @@ export async function ensureUploadSession(
       content_type: file.type || undefined,
       chunk_size: UPLOAD_CHUNK_SIZE_BYTES,
     }),
-  }));
+  });
   if (!res.ok) {
     throw await parseApiError(res, "Could not start upload session");
   }
@@ -156,10 +151,9 @@ export async function ensureUploadSession(
 // Human: Abort a partial server session and discard spooled parts.
 // Agent: DELETE /uploads/{id}; BEST-EFFORT on user cancel.
 export async function abortResumableUploadSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/uploads/${sessionId}`, uploadFetchInit({
+  const res = await mutationFetch(`${API_BASE}/uploads/${sessionId}`, {
     method: "DELETE",
-    headers: authHeaders(),
-  }));
+  });
   if (!res.ok && res.status !== 404) {
     throw await parseApiError(res, "Could not abort upload session");
   }
@@ -214,14 +208,14 @@ export async function uploadFileResumableBytes(
     const end = Math.min(start + chunkSize, file.size);
     const chunk = file.slice(start, end);
 
-    const res = await fetch(
+    const res = await mutationFetch(
       `${API_BASE}/uploads/${session.session_id}/parts/${partNumber}`,
-      uploadFetchInit({
+      {
         method: "PUT",
-        headers: authHeaders("application/octet-stream"),
+        headers: octetStreamHeaders(),
         body: chunk,
         signal: options.signal,
-      }),
+      },
     );
     if (!res.ok) {
       throw await parseApiError(res, `Upload part ${partNumber} failed`);
@@ -237,13 +231,12 @@ export async function uploadFileResumableBytes(
 
   options.onProgress?.({ phase: "uploading", percent: 100 });
 
-  const completeRes = await fetch(
+  const completeRes = await mutationFetch(
     `${API_BASE}/uploads/${session.session_id}/complete`,
-    uploadFetchInit({
+    {
       method: "POST",
-      headers: authHeaders(),
       signal: options.signal,
-    }),
+    },
   );
   if (!completeRes.ok) {
     throw await parseApiError(completeRes, "Could not complete upload");

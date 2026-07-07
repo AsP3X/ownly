@@ -82,30 +82,27 @@ pub async fn effective_jwt_role(pool: &PgPool, user_id: &str, db_role: &str) -> 
     Ok(db_role.to_string())
 }
 
-// Human: Walk folder parent_id chain from leaf to root (inclusive).
+// Human: Walk folder parent_id chain from leaf to root (inclusive) via one recursive CTE.
 // Agent: READS folders; STOPS at missing row; MAX 64 depth guard.
 pub async fn folder_ancestor_chain(
     pool: &PgPool,
     folder_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let mut chain = Vec::new();
-    let mut current = Some(folder_id.to_string());
-    for _ in 0..64 {
-        let Some(id) = current else {
-            break;
-        };
-        chain.push(id.clone());
-        let parent: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT parent_id FROM folders WHERE id = $1 AND deleted_at IS NULL")
-                .bind(&id)
-                .fetch_optional(pool)
-                .await?;
-        current = match parent {
-            Some((parent_id,)) => parent_id,
-            None => None,
-        };
-    }
-    Ok(chain)
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "WITH RECURSIVE ancestors AS ( \
+           SELECT id, parent_id, 1 AS depth FROM folders \
+           WHERE id = $1 AND deleted_at IS NULL \
+           UNION ALL \
+           SELECT f.id, f.parent_id, a.depth + 1 FROM folders f \
+           INNER JOIN ancestors a ON f.id = a.parent_id \
+           WHERE f.deleted_at IS NULL AND a.depth < 64 \
+         ) \
+         SELECT id FROM ancestors",
+    )
+    .bind(folder_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 async fn file_owner_and_folder(
@@ -196,60 +193,62 @@ async fn load_applicable_grants(
     resource_keys.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
     resource_keys.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
 
-    let mut grants = Vec::new();
+    let folder_ids: Vec<String> = resource_keys
+        .iter()
+        .filter(|(rtype, _)| *rtype == "folder")
+        .filter_map(|(_, id)| id.clone())
+        .collect();
+    let file_ids: Vec<String> = resource_keys
+        .iter()
+        .filter(|(rtype, _)| *rtype == "file")
+        .filter_map(|(_, id)| id.clone())
+        .collect();
+    let include_instance = resource_keys
+        .iter()
+        .any(|(rtype, _)| *rtype == "instance");
 
-    // User direct grants
-    for (rtype, rid) in &resource_keys {
-        let rows = fetch_grants_for_subject(pool, "user", user_id, rtype, rid.as_deref()).await?;
-        grants.extend(rows);
-    }
-
-    // Group grants
-    for group_id in group_ids {
-        for (rtype, rid) in &resource_keys {
-            let rows =
-                fetch_grants_for_subject(pool, "group", group_id, rtype, rid.as_deref()).await?;
-            grants.extend(rows);
-        }
-    }
-
-    Ok(grants)
+    fetch_grants_batch(
+        pool,
+        user_id,
+        group_ids,
+        include_instance,
+        &folder_ids,
+        &file_ids,
+    )
+    .await
 }
 
-async fn fetch_grants_for_subject(
+// Human: Load all applicable grants for user + groups in one SQL round-trip.
+// Agent: READS permission_grants with ANY arrays; REPLACES per-subject/per-resource loops.
+async fn fetch_grants_batch(
     pool: &PgPool,
-    subject_type: &str,
-    subject_id: &str,
-    resource_type: &str,
-    resource_id: Option<&str>,
+    user_id: &str,
+    group_ids: &[String],
+    include_instance: bool,
+    folder_ids: &[String],
+    file_ids: &[String],
 ) -> Result<Vec<GrantRow>, AppError> {
-    let rows: Vec<(String, String)> = if resource_type == "instance" {
-        sqlx::query_as(
-            "SELECT permission, effect::TEXT \
-             FROM permission_grants \
-             WHERE subject_type = $1::grant_subject_type AND subject_id = $2 \
-               AND resource_type = 'instance' AND resource_id IS NULL \
-               AND (expires_at IS NULL OR expires_at > now())",
-        )
-        .bind(subject_type)
-        .bind(subject_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            "SELECT permission, effect::TEXT \
-             FROM permission_grants \
-             WHERE subject_type = $1::grant_subject_type AND subject_id = $2 \
-               AND resource_type = $3::grant_resource_type AND resource_id = $4 \
-               AND (expires_at IS NULL OR expires_at > now())",
-        )
-        .bind(subject_type)
-        .bind(subject_id)
-        .bind(resource_type)
-        .bind(resource_id)
-        .fetch_all(pool)
-        .await?
-    };
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT permission, effect::TEXT \
+         FROM permission_grants \
+         WHERE (expires_at IS NULL OR expires_at > now()) \
+           AND ( \
+             (subject_type = 'user' AND subject_id = $1) \
+             OR (subject_type = 'group' AND subject_id = ANY($2::text[])) \
+           ) \
+           AND ( \
+             ($3 AND resource_type = 'instance' AND resource_id IS NULL) \
+             OR (resource_type = 'folder' AND resource_id = ANY($4::text[])) \
+             OR (resource_type = 'file' AND resource_id = ANY($5::text[])) \
+           )",
+    )
+    .bind(user_id)
+    .bind(group_ids)
+    .bind(include_instance)
+    .bind(folder_ids)
+    .bind(file_ids)
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows
         .into_iter()

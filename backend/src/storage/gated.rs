@@ -44,6 +44,23 @@ impl Storage for GatedStorage {
         self.inner.put(key, content_type, data).await
     }
 
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: u64,
+        stream: StorageStream,
+    ) -> anyhow::Result<()> {
+        let _permit = self
+            .put_gate
+            .acquire()
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.inner
+            .put_stream(key, content_type, content_length, stream)
+            .await
+    }
+
     async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
         self.inner.list_keys_with_prefix(prefix).await
     }

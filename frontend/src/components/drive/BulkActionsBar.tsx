@@ -48,7 +48,7 @@ export function BulkActionsBar({
     <div
       className={cn(
         "flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-600 px-3 py-2 text-white shadow-lg",
-        "max-lg:fixed max-lg:bottom-[calc(4.75rem+env(safe-area-inset-bottom))] max-lg:left-3 max-lg:right-3 max-lg:z-30",
+        "max-lg:fixed max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] max-lg:left-3 max-lg:right-3 max-lg:z-30",
         "lg:static lg:border-blue-200 lg:bg-blue-50 lg:text-blue-900 lg:shadow-none",
       )}
       role="toolbar"

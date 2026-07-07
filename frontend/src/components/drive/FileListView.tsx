@@ -27,16 +27,16 @@ type FileListViewProps = {
   folders?: FolderItem[];
   files: FileItem[];
   ownerLabel: string;
-  favouriteIds: Set<string>;
   locationLabel?: string;
   emptyMessage: string;
   selectable?: boolean;
   selectedFileIds?: Set<string>;
   onSelectedFileIdsChange?: (ids: Set<string>) => void;
+  /** Human: Mobile tap-to-select mode — row taps toggle selection instead of opening previews. */
+  mobileSelectionMode?: boolean;
+  /** Human: Authoritative tap toggle wired from DrivePage selection ref. */
+  onTapToggleFileSelection?: (fileId: string) => void;
   onOpenFolder?: (folder: FolderItem) => void;
-  onToggleFavourite: (fileId: string) => void;
-  onDelete: (fileId: string) => void;
-  onDownload: (file: FileItem) => void;
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
@@ -124,6 +124,8 @@ export function FileListView({
   selectable = false,
   selectedFileIds,
   onSelectedFileIdsChange,
+  mobileSelectionMode = false,
+  onTapToggleFileSelection,
   onOpenFolder,
   onPreviewVideo,
   onPreviewImage,
@@ -146,6 +148,9 @@ export function FileListView({
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   const selectionEnabled = selectable && selectedFileIds !== undefined && onSelectedFileIdsChange !== undefined;
+  const showFileCheckboxes =
+    selectionEnabled &&
+    (mobileSelectionMode || (selectedFileIds?.size ?? 0) > 0);
   const selectableFileIds = useMemo(
     () => files.filter((file) => !isFileProcessing(file)).map((file) => file.id),
     [files],
@@ -236,7 +241,7 @@ export function FileListView({
         </div>
       ) : null}
 
-      {selectionEnabled && selectableFileIds.length > 0 ? (
+      {selectionEnabled && showFileCheckboxes && selectableFileIds.length > 0 ? (
         <label className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm text-neutral-700 shadow-sm ring-1 ring-neutral-200/70">
           <input
             ref={selectAllRef}
@@ -332,7 +337,7 @@ export function FileListView({
                 data-file-id={file.id}
               >
                 <div className="flex items-center gap-1 pr-1">
-                  {selectionEnabled ? (
+                  {showFileCheckboxes ? (
                     <input
                       type="checkbox"
                       className="ml-3 size-4 shrink-0 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
@@ -345,6 +350,15 @@ export function FileListView({
                   <button
                     type="button"
                     onClick={() => {
+                      if (
+                        mobileSelectionMode &&
+                        selectionEnabled &&
+                        !processing &&
+                        onTapToggleFileSelection
+                      ) {
+                        onTapToggleFileSelection(file.id);
+                        return;
+                      }
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);

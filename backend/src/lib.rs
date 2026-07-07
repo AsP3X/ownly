@@ -25,6 +25,7 @@ pub mod authz;
 pub mod browser_guard;
 pub mod config;
 pub mod crypto;
+pub mod csrf;
 pub mod db;
 pub mod document;
 pub mod error;
@@ -147,6 +148,7 @@ fn build_cors_layer(cors_allowed_origins: &str) -> CorsLayer {
             axum::http::header::COOKIE,
             request_tracking::REQUEST_ID_HEADER.clone(),
             axum::http::HeaderName::from_static("x-setup-token"),
+            axum::http::HeaderName::from_static("x-csrf-token"),
         ])
         .allow_credentials(true)
 }
@@ -378,6 +380,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/auth/register", post(auth::handlers::register))
         .route("/api/v1/auth/login", post(auth::handlers::login))
         .route("/api/v1/auth/refresh", post(auth::handlers::refresh))
+        .route("/api/v1/auth/logout", post(auth::handlers::logout))
         .route(
             "/api/v1/settings/registration",
             get(auth::handlers::public_registration_setting),
@@ -481,7 +484,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/me/password",
             axum::routing::patch(auth::handlers::change_password),
         )
-        .route("/api/v1/auth/logout", post(auth::handlers::logout))
         .route("/api/v1/files", get(files::handlers::list_files))
         .route("/api/v1/files/batch", post(files::handlers::batch_files))
         .route(
@@ -828,6 +830,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            csrf::csrf_middleware,
+        ))
         .layer(middleware::from_fn(request_tracking::request_id_middleware))
         .layer(
             TraceLayer::new_for_http()

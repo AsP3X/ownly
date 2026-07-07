@@ -454,9 +454,9 @@ impl NebulaStorage {
         Ok(Some(report))
     }
 
-    // Human: Stream PUT without buffering the whole object — used for legacy blob rewrite migration.
+    // Human: Stream PUT without buffering the whole object — used for upload finalize and blob rewrite.
     // Agent: HTTP PUT with Content-Length when known; SURFACES 503 backpressure like Storage::put.
-    async fn put_stream(
+    async fn put_http_stream_body(
         &self,
         key: &str,
         content_type: &str,
@@ -523,7 +523,7 @@ impl NebulaStorage {
         } else {
             None
         };
-        self.put_stream(key, &content_type, len, body).await
+        self.put_http_stream_body(key, &content_type, len, body).await
     }
 }
 
@@ -817,6 +817,22 @@ impl Storage for NebulaStorage {
             "nebular storage PUT complete"
         );
         Ok(())
+    }
+
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: u64,
+        stream: StorageStream,
+    ) -> anyhow::Result<()> {
+        let body = reqwest::Body::wrap_stream(stream);
+        let len = if content_length > 0 {
+            Some(content_length)
+        } else {
+            None
+        };
+        self.put_http_stream_body(key, content_type, len, body).await
     }
 
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {

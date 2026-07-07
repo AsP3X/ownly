@@ -21,7 +21,7 @@ This document now covers **two audit rounds**:
 | -------- | ----- | ---- | ----- |
 | Critical | 1     | 0    | SEC-013 fixed (production profile rejects Compose dev secrets) |
 | High     | 12    | 0    | SEC-014 – SEC-020 fixed |
-| Medium   | 21    | 9    | SEC-021, SEC-024, SEC-026, SEC-027, SEC-032, SEC-034 (partial), SEC-037–SEC-040 open |
+| Medium   | 21    | 6    | SEC-021, SEC-026, SEC-027, SEC-032 (KDF migrated), SEC-034 (fixed), SEC-037–SEC-040; CSRF added (2026-07) |
 | Low      | 8     | 0    | SEC-035–SEC-042 fixed |
 
 

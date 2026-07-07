@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { DEFAULT_INSTANCE_NAME, applyInstanceDocumentTitle } from "@/lib/instance-name";
 
 export function InstanceNameProvider({ children }: { children: ReactNode }) {
-  const { token } = useAuth();
+  const { token, sessionReady } = useAuth();
   const [configuredName, setConfiguredName] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const dashboardFetchRef = useRef<Promise<DashboardResponse | null> | null>(null);
@@ -47,18 +47,20 @@ export function InstanceNameProvider({ children }: { children: ReactNode }) {
   }, [token, setInstanceName]);
 
   // Human: On sign-out, revert the browser tab to the product default and drop cached stats.
-  // Agent: READS token; CALLS refreshDashboard when signed in.
+  // Agent: READS token + sessionReady; CALLS refreshDashboard when signed in and session bootstrap done.
   useEffect(() => {
-    if (!token) {
-      setDashboard(null);
-      setConfiguredName(null);
-      applyInstanceDocumentTitle(DEFAULT_INSTANCE_NAME);
-      dashboardFetchRef.current = null;
+    if (!token || !sessionReady) {
+      if (!token) {
+        setDashboard(null);
+        setConfiguredName(null);
+        applyInstanceDocumentTitle(DEFAULT_INSTANCE_NAME);
+        dashboardFetchRef.current = null;
+      }
       return;
     }
 
     void refreshDashboard();
-  }, [token, refreshDashboard]);
+  }, [token, sessionReady, refreshDashboard]);
 
   const value = useMemo(
     () => ({ instanceName, setInstanceName, dashboard, refreshDashboard }),

@@ -442,44 +442,56 @@ pub async fn list_owned_folders(
 }
 
 // Human: Owned files plus grant-accessible files in the same folder (atomic permissions).
-// Agent: UNION list_owned_files with rows where folder is in readable subtree or file has direct grant.
+// Agent: SINGLE SQL with OR visibility predicate; CORRECT has_more via combined count.
 pub async fn list_accessible_files(
     pool: &PgPool,
     user_id: &str,
     params: ListFilesParams,
 ) -> Result<FileListResponse, AppError> {
-    let mut response = list_owned_files(pool, user_id, params.clone()).await?;
-
     let search = params
         .search
         .as_deref()
         .unwrap_or("")
         .trim();
     if !search.is_empty() {
-        return Ok(response);
+        return list_owned_files(pool, user_id, params).await;
     }
 
     let readable_folders = crate::files::access::readable_folder_subtree_ids(pool, user_id).await?;
     let direct_files = crate::files::access::directly_granted_file_ids(pool, user_id).await?;
     if readable_folders.is_empty() && direct_files.is_empty() {
-        return Ok(response);
+        return list_owned_files(pool, user_id, params).await;
     }
 
-    let select_cols = file_list_select_columns(params.minimal);
+    let minimal = params.minimal;
+    let select_cols = file_list_select_columns(minimal);
     let type_clause = params
         .type_filter
         .as_deref()
         .and_then(mime_type_filter_sql);
 
-    let mut extra_where = vec![
-        format!("f.user_id <> $1 AND {F_ACTIVE_FILES_SQL}"),
-        "(($2::text IS NULL AND f.folder_id IS NULL) OR f.folder_id = $2)".to_string(),
-        "(f.folder_id = ANY($3) OR f.id = ANY($4))".to_string(),
+    let mut where_parts = vec![
+        F_ACTIVE_FILES_SQL.to_string(),
+        "(($1::text IS NULL AND f.folder_id IS NULL) OR f.folder_id = $1)".to_string(),
+        "(f.user_id = $2 OR (f.user_id <> $2 AND (f.folder_id = ANY($3) OR f.id = ANY($4))))"
+            .to_string(),
     ];
     if let Some(clause) = type_clause {
-        extra_where.push(clause.to_string());
+        where_parts.push(clause.to_string());
     }
-    let where_sql = extra_where.join(" AND ");
+    let where_sql = where_parts.join(" AND ");
+
+    let count_sql = format!(
+        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(f.size_bytes), 0)::BIGINT \
+         FROM files f WHERE {where_sql}"
+    );
+    let (file_count, total_bytes): (i64, i64) = sqlx::query_as(&count_sql)
+        .bind(&params.folder_id)
+        .bind(user_id)
+        .bind(&readable_folders)
+        .bind(&direct_files)
+        .fetch_one(pool)
+        .await?;
 
     let list_sql = format!(
         "SELECT {select_cols} FROM files f \
@@ -487,10 +499,9 @@ pub async fn list_accessible_files(
          ORDER BY {ORDER_FILES_BY_NATURAL_NAME} \
          LIMIT $5 OFFSET $6"
     );
-
-    let granted: Vec<FileListItem> = sqlx::query_as(&list_sql)
-        .bind(user_id)
+    let files: Vec<FileListItem> = sqlx::query_as(&list_sql)
         .bind(&params.folder_id)
+        .bind(user_id)
         .bind(&readable_folders)
         .bind(&direct_files)
         .bind(params.limit)
@@ -498,74 +509,78 @@ pub async fn list_accessible_files(
         .fetch_all(pool)
         .await?;
 
-    let mut seen: std::collections::HashSet<String> =
-        response.files.iter().map(|f| f.id.clone()).collect();
-    for row in granted {
-        if seen.insert(row.id.clone()) {
-            response.files.push(row);
-        }
-    }
+    let has_more = params.offset + (files.len() as i64) < file_count;
 
-    response.file_count = response.files.len() as i64;
-    response.has_more = false;
-    Ok(response)
+    Ok(FileListResponse {
+        files,
+        total_bytes,
+        file_count,
+        has_more,
+    })
 }
 
 // Human: Owned folders plus grant-readable child folders under an accessible parent.
-// Agent: MERGES list_owned_folders with folders user can read via permission_grants.
+// Agent: SINGLE SQL with OR visibility predicate; CORRECT has_more via combined count.
 pub async fn list_accessible_folders(
     pool: &PgPool,
     user_id: &str,
     params: ListFoldersParams,
 ) -> Result<FolderListResponse, AppError> {
-    let mut response = list_owned_folders(pool, user_id, params.clone()).await?;
-
     let search = params
         .search
         .as_deref()
         .unwrap_or("")
         .trim();
     if !search.is_empty() {
-        return Ok(response);
+        return list_owned_folders(pool, user_id, params).await;
     }
 
     let readable_folders = crate::files::access::readable_folder_subtree_ids(pool, user_id).await?;
     if readable_folders.is_empty() {
-        return Ok(response);
+        return list_owned_folders(pool, user_id, params).await;
     }
 
     let select_cols = format!(
         "fo.id, fo.name, fo.parent_id, fo.created_at, fo.updated_at, {SHARE_PUBLIC_FOLDER_EXPR}"
     );
+
+    let where_sql = format!(
+        "{FO_ACTIVE_FOLDERS_SQL} \
+         AND (($1::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $1) \
+         AND (fo.user_id = $2 OR (fo.user_id <> $2 AND fo.id = ANY($3)))"
+    );
+
+    let count_sql = format!("SELECT COALESCE(COUNT(*), 0) FROM folders fo WHERE {where_sql}");
+    let folder_count: (i64,) = sqlx::query_as(&count_sql)
+        .bind(&params.parent_id)
+        .bind(user_id)
+        .bind(&readable_folders)
+        .fetch_one(pool)
+        .await?;
+
     let list_sql = format!(
         "SELECT {select_cols} FROM folders fo \
-         WHERE fo.user_id <> $1 AND {FO_ACTIVE_FOLDERS_SQL} \
-           AND (($2::text IS NULL AND fo.parent_id IS NULL) OR fo.parent_id = $2) \
-           AND fo.id = ANY($3) \
+         WHERE {where_sql} \
          ORDER BY {ORDER_FOLDERS_BY_NATURAL_NAME} \
          LIMIT $4 OFFSET $5"
     );
 
-    let granted: Vec<FolderListItem> = sqlx::query_as(&list_sql)
-        .bind(user_id)
+    let folders: Vec<FolderListItem> = sqlx::query_as(&list_sql)
         .bind(&params.parent_id)
+        .bind(user_id)
         .bind(&readable_folders)
         .bind(params.limit)
         .bind(params.offset)
         .fetch_all(pool)
         .await?;
 
-    let mut seen: std::collections::HashSet<String> =
-        response.folders.iter().map(|f| f.id.clone()).collect();
-    for row in granted {
-        if seen.insert(row.id.clone()) {
-            response.folders.push(row);
-        }
-    }
+    let has_more = params.offset + (folders.len() as i64) < folder_count.0;
 
-    response.folder_count = response.folders.len() as i64;
-    response.has_more = false;
-    Ok(response)
+    Ok(FolderListResponse {
+        folders,
+        folder_count: folder_count.0,
+        has_more,
+    })
 }
 
 // Human: One library row whose stored content hash matches a pending upload.

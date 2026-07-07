@@ -90,10 +90,11 @@ const privacySections = [
               and instance configuration values such as instance name and storage quotas.
             </>,
             <>
-              <strong className="text-[#1A1A1A]">Browser-stored data on your device:</strong> authentication token
-              and basic profile snapshot in <code className="text-[#1A1A1A]">localStorage</code>; setup status,
-              optional share-link passwords, and in-progress upload state in{" "}
-              <code className="text-[#1A1A1A]">sessionStorage</code>; UI preferences stored locally where enabled.
+              <strong className="text-[#1A1A1A]">Browser-stored data on your device:</strong> session
+              authentication uses an HttpOnly cookie (not readable by page scripts); UI preferences,
+              favourites, upload recovery state, and optional share-link passwords may be stored in{" "}
+              <code className="text-[#1A1A1A]">localStorage</code> or{" "}
+              <code className="text-[#1A1A1A]">sessionStorage</code> where enabled.
             </>,
           ]}
         />
@@ -154,8 +155,8 @@ const privacySections = [
         <LegalBulletList
           items={[
             <>
-              <strong className="text-[#1A1A1A]">Authentication (localStorage):</strong> session JWT and basic user
-              profile — removed on logout.
+              <strong className="text-[#1A1A1A]">Authentication (HttpOnly cookie):</strong> session JWT in an
+              HttpOnly, SameSite cookie — cleared on logout; not accessible to JavaScript.
             </>,
             <>
               <strong className="text-[#1A1A1A]">Setup cache (sessionStorage):</strong> whether initial instance

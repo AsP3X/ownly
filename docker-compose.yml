@@ -122,7 +122,9 @@ services:
       AUTH_REGISTER_RPM: ${AUTH_REGISTER_RPM:-5}
       # Human: Default false — set true only when the API is solely reachable via a trusted reverse proxy (SEC-027).
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
-      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-0}
+      # Human: Required for setup storage tests and admin node registration against Compose service names (object-storage, postgres).
+      # Agent: DEFAULT 1 in dev Compose; production compose defaults to 0 — see docker-compose.prod.yml.
+      OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-1}
       UPLOAD_RPM: ${UPLOAD_RPM:-1200}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10737418240}
       STORAGE_PUT_MAX_CONCURRENT: ${STORAGE_PUT_MAX_CONCURRENT:-2}

@@ -286,6 +286,66 @@ impl Storage for RouterStorage {
         self.put_routed(key, content_type, data).await
     }
 
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: u64,
+        stream: StorageStream,
+    ) -> anyhow::Result<()> {
+        use futures_util::StreamExt;
+
+        let base_key = base_file_storage_key(key).unwrap_or_else(|| key.to_string());
+        if is_derived_storage_key(key, &base_key) {
+            if let Some(node_id) = resolve_node_for_key(&self.pool, key)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            {
+                let client = self.client_for_node_id(&node_id).await?;
+                return client
+                    .put_stream(key, content_type, content_length, stream)
+                    .await;
+            }
+        }
+
+        let nodes = load_node_snapshots_cached(&self.pool)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        if nodes.is_empty() {
+            let client = self.fallback_primary_client().await?;
+            return client
+                .put_stream(key, content_type, content_length, stream)
+                .await;
+        }
+
+        let plan = plan_upload(&nodes, &base_key, content_length)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        match &plan {
+            UploadPlacementPlan::Single { node_id, .. } => {
+                let client = self.client_for_node_id(node_id).await?;
+                client
+                    .put_stream(key, content_type, content_length, stream)
+                    .await?;
+            }
+            UploadPlacementPlan::Striped { .. } => {
+                let mut data = Vec::with_capacity(content_length as usize);
+                let mut stream = stream;
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(std::io::Error::other)?;
+                    data.extend_from_slice(&chunk);
+                }
+                self.put_routed(key, content_type, data).await?;
+            }
+        }
+
+        persist_placement(&self.pool, &base_key, &plan)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        Ok(())
+    }
+
     async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
         let client = self.resolve_client(prefix).await?;
         client.list_keys_with_prefix(prefix).await

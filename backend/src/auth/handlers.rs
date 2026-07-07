@@ -8,7 +8,7 @@ use argon2::{
 use axum::{
     extract::State,
     http::{header, HeaderMap},
-    response::{IntoResponse, Response},
+    response::{AppendHeaders, IntoResponse, Response},
     Extension, Json,
 };
 use chrono::Utc;
@@ -64,6 +64,10 @@ pub struct AuthResponse {
     pub user: UserDto,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub pending_activation: bool,
+    /// Human: Readable CSRF token for X-CSRF-Token when the cookie is not visible to document.cookie yet.
+    /// Agent: SET on login/register/setup/refresh; MIRROR of ownly_csrf Set-Cookie for SPA clients.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub csrf_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,19 +168,40 @@ fn decode_token_with_validation(
     .claims)
 }
 
-pub(crate) fn auth_response_with_session_cookie<T: serde::Serialize>(
+pub(crate) fn auth_response_with_session_cookie(
     state: &AppState,
     headers: &HeaderMap,
     token: String,
-    body: T,
+    mut auth: AuthResponse,
 ) -> Result<Response, AppError> {
-    let cookie = session_cookie::session_set_cookie(state, headers, &token)
+    let csrf_token = crate::csrf::generate_csrf_token();
+    auth.csrf_token = Some(csrf_token.clone());
+    let cookies = issue_session_auth_cookies(state, headers, &token, &csrf_token)?;
+    Ok((cookies, Json(auth)).into_response())
+}
+
+// Human: Build HttpOnly session, readable CSRF, and legacy CSRF clear Set-Cookie headers.
+// Agent: AppendHeaders; REQUIRED so Axum emits multiple Set-Cookie lines without overwriting.
+pub(crate) fn issue_session_auth_cookies(
+    state: &AppState,
+    headers: &HeaderMap,
+    token: &str,
+    csrf_token: &str,
+) -> Result<
+    AppendHeaders<[(header::HeaderName, header::HeaderValue); 3]>,
+    AppError,
+> {
+    let session_cookie = session_cookie::session_set_cookie(state, headers, token)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    Ok((
-        [(header::SET_COOKIE, cookie)],
-        Json(body),
-    )
-        .into_response())
+    let csrf_cookie = crate::csrf::csrf_set_cookie(state, headers, csrf_token)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let legacy_csrf_clear = crate::csrf::csrf_clear_legacy_path_cookie(state, headers)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    Ok(AppendHeaders([
+        (header::SET_COOKIE, session_cookie),
+        (header::SET_COOKIE, csrf_cookie),
+        (header::SET_COOKIE, legacy_csrf_clear),
+    ]))
 }
 
 async fn registration_allowed(pool: &sqlx::PgPool) -> Result<bool, AppError> {
@@ -273,6 +298,7 @@ pub async fn register(
     let response = AuthResponse {
         token,
         pending_activation: needs_activation,
+        csrf_token: None,
         user: UserDto {
             id: user_id,
             email,
@@ -356,6 +382,7 @@ pub async fn login(
         AuthResponse {
             token: Some(token),
             pending_activation: false,
+            csrf_token: None,
             user: UserDto {
                 id: user_id,
                 email,
@@ -431,6 +458,7 @@ pub async fn refresh(
         AuthResponse {
             token: Some(token),
             pending_activation: false,
+            csrf_token: None,
             user: UserDto {
                 id: claims.sub,
                 email,
@@ -602,32 +630,43 @@ fn dummy_login_hash() -> &'static str {
     })
 }
 
-// Human: Revoke the caller's current session server-side (SEC-031).
-// Agent: POST /auth/logout; REVOKES sid from JWT; AUDIT auth.logout.
+// Human: Best-effort session revoke — always clears cookies even when JWT is missing or stale.
+// Agent: POST /auth/logout PUBLIC; OPTIONAL decode via decode_token_for_refresh; AUDIT when revoke succeeds.
 pub async fn logout(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    if let Some(sid) = claims.sid.as_deref() {
-        crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
+    if let Some(token) = session_cookie::bearer_or_session_token(&headers) {
+        if let Ok(claims) = decode_token_for_refresh(&token, &state.jwt_secret) {
+            if let Some(sid) = claims.sid.as_deref() {
+                crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
+            }
+
+            audit::write_audit_required(
+                &state.pool,
+                Some(&claims.sub),
+                "auth.logout",
+                Some("user"),
+                Some(&claims.sub),
+                None,
+                &headers,
+            )
+            .await?;
+        }
     }
 
-    audit::write_audit_required(
-        &state.pool,
-        Some(&claims.sub),
-        "auth.logout",
-        Some("user"),
-        Some(&claims.sub),
-        None,
-        &headers,
-    )
-    .await?;
-
-    let cookie = session_cookie::session_clear_cookie(&state, &headers)
+    let session_cookie = session_cookie::session_clear_cookie(&state, &headers)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let csrf_cookie = crate::csrf::csrf_clear_cookie(&state, &headers)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let legacy_csrf_clear = crate::csrf::csrf_clear_legacy_path_cookie(&state, &headers)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     Ok((
-        [(header::SET_COOKIE, cookie)],
+        AppendHeaders([
+            (header::SET_COOKIE, session_cookie),
+            (header::SET_COOKIE, csrf_cookie),
+            (header::SET_COOKIE, legacy_csrf_clear),
+        ]),
         Json(serde_json::json!({ "ok": true })),
     )
         .into_response())

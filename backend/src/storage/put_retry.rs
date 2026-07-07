@@ -1,9 +1,9 @@
 // Human: Retry object-storage PUTs when Nebular returns transient 5xx or transport errors.
-// Agent: CALLS Storage::put with backoff; RE-LOADS body via callback each attempt; USED by uploads + thumbnails.
+// Agent: CALLS Storage::put / put_stream with backoff; RE-LOADS body via callback each attempt; USED by uploads + thumbnails.
 
 use std::future::Future;
 
-use super::Storage;
+use super::{Storage, StorageStream};
 
 // Human: Back off longer than Nebular/SQLite busy_timeout (~5s) so retries run after locks clear.
 // Agent: MAX 5 attempts; exponential backoff from 1.5s capped at 12s; PAIRED with StoragePutGate.
@@ -58,6 +58,44 @@ where
         }
     }
     unreachable!("put_with_retry exits via return or Err")
+}
+
+// Human: Streaming PUT with bounded retries — reopens spool stream each attempt.
+// Agent: CALLS Storage::put_stream; RE-LOADS stream via callback; AVOIDS full-file RAM buffer on upload finalize.
+pub async fn put_stream_with_retry<F, Fut>(
+    storage: &dyn Storage,
+    key: &str,
+    content_type: &str,
+    content_length: u64,
+    mut open_stream: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = anyhow::Result<StorageStream>>,
+{
+    let mut delay_ms = PUT_RETRY_BASE_MS;
+    for attempt in 1..=PUT_MAX_ATTEMPTS {
+        let stream = open_stream().await?;
+        match storage
+            .put_stream(key, content_type, content_length, stream)
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < PUT_MAX_ATTEMPTS && is_likely_transient_put_error(&error) => {
+                tracing::warn!(
+                    storage_key = %key,
+                    attempt,
+                    %error,
+                    retry_in_ms = delay_ms,
+                    "object storage streaming PUT failed; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                delay_ms = (delay_ms.saturating_mul(2)).min(PUT_RETRY_MAX_MS);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("put_stream_with_retry exits via return or Err")
 }
 
 #[cfg(test)]

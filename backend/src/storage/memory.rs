@@ -51,6 +51,22 @@ impl Storage for MemoryStorage {
         Ok(())
     }
 
+    async fn put_stream(
+        &self,
+        key: &str,
+        content_type: &str,
+        _content_length: u64,
+        mut stream: StorageStream,
+    ) -> anyhow::Result<()> {
+        use futures_util::StreamExt;
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            data.extend_from_slice(&chunk);
+        }
+        self.put(key, content_type, data).await
+    }
+
     async fn list_keys_with_prefix(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
         let guard = self.blobs.lock().expect("memory storage lock");
         let mut keys: Vec<String> = guard

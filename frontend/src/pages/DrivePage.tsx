@@ -110,7 +110,8 @@ import {
   toggleFavouriteFile,
 } from "@/lib/drive-preferences";
 import { cn } from "@/lib/utils";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 type NavItemId = DriveNavId;
@@ -699,8 +700,7 @@ export default function DrivePage() {
         });
         if (idsToPoll.length === 0) return;
 
-        const updates = await Promise.all(idsToPoll.map((fileId) => fetchFile(fileId)));
-        const updatedFiles = updates.map((entry) => entry.file);
+        const { files: updatedFiles } = await batchFiles(idsToPoll, "minimal");
         setFiles((prev) => patchExplorerFileRows(prev, updatedFiles));
 
         const readyThumbnails = updatedFiles.filter(
@@ -1920,7 +1920,10 @@ export default function DrivePage() {
           <div
             ref={mainScrollRef}
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
+              "min-h-0 flex-1 overflow-y-auto px-4 pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
+              totalSelectedCount > 0
+                ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]"
+                : "pb-[calc(5.25rem+env(safe-area-inset-bottom))]",
               explorerTouchScrollLocked && "touch-none overflow-hidden overscroll-none",
             )}
           >
@@ -1953,6 +1956,20 @@ export default function DrivePage() {
             {error ? (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
+                <AlertAction>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-destructive/30 bg-background text-destructive hover:bg-destructive/5"
+                    onClick={() => {
+                      setError("");
+                      void refresh();
+                    }}
+                  >
+                    Try again
+                  </Button>
+                </AlertAction>
               </Alert>
             ) : null}
 
@@ -1995,6 +2012,7 @@ export default function DrivePage() {
                   typeFilterOptions={TYPE_FILTERS}
                   isSearching={isSearchingMyFiles}
                   loading={loading}
+                  ownerLabel={profileDisplayName}
                   dragEnabled={!isSearchingMyFiles}
                   selectable
                   selectedFileIds={selectedFileIds}

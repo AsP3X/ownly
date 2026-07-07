@@ -6,15 +6,18 @@ import { useNavigate } from "react-router-dom";
 import {
   fetchCurrentUser,
   fetchMyInstancePermissions,
-  apiFetch,
+  postLogoutBestEffort,
   setSessionRefreshListener,
   setUnauthorizedHandler,
   shouldProactivelyRefreshToken,
   tryRefreshAuthToken,
 } from "@/api/client";
+import { clearCsrfHint, readCsrfHint, syncCsrfHintFromCookie } from "@/lib/csrf-hint";
+import { readCsrfTokenFromCookie } from "@/api/core";
 import { AuthContext, SESSION_ACTIVE, type User } from "@/context/auth-context";
 import { hasInstancePermission as checkInstancePermission, isInstanceAdmin } from "@/lib/instance-permissions";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
+import { clearSessionHint, hasSessionHint, setSessionHint } from "@/lib/session-hint";
 
 /** Human: Run session probes after first paint so login shell is not blocked on /me. */
 function scheduleIdleTask(task: () => void): () => void {
@@ -33,11 +36,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false);
   const [instancePermissions, setInstancePermissions] = useState<string[]>([]);
   const sessionExpHintRef = useRef<number | null>(null);
+  const logoutInProgressRef = useRef(false);
 
   // Human: Restore cookie session after reload without reading JWT from web storage.
-  // Agent: GET /me + /me/permissions; CLEARS state on 401.
+  // Agent: GET /me + /me/permissions when session hint exists; CLEARS state on 401.
   useEffect(() => {
     let cancelled = false;
+
+    if (!hasSessionHint()) {
+      setSessionReady(true);
+      return;
+    }
+
     void (async () => {
       try {
         const [profile, permPayload] = await Promise.all([
@@ -53,8 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         setInstancePermissions(permPayload.permissions);
         setToken(SESSION_ACTIVE);
+        syncCsrfHintFromCookie(readCsrfTokenFromCookie);
+        if (!readCsrfTokenFromCookie() && !readCsrfHint()) {
+          void tryRefreshAuthToken();
+        }
       } catch {
         if (!cancelled) {
+          clearSessionHint();
+          clearCsrfHint();
           setUser(null);
           setToken(null);
           setInstancePermissions([]);
@@ -72,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Agent: MUTATES token + user React state; OPTIONAL exp hint schedules proactive refresh.
   const setAuth = useCallback((nextUser: User, sessionExpHint?: number | null) => {
     sessionExpHintRef.current = sessionExpHint ?? null;
+    setSessionHint();
     setToken(SESSION_ACTIVE);
     setUser(nextUser);
     setSessionReady(true);
@@ -80,7 +97,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Human: Clear client session when setup guard detects stale tokens or the user signs out.
   // Agent: POST /auth/logout; RESETS token + user; NAVIGATES / (public landing) replace.
   const logout = useCallback(() => {
-    void apiFetch("/auth/logout", { method: "POST" }).catch(() => undefined);
+    if (logoutInProgressRef.current) return;
+    logoutInProgressRef.current = true;
+    void postLogoutBestEffort().finally(() => {
+      logoutInProgressRef.current = false;
+    });
+    clearSessionHint();
+    clearCsrfHint();
     sessionExpHintRef.current = null;
     setToken(null);
     setUser(null);
@@ -99,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Agent: LISTENS setSessionRefreshListener; RE-SCHEDULES proactive refresh window.
   useEffect(() => {
     setSessionRefreshListener(() => {
+      setSessionHint();
       setToken(SESSION_ACTIVE);
       sessionExpHintRef.current = Math.floor(Date.now() / 1000) + 24 * 3600;
     });

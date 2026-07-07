@@ -2600,6 +2600,285 @@ async fn login_returns_token_for_valid_credentials() {
         .ok();
 }
 
+// Human: Browser login relies on two separate Set-Cookie headers — session JWT and CSRF token.
+// Agent: POST /auth/login; EXPECT ownly_session + ownly_csrf; GET /me with session cookie succeeds.
+#[tokio::test]
+async fn login_sets_session_and_csrf_cookies() {
+    let Some(state) = test_harness::TestHarness::state("login_sets_session_and_csrf_cookies").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("login-cookies-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let app = create_router(state.clone());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "email": email, "password": "password123" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(login.status(), StatusCode::OK);
+    let cookies: Vec<String> = login
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+    let login_json = response_json(login).await;
+    let csrf_from_body = login_json["csrf_token"]
+        .as_str()
+        .expect("csrf_token in login JSON");
+    assert_eq!(
+        cookies.len(),
+        3,
+        "login must append session, csrf, and legacy csrf clear Set-Cookie headers"
+    );
+    assert!(
+        cookies.iter().any(|cookie| cookie.starts_with("ownly_session=")),
+        "missing ownly_session cookie"
+    );
+    assert!(
+        cookies.iter().any(|cookie| cookie.starts_with("ownly_csrf=") && cookie.contains("Path=/")),
+        "csrf cookie must use Path=/ for SPA document.cookie reads"
+    );
+    let csrf_token = cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_csrf=") && cookie.contains("Path=/"))
+        .and_then(|cookie| cookie.strip_prefix("ownly_csrf="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie value");
+    assert_eq!(csrf_from_body, csrf_token);
+
+    let session_pair = cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_session="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("session cookie pair");
+
+    let me = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("cookie", session_pair)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Cookie sessions must send X-CSRF-Token on POST /files/batch (double-submit pattern).
+// Agent: POST login; READ ownly_csrf from Set-Cookie; POST batch with Cookie + CSRF header; EXPECT 200.
+#[tokio::test]
+async fn batch_files_accepts_session_cookie_with_csrf_header() {
+    let Some(state) = test_harness::TestHarness::state("batch_files_accepts_session_cookie_with_csrf_header")
+        .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("batch-csrf-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let app = create_router(state.clone());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "email": email, "password": "password123" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(login.status(), StatusCode::OK);
+
+    let set_cookies: Vec<String> = login
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+    let session_pair = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_session="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("session cookie");
+    let csrf_token = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_csrf=") && cookie.contains("Path=/"))
+        .and_then(|cookie| cookie.strip_prefix("ownly_csrf="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie value");
+    assert!(
+        set_cookies
+            .iter()
+            .any(|cookie| cookie.starts_with("ownly_csrf=") && cookie.contains("Path=/")),
+        "csrf cookie must use Path=/ for SPA document.cookie reads"
+    );
+
+    let cookie_header = format!("{session_pair}; ownly_csrf={csrf_token}");
+    let batch = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/batch")
+                .header("content-type", "application/json")
+                .header("cookie", cookie_header)
+                .header("x-csrf-token", csrf_token)
+                .body(Body::from(json!({ "ids": [], "fields": "minimal" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(batch.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Cookie sessions must send X-CSRF-Token on POST /uploads (resumable session create).
+// Agent: POST login; READ ownly_csrf; POST /uploads with Cookie + CSRF header; EXPECT 200.
+#[tokio::test]
+async fn uploads_accepts_session_cookie_with_csrf_header() {
+    let Some(state) =
+        test_harness::TestHarness::state("uploads_accepts_session_cookie_with_csrf_header").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("upload-csrf-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let app = create_router(state.clone());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "email": email, "password": "password123" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(login.status(), StatusCode::OK);
+
+    let set_cookies: Vec<String> = login
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+    let session_pair = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_session="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("session cookie");
+    let csrf_token = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("ownly_csrf=") && cookie.contains("Path=/"))
+        .and_then(|cookie| cookie.strip_prefix("ownly_csrf="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie value");
+
+    let cookie_header = format!("{session_pair}; ownly_csrf={csrf_token}");
+    let create = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/uploads")
+                .header("content-type", "application/json")
+                .header("cookie", cookie_header)
+                .header("x-csrf-token", csrf_token)
+                .body(Body::from(
+                    json!({
+                        "filename": "csrf-test.bin",
+                        "total_size": 1024 * 1024,
+                        "chunk_size": 1024 * 1024,
+                        "content_type": "application/octet-stream"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Active sessions should rotate access JWTs without another login POST.
 // Agent: POST /auth/refresh with Bearer token; EXPECT 200 + new token usable on /me.
 #[tokio::test]
@@ -2791,6 +3070,32 @@ async fn refresh_rejects_token_past_grace_window() {
         .execute(&state.pool)
         .await
         .ok();
+}
+
+// Human: Sign-out must succeed even when the session JWT is already invalid (client cleanup path).
+// Agent: POST /auth/logout without Authorization; EXPECT 200 + ok JSON + cleared session cookies.
+#[tokio::test]
+async fn logout_succeeds_without_valid_session() {
+    let Some(state) = test_harness::TestHarness::state("logout_succeeds_without_valid_session").await
+    else {
+        return;
+    };
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    assert_eq!(json["ok"], true);
 }
 
 // Human: Wrong passwords must not authenticate callers.

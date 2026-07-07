@@ -5,10 +5,15 @@ export {
   ApiError,
   apiFetch,
   API_FETCH_CREDENTIALS,
+  captureAuthCsrfToken,
+  clearCsrfHint,
+  ensureCsrfToken,
   getAuthToken,
   getErrorMessage,
   parseRetryAfterSeconds,
+  mutationFetch,
   normalizeStorageErrorMessage,
+  postLogoutBestEffort,
   setSessionRefreshListener,
   setTokenRefreshListener,
   setUnauthorizedHandler,
@@ -35,6 +40,9 @@ import {
   API_FETCH_CREDENTIALS,
   ApiError,
   apiFetch,
+  captureAuthCsrfToken,
+  CSRF_HEADER_NAME,
+  ensureCsrfToken,
   getErrorMessage,
   parseRetryAfterSeconds,
   setupMutationHeaders,
@@ -275,13 +283,16 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
 }
 
 export async function login(email: string, password: string) {
-  return apiFetch("/auth/login", {
+  const res = (await apiFetch("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
-  }) as Promise<{
+  })) as {
     token?: string;
+    csrf_token?: string;
     user: { id: string; email: string; role: string; enabled: boolean };
-  }>;
+  };
+  captureAuthCsrfToken(res.csrf_token);
+  return res;
 }
 
 export async function register(email: string, password: string) {
@@ -780,9 +791,12 @@ export type StorageMigrationLogsResponse = {
 };
 
 // Human: Fetch the active or latest undismissed server-side storage migration run.
-// Agent: GET /admin/maintenance/storage-migration/status; VISIBLE to any InstanceAdmin session.
-export async function fetchStorageMigrationStatus() {
-  return apiFetch("/admin/maintenance/storage-migration/status") as Promise<StorageMigrationRun>;
+// Agent: GET /admin/maintenance/storage-migration/status; RETURNS run or null when nothing to restore.
+export async function fetchStorageMigrationStatus(): Promise<StorageMigrationRun | null> {
+  const data = (await apiFetch("/admin/maintenance/storage-migration/status")) as {
+    run: StorageMigrationRun | null;
+  };
+  return data.run ?? null;
 }
 
 // Human: Start a full per-object preview scan on the API server.
@@ -1975,6 +1989,25 @@ function uploadFileWithProgressMultipart(
     releasePipelineStages?: () => void;
   },
 ): Promise<{ file: FileItem }> {
+  return startMultipartUpload(file, onProgress, options);
+}
+
+// Human: Multipart POST via XHR for progress events — must attach CSRF like apiFetch mutations.
+// Agent: AWAITS ensureCsrfToken before xhr.send; SETS X-CSRF-Token on POST /files/upload.
+async function startMultipartUpload(
+  file: File,
+  onProgress?: (update: UploadProgressUpdate) => void,
+  options?: {
+    folderId?: string | null;
+    sessionId?: string;
+    onServerFileRegistered?: (file: FileItem) => void;
+    onUploadBytesComplete?: () => void;
+    deferIngest?: boolean;
+    acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
+    releasePipelineStages?: () => void;
+  },
+): Promise<{ file: FileItem }> {
+  const csrfToken = await ensureCsrfToken();
   return new Promise((resolve, reject) => {
     const mediaKind = resolveUploadMediaKind(file);
     const isVideoUpload = mediaKind === "video";
@@ -2178,6 +2211,9 @@ function uploadFileWithProgressMultipart(
 
     xhr.open("POST", url);
     xhr.withCredentials = true;
+    if (csrfToken) {
+      xhr.setRequestHeader(CSRF_HEADER_NAME, csrfToken);
+    }
     xhr.send(form);
   });
 }

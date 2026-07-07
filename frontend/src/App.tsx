@@ -3,7 +3,9 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import { setupStatus } from "@/api/client";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { InstanceNameProvider } from "@/context/InstanceNameContext";
@@ -55,8 +57,23 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     };
   }, [token]);
 
+  // Human: POST /setup writes setup_complete to sessionStorage before setAuth — sync state before logout guard runs.
+  // Agent: READS readSetupStatusCache when token appears; PREVENTS tearing down a fresh post-setup session.
   useEffect(() => {
-    if (setupComplete === false && token) logout();
+    if (!token) return;
+    if (readSetupStatusCache() === true) {
+      setSetupComplete(true);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (setupComplete === false && token) {
+      if (readSetupStatusCache() === true) {
+        setSetupComplete(true);
+        return;
+      }
+      logout();
+    }
   }, [setupComplete, token, logout]);
 
   useEffect(() => {
@@ -112,13 +129,13 @@ function HomeRoute() {
 }
 
 function AuthenticatedDriveShellExtras() {
-  const { token } = useAuth();
-  // Human: Public share visitors are anonymous — skip admin migration and upload job polling (401 noise).
-  // Agent: READS token; RENDERS StorageMigrationUi + TransferPanelStack only when authenticated.
-  if (!token) return null;
+  const { token, sessionReady, isAdmin } = useAuth();
+  // Human: Wait for session restore before admin migration and upload job polling (avoids post-login 401 noise).
+  // Agent: READS token + sessionReady; RENDERS trays only when authenticated and bootstrap probe finished.
+  if (!token || !sessionReady) return null;
   return (
     <>
-      <StorageMigrationUi />
+      {isAdmin ? <StorageMigrationUi /> : null}
       <TransferPanelStack />
     </>
   );
@@ -130,6 +147,7 @@ export default function App() {
       <AuthProvider>
         <InstanceNameProvider>
         <SetupGuard>
+          <RouteErrorBoundary>
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
               <Route path="/setup" element={<SetupPage />} />
@@ -171,7 +189,9 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
+          </RouteErrorBoundary>
           <AuthenticatedDriveShellExtras />
+          <Toaster richColors closeButton position="top-center" />
         </SetupGuard>
         </InstanceNameProvider>
       </AuthProvider>

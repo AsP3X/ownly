@@ -157,6 +157,11 @@ pub struct StorageMigrationRunResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct StorageMigrationStatusResponse {
+    pub run: Option<StorageMigrationRunResponse>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct StorageMigrationLogEntryResponse {
     pub id: i64,
     pub level: String,
@@ -843,16 +848,16 @@ pub async fn resume_running_storage_migrations(state: Arc<AppState>) {
 }
 
 // Human: GET /api/v1/admin/maintenance/storage-migration/status — active or latest undismissed run.
-// Agent: InstanceAdmin; RETURNS running job first so any admin can restore the progress tray.
+// Agent: InstanceAdmin; RETURNS `{ run: null }` when nothing to restore (avoids noisy 404 on fresh installs).
 pub async fn get_storage_migration_status(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<StorageMigrationRunResponse>, AppError> {
+) -> Result<Json<StorageMigrationStatusResponse>, AppError> {
     require_instance_permission(&state.pool, &claims, Permission::InstanceAdmin).await?;
-    let row = fetch_latest_visible_run(&state.pool)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    Ok(Json(row_to_response(row)))
+    let row = fetch_latest_visible_run(&state.pool).await?;
+    Ok(Json(StorageMigrationStatusResponse {
+        run: row.map(row_to_response),
+    }))
 }
 
 // Human: POST /api/v1/admin/maintenance/storage-migration/preview — full per-object dry-run scan.

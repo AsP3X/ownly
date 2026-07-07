@@ -6,7 +6,8 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use futures_util::StreamExt;
@@ -30,7 +31,17 @@ use crate::{
 use super::{thumbnail::VideoThumbnailManifest, thumbnail_option_storage_key};
 
 type ThumbnailManifestRow = (Option<String>, bool, Option<String>, Option<i32>);
-type SelectedThumbnailRow = (Option<String>, String, bool, Option<i32>);
+type SelectedThumbnailRow = (
+    Option<String>,
+    String,
+    bool,
+    Option<i32>,
+    chrono::DateTime<chrono::Utc>,
+);
+
+fn thumbnail_etag(updated_at: chrono::DateTime<chrono::Utc>) -> String {
+    format!("W/\"{}\"", updated_at.timestamp_millis())
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SelectThumbnailRequest {
@@ -107,30 +118,31 @@ pub async fn get_thumbnails(
     Ok(Json(manifest))
 }
 
-// Human: Resolve the canonical poster JPEG key from DB — avoids a manifest round-trip on hot grid paths.
-// Agent: READS files.storage_key + video_thumbnail_selected_index; RETURNS sidecar object key.
-async fn selected_thumbnail_storage_key(
-    state: &Arc<crate::AppState>,
-    file_id: &str,
-    user_id: &str,
-) -> Result<String, AppError> {
+// Human: Stream the user-selected poster JPEG for grid tiles and previews.
+// Agent: GET /files/:id/thumbnail; READS sidecar key from DB; RETURNS image/jpeg body.
+pub async fn get_selected_thumbnail(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
     crate::files::access::ensure_file_access(
         &state.pool,
-        user_id,
-        file_id,
+        &claims.sub,
+        &id,
         Permission::ContentRead,
     )
     .await?;
 
     let row: Option<SelectedThumbnailRow> = sqlx::query_as(
-        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
+        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index, updated_at \
          FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
-    .bind(file_id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (mime_type, storage_key, ready, selected_index) = row.ok_or(AppError::NotFound)?;
+    let (mime_type, storage_key, ready, selected_index, updated_at) = row.ok_or(AppError::NotFound)?;
 
     if !mime_type
         .as_deref()
@@ -144,18 +156,14 @@ async fn selected_thumbnail_storage_key(
     }
 
     let index = selected_index.unwrap_or(0).max(0) as u32;
-    Ok(thumbnail_option_storage_key(&storage_key, index))
-}
-
-// Human: Stream the user-selected poster JPEG for grid tiles and previews.
-// Agent: GET /files/:id/thumbnail; READS sidecar key from DB; RETURNS image/jpeg body.
-pub async fn get_selected_thumbnail(
-    State(state): State<Arc<crate::AppState>>,
-    Extension(claims): Extension<Claims>,
-    Path(id): Path<String>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
-    let thumb_key = selected_thumbnail_storage_key(&state, &id, &claims.sub).await?;
-    stream_thumbnail_bytes(&state, &thumb_key).await
+    let thumb_key = thumbnail_option_storage_key(&storage_key, index);
+    stream_thumbnail_bytes(
+        &state,
+        &thumb_key,
+        &headers,
+        Some(thumbnail_etag(updated_at)),
+    )
+    .await
 }
 
 // Human: Stream one manifest option by index for the thumbnail picker UI.
@@ -163,6 +171,7 @@ pub async fn get_selected_thumbnail(
 pub async fn get_thumbnail_option(
     State(state): State<Arc<crate::AppState>>,
     Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
     Path((id, index)): Path<(String, u32)>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     crate::files::access::ensure_file_access(
@@ -174,14 +183,14 @@ pub async fn get_thumbnail_option(
     .await?;
 
     let row: Option<SelectedThumbnailRow> = sqlx::query_as(
-        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index \
+        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index, updated_at \
          FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (mime_type, storage_key, ready, _) = row.ok_or(AppError::NotFound)?;
+    let (mime_type, storage_key, ready, _, updated_at) = row.ok_or(AppError::NotFound)?;
 
     if !mime_type
         .as_deref()
@@ -195,52 +204,76 @@ pub async fn get_thumbnail_option(
     }
 
     let thumb_key = thumbnail_option_storage_key(&storage_key, index);
-    stream_thumbnail_bytes(&state, &thumb_key).await
+    stream_thumbnail_bytes(
+        &state,
+        &thumb_key,
+        &headers,
+        Some(thumbnail_etag(updated_at)),
+    )
+    .await
 }
 
-// Human: Buffered JPEG response for poster sidecars — Content-Length must match bytes read.
-// Agent: READS storage stream fully; SETS image/jpeg + private cache; USES data.len() not upstream hint.
+// Human: Stream poster JPEG sidecars with ETag support and passthrough storage streaming.
+// Agent: READS storage stream; SETS image/jpeg + private cache; RETURNS 304 when If-None-Match matches.
 async fn stream_thumbnail_bytes(
     state: &Arc<crate::AppState>,
     storage_key: &str,
-) -> Result<impl axum::response::IntoResponse, AppError> {
-    let (mut stream, _, _) = state
+    request_headers: &HeaderMap,
+    etag: Option<String>,
+) -> Result<Response, AppError> {
+    if let Some(ref tag) = etag {
+        if request_headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.trim() == tag)
+        {
+            let mut not_modified = HeaderMap::new();
+            not_modified.insert(header::ETAG, tag.parse().unwrap());
+            not_modified.insert(
+                header::CACHE_CONTROL,
+                "private, max-age=3600".parse().unwrap(),
+            );
+            return Ok((StatusCode::NOT_MODIFIED, not_modified).into_response());
+        }
+    }
+
+    let (stream, content_length, _) = state
         .storage
         .get_stream(storage_key)
         .await
         .map_err(|e| AppError::Storage(e.to_string()))?;
 
-    let mut data = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| AppError::Storage(e.to_string()))?;
-        data.extend_from_slice(&chunk);
-    }
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
         header::CONTENT_TYPE,
         "image/jpeg"
             .parse()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content type")))?,
     );
-    headers.insert(
+    response_headers.insert(
         header::CACHE_CONTROL,
         "private, max-age=3600"
             .parse()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid cache-control")))?,
     );
-    let body_len = data.len() as u64;
-    if body_len > 0 {
-        headers.insert(
+    if let Some(tag) = etag {
+        response_headers.insert(
+            header::ETAG,
+            tag.parse()
+                .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid etag")))?,
+        );
+    }
+    if content_length > 0 {
+        response_headers.insert(
             header::CONTENT_LENGTH,
-            body_len
+            content_length
                 .to_string()
                 .parse()
                 .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content length")))?,
         );
     }
 
-    Ok((headers, Body::from(data)))
+    Ok((response_headers, Body::from_stream(stream)).into_response())
 }
 
 // Human: Persist the user's chosen poster frame for drive grid and share previews.
