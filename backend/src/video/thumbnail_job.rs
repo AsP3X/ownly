@@ -267,18 +267,24 @@ async fn resolve_hls_video_source(
     )
     .await;
 
-    let refreshed: Option<(bool, Option<i64>)> =
-        sqlx::query_as("SELECT download_export_ready, download_export_size_bytes FROM files WHERE id = $1")
+    let refreshed: Option<(bool, Option<i64>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT download_export_ready, download_export_size_bytes, download_export_error \
+             FROM files WHERE id = $1",
+        )
             .bind(file_id)
             .fetch_optional(pool)
             .await
             .map_err(|e| format!("files export row load failed: {e}"))?;
 
-    let Some((export_ready, export_size)) = refreshed else {
+    let Some((export_ready, export_size, export_error)) = refreshed else {
         return Err("file row not found after export".into());
     };
     if !export_cache_is_valid(export_ready, export_size) {
-        return Err("video export is not ready for thumbnail regeneration".into());
+        let detail = export_error
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or_else(|| "video export is not ready for thumbnail regeneration".to_string());
+        return Err(detail);
     }
 
     let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");

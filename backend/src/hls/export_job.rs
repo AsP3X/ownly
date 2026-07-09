@@ -10,7 +10,7 @@ use sqlx::PgPool;
 use crate::hls::encoder::HlsEncoder;
 use crate::hls::export::{looks_like_mp4, segment_rel_path_for_export, MIN_EXPORT_MP4_BYTES};
 use crate::hls::playlist::{
-    hls_segment_storage_aliases, parse_segment_manifest,
+    hls_segment_storage_aliases, normalize_playback_segment_basename, parse_segment_manifest,
     playlist_uses_fmp4,
     segment_aes_sequence_map, PlaylistGenerator, HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION,
 };
@@ -208,6 +208,11 @@ async fn prepare_hls_workdir(
     let mut segment_files = Vec::new();
     for (i, name) in segment_names.iter().enumerate() {
         let storage_name = name.rsplit('/').next().unwrap_or(name.as_str());
+        // Human: ffmpeg fMP4 playlists sometimes list init.mp4 as a bogus media segment.
+        // Agent: SKIP init lines; playback rewrite already drops them — export must match.
+        if storage_name == HLS_INIT_FILENAME {
+            continue;
+        }
         let (encrypted, resolved_name) =
             read_hls_segment_object(storage, &prefix, storage_name).await?;
         let sequence = seq_map
@@ -295,6 +300,53 @@ fn align_segment_durations(segment_files: &[String], parsed: &[f64]) -> Vec<f64>
     vec![4.0; segment_files.len()]
 }
 
+// Human: Drop ffmpeg's spurious init.mp4 media lines so AES sequence lookup succeeds.
+// Agent: FILTERS paired EXTINF rows; USED by resolve_export_segments before export/remux.
+fn filter_hls_init_segment_entries(
+    files: Vec<String>,
+    durations: Vec<f64>,
+) -> (Vec<String>, Vec<f64>) {
+    let mut out_files = Vec::new();
+    let mut out_durations = Vec::new();
+    for (file, duration) in files.into_iter().zip(durations) {
+        let basename = file.rsplit('/').next().unwrap_or(file.as_str()).trim();
+        if basename == HLS_INIT_FILENAME {
+            continue;
+        }
+        out_files.push(file);
+        out_durations.push(duration);
+    }
+    (out_files, out_durations)
+}
+
+// Human: Normalize stored manifest segment basenames for export when storage holds fMP4.
+// Agent: UPGRADES legacy `.ts` URIs to `.m4s`; PRESERVES `segments/` prefix when present.
+fn normalize_export_segment_path(path: &str, fmp4: bool) -> String {
+    let trimmed = path.trim();
+    let basename = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    let upgraded = normalize_playback_segment_basename(basename, fmp4);
+    if trimmed.contains('/') {
+        format!("segments/{upgraded}")
+    } else {
+        upgraded
+    }
+}
+
+// Human: Segment count for synthetic export fallback — mirror playback when DB count is stale zero.
+// Agent: RE-PARSE stored stream.m3u8 before emitting an empty segment list.
+fn effective_export_segment_count(stored_playlist: &str, segment_count: i32) -> usize {
+    if segment_count > 0 {
+        return segment_count as usize;
+    }
+    if let Ok((files, durations)) = parse_segment_manifest(stored_playlist) {
+        let (files, durations) = filter_hls_init_segment_entries(files, durations);
+        if !files.is_empty() && files.len() == durations.len() {
+            return files.len();
+        }
+    }
+    0
+}
+
 // Human: Segment filenames for export — prefer stored playlist order, else numbered TS/fMP4.
 // Agent: RETURNS parallel names + durations; LEGACY TS when fmp4 false and manifest missing.
 fn resolve_export_segments(
@@ -303,12 +355,17 @@ fn resolve_export_segments(
     fmp4: bool,
 ) -> anyhow::Result<(Vec<String>, Vec<f64>)> {
     if let Ok((files, durations)) = parse_segment_manifest(stored_playlist) {
+        let (files, durations) = filter_hls_init_segment_entries(files, durations);
         if !files.is_empty() && files.len() == durations.len() {
-            return Ok((files, durations));
+            let names: Vec<String> = files
+                .iter()
+                .map(|path| normalize_export_segment_path(path, fmp4))
+                .collect();
+            return Ok((names, durations));
         }
     }
 
-    let count = segment_count.max(0) as usize;
+    let count = effective_export_segment_count(stored_playlist, segment_count);
     let mut names = Vec::new();
     let mut durations = Vec::new();
     for i in 0..count {
@@ -347,4 +404,73 @@ async fn read_hls_segment_object(
         }
     }
     anyhow::bail!("HLS segment not found in storage: {storage_name}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Human: REGRESSION — ffmpeg fMP4 playlists may list init.mp4 as a media segment.
+    // Agent: ASSERTS resolve_export_segments drops init before remux/thumbnail ffmpeg runs.
+    #[test]
+    fn resolve_export_segments_skips_init_mp4_media_line() {
+        let stored = "\
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MAP:URI=\"init.mp4\"
+#EXTINF:0.000,
+init.mp4
+#EXTINF:6.000,
+segments/0000.m4s
+#EXTINF:6.000,
+segments/0001.m4s
+#EXT-X-ENDLIST
+";
+        let (files, durations) =
+            resolve_export_segments(stored, 0, true).expect("resolve export segments");
+        assert_eq!(files.len(), 2);
+        assert_eq!(durations.len(), 2);
+        assert_eq!(files[0], "segments/0000.m4s");
+        assert_eq!(files[1], "segments/0001.m4s");
+        assert!(!files.iter().any(|name| name.contains(HLS_INIT_FILENAME)));
+    }
+
+    // Human: REGRESSION — DB segment_count can be zero while the stored manifest is authoritative.
+    // Agent: ASSERTS synthetic fallback counts media segments from stream.m3u8.
+    #[test]
+    fn resolve_export_segments_uses_playlist_count_when_db_count_zero() {
+        let stored = "\
+#EXTM3U
+#EXT-X-VERSION:7
+#EXTINF:6.000,
+segments/0000.m4s
+#EXTINF:6.000,
+segments/0001.m4s
+#EXTINF:6.000,
+segments/0002.m4s
+#EXT-X-ENDLIST
+";
+        let (files, durations) =
+            resolve_export_segments(stored, 0, true).expect("resolve export segments");
+        assert_eq!(files.len(), 3);
+        assert_eq!(durations.len(), 3);
+    }
+
+    // Human: REGRESSION — legacy `.ts` URIs in stored manifests must upgrade for fMP4 export.
+    // Agent: ASSERTS normalize_export_segment_path rewrites basenames before Nebular GET aliases.
+    #[test]
+    fn resolve_export_segments_upgrades_legacy_ts_names_for_fmp4() {
+        let stored = "\
+#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:6.000,
+segments/0000.ts
+#EXTINF:6.000,
+segments/0001.ts
+#EXT-X-ENDLIST
+";
+        let (files, _) = resolve_export_segments(stored, 0, true).expect("resolve export segments");
+        assert_eq!(files[0], format!("segments/0000.{HLS_SEGMENT_EXTENSION}"));
+        assert_eq!(files[1], format!("segments/0001.{HLS_SEGMENT_EXTENSION}"));
+    }
 }
