@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 // Human: Browser skips layout/paint for off-screen tiles without JS scroll handlers.
 // Agent: APPLIED to folder/file shells; contain-intrinsic-size reserves scroll height.
 export const EXPLORER_GRID_TILE_PERF =
-  "[content-visibility:auto] [contain-intrinsic-size:auto_192px]";
+  "[content-visibility:auto] max-lg:[contain-intrinsic-size:auto_148px] lg:[contain-intrinsic-size:auto_192px]";
 
 export type ExplorerGridEntry =
   | { kind: "folder"; folder: FolderItem }
@@ -85,7 +85,7 @@ function ExplorerGridFileName({ name, selected = false }: ExplorerGridFileNamePr
   return (
     <span
       className={cn(
-        "flex min-w-0 w-full items-baseline justify-center text-[13px] font-semibold leading-snug",
+        "flex min-w-0 w-full items-baseline justify-center text-xs font-semibold leading-snug lg:text-[13px]",
         selected ? "text-blue-950" : "text-[#1A1A1A]",
       )}
       title={name}
@@ -152,7 +152,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       onDrop={(event) => onDrop(event, folder.id)}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "group relative w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        "group relative min-w-0 w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
         isSelected
           ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
           : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
@@ -210,7 +210,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
         onPointerUp={touchDragBindings?.onPointerUp}
         onPointerCancel={touchDragBindings?.onPointerCancel}
         className={cn(
-          "flex h-full w-full flex-col items-stretch gap-1.5 p-2 text-center",
+          "flex h-full w-full flex-col items-stretch gap-1.5 p-1.5 text-center lg:gap-1.5 lg:p-2",
           touchDragBindings && "touch-pan-y",
         )}
       >
@@ -221,14 +221,19 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
         </ExplorerGridPreviewSlot>
         <span
           className={cn(
-            "w-full truncate text-[13px] font-semibold leading-snug",
+            "w-full truncate text-xs font-semibold leading-snug lg:text-[13px]",
             isSelected ? "text-blue-950" : "text-[#1A1A1A]",
           )}
           title={folder.name}
         >
           {folder.name}
         </span>
-        <span className={cn("text-[11px]", isSelected ? "text-blue-700/80" : "text-[#888888]")}>
+        <span
+          className={cn(
+            "text-[10px] lg:text-[11px]",
+            isSelected ? "text-blue-700/80" : "text-[#888888]",
+          )}
+        >
           Folder
         </span>
         <SharedIndicator flags={shareFlags} className="size-3" />
@@ -389,7 +394,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       data-file-id={file.id}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "group relative w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        "group relative min-w-0 w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
         isSelected
           ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
           : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
@@ -480,7 +485,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           else if (canPreviewAudio) onPreviewAudio!(file);
         }}
         className={cn(
-          "flex h-full w-full flex-col items-stretch gap-1.5 p-2 text-center",
+          "flex h-full w-full flex-col items-stretch gap-1.5 p-1.5 text-center lg:gap-1.5 lg:p-2",
           // Human: pan-y keeps list scroll working on first touch over a tile; drag arms only after long-press.
           // Agent: AVOIDS touch-none here — that blocks native vertical scroll across the whole grid on mobile.
           touchDragBindings && !mobileSelectionMode && "touch-pan-y",
@@ -510,7 +515,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         <ExplorerGridFileName name={file.name} selected={isSelected} />
         <span
           className={cn(
-            "text-[11px]",
+            "text-[10px] lg:text-[11px]",
             isSelected ? "text-blue-700/80" : "text-[#888888]",
           )}
         >

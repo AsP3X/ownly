@@ -7,15 +7,15 @@ import { cn } from "@/lib/utils";
 /** Human: Fixed grid column width — tiles must not grow with `1fr` on partial rows. */
 export const EXPLORER_GRID_TILE_WIDTH_PX = 168;
 
-/** Human: CSS grid for explorer tiles — fixed 168px tracks, no stretch on partial rows. */
-// Human: Responsive explorer grid — two columns on phones, auto-fill 168px tiles on wider viewports.
+/** Human: CSS grid for explorer tiles — equal halves on phones, fixed 168px tracks on lg+. */
+// Human: Mobile uses two fluid columns (Pencil 171px cards + 12px gap); desktop keeps auto-fill 168px.
 // Agent: USED by DriveCloudExplorer + ExplorerGridSkeleton; MUST stay aligned with tile width constant.
 export const EXPLORER_GRID_LAYOUT_CLASS =
-  "grid grid-cols-2 min-[400px]:grid-cols-[repeat(auto-fill,168px)] justify-start gap-3 sm:gap-4 lg:gap-5";
+  "grid w-full grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fill,168px)] lg:justify-start lg:gap-5";
 
 /** Human: Shared preview dimensions for explorer grid file and folder tiles. */
 export const EXPLORER_GRID_PREVIEW_SLOT_CLASS =
-  "relative w-full shrink-0 overflow-hidden rounded-lg bg-[#F3F4F6] aspect-square contain-[layout_paint]";
+  "relative w-full min-w-0 shrink-0 overflow-hidden rounded-lg bg-[#F3F4F6] aspect-[171/120] lg:aspect-square contain-[layout_paint]";
 
 type ExplorerGridPreviewSlotProps = {
   children: ReactNode;

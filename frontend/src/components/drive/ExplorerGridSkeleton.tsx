@@ -22,7 +22,7 @@ export function ExplorerGridSkeleton({ count = 8, className }: ExplorerGridSkele
       aria-label="Loading files"
     >
       {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="flex flex-col gap-2">
+        <div key={index} className="flex min-w-0 flex-col gap-1.5 lg:gap-2">
           <div className={cn(EXPLORER_GRID_PREVIEW_SLOT_CLASS, "overflow-hidden rounded-xl border border-border bg-muted/40")}>
             <ExplorerThumbnailShimmer label="Loading preview" />
           </div>

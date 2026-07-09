@@ -2012,7 +2012,6 @@ export default function DrivePage() {
                   typeFilterOptions={TYPE_FILTERS}
                   isSearching={isSearchingMyFiles}
                   loading={loading}
-                  ownerLabel={profileDisplayName}
                   dragEnabled={!isSearchingMyFiles}
                   selectable
                   selectedFileIds={selectedFileIds}
