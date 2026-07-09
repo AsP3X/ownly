@@ -171,6 +171,7 @@ async fn read_storage_bytes(
 async fn ensure_hls_export_ready(
     pool: &sqlx::PgPool,
     storage: Arc<dyn crate::storage::Storage>,
+    key_store: crate::hls::key_store::KeyStore,
     entry: &ZipFileEntry,
 ) -> Result<(), String> {
     if !is_hls_stored_video(&entry.mime_type, entry.hls_ready) {
@@ -183,6 +184,7 @@ async fn ensure_hls_export_ready(
     run_hls_export_job(
         pool.clone(),
         storage,
+        key_store,
         entry.file_id.clone(),
         entry.storage_key.clone(),
         entry.segment_count,
@@ -227,10 +229,11 @@ pub fn sanitize_zip_entry_path(path: &str) -> Result<String, AppError> {
 async fn resolve_object_key(
     pool: &sqlx::PgPool,
     storage: Arc<dyn crate::storage::Storage>,
+    key_store: crate::hls::key_store::KeyStore,
     entry: &ZipFileEntry,
 ) -> Result<(String, String), String> {
     if is_hls_stored_video(&entry.mime_type, entry.hls_ready) {
-        ensure_hls_export_ready(pool, storage, entry).await?;
+        ensure_hls_export_ready(pool, storage, key_store, entry).await?;
         let member_path = if entry.zip_path.contains('/') {
             if let Some((dir, file)) = entry.zip_path.rsplit_once('/') {
                 let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
@@ -347,7 +350,14 @@ pub async fn run_zip_entries_job(
         }
 
         let (object_key, member_path) =
-            match resolve_object_key(&state.pool, state.storage.clone(), entry).await {
+            match resolve_object_key(
+                &state.pool,
+                state.storage.clone(),
+                state.hls_key_store.clone(),
+                entry,
+            )
+            .await
+            {
                 Ok(keys) => keys,
                 Err(message) => {
                     mark_failed(

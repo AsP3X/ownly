@@ -9,6 +9,7 @@ use sqlx::PgPool;
 
 use crate::hls::encoder::HlsEncoder;
 use crate::hls::export::{looks_like_mp4, segment_rel_path_for_export, MIN_EXPORT_MP4_BYTES};
+use crate::hls::key_store::KeyStore;
 use crate::hls::playlist::{
     hls_segment_storage_aliases, normalize_playback_segment_basename, parse_segment_manifest,
     playlist_uses_fmp4,
@@ -51,18 +52,28 @@ async fn set_export_progress(pool: &PgPool, file_id: &str, progress: i32) {
 pub fn spawn_hls_export_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
+    key_store: KeyStore,
     file_id: String,
     storage_key: String,
     segment_count: i32,
 ) {
     tokio::spawn(async move {
-        run_hls_export_job(pool, storage, file_id, storage_key, segment_count).await;
+        run_hls_export_job(
+            pool,
+            storage,
+            key_store,
+            file_id,
+            storage_key,
+            segment_count,
+        )
+        .await;
     });
 }
 
 pub async fn run_hls_export_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
+    key_store: KeyStore,
     file_id: String,
     storage_key: String,
     segment_count: i32,
@@ -73,6 +84,8 @@ pub async fn run_hls_export_job(
     let work_dir = std::env::temp_dir().join(format!("mv_export_{file_id}"));
     if let Err(e) = prepare_hls_workdir(
         storage.as_ref(),
+        &key_store,
+        &file_id,
         &storage_key,
         segment_count,
         &work_dir,
@@ -157,10 +170,42 @@ struct ExportProgress<'a> {
     file_id: &'a str,
 }
 
+// Human: Resolve the AES-128 content key — Postgres KeyStore first, legacy key.bin fallback.
+// Agent: MATCHES playback handlers (SEC-022); USED by export + thumbnail remux paths.
+async fn load_hls_aes_key_for_export(
+    key_store: &KeyStore,
+    storage: &dyn Storage,
+    file_id: &str,
+    storage_key: &str,
+) -> anyhow::Result<[u8; 16]> {
+    if let Some(key) = key_store
+        .get_key(file_id)
+        .await
+        .context("read HLS key from key store")?
+    {
+        return Ok(key);
+    }
+
+    // Human: Pre-SEC-022 ingests may still have plaintext key.bin beside stream.m3u8 in Nebular.
+    // Agent: FALLBACK GET `{storage_key}/key.bin` when file_encryption_keys row is missing.
+    let prefix = format!("{storage_key}/");
+    let key_bytes = read_storage_object(storage, &format!("{prefix}key.bin"))
+        .await
+        .context(
+            "HLS AES key missing — not in key store and no legacy key.bin in object storage",
+        )?;
+    key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored HLS AES key must be 16 bytes"))
+}
+
 // Human: Download and decrypt an HLS bundle into a local ffmpeg-friendly `stream.m3u8` tree.
 // Agent: READS playlist/key/init/segments from storage; WRITES decrypted segments + relative manifest.
 async fn prepare_hls_workdir(
     storage: &dyn Storage,
+    key_store: &KeyStore,
+    file_id: &str,
     storage_key: &str,
     segment_count: i32,
     work_dir: &Path,
@@ -172,12 +217,8 @@ async fn prepare_hls_workdir(
 
     let prefix = format!("{storage_key}/");
 
-    let key_bytes = read_storage_object(storage, &format!("{prefix}key.bin")).await?;
-    tokio::fs::write(work_dir.join("key.bin"), &key_bytes).await?;
-    let aes_key: [u8; 16] = key_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("stored HLS AES key must be 16 bytes"))?;
+    let aes_key = load_hls_aes_key_for_export(key_store, storage, file_id, storage_key).await?;
+    tokio::fs::write(work_dir.join("key.bin"), &aes_key).await?;
 
     let playlist_key = format!("{prefix}stream.m3u8");
     let stored_playlist = read_storage_object(storage, &playlist_key).await.ok();
@@ -261,12 +302,16 @@ async fn prepare_hls_workdir(
 // Agent: CALLS prepare_hls_workdir + HlsEncoder::package_hls_to_mp4; RETURNS TempDir + source.mp4 path.
 pub(crate) async fn materialize_hls_mp4_for_ffmpeg(
     storage: Arc<dyn Storage>,
+    key_store: &KeyStore,
+    file_id: &str,
     storage_key: &str,
     segment_count: i32,
 ) -> Result<(tempfile::TempDir, std::path::PathBuf), String> {
     let work_dir = tempfile::TempDir::new().map_err(|e| format!("temp dir create failed: {e}"))?;
     prepare_hls_workdir(
         storage.as_ref(),
+        key_store,
+        file_id,
         storage_key,
         segment_count,
         work_dir.path(),

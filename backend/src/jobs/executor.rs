@@ -276,6 +276,7 @@ async fn run_video_thumbnail(state: Arc<AppState>, job: &BackgroundJob) -> Resul
     let result = crate::video::thumbnail_job::run_video_thumbnail_job(
         pool,
         state.storage.clone(),
+        state.hls_key_store.clone(),
         thumbnail_job,
     )
     .await;
@@ -468,6 +469,7 @@ async fn run_hls_export(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
     run_hls_export_job(
         pool,
         state.storage.clone(),
+        state.hls_key_store.clone(),
         payload.file_id,
         payload.storage_key,
         payload.segment_count,

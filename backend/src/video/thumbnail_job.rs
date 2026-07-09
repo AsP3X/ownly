@@ -11,6 +11,7 @@ use tempfile::{NamedTempFile, TempDir};
 use crate::files::zip_job::is_hls_stored_video;
 use crate::hls::export::export_cache_is_valid;
 use crate::hls::export_job::{materialize_hls_mp4_for_ffmpeg, run_hls_export_job, EXPORT_OBJECT_KEY};
+use crate::hls::key_store::KeyStore;
 use crate::storage::Storage;
 
 use super::thumbnail::{build_and_upload_manifest, extract_thumbnail_options};
@@ -84,6 +85,7 @@ async fn is_thumbnail_cancelled(pool: &PgPool, file_id: &str) -> bool {
 pub async fn run_video_thumbnail_job(
     pool: PgPool,
     storage: Arc<dyn Storage>,
+    key_store: KeyStore,
     job: VideoThumbnailJob,
 ) -> Result<(), String> {
     if is_thumbnail_cancelled(&pool, &job.file_id).await {
@@ -103,6 +105,7 @@ pub async fn run_video_thumbnail_job(
     let local_copy = resolve_video_source(
         &pool,
         storage.clone(),
+        &key_store,
         &job.file_id,
         &job.storage_key,
         job.tmp_video.as_deref(),
@@ -166,6 +169,7 @@ type ThumbnailSourceRow = (
 async fn resolve_video_source(
     pool: &PgPool,
     storage: Arc<dyn Storage>,
+    key_store: &KeyStore,
     file_id: &str,
     storage_key: &str,
     tmp_video: Option<&Path>,
@@ -212,6 +216,7 @@ async fn resolve_video_source(
         return resolve_hls_video_source(
             pool,
             storage,
+            key_store,
             file_id,
             storage_key,
             segment_count.unwrap_or(0),
@@ -232,6 +237,7 @@ async fn resolve_video_source(
 async fn resolve_hls_video_source(
     pool: &PgPool,
     storage: Arc<dyn Storage>,
+    key_store: &KeyStore,
     file_id: &str,
     storage_key: &str,
     segment_count: i32,
@@ -247,8 +253,14 @@ async fn resolve_hls_video_source(
     }
 
     set_thumbnail_progress(pool, file_id, 38).await;
-    if let Ok((work_dir, mp4)) =
-        materialize_hls_mp4_for_ffmpeg(storage.clone(), storage_key, segment_count).await
+    if let Ok((work_dir, mp4)) = materialize_hls_mp4_for_ffmpeg(
+        storage.clone(),
+        key_store,
+        file_id,
+        storage_key,
+        segment_count,
+    )
+    .await
     {
         set_thumbnail_progress(pool, file_id, 52).await;
         return Ok(LocalVideoSource::Remuxed {
@@ -261,6 +273,7 @@ async fn resolve_hls_video_source(
     run_hls_export_job(
         pool.clone(),
         storage.clone(),
+        key_store.clone(),
         file_id.to_string(),
         storage_key.to_string(),
         segment_count,
