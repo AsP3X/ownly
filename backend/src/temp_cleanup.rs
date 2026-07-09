@@ -160,6 +160,7 @@ async fn remove_temp_entry(
     include_gif_preview: bool,
     gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
     pool: Option<&PgPool>,
+    folder_download_jobs: Option<&crate::files::zip_job::FolderDownloadRegistry>,
 ) -> bool {
     if !is_deletable_temp_path(path) {
         return false;
@@ -169,6 +170,11 @@ async fn remove_temp_entry(
     };
     if !is_ownly_temp_entry(name) {
         return false;
+    }
+    if let Some(registry) = folder_download_jobs {
+        if registry.protects_scratch_dir_name(name).await {
+            return false;
+        }
     }
     if is_gif_preview_temp_entry(name) && !include_gif_preview {
         return false;
@@ -216,6 +222,7 @@ pub async fn sweep_idle_temp_files(
     max_idle: Duration,
     include_gif_preview: bool,
     gif_preview_locks: Option<&crate::files::gif_preview::GifPreviewTranscodeLocks>,
+    folder_download_jobs: Option<&crate::files::zip_job::FolderDownloadRegistry>,
 ) -> u32 {
     let temp_root = std::env::temp_dir();
     let mut removed = 0u32;
@@ -236,6 +243,7 @@ pub async fn sweep_idle_temp_files(
             include_gif_preview,
             gif_preview_locks,
             Some(pool),
+            folder_download_jobs,
         )
         .await
         {
@@ -276,6 +284,7 @@ pub async fn sweep_gif_preview_temp_files(
             true,
             true,
             gif_preview_locks,
+            None,
             None,
         )
         .await
@@ -345,6 +354,7 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
                 TEMP_IDLE_MAX_AGE,
                 include_gif_preview,
                 Some(state.gif_preview_transcode_locks.as_ref()),
+                Some(&state.folder_download_jobs),
             )
             .await;
             if removed > 0 {

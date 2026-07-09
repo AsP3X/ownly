@@ -5,10 +5,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
     extract::{Path as AxumPath, State},
-    http::{header, HeaderMap},
-    response::{IntoResponse, Response},
+    http::HeaderMap,
+    response::Response,
     Extension, Json,
 };
 use serde::Serialize;
@@ -20,7 +19,7 @@ use crate::{
     files::{
         access,
         zip_job::{
-            zip_status_json, FolderDownloadJob, FolderDownloadRegistry,
+            zip_archive_stream_response, zip_status_json, FolderDownloadJob, FolderDownloadRegistry,
             ZipFileEntry,
         },
     },
@@ -315,10 +314,6 @@ pub async fn get_folder_download_archive(
         .map(Path::to_path_buf)
         .unwrap_or_else(std::env::temp_dir);
 
-    let bytes = tokio::fs::read(&archive_path)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("read folder archive: {e}")))?;
-
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),
@@ -327,7 +322,7 @@ pub async fn get_folder_download_archive(
         Some(&folder_id),
         Some(serde_json::json!({
             "archive_name": archive_name,
-            "size_bytes": bytes.len(),
+            "size_bytes": job.size_bytes,
         })),
         &headers,
     )
@@ -335,21 +330,8 @@ pub async fn get_folder_download_archive(
     .ok();
 
     state.folder_download_jobs.remove(&key).await;
-    let _ = tokio::fs::remove_dir_all(&work_dir).await;
 
-    let disposition = format!(
-        "attachment; filename=\"{}\"",
-        archive_name.replace('"', "")
-    );
-
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (header::CONTENT_DISPOSITION, disposition),
-        ],
-        Body::from(bytes),
-    )
-        .into_response())
+    zip_archive_stream_response(archive_path, &archive_name, job.size_bytes, work_dir).await
 }
 
 // Human: Cancel an in-flight folder zip job and remove scratch files.

@@ -1290,6 +1290,9 @@ export function bulkDownloadArchiveUrl(jobId: string) {
 }
 
 const FOLDER_ZIP_POLL_MS = 1000;
+// Human: Large zip archives bypass in-memory blob assembly — the browser saves directly from the API stream.
+// Agent: THRESHOLD 256 MiB; USES anchor download with session cookies on same-origin archive URLs.
+const LARGE_ARCHIVE_DIRECT_BYTES = 256 * 1024 * 1024;
 
 // Human: Build a compressed folder zip on the server, poll until ready, then save locally.
 // Agent: POST+poll GET /folders/:id/download; FETCH archive; CALLS saveBlobAsFile with dated zip name.
@@ -1336,6 +1339,11 @@ export async function downloadFolderItem(
   }
 
   onProgress?.({ phase: "saving", percent: 90, indeterminate: false });
+  if (sizeBytes >= LARGE_ARCHIVE_DIRECT_BYTES) {
+    triggerDirectUrlDownload(folderDownloadArchiveUrl(folder.id), archiveName);
+    onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
+    return { method: "presigned-direct", archiveName };
+  }
   const blob = await downloadBytesWithFetch(
     folderDownloadArchiveUrl(folder.id),
     sizeBytes,
@@ -1392,6 +1400,11 @@ export async function downloadBulkFiles(
   }
 
   onProgress?.({ phase: "saving", percent: 90, indeterminate: false });
+  if (sizeBytes >= LARGE_ARCHIVE_DIRECT_BYTES) {
+    triggerDirectUrlDownload(bulkDownloadArchiveUrl(started.job_id), archiveName);
+    onProgress?.({ phase: "saving", percent: 100, indeterminate: false });
+    return { method: "presigned-direct", archiveName, jobId: started.job_id };
+  }
   const blob = await downloadBytesWithFetch(
     bulkDownloadArchiveUrl(started.job_id),
     sizeBytes,

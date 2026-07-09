@@ -4,11 +4,19 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures_util::TryStreamExt;
+use axum::{
+    body::Body,
+    http::header,
+    response::Response,
+};
+use futures_util::{Stream, TryStreamExt};
 use serde::Serialize;
 use tokio::sync::RwLock;
+use tokio_util::io::ReaderStream;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 
@@ -68,6 +76,47 @@ impl FolderDownloadRegistry {
 
     pub async fn remove(&self, key: &str) {
         self.inner.write().await.remove(key);
+    }
+
+    // Human: True when a zip scratch dir must survive the temp janitor until download completes.
+    // Agent: MATCHES mv_bulk_zip_*, mv_folder_zip_*, mv_public_share_zip_* against active registry jobs.
+    pub async fn protects_scratch_dir_name(&self, dir_name: &str) -> bool {
+        let jobs = self.inner.read().await;
+        jobs.iter().any(|(key, job)| {
+            if job.cancelled || job.status == "failed" {
+                return false;
+            }
+            if let Some(ref archive_path) = job.archive_path {
+                if archive_path
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|name| name.to_str())
+                    == Some(dir_name)
+                {
+                    return true;
+                }
+            }
+            if let Some(job_id) = key.rsplit(":bulk:").nth(1) {
+                if dir_name == format!("mv_bulk_zip_{job_id}") {
+                    return true;
+                }
+            }
+            if key.starts_with("public-share:") {
+                if let Some(job_id) = key.rsplit(':').next() {
+                    if dir_name == format!("mv_public_share_zip_{job_id}") {
+                        return true;
+                    }
+                }
+            }
+            if !key.contains(":bulk:") && !key.starts_with("public-share:") {
+                if let Some((_, folder_id)) = key.rsplit_once(':') {
+                    if dir_name == format!("mv_folder_zip_{folder_id}") {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
     }
 }
 
@@ -156,16 +205,75 @@ fn disambiguate_filename(name: &str, index: u32) -> String {
     format!("{name} ({index})")
 }
 
-async fn read_storage_bytes(
+
+async fn write_storage_object_to_zip(
     storage: &dyn crate::storage::Storage,
-    key: &str,
-) -> anyhow::Result<Vec<u8>> {
-    let (mut stream, _, _) = storage.get_stream(key).await?;
-    let mut out = Vec::new();
-    while let Some(chunk) = stream.try_next().await? {
-        out.extend_from_slice(&chunk);
+    object_key: &str,
+    zip: &mut zip::ZipWriter<std::fs::File>,
+    member_path: &str,
+    options: SimpleFileOptions,
+) -> Result<(), String> {
+    let (mut stream, _, _) = storage
+        .get_stream(object_key)
+        .await
+        .map_err(|error| format!("open {object_key}: {error}"))?;
+    zip.start_file(member_path, options)
+        .map_err(|error| format!("zip entry {member_path}: {error}"))?;
+    while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
+        zip.write_all(&chunk)
+            .map_err(|error| format!("write zip entry {member_path}: {error}"))?;
     }
-    Ok(out)
+    Ok(())
+}
+
+// Human: Pick deflate for compressible files; store pre-compressed media as-is to save CPU and RAM.
+// Agent: USES Stored for video/audio and common archive/image extensions.
+fn zip_member_is_precompressed(mime_type: &Option<String>, member_path: &str) -> bool {
+    let lower = member_path.to_lowercase();
+    mime_type.as_deref().is_some_and(|mime| {
+        mime.starts_with("video/")
+            || mime.starts_with("audio/")
+            || mime.contains("zip")
+            || mime.contains("jpeg")
+            || mime.contains("png")
+            || mime.contains("webp")
+            || mime.contains("gif")
+    }) || lower.ends_with(".mp4")
+        || lower.ends_with(".m4v")
+        || lower.ends_with(".mov")
+        || lower.ends_with(".mkv")
+        || lower.ends_with(".webm")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".png")
+        || lower.ends_with(".zip")
+}
+
+fn zip_entry_options(mime_type: &Option<String>, member_path: &str) -> SimpleFileOptions {
+    if zip_member_is_precompressed(mime_type, member_path) {
+        SimpleFileOptions::default().compression_method(CompressionMethod::Stored)
+    } else {
+        SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .compression_level(Some(9))
+    }
+}
+
+type ExportStatusRow = (bool, Option<String>, Option<String>);
+
+async fn load_export_status(
+    pool: &sqlx::PgPool,
+    file_id: &str,
+) -> Result<ExportStatusRow, String> {
+    sqlx::query_as(
+        "SELECT download_export_ready, download_export_status, download_export_error \
+         FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| error.to_string())?
+    .ok_or_else(|| "file not found".to_string())
 }
 
 async fn ensure_hls_export_ready(
@@ -177,33 +285,52 @@ async fn ensure_hls_export_ready(
     if !is_hls_stored_video(&entry.mime_type, entry.hls_ready) {
         return Ok(());
     }
-    if entry.export_ready {
-        return Ok(());
-    }
 
-    run_hls_export_job(
-        pool.clone(),
-        storage,
-        key_store,
-        entry.file_id.clone(),
-        entry.storage_key.clone(),
-        entry.segment_count,
-    )
-    .await;
+    const EXPORT_POLL_MS: u64 = 500;
+    const EXPORT_WAIT_PER_VIDEO: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
+    let deadline = std::time::Instant::now() + EXPORT_WAIT_PER_VIDEO;
+    let mut started = entry.export_ready;
 
-    let ready: Option<(bool,)> =
-        sqlx::query_as("SELECT download_export_ready FROM files WHERE id = $1")
-            .bind(&entry.file_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+    loop {
+        let (export_ready, export_status, export_error) = load_export_status(pool, &entry.file_id).await?;
+        if export_ready {
+            return Ok(());
+        }
+        if export_status.as_deref() == Some("failed") {
+            return Err(export_error.unwrap_or_else(|| {
+                format!("video export failed for {}", entry.display_name)
+            }));
+        }
+        if export_status.as_deref() == Some("processing") || export_status.as_deref() == Some("queued")
+        {
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "video export timed out for {}",
+                    entry.display_name
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(EXPORT_POLL_MS)).await;
+            continue;
+        }
 
-    match ready {
-        Some((true,)) => Ok(()),
-        _ => Err(format!(
+        if !started {
+            run_hls_export_job(
+                pool.clone(),
+                storage.clone(),
+                key_store.clone(),
+                entry.file_id.clone(),
+                entry.storage_key.clone(),
+                entry.segment_count,
+            )
+            .await;
+            started = true;
+            continue;
+        }
+
+        return Err(format!(
             "video export failed for {}",
             entry.display_name
-        )),
+        ));
     }
 }
 
@@ -319,9 +446,6 @@ pub async fn run_zip_entries_job(
     };
 
     let mut zip = zip::ZipWriter::new(zip_file);
-    let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
-        .compression_level(Some(9));
 
     for (index, entry) in entries.iter().enumerate() {
         if state
@@ -373,40 +497,16 @@ pub async fn run_zip_entries_job(
                 }
             };
 
-        let bytes = match read_storage_bytes(state.storage.as_ref(), &object_key).await {
-            Ok(data) => data,
-            Err(error) => {
-                mark_failed(
-                    &state.folder_download_jobs,
-                    &registry_key,
-                    &archive_name,
-                    &format!("read {}: {error}", entry.display_name),
-                )
-                .await;
-                let _ = zip.finish();
-                let _ = tokio::fs::remove_dir_all(&work_dir).await;
-                return;
-            }
-        };
-
-        if let Err(error) = zip.start_file(&member_path, options) {
+        let options = zip_entry_options(&entry.mime_type, &member_path);
+        if let Err(message) =
+            write_storage_object_to_zip(state.storage.as_ref(), &object_key, &mut zip, &member_path, options)
+                .await
+        {
             mark_failed(
                 &state.folder_download_jobs,
                 &registry_key,
                 &archive_name,
-                &format!("zip entry {member_path}: {error}"),
-            )
-            .await;
-            let _ = zip.finish();
-            let _ = tokio::fs::remove_dir_all(&work_dir).await;
-            return;
-        }
-        if let Err(error) = zip.write_all(&bytes) {
-            mark_failed(
-                &state.folder_download_jobs,
-                &registry_key,
-                &archive_name,
-                &format!("write zip entry {member_path}: {error}"),
+                &format!("read {}: {message}", entry.display_name),
             )
             .await;
             let _ = zip.finish();
@@ -530,4 +630,136 @@ pub async fn collect_zip_entries_for_file_ids(
     }
 
     Ok(dedupe_zip_member_names(entries))
+}
+
+struct ZipArchiveCleanup {
+    work_dir: PathBuf,
+}
+
+impl Drop for ZipArchiveCleanup {
+    fn drop(&mut self) {
+        let work_dir = self.work_dir.clone();
+        tokio::spawn(async move {
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        });
+    }
+}
+
+struct ZipArchiveDownloadStream {
+    inner: ReaderStream<tokio::fs::File>,
+    _cleanup: ZipArchiveCleanup,
+}
+
+impl Stream for ZipArchiveDownloadStream {
+    type Item = Result<axum::body::Bytes, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+// Human: Stream a finished zip archive to the client without buffering the whole file in RAM.
+// Agent: OPENS archive_path; REMOVES work_dir after the stream is dropped; SETS Content-Length when known.
+pub async fn zip_archive_stream_response(
+    archive_path: PathBuf,
+    archive_name: &str,
+    size_bytes: Option<i64>,
+    work_dir: PathBuf,
+) -> Result<Response, crate::error::AppError> {
+    let file = tokio::fs::File::open(&archive_path).await.map_err(|error| {
+        crate::error::AppError::Internal(anyhow::anyhow!("open zip archive: {error}"))
+    })?;
+    let stream = ZipArchiveDownloadStream {
+        inner: ReaderStream::new(file),
+        _cleanup: ZipArchiveCleanup { work_dir },
+    };
+    let body = Body::from_stream(stream);
+    let disposition = format!(
+        "attachment; filename=\"{}\"",
+        archive_name.replace('"', "")
+    );
+
+    let mut builder = Response::builder()
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_DISPOSITION, disposition);
+    if let Some(size) = size_bytes.filter(|size| *size > 0) {
+        builder = builder.header(header::CONTENT_LENGTH, size.to_string());
+    }
+
+    builder.body(body).map_err(|error| {
+        crate::error::AppError::Internal(anyhow::anyhow!("zip archive response: {error}"))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zip_entry_options_store_video_without_deflate() {
+        assert!(zip_member_is_precompressed(&Some("video/mp4".into()), "clip.mp4"));
+    }
+
+    #[test]
+    fn zip_entry_options_deflate_text_documents() {
+        assert!(!zip_member_is_precompressed(&Some("text/plain".into()), "notes.txt"));
+    }
+
+    #[tokio::test]
+    async fn protects_active_bulk_zip_scratch_dir() {
+        let registry = FolderDownloadRegistry::new();
+        let job_id = "job-123";
+        let key = FolderDownloadRegistry::bulk_job_key("user-1", job_id);
+        registry
+            .set(
+                key,
+                FolderDownloadJob {
+                    status: "ready".to_string(),
+                    progress: 100,
+                    ready: true,
+                    error: None,
+                    archive_name: "files.zip".into(),
+                    size_bytes: Some(1024),
+                    archive_path: Some(std::env::temp_dir().join(format!(
+                        "mv_bulk_zip_{job_id}/files.zip"
+                    ))),
+                    cancelled: false,
+                },
+            )
+            .await;
+
+        assert!(
+            registry
+                .protects_scratch_dir_name(&format!("mv_bulk_zip_{job_id}"))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn does_not_protect_failed_zip_scratch_dir() {
+        let registry = FolderDownloadRegistry::new();
+        let job_id = "job-failed";
+        let key = FolderDownloadRegistry::bulk_job_key("user-1", job_id);
+        registry
+            .set(
+                key,
+                FolderDownloadJob {
+                    status: "failed".to_string(),
+                    progress: 0,
+                    ready: false,
+                    error: Some("boom".into()),
+                    archive_name: "files.zip".into(),
+                    size_bytes: None,
+                    archive_path: None,
+                    cancelled: false,
+                },
+            )
+            .await;
+
+        assert!(
+            !registry
+                .protects_scratch_dir_name(&format!("mv_bulk_zip_{job_id}"))
+                .await
+        );
+    }
 }
