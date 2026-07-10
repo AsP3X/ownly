@@ -3,7 +3,18 @@
 
 const RECENT_KEY = "ownly_recent_files";
 const FAVOURITES_KEY = "ownly_favourite_files";
+const EXPLORER_FILE_SORT_KEY = "ownly_explorer_file_sort";
 const MAX_RECENT = 50;
+
+/** Human: Drive explorer file ordering — name or upload date, ascending or descending. */
+export type ExplorerFileSort = "name-asc" | "name-desc" | "uploaded-desc" | "uploaded-asc";
+
+export const EXPLORER_FILE_SORT_OPTIONS: { id: ExplorerFileSort; label: string }[] = [
+  { id: "name-asc", label: "Name (A–Z)" },
+  { id: "name-desc", label: "Name (Z–A)" },
+  { id: "uploaded-desc", label: "Recent upload (newest)" },
+  { id: "uploaded-asc", label: "Recent upload (oldest)" },
+];
 
 type RecentEntry = {
   fileId: string;
@@ -75,6 +86,26 @@ export function toggleFavouriteFile(fileId: string): boolean {
 export function removeFilePreferences(fileId: string) {
   writeRecent(readRecent().filter((entry) => entry.fileId !== fileId));
   writeFavouriteIds(readFavouriteIds().filter((id) => id !== fileId));
+}
+
+// Human: Restore the user's last file sort choice for My Cloud explorer.
+// Agent: READS ownly_explorer_file_sort; DEFAULTS to name-asc when missing/invalid.
+export function readExplorerFileSort(): ExplorerFileSort {
+  try {
+    const raw = localStorage.getItem(EXPLORER_FILE_SORT_KEY);
+    if (EXPLORER_FILE_SORT_OPTIONS.some((option) => option.id === raw)) {
+      return raw as ExplorerFileSort;
+    }
+  } catch {
+    // Agent: Ignore private-mode or quota failures; fall back to default sort.
+  }
+  return "name-asc";
+}
+
+// Human: Persist explorer file sort so it survives reloads and folder navigation.
+// Agent: WRITES ownly_explorer_file_sort.
+export function writeExplorerFileSort(sort: ExplorerFileSort) {
+  localStorage.setItem(EXPLORER_FILE_SORT_KEY, sort);
 }
 
 // Human: Order file rows for Home → Recently accessed using stored access timestamps.

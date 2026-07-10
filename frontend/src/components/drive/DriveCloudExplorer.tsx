@@ -12,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  ArrowUpDown,
   ChevronRight,
   FileIcon,
   Folder,
@@ -40,6 +41,10 @@ import {
 } from "@/lib/explorer-drag";
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
+import {
+  EXPLORER_FILE_SORT_OPTIONS,
+  type ExplorerFileSort,
+} from "@/lib/drive-preferences";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +62,9 @@ type DriveCloudExplorerProps = {
   typeFilter: FileTypeFilter;
   onTypeFilterChange: (filter: FileTypeFilter) => void;
   typeFilterOptions: TypeFilterOption[];
+  /** Human: How file rows are ordered in the explorer grid (folders stay A–Z). */
+  fileSort: ExplorerFileSort;
+  onFileSortChange: (sort: ExplorerFileSort) => void;
   /** Human: True while filtering by name across the library — hides the Folders section. */
   isSearching?: boolean;
   /** Human: True while the explorer listing is being fetched — shows a loading indicator without unmounting search. */
@@ -311,6 +319,8 @@ export function DriveCloudExplorer({
   typeFilter,
   onTypeFilterChange,
   typeFilterOptions,
+  fileSort,
+  onFileSortChange,
   isSearching = false,
   loading = false,
   dragEnabled = false,
@@ -349,6 +359,7 @@ export function DriveCloudExplorer({
   onTapToggleFileSelection,
 }: DriveCloudExplorerProps) {
   const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [activeDrag, setActiveDrag] = useState<ExplorerDragPayload | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const [dropTargetBreadcrumb, setDropTargetBreadcrumb] = useState<string | null | undefined>(
@@ -359,6 +370,7 @@ export function DriveCloudExplorer({
   const activeDragRef = useRef<ExplorerDragPayload | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+  const sortRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fallbackScrollRef = useRef<HTMLElement | null>(null);
   const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
@@ -468,6 +480,8 @@ export function DriveCloudExplorer({
     ((selectedFileIds?.size ?? 0) > 0 || (selectedFolderIds?.size ?? 0) > 0);
   const activeFilterLabel =
     typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
+  const activeSortLabel =
+    EXPLORER_FILE_SORT_OPTIONS.find((option) => option.id === fileSort)?.label ?? "Name (A–Z)";
 
   const listEmptyMessage = isSearching
     ? "Try a different search term or clear filters."
@@ -501,6 +515,19 @@ export function DriveCloudExplorer({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [filterOpen]);
+
+  // Human: Close the sort popover when clicking outside the sort control cluster.
+  // Agent: LISTENS mousedown on document; WRITES sortOpen false when outside sortRef.
+  useEffect(() => {
+    if (!sortOpen) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (!(event.target instanceof Node)) return;
+      if (sortRef.current?.contains(event.target)) return;
+      setSortOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [sortOpen]);
 
   useEffect(() => {
     const root = scrollElementRef?.current ?? null;
@@ -817,6 +844,58 @@ export function DriveCloudExplorer({
                     className={cn(
                       "flex w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
                       typeFilter === option.id
+                        ? "bg-[#F7F8FA] font-semibold text-[#2563EB]"
+                        : "text-[#666666] hover:bg-[#F7F8FA]",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div ref={sortRef} className="relative">
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(
+                "h-auto gap-2 rounded-lg border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]",
+                sortOpen && "ring-2 ring-[#2563EB]/30",
+              )}
+              onClick={() => setSortOpen((open) => !open)}
+              aria-expanded={sortOpen}
+              aria-haspopup="listbox"
+              aria-controls="explorer-file-sort-menu"
+            >
+              <ArrowUpDown className="size-4" aria-hidden />
+              Sort
+              {fileSort !== "name-asc" ? (
+                <span className="rounded-full bg-[#2563EB]/10 px-2 py-0.5 text-xs font-semibold text-[#2563EB]">
+                  {activeSortLabel}
+                </span>
+              ) : null}
+            </Button>
+            {sortOpen ? (
+              <div
+                id="explorer-file-sort-menu"
+                role="listbox"
+                aria-label="Sort files"
+                className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] rounded-lg border border-[#E5E7EB] bg-white p-2 shadow-lg"
+              >
+                {EXPLORER_FILE_SORT_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="option"
+                    aria-selected={fileSort === option.id}
+                    onClick={() => {
+                      onFileSortChange(option.id);
+                      setSortOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      fileSort === option.id
                         ? "bg-[#F7F8FA] font-semibold text-[#2563EB]"
                         : "text-[#666666] hover:bg-[#F7F8FA]",
                     )}

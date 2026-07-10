@@ -1,6 +1,8 @@
 // Human: Format byte counts for storage usage displays in the drive UI.
 // Agent: READS number; RETURNS human-readable string with B/KB/MB/GB.
 
+import type { ExplorerFileSort } from "@/lib/drive-preferences";
+
 // Human: Client-side row/session ids must work on HTTP live hosts, not only HTTPS/localhost.
 // Agent: USES crypto.randomUUID in secure contexts; FALLBACK time+random when API is missing.
 export function createClientId(): string {
@@ -320,6 +322,32 @@ export function sortFilesByName<T extends { name: string }>(files: T[]): T[] {
   return [...files].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),
   );
+}
+
+// Human: Apply the user's explorer sort — natural name order or upload timestamp.
+// Agent: READS ExplorerFileSort; RE-SORTS loaded file rows client-side for display.
+export function sortExplorerFiles<T extends { name: string; created_at: string }>(
+  files: T[],
+  sort: ExplorerFileSort,
+): T[] {
+  const copy = [...files];
+  switch (sort) {
+    case "name-desc":
+      return copy.sort((a, b) =>
+        b.name.localeCompare(a.name, undefined, { sensitivity: "base", numeric: true }),
+      );
+    case "uploaded-desc":
+      return copy.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+    case "uploaded-asc":
+      return copy.sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    case "name-asc":
+    default:
+      return sortFilesByName(copy);
+  }
 }
 
 // Human: All previewable images in the same folder as the clicked file, ordered by filename.

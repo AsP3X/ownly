@@ -96,6 +96,7 @@ import {
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
   sortFilesByName,
+  sortExplorerFiles,
   userInitials,
   userRoleLabel,
   type FileTypeFilter,
@@ -104,10 +105,13 @@ import { displayNameFromEmail } from "@/lib/public-share-format";
 import {
   getFavouriteFileIds,
   getRecentFileIds,
+  readExplorerFileSort,
   recordFileAccess,
   removeFilePreferences,
   sortFilesByRecentAccess,
   toggleFavouriteFile,
+  writeExplorerFileSort,
+  type ExplorerFileSort,
 } from "@/lib/drive-preferences";
 import { cn } from "@/lib/utils";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -166,6 +170,7 @@ export default function DrivePage() {
   const [query, setQuery] = useState("");
   const [committedQuery, setCommittedQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
+  const [fileSort, setFileSort] = useState<ExplorerFileSort>(() => readExplorerFileSort());
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
   // Human: Mirror drive view/folder/search into the URL so reload restores the same screen.
   // Agent: CALLS useDriveUrlState; READS/WRITES ?view &folder &q &type on pathname /.
@@ -1474,6 +1479,13 @@ export default function DrivePage() {
     }
   }
 
+  // Human: Persist explorer file sort and re-order the current listing immediately.
+  // Agent: WRITES ownly_explorer_file_sort; UPDATES fileSort state for browserFiles memo.
+  function handleFileSortChange(sort: ExplorerFileSort) {
+    setFileSort(sort);
+    writeExplorerFileSort(sort);
+  }
+
   // Human: Open the bottom action sheet for one file or folder row on mobile.
   // Agent: WRITES mobileActionTarget + mobileActionsOpen; USED by FileListView ⋯ button.
   function handleOpenMobileActions(target: MobileActionTarget) {
@@ -1487,8 +1499,11 @@ export default function DrivePage() {
       ? files.filter((file) => file.name.toLowerCase().includes(committedQuery.toLowerCase()))
       : files;
   // Human: Default browser order — A–Z with numeric segments (1, 2, 10 not 1, 10, 2).
-  // Agent: MATCHES backend natural_sort_key; RE-SORTS loaded pages for consistent display.
-  const browserFiles = useMemo(() => sortFilesByName(nameFilteredFiles), [nameFilteredFiles]);
+  // Agent: APPLIES user fileSort; RE-SORTS loaded pages client-side for consistent display.
+  const browserFiles = useMemo(
+    () => sortExplorerFiles(nameFilteredFiles, fileSort),
+    [nameFilteredFiles, fileSort],
+  );
   // Human: File ids in the current explorer listing that accept bulk selection (skips processing).
   // Agent: READS browserFiles; USED by Select all control and Ctrl+A on My files.
   const selectableBrowserFileIds = useMemo(
@@ -2010,6 +2025,8 @@ export default function DrivePage() {
                   typeFilter={typeFilter}
                   onTypeFilterChange={setTypeFilter}
                   typeFilterOptions={TYPE_FILTERS}
+                  fileSort={fileSort}
+                  onFileSortChange={handleFileSortChange}
                   isSearching={isSearchingMyFiles}
                   loading={loading}
                   dragEnabled={!isSearchingMyFiles}
