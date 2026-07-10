@@ -1091,6 +1091,8 @@ export type ListFilesParams = {
   offset?: number;
   fields?: "minimal" | "full";
   type_filter?: string;
+  /** Human: name_asc | name_desc | uploaded_desc | uploaded_asc — server-side file order. */
+  sort?: string;
 };
 
 export type FileListResult = {
@@ -1110,6 +1112,7 @@ export async function listFiles(params?: ListFilesParams) {
   if (params?.offset !== undefined) search.set("offset", String(params.offset));
   if (params?.fields) search.set("fields", params.fields);
   if (params?.type_filter) search.set("type_filter", params.type_filter);
+  if (params?.sort) search.set("sort", params.sort);
   const qs = search.toString();
   return apiFetch(`/files${qs ? `?${qs}` : ""}`) as Promise<FileListResult>;
 }

@@ -75,6 +75,7 @@ pub struct ListFilesParams {
     pub offset: i64,
     pub minimal: bool,
     pub type_filter: Option<String>,
+    pub sort: FileListSort,
 }
 
 // Human: Folder row for paginated /folders listings with public-link indicator.
@@ -212,6 +213,58 @@ const SHARE_PUBLIC_FOLDER_EXPR: &str = "EXISTS (
 // Agent: USES natural_sort_key() from migration 008; MUST match frontend sortFilesByName.
 const ORDER_FILES_BY_NATURAL_NAME: &str = "natural_sort_key(f.name) ASC, lower(f.name) ASC";
 const ORDER_FOLDERS_BY_NATURAL_NAME: &str = "natural_sort_key(fo.name) ASC, lower(fo.name) ASC";
+const ORDER_FILES_BY_NATURAL_NAME_DESC: &str =
+    "natural_sort_key(f.name) DESC, lower(f.name) DESC";
+const ORDER_FILES_BY_UPLOADED_DESC: &str = "f.created_at DESC, f.id DESC";
+const ORDER_FILES_BY_UPLOADED_ASC: &str = "f.created_at ASC, f.id ASC";
+
+// Human: Drive file listing sort modes exposed via GET /files?sort=.
+// Agent: PARSED from query string; DEFAULT name_asc for backward-compatible pagination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FileListSort {
+    #[default]
+    NameAsc,
+    NameDesc,
+    UploadedDesc,
+    UploadedAsc,
+}
+
+// Human: Accept snake_case sort query values from the drive UI.
+// Agent: READS optional sort param; RETURNS NameAsc when missing or unknown.
+pub fn parse_file_list_sort(raw: Option<&str>) -> FileListSort {
+    match raw.unwrap_or("name_asc").trim().to_ascii_lowercase().as_str() {
+        "name_desc" => FileListSort::NameDesc,
+        "uploaded_desc" => FileListSort::UploadedDesc,
+        "uploaded_asc" => FileListSort::UploadedAsc,
+        _ => FileListSort::NameAsc,
+    }
+}
+
+// Human: SQL ORDER BY fragment for paginated file listings.
+// Agent: MATCHES frontend ExplorerFileSort; USES id tie-break for stable pages.
+fn file_list_order_clause(sort: FileListSort) -> &'static str {
+    match sort {
+        FileListSort::NameAsc => ORDER_FILES_BY_NATURAL_NAME,
+        FileListSort::NameDesc => ORDER_FILES_BY_NATURAL_NAME_DESC,
+        FileListSort::UploadedDesc => ORDER_FILES_BY_UPLOADED_DESC,
+        FileListSort::UploadedAsc => ORDER_FILES_BY_UPLOADED_ASC,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_file_list_sort, FileListSort};
+
+    #[test]
+    fn parse_file_list_sort_accepts_api_values() {
+        assert_eq!(parse_file_list_sort(None), FileListSort::NameAsc);
+        assert_eq!(parse_file_list_sort(Some("name_asc")), FileListSort::NameAsc);
+        assert_eq!(parse_file_list_sort(Some("name_desc")), FileListSort::NameDesc);
+        assert_eq!(parse_file_list_sort(Some("uploaded_desc")), FileListSort::UploadedDesc);
+        assert_eq!(parse_file_list_sort(Some("uploaded_asc")), FileListSort::UploadedAsc);
+        assert_eq!(parse_file_list_sort(Some("unknown")), FileListSort::NameAsc);
+    }
+}
 
 // Human: List one page of owned files for a folder, search, or library-wide query.
 // Agent: READS files + public_shares EXISTS; COMPUTES count/sum/has_more in SQL.
@@ -231,6 +284,7 @@ pub async fn list_owned_files(
         .type_filter
         .as_deref()
         .and_then(mime_type_filter_sql);
+    let order_clause = file_list_order_clause(params.sort);
 
     let select_cols = file_list_select_columns(minimal);
 
@@ -258,7 +312,7 @@ pub async fn list_owned_files(
         let list_sql = format!(
             "SELECT {select_cols} FROM files f \
              WHERE {where_sql} \
-             ORDER BY {ORDER_FILES_BY_NATURAL_NAME} \
+             ORDER BY {order_clause} \
              LIMIT $3 OFFSET $4"
         );
         let files: Vec<FileListItem> = sqlx::query_as(&list_sql)
@@ -295,7 +349,7 @@ pub async fn list_owned_files(
         let list_sql = format!(
             "SELECT {select_cols} FROM files f \
              WHERE {where_sql} \
-             ORDER BY {ORDER_FILES_BY_NATURAL_NAME} \
+             ORDER BY {order_clause} \
              LIMIT $3 OFFSET $4"
         );
         let files: Vec<FileListItem> = sqlx::query_as(&list_sql)
@@ -496,8 +550,9 @@ pub async fn list_accessible_files(
     let list_sql = format!(
         "SELECT {select_cols} FROM files f \
          WHERE {where_sql} \
-         ORDER BY {ORDER_FILES_BY_NATURAL_NAME} \
-         LIMIT $5 OFFSET $6"
+         ORDER BY {} \
+         LIMIT $5 OFFSET $6",
+        file_list_order_clause(params.sort)
     );
     let files: Vec<FileListItem> = sqlx::query_as(&list_sql)
         .bind(&params.folder_id)

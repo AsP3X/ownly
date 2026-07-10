@@ -111,6 +111,7 @@ import {
   sortFilesByRecentAccess,
   toggleFavouriteFile,
   writeExplorerFileSort,
+  explorerFileSortToApiParam,
   type ExplorerFileSort,
 } from "@/lib/drive-preferences";
 import { cn } from "@/lib/utils";
@@ -276,6 +277,7 @@ export default function DrivePage() {
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const isSearchingMyFiles = activeNav === "my-files" && committedQuery.length > 0;
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
+  const serverFileSort = explorerFileSortToApiParam(fileSort);
   const dashboardLoadedRef = useRef(false);
   const explorerListContextRef = useRef<ExplorerFileListContext>({
     activeNav: "home",
@@ -431,7 +433,12 @@ export default function DrivePage() {
   const refresh = useCallback(
     async (
       search?: string,
-      options?: { silent?: boolean; folderId?: string | null; nav?: NavItemId },
+      options?: {
+        silent?: boolean;
+        folderId?: string | null;
+        nav?: NavItemId;
+        fileSort?: ExplorerFileSort;
+      },
     ) => {
       if (!options?.silent) {
         setLoading(true);
@@ -441,6 +448,7 @@ export default function DrivePage() {
         void refreshDashboard();
       }
       const nav = options?.nav ?? activeNav;
+      const listSort = explorerFileSortToApiParam(options?.fileSort ?? fileSort);
       try {
         if (nav === "recycle-bin") {
           setFolders([]);
@@ -510,6 +518,7 @@ export default function DrivePage() {
               offset: 0,
               fields: "minimal",
               type_filter: serverTypeFilter,
+              sort: listSort,
             }),
             listFolders({
               q: search,
@@ -544,6 +553,7 @@ export default function DrivePage() {
             offset: 0,
             fields: "minimal",
             type_filter: serverTypeFilter,
+            sort: listSort,
           }),
         ]);
         setFolders(folderListing.folders);
@@ -566,7 +576,7 @@ export default function DrivePage() {
         }
       }
     },
-    [activeNav, currentFolderId, primeExplorerThumbnailCache, refreshDashboard, serverTypeFilter],
+    [activeNav, currentFolderId, fileSort, primeExplorerThumbnailCache, refreshDashboard, serverTypeFilter],
   );
 
   // Human: Load Shared Files tab data when the sidebar nav selects that view.
@@ -605,6 +615,7 @@ export default function DrivePage() {
         offset: files.length,
         fields: "minimal",
         type_filter: serverTypeFilter,
+        sort: serverFileSort,
       });
       setFiles((prev) => [...prev, ...listing.files]);
       primeExplorerThumbnailCache(listing.files);
@@ -627,6 +638,7 @@ export default function DrivePage() {
     primeExplorerThumbnailCache,
     committedQuery,
     serverTypeFilter,
+    serverFileSort,
   ]);
 
   // Human: Append the next page of subfolders when a directory has many children.
@@ -1479,11 +1491,14 @@ export default function DrivePage() {
     }
   }
 
-  // Human: Persist explorer file sort and re-order the current listing immediately.
-  // Agent: WRITES ownly_explorer_file_sort; UPDATES fileSort state for browserFiles memo.
+  // Human: Persist explorer file sort and reload the listing with server-side ordering.
+  // Agent: WRITES ownly_explorer_file_sort; CALLS refresh so pagination matches sort mode.
   function handleFileSortChange(sort: ExplorerFileSort) {
     setFileSort(sort);
     writeExplorerFileSort(sort);
+    if (activeNav === "my-files") {
+      void refresh(committedQuery || undefined, { nav: activeNav, fileSort: sort });
+    }
   }
 
   // Human: Open the bottom action sheet for one file or folder row on mobile.
@@ -1498,8 +1513,8 @@ export default function DrivePage() {
     activeNav === "home" && committedQuery
       ? files.filter((file) => file.name.toLowerCase().includes(committedQuery.toLowerCase()))
       : files;
-  // Human: Default browser order — A–Z with numeric segments (1, 2, 10 not 1, 10, 2).
-  // Agent: APPLIES user fileSort; RE-SORTS loaded pages client-side for consistent display.
+  // Human: Browser file order — server paginates with sort=; client re-sorts for live upload patches.
+  // Agent: CALLS sortExplorerFiles after listFiles/mergeExplorerFileRow updates.
   const browserFiles = useMemo(
     () => sortExplorerFiles(nameFilteredFiles, fileSort),
     [nameFilteredFiles, fileSort],

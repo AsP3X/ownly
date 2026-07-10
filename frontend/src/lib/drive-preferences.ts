@@ -16,6 +16,12 @@ export const EXPLORER_FILE_SORT_OPTIONS: { id: ExplorerFileSort; label: string }
   { id: "uploaded-asc", label: "Recent upload (oldest)" },
 ];
 
+// Human: Map UI sort ids to GET /files?sort= query values.
+// Agent: REPLACES hyphen with underscore for backend parse_file_list_sort().
+export function explorerFileSortToApiParam(sort: ExplorerFileSort): string {
+  return sort.replace(/-/g, "_");
+}
+
 type RecentEntry = {
   fileId: string;
   accessedAt: string;

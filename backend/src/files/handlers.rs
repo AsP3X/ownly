@@ -154,6 +154,8 @@ pub struct ListQuery {
     pub fields: Option<String>,
     /// Matches frontend type filter buckets: documents, images, video, etc.
     pub type_filter: Option<String>,
+    /// Sort order: name_asc (default), name_desc, uploaded_desc, uploaded_asc.
+    pub sort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,6 +258,7 @@ pub async fn list_files(
             offset,
             minimal,
             type_filter,
+            sort: listing::parse_file_list_sort(query.sort.as_deref()),
         },
     )
     .await?;
