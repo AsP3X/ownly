@@ -71,6 +71,14 @@ function applyRenditionTheme(rendition: Rendition, preferences: EpubReaderPrefer
             ? "#F4ECD8 !important"
             : "#FAF8F5 !important",
     },
+    img: {
+      "max-width": "100% !important",
+      "max-height": "100% !important",
+      "width": "auto !important",
+      "height": "auto !important",
+      margin: "0 auto !important",
+      display: "block !important",
+    },
   });
   rendition.themes.select("ownly");
 }

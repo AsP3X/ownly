@@ -19,3 +19,6 @@
 .epub-reader-rendition .epub-container {
   margin: 0 auto !important;
 }
+
+/* Human: Cover and illustration pages should scale up inside the reading band. */
+/* Agent: INJECTED into epub.js iframe via theme rules in useEpubPreviewController. */

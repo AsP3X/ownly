@@ -1,5 +1,5 @@
-// Human: Desktop EPUB reader — pen Viewport Row with flanking chapter nav and absolute chrome on reader card.
-// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel; MATCHES docs/design/epub-reader.pen.
+// Human: Desktop EPUB reader — compact chrome with a flex column so content fills the card.
+// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel.
 
 import { Loader2, Bookmark, ChevronLeft, ChevronRight, Download, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
@@ -12,7 +12,6 @@ import {
   EPUB_READER_META_PILL_CLASS,
   EPUB_READER_PAPER_BG,
   EPUB_READER_SURFACE_CLASS,
-  EPUB_READER_TEXT_MUTED,
 } from "@/components/drive/epub/epub-reader-tokens";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +43,6 @@ export function EpubPreviewSurfaceDesktop({
     registerRenditionHost,
     currentSpineIndex,
     totalSpineItems,
-    progressCompactLabel,
     canRenderRendition,
   } = vm;
 
@@ -52,16 +50,16 @@ export function EpubPreviewSurfaceDesktop({
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
 
   return (
-    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col items-center justify-center py-[calc(4.375rem-1rem)]">
+    <div className="flex min-h-0 w-full min-w-0 flex-1">
       {tocOpen ? (
-        <aside className="absolute left-4 top-[4.375rem] z-20 flex h-[calc(100%-5.5rem)] w-[21.25rem] flex-col gap-4 rounded-2xl border border-border bg-background p-6 shadow-xl">
+        <aside className="absolute left-2 top-2 z-20 flex h-[calc(100%-1rem)] w-[18rem] flex-col gap-3 rounded-2xl border border-border bg-background p-4 shadow-xl">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Table of Contents</h2>
+            <h2 className="text-base font-semibold text-foreground">Table of Contents</h2>
             <button type="button" aria-label="Close table of contents" onClick={() => setTocOpen(false)}>
               <X className="size-5 text-muted-foreground" />
             </button>
           </div>
-          <label className="flex h-10 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground">
             <span>Search chapters...</span>
           </label>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -87,7 +85,6 @@ export function EpubPreviewSurfaceDesktop({
         </aside>
       ) : null}
 
-      {/* Human: Pen Viewport Row — prev nav, reader card (flex-1), next nav with 24px gaps. */}
       <div className={cn(EPUB_READER_DESKTOP_ROW_CLASS, "max-w-[88rem]")}>
         <button
           type="button"
@@ -96,45 +93,46 @@ export function EpubPreviewSurfaceDesktop({
           disabled={!canGoPrevious}
           onClick={goPreviousChapter}
         >
-          <ChevronLeft className="size-10" aria-hidden />
+          <ChevronLeft className="size-7" aria-hidden />
         </button>
 
         <section
-          className={cn(
-            EPUB_READER_SURFACE_CLASS,
-            "h-[55.3125rem] max-h-[calc(100dvh-8.75rem)] min-h-[32rem]",
-          )}
+          className={cn(EPUB_READER_SURFACE_CLASS, "max-h-[calc(100dvh-0.5rem)]")}
           style={{ backgroundColor: EPUB_READER_PAPER_BG }}
         >
-          <div className={cn(EPUB_READER_META_PILL_CLASS, "absolute left-6 top-6 z-20 max-w-[calc(100%-7.5rem)]")}>
-            <span className="truncate text-base font-bold">
-              {file?.name ?? "EPUB"} • {chapterLabel}
-            </span>
-            <div className="flex shrink-0 items-center gap-2 border-l border-white/20 pl-3">
-              {onDownload && file ? (
-                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Download" onClick={() => onDownload(file)}>
-                  <Download className="size-5" />
+          {/* Human: Top chrome — single compact row; does not consume a full absolute band. */}
+          <div className="relative z-20 flex shrink-0 items-start justify-between gap-3 px-4 pt-4">
+            <div className={EPUB_READER_META_PILL_CLASS}>
+              <span className="truncate font-semibold">
+                {file?.name ?? "EPUB"} • {chapterLabel}
+              </span>
+              <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
+                {onDownload && file ? (
+                  <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Download" onClick={() => onDownload(file)}>
+                    <Download className="size-4" />
+                  </button>
+                ) : null}
+                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Share" title="Share from drive menu">
+                  <Share2 className="size-4" />
                 </button>
-              ) : null}
-              <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Share" title="Share from drive menu">
-                <Share2 className="size-5" />
-              </button>
-              <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Bookmark" title="Bookmarks coming soon">
-                <Bookmark className="size-5" />
-              </button>
+                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Bookmark" title="Bookmarks coming soon">
+                  <Bookmark className="size-4" />
+                </button>
+              </div>
             </div>
+
+            <button
+              type="button"
+              className={EPUB_READER_CLOSE_BUTTON_CLASS}
+              aria-label="Close reader"
+              onClick={() => onOpenChange(false)}
+            >
+              <X className="size-5" aria-hidden />
+            </button>
           </div>
 
-          <button
-            type="button"
-            className={cn(EPUB_READER_CLOSE_BUTTON_CLASS, "absolute right-6 top-6 z-20")}
-            aria-label="Close reader"
-            onClick={() => onOpenChange(false)}
-          >
-            <X className="size-7" aria-hidden />
-          </button>
-
-          <div className="absolute inset-x-[7.5rem] top-24 bottom-[8.75rem]">
+          {/* Human: Reading area flex-fills remaining card height between compact chrome rows. */}
+          <div className="relative min-h-0 flex-1 px-4 pb-2 pt-3">
             {loading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground">
                 <Loader2 className="mr-2 size-5 animate-spin" />
@@ -142,23 +140,14 @@ export function EpubPreviewSurfaceDesktop({
               </div>
             ) : null}
             {error ? (
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">{error}</div>
+              <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">{error}</div>
             ) : null}
             {canRenderRendition ? (
               <div ref={registerRenditionHost} className="epub-reader-rendition h-full w-full" />
             ) : null}
           </div>
 
-          {!loading && !error ? (
-            <p
-              className="absolute bottom-[7.75rem] left-1/2 z-10 -translate-x-1/2 text-[0.8125rem] font-medium"
-              style={{ color: EPUB_READER_TEXT_MUTED }}
-            >
-              {progressCompactLabel}
-            </p>
-          ) : null}
-
-          <div className="absolute inset-x-6 bottom-6 z-20">
+          <div className="shrink-0 px-4 pb-4 pt-1">
             <EpubReaderControlBar vm={vm} />
           </div>
         </section>
@@ -170,7 +159,7 @@ export function EpubPreviewSurfaceDesktop({
           disabled={!canGoNext}
           onClick={goNextChapter}
         >
-          <ChevronRight className="size-10" aria-hidden />
+          <ChevronRight className="size-7" aria-hidden />
         </button>
       </div>
     </div>

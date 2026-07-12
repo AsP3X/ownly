@@ -73,12 +73,12 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
   // Agent: NO chapter chevrons here; chapter nav lives on flanking overlay buttons.
   return (
     <div className={EPUB_READER_BOTTOM_BAR_CLASS}>
-      <div className="flex min-w-0 items-center gap-5">
+      <div className="flex min-w-0 items-center gap-3">
         <button type="button" className="opacity-90 transition hover:opacity-100" aria-label="Table of contents" onClick={toggleToc}>
-          <List className="size-[1.375rem]" />
+          <List className="size-5" />
         </button>
         <button type="button" className="opacity-90 transition hover:opacity-100" aria-label="Bookmark" title="Bookmarks coming soon">
-          <Bookmark className="size-[1.375rem]" />
+          <Bookmark className="size-5" />
         </button>
         <button
           type="button"
@@ -86,13 +86,13 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
           aria-label="Text settings"
           onClick={onOpenSettings}
         >
-          <Type className="size-[1.375rem]" />
+          <Type className="size-5" />
         </button>
-        <span className="whitespace-nowrap text-sm font-normal text-white">{progressLabel}</span>
+        <span className="hidden whitespace-nowrap text-xs font-normal text-white/90 sm:inline">{progressLabel}</span>
       </div>
 
-      <div className="flex h-6 min-w-0 flex-1 items-center justify-center px-6">
-        <div className="h-1.5 w-full max-w-[26.25rem] overflow-hidden rounded-sm bg-[#FFFFFF33]">
+      <div className="flex h-5 min-w-0 flex-1 items-center justify-center px-3">
+        <div className="h-1 w-full max-w-[20rem] overflow-hidden rounded-full bg-[#FFFFFF33]">
           <div
             className="h-full rounded-sm transition-all"
             style={{ width: `${Math.round(progressFraction * 100)}%`, backgroundColor: EPUB_READER_ACCENT }}
@@ -100,14 +100,14 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-5">
+      <div className="flex shrink-0 items-center gap-3">
         <button
           type="button"
           className="opacity-90 transition hover:opacity-100"
           aria-label="Decrease font size"
           onClick={() => setPreferences({ ...preferences, fontSize: cycleFontSize(preferences.fontSize, -1) })}
         >
-          <Minus className="size-[1.375rem]" />
+          <Minus className="size-5" />
         </button>
         <button
           type="button"
@@ -115,7 +115,7 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
           aria-label="Increase font size"
           onClick={() => setPreferences({ ...preferences, fontSize: cycleFontSize(preferences.fontSize, 1) })}
         >
-          <Plus className="size-[1.375rem]" />
+          <Plus className="size-5" />
         </button>
         <button
           type="button"
@@ -123,7 +123,7 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
           aria-label="Light theme"
           onClick={() => setPreferences({ ...preferences, theme: "light" })}
         >
-          <Sun className="size-[1.375rem]" />
+          <Sun className="size-5" />
         </button>
         <button
           type="button"
@@ -131,7 +131,7 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
           aria-label="Dark theme"
           onClick={() => setPreferences({ ...preferences, theme: cycleTheme(preferences.theme, 1) })}
         >
-          <Moon className="size-[1.375rem]" />
+          <Moon className="size-5" />
         </button>
       </div>
     </div>
