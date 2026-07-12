@@ -12,6 +12,7 @@ import {
   Minimize,
   Pause,
   Play,
+  Repeat,
   Share2,
   Volume2,
   VolumeX,
@@ -120,6 +121,7 @@ export function VideoPlayerSurfaceMobile({
     duration,
     bufferedSegments,
     muted,
+    loop,
     isFullscreen,
     isImmersive,
     transportDisabled,
@@ -129,6 +131,7 @@ export function VideoPlayerSurfaceMobile({
     togglePlay,
     handleSeek,
     toggleMute,
+    toggleLoop,
     toggleFullscreen,
   } = useVideoTransport({
     videoRef,
@@ -379,6 +382,16 @@ export function VideoPlayerSurfaceMobile({
               </button>
               <button
                 type="button"
+                onClick={toggleLoop}
+                disabled={transportDisabled}
+                aria-label={loop ? "Disable loop" : "Enable loop"}
+                aria-pressed={loop}
+                className={cn("text-white disabled:opacity-40", loop && "text-sky-400")}
+              >
+                <Repeat className="size-4" aria-hidden />
+              </button>
+              <button
+                type="button"
                 onClick={toggleFullscreen}
                 disabled={transportDisabled}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -502,6 +515,16 @@ export function VideoPlayerSurfaceMobile({
               </button>
               <button
                 type="button"
+                onClick={toggleLoop}
+                disabled={transportDisabled}
+                aria-label={loop ? "Disable loop" : "Enable loop"}
+                aria-pressed={loop}
+                className={cn("text-white disabled:opacity-40", loop && "text-sky-400")}
+              >
+                <Repeat className="size-5" aria-hidden />
+              </button>
+              <button
+                type="button"
                 onClick={toggleFullscreen}
                 disabled={transportDisabled}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -531,6 +554,8 @@ export function VideoPlayerSurfaceMobile({
         open={moreMenuOpen}
         onOpenChange={setMoreMenuOpen}
         file={file}
+        loop={loop}
+        onToggleLoop={toggleLoop}
         showDownloadAction={showDownloadAction}
         showShareAction={showShareAction}
         onDownload={onDownload}

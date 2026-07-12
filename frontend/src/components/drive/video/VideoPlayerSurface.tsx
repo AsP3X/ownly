@@ -9,6 +9,7 @@ import {
   Minimize,
   Pause,
   Play,
+  Repeat,
   Share2,
   Volume2,
   VolumeX,
@@ -104,6 +105,7 @@ function VideoPlayerLandscapeDesktop({
     duration,
     bufferedSegments,
     muted,
+    loop,
     isFullscreen,
     isImmersive,
     transportDisabled,
@@ -113,6 +115,7 @@ function VideoPlayerLandscapeDesktop({
     togglePlay,
     handleSeek,
     toggleMute,
+    toggleLoop,
     toggleFullscreen,
   } = useVideoTransport({
     videoRef,
@@ -298,6 +301,19 @@ function VideoPlayerLandscapeDesktop({
               ) : (
                 <Volume2 className="size-6" aria-hidden />
               )}
+            </button>
+            <button
+              type="button"
+              onClick={toggleLoop}
+              disabled={transportDisabled}
+              aria-label={loop ? "Disable loop" : "Enable loop"}
+              aria-pressed={loop}
+              className={cn(
+                "text-white transition hover:text-white/80 disabled:opacity-40",
+                loop && "text-sky-400",
+              )}
+            >
+              <Repeat className="size-6" aria-hidden />
             </button>
             <button
               type="button"

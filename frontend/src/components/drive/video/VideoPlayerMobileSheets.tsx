@@ -1,7 +1,7 @@
 // Human: Bottom sheets for mobile video player — file info and overflow actions menu.
 // Agent: RENDERS Sheet primitives; CALLS onDownload/onShare; OPENS info sheet from more menu.
 
-import { Download, Info, Share2 } from "lucide-react";
+import { Download, Info, Repeat, Share2 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { formatVideoTime } from "@/components/drive/video/video-time";
 import {
@@ -11,6 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { formatBytes, formatFileOpened } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +84,8 @@ type VideoPlayerMoreMenuSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   file: FileItem;
+  loop: boolean;
+  onToggleLoop: () => void;
   showDownloadAction: boolean;
   showShareAction: boolean;
   onDownload?: (file: FileItem) => void;
@@ -124,6 +127,8 @@ export function VideoPlayerMoreMenuSheet({
   open,
   onOpenChange,
   file,
+  loop,
+  onToggleLoop,
   showDownloadAction,
   showShareAction,
   onDownload,
@@ -142,6 +147,19 @@ export function VideoPlayerMoreMenuSheet({
           <SheetDescription className="truncate text-white/60">{file.name}</SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-1 px-1">
+          {/* Human: Loop toggle — mirrors transport bar repeat control for overflow menu users. */}
+          {/* Agent: CALLS onToggleLoop; READS loop for Switch checked state. */}
+          <div className="flex items-center justify-between rounded-xl px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Repeat className="size-5 shrink-0 text-white/80" aria-hidden />
+              <span className="text-sm font-medium text-white">Loop video</span>
+            </div>
+            <Switch
+              checked={loop}
+              onCheckedChange={onToggleLoop}
+              aria-label={loop ? "Disable loop" : "Enable loop"}
+            />
+          </div>
           <MoreMenuButton
             label="Save"
             icon={Download}

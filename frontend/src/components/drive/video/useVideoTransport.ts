@@ -19,6 +19,10 @@ import {
   exitVideoFullscreen,
   isVideoFullscreenActive,
 } from "@/components/drive/video/video-fullscreen";
+import {
+  readVideoLoopPreference,
+  writeVideoLoopPreference,
+} from "@/lib/video-loop-preference";
 
 type UseVideoTransportOptions = {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -43,6 +47,7 @@ export function useVideoTransport({
   const [duration, setDuration] = useState(0);
   const [bufferedSegments, setBufferedSegments] = useState<BufferedSegment[]>([]);
   const [muted, setMuted] = useState(false);
+  const [loop, setLoop] = useState(readVideoLoopPreference);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isImmersive, setIsImmersive] = useState(false);
   const [showChrome, setShowChrome] = useState(true);
@@ -168,6 +173,14 @@ export function useVideoTransport({
     video.muted = muted;
   }, [muted, videoRef]);
 
+  // Human: Native loop restarts HLS playback at end without firing `ended`.
+  // Agent: WRITES video.loop when preference or ref changes.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.loop = loop;
+  }, [loop, videoRef]);
+
   useEffect(() => {
     setIsPlaying(false);
     setProgress(0);
@@ -253,6 +266,17 @@ export function useVideoTransport({
     revealChrome();
   }, [revealChrome]);
 
+  // Human: Loop the active clip instead of stopping at the end.
+  // Agent: TOGGLES loop state; PERSISTS preference; WRITES video.loop via effect.
+  const toggleLoop = useCallback(() => {
+    setLoop((prev) => {
+      const next = !prev;
+      writeVideoLoopPreference(next);
+      return next;
+    });
+    revealChrome();
+  }, [revealChrome]);
+
   // Human: Exit native or immersive fullscreen; on mobile fall back to CSS immersive when API fails.
   // Agent: CALLS enterVideoFullscreen preferring video; SETS isImmersive when enter returns failed.
   const toggleFullscreen = useCallback(() => {
@@ -299,6 +323,7 @@ export function useVideoTransport({
     duration,
     bufferedSegments,
     muted,
+    loop,
     isFullscreen,
     isImmersive,
     transportDisabled,
@@ -308,6 +333,7 @@ export function useVideoTransport({
     togglePlay,
     handleSeek,
     toggleMute,
+    toggleLoop,
     toggleFullscreen,
   };
 }
