@@ -2,7 +2,7 @@
 // Agent: READS FileItem HLS + audio fields; USED by drive UI to disable actions and show badges.
 
 import type { FileItem } from "@/api/client";
-import { isImageMime, isPdfMime, isSpreadsheetPreviewMime } from "@/lib/utils-app";
+import { isImageMime, isPdfMime, isSpreadsheetPreviewMime, isEpubMime } from "@/lib/utils-app";
 
 function isThumbnailStatusTerminal(status?: string | null): boolean {
   return status === "failed" || status === "cancelled";
@@ -31,7 +31,7 @@ function explorerThumbnailPollState(file: FileItem): ExplorerThumbnailPollState 
       status: file.video_thumbnail_status,
     };
   }
-  if (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+  if (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name) || isEpubMime(file.mime_type, file.name)) {
     return {
       expects: true,
       ready: file.document_thumbnail_ready === true,

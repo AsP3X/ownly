@@ -60,7 +60,7 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -92,6 +92,7 @@ import {
   buildVideoGallery,
   isAudioMime,
   isImageMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -241,6 +242,7 @@ export default function DrivePage() {
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewEpub, setPreviewEpub] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
   const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
@@ -1183,6 +1185,15 @@ export default function DrivePage() {
     setPreviewPdf(file);
   }
 
+  // Human: Open in-browser EPUB reader for .epub files.
+  // Agent: SETS previewEpub; EpubPreviewDialog FETCHES bytes and RENDERS via epub.js.
+  function handlePreviewEpub(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isEpubMime(file.mime_type, file.name)) return;
+    recordFileAccess(file.id);
+    setPreviewEpub(file);
+  }
+
   // Human: Open the in-browser text/code editor for editable plain-text and source files.
   // Agent: SETS previewText; TextCodeEditorDialog FETCHES bytes and RENDERS themed editor chrome.
   function handlePreviewText(file: FileItem) {
@@ -1645,6 +1656,7 @@ export default function DrivePage() {
       onPreviewVideo={handlePreviewVideo}
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
+      onPreviewEpub={handlePreviewEpub}
       onPreviewText={handlePreviewText}
       onPreviewSpreadsheet={handlePreviewSpreadsheet}
       onPreviewAudio={handlePreviewAudio}
@@ -1740,6 +1752,19 @@ export default function DrivePage() {
               open: true,
               onOpenChange: (open) => {
                 if (!open) setPreviewPdf(null);
+              },
+              onDownload: handleDownload,
+            }}
+          />
+        ) : null}
+        {previewEpub !== null ? (
+          <DynamicImportPreview
+            loader={loadEpubPreviewDialog}
+            previewProps={{
+              file: previewEpub,
+              open: true,
+              onOpenChange: (open) => {
+                if (!open) setPreviewEpub(null);
               },
               onDownload: handleDownload,
             }}
@@ -1883,6 +1908,7 @@ export default function DrivePage() {
           onPreviewVideo={handlePreviewVideo}
           onPreviewImage={handlePreviewImage}
           onPreviewPdf={handlePreviewPdf}
+          onPreviewEpub={handlePreviewEpub}
           onPreviewText={handlePreviewText}
           onPreviewSpreadsheet={handlePreviewSpreadsheet}
           onPreviewAudio={handlePreviewAudio}
@@ -2076,6 +2102,7 @@ export default function DrivePage() {
                   onPreviewVideo={handlePreviewVideo}
                   onPreviewImage={handlePreviewImage}
                   onPreviewPdf={handlePreviewPdf}
+      onPreviewEpub={handlePreviewEpub}
                   onPreviewText={handlePreviewText}
                   onPreviewSpreadsheet={handlePreviewSpreadsheet}
                   onPreviewAudio={handlePreviewAudio}
@@ -2129,6 +2156,7 @@ export default function DrivePage() {
                 onPreviewVideo={handlePreviewVideo}
                 onPreviewImage={handlePreviewImage}
                 onPreviewPdf={handlePreviewPdf}
+                onPreviewEpub={handlePreviewEpub}
                 onPreviewText={handlePreviewText}
                 onPreviewSpreadsheet={handlePreviewSpreadsheet}
                 onPreviewAudio={handlePreviewAudio}

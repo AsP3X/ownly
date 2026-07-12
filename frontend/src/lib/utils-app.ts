@@ -214,6 +214,20 @@ export function isAudioMime(mimeType: string | null | undefined): boolean {
   return (mimeType ?? "").toLowerCase().startsWith("audio/");
 }
 
+// Human: True when a stored file should open in the in-browser EPUB reader dialog.
+// Agent: READS mime_type + filename; RETURNS true for application/epub* and .epub extension fallback.
+export function isEpubMime(
+  mimeType: string | null | undefined,
+  filename?: string | null,
+): boolean {
+  const mime = (mimeType ?? "").toLowerCase();
+  if (mime === "application/epub+zip" || mime === "application/epub") {
+    return true;
+  }
+  const extension = (filename ?? "").split(".").pop()?.toLowerCase() ?? "";
+  return extension === "epub";
+}
+
 const TEXT_CODE_EXTENSIONS = new Set([
   "txt",
   "md",

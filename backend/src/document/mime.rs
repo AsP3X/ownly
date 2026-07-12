@@ -1,5 +1,5 @@
 // Human: MIME and filename rules for document grid preview generation.
-// Agent: MATCHES frontend isPdfMime / isSpreadsheetPreviewMime for upload enqueue + GET guard.
+// Agent: MATCHES frontend isPdfMime / isSpreadsheetPreviewMime / isEpubMime for upload enqueue + GET guard.
 
 // Human: True when the file should open in the PDF viewer dialog.
 // Agent: READS mime_type; RETURNS true for application/pdf and other */pdf buckets.
@@ -35,10 +35,28 @@ pub fn is_spreadsheet_preview_mime(mime_type: &str, filename: &str) -> bool {
         || (mime.contains("sheet") && !mime.contains("word"))
 }
 
+// Human: True when the file should open in the in-browser EPUB reader dialog.
+// Agent: READS mime_type + filename extension; MATCHES frontend isEpubMime.
+pub fn is_epub_mime(mime_type: &str, filename: &str) -> bool {
+    let mime = mime_type.to_ascii_lowercase();
+    if mime == "application/epub+zip" || mime == "application/epub" {
+        return true;
+    }
+
+    let extension = filename
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    extension == "epub"
+}
+
 // Human: True when upload should enqueue a document grid JPEG sidecar job.
-// Agent: OR of PDF and spreadsheet preview matchers.
+// Agent: OR of PDF, spreadsheet, and EPUB preview matchers.
 pub fn qualifies_for_document_grid_thumbnail(mime_type: &str, filename: &str) -> bool {
-    is_pdf_mime(mime_type) || is_spreadsheet_preview_mime(mime_type, filename)
+    is_pdf_mime(mime_type)
+        || is_spreadsheet_preview_mime(mime_type, filename)
+        || is_epub_mime(mime_type, filename)
 }
 
 #[cfg(test)]
@@ -57,6 +75,22 @@ mod tests {
         assert!(is_spreadsheet_preview_mime(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "report.xlsx",
+        ));
+    }
+
+    #[test]
+    fn epub_mime_detection() {
+        assert!(is_epub_mime("application/epub+zip", "book.epub"));
+        assert!(is_epub_mime("application/epub", "book.epub"));
+        assert!(is_epub_mime("application/octet-stream", "chapter.epub"));
+        assert!(!is_epub_mime("application/pdf", "book.pdf"));
+    }
+
+    #[test]
+    fn qualifies_for_document_grid_thumbnail_includes_epub() {
+        assert!(qualifies_for_document_grid_thumbnail(
+            "application/epub+zip",
+            "novel.epub",
         ));
     }
 }

@@ -18,6 +18,7 @@ import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
 import {
   isAudioMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -55,6 +56,7 @@ type MobileFileActionsSheetProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -135,6 +137,7 @@ export function MobileFileActionsSheet({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -284,6 +287,18 @@ export function MobileFileActionsSheet({
                       processing || !isPdfMime(file.mime_type) || onPreviewPdf === undefined
                     }
                     onClick={() => closeThen(() => onPreviewPdf?.(file))}
+                  />
+                  <ActionDivider />
+                  <ActionRow
+                    icon={null}
+                    label="Read EPUB"
+                    indented
+                    disabled={
+                      processing ||
+                      !isEpubMime(file.mime_type, file.name) ||
+                      onPreviewEpub === undefined
+                    }
+                    onClick={() => closeThen(() => onPreviewEpub?.(file))}
                   />
                   <ActionDivider />
                   <ActionRow

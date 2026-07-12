@@ -102,6 +102,7 @@ type DriveCloudExplorerProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -349,6 +350,7 @@ export function DriveCloudExplorer({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -1010,6 +1012,7 @@ export function DriveCloudExplorer({
                       onPreviewVideo={onPreviewVideo}
                       onPreviewImage={onPreviewImage}
                       onPreviewPdf={onPreviewPdf}
+                      onPreviewEpub={onPreviewEpub}
                       onPreviewText={onPreviewText}
                       onPreviewSpreadsheet={onPreviewSpreadsheet}
                       onPreviewAudio={onPreviewAudio}

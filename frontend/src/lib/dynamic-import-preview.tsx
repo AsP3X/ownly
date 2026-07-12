@@ -8,6 +8,7 @@ import type { PdfPreviewDialogProps } from "@/components/drive/PdfPreviewDialog"
 import type { ExcelSpreadsheetDialogProps } from "@/components/drive/ExcelSpreadsheetDialog";
 import type { TextCodeEditorDialogProps } from "@/components/drive/TextCodeEditorDialog";
 import type { VideoPreviewDialogProps } from "@/components/drive/VideoPreviewDialog";
+import type { EpubPreviewDialogProps } from "@/components/drive/epub/EpubPreviewDialog";
 
 type DynamicImportPreviewProps<P extends object> = {
   loader: () => Promise<ComponentType<P>>;
@@ -105,5 +106,17 @@ export function loadVideoPreviewDialog(): Promise<ComponentType<VideoPreviewDial
   return import("@/components/drive/VideoPreviewDialog").then((module) => {
     cachedVideoPreviewDialog = module.VideoPreviewDialog;
     return module.VideoPreviewDialog;
+  });
+}
+
+let cachedEpubPreviewDialog: ComponentType<EpubPreviewDialogProps> | null = null;
+
+// Human: Load EpubPreviewDialog on first open — pulls epub.js chunk on demand.
+// Agent: dynamic import(); CACHES module singleton for faster reopen.
+export function loadEpubPreviewDialog(): Promise<ComponentType<EpubPreviewDialogProps>> {
+  if (cachedEpubPreviewDialog) return Promise.resolve(cachedEpubPreviewDialog);
+  return import("@/components/drive/epub/EpubPreviewDialog").then((module) => {
+    cachedEpubPreviewDialog = module.EpubPreviewDialog;
+    return module.EpubPreviewDialog;
   });
 }

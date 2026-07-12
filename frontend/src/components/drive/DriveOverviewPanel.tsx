@@ -28,6 +28,7 @@ import {
   formatFileOpened,
   isAudioMime,
   isImageMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -49,6 +50,7 @@ type DriveOverviewPanelProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -174,6 +176,7 @@ export function DriveOverviewPanel({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -280,6 +283,7 @@ export function DriveOverviewPanel({
               const isVideo = file.mime_type?.startsWith("video/") ?? false;
               const isImage = isImageMime(file.mime_type);
               const isPdf = isPdfMime(file.mime_type);
+              const isEpub = isEpubMime(file.mime_type, file.name);
               const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
               const isAudio = isAudioMime(file.mime_type);
               const processing = isFileProcessing(file);
@@ -288,6 +292,7 @@ export function DriveOverviewPanel({
               const canPreviewImage =
                 isImage && onPreviewImage !== undefined && !processing;
               const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+              const canPreviewEpub = isEpub && onPreviewEpub !== undefined && !processing;
               const canPreviewSpreadsheet =
                 isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
               const canPreviewText =
@@ -300,6 +305,7 @@ export function DriveOverviewPanel({
                 canPreviewVideo ||
                 canPreviewImage ||
                 canPreviewPdf ||
+                canPreviewEpub ||
                 canPreviewSpreadsheet ||
                 canPreviewText ||
                 canPreviewAudio;
@@ -317,6 +323,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
@@ -326,6 +333,7 @@ export function DriveOverviewPanel({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);

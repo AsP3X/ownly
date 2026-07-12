@@ -26,6 +26,7 @@ import {
   formatFileOpened,
   isAudioMime,
   isImageMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -55,6 +56,7 @@ type PublicShareExplorerProps = {
   onPreviewVideo: (file: FileItem) => void;
   onPreviewImage: (file: FileItem) => void;
   onPreviewPdf: (file: FileItem) => void;
+  onPreviewEpub: (file: FileItem) => void;
   onPreviewText: (file: FileItem) => void;
   onPreviewSpreadsheet: (file: FileItem) => void;
   onPreviewAudio: (file: FileItem) => void;
@@ -114,7 +116,7 @@ function resolvePreviewHandler(
   file: FileItem,
   handlers: Pick<
     PublicShareExplorerProps,
-    "onPreviewVideo" | "onPreviewImage" | "onPreviewPdf" | "onPreviewText" | "onPreviewSpreadsheet" | "onPreviewAudio"
+    "onPreviewVideo" | "onPreviewImage" | "onPreviewPdf" | "onPreviewEpub" | "onPreviewText" | "onPreviewSpreadsheet" | "onPreviewAudio"
   >,
 ): (() => void) | undefined {
   if (isFileProcessing(file)) return undefined;
@@ -122,6 +124,7 @@ function resolvePreviewHandler(
   if (isVideo && file.hls_ready) return () => handlers.onPreviewVideo(file);
   if (isImageMime(file.mime_type)) return () => handlers.onPreviewImage(file);
   if (isPdfMime(file.mime_type)) return () => handlers.onPreviewPdf(file);
+  if (isEpubMime(file.mime_type, file.name)) return () => handlers.onPreviewEpub(file);
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewSpreadsheet(file);
   if (isTextCodePreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewText(file);
   if (isAudioMime(file.mime_type)) return () => handlers.onPreviewAudio(file);
@@ -160,6 +163,7 @@ export function PublicShareExplorer({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -212,6 +216,7 @@ export function PublicShareExplorer({
     onPreviewVideo,
     onPreviewImage,
     onPreviewPdf,
+    onPreviewEpub,
     onPreviewText,
     onPreviewSpreadsheet,
     onPreviewAudio,

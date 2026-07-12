@@ -355,6 +355,8 @@ async fn recover_orphaned_document_thumbnails(pool: &PgPool, stale_minutes: i32)
            AND (f.mime_type ILIKE '%pdf%' \
                 OR f.mime_type ILIKE '%spreadsheet%' \
                 OR f.mime_type ILIKE '%excel%' \
+                OR f.mime_type ILIKE 'application/epub%' \
+                OR f.name ILIKE '%.epub' \
                 OR (f.mime_type ILIKE '%sheet%' AND f.mime_type NOT ILIKE '%word%')) \
            {INGEST_ORPHAN_GUARD}"
     ))

@@ -1,11 +1,12 @@
-// Human: Render PDF and spreadsheet bytes into high-fidelity explorer preview JPEG sidecars.
-// Agent: PDF via pdftoppm page 1; spreadsheets via in-app grid renderer; RETURNS JPEG bytes.
+// Human: Render PDF, spreadsheet, and EPUB bytes into explorer preview JPEG sidecars.
+// Agent: PDF via pdftoppm page 1; spreadsheets via grid renderer; EPUB via cover extraction.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::image::thumbnail::{encode_jpeg, resize_to_max_edge};
 
+use super::epub_cover;
 use super::mime;
 use super::spreadsheet_preview;
 
@@ -29,6 +30,13 @@ pub fn generate_document_grid_thumbnail_jpeg(
     }
     if mime::is_spreadsheet_preview_mime(mime_type, filename) {
         return spreadsheet_preview::generate_spreadsheet_preview_jpeg(source_bytes, filename);
+    }
+    if mime::is_epub_mime(mime_type, filename) {
+        return epub_cover::generate_epub_cover_preview_jpeg(
+            source_bytes,
+            DOCUMENT_PREVIEW_MAX_EDGE,
+            DOCUMENT_PREVIEW_JPEG_QUALITY,
+        );
     }
     Err("file type does not support document grid thumbnail".into())
 }

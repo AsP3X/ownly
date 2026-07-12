@@ -6,7 +6,7 @@ import { CheckSquare, Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-re
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
-import { isAudioMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { isAudioMime, isEpubMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,6 +37,7 @@ type DriveContextMenuProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -105,6 +106,7 @@ export function DriveContextMenu({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -335,6 +337,16 @@ export function DriveContextMenu({
                   onClick={() => targetFile && onPreviewPdf?.(targetFile)}
                 >
                   View PDF
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={
+                    targetProcessing ||
+                    !isEpubMime(targetFile.mime_type, targetFile.name) ||
+                    !onPreviewEpub
+                  }
+                  onClick={() => targetFile && onPreviewEpub?.(targetFile)}
+                >
+                  Read EPUB
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={

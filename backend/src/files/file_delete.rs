@@ -58,6 +58,7 @@ pub fn should_skip_prefix_listing(mime_type: &Option<String>, segment_count: Opt
         let mime = mime.to_ascii_lowercase();
         mime.starts_with("image/")
             || crate::document::mime::is_pdf_mime(&mime)
+            || crate::document::mime::is_epub_mime(&mime, "")
             || mime.contains("spreadsheet")
             || mime.contains("excel")
             || (mime.contains("sheet") && !mime.contains("word"))

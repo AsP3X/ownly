@@ -2,7 +2,7 @@
 // Agent: LOW priority queue; ONLY server-ready thumbs; SKIPS legacy full-preview resize paths.
 
 import type { FileItem } from "@/api/client";
-import { isPdfMime, isSpreadsheetPreviewMime } from "@/lib/utils-app";
+import { isPdfMime, isSpreadsheetPreviewMime, isEpubMime } from "@/lib/utils-app";
 import {
   getCachedExplorerThumbnailBlob,
   hasCachedExplorerThumbnailBlob,
@@ -65,7 +65,7 @@ export function warmExplorerThumbnailCache(files: FileItem[], scopeKey: string) 
 
     if (
       file.document_thumbnail_ready &&
-      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name))
+      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name) || isEpubMime(file.mime_type, file.name))
     ) {
       const cacheKey = imageCacheKey(file);
       if (hasCachedExplorerThumbnailBlob(cacheKey)) continue;
@@ -91,7 +91,7 @@ export function touchCachedExplorerThumbnailsForFiles(files: FileItem[]) {
     }
     if (
       file.document_thumbnail_ready &&
-      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name))
+      (isPdfMime(file.mime_type) || isSpreadsheetPreviewMime(file.mime_type, file.name) || isEpubMime(file.mime_type, file.name))
     ) {
       getCachedExplorerThumbnailBlob(imageCacheKey(file));
     }

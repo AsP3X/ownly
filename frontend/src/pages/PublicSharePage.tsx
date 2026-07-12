@@ -27,7 +27,7 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import {
   LazyPublicShareInlinePdf,
   LazyPublicShareInlineVideo,
@@ -45,6 +45,7 @@ import {
   formatBytes,
   isAudioMime,
   isImageMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -94,6 +95,7 @@ export default function PublicSharePage() {
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
+  const [previewEpub, setPreviewEpub] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
   const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
@@ -134,6 +136,7 @@ export default function PublicSharePage() {
     setPreviewVideo(null);
     setPreviewImage(null);
     setPreviewPdf(null);
+    setPreviewEpub(null);
     setPreviewText(null);
     setPreviewSpreadsheet(null);
     setPreviewAudio(null);
@@ -380,6 +383,11 @@ export default function PublicSharePage() {
     if (isSpreadsheetPreviewMime(overview.mime_type, overview.name)) {
       autoOpenedPreviewRef.current = true;
       setPreviewSpreadsheet(singleFileItem);
+      return;
+    }
+    if (isEpubMime(overview.mime_type, overview.name)) {
+      autoOpenedPreviewRef.current = true;
+      setPreviewEpub(singleFileItem);
     }
   }, [overview, singleFileItem, accessGranted]);
 
@@ -518,6 +526,7 @@ export default function PublicSharePage() {
   const singleMime = overview.mime_type ?? "";
   const singleIsImage = isImageMime(singleMime);
   const singleIsPdf = isPdfMime(singleMime);
+  const singleIsEpub = isEpubMime(singleMime, overview.name);
   const singleIsAudio = isAudioMime(singleMime);
   const singleIsVideo = singleMime.startsWith("video/");
   const singleIsText = isTextCodePreviewMime(singleMime, overview.name);
@@ -563,6 +572,7 @@ export default function PublicSharePage() {
               onPreviewVideo={(file) => setPreviewVideo(file)}
               onPreviewImage={(file) => setPreviewImage(file)}
               onPreviewPdf={(file) => setPreviewPdf(file)}
+              onPreviewEpub={(file) => setPreviewEpub(file)}
               onPreviewText={(file) => setPreviewText(file)}
               onPreviewSpreadsheet={(file) => setPreviewSpreadsheet(file)}
               onPreviewAudio={(file) => setPreviewAudio(file)}
@@ -668,7 +678,7 @@ export default function PublicSharePage() {
                 </p>
               </div>
             ) : null}
-            {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsAudio && !singleIsText && !singleIsSpreadsheet ? (
+            {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsEpub && !singleIsAudio && !singleIsText && !singleIsSpreadsheet ? (
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
                 <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
                 {overview.size_bytes != null ? (
@@ -755,6 +765,22 @@ export default function PublicSharePage() {
             open: true,
             onOpenChange: (open) => {
               if (!open) setPreviewPdf(null);
+            },
+            shareToken: token,
+            sharePassword: sharePassword,
+            onDownload: overview.block_download ? undefined : (file) => void handleDownload(file),
+          }}
+        />
+      ) : null}
+
+      {previewEpub !== null ? (
+        <DynamicImportPreview
+          loader={loadEpubPreviewDialog}
+          previewProps={{
+            file: previewEpub,
+            open: true,
+            onOpenChange: (open) => {
+              if (!open) setPreviewEpub(null);
             },
             shareToken: token,
             sharePassword: sharePassword,

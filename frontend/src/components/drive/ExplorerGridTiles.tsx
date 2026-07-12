@@ -31,6 +31,7 @@ import {
   formatFileUpdatedRelative,
   isAudioMime,
   isImageMime,
+  isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
@@ -263,6 +264,7 @@ export type ExplorerFileGridTileProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -317,6 +319,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -325,6 +328,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const isVideo = file.mime_type?.startsWith("video/") ?? false;
   const isImage = isImageMime(file.mime_type);
   const isPdf = isPdfMime(file.mime_type);
+  const isEpub = isEpubMime(file.mime_type, file.name);
   const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
   const isAudio = isAudioMime(file.mime_type);
   const processing = isFileProcessing(file);
@@ -332,6 +336,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
   const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
   const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+  const canPreviewEpub = isEpub && onPreviewEpub !== undefined && !processing;
   const canPreviewSpreadsheet =
     isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
   const canPreviewText =
@@ -343,13 +348,14 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     canPreviewVideo ||
     canPreviewImage ||
     canPreviewPdf ||
+    canPreviewEpub ||
     canPreviewSpreadsheet ||
     canPreviewText ||
     canPreviewAudio;
   const showImagePreview = isImage && !processing;
   const showVideoPreview = isVideo && file.video_thumbnail_ready;
-  const showDocumentPreview = (isPdf || isSpreadsheet) && !processing;
-  // Human: PDF and spreadsheet tiles always wait for stored LibreOffice/pdftoppm JPEG sidecars.
+  const showDocumentPreview = (isPdf || isSpreadsheet || isEpub) && !processing;
+  // Human: PDF, spreadsheet, and EPUB tiles wait for stored document JPEG sidecars.
   // Agent: showDocumentPreview USES ExplorerDocumentThumbnail; SKIPS client-side xlsx mini-grid fallback.
   const showLiveThumbnailPreview =
     showImagePreview || showVideoPreview || showDocumentPreview;
@@ -480,6 +486,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           if (canPreviewVideo) onPreviewVideo!(file);
           else if (canPreviewImage) onPreviewImage!(file);
           else if (canPreviewPdf) onPreviewPdf!(file);
+          else if (canPreviewEpub) onPreviewEpub!(file);
           else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
           else if (canPreviewText) onPreviewText!(file);
           else if (canPreviewAudio) onPreviewAudio!(file);

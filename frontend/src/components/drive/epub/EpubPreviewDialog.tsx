@@ -1,0 +1,60 @@
+// Human: EPUB preview dialog — code-split entry; desktop overlay or mobile fullscreen via useIsDesktopPlayer.
+// Agent: CALLS useEpubPreviewController; RENDERS EpubPreviewSurfaceDesktop | EpubPreviewSurfaceMobile.
+
+import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
+import { EpubPreviewSurfaceDesktop } from "@/components/drive/epub/EpubPreviewSurfaceDesktop";
+import { EpubPreviewSurfaceMobile } from "@/components/drive/epub/EpubPreviewSurfaceMobile";
+import type { EpubPreviewDialogProps } from "@/components/drive/epub/epub-preview-types";
+import { useEpubPreviewController } from "@/components/drive/epub/useEpubPreviewController";
+import {
+  EPUB_READER_DIALOG_OVERLAY_CLASS,
+  EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE,
+} from "@/components/drive/epub/epub-reader-tokens";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
+export type { EpubPreviewDialogProps } from "@/components/drive/epub/epub-preview-types";
+
+export function EpubPreviewDialog({
+  file,
+  open,
+  onOpenChange,
+  shareToken,
+  sharePassword,
+  onDownload,
+}: EpubPreviewDialogProps) {
+  const isDesktop = useIsDesktopPlayer(open);
+  const vm = useEpubPreviewController({ file, open, shareToken, sharePassword });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        overlayClassName={isDesktop ? EPUB_READER_DIALOG_OVERLAY_CLASS : EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE}
+        className={cn(
+          "gap-0 overflow-hidden border-0 p-0 shadow-none",
+          isDesktop
+            ? "h-[100dvh] max-h-[100dvh] w-[100vw] max-w-[100vw] rounded-none bg-transparent"
+            : "h-[100dvh] max-h-[100dvh] w-[100vw] max-w-[100vw] rounded-none bg-background",
+        )}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{file?.name ?? "EPUB reader"}</DialogTitle>
+          <DialogDescription>Read EPUB books in Ownly.</DialogDescription>
+        </DialogHeader>
+
+        {isDesktop ? (
+          <EpubPreviewSurfaceDesktop onOpenChange={onOpenChange} onDownload={onDownload} vm={vm} />
+        ) : (
+          <EpubPreviewSurfaceMobile onOpenChange={onOpenChange} vm={vm} />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

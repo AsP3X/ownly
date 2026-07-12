@@ -19,7 +19,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isEpubMime, isImageMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ type FileListViewProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
@@ -130,6 +131,7 @@ export function FileListView({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewText,
   onPreviewSpreadsheet,
   onPreviewAudio,
@@ -305,12 +307,14 @@ export function FileListView({
             const isVideo = file.mime_type?.startsWith("video/") ?? false;
             const isImage = isImageMime(file.mime_type);
             const isPdf = isPdfMime(file.mime_type);
+            const isEpub = isEpubMime(file.mime_type, file.name);
             const isSpreadsheet = isSpreadsheetPreviewMime(file.mime_type, file.name);
             const isAudio = isAudioMime(file.mime_type);
             const processing = isFileProcessing(file);
             const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
             const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
             const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+            const canPreviewEpub = isEpub && onPreviewEpub !== undefined && !processing;
             const canPreviewSpreadsheet =
               isSpreadsheet && onPreviewSpreadsheet !== undefined && !processing;
             const canPreviewText =
@@ -322,6 +326,7 @@ export function FileListView({
               canPreviewVideo ||
               canPreviewImage ||
               canPreviewPdf ||
+              canPreviewEpub ||
               canPreviewSpreadsheet ||
               canPreviewText ||
               canPreviewAudio;
@@ -362,6 +367,7 @@ export function FileListView({
                       if (canPreviewVideo) onPreviewVideo!(file);
                       else if (canPreviewImage) onPreviewImage!(file);
                       else if (canPreviewPdf) onPreviewPdf!(file);
+                      else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);

@@ -16,7 +16,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isAudioMime, isImageMime, isPdfMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isEpubMime, isImageMime, isPdfMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ type MobileHomeSectionProps = {
   onPreviewVideo?: (file: FileItem) => void;
   onPreviewImage?: (file: FileItem) => void;
   onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onOpenActions: (target: MobileActionTarget) => void;
 };
@@ -83,6 +84,7 @@ export function MobileHomeSection({
   onPreviewVideo,
   onPreviewImage,
   onPreviewPdf,
+  onPreviewEpub,
   onPreviewAudio,
   onOpenActions,
 }: MobileHomeSectionProps) {
@@ -105,14 +107,16 @@ export function MobileHomeSection({
           const isVideo = file.mime_type?.startsWith("video/") ?? false;
           const isImage = isImageMime(file.mime_type);
           const isPdf = isPdfMime(file.mime_type);
+          const isEpub = isEpubMime(file.mime_type, file.name);
           const isAudio = isAudioMime(file.mime_type);
           const processing = isFileProcessing(file);
           const canPreviewVideo = isVideo && onPreviewVideo !== undefined && !processing;
           const canPreviewImage = isImage && onPreviewImage !== undefined && !processing;
           const canPreviewPdf = isPdf && onPreviewPdf !== undefined && !processing;
+          const canPreviewEpub = isEpub && onPreviewEpub !== undefined && !processing;
           const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
           const canPreview =
-            canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewAudio;
+            canPreviewVideo || canPreviewImage || canPreviewPdf || canPreviewEpub || canPreviewAudio;
 
           return (
             <li
@@ -127,6 +131,7 @@ export function MobileHomeSection({
                     if (canPreviewVideo) onPreviewVideo!(file);
                     else if (canPreviewImage) onPreviewImage!(file);
                     else if (canPreviewPdf) onPreviewPdf!(file);
+                    else if (canPreviewEpub) onPreviewEpub!(file);
                     else if (canPreviewAudio) onPreviewAudio!(file);
                   }}
                   className={cn(
