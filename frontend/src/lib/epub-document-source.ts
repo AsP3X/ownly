@@ -11,6 +11,20 @@ export async function openEpubBookFromBlob(blob: Blob): Promise<Book> {
   // Agent: AWAITS book.ready then book.opened before renderTo so book.package exists when start() runs.
   await book.ready;
   await book.opened;
+  // Human: CSS replacement and spine indexing can still finish after opened resolves.
+  // Agent: AWAITS loaded.* promises so renderTo/start never races archive parsing workers.
+  await Promise.all([
+    book.loaded.metadata,
+    book.loaded.navigation,
+    book.loaded.spine,
+    book.loaded.resources,
+  ]);
+
+  const bookWithPackage = book as Book & { package?: unknown };
+  if (!bookWithPackage.package) {
+    throw new Error("EPUB package metadata failed to load.");
+  }
+
   return book;
 }
 

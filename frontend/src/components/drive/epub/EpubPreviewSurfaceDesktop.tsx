@@ -45,6 +45,7 @@ export function EpubPreviewSurfaceDesktop({
     currentSpineIndex,
     totalSpineItems,
     progressCompactLabel,
+    canRenderRendition,
   } = vm;
 
   const canGoPrevious = currentSpineIndex > 0;
@@ -143,10 +144,9 @@ export function EpubPreviewSurfaceDesktop({
             {error ? (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">{error}</div>
             ) : null}
-            <div
-              ref={registerRenditionHost}
-              className={cn("epub-reader-rendition h-full w-full", (loading || error) && "hidden")}
-            />
+            {canRenderRendition ? (
+              <div ref={registerRenditionHost} className="epub-reader-rendition h-full w-full" />
+            ) : null}
           </div>
 
           {!loading && !error ? (

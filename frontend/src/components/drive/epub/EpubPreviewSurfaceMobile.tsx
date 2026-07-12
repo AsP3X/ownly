@@ -7,7 +7,6 @@ import { EpubReaderControlBar } from "@/components/drive/epub/EpubReaderControlB
 import { EpubReaderSettingsSheet } from "@/components/drive/epub/EpubReaderSettingsSheet";
 import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/useEpubPreviewController";
 import { EPUB_READER_PAPER_BG } from "@/components/drive/epub/epub-reader-tokens";
-import { cn } from "@/lib/utils";
 
 import "./epub-reader-rendition.css";
 
@@ -28,6 +27,7 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
     setPreferences,
     progressFraction,
     progressLabel,
+    canRenderRendition,
   } = vm;
 
   return (
@@ -50,7 +50,9 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
           </div>
         ) : null}
         {error ? <div className="flex h-full items-center justify-center text-sm text-destructive">{error}</div> : null}
-        <div ref={registerRenditionHost} className={cn("epub-reader-rendition h-full w-full", (loading || error) && "hidden")} />
+        {canRenderRendition ? (
+          <div ref={registerRenditionHost} className="epub-reader-rendition h-full w-full" />
+        ) : null}
       </div>
 
       <footer className="border-t border-border bg-background px-4 py-3">
