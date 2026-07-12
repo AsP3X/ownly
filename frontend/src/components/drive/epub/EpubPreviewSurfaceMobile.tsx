@@ -17,7 +17,7 @@ type EpubPreviewSurfaceMobileProps = {
 export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfaceMobileProps) {
   const renditionHostRef = useRef<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { file, loading, error, chapterLabel, attachRendition, preferences, setPreferences, progressFraction, progressLabel } = vm;
+  const { file, loading, error, chapterLabel, attachRendition, bookReady, preferences, setPreferences, progressFraction, progressLabel } = vm;
 
   const setRenditionHost = useCallback(
     (node: HTMLDivElement | null) => {
@@ -28,8 +28,9 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
   );
 
   useEffect(() => {
+    if (!bookReady) return;
     attachRendition(renditionHostRef.current);
-  }, [attachRendition, file?.id]);
+  }, [attachRendition, bookReady, file?.id]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" style={{ backgroundColor: EPUB_READER_PAPER_BG }}>

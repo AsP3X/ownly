@@ -2,13 +2,13 @@
 // Agent: FETCHES fetchFileBlobForPreview; WRITES epub Book + Rendition refs; READS epub-navigation helpers.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ePub, { type Book, type Rendition } from "epubjs";
+import { type Book, type Rendition } from "epubjs";
 import {
   fetchFileBlobForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
 } from "@/api/client";
-import { createEpubBlobObjectUrl, revokeEpubBlobObjectUrl } from "@/lib/epub-document-source";
+import { openEpubBookFromBlob } from "@/lib/epub-document-source";
 import {
   clampSpineIndex,
   computeChapterProgress,
@@ -48,7 +48,7 @@ export type EpubPreviewControllerViewModel = {
   goPreviousChapter: () => void;
   goToTocEntry: (entry: EpubTocEntry) => void;
   attachRendition: (node: HTMLDivElement | null) => void;
-  renditionNode: HTMLDivElement | null;
+  bookReady: boolean;
 };
 
 function applyRenditionTheme(rendition: Rendition, preferences: EpubReaderPreferences): void {
@@ -91,11 +91,11 @@ export function useEpubPreviewController({
   const [totalSpineItems, setTotalSpineItems] = useState(0);
   const [currentHref, setCurrentHref] = useState<string | null>(null);
   const [preferences, setPreferencesState] = useState<EpubReaderPreferences>(() => readEpubReaderPreferences());
-  const [renditionNode, setRenditionNode] = useState<HTMLDivElement | null>(null);
+  const [bookReady, setBookReady] = useState(false);
 
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
-  const epubObjectUrlRef = useRef<string | null>(null);
+  const renditionHostRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const destroyRendition = useCallback(() => {
@@ -107,8 +107,7 @@ export function useEpubPreviewController({
     destroyRendition();
     bookRef.current?.destroy();
     bookRef.current = null;
-    revokeEpubBlobObjectUrl(epubObjectUrlRef.current);
-    epubObjectUrlRef.current = null;
+    setBookReady(false);
     setTocEntries([]);
     setCurrentSpineIndex(0);
     setTotalSpineItems(0);
@@ -135,7 +134,7 @@ export function useEpubPreviewController({
 
   const attachRendition = useCallback(
     (node: HTMLDivElement | null) => {
-      setRenditionNode(node);
+      renditionHostRef.current = node;
       if (!node || !bookRef.current) {
         destroyRendition();
         return;
@@ -193,12 +192,9 @@ export function useEpubPreviewController({
         if (cancelled) return;
 
         destroyBook();
-        const objectUrl = createEpubBlobObjectUrl(blob);
-        epubObjectUrlRef.current = objectUrl;
 
-        const book = ePub(objectUrl);
+        const book = await openEpubBookFromBlob(blob);
         bookRef.current = book;
-        await book.ready;
 
         if (cancelled) return;
 
@@ -208,9 +204,12 @@ export function useEpubPreviewController({
         setTotalSpineItems(getSpineLength(book));
         setCurrentSpineIndex(0);
         setCurrentHref(book.spine.get(0)?.href ?? null);
+        setBookReady(true);
 
-        if (renditionNode && bookRef.current) {
-          attachRendition(renditionNode);
+        // Human: Host ref may already exist while bytes were loading — attach without re-fetching.
+        // Agent: CALLS attachRendition once when book.ready completes.
+        if (renditionHostRef.current) {
+          attachRendition(renditionHostRef.current);
         }
       } catch (cause) {
         if (cancelled || controller.signal.aborted) return;
@@ -226,7 +225,7 @@ export function useEpubPreviewController({
       cancelled = true;
       controller.abort();
     };
-  }, [attachRendition, destroyBook, file, open, renditionNode, sharePassword, shareToken]);
+  }, [attachRendition, destroyBook, file, open, sharePassword, shareToken]);
 
   useEffect(() => {
     const rendition = renditionRef.current;
@@ -298,6 +297,6 @@ export function useEpubPreviewController({
     goPreviousChapter,
     goToTocEntry,
     attachRendition,
-    renditionNode,
+    bookReady,
   };
 }

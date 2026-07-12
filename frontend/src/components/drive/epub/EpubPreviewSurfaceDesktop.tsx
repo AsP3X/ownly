@@ -39,6 +39,7 @@ export function EpubPreviewSurfaceDesktop({
     goNextChapter,
     goPreviousChapter,
     attachRendition,
+    bookReady,
     currentSpineIndex,
     totalSpineItems,
   } = vm;
@@ -52,8 +53,9 @@ export function EpubPreviewSurfaceDesktop({
   );
 
   useEffect(() => {
+    if (!bookReady) return;
     attachRendition(renditionHostRef.current);
-  }, [attachRendition, file?.id]);
+  }, [attachRendition, bookReady, file?.id]);
 
   const canGoPrevious = currentSpineIndex > 0;
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
