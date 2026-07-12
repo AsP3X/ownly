@@ -9,7 +9,7 @@ import {
   getErrorMessage,
 } from "@/api/client";
 import { openEpubBookFromBlob } from "@/lib/epub-document-source";
-import { measureRenditionHost, waitForRenditionHostLayout } from "@/lib/epub-rendition-layout";
+import { measureRenditionHost, nextFrame, waitForRenditionHostLayout } from "@/lib/epub-rendition-layout";
 import {
   clampSpineIndex,
   computeChapterProgress,
@@ -84,29 +84,46 @@ function applyRenditionTheme(rendition: Rendition, preferences: EpubReaderPrefer
   rendition.themes.select("ownly");
 }
 
-// Human: Cover-only spine items often render top-left unless the body is centered in the iframe.
-// Agent: RUNS on rendition.hooks.content for image-dominant sections only.
-function registerCoverPageLayout(rendition: Rendition): void {
+// Human: Normalize section HTML so content fills the iframe without horizontal clipping.
+// Agent: RUNS on rendition.hooks.content for every spine section.
+function registerContentLayout(rendition: Rendition): void {
   rendition.hooks.content.register((contents: { document?: Document }) => {
-    const body = contents.document?.body;
-    if (!body) return;
+    const doc = contents.document;
+    const html = doc?.documentElement;
+    const body = doc?.body;
+    if (!html || !body) return;
+
+    html.style.setProperty("height", "100%", "important");
+    html.style.setProperty("margin", "0", "important");
+    html.style.setProperty("padding", "0", "important");
+    html.style.setProperty("box-sizing", "border-box", "important");
+
+    body.style.setProperty("margin", "0", "important");
+    body.style.setProperty("padding", "0", "important");
+    body.style.setProperty("box-sizing", "border-box", "important");
+    body.style.setProperty("overflow-x", "hidden", "important");
 
     const images = body.querySelectorAll("img");
-    if (images.length !== 1) return;
+    if (images.length === 1) {
+      const text = body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      if (text.length <= 64) {
+        body.style.setProperty("display", "flex", "important");
+        body.style.setProperty("align-items", "center", "important");
+        body.style.setProperty("justify-content", "center", "important");
+        body.style.setProperty("min-height", "100%", "important");
+      }
+    }
 
-    const text = body.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    if (text.length > 32) return;
-
-    body.style.setProperty("display", "flex", "important");
-    body.style.setProperty("align-items", "center", "important");
-    body.style.setProperty("justify-content", "center", "important");
-    body.style.setProperty("min-height", "100%", "important");
-    body.style.setProperty("margin", "0", "important");
-
-    const image = images[0] as HTMLImageElement;
-    image.style.setProperty("max-width", "100%", "important");
-    image.style.setProperty("max-height", "100%", "important");
-    image.style.setProperty("object-fit", "contain", "important");
+    images.forEach((node) => {
+      const image = node as HTMLImageElement;
+      image.style.setProperty("max-width", "100%", "important");
+      image.style.setProperty("max-height", "100%", "important");
+      image.style.setProperty("width", "auto", "important");
+      image.style.setProperty("height", "auto", "important");
+      image.style.setProperty("object-fit", "contain", "important");
+      image.style.setProperty("display", "block", "important");
+      image.style.setProperty("margin", "0 auto", "important");
+    });
   });
 }
 
@@ -237,15 +254,14 @@ export function useEpubPreviewController({
       const rendition = book.renderTo(node, {
         width: hostSize.width,
         height: hostSize.height,
-        flow: "paginated",
-        manager: "default",
-        // Human: Single-page spread keeps reflowable text and covers full width in the card.
-        // Agent: MATCHES pen Reading Area width; avoids tiny centered cover in dual-page spread.
+        // Human: Scrolled-doc avoids paginated column clipping on covers and fixed-layout pages.
+        // Agent: USES one scrollable section per spine item; chapter nav still calls display(href).
+        flow: "scrolled-doc",
         spread: "none",
       });
       renditionRef.current = rendition;
       applyRenditionTheme(rendition, preferencesRef.current);
-      registerCoverPageLayout(rendition);
+      registerContentLayout(rendition);
 
       rendition.on("relocated", (location: { start?: { index?: number; href?: string } }) => {
         const spineIndex = location?.start?.index;
@@ -265,6 +281,8 @@ export function useEpubPreviewController({
       attachedHostRef.current = { book, node };
       await displayAtIndex(currentSpineIndexRef.current);
 
+      await nextFrame();
+      await nextFrame();
       const latestSize = measureRenditionHost(node);
       rendition.resize(latestSize.width, latestSize.height);
 

@@ -47,7 +47,9 @@ export function EpubPreviewDialog({
         </DialogHeader>
 
         {isDesktop ? (
-          <EpubPreviewSurfaceDesktop onOpenChange={onOpenChange} onDownload={onDownload} vm={vm} />
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+            <EpubPreviewSurfaceDesktop onOpenChange={onOpenChange} onDownload={onDownload} vm={vm} />
+          </div>
         ) : (
           <EpubPreviewSurfaceMobile onOpenChange={onOpenChange} vm={vm} />
         )}

@@ -1,4 +1,4 @@
-// Human: Desktop EPUB reader — compact chrome with a flex column so content fills the card.
+// Human: Desktop EPUB reader — centered card with overlay chapter nav on the scrim.
 // Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel.
 
 import { Loader2, Bookmark, ChevronLeft, ChevronRight, Download, Share2, X } from "lucide-react";
@@ -8,7 +8,9 @@ import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/use
 import {
   EPUB_READER_CHAPTER_NAV_BUTTON_CLASS,
   EPUB_READER_CLOSE_BUTTON_CLASS,
-  EPUB_READER_DESKTOP_ROW_CLASS,
+  EPUB_READER_DESKTOP_CHAPTER_NAV_NEXT_CLASS,
+  EPUB_READER_DESKTOP_CHAPTER_NAV_PREV_CLASS,
+  EPUB_READER_DESKTOP_VIEWPORT_CLASS,
   EPUB_READER_META_PILL_CLASS,
   EPUB_READER_PAPER_BG,
   EPUB_READER_SURFACE_CLASS,
@@ -50,9 +52,9 @@ export function EpubPreviewSurfaceDesktop({
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
 
   return (
-    <div className="flex min-h-0 w-full min-w-0 flex-1">
+    <div className={EPUB_READER_DESKTOP_VIEWPORT_CLASS}>
       {tocOpen ? (
-        <aside className="absolute left-2 top-2 z-20 flex h-[calc(100%-1rem)] w-[18rem] flex-col gap-3 rounded-2xl border border-border bg-background p-4 shadow-xl">
+        <aside className="absolute left-2 top-2 z-40 flex h-[calc(100%-1rem)] w-[18rem] flex-col gap-3 rounded-2xl border border-border bg-background p-4 shadow-xl">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-foreground">Table of Contents</h2>
             <button type="button" aria-label="Close table of contents" onClick={() => setTocOpen(false)}>
@@ -85,83 +87,79 @@ export function EpubPreviewSurfaceDesktop({
         </aside>
       ) : null}
 
-      <div className={cn(EPUB_READER_DESKTOP_ROW_CLASS, "max-w-[88rem]")}>
-        <button
-          type="button"
-          className={EPUB_READER_CHAPTER_NAV_BUTTON_CLASS}
-          aria-label="Previous chapter"
-          disabled={!canGoPrevious}
-          onClick={goPreviousChapter}
-        >
-          <ChevronLeft className="size-7" aria-hidden />
-        </button>
+      <button
+        type="button"
+        className={cn(EPUB_READER_CHAPTER_NAV_BUTTON_CLASS, EPUB_READER_DESKTOP_CHAPTER_NAV_PREV_CLASS)}
+        aria-label="Previous chapter"
+        disabled={!canGoPrevious}
+        onClick={goPreviousChapter}
+      >
+        <ChevronLeft className="size-7" aria-hidden />
+      </button>
 
-        <section
-          className={cn(EPUB_READER_SURFACE_CLASS, "max-h-[calc(100dvh-0.5rem)]")}
-          style={{ backgroundColor: EPUB_READER_PAPER_BG }}
-        >
-          {/* Human: Top chrome — single compact row; does not consume a full absolute band. */}
-          <div className="relative z-20 flex shrink-0 items-start justify-between gap-3 px-4 pt-4">
-            <div className={EPUB_READER_META_PILL_CLASS}>
-              <span className="truncate font-semibold">
-                {file?.name ?? "EPUB"} • {chapterLabel}
-              </span>
-              <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
-                {onDownload && file ? (
-                  <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Download" onClick={() => onDownload(file)}>
-                    <Download className="size-4" />
-                  </button>
-                ) : null}
-                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Share" title="Share from drive menu">
-                  <Share2 className="size-4" />
+      <section
+        className={cn(EPUB_READER_SURFACE_CLASS, "h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)]")}
+        style={{ backgroundColor: EPUB_READER_PAPER_BG }}
+      >
+        <div className="relative z-20 flex shrink-0 items-start justify-between gap-3 px-3 pt-3">
+          <div className={EPUB_READER_META_PILL_CLASS}>
+            <span className="truncate font-semibold">
+              {file?.name ?? "EPUB"} • {chapterLabel}
+            </span>
+            <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
+              {onDownload && file ? (
+                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Download" onClick={() => onDownload(file)}>
+                  <Download className="size-4" />
                 </button>
-                <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Bookmark" title="Bookmarks coming soon">
-                  <Bookmark className="size-4" />
-                </button>
-              </div>
+              ) : null}
+              <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Share" title="Share from drive menu">
+                <Share2 className="size-4" />
+              </button>
+              <button type="button" className="rounded-md p-1 opacity-90 hover:opacity-100" aria-label="Bookmark" title="Bookmarks coming soon">
+                <Bookmark className="size-4" />
+              </button>
             </div>
-
-            <button
-              type="button"
-              className={EPUB_READER_CLOSE_BUTTON_CLASS}
-              aria-label="Close reader"
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="size-5" aria-hidden />
-            </button>
           </div>
 
-          {/* Human: Reading area flex-fills remaining card height between compact chrome rows. */}
-          <div className="relative min-h-0 flex-1 px-4 pb-2 pt-3">
-            {loading ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                <Loader2 className="mr-2 size-5 animate-spin" />
-                Loading EPUB…
-              </div>
-            ) : null}
-            {error ? (
-              <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">{error}</div>
-            ) : null}
-            {canRenderRendition ? (
-              <div ref={registerRenditionHost} className="epub-reader-rendition h-full w-full" />
-            ) : null}
-          </div>
+          <button
+            type="button"
+            className={EPUB_READER_CLOSE_BUTTON_CLASS}
+            aria-label="Close reader"
+            onClick={() => onOpenChange(false)}
+          >
+            <X className="size-5" aria-hidden />
+          </button>
+        </div>
 
-          <div className="shrink-0 px-4 pb-4 pt-1">
-            <EpubReaderControlBar vm={vm} />
-          </div>
-        </section>
+        <div className="relative min-h-0 flex-1 px-2 pb-1 pt-2">
+          {loading ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <Loader2 className="mr-2 size-5 animate-spin" />
+              Loading EPUB…
+            </div>
+          ) : null}
+          {error ? (
+            <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">{error}</div>
+          ) : null}
+          {canRenderRendition ? (
+            <div ref={registerRenditionHost} className="epub-reader-rendition h-full w-full" />
+          ) : null}
+        </div>
 
-        <button
-          type="button"
-          className={EPUB_READER_CHAPTER_NAV_BUTTON_CLASS}
-          aria-label="Next chapter"
-          disabled={!canGoNext}
-          onClick={goNextChapter}
-        >
-          <ChevronRight className="size-7" aria-hidden />
-        </button>
-      </div>
+        <div className="shrink-0 px-3 pb-3 pt-1">
+          <EpubReaderControlBar vm={vm} />
+        </div>
+      </section>
+
+      <button
+        type="button"
+        className={cn(EPUB_READER_CHAPTER_NAV_BUTTON_CLASS, EPUB_READER_DESKTOP_CHAPTER_NAV_NEXT_CLASS)}
+        aria-label="Next chapter"
+        disabled={!canGoNext}
+        onClick={goNextChapter}
+      >
+        <ChevronRight className="size-7" aria-hidden />
+      </button>
     </div>
   );
 }
