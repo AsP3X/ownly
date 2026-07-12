@@ -9,6 +9,7 @@ import {
   getErrorMessage,
 } from "@/api/client";
 import { openEpubBookFromBlob } from "@/lib/epub-document-source";
+import { measureRenditionHost, waitForRenditionHostLayout } from "@/lib/epub-rendition-layout";
 import {
   clampSpineIndex,
   computeChapterProgress,
@@ -70,17 +71,43 @@ function applyRenditionTheme(rendition: Rendition, preferences: EpubReaderPrefer
           : preferences.theme === "sepia"
             ? "#F4ECD8 !important"
             : "#FAF8F5 !important",
+      margin: "0 !important",
     },
     img: {
       "max-width": "100% !important",
-      "max-height": "100% !important",
-      "width": "auto !important",
       "height": "auto !important",
+      "object-fit": "contain !important",
       margin: "0 auto !important",
       display: "block !important",
     },
   });
   rendition.themes.select("ownly");
+}
+
+// Human: Cover-only spine items often render top-left unless the body is centered in the iframe.
+// Agent: RUNS on rendition.hooks.content for image-dominant sections only.
+function registerCoverPageLayout(rendition: Rendition): void {
+  rendition.hooks.content.register((contents: { document?: Document }) => {
+    const body = contents.document?.body;
+    if (!body) return;
+
+    const images = body.querySelectorAll("img");
+    if (images.length !== 1) return;
+
+    const text = body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    if (text.length > 32) return;
+
+    body.style.setProperty("display", "flex", "important");
+    body.style.setProperty("align-items", "center", "important");
+    body.style.setProperty("justify-content", "center", "important");
+    body.style.setProperty("min-height", "100%", "important");
+    body.style.setProperty("margin", "0", "important");
+
+    const image = images[0] as HTMLImageElement;
+    image.style.setProperty("max-width", "100%", "important");
+    image.style.setProperty("max-height", "100%", "important");
+    image.style.setProperty("object-fit", "contain", "important");
+  });
 }
 
 function getSpineLength(book: Book): number {
@@ -115,6 +142,7 @@ export function useEpubPreviewController({
   const attachedHostRef = useRef<{ book: Book; node: HTMLDivElement } | null>(null);
   const syncGenerationRef = useRef(0);
   const syncInFlightRef = useRef<Promise<void> | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const currentSpineIndexRef = useRef(0);
   const preferencesRef = useRef(preferences);
   const abortRef = useRef<AbortController | null>(null);
@@ -122,11 +150,17 @@ export function useEpubPreviewController({
   preferencesRef.current = preferences;
   currentSpineIndexRef.current = currentSpineIndex;
 
+  const detachResizeObserver = useCallback(() => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+  }, []);
+
   const destroyRendition = useCallback(() => {
+    detachResizeObserver();
     renditionRef.current?.destroy();
     renditionRef.current = null;
     attachedHostRef.current = null;
-  }, []);
+  }, [detachResizeObserver]);
 
   // Human: Bumps sync generation so in-flight attach/display work aborts after the next await.
   // Agent: CALLS destroyRendition; USE when closing dialog or unmounting the host node.
@@ -194,9 +228,15 @@ export function useEpubPreviewController({
         throw new Error("EPUB metadata is not ready yet.");
       }
 
+      await waitForRenditionHostLayout(node);
+      if (generation !== syncGenerationRef.current) return;
+      if (bookRef.current !== book || renditionHostRef.current !== node) return;
+
+      const hostSize = measureRenditionHost(node);
+
       const rendition = book.renderTo(node, {
-        width: "100%",
-        height: "100%",
+        width: hostSize.width,
+        height: hostSize.height,
         flow: "paginated",
         manager: "default",
         // Human: Single-page spread keeps reflowable text and covers full width in the card.
@@ -205,6 +245,7 @@ export function useEpubPreviewController({
       });
       renditionRef.current = rendition;
       applyRenditionTheme(rendition, preferencesRef.current);
+      registerCoverPageLayout(rendition);
 
       rendition.on("relocated", (location: { start?: { index?: number; href?: string } }) => {
         const spineIndex = location?.start?.index;
@@ -224,17 +265,25 @@ export function useEpubPreviewController({
       attachedHostRef.current = { book, node };
       await displayAtIndex(currentSpineIndexRef.current);
 
-      // Human: Host may mount before layout settles — nudge epub.js to recalc iframe size.
-      // Agent: CALLS rendition.resize with host bounds after first display.
-      const bounds = node.getBoundingClientRect();
-      if (bounds.width > 0 && bounds.height > 0) {
-        rendition.resize(bounds.width, bounds.height);
-      }
+      const latestSize = measureRenditionHost(node);
+      rendition.resize(latestSize.width, latestSize.height);
+
+      detachResizeObserver();
+      const observer = new ResizeObserver(() => {
+        const renditionInstance = renditionRef.current;
+        const hostNode = renditionHostRef.current;
+        if (!renditionInstance || !hostNode) return;
+
+        const nextSize = measureRenditionHost(hostNode);
+        renditionInstance.resize(nextSize.width, nextSize.height);
+      });
+      observer.observe(node);
+      resizeObserverRef.current = observer;
     } catch (cause) {
       if (generation !== syncGenerationRef.current) return;
       setError(getErrorMessage(cause));
     }
-  }, [bookReady, cancelRenditionSync, destroyRendition, displayAtIndex, hostMounted]);
+  }, [bookReady, cancelRenditionSync, destroyRendition, detachResizeObserver, displayAtIndex, hostMounted]);
 
   const syncRenditionRef = useRef(syncRendition);
   syncRenditionRef.current = syncRendition;

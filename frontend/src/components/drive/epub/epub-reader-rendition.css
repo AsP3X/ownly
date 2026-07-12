@@ -1,24 +1,10 @@
-/* Human: epub.js injects nested divs/iframes — stretch them to fill the pen Reading Area band. */
-/* Agent: USED by EpubPreviewSurfaceDesktop rendition host; prevents tiny centered cover pages. */
+/* Human: Host shell only — epub.js positions iframes internally; do not override inner sizes. */
+/* Agent: USED by EpubPreviewSurface*; inner !important rules break paginated centering/clipping. */
 
 .epub-reader-rendition {
   position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
-
-.epub-reader-rendition > div,
-.epub-reader-rendition .epub-container,
-.epub-reader-rendition .epub-view,
-.epub-reader-rendition iframe {
-  width: 100% !important;
-  height: 100% !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
-}
-
-.epub-reader-rendition .epub-container {
-  margin: 0 auto !important;
-}
-
-/* Human: Cover and illustration pages should scale up inside the reading band. */
-/* Agent: INJECTED into epub.js iframe via theme rules in useEpubPreviewController. */
