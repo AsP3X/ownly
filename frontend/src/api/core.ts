@@ -70,7 +70,7 @@ let csrfBootstrapInFlight: Promise<boolean> | null = null;
 async function ensureCsrfTokenForMutation(): Promise<string | null> {
   const existing = readCsrfToken();
   if (existing) return existing;
-  if (!hasSessionHint()) return null;
+  if (!mayHaveSessionCookie()) return null;
   if (!csrfBootstrapInFlight) {
     csrfBootstrapInFlight = tryRefreshAuthToken().finally(() => {
       csrfBootstrapInFlight = null;

@@ -19,6 +19,24 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const REMEMBER_EMAIL_KEY = "ownly.auth.rememberEmail";
 
+// Human: Read remembered email from localStorage, migrating legacy sessionStorage values once.
+// Agent: READS localStorage; ONE-TIME COPY from sessionStorage when upgrading older clients.
+function readRememberedEmail(): string {
+  try {
+    const fromLocal = localStorage.getItem(REMEMBER_EMAIL_KEY);
+    if (fromLocal) return fromLocal;
+    const legacy = sessionStorage.getItem(REMEMBER_EMAIL_KEY);
+    if (legacy) {
+      localStorage.setItem(REMEMBER_EMAIL_KEY, legacy);
+      sessionStorage.removeItem(REMEMBER_EMAIL_KEY);
+      return legacy;
+    }
+  } catch {
+    // Private mode — fall back to empty prefill.
+  }
+  return "";
+}
+
 type LoginLocationState = {
   from?: string;
   email?: string;
@@ -35,8 +53,8 @@ export default function LoginPage() {
     new URLSearchParams(location.search).get("next") ??
     "/";
   // Human: Registration redirect email wins over remembered email on first paint.
-  // Agent: READS location.state.email from RegisterPage; falls back to sessionStorage remember key.
-  const savedEmail = sessionStorage.getItem(REMEMBER_EMAIL_KEY);
+  // Agent: READS location.state.email from RegisterPage; falls back to localStorage remember key.
+  const savedEmail = readRememberedEmail();
   const prefilledEmail = locationState?.email ?? savedEmail ?? "";
   const [email, setEmail] = useState(prefilledEmail);
   const [password, setPassword] = useState("");
@@ -81,9 +99,9 @@ export default function LoginPage() {
     try {
       const res = await login(email.trim(), password);
       if (rememberMe) {
-        sessionStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+        localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
       } else {
-        sessionStorage.removeItem(REMEMBER_EMAIL_KEY);
+        localStorage.removeItem(REMEMBER_EMAIL_KEY);
       }
       const sessionExpHint = res.token ? getJwtExp(res.token) : null;
       setAuth(res.user, sessionExpHint);

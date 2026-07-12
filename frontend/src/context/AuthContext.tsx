@@ -17,7 +17,7 @@ import { readCsrfTokenFromCookie } from "@/api/core";
 import { AuthContext, SESSION_ACTIVE, type User } from "@/context/auth-context";
 import { hasInstancePermission as checkInstancePermission, isInstanceAdmin } from "@/lib/instance-permissions";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
-import { clearSessionHint, hasSessionHint, setSessionHint } from "@/lib/session-hint";
+import { clearSessionHint, setSessionHint } from "@/lib/session-hint";
 
 /** Human: Run session probes after first paint so login shell is not blocked on /me. */
 function scheduleIdleTask(task: () => void): () => void {
@@ -38,22 +38,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionExpHintRef = useRef<number | null>(null);
   const logoutInProgressRef = useRef(false);
 
-  // Human: Restore cookie session after reload without reading JWT from web storage.
-  // Agent: GET /me + /me/permissions when session hint exists; CLEARS state on 401.
+  // Human: Restore cookie session after reload or a new tab without reading JWT from web storage.
+  // Agent: ALWAYS GET /me + /me/permissions (HttpOnly cookie may exist without a client hint); CLEARS on 401.
   useEffect(() => {
     let cancelled = false;
 
-    if (!hasSessionHint()) {
-      setSessionReady(true);
-      return;
-    }
-
     void (async () => {
       try {
-        const [profile, permPayload] = await Promise.all([
-          fetchCurrentUser(),
-          fetchMyInstancePermissions(),
-        ]);
+        const profile = await fetchCurrentUser();
+        if (cancelled) return;
+        const permPayload = await fetchMyInstancePermissions();
         if (cancelled) return;
         setUser({
           id: profile.id,
@@ -63,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         setInstancePermissions(permPayload.permissions);
         setToken(SESSION_ACTIVE);
+        setSessionHint();
         syncCsrfHintFromCookie(readCsrfTokenFromCookie);
         if (!readCsrfTokenFromCookie() && !readCsrfHint()) {
           void tryRefreshAuthToken();
