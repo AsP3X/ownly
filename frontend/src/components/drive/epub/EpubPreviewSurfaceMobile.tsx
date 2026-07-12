@@ -1,7 +1,7 @@
 // Human: Mobile EPUB reader — fullscreen pen layout with header, progress bar, and settings sheet.
 // Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ChevronLeft, Ellipsis, Loader2 } from "lucide-react";
 import { EpubReaderControlBar } from "@/components/drive/epub/EpubReaderControlBar";
 import { EpubReaderSettingsSheet } from "@/components/drive/epub/EpubReaderSettingsSheet";
@@ -9,28 +9,26 @@ import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/use
 import { EPUB_READER_PAPER_BG } from "@/components/drive/epub/epub-reader-tokens";
 import { cn } from "@/lib/utils";
 
+import "./epub-reader-rendition.css";
+
 type EpubPreviewSurfaceMobileProps = {
   onOpenChange: (open: boolean) => void;
   vm: EpubPreviewControllerViewModel;
 };
 
 export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfaceMobileProps) {
-  const renditionHostRef = useRef<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { file, loading, error, chapterLabel, attachRendition, bookReady, preferences, setPreferences, progressFraction, progressLabel } = vm;
-
-  const setRenditionHost = useCallback(
-    (node: HTMLDivElement | null) => {
-      renditionHostRef.current = node;
-      attachRendition(node);
-    },
-    [attachRendition],
-  );
-
-  useEffect(() => {
-    if (!bookReady) return;
-    attachRendition(renditionHostRef.current);
-  }, [attachRendition, bookReady, file?.id]);
+  const {
+    file,
+    loading,
+    error,
+    chapterLabel,
+    registerRenditionHost,
+    preferences,
+    setPreferences,
+    progressFraction,
+    progressLabel,
+  } = vm;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" style={{ backgroundColor: EPUB_READER_PAPER_BG }}>
@@ -52,7 +50,7 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
           </div>
         ) : null}
         {error ? <div className="flex h-full items-center justify-center text-sm text-destructive">{error}</div> : null}
-        <div ref={setRenditionHost} className={cn("h-full w-full", (loading || error) && "hidden")} />
+        <div ref={registerRenditionHost} className={cn("epub-reader-rendition h-full w-full", (loading || error) && "hidden")} />
       </div>
 
       <footer className="border-t border-border bg-background px-4 py-3">

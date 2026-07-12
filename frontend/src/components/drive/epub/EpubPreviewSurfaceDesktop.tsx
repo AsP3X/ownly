@@ -1,8 +1,7 @@
 // Human: Desktop EPUB reader — pen Viewport Row with flanking chapter nav and absolute chrome on reader card.
 // Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel; MATCHES docs/design/epub-reader.pen.
 
-import { useCallback, useEffect, useRef } from "react";
-import { Bookmark, ChevronLeft, ChevronRight, Download, Loader2, Share2, X } from "lucide-react";
+import { Loader2, Bookmark, ChevronLeft, ChevronRight, Download, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { EpubReaderControlBar } from "@/components/drive/epub/EpubReaderControlBar";
 import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/useEpubPreviewController";
@@ -29,7 +28,6 @@ export function EpubPreviewSurfaceDesktop({
   onDownload,
   vm,
 }: EpubPreviewSurfaceDesktopProps) {
-  const renditionHostRef = useRef<HTMLDivElement | null>(null);
   const {
     file,
     loading,
@@ -42,25 +40,11 @@ export function EpubPreviewSurfaceDesktop({
     goToTocEntry,
     goNextChapter,
     goPreviousChapter,
-    attachRendition,
-    bookReady,
+    registerRenditionHost,
     currentSpineIndex,
     totalSpineItems,
     progressCompactLabel,
   } = vm;
-
-  const setRenditionHost = useCallback(
-    (node: HTMLDivElement | null) => {
-      renditionHostRef.current = node;
-      attachRendition(node);
-    },
-    [attachRendition],
-  );
-
-  useEffect(() => {
-    if (!bookReady) return;
-    attachRendition(renditionHostRef.current);
-  }, [attachRendition, bookReady, file?.id]);
 
   const canGoPrevious = currentSpineIndex > 0;
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
@@ -101,8 +85,8 @@ export function EpubPreviewSurfaceDesktop({
         </aside>
       ) : null}
 
-      {/* Human: Pen Viewport Row — prev nav, reader card, next nav with 24px gaps. */}
-      <div className="flex w-full max-w-[88rem] items-center justify-center gap-6">
+      {/* Human: Pen Viewport Row — prev nav, reader card (flex-1), next nav with 24px gaps. */}
+      <div className="flex w-full min-w-0 max-w-[88rem] items-center justify-center gap-6">
         <button
           type="button"
           className={EPUB_READER_CHAPTER_NAV_BUTTON_CLASS}
@@ -120,7 +104,6 @@ export function EpubPreviewSurfaceDesktop({
           )}
           style={{ backgroundColor: EPUB_READER_PAPER_BG }}
         >
-          {/* Human: Meta pill floats top-left inside the reader card (pen Meta Pill). */}
           <div className={cn(EPUB_READER_META_PILL_CLASS, "absolute left-6 top-6 z-20 max-w-[calc(100%-7.5rem)]")}>
             <span className="truncate text-base font-bold">
               {file?.name ?? "EPUB"} • {chapterLabel}
@@ -140,7 +123,6 @@ export function EpubPreviewSurfaceDesktop({
             </div>
           </div>
 
-          {/* Human: Close control sits top-right inside the card, separate from the meta pill. */}
           <button
             type="button"
             className={cn(EPUB_READER_CLOSE_BUTTON_CLASS, "absolute right-6 top-6 z-20")}
@@ -150,7 +132,6 @@ export function EpubPreviewSurfaceDesktop({
             <X className="size-7" aria-hidden />
           </button>
 
-          {/* Human: Reading Area — 940×640 centered band below top chrome (pen oExLx). */}
           <div className="absolute inset-x-[7.5rem] top-24 bottom-[8.75rem]">
             {loading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -162,12 +143,11 @@ export function EpubPreviewSurfaceDesktop({
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">{error}</div>
             ) : null}
             <div
-              ref={setRenditionHost}
+              ref={registerRenditionHost}
               className={cn("epub-reader-rendition h-full w-full", (loading || error) && "hidden")}
             />
           </div>
 
-          {/* Human: Compact page indicator centered above the bottom bar (pen qiu4Q). */}
           {!loading && !error ? (
             <p
               className="absolute bottom-[7.75rem] left-1/2 z-10 -translate-x-1/2 text-[0.8125rem] font-medium"
@@ -177,7 +157,6 @@ export function EpubPreviewSurfaceDesktop({
             </p>
           ) : null}
 
-          {/* Human: Bottom Controls Wrap inset 24px from card edges (pen Wd9q5). */}
           <div className="absolute inset-x-6 bottom-6 z-20">
             <EpubReaderControlBar vm={vm} />
           </div>

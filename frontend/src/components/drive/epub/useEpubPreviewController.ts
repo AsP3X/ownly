@@ -49,7 +49,7 @@ export type EpubPreviewControllerViewModel = {
   goNextChapter: () => void;
   goPreviousChapter: () => void;
   goToTocEntry: (entry: EpubTocEntry) => void;
-  attachRendition: (node: HTMLDivElement | null) => void;
+  registerRenditionHost: (node: HTMLDivElement | null) => void;
   bookReady: boolean;
 };
 
@@ -98,6 +98,8 @@ export function useEpubPreviewController({
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const renditionHostRef = useRef<HTMLDivElement | null>(null);
+  const attachedHostRef = useRef<{ book: Book; node: HTMLDivElement } | null>(null);
+  const syncGenerationRef = useRef(0);
   const currentSpineIndexRef = useRef(0);
   const preferencesRef = useRef(preferences);
   const abortRef = useRef<AbortController | null>(null);
@@ -108,9 +110,11 @@ export function useEpubPreviewController({
   const destroyRendition = useCallback(() => {
     renditionRef.current?.destroy();
     renditionRef.current = null;
+    attachedHostRef.current = null;
   }, []);
 
   const destroyBook = useCallback(() => {
+    syncGenerationRef.current += 1;
     destroyRendition();
     bookRef.current?.destroy();
     bookRef.current = null;
@@ -139,16 +143,39 @@ export function useEpubPreviewController({
     }
   }, []);
 
-  const attachRendition = useCallback(
-    (node: HTMLDivElement | null) => {
-      renditionHostRef.current = node;
-      if (!node || !bookRef.current) {
-        destroyRendition();
-        return;
+  const syncRendition = useCallback(async () => {
+    const generation = syncGenerationRef.current + 1;
+    syncGenerationRef.current = generation;
+
+    const node = renditionHostRef.current;
+    const book = bookRef.current;
+
+    if (!node || !book || !bookReady) {
+      destroyRendition();
+      return;
+    }
+
+    if (
+      attachedHostRef.current?.book === book &&
+      attachedHostRef.current?.node === node &&
+      renditionRef.current
+    ) {
+      return;
+    }
+
+    destroyRendition();
+
+    try {
+      await book.opened;
+      if (generation !== syncGenerationRef.current) return;
+      if (bookRef.current !== book || renditionHostRef.current !== node) return;
+
+      const bookWithPackage = bookRef.current as Book & { package?: unknown };
+      if (!bookWithPackage.package) {
+        throw new Error("EPUB metadata is not ready yet.");
       }
 
-      destroyRendition();
-      const rendition = bookRef.current.renderTo(node, {
+      const rendition = book.renderTo(node, {
         width: "100%",
         height: "100%",
         flow: "paginated",
@@ -171,13 +198,36 @@ export function useEpubPreviewController({
         }
       });
 
-      void displayAtIndex(currentSpineIndexRef.current);
-    },
-    [destroyRendition, displayAtIndex],
-  );
+      await rendition.started;
+      if (generation !== syncGenerationRef.current) return;
+      if (bookRef.current !== book || renditionHostRef.current !== node) return;
 
-  const attachRenditionRef = useRef(attachRendition);
-  attachRenditionRef.current = attachRendition;
+      attachedHostRef.current = { book, node };
+      await displayAtIndex(currentSpineIndexRef.current);
+    } catch (cause) {
+      if (generation !== syncGenerationRef.current) return;
+      setError(getErrorMessage(cause));
+    }
+  }, [bookReady, destroyRendition, displayAtIndex]);
+
+  const syncRenditionRef = useRef(syncRendition);
+  syncRenditionRef.current = syncRendition;
+
+  const registerRenditionHost = useCallback((node: HTMLDivElement | null) => {
+    renditionHostRef.current = node;
+    if (!node) {
+      destroyRendition();
+      return;
+    }
+    if (bookReady) {
+      void syncRenditionRef.current();
+    }
+  }, [bookReady, destroyRendition]);
+
+  useEffect(() => {
+    if (!bookReady || !open) return;
+    void syncRenditionRef.current();
+  }, [bookReady, open, file?.id]);
 
   useEffect(() => {
     if (!open || !file) {
@@ -218,12 +268,6 @@ export function useEpubPreviewController({
         setCurrentSpineIndex(0);
         setCurrentHref(book.spine.get(0)?.href ?? null);
         setBookReady(true);
-
-        // Human: Host ref may already exist while bytes were loading — attach without re-fetching.
-        // Agent: CALLS attachRenditionRef so load effect does not depend on attachRendition identity.
-        if (renditionHostRef.current) {
-          attachRenditionRef.current(renditionHostRef.current);
-        }
       } catch (cause) {
         if (cancelled || controller.signal.aborted) return;
         setError(getErrorMessage(cause));
@@ -315,7 +359,7 @@ export function useEpubPreviewController({
     goNextChapter,
     goPreviousChapter,
     goToTocEntry,
-    attachRendition,
+    registerRenditionHost,
     bookReady,
   };
 }
