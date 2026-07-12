@@ -115,15 +115,20 @@ export function useEpubPreviewController({
   currentSpineIndexRef.current = currentSpineIndex;
 
   const destroyRendition = useCallback(() => {
-    syncGenerationRef.current += 1;
     renditionRef.current?.destroy();
     renditionRef.current = null;
     attachedHostRef.current = null;
   }, []);
 
-  const destroyBook = useCallback(() => {
+  // Human: Bumps sync generation so in-flight attach/display work aborts after the next await.
+  // Agent: CALLS destroyRendition; USE when closing dialog or unmounting the host node.
+  const cancelRenditionSync = useCallback(() => {
     syncGenerationRef.current += 1;
     destroyRendition();
+  }, [destroyRendition]);
+
+  const destroyBook = useCallback(() => {
+    cancelRenditionSync();
     bookRef.current?.destroy();
     bookRef.current = null;
     setBookReady(false);
@@ -133,7 +138,7 @@ export function useEpubPreviewController({
     setTotalSpineItems(0);
     setCurrentHref(null);
     setTocOpen(false);
-  }, [destroyRendition]);
+  }, [cancelRenditionSync]);
 
   const displayAtIndex = useCallback(async (index: number) => {
     const book = bookRef.current;
@@ -160,7 +165,7 @@ export function useEpubPreviewController({
     const book = bookRef.current;
 
     if (!node || !book || !bookReady || !hostMounted) {
-      destroyRendition();
+      cancelRenditionSync();
       return;
     }
 
@@ -210,11 +215,18 @@ export function useEpubPreviewController({
 
       attachedHostRef.current = { book, node };
       await displayAtIndex(currentSpineIndexRef.current);
+
+      // Human: Host may mount before layout settles — nudge epub.js to recalc iframe size.
+      // Agent: CALLS rendition.resize with host bounds after first display.
+      const bounds = node.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) {
+        rendition.resize(bounds.width, bounds.height);
+      }
     } catch (cause) {
       if (generation !== syncGenerationRef.current) return;
       setError(getErrorMessage(cause));
     }
-  }, [bookReady, destroyRendition, displayAtIndex, hostMounted]);
+  }, [bookReady, cancelRenditionSync, destroyRendition, displayAtIndex, hostMounted]);
 
   const syncRenditionRef = useRef(syncRendition);
   syncRenditionRef.current = syncRendition;
@@ -238,9 +250,9 @@ export function useEpubPreviewController({
     renditionHostRef.current = node;
     setHostMounted(Boolean(node));
     if (!node) {
-      destroyRendition();
+      cancelRenditionSync();
     }
-  }, [destroyRendition]);
+  }, [cancelRenditionSync]);
 
   useEffect(() => {
     if (!bookReady || !hostMounted || !open) return;
