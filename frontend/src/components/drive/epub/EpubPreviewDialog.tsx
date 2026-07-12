@@ -7,6 +7,8 @@ import { EpubPreviewSurfaceMobile } from "@/components/drive/epub/EpubPreviewSur
 import type { EpubPreviewDialogProps } from "@/components/drive/epub/epub-preview-types";
 import { useEpubPreviewController } from "@/components/drive/epub/useEpubPreviewController";
 import {
+  EPUB_READER_DIALOG_CONTENT_DESKTOP_CLASS,
+  EPUB_READER_DIALOG_CONTENT_MOBILE_CLASS,
   EPUB_READER_DIALOG_OVERLAY_CLASS,
   EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE,
 } from "@/components/drive/epub/epub-reader-tokens";
@@ -17,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 
 export type { EpubPreviewDialogProps } from "@/components/drive/epub/epub-preview-types";
 
@@ -35,14 +36,10 @@ export function EpubPreviewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        motionlessPopup
         showCloseButton={false}
         overlayClassName={isDesktop ? EPUB_READER_DIALOG_OVERLAY_CLASS : EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE}
-        className={cn(
-          "gap-0 overflow-hidden border-0 p-0 shadow-none",
-          isDesktop
-            ? "h-[100dvh] max-h-[100dvh] w-[100vw] max-w-[100vw] rounded-none bg-transparent"
-            : "h-[100dvh] max-h-[100dvh] w-[100vw] max-w-[100vw] rounded-none bg-background",
-        )}
+        className={isDesktop ? EPUB_READER_DIALOG_CONTENT_DESKTOP_CLASS : EPUB_READER_DIALOG_CONTENT_MOBILE_CLASS}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{file?.name ?? "EPUB reader"}</DialogTitle>

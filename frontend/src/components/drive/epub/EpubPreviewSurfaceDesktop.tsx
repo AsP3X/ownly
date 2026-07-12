@@ -8,6 +8,7 @@ import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/use
 import {
   EPUB_READER_CHAPTER_NAV_BUTTON_CLASS,
   EPUB_READER_CLOSE_BUTTON_CLASS,
+  EPUB_READER_DESKTOP_ROW_CLASS,
   EPUB_READER_META_PILL_CLASS,
   EPUB_READER_PAPER_BG,
   EPUB_READER_SURFACE_CLASS,
@@ -50,7 +51,7 @@ export function EpubPreviewSurfaceDesktop({
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
 
   return (
-    <div className="flex h-full min-h-0 w-full items-center justify-center px-4 py-[4.375rem]">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col items-center justify-center py-[calc(4.375rem-1rem)]">
       {tocOpen ? (
         <aside className="absolute left-4 top-[4.375rem] z-20 flex h-[calc(100%-5.5rem)] w-[21.25rem] flex-col gap-4 rounded-2xl border border-border bg-background p-6 shadow-xl">
           <div className="flex items-center justify-between">
@@ -86,7 +87,7 @@ export function EpubPreviewSurfaceDesktop({
       ) : null}
 
       {/* Human: Pen Viewport Row — prev nav, reader card (flex-1), next nav with 24px gaps. */}
-      <div className="flex w-full min-w-0 max-w-[88rem] items-center justify-center gap-6">
+      <div className={cn(EPUB_READER_DESKTOP_ROW_CLASS, "max-w-[88rem]")}>
         <button
           type="button"
           className={EPUB_READER_CHAPTER_NAV_BUTTON_CLASS}

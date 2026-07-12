@@ -42,6 +42,19 @@ export const EPUB_READER_DIALOG_OVERLAY_CLASS =
 export const EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE =
   "bg-[#0A0A10]/90 backdrop-blur-[48px]";
 
+// Human: Full-viewport desktop dialog — motionlessPopup avoids default sm:max-w-sm (384px) cap.
+// Agent: MATCHES VideoPreviewDialog / excelDialogContentClass; p-4 yields 1rem inset on every edge.
+export const EPUB_READER_DIALOG_CONTENT_DESKTOP_CLASS =
+  "flex h-[100svh] min-h-0 w-full flex-col gap-0 overflow-hidden border-0 bg-transparent p-4 shadow-none ring-0 supports-[height:100dvh]:h-dvh" as const;
+
+// Human: Mobile reader fills the viewport edge-to-edge inside the motionless popup shell.
+export const EPUB_READER_DIALOG_CONTENT_MOBILE_CLASS =
+  "flex h-[100svh] max-h-[100svh] w-full min-h-0 flex-col gap-0 overflow-hidden border-0 bg-background p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh" as const;
+
+// Human: Desktop viewport row — flex-fills padded dialog; flanking chapter nav + reader card.
+export const EPUB_READER_DESKTOP_ROW_CLASS =
+  "flex min-h-0 w-full min-w-0 max-w-full flex-1 items-center justify-center gap-6" as const;
+
 // Human: Top meta pill and close control — video player uses bg-black/60 + backdrop-blur-md.
 // Agent: PEN uses $overlay-dark (#00000099) with 12px background blur on meta pill.
 export const EPUB_READER_META_PILL_CLASS =
