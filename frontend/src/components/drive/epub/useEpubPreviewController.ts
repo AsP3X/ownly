@@ -13,6 +13,7 @@ import {
   clampSpineIndex,
   computeChapterProgress,
   flattenEpubToc,
+  formatChapterProgressCompact,
   formatChapterProgressLabel,
   resolveChapterLabel,
   type EpubNavItem,
@@ -41,6 +42,7 @@ export type EpubPreviewControllerViewModel = {
   chapterLabel: string;
   progressFraction: number;
   progressLabel: string;
+  progressCompactLabel: string;
   currentHref: string | null;
   preferences: EpubReaderPreferences;
   setPreferences: (next: EpubReaderPreferences) => void;
@@ -96,7 +98,12 @@ export function useEpubPreviewController({
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const renditionHostRef = useRef<HTMLDivElement | null>(null);
+  const currentSpineIndexRef = useRef(0);
+  const preferencesRef = useRef(preferences);
   const abortRef = useRef<AbortController | null>(null);
+
+  preferencesRef.current = preferences;
+  currentSpineIndexRef.current = currentSpineIndex;
 
   const destroyRendition = useCallback(() => {
     renditionRef.current?.destroy();
@@ -146,9 +153,12 @@ export function useEpubPreviewController({
         height: "100%",
         flow: "paginated",
         manager: "default",
+        // Human: Single-page spread keeps reflowable text and covers full width in the card.
+        // Agent: MATCHES pen Reading Area width; avoids tiny centered cover in dual-page spread.
+        spread: "none",
       });
       renditionRef.current = rendition;
-      applyRenditionTheme(rendition, preferences);
+      applyRenditionTheme(rendition, preferencesRef.current);
 
       rendition.on("relocated", (location: { start?: { index?: number; href?: string } }) => {
         const spineIndex = location?.start?.index;
@@ -161,10 +171,13 @@ export function useEpubPreviewController({
         }
       });
 
-      void displayAtIndex(currentSpineIndex);
+      void displayAtIndex(currentSpineIndexRef.current);
     },
-    [currentSpineIndex, destroyRendition, displayAtIndex, preferences],
+    [destroyRendition, displayAtIndex],
   );
+
+  const attachRenditionRef = useRef(attachRendition);
+  attachRenditionRef.current = attachRendition;
 
   useEffect(() => {
     if (!open || !file) {
@@ -207,9 +220,9 @@ export function useEpubPreviewController({
         setBookReady(true);
 
         // Human: Host ref may already exist while bytes were loading — attach without re-fetching.
-        // Agent: CALLS attachRendition once when book.ready completes.
+        // Agent: CALLS attachRenditionRef so load effect does not depend on attachRendition identity.
         if (renditionHostRef.current) {
-          attachRendition(renditionHostRef.current);
+          attachRenditionRef.current(renditionHostRef.current);
         }
       } catch (cause) {
         if (cancelled || controller.signal.aborted) return;
@@ -225,7 +238,7 @@ export function useEpubPreviewController({
       cancelled = true;
       controller.abort();
     };
-  }, [attachRendition, destroyBook, file, open, sharePassword, shareToken]);
+  }, [destroyBook, file, open, sharePassword, shareToken]);
 
   useEffect(() => {
     const rendition = renditionRef.current;
@@ -277,6 +290,11 @@ export function useEpubPreviewController({
     [currentSpineIndex, totalSpineItems],
   );
 
+  const progressCompactLabel = useMemo(
+    () => formatChapterProgressCompact(currentSpineIndex, totalSpineItems),
+    [currentSpineIndex, totalSpineItems],
+  );
+
   return {
     file,
     loading,
@@ -290,6 +308,7 @@ export function useEpubPreviewController({
     chapterLabel,
     progressFraction,
     progressLabel,
+    progressCompactLabel,
     currentHref,
     preferences,
     setPreferences,

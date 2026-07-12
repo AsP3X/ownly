@@ -45,13 +45,16 @@ export const EPUB_READER_DIALOG_OVERLAY_CLASS_MOBILE =
 // Human: Top meta pill and close control — video player uses bg-black/60 + backdrop-blur-md.
 // Agent: PEN uses $overlay-dark (#00000099) with 12px background blur on meta pill.
 export const EPUB_READER_META_PILL_CLASS =
-  "flex items-center gap-4 rounded-full border border-[#FFFFFF1A] bg-[#00000099] px-6 py-3 text-white backdrop-blur-md";
+  "flex h-12 items-center gap-4 rounded-[1.5rem] border border-[#FFFFFF1A] bg-[#00000099] px-6 py-3 text-white backdrop-blur-md";
 
 export const EPUB_READER_CLOSE_BUTTON_CLASS =
-  "flex size-[4.125rem] items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#00000099] text-white backdrop-blur-md transition hover:bg-black/80";
+  "flex size-[4.125rem] shrink-0 items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#00000099] text-white backdrop-blur-md transition hover:bg-black/80";
 
 export const EPUB_READER_CHAPTER_NAV_BUTTON_CLASS =
-  "flex size-[5.625rem] items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#FFFFFF1A] text-white backdrop-blur-sm transition hover:bg-white/20";
+  "flex size-[5.625rem] shrink-0 items-center justify-center rounded-full border border-[#FFFFFF33] bg-[#FFFFFF1A] text-white backdrop-blur-sm transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-30";
+
+export const EPUB_READER_SURFACE_CLASS =
+  "relative w-full max-w-[73.75rem] overflow-hidden rounded-[2rem] shadow-[0_16px_48px_#00000066]";
 
 export const EPUB_READER_BOTTOM_BAR_CLASS =
-  "flex h-24 w-full items-center justify-between gap-6 rounded-xl border border-[#FFFFFF1A] bg-[#00000099] px-8 text-white backdrop-blur-md";
+  "flex h-24 w-full items-center justify-between gap-6 rounded-2xl border border-[#FFFFFF1A] bg-[#00000099] px-8 text-white backdrop-blur-md";

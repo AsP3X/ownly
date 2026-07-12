@@ -6,6 +6,7 @@ import {
   clampSpineIndex,
   computeChapterProgress,
   flattenEpubToc,
+  formatChapterProgressCompact,
   formatChapterProgressLabel,
   resolveChapterLabel,
 } from "@/lib/epub-navigation";
@@ -51,6 +52,13 @@ describe("formatChapterProgressLabel", () => {
   it("formats page indicator text", () => {
     expect(formatChapterProgressLabel(41, 318)).toBe("Page 42 of 318");
     expect(formatChapterProgressLabel(0, 0)).toBe("Page 0 of 0");
+  });
+});
+
+describe("formatChapterProgressCompact", () => {
+  it("formats compact page indicator text", () => {
+    expect(formatChapterProgressCompact(41, 318)).toBe("42 / 318");
+    expect(formatChapterProgressCompact(0, 0)).toBe("0 / 0");
   });
 });
 

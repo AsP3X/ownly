@@ -7,7 +7,10 @@ import ePub, { type Book } from "epubjs";
 export async function openEpubBookFromBlob(blob: Blob): Promise<Book> {
   const buffer = await blob.arrayBuffer();
   const book = ePub(buffer, { openAs: "binary" });
+  // Human: Rendition waits on book.opened (includes archived asset replacement), not just book.ready.
+  // Agent: AWAITS book.ready then book.opened before renderTo so book.package exists when start() runs.
   await book.ready;
+  await book.opened;
   return book;
 }
 

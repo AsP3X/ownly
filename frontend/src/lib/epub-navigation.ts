@@ -25,6 +25,12 @@ export function formatChapterProgressLabel(currentIndex: number, total: number):
   return `Page ${currentIndex + 1} of ${total}`;
 }
 
+/** Human: Compact page indicator above the desktop control bar (pen: "42 / 318"). */
+export function formatChapterProgressCompact(currentIndex: number, total: number): string {
+  if (total <= 0) return "0 / 0";
+  return `${currentIndex + 1} / ${total}`;
+}
+
 /** Human: Flatten nested navigation.toc into a single list with depth for indentation. */
 export function flattenEpubToc(items: EpubNavItem[], depth = 0): EpubTocEntry[] {
   const entries: EpubTocEntry[] = [];

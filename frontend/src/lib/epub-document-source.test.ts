@@ -14,7 +14,7 @@ import { openEpubBookFromBlob } from "@/lib/epub-document-source";
 describe("openEpubBookFromBlob", () => {
   beforeEach(() => {
     ePubMock.mockReset();
-    ePubMock.mockReturnValue({ ready: Promise.resolve() });
+    ePubMock.mockReturnValue({ ready: Promise.resolve(), opened: Promise.resolve() });
   });
 
   it("opens downloaded bytes as a binary EPUB archive", async () => {
