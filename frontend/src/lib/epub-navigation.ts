@@ -55,6 +55,15 @@ export function flattenEpubToc(items: EpubNavItem[], depth = 0): EpubTocEntry[] 
   return entries;
 }
 
+/** Human: True when the current spine href matches a TOC entry (ignores fragment, case). */
+export function isEpubTocEntryActive(currentHref: string | null | undefined, entryHref: string): boolean {
+  if (!currentHref) return false;
+  const current = normalizeHref(currentHref);
+  const entry = normalizeHref(entryHref);
+  if (!current || !entry) return false;
+  return current === entry || current.endsWith(`/${entry}`) || entry.endsWith(`/${current}`);
+}
+
 /** Human: Resolve the best chapter title for the current spine position. */
 export function resolveChapterLabel(
   tocEntries: EpubTocEntry[],
@@ -65,7 +74,11 @@ export function resolveChapterLabel(
     const normalized = normalizeHref(currentHref);
     const match = [...tocEntries]
       .reverse()
-      .find((entry) => normalized.startsWith(normalizeHref(entry.href)) || normalizeHref(entry.href).startsWith(normalized));
+      .find((entry) => {
+        if (isEpubTocEntryActive(currentHref, entry.href)) return true;
+        const entryNorm = normalizeHref(entry.href);
+        return normalized.startsWith(entryNorm) || entryNorm.startsWith(normalized);
+      });
     if (match) return match.label;
   }
 

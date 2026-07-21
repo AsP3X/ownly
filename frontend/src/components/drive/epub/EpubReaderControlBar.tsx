@@ -3,6 +3,8 @@
 
 import {
   Bookmark,
+  ChevronLeft,
+  ChevronRight,
   List,
   Minus,
   Moon,
@@ -40,17 +42,36 @@ function cycleTheme(current: EpubReaderTheme, direction: 1 | -1): EpubReaderThem
 }
 
 export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: EpubReaderControlBarProps) {
-  const { progressFraction, progressLabel, preferences, setPreferences, toggleToc } = vm;
+  const {
+    progressFraction,
+    progressLabel,
+    preferences,
+    setPreferences,
+    toggleToc,
+    goNextChapter,
+    goPreviousChapter,
+    currentSpineIndex,
+    totalSpineItems,
+  } = vm;
+
+  const canGoPrevious = currentSpineIndex > 0;
+  const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
 
   if (compact) {
     return (
-      <div className={cn(EPUB_READER_BOTTOM_BAR_CLASS, "h-20 px-4")}>
-        <div className="flex items-center gap-4">
-          <button type="button" className="opacity-90 transition hover:opacity-100" aria-label="Table of contents" onClick={toggleToc}>
-            <List className="size-5" />
-          </button>
-          <span className="text-xs text-white/80">{progressLabel}</span>
-        </div>
+      <div className={cn(EPUB_READER_BOTTOM_BAR_CLASS, "h-20 gap-2 px-3")}>
+        <button type="button" className="shrink-0 opacity-90 transition hover:opacity-100" aria-label="Table of contents" onClick={toggleToc}>
+          <List className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="shrink-0 opacity-90 transition hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+          aria-label="Previous chapter"
+          disabled={!canGoPrevious}
+          onClick={goPreviousChapter}
+        >
+          <ChevronLeft className="size-5" />
+        </button>
         <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/20">
           <div
             className="h-full rounded-full transition-all"
@@ -59,7 +80,16 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
         </div>
         <button
           type="button"
-          className="opacity-90 transition hover:opacity-100"
+          className="shrink-0 opacity-90 transition hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+          aria-label="Next chapter"
+          disabled={!canGoNext}
+          onClick={goNextChapter}
+        >
+          <ChevronRight className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="shrink-0 opacity-90 transition hover:opacity-100"
           aria-label="Text settings"
           onClick={onOpenSettings}
         >

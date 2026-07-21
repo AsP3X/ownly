@@ -15,6 +15,7 @@ import {
   EPUB_READER_PAPER_BG,
   EPUB_READER_SURFACE_CLASS,
 } from "@/components/drive/epub/epub-reader-tokens";
+import { isEpubTocEntryActive } from "@/lib/epub-navigation";
 import { cn } from "@/lib/utils";
 
 import "./epub-reader-rendition.css";
@@ -66,7 +67,7 @@ export function EpubPreviewSurfaceDesktop({
           </label>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {tocEntries.map((entry) => {
-              const active = currentHref?.includes(entry.href);
+              const active = isEpubTocEntryActive(currentHref, entry.href);
               return (
                 <button
                   key={entry.id}

@@ -1,10 +1,11 @@
-// Human: Mobile EPUB reader — fullscreen pen layout with header, progress bar, and settings sheet.
-// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel.
+// Human: Mobile EPUB reader — fullscreen pen layout with header, progress bar, TOC, and settings.
+// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel; TOC via EpubReaderTocSheet.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, Ellipsis, Loader2 } from "lucide-react";
 import { EpubReaderControlBar } from "@/components/drive/epub/EpubReaderControlBar";
 import { EpubReaderSettingsSheet } from "@/components/drive/epub/EpubReaderSettingsSheet";
+import { EpubReaderTocSheet } from "@/components/drive/epub/EpubReaderTocSheet";
 import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/useEpubPreviewController";
 import { EPUB_READER_PAPER_BG } from "@/components/drive/epub/epub-reader-tokens";
 
@@ -28,7 +29,22 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
     progressFraction,
     progressLabel,
     canRenderRendition,
+    tocOpen,
+    setTocOpen,
+    tocEntries,
+    currentHref,
+    goToTocEntry,
   } = vm;
+
+  // Human: Only one mobile sheet at a time — TOC and settings share the bottom overlay area.
+  useEffect(() => {
+    if (tocOpen) setSettingsOpen(false);
+  }, [tocOpen]);
+
+  function openSettings() {
+    setTocOpen(false);
+    setSettingsOpen(true);
+  }
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" style={{ backgroundColor: EPUB_READER_PAPER_BG }}>
@@ -37,7 +53,7 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
           <ChevronLeft className="size-5 text-foreground" />
         </button>
         <p className="max-w-[60%] truncate text-sm font-semibold text-foreground">{file?.name ?? "EPUB"}</p>
-        <button type="button" aria-label="More actions" onClick={() => setSettingsOpen(true)}>
+        <button type="button" aria-label="More actions" onClick={openSettings}>
           <Ellipsis className="size-5 text-foreground" />
         </button>
       </header>
@@ -60,13 +76,19 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
           <div className="h-full rounded-full bg-[#2563EB]" style={{ width: `${Math.round(progressFraction * 100)}%` }} />
         </div>
         <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>{Math.round(progressFraction * 100)}%</span>
-          <span>{progressLabel}</span>
+          <span className="truncate pr-2">{chapterLabel}</span>
+          <span className="shrink-0">{progressLabel}</span>
         </div>
-        <EpubReaderControlBar vm={vm} compact onOpenSettings={() => setSettingsOpen(true)} />
+        <EpubReaderControlBar vm={vm} compact onOpenSettings={openSettings} />
       </footer>
 
-      <p className="sr-only">{chapterLabel}</p>
+      <EpubReaderTocSheet
+        open={tocOpen}
+        entries={tocEntries}
+        currentHref={currentHref}
+        onClose={() => setTocOpen(false)}
+        onSelectEntry={goToTocEntry}
+      />
 
       <EpubReaderSettingsSheet
         open={settingsOpen}

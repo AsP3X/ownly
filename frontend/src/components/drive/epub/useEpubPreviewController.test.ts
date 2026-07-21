@@ -8,6 +8,7 @@ import {
   flattenEpubToc,
   formatChapterProgressCompact,
   formatChapterProgressLabel,
+  isEpubTocEntryActive,
   resolveChapterLabel,
 } from "@/lib/epub-navigation";
 
@@ -74,5 +75,21 @@ describe("resolveChapterLabel", () => {
 
   it("falls back to numbered chapter when TOC has no match", () => {
     expect(resolveChapterLabel([], null, 4)).toBe("Chapter 5");
+  });
+});
+
+describe("isEpubTocEntryActive", () => {
+  it("matches equal paths ignoring fragment and case", () => {
+    expect(isEpubTocEntryActive("Chapter3.xhtml#frag", "chapter3.xhtml")).toBe(true);
+  });
+
+  it("matches when one href is a path-suffixed form of the other", () => {
+    expect(isEpubTocEntryActive("OEBPS/chapter3.xhtml", "chapter3.xhtml")).toBe(true);
+    expect(isEpubTocEntryActive("chapter3.xhtml", "OEBPS/chapter3.xhtml")).toBe(true);
+  });
+
+  it("does not treat unrelated substrings as active", () => {
+    expect(isEpubTocEntryActive("ba.xhtml", "a.xhtml")).toBe(false);
+    expect(isEpubTocEntryActive(null, "chapter.xhtml")).toBe(false);
   });
 });
