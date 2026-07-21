@@ -75,6 +75,22 @@ fn normalize_zip_path(path: &str) -> String {
     path.trim_start_matches('/').replace('\\', "/")
 }
 
+// Human: Collapse "." / ".." segments so ZipArchive::by_name can find relative cover hrefs.
+// Agent: USED by join_epub_path; DROPS leading ".." that would escape the archive root.
+fn collapse_zip_path_segments(path: &str) -> String {
+    let mut stack: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                let _ = stack.pop();
+            }
+            other => stack.push(other),
+        }
+    }
+    stack.join("/")
+}
+
 // Human: Parent directory of the OPF package file — cover hrefs are relative to this folder.
 fn opf_parent_dir(opf_path: &str) -> String {
     let normalized = normalize_zip_path(opf_path);
@@ -85,16 +101,18 @@ fn opf_parent_dir(opf_path: &str) -> String {
 }
 
 // Human: Join OPF directory prefix with a manifest href.
-// Agent: HANDLES absolute-ish hrefs and nested image folders.
+// Agent: HANDLES nested folders and ../ relative hrefs; STRIPS #fragment / ?query from hrefs.
 fn join_epub_path(base: &str, href: &str) -> String {
-    let href = normalize_zip_path(href);
-    if href.is_empty() {
-        return base.to_string();
-    }
-    if base.is_empty() {
-        return href;
-    }
-    format!("{base}/{href}")
+    let href_path = href.split(['#', '?']).next().unwrap_or(href);
+    let href = normalize_zip_path(href_path);
+    let joined = if href.is_empty() {
+        base.to_string()
+    } else if base.is_empty() {
+        href
+    } else {
+        format!("{base}/{href}")
+    };
+    collapse_zip_path_segments(&joined)
 }
 
 // Human: Parse META-INF/container.xml and return the OPF full-path attribute.
@@ -439,5 +457,42 @@ mod tests {
         let epub = build_test_epub(opf, "OEBPS/cover.jpg", &tiny_jpeg_bytes());
         let error = extract_epub_cover_image_bytes(&epub).expect_err("missing cover");
         assert!(error.contains("cover image not found"));
+    }
+
+    #[test]
+    fn join_epub_path_resolves_parent_segments() {
+        assert_eq!(
+            join_epub_path("OEBPS", "../Images/cover.jpg"),
+            "Images/cover.jpg"
+        );
+        assert_eq!(
+            join_epub_path("OEBPS/content", "./images/../cover.png"),
+            "OEBPS/content/cover.png"
+        );
+        assert_eq!(
+            join_epub_path("OEBPS/content", "../../Images/cover.png"),
+            "Images/cover.png"
+        );
+        assert_eq!(
+            join_epub_path("OEBPS", "images/cover.jpg#xpointer"),
+            "OEBPS/images/cover.jpg"
+        );
+    }
+
+    #[test]
+    fn extracts_cover_via_parent_relative_href() {
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">test-book</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="cover-image" href="../Images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+    <item id="chapter-1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+</package>"#;
+        let epub = build_test_epub(opf, "Images/cover.jpg", &tiny_jpeg_bytes());
+        let cover = extract_epub_cover_image_bytes(&epub).expect("cover via ../ href");
+        assert!(cover.starts_with(&[0xFF, 0xD8]));
     }
 }
