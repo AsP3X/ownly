@@ -1,4 +1,4 @@
-// Human: Mobile reading settings bottom sheet — font, theme, spacing from pen design.
+// Human: Reading settings bottom sheet — font, theme, spacing (mobile + desktop reader surfaces).
 // Agent: READ/WRITE EpubReaderPreferences via controller setPreferences.
 
 import { ChevronRight, X } from "lucide-react";

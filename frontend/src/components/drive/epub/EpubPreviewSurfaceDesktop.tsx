@@ -1,9 +1,11 @@
 // Human: Desktop EPUB reader — centered card with overlay chapter nav on the scrim.
-// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel.
+// Agent: RENDERS epub.js rendition node; READS EpubPreviewControllerViewModel; settings via sheet.
 
+import { useState } from "react";
 import { Loader2, Bookmark, ChevronLeft, ChevronRight, Download, Share2, X } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { EpubReaderControlBar } from "@/components/drive/epub/EpubReaderControlBar";
+import { EpubReaderSettingsSheet } from "@/components/drive/epub/EpubReaderSettingsSheet";
 import type { EpubPreviewControllerViewModel } from "@/components/drive/epub/useEpubPreviewController";
 import {
   EPUB_READER_CHAPTER_NAV_BUTTON_CLASS,
@@ -31,6 +33,7 @@ export function EpubPreviewSurfaceDesktop({
   onDownload,
   vm,
 }: EpubPreviewSurfaceDesktopProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const {
     file,
     loading,
@@ -47,10 +50,17 @@ export function EpubPreviewSurfaceDesktop({
     currentSpineIndex,
     totalSpineItems,
     canRenderRendition,
+    preferences,
+    setPreferences,
   } = vm;
 
   const canGoPrevious = currentSpineIndex > 0;
   const canGoNext = totalSpineItems > 0 && currentSpineIndex < totalSpineItems - 1;
+
+  function openSettings() {
+    setTocOpen(false);
+    setSettingsOpen(true);
+  }
 
   return (
     <div className={EPUB_READER_DESKTOP_VIEWPORT_CLASS}>
@@ -148,8 +158,15 @@ export function EpubPreviewSurfaceDesktop({
         </div>
 
         <div className="shrink-0 px-3 pb-3 pt-1">
-          <EpubReaderControlBar vm={vm} />
+          <EpubReaderControlBar vm={vm} onOpenSettings={openSettings} />
         </div>
+
+        <EpubReaderSettingsSheet
+          open={settingsOpen}
+          preferences={preferences}
+          onClose={() => setSettingsOpen(false)}
+          onChange={setPreferences}
+        />
       </section>
 
       <button

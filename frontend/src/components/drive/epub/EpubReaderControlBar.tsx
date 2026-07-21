@@ -112,8 +112,9 @@ export function EpubReaderControlBar({ vm, compact = false, onOpenSettings }: Ep
         </button>
         <button
           type="button"
-          className="opacity-90 transition hover:opacity-100"
+          className="opacity-90 transition hover:opacity-100 disabled:pointer-events-none disabled:opacity-40"
           aria-label="Text settings"
+          disabled={!onOpenSettings}
           onClick={onOpenSettings}
         >
           <Type className="size-5" />
