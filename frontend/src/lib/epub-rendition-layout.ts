@@ -4,7 +4,14 @@
 const MIN_HOST_WIDTH_PX = 160;
 const MIN_HOST_HEIGHT_PX = 160;
 
-/** Waits until the host has stable, usable layout dimensions. */
+export class EpubRenditionHostLayoutError extends Error {
+  constructor(message = "EPUB reader layout is not ready yet. Try resizing the window.") {
+    super(message);
+    this.name = "EpubRenditionHostLayoutError";
+  }
+}
+
+/** Waits until the host has stable, usable layout dimensions. Throws if never ready. */
 export async function waitForRenditionHostLayout(node: HTMLElement, attempts = 16): Promise<void> {
   let lastWidth = 0;
   let lastHeight = 0;
@@ -28,6 +35,13 @@ export async function waitForRenditionHostLayout(node: HTMLElement, attempts = 1
       requestAnimationFrame(() => resolve());
     });
   }
+
+  const { width, height } = node.getBoundingClientRect();
+  if (width >= MIN_HOST_WIDTH_PX && height >= MIN_HOST_HEIGHT_PX) {
+    return;
+  }
+
+  throw new EpubRenditionHostLayoutError();
 }
 
 /** Returns floored pixel dimensions for epub.js renderTo/resize (never zero). */

@@ -159,6 +159,7 @@ export function useEpubPreviewController({
   const attachedHostRef = useRef<{ book: Book; node: HTMLDivElement } | null>(null);
   const syncGenerationRef = useRef(0);
   const syncInFlightRef = useRef<Promise<void> | null>(null);
+  const syncDirtyRef = useRef(false);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const currentSpineIndexRef = useRef(0);
   const preferencesRef = useRef(preferences);
@@ -306,17 +307,25 @@ export function useEpubPreviewController({
   const syncRenditionRef = useRef(syncRendition);
   syncRenditionRef.current = syncRendition;
 
+  // Human: Coalesce concurrent attach requests — one in-flight sync, one follow-up if dirtied.
+  // Agent: SETS syncDirtyRef while busy; RE-RUNS once when the in-flight promise settles.
   const queueSyncRendition = useCallback(() => {
     if (syncInFlightRef.current) {
-      void syncInFlightRef.current.finally(() => {
-        void syncRenditionRef.current();
-      });
+      syncDirtyRef.current = true;
       return;
     }
 
-    syncInFlightRef.current = syncRenditionRef.current().finally(() => {
-      syncInFlightRef.current = null;
-    });
+    const run = () => {
+      syncDirtyRef.current = false;
+      syncInFlightRef.current = syncRenditionRef.current().finally(() => {
+        syncInFlightRef.current = null;
+        if (syncDirtyRef.current) {
+          run();
+        }
+      });
+    };
+
+    run();
   }, []);
 
   // Human: Stable ref callback — must not depend on bookReady or React re-attaches and destroys mid-start().

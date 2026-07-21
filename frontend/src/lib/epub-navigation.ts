@@ -20,12 +20,13 @@ export function computeChapterProgress(currentIndex: number, total: number): num
   return Math.min(1, Math.max(0, (currentIndex + 1) / total));
 }
 
+/** Human: Progress uses spine chapter index — not reflow page count. */
 export function formatChapterProgressLabel(currentIndex: number, total: number): string {
-  if (total <= 0) return "Page 0 of 0";
-  return `Page ${currentIndex + 1} of ${total}`;
+  if (total <= 0) return "Chapter 0 of 0";
+  return `Chapter ${currentIndex + 1} of ${total}`;
 }
 
-/** Human: Compact page indicator above the desktop control bar (pen: "42 / 318"). */
+/** Human: Compact chapter indicator above the desktop control bar (pen: "42 / 318"). */
 export function formatChapterProgressCompact(currentIndex: number, total: number): string {
   if (total <= 0) return "0 / 0";
   return `${currentIndex + 1} / ${total}`;
