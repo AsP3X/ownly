@@ -75,7 +75,8 @@ export function ProfileTextInput({
   return (
     <input
       className={cn(
-        "flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-sm text-[#1A1A1A] outline-none transition-colors",
+        // Human: text-base on mobile prevents iOS Safari focus zoom; md:text-sm for desktop density.
+        "flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-base text-[#1A1A1A] outline-none transition-colors md:text-sm",
         "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
         readOnly && "cursor-default bg-[#F7F8FA] text-[#666666]",
         className,
@@ -111,7 +112,7 @@ export function ProfilePasswordInput({
         onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
         aria-invalid={ariaInvalid}
-        className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+        className="min-w-0 flex-1 bg-transparent text-base text-[#1A1A1A] outline-none placeholder:text-[#888888] md:text-sm"
       />
       <button
         type="button"
@@ -133,7 +134,7 @@ export function ProfileTextarea({
   return (
     <textarea
       className={cn(
-        "min-h-20 w-full resize-y rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-[#1A1A1A] outline-none transition-colors",
+        "min-h-20 w-full resize-y rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-base text-[#1A1A1A] outline-none transition-colors md:text-sm",
         "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
         className,
       )}

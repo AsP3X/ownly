@@ -132,6 +132,18 @@
   html {
     @apply font-sans;
   }
+
+  /*
+   * Human: iOS Safari zooms the page when a focused form control is under 16px.
+   * Agent: Force 16px on mobile text-entry controls (beats utility text-sm); desktop unchanged.
+   */
+  @media (max-width: 767px) {
+    input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="image"]):not([type="hidden"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
 }
 
 /* Human: Sliding highlight for upload dialog when server blob work has no byte-level progress. */

@@ -7,7 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Human: device-width + initial-scale=1; viewport-fit for notched iPhones. Avoid maximum-scale (a11y). -->
+    <!-- Agent: Form fields use ≥16px on mobile so iOS Safari does not auto-zoom on focus. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Ownly</title>
   </head>
   <body>

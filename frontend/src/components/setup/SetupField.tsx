@@ -20,7 +20,8 @@ export function SetupField({ label, colSpan = 1, className, id, ...props }: Setu
       <input
         id={fieldId}
         className={cn(
-          "h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-sm text-[#1A1A1A]",
+          // Human: text-base on mobile prevents iOS Safari focus zoom; md:text-sm for desktop density.
+          "h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-base text-[#1A1A1A] md:text-sm",
           "outline-none placeholder:text-[#888888] focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]",
           className
         )}

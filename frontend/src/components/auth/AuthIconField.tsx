@@ -37,7 +37,8 @@ export function AuthIconField({
         <input
           id={fieldId}
           className={cn(
-            "min-w-0 flex-1 border-0 bg-transparent text-sm text-[#1A1A1A] outline-none placeholder:text-[#888888]",
+            // Human: text-base (16px) avoids iOS Safari auto-zoom on focus; md restores compact desktop type.
+            "min-w-0 flex-1 border-0 bg-transparent text-base text-[#1A1A1A] outline-none placeholder:text-[#888888] md:text-sm",
             className
           )}
           {...props}
