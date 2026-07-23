@@ -484,6 +484,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/me/password",
             axum::routing::patch(auth::handlers::change_password),
         )
+        .route("/api/v1/me/sessions", get(auth::handlers::me_sessions))
+        .route(
+            "/api/v1/me/sessions/revoke-others",
+            post(auth::handlers::me_revoke_other_sessions),
+        )
+        .route(
+            "/api/v1/me/sessions/{session_id}/revoke",
+            post(auth::handlers::me_revoke_session),
+        )
         .route("/api/v1/files", get(files::handlers::list_files))
         .route("/api/v1/files/batch", post(files::handlers::batch_files))
         .route(

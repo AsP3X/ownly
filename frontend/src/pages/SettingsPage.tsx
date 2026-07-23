@@ -7,8 +7,11 @@ import { Loader2, Save } from "lucide-react";
 import {
   changeOwnPassword,
   fetchDashboard,
+  fetchMySessions,
   fetchUserProfile,
   getErrorMessage,
+  revokeMySession,
+  type AdminUserSessionRow,
 } from "@/api/client";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
@@ -37,11 +40,6 @@ import {
   type ProfileSecurityDraft,
 } from "@/lib/profile-details-storage";
 import { formatProfileLocationLabel } from "@/lib/profile-format";
-import {
-  readProfileRemoteSessions,
-  writeProfileRemoteSessions,
-  type ProfileSessionRow,
-} from "@/lib/profile-sessions-storage";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import { userInitials, userRoleLabel } from "@/lib/utils-app";
 
@@ -72,7 +70,10 @@ export default function SettingsPage() {
   const [preferences, setPreferences] = useState(() =>
     user?.id ? readProfilePreferences(user.id) : { emailNotifications: true, securityAlerts: true },
   );
-  const [remoteSessions, setRemoteSessions] = useState<ProfileSessionRow[]>([]);
+  const [sessions, setSessions] = useState<AdminUserSessionRow[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
   const [lastPasswordResetAt, setLastPasswordResetAt] = useState<string | null>(null);
 
   const displayName = useMemo(
@@ -85,6 +86,20 @@ export default function SettingsPage() {
   );
   const initials = userInitials(user?.email);
   const locationLabel = useMemo(() => formatProfileLocationLabel(), []);
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError("");
+    try {
+      const res = await fetchMySessions();
+      setSessions(res.sessions ?? []);
+    } catch (err) {
+      setSessionsError(getErrorMessage(err));
+      setSessions([]);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -113,17 +128,16 @@ export default function SettingsPage() {
         newPassword: "",
         mfaEnabled: readProfileMfaEnabled(userId),
       });
-      setRemoteSessions(readProfileRemoteSessions(userId));
       setLastPasswordResetAt(readPasswordChangedAt(userId));
+      await loadSessions();
     } catch (err) {
       setLoadError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadSessions]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial settings fetch on mount
     void loadProfile();
   }, [loadProfile]);
 
@@ -142,13 +156,19 @@ export default function SettingsPage() {
   );
 
   const handleRevokeSession = useCallback(
-    (sessionId: string) => {
-      if (!profile) return;
-      const next = remoteSessions.filter((session) => session.id !== sessionId);
-      setRemoteSessions(next);
-      writeProfileRemoteSessions(profile.user.id, next);
+    async (sessionId: string) => {
+      setRevokingSessionId(sessionId);
+      setSessionsError("");
+      try {
+        await revokeMySession(sessionId);
+        await loadSessions();
+      } catch (err) {
+        setSessionsError(getErrorMessage(err));
+      } finally {
+        setRevokingSessionId(null);
+      }
     },
-    [profile, remoteSessions],
+    [loadSessions],
   );
 
   const handleSaveAll = useCallback(async () => {
@@ -287,8 +307,13 @@ export default function SettingsPage() {
                   />
                   <ProfileSecurityCard draft={securityDraft} onChange={setSecurityDraft} />
                   <ProfileSessionsCard
-                    remoteSessions={remoteSessions}
-                    onRevoke={handleRevokeSession}
+                    sessions={sessions}
+                    loading={sessionsLoading}
+                    error={sessionsError}
+                    revokingId={revokingSessionId}
+                    onRevoke={(sessionId) => {
+                      void handleRevokeSession(sessionId);
+                    }}
                   />
                   <ProfilePreferencesCard
                     preferences={preferences}

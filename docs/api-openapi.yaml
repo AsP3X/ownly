@@ -108,6 +108,36 @@ paths:
       responses:
         "200":
           description: Updated folder row
+  /me/sessions:
+    get:
+      summary: List the caller's active sign-in sessions
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Session rows derived from auth.login / auth.register audit logs
+  /me/sessions/{session_id}/revoke:
+    post:
+      summary: Revoke one of the caller's sessions (not the current JWT)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session revoked
+        "400":
+          description: Attempted to revoke the current session
+        "404":
+          description: Session not found for this user
+  /me/sessions/revoke-others:
+    post:
+      summary: Revoke all sessions except the caller's current JWT sid
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Other sessions revoked
 components:
   securitySchemes:
     bearerAuth:

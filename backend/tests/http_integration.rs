@@ -1839,6 +1839,284 @@ async fn admin_revoked_session_invalidates_jwt() {
         .ok();
 }
 
+// Human: Self-service session list marks JWT sid as current and supports revoking another session.
+// Agent: GET /me/sessions; POST /me/sessions/:id/revoke; EXPECT current flag + 401 on revoked token.
+#[tokio::test]
+async fn me_sessions_list_and_revoke_other() {
+    let Some(state) = test_harness::TestHarness::state("me_sessions_list_and_revoke_other").await else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("me-sessions-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let current_sid = uuid::Uuid::new_v4().to_string();
+    let other_sid = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, ip, user_agent) \
+         VALUES ($1, $2, 'auth.login', 'user', $2, '10.0.0.2', 'OtherClient/1.0')",
+    )
+    .bind(&other_sid)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert other session");
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, ip, user_agent) \
+         VALUES ($1, $2, 'auth.login', 'user', $2, '10.0.0.1', 'Mozilla/5.0 Chrome/120.0')",
+    )
+    .bind(&current_sid)
+    .bind(&user_id)
+    .execute(&state.pool)
+    .await
+    .expect("insert current session");
+
+    let current_token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "pro".into(),
+        &state.jwt_secret,
+        Some(current_sid.clone()),
+        0,
+    )
+    .expect("current token");
+    let other_token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "pro".into(),
+        &state.jwt_secret,
+        Some(other_sid.clone()),
+        0,
+    )
+    .expect("other token");
+
+    let app = create_router(state.clone());
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me/sessions")
+                .header("authorization", format!("Bearer {current_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let list_body = axum::body::to_bytes(list.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list_json: serde_json::Value = serde_json::from_slice(&list_body).unwrap();
+    let sessions = list_json["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 2);
+    let current_row = sessions
+        .iter()
+        .find(|s| s["id"] == current_sid)
+        .expect("current session row");
+    assert_eq!(current_row["is_current"], true);
+    let other_row = sessions
+        .iter()
+        .find(|s| s["id"] == other_sid)
+        .expect("other session row");
+    assert_eq!(other_row["is_current"], false);
+
+    let revoke_self = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/me/sessions/{current_sid}/revoke"))
+                .header("authorization", format!("Bearer {current_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoke_self.status(), StatusCode::BAD_REQUEST);
+
+    let revoke_other = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/me/sessions/{other_sid}/revoke"))
+                .header("authorization", format!("Bearer {current_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoke_other.status(), StatusCode::OK);
+
+    let other_blocked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {other_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(other_blocked.status(), StatusCode::UNAUTHORIZED);
+
+    let current_ok = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {current_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(current_ok.status(), StatusCode::OK);
+
+    sqlx::query("DELETE FROM audit_logs WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM app_settings WHERE key = $1")
+        .bind(format!("admin_revoked_sessions:{user_id}"))
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Self-service revoke must not affect another user's session ids.
+// Agent: POST /me/sessions/:foreign_id/revoke; EXPECT 404; foreign token still valid.
+#[tokio::test]
+async fn me_sessions_cannot_revoke_foreign_session() {
+    let Some(state) =
+        test_harness::TestHarness::state("me_sessions_cannot_revoke_foreign_session").await
+    else {
+        return;
+    };
+
+    let user_a = uuid::Uuid::new_v4().to_string();
+    let user_b = uuid::Uuid::new_v4().to_string();
+    let email_a = format!("me-foreign-a-{user_a}@example.com");
+    let email_b = format!("me-foreign-b-{user_b}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, email) in [(&user_a, &email_a), (&user_b, &email_b)] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    let sid_a = uuid::Uuid::new_v4().to_string();
+    let sid_b = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id) \
+         VALUES ($1, $2, 'auth.login', 'user', $2)",
+    )
+    .bind(&sid_a)
+    .bind(&user_a)
+    .execute(&state.pool)
+    .await
+    .expect("insert a session");
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id) \
+         VALUES ($1, $2, 'auth.login', 'user', $2)",
+    )
+    .bind(&sid_b)
+    .bind(&user_b)
+    .execute(&state.pool)
+    .await
+    .expect("insert b session");
+
+    let token_a = ownly_backend::auth::handlers::create_token(
+        user_a.clone(),
+        email_a.clone(),
+        "pro".into(),
+        &state.jwt_secret,
+        Some(sid_a.clone()),
+        0,
+    )
+    .expect("token a");
+    let token_b = ownly_backend::auth::handlers::create_token(
+        user_b.clone(),
+        email_b.clone(),
+        "pro".into(),
+        &state.jwt_secret,
+        Some(sid_b.clone()),
+        0,
+    )
+    .expect("token b");
+
+    let app = create_router(state.clone());
+
+    let revoke = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/me/sessions/{sid_b}/revoke"))
+                .header("authorization", format!("Bearer {token_a}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoke.status(), StatusCode::NOT_FOUND);
+
+    let b_ok = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", format!("Bearer {token_b}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(b_ok.status(), StatusCode::OK);
+
+    for id in [&user_a, &user_b] {
+        sqlx::query("DELETE FROM audit_logs WHERE user_id = $1")
+            .bind(id)
+            .execute(&state.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(id)
+            .execute(&state.pool)
+            .await
+            .ok();
+    }
+}
+
 // Human: Signed-in users can load their profile page payload with storage stats.
 // Agent: GET /api/v1/me/profile; EXPECT user email + file_count from DB.
 #[tokio::test]

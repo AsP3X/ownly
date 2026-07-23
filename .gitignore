@@ -22,3 +22,8 @@ graphify-out/
 
 # Xcode user-specific IDE metadata (generated per developer machine)
 ios/**/xcuserdata/
+
+# Local scratch / credential dumps (never commit)
+tmp-login.json
+tmp-*.json
+mcps/

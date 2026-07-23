@@ -1,21 +1,16 @@
-// Human: Authorized Sessions card — Pencil Sessions Card with device rows and revoke actions.
-// Agent: READS current device + stored remote rows; EMITS onRevoke; no server revoke until /me/sessions.
+// Human: Authorized Sessions card — server-backed device rows with revoke actions.
+// Agent: READS sessions from /me/sessions; EMITS onRevoke for non-current rows only.
 
 import { Laptop, Monitor, Smartphone } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { AdminUserSessionRow } from "@/api/client";
 import {
   ProfileCard,
   ProfileCardHeader,
   ProfileDivider,
 } from "@/components/profile/profile-ui";
-import {
-  detectCurrentSessionBrowserLabel,
-  detectCurrentSessionDeviceName,
-  detectCurrentSessionDeviceType,
-  type ProfileSessionDeviceType,
-  type ProfileSessionRow,
-} from "@/lib/profile-sessions-storage";
-import { formatProfileSessionLocationLabel } from "@/lib/profile-format";
+
+type ProfileSessionDeviceType = "laptop" | "smartphone" | "monitor";
 
 const DEVICE_ICONS: Record<ProfileSessionDeviceType, LucideIcon> = {
   laptop: Laptop,
@@ -24,15 +19,36 @@ const DEVICE_ICONS: Record<ProfileSessionDeviceType, LucideIcon> = {
 };
 
 export type ProfileSessionsCardProps = {
-  remoteSessions: ProfileSessionRow[];
+  sessions: AdminUserSessionRow[];
   onRevoke: (sessionId: string) => void;
+  revokingId?: string | null;
+  loading?: boolean;
+  error?: string;
   sectionId?: string;
 };
 
-function sessionMetadataLine(session: ProfileSessionRow): string {
-  const parts = [session.location, session.ip, session.client];
-  if (session.lastActiveLabel) parts.push(session.lastActiveLabel);
-  return parts.join(" · ");
+// Human: Map server device_label to the Pencil session icon bucket.
+// Agent: PURE; USED only for icon choice.
+function deviceTypeFromLabel(deviceLabel: string): ProfileSessionDeviceType {
+  const lower = deviceLabel.toLowerCase();
+  if (lower.includes("iphone") || lower.includes("ipad") || lower.includes("android")) {
+    return "smartphone";
+  }
+  if (lower.includes("windows") || lower.includes("linux")) {
+    return "monitor";
+  }
+  return "laptop";
+}
+
+// Human: Prefer the device segment before " • " for the row title.
+// Agent: PURE; FALLS BACK to full device_label.
+function deviceNameFromLabel(deviceLabel: string): string {
+  const parts = deviceLabel.split("•").map((part) => part.trim());
+  return parts[0] || deviceLabel || "Signed-in device";
+}
+
+function sessionMetadataLine(session: AdminUserSessionRow): string {
+  return [session.location_label, session.activity_line].filter(Boolean).join(" · ");
 }
 
 /** Human: Device icon tile — Pencil 40×40 #F7F8FA rounded-lg container. */
@@ -51,12 +67,14 @@ function SessionRow({
   deviceType,
   metadata,
   isCurrent = false,
+  revoking = false,
   onRevoke,
 }: {
   deviceName: string;
   deviceType: ProfileSessionDeviceType;
   metadata: string;
   isCurrent?: boolean;
+  revoking?: boolean;
   onRevoke?: () => void;
 }) {
   return (
@@ -82,29 +100,25 @@ function SessionRow({
         <button
           type="button"
           onClick={onRevoke}
-          className="shrink-0 rounded-lg border border-[#FEE2E2] px-3.5 py-2 text-xs font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
+          disabled={revoking || !onRevoke}
+          className="shrink-0 rounded-lg border border-[#FEE2E2] px-3.5 py-2 text-xs font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Revoke
+          {revoking ? "Revoking…" : "Revoke"}
         </button>
       )}
     </div>
   );
 }
 
-/** Human: Authorized sessions list — current browser row plus revocable remote devices. */
+/** Human: Authorized sessions list — server rows only (no demo devices). */
 export function ProfileSessionsCard({
-  remoteSessions,
+  sessions,
   onRevoke,
+  revokingId = null,
+  loading = false,
+  error,
   sectionId = "settings-sessions",
 }: ProfileSessionsCardProps) {
-  const currentDeviceName = detectCurrentSessionDeviceName();
-  const currentDeviceType = detectCurrentSessionDeviceType();
-  const currentMetadata = [
-    formatProfileSessionLocationLabel(),
-    "192.168.1.145",
-    detectCurrentSessionBrowserLabel(),
-  ].join(" · ");
-
   return (
     <ProfileCard id={sectionId}>
       <div className="flex flex-col gap-4">
@@ -114,21 +128,28 @@ export function ProfileSessionsCard({
         />
         <ProfileDivider />
 
-        <div className="flex flex-col gap-3">
-          <SessionRow
-            deviceName={currentDeviceName}
-            deviceType={currentDeviceType}
-            metadata={currentMetadata}
-            isCurrent
-          />
+        {error ? (
+          <p className="text-sm text-[#EF4444]" role="alert">
+            {error}
+          </p>
+        ) : null}
 
-          {remoteSessions.map((session) => (
+        {loading ? <p className="text-sm text-[#666666]">Loading sessions…</p> : null}
+
+        {!loading && !error && sessions.length === 0 ? (
+          <p className="text-sm text-[#666666]">No active sessions found for this account.</p>
+        ) : null}
+
+        <div className="flex flex-col gap-3">
+          {sessions.map((session) => (
             <SessionRow
               key={session.id}
-              deviceName={session.deviceName}
-              deviceType={session.deviceType}
+              deviceName={deviceNameFromLabel(session.device_label)}
+              deviceType={deviceTypeFromLabel(session.device_label)}
               metadata={sessionMetadataLine(session)}
-              onRevoke={() => onRevoke(session.id)}
+              isCurrent={session.is_current}
+              revoking={revokingId === session.id}
+              onRevoke={session.is_current ? undefined : () => onRevoke(session.id)}
             />
           ))}
         </div>

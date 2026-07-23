@@ -1,10 +1,28 @@
-// Human: Per-user session revocation backed by app_settings (admin console Active Sessions).
+// Human: Per-user session revocation backed by app_settings (admin + self-service /me sessions).
 // Agent: READS/WRITES admin_revoked_sessions:*; JWT sid + ver + iat gate revoked logins.
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::PgPool;
 
 use crate::error::AppError;
+
+/// Human: One active sign-in row for admin Active Sessions and Settings → Authorized Sessions.
+/// Agent: BUILT by list_active_sessions from audit_logs; SERIALIZED as JSON for both APIs.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionListRow {
+    pub id: String,
+    pub device_label: String,
+    pub location_label: String,
+    pub created_line: String,
+    pub activity_line: String,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionListResponse {
+    pub sessions: Vec<SessionListRow>,
+}
 
 fn revoked_sessions_key(user_id: &str) -> String {
     format!("admin_revoked_sessions:{user_id}")
@@ -165,6 +183,16 @@ pub async fn revoke_session_id(pool: &PgPool, user_id: &str, session_id: &str) -
 // Human: Revoke every login session except the newest audit row for this user.
 // Agent: WRITES revoked ids for all older auth.login / auth.register rows.
 pub async fn revoke_all_other_sessions(pool: &PgPool, user_id: &str) -> Result<(), AppError> {
+    revoke_all_except_session(pool, user_id, None).await
+}
+
+// Human: Revoke all recent logins except one kept session (JWT sid) or the newest when keep is None.
+// Agent: WRITES revoked ids + min_iat floor for legacy tokens without sid.
+pub async fn revoke_all_except_session(
+    pool: &PgPool,
+    user_id: &str,
+    keep_session_id: Option<&str>,
+) -> Result<(), AppError> {
     let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
         "SELECT id, created_at FROM audit_logs \
          WHERE user_id = $1 AND action IN ('auth.login', 'auth.register') \
@@ -177,13 +205,27 @@ pub async fn revoke_all_other_sessions(pool: &PgPool, user_id: &str) -> Result<(
     let mut revoked = load_revoked_session_ids(pool, user_id).await?;
     let mut kept_current = false;
     let mut kept_created_at: Option<DateTime<Utc>> = None;
+
+    // Prefer explicit keep id when present among rows; otherwise keep the newest non-revoked.
+    let preferred_keep = keep_session_id.filter(|sid| {
+        rows.iter().any(|(id, _)| id == *sid)
+            && !revoked.iter().any(|revoked_id| revoked_id == *sid)
+    });
+
     for (id, created_at) in rows {
         if revoked.iter().any(|revoked_id| revoked_id == &id) {
             continue;
         }
-        if !kept_current {
+        let should_keep = match preferred_keep {
+            Some(keep_id) => id == keep_id,
+            None => !kept_current,
+        };
+        if should_keep && !kept_current {
             kept_current = true;
             kept_created_at = Some(created_at);
+            continue;
+        }
+        if should_keep {
             continue;
         }
         if !revoked.iter().any(|revoked_id| revoked_id == &id) {
@@ -195,6 +237,81 @@ pub async fn revoke_all_other_sessions(pool: &PgPool, user_id: &str) -> Result<(
         store_min_valid_iat(pool, user_id, created_at.timestamp()).await?;
     }
     Ok(())
+}
+
+// Human: Confirm an audit-derived session id belongs to this user before self-service revoke.
+// Agent: READS audit_logs; RETURNS true only for auth.login / auth.register rows of user_id.
+pub async fn session_belongs_to_user(
+    pool: &PgPool,
+    user_id: &str,
+    session_id: &str,
+) -> Result<bool, AppError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM audit_logs \
+         WHERE id = $1 AND user_id = $2 AND action IN ('auth.login', 'auth.register')",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.is_some())
+}
+
+// Human: List non-revoked login sessions for admin or self-service Settings UI.
+// Agent: READS audit_logs + revoked set; MARKS is_current from JWT sid when provided.
+pub async fn list_active_sessions(
+    pool: &PgPool,
+    user_id: &str,
+    current_session_id: Option<&str>,
+) -> Result<Vec<SessionListRow>, AppError> {
+    let revoked = load_revoked_session_ids(pool, user_id).await?;
+    let rows: Vec<(String, DateTime<Utc>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, created_at, ip, user_agent FROM audit_logs \
+         WHERE user_id = $1 AND action IN ('auth.login', 'auth.register') \
+         ORDER BY created_at DESC LIMIT 25",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut sessions = Vec::new();
+    let mut marked_fallback_current = false;
+    let has_sid_match = current_session_id
+        .map(|sid| {
+            rows.iter().any(|(id, _, _, _)| {
+                id == sid && !revoked.iter().any(|revoked_id| revoked_id == id)
+            })
+        })
+        .unwrap_or(false);
+
+    for (id, created_at, ip, user_agent) in rows {
+        if revoked.iter().any(|revoked_id| revoked_id == &id) {
+            continue;
+        }
+        let ip_label = ip.unwrap_or_else(|| "Unknown".into());
+        let is_current = if has_sid_match {
+            current_session_id == Some(id.as_str())
+        } else if !marked_fallback_current {
+            marked_fallback_current = true;
+            true
+        } else {
+            false
+        };
+        sessions.push(SessionListRow {
+            id,
+            device_label: session_device_label(user_agent.as_deref()),
+            location_label: format!("Location: unknown • IP: {ip_label}"),
+            created_line: format!("Token Created: {}", created_at.format("%b %d, %Y")),
+            activity_line: if is_current {
+                "Last active now".into()
+            } else {
+                format!("Last active {}", created_at.format("%b %d, %Y"))
+            },
+            is_current,
+        });
+    }
+
+    Ok(sessions)
 }
 
 pub fn session_device_label(user_agent: Option<&str>) -> String {
@@ -222,4 +339,18 @@ pub fn session_device_label(user_agent: Option<&str>) -> String {
         "Browser"
     };
     format!("{device} • {client}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_device_label;
+
+    #[test]
+    fn session_device_label_detects_chrome_windows() {
+        let label = session_device_label(Some(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
+        ));
+        assert!(label.contains("Windows"));
+        assert!(label.contains("Chrome"));
+    }
 }

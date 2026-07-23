@@ -663,15 +663,7 @@ pub async fn delete_user(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-#[derive(Debug, Serialize)]
-pub struct AdminUserSessionRow {
-    pub id: String,
-    pub device_label: String,
-    pub location_label: String,
-    pub created_line: String,
-    pub activity_line: String,
-    pub is_current: bool,
-}
+pub type AdminUserSessionRow = user_sessions::SessionListRow;
 
 #[derive(Debug, Serialize)]
 pub struct AdminUserSessionsResponse {
@@ -679,7 +671,7 @@ pub struct AdminUserSessionsResponse {
 }
 
 // Human: List recent sign-in sessions derived from audit logs (admin console Active Sessions dialog).
-// Agent: GET /admin/users/:id/sessions; READS audit_logs + app_settings revocations; AUDIT exempt.
+// Agent: GET /admin/users/:id/sessions; READS shared list_active_sessions; AUDIT exempt.
 pub async fn list_user_sessions(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -698,41 +690,8 @@ pub async fn list_user_sessions(
         .await?;
     exists.ok_or(AppError::NotFound)?;
 
-    let revoked = user_sessions::load_revoked_session_ids(&state.pool, &user_id).await?;
-    let rows: Vec<(String, DateTime<Utc>, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, created_at, ip, user_agent FROM audit_logs \
-         WHERE user_id = $1 AND action IN ('auth.login', 'auth.register') \
-         ORDER BY created_at DESC LIMIT 25",
-    )
-    .bind(&user_id)
-    .fetch_all(&state.pool)
-    .await?;
-
-    let mut sessions = Vec::new();
-    let mut marked_current = false;
-    for (id, created_at, ip, user_agent) in rows {
-        if revoked.iter().any(|revoked_id| revoked_id == &id) {
-            continue;
-        }
-        let ip_label = ip.unwrap_or_else(|| "Unknown".into());
-        let is_current = !marked_current;
-        if is_current {
-            marked_current = true;
-        }
-        sessions.push(AdminUserSessionRow {
-            id,
-            device_label: user_sessions::session_device_label(user_agent.as_deref()),
-            location_label: format!("Location: unknown • IP: {ip_label}"),
-            created_line: format!("Token Created: {}", created_at.format("%b %d, %Y")),
-            activity_line: if is_current {
-                "Last active now".into()
-            } else {
-                format!("Last active {}", created_at.format("%b %d, %Y"))
-            },
-            is_current,
-        });
-    }
-
+    // Admin view marks the newest non-revoked row as current (no target JWT sid available).
+    let sessions = user_sessions::list_active_sessions(&state.pool, &user_id, None).await?;
     Ok(Json(AdminUserSessionsResponse { sessions }))
 }
 

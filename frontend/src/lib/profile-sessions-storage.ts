@@ -1,68 +1,10 @@
-// Human: Client-side authorized session rows for the profile settings page.
-// Agent: READS/WRITES localStorage per user; SUPPLEMENTS live current-device row until /me/sessions exists.
+// Human: UA helpers for optional client-side labels — session lists now come from /me/sessions.
+// Agent: PURE navigator helpers; DEMO localStorage seed removed.
 
 export type ProfileSessionDeviceType = "laptop" | "smartphone" | "monitor";
 
-export type ProfileSessionRow = {
-  id: string;
-  deviceName: string;
-  deviceType: ProfileSessionDeviceType;
-  location: string;
-  ip: string;
-  client: string;
-  lastActiveLabel?: string;
-};
-
-const SESSIONS_KEY_PREFIX = "ownly-profile-sessions-";
-
-function sessionsKey(userId: string) {
-  return `${SESSIONS_KEY_PREFIX}${userId}`;
-}
-
-const DEFAULT_REMOTE_SESSIONS: ProfileSessionRow[] = [
-  {
-    id: "demo-iphone",
-    deviceName: "iPhone 15 Pro",
-    deviceType: "smartphone",
-    location: "San Francisco, USA",
-    ip: "172.56.21.90",
-    client: "Ownly Mobile App",
-    lastActiveLabel: "2 hours ago",
-  },
-  {
-    id: "demo-windows",
-    deviceName: "Windows Desktop",
-    deviceType: "monitor",
-    location: "New York, USA",
-    ip: "64.233.160.10",
-    client: "Edge Browser",
-    lastActiveLabel: "3 days ago",
-  },
-];
-
-// Human: Seed remote session cards shown in the Pencil Authorized Sessions card.
-// Agent: READS localStorage; RETURNS defaults when unset.
-export function readProfileRemoteSessions(userId: string): ProfileSessionRow[] {
-  if (typeof window === "undefined") return DEFAULT_REMOTE_SESSIONS;
-  const raw = window.localStorage.getItem(sessionsKey(userId));
-  if (!raw) return DEFAULT_REMOTE_SESSIONS;
-  try {
-    const parsed = JSON.parse(raw) as ProfileSessionRow[];
-    return Array.isArray(parsed) ? parsed : DEFAULT_REMOTE_SESSIONS;
-  } catch {
-    return DEFAULT_REMOTE_SESSIONS;
-  }
-}
-
-// Human: Persist session list after a revoke action removes a row.
-// Agent: WRITES JSON array to localStorage for the user id.
-export function writeProfileRemoteSessions(userId: string, sessions: ProfileSessionRow[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(sessionsKey(userId), JSON.stringify(sessions));
-}
-
 // Human: Guess a friendly device label from the browser user agent string.
-// Agent: READS navigator.userAgent; RETURNS Pencil-style device name for the current session row.
+// Agent: READS navigator.userAgent; RETURNS Pencil-style device name for display polish.
 export function detectCurrentSessionDeviceName(): string {
   if (typeof navigator === "undefined") return "This Device";
   const ua = navigator.userAgent;

@@ -105,6 +105,8 @@ fn audit_description(action: &str, resource_type: Option<&str>, resource_id: Opt
         "auth.login" => "User signed in".into(),
         "auth.register" => "New account registered".into(),
         "auth.logout" => "User signed out".into(),
+        "auth.sessions.revoke" => "User revoked a signed-in session".into(),
+        "auth.sessions.revoke_others" => "User revoked other signed-in sessions".into(),
         "setup.complete" => "Instance setup completed".into(),
         "admin.users.create" => "Administrator created a user account".into(),
         "admin.users.update" => "Administrator updated a user account".into(),

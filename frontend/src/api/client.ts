@@ -399,6 +399,32 @@ export type AdminUserSessionRow = {
   is_current: boolean;
 };
 
+// Human: Caller's active sign-in sessions for Settings → Authorized Sessions.
+// Agent: GET /me/sessions; REQUIRES auth; MARKS is_current from JWT sid server-side.
+export async function fetchMySessions() {
+  return apiFetch("/me/sessions", { cache: "no-store" }) as Promise<{
+    sessions: AdminUserSessionRow[];
+  }>;
+}
+
+// Human: Self-service revoke of one other session (not the current JWT).
+// Agent: POST /me/sessions/:sessionId/revoke; AUDIT auth.sessions.revoke server-side.
+export async function revokeMySession(sessionId: string) {
+  return apiFetch(`/me/sessions/${sessionId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }) as Promise<{ ok: boolean }>;
+}
+
+// Human: Self-service revoke of every session except the caller's current JWT.
+// Agent: POST /me/sessions/revoke-others; AUDIT auth.sessions.revoke_others server-side.
+export async function revokeOtherMySessions() {
+  return apiFetch("/me/sessions/revoke-others", {
+    method: "POST",
+    body: JSON.stringify({}),
+  }) as Promise<{ ok: boolean }>;
+}
+
 // Human: Active sessions list for Manage Sessions dialog (audit-derived).
 // Agent: GET /admin/users/:id/sessions; REQUIRES admin JWT.
 export async function fetchAdminUserSessions(userId: string) {

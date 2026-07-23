@@ -438,7 +438,7 @@ Admin settings **persist** SMTP configuration in `app_settings` (host, port, fro
 | **2FA / WebAuthn** | Protect admin accounts and high-value libraries | Store credentials per user; backup codes; audit `auth.webauthn.register` |
 | **OAuth/OIDC** | Teams avoiding local passwords | Google, GitHub, Authentik; map to local user or JIT provision |
 | **SEC-00x in CI** | Regression on security fixes | Nightly Compose + `sec001`…`sec012` scripts; SARIF upload optional |
-| **Session/device UX** | Users cannot see active sessions in Profile | Backend: `GET /api/v1/admin/users/{id}/sessions`, revoke endpoints exist; add **`GET /api/v1/me/sessions`** + Profile → Security UI (frontend today uses localStorage stub in `profile-sessions-storage.ts`) |
+| **Session/device UX** | ~~Users cannot see active sessions in Profile~~ **Shipped 2026-07-23** | `GET/POST /api/v1/me/sessions*`; Settings → Authorized Sessions loads real audit-derived rows (no demo localStorage). Remaining: richer device names, geo-IP |
 | **Passkeys for share links** | Optional | Lower priority than account 2FA |
 
 ### Verification

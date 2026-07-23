@@ -6,7 +6,7 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderMap},
     response::{AppendHeaders, IntoResponse, Response},
     Extension, Json,
@@ -489,6 +489,84 @@ pub async fn me_permissions(
     let permissions =
         crate::authz::list_effective_instance_permissions(&state.pool, &claims.sub).await?;
     Ok(Json(serde_json::json!({ "permissions": permissions })))
+}
+
+// Human: List the caller's own active sign-in sessions for Settings → Authorized Sessions.
+// Agent: GET /me/sessions; READS list_active_sessions; MARKS is_current from JWT sid.
+pub async fn me_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<crate::user_sessions::SessionListResponse>, AppError> {
+    let sessions = crate::user_sessions::list_active_sessions(
+        &state.pool,
+        &claims.sub,
+        claims.sid.as_deref(),
+    )
+    .await?;
+    Ok(Json(crate::user_sessions::SessionListResponse { sessions }))
+}
+
+// Human: Self-service revoke of one other device/session (not the caller's current JWT).
+// Agent: POST /me/sessions/:id/revoke; REJECTS current sid; AUDIT auth.sessions.revoke.
+pub async fn me_revoke_session(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if claims.sid.as_deref() == Some(session_id.as_str()) {
+        return Err(AppError::BadRequest(
+            "cannot revoke the current session; sign out instead".into(),
+        ));
+    }
+    if !crate::user_sessions::session_belongs_to_user(&state.pool, &claims.sub, &session_id)
+        .await?
+    {
+        return Err(AppError::NotFound);
+    }
+
+    crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, &session_id).await?;
+
+    audit::write_audit_logged(
+        &state.pool,
+        Some(&claims.sub),
+        "auth.sessions.revoke",
+        Some("user"),
+        Some(&claims.sub),
+        Some(serde_json::json!({ "session_id": session_id })),
+        &headers,
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// Human: Self-service revoke of every session except the caller's current JWT sid.
+// Agent: POST /me/sessions/revoke-others; KEEPS claims.sid when present; AUDIT auth.sessions.revoke_others.
+pub async fn me_revoke_other_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    crate::user_sessions::revoke_all_except_session(
+        &state.pool,
+        &claims.sub,
+        claims.sid.as_deref(),
+    )
+    .await?;
+
+    audit::write_audit_logged(
+        &state.pool,
+        Some(&claims.sub),
+        "auth.sessions.revoke_others",
+        Some("user"),
+        Some(&claims.sub),
+        None,
+        &headers,
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[derive(Debug, Serialize)]
