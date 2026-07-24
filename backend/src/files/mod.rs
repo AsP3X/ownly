@@ -20,5 +20,6 @@ pub mod rename;
 pub mod subtree_cache;
 pub mod upload_finalize;
 pub mod upload_spool;
+pub mod upload_staging;
 pub mod upload_validation;
 pub mod zip_job;

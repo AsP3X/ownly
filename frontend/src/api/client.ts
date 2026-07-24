@@ -1869,6 +1869,8 @@ export function uploadFileWithProgress(
     onServerFileRegistered?: (file: FileItem) => void;
     /** Fires when all request bytes reached the server — frees a browser upload slot before the HTTP response returns. */
     onUploadBytesComplete?: () => void;
+    /** Fires after each resumable part — direct Nebular vs Ownly proxy path. */
+    onPartTransport?: (transport: "direct" | "proxy") => void;
     /** When true, return after the upload API responds without polling media ingest to completion. */
     deferIngest?: boolean;
     /** Gates each post-upload stage so only three files occupy processing, encrypting, or storing at once. */
@@ -1892,6 +1894,7 @@ function uploadFileWithProgressResumable(
     onResumableSessionReady?: (serverSessionId: string) => void;
     onServerFileRegistered?: (file: FileItem) => void;
     onUploadBytesComplete?: () => void;
+    onPartTransport?: (transport: "direct" | "proxy") => void;
     deferIngest?: boolean;
     acquirePipelineStage?: (stage: "processing" | "encrypting" | "storing") => Promise<void>;
     releasePipelineStages?: () => void;
@@ -1964,6 +1967,7 @@ function uploadFileWithProgressResumable(
             session.resumableServerSessionId = serverSession.session_id;
             options?.onResumableSessionReady?.(serverSession.session_id);
           },
+          onPartTransport: options?.onPartTransport,
         });
 
         if (session.cancelled) {

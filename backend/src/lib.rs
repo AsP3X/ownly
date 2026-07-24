@@ -89,6 +89,10 @@ pub struct AppState {
     pub auth_login_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub auth_register_rl: Arc<rate_limit::PerKeyRateLimiter>,
     pub upload_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    /// Human: Tighter limit for minting browser-direct signed part URLs (token spam protection).
+    pub upload_signed_url_rl: Arc<rate_limit::PerKeyRateLimiter>,
+    /// Human: Process-local upload path counters for admin health.
+    pub upload_metrics: Arc<uploads::metrics::UploadMetrics>,
     pub hls_segment_rl: Arc<rate_limit::PerKeyRateLimiter>,
     /// Human: Throttle wrong x-share-password guesses on public share routes (SEC-009).
     /// Agent: KEYED by share token + client IP in resolve_public_share.
@@ -241,6 +245,12 @@ async fn build_app_state(
             config.upload_rpm.max(1) as usize,
             window,
         )),
+        // Human: Cap signed-url mints below full body upload RPM (default half, min 30/min).
+        upload_signed_url_rl: Arc::new(rate_limit::PerKeyRateLimiter::new(
+            ((config.upload_rpm.max(1) as usize) / 2).max(30),
+            window,
+        )),
+        upload_metrics: uploads::metrics::UploadMetrics::new(),
         hls_segment_rl: Arc::new(rate_limit::PerKeyRateLimiter::new(
             config.hls_segment_rpm.max(1) as usize,
             window,
@@ -546,6 +556,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             )),
         )
         .route(
+            "/api/v1/uploads/{id}/parts/{part_number}/signed-url",
+            post(uploads::handlers::signed_part_url),
+        )
+        .route(
+            "/api/v1/uploads/{id}/parts/{part_number}/confirm",
+            post(uploads::handlers::confirm_part),
+        )
+        .route(
             "/api/v1/uploads/{id}/complete",
             post(uploads::handlers::complete_session),
         )
@@ -742,6 +760,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             delete(admin::groups::delete_admin_permission),
         )
         .route("/api/v1/admin/overview", get(admin::console::overview))
+        .route(
+            "/api/v1/admin/uploads/health",
+            get(admin::console::upload_health),
+        )
         .route(
             "/api/v1/admin/audit-logs",
             get(admin::console::list_audit_logs),

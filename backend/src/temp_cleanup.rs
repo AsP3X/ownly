@@ -145,10 +145,70 @@ pub async fn is_protected_upload_spool(pool: &PgPool, path: &Path) -> bool {
     .ok()
     .flatten();
 
+    // Human: Protect only in-flight encodes — failed/cancelled spools are reclaimable after idle TTL.
     matches!(
         row,
         Some((false, status)) if status == "queued" || status == "processing"
     )
+}
+
+// Human: Purge partial Nebular prefixes for failed/cancelled HLS that never became hls_ready.
+// Agent: SELECT stale failed rows; CALLS purge_file_storage; AUDIT files.hls.cleanup_orphan.
+async fn sweep_failed_hls_orphans(state: &crate::AppState) -> u32 {
+    let rows: Vec<(String, String, Option<i32>, Option<String>)> = sqlx::query_as(
+        "SELECT id, storage_key, segment_count, mime_type FROM files \
+         WHERE deleted_at IS NULL \
+           AND mime_type LIKE 'video/%' \
+           AND COALESCE(hls_ready, false) = false \
+           AND COALESCE(hls_encode_status, '') IN ('failed', 'cancelled') \
+           AND updated_at < now() - interval '24 hours' \
+         LIMIT 50",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    if rows.is_empty() {
+        return 0;
+    }
+
+    let mut cleaned = 0u32;
+    let empty_headers = axum::http::HeaderMap::new();
+    for (file_id, storage_key, segment_count, mime_type) in rows {
+        crate::files::file_delete::purge_file_storage_with_mime(
+            state.storage.clone(),
+            &storage_key,
+            segment_count,
+            mime_type.as_deref(),
+            None,
+        )
+        .await;
+
+        // Human: Drop local spool if it still exists for this failed encode.
+        let work_dir = crate::files::upload_spool::upload_work_dir(&file_id);
+        if is_deletable_temp_path(&work_dir) {
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        }
+
+        crate::audit::write_audit(
+            &state.pool,
+            None,
+            "files.hls.cleanup_orphan",
+            Some("file"),
+            Some(&file_id),
+            Some(serde_json::json!({
+                "storage_key": storage_key,
+                "reason": "failed_or_cancelled_stale"
+            })),
+            &empty_headers,
+        )
+        .await
+        .ok();
+
+        cleaned += 1;
+        debug!(file_id = %file_id, storage_key = %storage_key, "purged failed HLS orphan prefix");
+    }
+    cleaned
 }
 
 // Human: Remove one Ownly temp entry when idle (or immediately when forced).
@@ -310,26 +370,63 @@ async fn gif_preview_temp_auto_cleanup_enabled(pool: &sqlx::PgPool) -> bool {
         .unwrap_or(true)
 }
 
-// Human: Abort expired resumable upload sessions and delete their spool directories.
-// Agent: CALLS uploads::store::expire_stale_upload_sessions; REMOVES ownly_upload_{file_id} dirs.
-async fn sweep_expired_upload_sessions(pool: &PgPool) -> u32 {
-    let Ok(expired_file_ids) = crate::uploads::store::expire_stale_upload_sessions(pool).await else {
+// Human: Abort expired resumable upload sessions, audit them, and delete spool/staging artifacts.
+// Agent: CALLS expire_stale_upload_sessions; video → local spool; non-video → staging prefix; AUDIT expire.
+async fn sweep_expired_upload_sessions(state: &crate::AppState) -> u32 {
+    let Ok(expired) = crate::uploads::store::expire_stale_upload_sessions(&state.pool).await else {
         return 0;
     };
 
     let mut cleaned = 0u32;
-    for file_id in expired_file_ids {
-        let work_dir = crate::files::upload_spool::upload_work_dir(&file_id);
-        if is_deletable_temp_path(&work_dir) {
-            match tokio::fs::remove_dir_all(&work_dir).await {
-                Ok(()) => {
-                    cleaned += 1;
-                    debug!(file_id = %file_id, "removed expired upload session spool");
-                }
-                Err(error) => {
-                    warn!(file_id = %file_id, %error, "failed to remove expired upload spool");
+    let empty_headers = axum::http::HeaderMap::new();
+    for session in expired {
+        state.upload_metrics.inc_sessions_expired();
+
+        crate::audit::write_audit(
+            &state.pool,
+            Some(&session.user_id),
+            "uploads.session.expire",
+            Some("upload_session"),
+            Some(&session.session_id),
+            Some(serde_json::json!({
+                "filename": session.filename,
+                "file_id": session.file_id,
+            })),
+            &empty_headers,
+        )
+        .await
+        .ok();
+
+        let is_video = crate::files::upload_spool::upload_is_video(&session.filename, &session.mime_type);
+        if is_video {
+            let work_dir = crate::files::upload_spool::upload_work_dir(&session.file_id);
+            if is_deletable_temp_path(&work_dir) {
+                match tokio::fs::remove_dir_all(&work_dir).await {
+                    Ok(()) => {
+                        cleaned += 1;
+                        debug!(
+                            file_id = %session.file_id,
+                            session_id = %session.session_id,
+                            "removed expired upload session spool"
+                        );
+                    }
+                    Err(error) => {
+                        warn!(
+                            file_id = %session.file_id,
+                            %error,
+                            "failed to remove expired upload spool"
+                        );
+                    }
                 }
             }
+        } else {
+            crate::files::upload_staging::cleanup_staging_prefix(&state.storage, &session.session_id)
+                .await;
+            cleaned += 1;
+            debug!(
+                session_id = %session.session_id,
+                "removed expired upload staging prefix"
+            );
         }
     }
 
@@ -344,9 +441,14 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
             let include_gif_preview =
                 gif_preview_temp_auto_cleanup_enabled(&state.pool).await;
 
-            let expired_sessions = sweep_expired_upload_sessions(&state.pool).await;
+            let expired_sessions = sweep_expired_upload_sessions(&state).await;
             if expired_sessions > 0 {
                 info!(expired_sessions, "expired upload sessions cleaned");
+            }
+
+            let failed_hls = sweep_failed_hls_orphans(&state).await;
+            if failed_hls > 0 {
+                info!(failed_hls, "failed HLS orphan prefixes cleaned");
             }
 
             let removed = sweep_idle_temp_files(

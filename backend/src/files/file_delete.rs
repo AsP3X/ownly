@@ -277,7 +277,7 @@ pub async fn batch_delete_file_rows(
 }
 
 // Human: Delete one file row by id and purge storage (authz checked by caller).
-// Agent: DELETE files WHERE id; SAME purge path as delete_owned_file_row_with_progress.
+// Agent: DELETE files WHERE id; SKIPS blob purge when other rows still share storage_key (content dedup).
 pub async fn delete_file_row_with_progress<F>(
     state: &Arc<AppState>,
     pool: &PgPool,
@@ -299,6 +299,16 @@ where
         .bind(file_id)
         .execute(pool)
         .await?;
+
+    if crate::files::content_hash::storage_key_still_referenced(pool, &storage_key).await? {
+        on_blob_deleted(0, 0);
+        return Ok(OwnedFileRow {
+            id: file_id.to_string(),
+            name,
+            storage_key,
+            segment_count,
+        });
+    }
 
     let counter = Arc::new(AtomicU32::new(0));
     let reporter = counter.clone();
@@ -339,17 +349,33 @@ pub async fn batch_delete_owned_file_rows(
 }
 
 // Human: Purge storage for many files concurrently after their DB rows are already deleted.
-// Agent: for_each_concurrent DELETE_FILE_CONCURRENCY; UPDATES shared blob progress counter.
+// Agent: for_each_concurrent DELETE_FILE_CONCURRENCY; SKIPS keys still referenced by other files rows.
 pub async fn parallel_purge_file_rows(
     storage: Arc<dyn Storage>,
+    pool: &PgPool,
     rows: Vec<FilePurgeRow>,
     progress: Option<Arc<AtomicU32>>,
 ) {
-    stream::iter(rows)
+    // Human: Batch deletes may remove several rows that shared one storage_key — purge once per unique key.
+    let mut unique_by_key: std::collections::HashMap<String, FilePurgeRow> =
+        std::collections::HashMap::new();
+    for row in rows {
+        unique_by_key.entry(row.storage_key.clone()).or_insert(row);
+    }
+
+    stream::iter(unique_by_key.into_values())
         .for_each_concurrent(DELETE_FILE_CONCURRENCY, |row| {
             let storage = storage.clone();
             let progress = progress.clone();
+            let pool = pool.clone();
             async move {
+                let still_referenced =
+                    crate::files::content_hash::storage_key_still_referenced(&pool, &row.storage_key)
+                        .await
+                        .unwrap_or(true);
+                if still_referenced {
+                    return;
+                }
                 purge_file_storage_with_mime(
                     storage,
                     &row.storage_key,
@@ -402,6 +428,16 @@ where
         .execute(pool)
         .await?;
 
+    if crate::files::content_hash::storage_key_still_referenced(pool, &storage_key).await? {
+        on_blob_deleted(0, 0);
+        return Ok(OwnedFileRow {
+            id: file_id.to_string(),
+            name,
+            storage_key,
+            segment_count,
+        });
+    }
+
     let counter = Arc::new(AtomicU32::new(0));
     let reporter = counter.clone();
     let expected = storage_object_count(segment_count);
@@ -435,7 +471,7 @@ pub async fn permanent_delete_owned_files(
     progress: Option<Arc<AtomicU32>>,
 ) -> Result<Vec<FilePurgeRow>, AppError> {
     let rows = batch_delete_owned_file_rows(pool, user_id, file_ids).await?;
-    parallel_purge_file_rows(state.storage.clone(), rows.clone(), progress).await;
+    parallel_purge_file_rows(state.storage.clone(), pool, rows.clone(), progress).await;
     Ok(rows)
 }
 
@@ -520,14 +556,15 @@ mod tests {
             .await
             .expect("put thumb");
 
-        let rows = vec![FilePurgeRow {
-            id: "f1".into(),
-            name: "photo.jpg".into(),
-            storage_key: key.into(),
-            segment_count: None,
-            mime_type: Some("image/jpeg".into()),
-        }];
-        parallel_purge_file_rows(storage.clone(), rows, None).await;
+        // Human: Unit test purges without a Postgres pool (refcount gate lives in parallel_purge_file_rows).
+        purge_file_storage_with_mime(
+            storage.clone(),
+            key,
+            None,
+            Some("image/jpeg"),
+            None,
+        )
+        .await;
 
         assert!(!storage.exists(key).await.expect("exists root"));
     }

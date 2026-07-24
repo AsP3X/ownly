@@ -666,6 +666,19 @@ impl Storage for NebulaStorage {
         Ok(response.status().is_success())
     }
 
+    async fn object_size(&self, key: &str) -> anyhow::Result<u64> {
+        let response = self
+            .client
+            .head(self.url(key))
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            anyhow::bail!("object storage HEAD failed: {}", response.status());
+        }
+        Ok(response.content_length().unwrap_or(0))
+    }
+
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         let response = self
             .client
@@ -838,6 +851,23 @@ impl Storage for NebulaStorage {
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
         let expires = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + expiry_seconds;
         let signature = generate_signature("GET", &self.signing_secret, &self.bucket, key, expires)?;
+        Ok(format!(
+            "{}?signature={}&expires={}",
+            self.public_url(key),
+            signature,
+            expires
+        ))
+    }
+
+    fn supports_presigned_put(&self) -> bool {
+        true
+    }
+
+    // Human: Browser-direct staging PUT — same HMAC scheme as GET but method PUT (Nebular binds signature to method).
+    // Agent: public_url uses OBJECT_STORAGE_PUBLIC_URL (nginx /media/ same-origin in compose).
+    fn presigned_put_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
+        let expires = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + expiry_seconds;
+        let signature = generate_signature("PUT", &self.signing_secret, &self.bucket, key, expires)?;
         Ok(format!(
             "{}?signature={}&expires={}",
             self.public_url(key),

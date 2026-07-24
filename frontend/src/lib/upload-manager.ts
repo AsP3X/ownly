@@ -32,6 +32,7 @@ import {
   publishUploadBatchSnapshot,
   readUploadBatchSnapshot,
 } from "@/lib/upload-batch-snapshot";
+import { suggestedFileConcurrency } from "@/lib/upload-adaptive";
 import { createClientId } from "@/lib/utils-app";
 import {
   acquirePipelineStage,
@@ -78,6 +79,18 @@ export type UploadItemSnapshot = {
   /** True when the user must re-pick the same File to continue byte upload after reload. */
   needsFileReselect?: boolean;
 
+  /** True when a failed/cancelled row still holds a local File and can retry without re-picking. */
+  canRetry?: boolean;
+
+  /** Relative folder path for folder-batch uploads (display only). */
+  relativePath?: string;
+
+  /** How the last part byte path ran — direct Nebular vs Ownly proxy. */
+  partTransport?: "direct" | "proxy";
+
+  /** User paused this row — pump skips claiming it until resumed. */
+  paused?: boolean;
+
   error?: string;
 
   displayBucket: UploadItemDisplayBucket;
@@ -94,6 +107,9 @@ export type UploadBatchSnapshot = {
 
   items: UploadItemSnapshot[];
 
+  /** True when the user paused claiming new browser upload slots. */
+  paused?: boolean;
+
 };
 
 
@@ -106,14 +122,20 @@ type UploadFileRegisteredListener = (file: FileItem) => void;
 
 
 
-// Human: Two browser upload slots — aligned with backend STORAGE_PUT_MAX_CONCURRENT to avoid Nebular SQLite lock storms.
+// Human: Default/hard cap browser upload slots — adaptive module lowers under pressure.
 // Agent: UPLOAD slots = localFile rows; POST-UPLOAD slots = upload-pipeline.ts per phase.
 const MAX_CONCURRENT_UPLOADS = 2;
+function ADAPTIVE_FILE_SLOTS_CAP(): number {
+  return Math.max(MAX_CONCURRENT_UPLOADS, 3);
+}
 const UPLOAD_MAX_RETRIES = 6;
 const UPLOAD_RETRY_BASE_MS = 1_500;
 const UPLOAD_RETRY_MAX_MS = 30_000;
 /** Human: When the API returns 429, pause all upload workers until the server window clears. */
 let uploadPumpPausedUntil = 0;
+
+/** Human: User-requested global pause — pump skips claiming new work until resumed. */
+let userUploadPaused = false;
 
 const UPLOAD_BATCH_STORAGE_KEY = "ownly_upload_batch";
 
@@ -165,6 +187,12 @@ type InternalUploadItem = {
 
   /** Reload recovery — row waits for the user to re-select the same file bytes. */
   needsFileReselect?: boolean;
+
+  relativePath?: string;
+
+  partTransport?: "direct" | "proxy";
+
+  paused?: boolean;
 
   error?: string;
 
@@ -248,6 +276,17 @@ function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
 
     needsFileReselect: item.needsFileReselect,
 
+    canRetry:
+      (item.status === "error" || item.status === "cancelled") &&
+      item.localFile !== undefined &&
+      !item.needsFileReselect,
+
+    relativePath: item.relativePath,
+
+    partTransport: item.partTransport,
+
+    paused: item.paused,
+
     error: item.error,
 
     displayBucket: resolveItemDisplayBucket(item),
@@ -269,6 +308,8 @@ function toBatchSnapshot(): UploadBatchSnapshot | null {
     status: batch.status,
 
     items: batch.items.map(toItemSnapshot),
+
+    paused: userUploadPaused,
 
   };
 
@@ -435,6 +476,12 @@ function internalFromPersisted(item: PersistedUploadItem): InternalUploadItem {
     resumableServerSessionId: item.resumableServerSessionId,
 
     needsFileReselect: item.needsFileReselect,
+
+    relativePath: item.relativePath,
+
+    partTransport: item.partTransport,
+
+    paused: item.paused,
 
     error: item.error,
 
@@ -935,7 +982,9 @@ function claimNextQueued(): InternalUploadItem | null {
 
   if (!batch) return null;
 
-  const index = batch.items.findIndex((item) => item.status === "queued");
+  const index = batch.items.findIndex(
+    (item) => item.status === "queued" && !item.paused,
+  );
 
   if (index === -1) return null;
 
@@ -1063,6 +1112,13 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
               item.id === uploadId
                 ? { ...item, resumableServerSessionId: serverSessionId }
                 : item,
+            ),
+          );
+        },
+        onPartTransport: (transport) => {
+          updateItems((items) =>
+            items.map((item) =>
+              item.id === uploadId ? { ...item, partTransport: transport } : item,
             ),
           );
         },
@@ -1201,12 +1257,17 @@ function maybeCompleteBatchWhenIdle() {
 
 function pumpUploadQueue() {
   if (!batch || batch.status !== "uploading") return;
+  if (userUploadPaused) return;
 
   void (async () => {
     await waitForUploadPumpUnpause();
-    if (!batch || batch.status !== "uploading") return;
+    if (!batch || batch.status !== "uploading" || userUploadPaused) return;
 
-    while (countInFlightBrowserUploads() < MAX_CONCURRENT_UPLOADS) {
+    const fileSlots = Math.min(
+      ADAPTIVE_FILE_SLOTS_CAP(),
+      suggestedFileConcurrency(),
+    );
+    while (countInFlightBrowserUploads() < fileSlots) {
       const claimed = claimNextQueued();
       if (!claimed) break;
 
@@ -1217,6 +1278,34 @@ function pumpUploadQueue() {
       });
     }
   })();
+}
+
+// Human: Pause claiming new uploads (in-flight parts finish); resume restarts the pump.
+// Agent: SETS userUploadPaused; USED by transfer panel Pause/Resume.
+export function setUploadBatchPaused(paused: boolean) {
+  userUploadPaused = paused;
+  if (!paused) {
+    pumpUploadQueue();
+  }
+  emitBatch();
+}
+
+export function isUploadBatchPaused(): boolean {
+  return userUploadPaused;
+}
+
+// Human: Pause or resume one queued file without cancelling in-flight work.
+// Agent: SETS item.paused; pump skips paused queued rows.
+export function setUploadItemPaused(itemId: string, paused: boolean) {
+  if (!batch) return;
+  updateItems((items) =>
+    items.map((item) =>
+      item.id === itemId && item.status === "queued" ? { ...item, paused } : item,
+    ),
+  );
+  if (!paused) {
+    pumpUploadQueue();
+  }
 }
 
 
@@ -1281,6 +1370,8 @@ export type UploadBatchEntry = {
   file: File;
   /** Target folder for this row — falls back to the batch default when omitted. */
   folderId?: string | null;
+  /** Relative path within a folder upload (for transfer panel grouping). */
+  relativePath?: string;
 };
 
 // Human: Map picked files into queued upload rows for the active batch.
@@ -1291,13 +1382,14 @@ function queuedItemsFromEntries(
   entries: UploadBatchEntry[],
   defaultFolderId: string | null,
 ): InternalUploadItem[] {
-  return entries.map(({ file, folderId }) => ({
+  return entries.map(({ file, folderId, relativePath }) => ({
     id: createClientId(),
     localFile: file,
     fileName: file.name,
     fileSize: file.size,
     mimeType: file.type,
     folderId: folderId ?? defaultFolderId,
+    relativePath,
     status: "queued" as const,
     progress: 0,
     phase: "uploading" as const,
@@ -1595,7 +1687,63 @@ export function cancelAllUploadItems() {
 
 }
 
+// Human: Re-queue one failed/cancelled upload that still has a local File handle.
+// Agent: RESETS status to queued; CLEARS error/progress; REOPENS batch to uploading; CALLS pumpUploadQueue.
+export function retryUploadItem(itemId: string): boolean {
+  if (!batch) return false;
 
+  const item = batch.items.find((entry) => entry.id === itemId);
+  if (!item) return false;
+  if (item.status !== "error" && item.status !== "cancelled") return false;
+  if (!item.localFile || item.needsFileReselect) return false;
+
+  abortedUploadItemIds.delete(itemId);
+
+  updateItems((items) =>
+    items.map((entry) =>
+      entry.id === itemId
+        ? {
+            ...entry,
+            status: "queued" as const,
+            progress: 0,
+            phase: "uploading" as const,
+            indeterminate: false,
+            error: undefined,
+            uploadedFileId: undefined,
+          }
+        : entry,
+    ),
+  );
+
+  if (batch.status !== "uploading") {
+    batch.status = "uploading";
+    emitBatch();
+  }
+
+  pumpUploadQueue();
+  return true;
+}
+
+// Human: Retry every failed row that still has local file bytes (skips reselect-required rows).
+// Agent: CALLS retryUploadItem per failed entry; RETURNS how many rows were re-queued.
+export function retryFailedUploadItems(): number {
+  if (!batch) return 0;
+
+  const failedIds = batch.items
+    .filter(
+      (entry) =>
+        entry.status === "error" &&
+        entry.localFile !== undefined &&
+        !entry.needsFileReselect,
+    )
+    .map((entry) => entry.id);
+
+  let retried = 0;
+  for (const itemId of failedIds) {
+    if (retryUploadItem(itemId)) retried += 1;
+  }
+  return retried;
+}
 
 export const UPLOAD_MANAGER_MAX_CONCURRENT = MAX_CONCURRENT_UPLOADS;
 export const UPLOAD_MANAGER_PIPELINE_STAGE_LIMIT = PIPELINE_STAGE_LIMIT;

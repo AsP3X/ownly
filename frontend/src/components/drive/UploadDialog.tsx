@@ -53,6 +53,8 @@ type UploadDialogProps = {
   onRefreshStorageLimits?: () => Promise<number>;
   /** Human: Refresh drive listings after recycle-bin restores from the upload preflight. */
   onLibraryChanged?: () => void;
+  /** Human: Files from explorer drag-drop — same conflict flow as the picker. */
+  initialFiles?: File[];
 };
 
 // Human: One selected file row — icon, truncating name, fixed-size column, and remove control.
@@ -118,6 +120,7 @@ export function UploadDialog({
   effectiveRemainingBytes = Number.POSITIVE_INFINITY,
   onRefreshStorageLimits,
   onLibraryChanged,
+  initialFiles,
 }: UploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -179,6 +182,19 @@ export function UploadDialog({
       prev.length === 0 ? prev : withStorageWarnings(prev, effectiveRemainingBytes),
     );
   }, [open, effectiveRemainingBytes, withStorageWarnings]);
+
+  // Human: Seed pending files from explorer drag-drop so conflict checks match the picker path.
+  useEffect(() => {
+    if (!open || !initialFiles?.length) return;
+    const incoming = initialFiles.map((file) => ({
+      id: createClientId(),
+      file,
+      fileSize: file.size,
+    }));
+    setPendingFiles(withStorageWarnings(incoming, effectiveRemainingBytes));
+    setFolderUploadRootName(null);
+    setStorageSkipNotice("");
+  }, [open, initialFiles, effectiveRemainingBytes, withStorageWarnings]);
 
   // Human: Load latest network + quota headroom when the upload dialog opens.
   useEffect(() => {
@@ -288,6 +304,7 @@ export function UploadDialog({
             parsed.entries.map(({ file, relativeDir }) => ({
               file,
               folderId: folderMap.get(relativeDir),
+              relativePath: relativeDir || undefined,
             })),
             folderId,
           );

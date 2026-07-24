@@ -37,8 +37,10 @@ enum UploadService {
         mimeType: String,
         folderId: String?,
         sessionId: String,
+        existingResumableSessionId: String? = nil,
         onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void,
-        onServerFileRegistered: @escaping @Sendable (DriveFile) -> Void
+        onServerFileRegistered: @escaping @Sendable (DriveFile) -> Void,
+        onResumableSessionReady: (@Sendable (String) -> Void)? = nil
     ) async throws -> DriveFile {
         let isVideo = mimeType.lowercased().hasPrefix("video/")
 
@@ -64,7 +66,8 @@ enum UploadService {
             sessionId: sessionId,
             isVideo: isVideo,
             onProgress: emitProgress,
-            existingResumableSessionId: nil
+            existingResumableSessionId: existingResumableSessionId,
+            onResumableSessionReady: onResumableSessionReady
         )
 
         processingSimulation.cancel()
@@ -415,6 +418,18 @@ private actor UploadSessionCoordinator {
         return URLSession(configuration: config)
     }()
 
+    /// Human: Background-capable session for large part PUTs so uploads can continue briefly after backgrounding.
+    /// Agent: IDENTIFIER ownly.upload.parts; discretionary false; USED by putResumablePartFromFile.
+    private lazy var backgroundPartSession: URLSession = {
+        let config = URLSessionConfiguration.background(withIdentifier: "com.ownly.upload.parts")
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
+        config.timeoutIntervalForRequest = 600
+        config.timeoutIntervalForResource = 3_600
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config, delegate: nil, delegateQueue: nil)
+    }()
+
     func isCancelled(sessionId: String) -> Bool {
         sessions[sessionId]?.cancelled == true
     }
@@ -449,7 +464,8 @@ private actor UploadSessionCoordinator {
         sessionId: String,
         isVideo: Bool,
         onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void,
-        existingResumableSessionId: String?
+        existingResumableSessionId: String?,
+        onResumableSessionReady: (@Sendable (String) -> Void)?
     ) async throws -> DriveFile {
         sessions[sessionId] = ActiveSession()
 
@@ -463,7 +479,8 @@ private actor UploadSessionCoordinator {
                 sessionId: sessionId,
                 isVideo: isVideo,
                 onProgress: onProgress,
-                existingResumableSessionId: existingResumableSessionId
+                existingResumableSessionId: existingResumableSessionId,
+                onResumableSessionReady: onResumableSessionReady
             )
         }
 
@@ -571,7 +588,8 @@ private actor UploadSessionCoordinator {
         sessionId: String,
         isVideo: Bool,
         onProgress: @escaping @Sendable (UploadProgressUpdate) -> Void,
-        existingResumableSessionId: String?
+        existingResumableSessionId: String?,
+        onResumableSessionReady: (@Sendable (String) -> Void)?
     ) async throws -> DriveFile {
         let totalSize = fileSize(at: fileURL)
         let serverSession = try await ensureResumableSession(
@@ -587,6 +605,7 @@ private actor UploadSessionCoordinator {
             entry.resumableServerSessionId = serverSession.sessionId
             sessions[sessionId] = entry
         }
+        onResumableSessionReady?(serverSession.sessionId)
 
         let received = Set(serverSession.partsReceived)
         let chunkSize = Int64(serverSession.chunkSize)
@@ -606,12 +625,15 @@ private actor UploadSessionCoordinator {
             }
             let offset = Int64(partNumber) * chunkSize
             let length = Int(min(chunkSize, totalSize - offset))
-            let chunk = try Self.readFileChunk(fileURL: fileURL, offset: offset, length: length)
-            try await Self.putResumablePart(
+            // Human: Prefer file-based part PUT so the OS can keep the transfer alive when backgrounded.
+            try await UploadService.putResumablePartFromFile(
                 config: config,
                 sessionId: serverSession.sessionId,
                 partNumber: partNumber,
-                body: chunk
+                sourceURL: fileURL,
+                offset: offset,
+                length: length,
+                backgroundSession: self.backgroundPartSession
             )
             let percent = await progressCounter.markPartComplete()
             onProgress(UploadProgressUpdate(phase: .uploading, percent: percent, indeterminate: false))
@@ -818,6 +840,52 @@ extension UploadService {
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            let message = parseErrorMessagePublic(from: data) ?? "Upload part failed."
+            let code = parseErrorCodePublic(from: data) ?? "request_failed"
+            throw UploadServiceError.server(message: message, code: code)
+        }
+    }
+}
+
+extension UploadService {
+    // Human: Write one chunk to a temp file and upload via background session (survives brief backgrounding).
+    // Agent: FALLBACK to in-memory putResumablePart when temp write fails.
+    fileprivate static func putResumablePartFromFile(
+        config: ServerConfig,
+        sessionId: String,
+        partNumber: Int,
+        sourceURL: URL,
+        offset: Int64,
+        length: Int,
+        backgroundSession: URLSession
+    ) async throws {
+        let chunk = try readFileChunk(fileURL: sourceURL, offset: offset, length: length)
+        let partURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ownly-part-\(sessionId)-\(partNumber)-\(UUID().uuidString)")
+        do {
+            try chunk.write(to: partURL, options: .atomic)
+        } catch {
+            try await putResumablePart(
+                config: config,
+                sessionId: sessionId,
+                partNumber: partNumber,
+                body: chunk
+            )
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: partURL) }
+
+        guard var request = try? authorizedRequest(
+            config: config,
+            path: "/uploads/\(sessionId)/parts/\(partNumber)",
+            method: "PUT"
+        ) else {
+            throw UploadServiceError.noServerURL
+        }
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await backgroundSession.upload(for: request, from: partURL)
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
             let message = parseErrorMessagePublic(from: data) ?? "Upload part failed."
             let code = parseErrorCodePublic(from: data) ?? "request_failed"

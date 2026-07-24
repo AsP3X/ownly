@@ -255,6 +255,24 @@ impl Storage for RouterStorage {
         client.exists(key).await
     }
 
+    async fn object_size(&self, key: &str) -> anyhow::Result<u64> {
+        if Self::is_derived_sidecar_key(key) {
+            let client = self.resolve_client(key).await?;
+            return client.object_size(key).await;
+        }
+        let parts = self.stripe_parts_for_key(key).await?;
+        if !parts.is_empty() {
+            let mut total = 0u64;
+            for part in parts {
+                let client = self.client_for_node_id(&part.storage_node_id).await?;
+                total = total.saturating_add(client.object_size(&part.object_key).await?);
+            }
+            return Ok(total);
+        }
+        let client = self.resolve_client(key).await?;
+        client.object_size(key).await
+    }
+
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         let base = base_file_storage_key(key).unwrap_or_else(|| key.to_string());
         if is_derived_storage_key(key, &base) {
@@ -371,6 +389,21 @@ impl Storage for RouterStorage {
                 }
                 let client = self.resolve_client(key).await?;
                 client.presigned_url(key, expiry_seconds)
+            })
+        })
+    }
+
+    fn supports_presigned_put(&self) -> bool {
+        true
+    }
+
+    // Human: Direct browser staging PUTs always target the public primary URL (compose nginx /media/).
+    // Agent: USES fallback_primary_client; multi-node stripe is not used for upload-staging/* keys.
+    fn presigned_put_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let client = self.fallback_primary_client().await?;
+                client.presigned_put_url(key, expiry_seconds)
             })
         })
     }

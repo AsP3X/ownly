@@ -25,7 +25,7 @@ impl PerKeyRateLimiter {
 
 // Human: Read-only view of one key's rolling-window usage for dashboard / status endpoints.
 // Agent: READS hits map without incrementing; RETURNS limit, used, remaining, optional retry_after_secs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct RateLimitSnapshot {
     pub limit: usize,
     pub used: usize,

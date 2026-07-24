@@ -165,6 +165,7 @@ export default function DrivePage() {
   const mobileProfileRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadDropFiles, setUploadDropFiles] = useState<File[] | undefined>(undefined);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
@@ -1685,13 +1686,37 @@ export default function DrivePage() {
     >
       {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
       {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
-      <div className="flex h-screen flex-col overflow-hidden bg-[#f3f2f1] text-neutral-900">
+      <div
+        className="flex h-screen flex-col overflow-hidden bg-[#f3f2f1] text-neutral-900"
+        onDragOver={(event) => {
+          if (!event.dataTransfer?.types?.includes("Files")) return;
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (activeNav !== "my-files") return;
+          const files = event.dataTransfer?.files;
+          if (!files?.length) return;
+          // Human: Ignore internal explorer move drags — only external OS file drops open Upload.
+          const types = Array.from(event.dataTransfer.types);
+          const hasExplorerPayload =
+            types.includes("application/x-ownly-file-id") ||
+            types.includes("application/x-ownly-folder-id");
+          if (hasExplorerPayload) return;
+          event.preventDefault();
+          setUploadDropFiles(Array.from(files));
+          setUploadDialogOpen(true);
+        }}
+      >
         <UploadDialog
           open={uploadDialogOpen}
-          onOpenChange={setUploadDialogOpen}
+          onOpenChange={(open) => {
+            setUploadDialogOpen(open);
+            if (!open) setUploadDropFiles(undefined);
+          }}
           folderId={activeNav === "my-files" ? currentFolderId : null}
           effectiveRemainingBytes={effectiveRemainingBytes}
           onRefreshStorageLimits={refreshDashboard}
+          initialFiles={uploadDropFiles}
           onLibraryChanged={() =>
             void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
               silent: true,

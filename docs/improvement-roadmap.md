@@ -121,13 +121,11 @@ Search is **filename substring match on files only**:
 **Effort:** Medium–large  
 **Tracker:** [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md)
 
-Chunked uploads (migration `029_upload_sessions.sql`), janitor protection, session expiry sweeper (without expiry audit), append-on-write, web video threshold (8 MiB), parallel parts, reload resume UX, and iOS chunked upload (without background/app-kill resume) are **shipped**. Remaining work:
+Chunked uploads, janitor, expiry audit, staging + signed part PUTs, content dedup, adaptive concurrency, transfer pause/ETA, failed-HLS cleanup, and **iOS session persistence + background part sessions** are **shipped**. Remaining work:
 
 | Item | Summary |
 |------|---------|
-| **Direct-to-Nebular** | Stream parts to object storage when API disk is the bottleneck |
-| **iOS background resume** | Background `URLSession` + persist server `session_id` across app kill |
-| **Expiry audit** (optional) | `uploads.session.expire` in `audit_logs` when janitor aborts stale sessions |
+| **iOS full BG URLSession lifecycle** | `handleEventsForBackgroundURLSession` for multi-hour suspended completion |
 
 **Nebular boundary:** Per [`nebular-os-vendor.mdc`](../.cursor/rules/nebular-os-vendor.mdc), multipart behavior changes in Nebular belong upstream; Ownly integration stays here.
 

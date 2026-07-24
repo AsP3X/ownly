@@ -1,5 +1,5 @@
 // Human: Unit tests for resumable upload session helpers on the client.
-// Agent: COVERS threshold routing for video vs non-video files.
+// Agent: COVERS threshold routing and direct_upload session flag typing.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -7,6 +7,7 @@ import {
   RESUMABLE_VIDEO_THRESHOLD_BYTES,
   shouldUseResumableUpload,
   UPLOAD_CHUNK_SIZE_BYTES,
+  type ResumableServerSession,
 } from "@/lib/resumable-upload";
 
 describe("resumable upload constants", () => {
@@ -41,5 +42,22 @@ describe("shouldUseResumableUpload", () => {
   it("keeps small non-video files on single POST upload", () => {
     const file = new File([new Uint8Array(1024)], "note.txt", { type: "text/plain" });
     expect(shouldUseResumableUpload(file)).toBe(false);
+  });
+});
+
+describe("ResumableServerSession direct_upload", () => {
+  it("treats missing direct_upload as false (proxy part PUT path)", () => {
+    const session: ResumableServerSession = {
+      session_id: "s1",
+      file_id: "f1",
+      chunk_size: UPLOAD_CHUNK_SIZE_BYTES,
+      total_parts: 1,
+      total_size: 100,
+      bytes_received: 0,
+      parts_received: [],
+      status: "active",
+      expires_at: new Date().toISOString(),
+    };
+    expect(Boolean(session.direct_upload)).toBe(false);
   });
 });

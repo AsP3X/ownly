@@ -470,6 +470,7 @@ async fn run_delete_job(
 
                 parallel_purge_file_rows(
                     state.storage.clone(),
+                    &state.pool,
                     purge_rows,
                     Some(deleted_blobs.clone()),
                 )

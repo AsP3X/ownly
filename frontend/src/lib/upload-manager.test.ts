@@ -1,11 +1,13 @@
-// Human: Integration tests for upload batch subscribe/getUploadBatch alignment.
-// Agent: ASSERTS subscribe delivers the same snapshot pointer as getUploadBatch.
+// Human: Integration tests for upload batch subscribe/getUploadBatch alignment and retry helpers.
+// Agent: ASSERTS subscribe delivers the same snapshot pointer as getUploadBatch; retry no-ops without batch.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { publishUploadBatchSnapshot } from "@/lib/upload-batch-snapshot";
 import {
   dismissUploadBatch,
   getUploadBatch,
+  retryFailedUploadItems,
+  retryUploadItem,
   subscribeUploadBatch,
 } from "@/lib/upload-manager";
 
@@ -29,5 +31,12 @@ describe("upload batch subscribe alignment", () => {
     expect(fromSubscribe).toBe(getUploadBatch());
 
     unsubscribe();
+  });
+});
+
+describe("upload retry helpers", () => {
+  it("retry helpers no-op when no batch is active", () => {
+    expect(retryFailedUploadItems()).toBe(0);
+    expect(retryUploadItem("missing")).toBe(false);
   });
 });

@@ -13,6 +13,13 @@ pub const DELETE_BLOB_CONCURRENCY: usize = 12;
 pub trait Storage: Send + Sync {
     async fn get_stream(&self, key: &str) -> anyhow::Result<(StorageStream, u64, String)>;
     async fn exists(&self, key: &str) -> anyhow::Result<bool>;
+    /// Human: Object size without reading body — used to confirm staged upload parts.
+    /// Agent: PREFER HEAD; DEFAULT falls back to get_stream content-length when unimplemented.
+    async fn object_size(&self, key: &str) -> anyhow::Result<u64> {
+        let (stream, len, _) = self.get_stream(key).await?;
+        drop(stream);
+        Ok(len)
+    }
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
     async fn put(&self, key: &str, content_type: &str, data: Vec<u8>) -> anyhow::Result<()>;
     /// Human: Stream PUT without buffering the entire object in API memory.
@@ -31,6 +38,17 @@ pub trait Storage: Send + Sync {
     /// Agent: RETURNS count of delete attempts; IGNORES missing keys; USED by file_delete purge path.
     async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<u32>;
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String>;
+    /// Human: True when the backend can mint browser-usable Nebular PUT URLs (not in-memory test storage).
+    /// Agent: GATES direct_upload on create_session for non-video resumable parts.
+    fn supports_presigned_put(&self) -> bool {
+        false
+    }
+    /// Human: HMAC-signed PUT URL so the browser can write a staging object without proxying bytes through Ownly.
+    /// Agent: SIGNS method PUT; USED by uploads signed-url handler; MemoryStorage returns Err.
+    fn presigned_put_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
+        let _ = (key, expiry_seconds);
+        anyhow::bail!("presigned PUT is not supported by this storage backend")
+    }
 }
 
 pub mod gated;

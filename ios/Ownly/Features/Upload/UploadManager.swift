@@ -43,6 +43,26 @@ final class UploadManager {
 
     func bind(config: ServerConfig) {
         self.config = config
+        restorePersistedBatchIfNeeded()
+    }
+
+    // Human: Reload unfinished rows after app kill — re-queues with server session_id when still present.
+    // Agent: CALLS UploadPersistence.load; SETS batchStatus uploading; PUMPS queue.
+    private func restorePersistedBatchIfNeeded() {
+        guard batchStatus == nil, items.isEmpty else { return }
+        guard let restored = UploadPersistence.load() else { return }
+        targetFolderId = restored.targetFolderId
+        items = restored.items
+        batchStatus = .uploading
+        pumpQueue()
+    }
+
+    private func persistBatch() {
+        UploadPersistence.save(
+            batchStatus: batchStatus?.rawValue,
+            targetFolderId: targetFolderId,
+            items: items
+        )
     }
 
     // MARK: - Batch control
@@ -60,6 +80,7 @@ final class UploadManager {
             items = prepared
         }
 
+        persistBatch()
         pumpQueue()
     }
 
@@ -67,6 +88,7 @@ final class UploadManager {
         guard batchStatus == .complete else { return }
         items = []
         batchStatus = nil
+        UploadPersistence.clear()
     }
 
     func cancelItem(id: String) {
@@ -165,6 +187,7 @@ final class UploadManager {
                 mimeType: item.mimeType,
                 folderId: item.folderId ?? targetFolderId,
                 sessionId: uploadId,
+                existingResumableSessionId: item.resumableServerSessionId,
                 onProgress: { [weak self] update in
                     Task { @MainActor in
                         self?.applyProgress(uploadId: uploadId, update: update)
@@ -173,6 +196,11 @@ final class UploadManager {
                 onServerFileRegistered: { [weak self] registered in
                     Task { @MainActor in
                         self?.registerServerFile(uploadId: uploadId, file: registered)
+                    }
+                },
+                onResumableSessionReady: { [weak self] serverSessionId in
+                    Task { @MainActor in
+                        self?.rememberResumableSession(uploadId: uploadId, serverSessionId: serverSessionId)
                     }
                 }
             )
@@ -188,6 +216,12 @@ final class UploadManager {
         } catch {
             markError(uploadId: uploadId, message: error.localizedDescription)
         }
+    }
+
+    private func rememberResumableSession(uploadId: String, serverSessionId: String) {
+        guard let index = items.firstIndex(where: { $0.id == uploadId }) else { return }
+        items[index].resumableServerSessionId = serverSessionId
+        persistBatch()
     }
 
     private func applyProgress(uploadId: String, update: UploadProgressUpdate) {
@@ -235,16 +269,19 @@ final class UploadManager {
         items[index].phase = .storing
         items[index].uploadedFileId = file.id
         items[index].indeterminate = false
+        items[index].resumableServerSessionId = nil
         cleanupLocalFile(at: index)
         maybeCompleteBatch()
+        persistBatch()
     }
 
     private func markError(uploadId: String, message: String) {
         guard let index = items.firstIndex(where: { $0.id == uploadId }) else { return }
         items[index].status = .error
         items[index].error = message
-        cleanupLocalFile(at: index)
+        // Human: Keep temp file + server session so the user can retry or the app can resume after relaunch.
         maybeCompleteBatch()
+        persistBatch()
     }
 
     private func markCancelled(uploadId: String) {
@@ -252,7 +289,9 @@ final class UploadManager {
         items[index].status = .cancelled
         items[index].error = "Cancelled"
         cleanupLocalFile(at: index)
+        items[index].resumableServerSessionId = nil
         maybeCompleteBatch()
+        persistBatch()
     }
 
     private func maybeCompleteBatch() {
@@ -260,6 +299,7 @@ final class UploadManager {
         let terminal: Set<UploadItemStatus> = [.done, .error, .cancelled]
         if items.allSatisfy({ terminal.contains($0.status) }) {
             batchStatus = .complete
+            persistBatch()
         }
     }
 
@@ -304,7 +344,9 @@ final class UploadManager {
             indeterminate: false,
             uploadedFileId: nil,
             error: nil,
-            localFileURL: dest
+            localFileURL: dest,
+            resumableServerSessionId: nil,
+            needsFileReselect: false
         )
     }
 

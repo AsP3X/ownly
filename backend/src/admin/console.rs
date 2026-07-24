@@ -1,4 +1,4 @@
-// Human: Admin console read/write APIs — overview metrics, audit ledger, storage health, instance settings.
+// Human: Admin console read/write APIs — overview metrics, audit ledger, storage health, upload health, instance settings.
 // Agent: HTTP /api/v1/admin/*; READS users/files/audit_logs/app_settings; WRITES app_settings on PATCH; AUDIT admin.settings.update.
 
 use std::sync::Arc;
@@ -988,5 +988,34 @@ pub async fn security_overview(
             },
         ],
         rotation_history,
+    }))
+}
+
+// Human: Live + DB view of resumable upload health for the admin console.
+// Agent: GET /api/v1/admin/uploads/health; READS process counters + active session counts.
+#[derive(Debug, Serialize)]
+pub struct AdminUploadHealthResponse {
+    pub process_metrics: crate::uploads::metrics::UploadMetricsSnapshot,
+    pub active_sessions: i64,
+    pub reserved_bytes: i64,
+    pub signed_url_rate_limit: crate::rate_limit::RateLimitSnapshot,
+}
+
+pub async fn upload_health(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<AdminUploadHealthResponse>, AppError> {
+    require_instance_permission(&state.pool, &claims, Permission::InstanceSettingsRead).await?;
+
+    let active_sessions = crate::uploads::store::count_active_sessions(&state.pool).await?;
+    let reserved_bytes = crate::uploads::store::sum_active_reserved_bytes(&state.pool).await?;
+    let signed_url_rate_limit =
+        crate::rate_limit::snapshot(&state.upload_signed_url_rl, &claims.sub)?;
+
+    Ok(Json(AdminUploadHealthResponse {
+        process_metrics: state.upload_metrics.snapshot(),
+        active_sessions,
+        reserved_bytes,
+        signed_url_rate_limit,
     }))
 }

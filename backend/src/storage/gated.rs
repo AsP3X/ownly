@@ -31,6 +31,10 @@ impl Storage for GatedStorage {
         self.inner.exists(key).await
     }
 
+    async fn object_size(&self, key: &str) -> anyhow::Result<u64> {
+        self.inner.object_size(key).await
+    }
+
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         self.inner.delete(key).await
     }
@@ -71,5 +75,13 @@ impl Storage for GatedStorage {
 
     fn presigned_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
         self.inner.presigned_url(key, expiry_seconds)
+    }
+
+    fn supports_presigned_put(&self) -> bool {
+        self.inner.supports_presigned_put()
+    }
+
+    fn presigned_put_url(&self, key: &str, expiry_seconds: u64) -> anyhow::Result<String> {
+        self.inner.presigned_put_url(key, expiry_seconds)
     }
 }

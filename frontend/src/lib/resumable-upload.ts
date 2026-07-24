@@ -1,5 +1,5 @@
-// Human: Resumable chunked upload client — session lifecycle, part PUTs, and complete handshake.
-// Agent: CALLS POST/GET/PUT /uploads/* via mutationFetch; SKIPS parts already on server; USES AbortSignal for cancel.
+// Human: Resumable chunked upload client — session lifecycle, direct Nebular part PUTs, and complete handshake.
+// Agent: PREFERS signed-url + confirm when direct_upload; FALLBACK PUT body through Ownly API.
 
 import {
   API_BASE,
@@ -7,6 +7,11 @@ import {
   mutationFetch,
   parseRetryAfterSeconds,
 } from "@/api/core";
+import {
+  recordUploadPartSample,
+  suggestedChunkSizeBytes,
+  suggestedPartConcurrency,
+} from "@/lib/upload-adaptive";
 
 /** Human: Files larger than this use chunked resumable uploads instead of single multipart POST. */
 export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
@@ -14,11 +19,8 @@ export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
 /** Human: Video uploads switch to chunked mode at a lower size — phone clips fail more on one-shot POST. */
 export const RESUMABLE_VIDEO_THRESHOLD_BYTES = 8 * 1024 * 1024;
 
-/** Human: Default chunk size — must stay within backend MIN/MAX chunk bounds. */
+/** Human: Default chunk size — must stay within backend MIN/MAX chunk bounds (adaptive may lower). */
 export const UPLOAD_CHUNK_SIZE_BYTES = 16 * 1024 * 1024;
-
-/** Human: Parallel part PUTs — aligned with upload-manager MAX_CONCURRENT_UPLOADS. */
-const MAX_CONCURRENT_PART_UPLOADS = 2;
 
 export type ResumableUploadProgress = {
   phase: "uploading" | "processing" | "encrypting" | "storing";
@@ -36,6 +38,23 @@ export type ResumableServerSession = {
   parts_received: number[];
   status: string;
   expires_at: string;
+  /** When true, PUT part bytes to signed Nebular URLs then POST confirm (non-video production storage). */
+  direct_upload?: boolean;
+  /** Active-library match — complete can short-circuit after parts are skipped. */
+  dedup_source_file_id?: string | null;
+  /** Soft-deleted match — surface restore UX instead of re-uploading. */
+  recycle_match_file_id?: string | null;
+};
+
+export type ResumablePartTransport = "direct" | "proxy";
+
+type SignedPartUrl = {
+  part_number: number;
+  upload_url: string;
+  expires_at: string;
+  content_type: string;
+  expected_bytes: number;
+  confirm_token: string;
 };
 
 type UploadFilePayload = {
@@ -120,6 +139,7 @@ export async function ensureUploadSession(
   file: File,
   folderId: string | null | undefined,
   existingSessionId?: string | null,
+  contentHash?: string | null,
 ): Promise<ResumableServerSession> {
   if (existingSessionId) {
     const res = await mutationFetch(`${API_BASE}/uploads/${existingSessionId}`, {
@@ -139,7 +159,8 @@ export async function ensureUploadSession(
       folder_id: folderId ?? null,
       total_size: file.size,
       content_type: file.type || undefined,
-      chunk_size: UPLOAD_CHUNK_SIZE_BYTES,
+      chunk_size: suggestedChunkSizeBytes(),
+      content_hash: contentHash || undefined,
     }),
   });
   if (!res.ok) {
@@ -159,30 +180,168 @@ export async function abortResumableUploadSession(sessionId: string): Promise<vo
   }
 }
 
+// Human: Proxy one part through Ownly API (video spool path and direct-upload fallback).
+// Agent: PUT /uploads/{id}/parts/{n} with octet-stream body; RECORDS adaptive sample.
+async function uploadPartViaApi(
+  sessionId: string,
+  partNumber: number,
+  chunk: Blob,
+  signal?: AbortSignal,
+): Promise<ResumablePartTransport> {
+  const started = performance.now();
+  const res = await mutationFetch(`${API_BASE}/uploads/${sessionId}/parts/${partNumber}`, {
+    method: "PUT",
+    headers: octetStreamHeaders(),
+    body: chunk,
+    signal,
+  });
+  const durationMs = performance.now() - started;
+  if (!res.ok) {
+    recordUploadPartSample({ ok: false, durationMs, bytes: chunk.size });
+    throw await parseApiError(res, `Upload part ${partNumber} failed`);
+  }
+  recordUploadPartSample({ ok: true, durationMs, bytes: chunk.size });
+  return "proxy";
+}
+
+// Human: Mint signed URL, PUT bytes straight to Nebular (same-origin /media/), then confirm with Ownly.
+// Agent: POST signed-url; fetch PUT; POST confirm with confirm_token; FALLBACK uploadPartViaApi.
+async function uploadPartDirect(
+  sessionId: string,
+  partNumber: number,
+  chunk: Blob,
+  signal?: AbortSignal,
+): Promise<ResumablePartTransport> {
+  const signedRes = await mutationFetch(
+    `${API_BASE}/uploads/${sessionId}/parts/${partNumber}/signed-url`,
+    {
+      method: "POST",
+      signal,
+    },
+  );
+  if (!signedRes.ok) {
+    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
+  }
+
+  const signed = (await signedRes.json()) as SignedPartUrl;
+  if (chunk.size !== signed.expected_bytes) {
+    throw new ApiError(
+      `Part ${partNumber} size mismatch (local ${chunk.size}, expected ${signed.expected_bytes})`,
+      "part_size_mismatch",
+      400,
+    );
+  }
+
+  let putOk = false;
+  const started = performance.now();
+  try {
+    const putRes = await fetch(signed.upload_url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": signed.content_type || "application/octet-stream",
+      },
+      body: chunk,
+      signal,
+      credentials: "omit",
+    });
+    putOk = putRes.ok;
+    if (!putOk) {
+      const text = await putRes.text().catch(() => "");
+      recordUploadPartSample({
+        ok: false,
+        durationMs: performance.now() - started,
+        bytes: chunk.size,
+      });
+      throw new ApiError(
+        text || `Direct storage PUT failed for part ${partNumber}`,
+        "direct_put_failed",
+        putRes.status,
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "upload_cancelled") {
+      throw error;
+    }
+    if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
+    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
+  }
+
+  if (!putOk) {
+    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
+  }
+
+  const confirmRes = await mutationFetch(
+    `${API_BASE}/uploads/${sessionId}/parts/${partNumber}/confirm`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ confirm_token: signed.confirm_token }),
+      signal,
+    },
+  );
+  if (!confirmRes.ok) {
+    recordUploadPartSample({
+      ok: false,
+      durationMs: performance.now() - started,
+      bytes: chunk.size,
+    });
+    throw await parseApiError(confirmRes, `Confirm part ${partNumber} failed`);
+  }
+  recordUploadPartSample({
+    ok: true,
+    durationMs: performance.now() - started,
+    bytes: chunk.size,
+  });
+  return "direct";
+}
+
 // Human: Upload all missing parts then call complete — skips parts the server already has.
-// Agent: PUT /uploads/{id}/parts/{n} with bounded concurrency; POST /uploads/{id}/complete.
+// Agent: direct_upload → signed Nebular PUT + confirm; else PUT body; POST /uploads/{id}/complete.
 export async function uploadFileResumableBytes(
   file: File,
   options: {
     folderId?: string | null;
     existingSessionId?: string | null;
+    contentHash?: string | null;
     onProgress?: (update: ResumableUploadProgress) => void;
     isCancelled?: () => boolean;
     signal?: AbortSignal;
     onSessionReady?: (session: ResumableServerSession) => void;
+    onPartTransport?: (transport: ResumablePartTransport) => void;
   },
 ): Promise<UploadFilePayload> {
+  let contentHash = options.contentHash ?? null;
+  // Human: Hash before create so the server can flag active/trash dedup without receiving bytes.
+  if (!contentHash && !options.existingSessionId && file.size > 0 && file.size <= 512 * 1024 * 1024) {
+    try {
+      const { computeFileContentHash } = await import("@/lib/file-content-hash");
+      contentHash = await computeFileContentHash(file);
+    } catch {
+      contentHash = null;
+    }
+  }
+
   const session = await ensureUploadSession(
     file,
     options.folderId,
     options.existingSessionId,
+    contentHash,
   );
   options.onSessionReady?.(session);
+
+  if (session.recycle_match_file_id && !session.dedup_source_file_id) {
+    // Human: Soft-deleted twin — still upload (new name) but surface id for optional restore UI later.
+    options.onPartTransport?.("proxy");
+  }
 
   const received = new Set(session.parts_received ?? []);
   const chunkSize = session.chunk_size;
   const totalParts = session.total_parts;
+  const useDirect = Boolean(session.direct_upload);
 
+  // Human: When server already has all parts (or zero-size edge), jump straight to complete.
   const missingParts: number[] = [];
   for (let partNumber = 0; partNumber < totalParts; partNumber += 1) {
     if (!received.has(partNumber)) {
@@ -192,14 +351,15 @@ export async function uploadFileResumableBytes(
 
   const reportProgress = () => {
     const uploadedParts = received.size;
-    const percent = Math.min(
-      100,
-      Math.round((uploadedParts / totalParts) * 100),
-    );
+    const percent =
+      totalParts === 0
+        ? 100
+        : Math.min(100, Math.round((uploadedParts / totalParts) * 100));
     options.onProgress?.({ phase: "uploading", percent });
   };
 
-  await mapWithConcurrency(missingParts, MAX_CONCURRENT_PART_UPLOADS, async (partNumber) => {
+  const partConcurrency = suggestedPartConcurrency();
+  await mapWithConcurrency(missingParts, partConcurrency, async (partNumber) => {
     if (options.isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
     }
@@ -208,18 +368,10 @@ export async function uploadFileResumableBytes(
     const end = Math.min(start + chunkSize, file.size);
     const chunk = file.slice(start, end);
 
-    const res = await mutationFetch(
-      `${API_BASE}/uploads/${session.session_id}/parts/${partNumber}`,
-      {
-        method: "PUT",
-        headers: octetStreamHeaders(),
-        body: chunk,
-        signal: options.signal,
-      },
-    );
-    if (!res.ok) {
-      throw await parseApiError(res, `Upload part ${partNumber} failed`);
-    }
+    const transport = useDirect
+      ? await uploadPartDirect(session.session_id, partNumber, chunk, options.signal)
+      : await uploadPartViaApi(session.session_id, partNumber, chunk, options.signal);
+    options.onPartTransport?.(transport);
 
     received.add(partNumber);
     reportProgress();

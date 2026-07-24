@@ -38,6 +38,14 @@ impl Storage for MemoryStorage {
         Ok(self.blobs.lock().expect("memory storage lock").contains_key(key))
     }
 
+    async fn object_size(&self, key: &str) -> anyhow::Result<u64> {
+        let guard = self.blobs.lock().expect("memory storage lock");
+        let (data, _) = guard
+            .get(key)
+            .ok_or_else(|| anyhow::anyhow!("key not found"))?;
+        Ok(data.len() as u64)
+    }
+
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         self.blobs.lock().expect("memory storage lock").remove(key);
         Ok(())

@@ -187,9 +187,16 @@ export function ActiveUploadRow({
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Loader2 className={cn("size-3 shrink-0 animate-spin", styles.icon)} aria-hidden />
-          <p className="min-w-0 truncate text-[13px] font-semibold text-[#1A1A1A]">
-            {item.fileName}
-          </p>
+          <div className="min-w-0">
+            <p className="min-w-0 truncate text-[13px] font-semibold text-[#1A1A1A]">
+              {item.fileName}
+            </p>
+            {item.relativePath ? (
+              <p className="truncate text-[11px] text-[#888888]" title={item.relativePath}>
+                {item.relativePath}
+              </p>
+            ) : null}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className={cn("text-[13px] font-semibold tabular-nums", styles.percent)}>
@@ -219,6 +226,14 @@ export function ActiveUploadRow({
         <span className="text-[#888888]">{formatBytes(item.fileSize)}</span>
         <span className="text-[#888888]"> · </span>
         <span className={styles.meta}>{phaseStatus}</span>
+        {item.partTransport ? (
+          <>
+            <span className="text-[#888888]"> · </span>
+            <span className={styles.meta}>
+              {item.partTransport === "direct" ? "Direct to storage" : "Via API"}
+            </span>
+          </>
+        ) : null}
         {isPostUpload ? (
           <>
             <span className="text-[#888888]"> · </span>
@@ -249,20 +264,38 @@ export function CompletedUploadRow({ item }: { item: UploadItemSnapshot }) {
 export function QueuedFileRow({
   item,
   onCancel,
+  onTogglePause,
 }: {
   item: UploadItemSnapshot;
   onCancel?: (itemId: string) => void;
+  onTogglePause?: (itemId: string, paused: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-2 py-1">
       <div className="flex min-w-0 items-center gap-2">
         <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
-        <p className="min-w-0 truncate text-[13px] text-[#1A1A1A]">{item.fileName}</p>
+        <div className="min-w-0">
+          <p className="min-w-0 truncate text-[13px] text-[#1A1A1A]">{item.fileName}</p>
+          {item.relativePath ? (
+            <p className="truncate text-[11px] text-[#888888]">{item.relativePath}</p>
+          ) : null}
+        </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <span className="text-[11px] text-[#888888]">
-          {formatBytes(item.fileSize)} · Queued
+          {formatBytes(item.fileSize)} · {item.paused ? "Paused" : "Queued"}
         </span>
+        {onTogglePause ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-[#666666]"
+            onClick={() => onTogglePause(item.id, !item.paused)}
+          >
+            {item.paused ? "Resume" : "Pause"}
+          </Button>
+        ) : null}
         {onCancel ? (
           <Button
             type="button"
@@ -280,16 +313,18 @@ export function QueuedFileRow({
   );
 }
 
-// Human: Terminal failed or cancelled upload row — user can dismiss with X to remove from the tray.
-// Agent: READS error message; CALLS onRemove or onReattachFile when reload resume is possible.
+// Human: Terminal failed or cancelled upload row — retry, re-pick file after reload, or dismiss.
+// Agent: READS error message; CALLS onRetry when canRetry; onReattachFile when needsFileReselect.
 export function FailedUploadRow({
   item,
   onRemove,
   onReattachFile,
+  onRetry,
 }: {
   item: UploadItemSnapshot;
   onRemove?: (itemId: string) => void;
   onReattachFile?: (itemId: string, file: File) => void;
+  onRetry?: (itemId: string) => void;
 }) {
   const isFailed = item.status === "error";
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -312,6 +347,17 @@ export function FailedUploadRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {item.canRetry && onRetry ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onRetry(item.id)}
+          >
+            Retry
+          </Button>
+        ) : null}
         {item.needsFileReselect && onReattachFile ? (
           <>
             <input
@@ -473,11 +519,15 @@ export function UploadBatchProgressView({
   onCancelItem,
   onRemoveItem,
   onReattachFile,
+  onRetryItem,
+  onTogglePauseItem,
 }: {
   items: UploadItemSnapshot[];
   onCancelItem?: (itemId: string) => void;
   onRemoveItem?: (itemId: string) => void;
   onReattachFile?: (itemId: string, file: File) => void;
+  onRetryItem?: (itemId: string) => void;
+  onTogglePauseItem?: (itemId: string, paused: boolean) => void;
 }) {
   const counts = getUploadBatchDisplayCounts(items);
   const activeItems = items.filter((item) => item.displayBucket === "in_flight");
@@ -526,6 +576,17 @@ export function UploadBatchProgressView({
           <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
         ))}
 
+        {!isBulkBatch
+          ? waitingItems.map((item) => (
+              <QueuedFileRow
+                key={item.id}
+                item={item}
+                onCancel={onCancelItem}
+                onTogglePause={onTogglePauseItem}
+              />
+            ))
+          : null}
+
         {showIndividualDoneRows
           ? doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
           : null}
@@ -536,6 +597,7 @@ export function UploadBatchProgressView({
             item={item}
             onRemove={onRemoveItem}
             onReattachFile={onReattachFile}
+            onRetry={onRetryItem}
           />
         ))}
       </div>

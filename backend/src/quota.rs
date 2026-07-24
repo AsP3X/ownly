@@ -51,8 +51,22 @@ pub async fn load_user_used_bytes(pool: &PgPool, user_id: &str) -> Result<i64, A
     Ok(row.map(|(bytes,)| bytes).unwrap_or(0))
 }
 
+// Human: Bytes reserved by in-flight resumable upload sessions (not yet complete files rows).
+// Agent: SUMS upload_sessions.quota_reserved_bytes for active/completing rows owned by quota_owner_id.
+pub async fn load_user_reserved_bytes(pool: &PgPool, user_id: &str) -> Result<i64, AppError> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(quota_reserved_bytes), 0)::BIGINT FROM upload_sessions \
+         WHERE quota_owner_id = $1 AND status IN ('active', 'completing') \
+           AND quota_reserved_bytes > 0",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(bytes,)| bytes).unwrap_or(0))
+}
+
 // Human: Reject storage mutations that would exceed the user's effective quota (SEC-014).
-// Agent: READS used_bytes + quota_bytes; RETURNS PayloadTooLarge when incoming would exceed cap.
+// Agent: READS used_bytes + reserved_bytes + quota_bytes; RETURNS PayloadTooLarge when over cap.
 pub async fn ensure_within_quota(
     pool: &PgPool,
     user_id: &str,
@@ -63,7 +77,40 @@ pub async fn ensure_within_quota(
     }
     let quota_bytes = resolve_user_quota_bytes(pool, user_id).await?;
     let used_bytes = load_user_used_bytes(pool, user_id).await?;
-    if used_bytes.saturating_add(incoming_bytes) > quota_bytes {
+    let reserved_bytes = load_user_reserved_bytes(pool, user_id).await?;
+    if used_bytes
+        .saturating_add(reserved_bytes)
+        .saturating_add(incoming_bytes)
+        > quota_bytes
+    {
+        return Err(AppError::PayloadTooLarge(
+            "storage quota exceeded — delete files or contact an administrator".into(),
+        ));
+    }
+    Ok(())
+}
+
+// Human: Same as ensure_within_quota but ignores one session's existing reservation (e.g. re-check mid-upload).
+// Agent: SUBTRACTS exclude_reserved from reserved total before comparing.
+pub async fn ensure_within_quota_excluding_reservation(
+    pool: &PgPool,
+    user_id: &str,
+    incoming_bytes: i64,
+    exclude_reserved_bytes: i64,
+) -> Result<(), AppError> {
+    if incoming_bytes <= 0 {
+        return Ok(());
+    }
+    let quota_bytes = resolve_user_quota_bytes(pool, user_id).await?;
+    let used_bytes = load_user_used_bytes(pool, user_id).await?;
+    let reserved_bytes = load_user_reserved_bytes(pool, user_id)
+        .await?
+        .saturating_sub(exclude_reserved_bytes.max(0));
+    if used_bytes
+        .saturating_add(reserved_bytes)
+        .saturating_add(incoming_bytes)
+        > quota_bytes
+    {
         return Err(AppError::PayloadTooLarge(
             "storage quota exceeded — delete files or contact an administrator".into(),
         ));

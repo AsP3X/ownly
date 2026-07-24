@@ -16,7 +16,13 @@ import {
   getUploadBatchDisplayCounts,
   reattachUploadFile,
   removeUploadBatchItem,
+  retryFailedUploadItems,
+  retryUploadItem,
+  setUploadBatchPaused,
+  setUploadItemPaused,
 } from "@/lib/upload-manager";
+import { estimateRemainingSeconds } from "@/lib/upload-adaptive";
+import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -30,9 +36,15 @@ type UploadTransferPanelProps = {
 function UploadHeaderStatusLine({
   counts,
   isComplete,
+  isPaused,
+  etaLabel,
+  remainingBytes,
 }: {
   counts: ReturnType<typeof getUploadBatchDisplayCounts>;
   isComplete: boolean;
+  isPaused?: boolean;
+  etaLabel?: string | null;
+  remainingBytes?: number;
 }) {
   if (isComplete) {
     if (counts.failed > 0 || counts.cancelled > 0) {
@@ -46,9 +58,17 @@ function UploadHeaderStatusLine({
     return <p className="text-xs font-medium text-emerald-800">All uploads complete</p>;
   }
 
+  if (isPaused) {
+    return <p className="text-xs font-medium text-amber-800">Paused · resume to continue</p>;
+  }
+
   const parts: string[] = [];
   if (counts.inFlight > 0) parts.push(`${counts.inFlight} active`);
   if (counts.waiting > 0) parts.push(`${counts.waiting} queued`);
+  if (etaLabel) parts.push(etaLabel);
+  if (remainingBytes != null && remainingBytes > 0) {
+    parts.push(`${formatBytes(remainingBytes)} left`);
+  }
   if (parts.length === 0) return null;
 
   return (
@@ -70,7 +90,23 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
   const overallPercent =
     totalCount === 0 ? 0 : Math.round((processedCount / totalCount) * 100);
   const hasPending = counts.inFlight > 0 || counts.waiting > 0;
+  const canRetryFailed = batch.items.some((item) => item.canRetry);
   const isBulkBatch = totalCount > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
+  const isPaused = Boolean(batch.paused);
+  const remainingBytes = batch.items
+    .filter((item) => item.status === "queued" || item.status === "uploading")
+    .reduce((sum, item) => {
+      if (item.status === "queued") return sum + item.fileSize;
+      const doneRatio = Math.min(100, Math.max(0, item.progress)) / 100;
+      return sum + Math.max(0, Math.round(item.fileSize * (1 - doneRatio)));
+    }, 0);
+  const etaSeconds = !isComplete ? estimateRemainingSeconds(remainingBytes) : null;
+  const etaLabel =
+    etaSeconds == null
+      ? null
+      : etaSeconds < 60
+        ? `~${etaSeconds}s left`
+        : `~${Math.ceil(etaSeconds / 60)}m left`;
 
   return (
     <div
@@ -95,6 +131,28 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
         </div>
 
         <div className="col-start-2 row-start-1 flex h-7 shrink-0 items-center justify-end gap-0.5 self-start">
+          {canRetryFailed && !minimized ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8]"
+              onClick={() => retryFailedUploadItems()}
+            >
+              Retry failed
+            </Button>
+          ) : null}
+          {!isComplete && !minimized && hasPending ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold text-[#666666] hover:text-[#1A1A1A]"
+              onClick={() => setUploadBatchPaused(!isPaused)}
+            >
+              {isPaused ? "Resume" : "Pause"}
+            </Button>
+          ) : null}
           {!isComplete && !minimized ? (
             <Button
               type="button"
@@ -141,7 +199,13 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
         </div>
 
         <div className="col-span-2 min-h-[1.125rem] min-w-0">
-          <UploadHeaderStatusLine counts={counts} isComplete={isComplete} />
+          <UploadHeaderStatusLine
+            counts={counts}
+            isComplete={isComplete}
+            isPaused={isPaused}
+            etaLabel={etaLabel}
+            remainingBytes={remainingBytes}
+          />
         </div>
       </div>
 
@@ -196,6 +260,10 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             items={batch.items}
             onCancelItem={cancelUploadItem}
             onRemoveItem={removeUploadBatchItem}
+            onRetryItem={(itemId) => {
+              retryUploadItem(itemId);
+            }}
+            onTogglePauseItem={(itemId, paused) => setUploadItemPaused(itemId, paused)}
             onReattachFile={(itemId, file) => {
               if (!reattachUploadFile(itemId, file)) {
                 window.alert("Choose the same file (matching name and size) to continue the upload.");
@@ -244,6 +312,17 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
                       </span>
                     ) : null}
                   </div>
+                  {item.canRetry ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0 px-2 text-xs"
+                      onClick={() => retryUploadItem(item.id)}
+                    >
+                      Retry
+                    </Button>
+                  ) : null}
                   {item.status === "cancelled" ? (
                     <span className="shrink-0 text-xs text-[#888888]">Cancelled</span>
                   ) : item.status === "error" ? (
@@ -265,6 +344,16 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               );
             })}
           </ul>
+          {canRetryFailed ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => retryFailedUploadItems()}
+            >
+              Retry failed uploads
+            </Button>
+          ) : null}
           <button
             type="button"
             className="self-end rounded-lg bg-[#2563EB] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#1D4ED8]"

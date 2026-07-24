@@ -1,7 +1,7 @@
 # Storage disk savings — follow-up improvements
 
-**Date:** 2026-06-18 (reviewed — all items still open)  
-**Status:** Planned — none of the items below are implemented in Ownly yet.  
+**Date:** 2026-07-24 (reviewed — §2 per-user content dedup shipped)  
+**Status:** Living plan — §2 is implemented; other items below remain open.  
 **Audience:** Maintainers reducing Nebular disk use without breaking playback, download, or upload flows.
 
 **Roadmap link:** [§6 Storage and scale](improvement-roadmap.md#6-storage-and-scale) in [`improvement-roadmap.md`](improvement-roadmap.md).
@@ -15,7 +15,7 @@ Ownly already saves disk on **compressible** file types via Nebular **NOSI** blo
 | Area | Today | Opportunity |
 |------|-------|-------------|
 | **Video HLS** | Segments + manifest + init; optional `export.mp4` sidecar | Stop persisting `export.mp4` unless requested; optional longer segments for cold/archive tier |
-| **Duplicate uploads** | `content_hash` preflight warns; each upload still gets its own blob | **Per-user dedup** — share `storage_key` + refcount |
+| **Duplicate uploads** | **Shipped:** finalize shares `storage_key` per user `content_hash`; purge only when no rows remain | Cross-user dedup still deferred (§7) |
 | **Orphans** | `storage-audit.py` is manual | Automate audit + alert; sweep failed HLS prefixes and stale spools |
 | **Nebular block dedup** | `NOS_DEDUP_ENABLED=false` by default | Ops toggle — complements Ownly dedup, not a substitute |
 
@@ -67,33 +67,22 @@ Improvements should preserve:
 
 ---
 
-### 2. Per-user content deduplication (`content_hash` → shared `storage_key`)
+### 2. Per-user content deduplication (`content_hash` → shared `storage_key`) — **SHIPPED**
 
-**Problem:** Every upload computes SHA-256 (`content_hash.rs`) and duplicate preflight warns (`check_upload_content_hash_duplicates`), but finalize always allocates a new `storage_key` and PUTs bytes again.
+**Implemented (2026-07-24):**
 
-**Direction:**
+- On finalize (simple spool + resumable staged/spool), after SHA-256:
+  - Look up active same-user row with matching `content_hash` + `size_bytes`.
+  - Video only when source `hls_ready` (avoid sharing mid-encode keys).
+  - Dedup hit: insert new `files` row with **same** `storage_key`, copy derivative readiness fields, **skip** Nebular PUT and re-encode jobs.
+  - Miss: existing PUT / HLS path.
+- **Refcount:** count live `files` rows per `storage_key` (including recycle bin); `purge_file_storage` only when count hits zero after row delete.
+- **Quota:** still charges full `size_bytes` per row.
+- **Audit:** `files.upload` context includes `deduped`, `source_file_id`, `staged`.
 
-- On finalize (simple + resumable complete), after hashing:
-  - `SELECT storage_key, id FROM files WHERE user_id = $1 AND content_hash = $2 AND deleted_at IS NULL LIMIT 1`
-  - If hit: insert new `files` row with **same** `storage_key` (new `id`, name, folder); **skip** Nebular PUT and derivative jobs when sidecars already exist (video HLS, thumbnails, waveform).
-  - If miss: current path.
-- **Refcount table** (recommended): `storage_blob_refs(storage_key, ref_count)` or count live `files` rows per key; increment on deduped insert; decrement on permanent delete.
-- **Delete:** `purge_file_storage` only when no remaining `files` rows reference `storage_key` (and recycle bin empty for that row).
-- **Quota:** still charge full `size_bytes` per `files` row (user expectation for “two copies” in different folders) **or** document “deduped copies share quota” — pick one policy in admin settings.
-- **Audit:** `files.upload` context `{ "deduped": true, "source_file_id": "…" }`.
-- **Video edge case:** second row pointing at HLS bundle must not re-queue `HlsEncode` if `hls_ready` on source key.
+**Key files:** `backend/src/files/content_hash.rs`, `upload_finalize.rs`, `file_delete.rs`, `upload_staging.rs`
 
-**Key files:** `backend/src/files/upload_finalize.rs`, `backend/src/uploads/handlers.rs` (complete), `backend/src/files/file_delete.rs`, `backend/src/files/listing.rs`, new migration `0NN_storage_blob_refs.sql`
-
-**Verification:**
-
-- Upload same 10 MiB file twice (different names) — one Nebular object, two `files` rows, both downloadable.
-- Delete one row — blob remains; delete both — blob purged.
-- Upload duplicate while first is in recycle bin — define policy (treat as miss or restore prompt); test documented behavior.
-
-**Effort:** Medium–large.
-
-**Relation to versioning (roadmap §1.5):** Version rows with unchanged `content_hash` should share `storage_key` by default.
+**Relation to versioning (roadmap §1.3):** Version rows with unchanged `content_hash` should share `storage_key` by default.
 
 ---
 

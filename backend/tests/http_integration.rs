@@ -3577,6 +3577,129 @@ async fn resumable_upload_assembles_parts_into_file() {
         .ok();
 }
 
+// Human: Uploading the same non-video bytes twice shares one storage_key (per-user content dedup).
+// Agent: POST /uploads parts+complete twice with identical body; EXPECT shared storage_key across files rows.
+#[tokio::test]
+async fn resumable_upload_dedupes_identical_content() {
+    let Some(state) =
+        test_harness::TestHarness::state("resumable_upload_dedupes_identical_content").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("dedup-upload-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    const CHUNK_SIZE: i64 = 1024 * 1024;
+    const TOTAL_SIZE: i64 = CHUNK_SIZE;
+    let part = vec![0xABu8; CHUNK_SIZE as usize];
+    let app = create_router(state.clone());
+
+    let mut file_ids = Vec::new();
+    for filename in ["copy-a.bin", "copy-b.bin"] {
+        let create = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/uploads")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "filename": filename,
+                            "total_size": TOTAL_SIZE,
+                            "chunk_size": CHUNK_SIZE,
+                            "content_type": "application/octet-stream"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create.status(), StatusCode::OK);
+        let create_json = response_json(create).await;
+        let session_id = create_json["session_id"].as_str().unwrap().to_string();
+
+        let put = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v1/uploads/{session_id}/parts/0"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(part.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(put.status(), StatusCode::OK);
+
+        let complete = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/uploads/{session_id}/complete"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+        let complete_json = response_json(complete).await;
+        file_ids.push(complete_json["file"]["id"].as_str().unwrap().to_string());
+    }
+
+    assert_ne!(file_ids[0], file_ids[1]);
+
+    let keys: Vec<(String,)> = sqlx::query_as(
+        "SELECT storage_key FROM files WHERE id = ANY($1) ORDER BY name ASC",
+    )
+    .bind(&file_ids)
+    .fetch_all(&state.pool)
+    .await
+    .expect("storage keys");
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0].0, keys[1].0, "deduped uploads must share storage_key");
+
+    sqlx::query("DELETE FROM files WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Owners can rename files in place without moving them between folders.
 // Agent: PATCH /files/{id} { name }; EXPECT 200; LIST reflects new display name.
 #[tokio::test]

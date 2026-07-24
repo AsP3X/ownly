@@ -29,8 +29,12 @@ struct UploadItem: Identifiable, Sendable {
     var indeterminate: Bool
     var uploadedFileId: String?
     var error: String?
-    /// Temp copy of the picked file — cleared after upload finishes or is cancelled.
+    /// Temp copy of the picked file — kept until success so app-kill resume can continue.
     var localFileURL: URL?
+    /// Server `/uploads/{id}` session for chunked resume after process death.
+    var resumableServerSessionId: String?
+    /// True when the temp file is gone but a server session may still exist — user must re-pick.
+    var needsFileReselect: Bool = false
 }
 
 struct UploadProgressUpdate: Sendable {
