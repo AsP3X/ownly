@@ -14,6 +14,8 @@ export {
   mutationFetch,
   normalizeStorageErrorMessage,
   postLogoutBestEffort,
+  DEFAULT_SESSION_TTL_SECS,
+  SESSION_REFRESH_CHECK_INTERVAL_MS,
   setSessionRefreshListener,
   setTokenRefreshListener,
   setUnauthorizedHandler,
@@ -289,6 +291,8 @@ export async function login(email: string, password: string) {
   })) as {
     token?: string;
     csrf_token?: string;
+    /** Seconds until access cookie/JWT expires — preferred over decoding the JWT. */
+    expires_in_seconds?: number;
     user: { id: string; email: string; role: string; enabled: boolean };
   };
   captureAuthCsrfToken(res.csrf_token);

@@ -53,7 +53,7 @@ pub fn csrf_set_cookie(
     token: &str,
 ) -> Result<header::HeaderValue, header::InvalidHeaderValue> {
     let secure = cookie_secure(state, headers);
-    let max_age = session_cookie::session_cookie_ttl().as_secs().max(1);
+    let max_age = session_cookie::session_cookie_ttl(state).as_secs().max(1);
     let mut value = format!(
         "{CSRF_COOKIE_NAME}={token}; Path={CSRF_COOKIE_PATH}; SameSite=Lax; Max-Age={max_age}"
     );

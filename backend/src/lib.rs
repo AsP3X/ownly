@@ -75,6 +75,10 @@ pub struct AppState {
     pub setup_token: String,
     pub signing_secret: String,
     pub url_expiry_seconds: u64,
+    /// Human: Access JWT lifetime hours — cookie Max-Age and token exp share this value.
+    pub jwt_access_ttl_hours: u64,
+    /// Human: Seconds after JWT exp during which /auth/refresh still mints a new token.
+    pub jwt_refresh_grace_secs: i64,
     pub environment: String,
     pub git_sha: String,
     pub database_url: String,
@@ -224,6 +228,8 @@ async fn build_app_state(
         setup_token: config.setup_token.clone(),
         signing_secret: config.signing_secret.clone(),
         url_expiry_seconds: config.url_expiry_seconds,
+        jwt_access_ttl_hours: config.jwt_access_ttl_hours.max(1),
+        jwt_refresh_grace_secs: (config.jwt_refresh_grace_hours.max(1) as i64).saturating_mul(3600),
         environment,
         git_sha,
         database_url: config.database_url.clone(),

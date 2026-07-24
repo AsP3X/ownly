@@ -4,7 +4,7 @@
 use axum::http::{header, HeaderMap, HeaderValue};
 use std::time::Duration;
 
-use crate::{auth::handlers::JWT_ACCESS_TTL_HOURS, AppState};
+use crate::AppState;
 
 pub const SESSION_COOKIE_NAME: &str = "ownly_session";
 const SESSION_COOKIE_PATH: &str = "/api/v1";
@@ -24,8 +24,8 @@ fn cookie_secure(state: &AppState, headers: &HeaderMap) -> bool {
     false
 }
 
-fn session_max_age_secs() -> i64 {
-    JWT_ACCESS_TTL_HOURS * 3600
+fn session_max_age_secs(state: &AppState) -> i64 {
+    (state.jwt_access_ttl_hours as i64).saturating_mul(3600).max(3600)
 }
 
 // Human: Build Set-Cookie for a freshly issued access JWT.
@@ -36,7 +36,7 @@ pub fn session_set_cookie(
     token: &str,
 ) -> Result<HeaderValue, header::InvalidHeaderValue> {
     let secure = cookie_secure(state, headers);
-    let max_age = session_max_age_secs();
+    let max_age = session_max_age_secs(state);
     let mut value = format!(
         "{SESSION_COOKIE_NAME}={token}; Path={SESSION_COOKIE_PATH}; HttpOnly; SameSite=Lax; Max-Age={max_age}"
     );
@@ -92,7 +92,8 @@ pub fn bearer_or_session_token(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-#[allow(dead_code)]
-pub fn session_cookie_ttl() -> Duration {
-    Duration::from_secs(session_max_age_secs().max(0) as u64)
+// Human: Cookie Max-Age Duration for CSRF cookies issued alongside the session.
+// Agent: READS AppState.jwt_access_ttl_hours; USED by csrf_set_cookie.
+pub fn session_cookie_ttl(state: &AppState) -> Duration {
+    Duration::from_secs(session_max_age_secs(state).max(0) as u64)
 }

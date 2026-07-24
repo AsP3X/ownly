@@ -46,6 +46,14 @@ pub struct Config {
     pub object_storage_jwt_secret: String,
     #[serde(default = "default_url_expiry_seconds")]
     pub url_expiry_seconds: u64,
+    /// Human: Access JWT + session cookie lifetime in hours (sliding via /auth/refresh).
+    /// Agent: DEFAULT 168 (7 days); OVERRIDE JWT_ACCESS_TTL_HOURS; USED by create_token + session Max-Age.
+    #[serde(default = "default_jwt_access_ttl_hours")]
+    pub jwt_access_ttl_hours: u64,
+    /// Human: How long after JWT exp that /auth/refresh still succeeds (covers idle tabs).
+    /// Agent: DEFAULT 72 hours; OVERRIDE JWT_REFRESH_GRACE_HOURS.
+    #[serde(default = "default_jwt_refresh_grace_hours")]
+    pub jwt_refresh_grace_hours: u64,
     #[serde(default = "default_ownly_environment")]
     pub ownly_environment: String,
     #[serde(default)]
@@ -173,6 +181,16 @@ fn default_object_storage_jwt_secret() -> String {
 
 fn default_url_expiry_seconds() -> u64 {
     3600
+}
+
+fn default_jwt_access_ttl_hours() -> u64 {
+    // Human: Personal-cloud default — 7 days between required activity; refresh extends while in use.
+    168
+}
+
+fn default_jwt_refresh_grace_hours() -> u64 {
+    // Human: Wide grace so backgrounded browsers that miss proactive refresh still recover on return.
+    72
 }
 
 fn default_ownly_environment() -> String {

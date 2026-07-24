@@ -22,13 +22,13 @@ use uuid::Uuid;
 
 use crate::{audit, auth::session_cookie, error::AppError, rate_limit, redact, AppState};
 
-// Human: Access JWT lifetime issued at login, register, and refresh.
-// Agent: READ by create_token; FRONTEND proactive refresh should run well before this window ends.
-pub const JWT_ACCESS_TTL_HOURS: i64 = 24;
+// Human: Default access JWT lifetime when callers omit an explicit TTL (tests + legacy helpers).
+// Agent: OVERRIDDEN by AppState.jwt_access_ttl_hours (env JWT_ACCESS_TTL_HOURS, default 168h / 7d).
+pub const JWT_ACCESS_TTL_HOURS: i64 = 168;
 
-// Human: Allow refresh shortly after hard expiry so a missed client timer does not force re-login.
-// Agent: COMPARED in refresh handler; REJECTS tokens older than exp + grace.
-pub const JWT_REFRESH_GRACE_SECS: i64 = 3600;
+// Human: Default refresh grace after exp when AppState is unavailable (tests).
+// Agent: OVERRIDDEN by AppState.jwt_refresh_grace_secs (env JWT_REFRESH_GRACE_HOURS, default 72h).
+pub const JWT_REFRESH_GRACE_SECS: i64 = 72 * 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -68,6 +68,10 @@ pub struct AuthResponse {
     /// Agent: SET on login/register/setup/refresh; MIRROR of ownly_csrf Set-Cookie for SPA clients.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub csrf_token: Option<String>,
+    /// Human: Seconds until the access JWT/cookie expires — SPA schedules refresh without decoding the JWT.
+    /// Agent: SET on login/register/refresh; MATCHES HttpOnly cookie Max-Age.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_in_seconds: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -100,7 +104,30 @@ pub fn create_token(
     session_id: Option<String>,
     session_version: u64,
 ) -> anyhow::Result<String> {
+    create_token_with_ttl(
+        user_id,
+        email,
+        role,
+        secret,
+        session_id,
+        session_version,
+        JWT_ACCESS_TTL_HOURS,
+    )
+}
+
+// Human: Mint an access JWT with an explicit lifetime (hours) from AppState / env.
+// Agent: USED by login/register/refresh; TESTS may still call create_token (default TTL).
+pub fn create_token_with_ttl(
+    user_id: String,
+    email: String,
+    role: String,
+    secret: &str,
+    session_id: Option<String>,
+    session_version: u64,
+    access_ttl_hours: i64,
+) -> anyhow::Result<String> {
     let now = Utc::now().timestamp();
+    let ttl_hours = access_ttl_hours.max(1);
     create_token_with_timestamps(
         user_id,
         email,
@@ -109,7 +136,7 @@ pub fn create_token(
         session_id,
         session_version,
         now,
-        now + chrono::Duration::try_hours(JWT_ACCESS_TTL_HOURS).unwrap().num_seconds(),
+        now + chrono::Duration::try_hours(ttl_hours).unwrap().num_seconds(),
     )
 }
 
@@ -176,6 +203,7 @@ pub(crate) fn auth_response_with_session_cookie(
 ) -> Result<Response, AppError> {
     let csrf_token = crate::csrf::generate_csrf_token();
     auth.csrf_token = Some(csrf_token.clone());
+    auth.expires_in_seconds = Some((state.jwt_access_ttl_hours as i64).saturating_mul(3600));
     let cookies = issue_session_auth_cookies(state, headers, &token, &csrf_token)?;
     Ok((cookies, Json(auth)).into_response())
 }
@@ -281,13 +309,14 @@ pub async fn register(
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
     let token = if enabled {
         Some(
-            create_token(
+            create_token_with_ttl(
                 user_id.clone(),
                 email.clone(),
                 "user".into(),
                 &state.jwt_secret,
                 session_id,
                 session_version,
+                state.jwt_access_ttl_hours as i64,
             )
             .map_err(AppError::Internal)?,
         )
@@ -299,6 +328,7 @@ pub async fn register(
         token,
         pending_activation: needs_activation,
         csrf_token: None,
+        expires_in_seconds: None,
         user: UserDto {
             id: user_id,
             email,
@@ -365,13 +395,14 @@ pub async fn login(
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &user_id).await?;
     let effective_role =
         crate::authz::effective_jwt_role(&state.pool, &user_id, &role).await?;
-    let token = create_token(
+    let token = create_token_with_ttl(
         user_id.clone(),
         email.clone(),
         effective_role.clone(),
         &state.jwt_secret,
         session_id,
         session_version,
+        state.jwt_access_ttl_hours as i64,
     )
     .map_err(AppError::Internal)?;
 
@@ -383,6 +414,7 @@ pub async fn login(
             token: Some(token),
             pending_activation: false,
             csrf_token: None,
+            expires_in_seconds: None,
             user: UserDto {
                 id: user_id,
                 email,
@@ -393,7 +425,7 @@ pub async fn login(
     )
 }
 
-// Human: Extend an active session without re-entering credentials — same sid/ver, new 24h exp.
+// Human: Extend an active session without re-entering credentials — same sid/ver, new exp window.
 // Agent: POST /auth/refresh PUBLIC; READS session cookie or Bearer JWT; RETURNS AuthResponse; NO audit row per refresh.
 pub async fn refresh(
     State(state): State<Arc<AppState>>,
@@ -405,7 +437,7 @@ pub async fn refresh(
         decode_token_for_refresh(&token, &state.jwt_secret).map_err(|_| AppError::Unauthorized)?;
 
     let now = Utc::now().timestamp();
-    if now > claims.exp + JWT_REFRESH_GRACE_SECS {
+    if now > claims.exp + state.jwt_refresh_grace_secs {
         return Err(AppError::Unauthorized);
     }
 
@@ -439,6 +471,7 @@ pub async fn refresh(
         crate::authz::effective_jwt_role(&state.pool, &claims.sub, &db_role).await?;
     let session_version = crate::user_sessions::load_session_epoch(&state.pool, &claims.sub).await?;
     let new_iat = now.max(claims.iat.saturating_add(1));
+    let access_ttl_secs = (state.jwt_access_ttl_hours as i64).saturating_mul(3600);
     let token = create_token_with_timestamps(
         claims.sub.clone(),
         email.clone(),
@@ -447,7 +480,7 @@ pub async fn refresh(
         claims.sid,
         session_version,
         new_iat,
-        new_iat + chrono::Duration::try_hours(JWT_ACCESS_TTL_HOURS).unwrap().num_seconds(),
+        new_iat + access_ttl_secs,
     )
     .map_err(AppError::Internal)?;
 
@@ -459,6 +492,7 @@ pub async fn refresh(
             token: Some(token),
             pending_activation: false,
             csrf_token: None,
+            expires_in_seconds: None,
             user: UserDto {
                 id: claims.sub,
                 email,

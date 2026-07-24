@@ -164,8 +164,8 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
 }
 
 // Human: Notify React auth state when apiFetch silently rotates the HttpOnly session cookie.
-// Agent: SET by AuthProvider; CALLED after successful POST /auth/refresh.
-type SessionRefreshListener = () => void;
+// Agent: SET by AuthProvider; CALLED after successful POST /auth/refresh with optional new TTL.
+type SessionRefreshListener = (expiresInSeconds?: number | null) => void;
 let sessionRefreshListener: SessionRefreshListener | null = null;
 
 export function setSessionRefreshListener(listener: SessionRefreshListener | null) {
@@ -177,9 +177,17 @@ export function setTokenRefreshListener(listener: ((token: string) => void) | nu
   setSessionRefreshListener(listener ? () => listener("cookie") : null);
 }
 
-// Human: Proactive refresh should start this many seconds before JWT exp (backend TTL is 24h).
+// Human: Proactive refresh starts this many seconds before exp (default server TTL is 7d).
 // Agent: USED by AuthContext schedule; MUST stay below JWT_ACCESS_TTL_HOURS on the API.
-const JWT_REFRESH_LEEWAY_SECS = 2 * 3600;
+const JWT_REFRESH_LEEWAY_SECS = 12 * 3600;
+
+// Human: How often to re-check expiry while a tab is open (browsers throttle long setTimeouts).
+// Agent: USED by AuthContext interval; ALSO refreshed on focus/visibility.
+export const SESSION_REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+
+// Human: Fallback access lifetime when login/refresh omitted expires_in_seconds (matches 7d default).
+// Agent: USED by session refresh listener; NOT a hard auth decision.
+export const DEFAULT_SESSION_TTL_SECS = 7 * 24 * 3600;
 
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -199,8 +207,8 @@ function dispatchUnauthorized() {
   }
 }
 
-function notifySessionRefreshed() {
-  sessionRefreshListener?.();
+function notifySessionRefreshed(expiresInSeconds?: number | null) {
+  sessionRefreshListener?.(expiresInSeconds ?? null);
 }
 
 // Human: Exchange the current access JWT for a new 24h token without re-entering credentials.
@@ -218,17 +226,24 @@ export async function tryRefreshAuthToken(): Promise<boolean> {
       });
       if (!res.ok) return false;
       const text = await res.text();
+      let expiresInSeconds: number | null = null;
       if (text) {
         try {
-          const data = JSON.parse(text) as { csrf_token?: string };
+          const data = JSON.parse(text) as {
+            csrf_token?: string;
+            expires_in_seconds?: number;
+          };
           captureAuthCsrfToken(data.csrf_token);
+          if (typeof data.expires_in_seconds === "number" && data.expires_in_seconds > 0) {
+            expiresInSeconds = data.expires_in_seconds;
+          }
         } catch {
           syncCsrfHintFromCookie(readCsrfTokenFromCookie);
         }
       } else {
         syncCsrfHintFromCookie(readCsrfTokenFromCookie);
       }
-      notifySessionRefreshed();
+      notifySessionRefreshed(expiresInSeconds);
       return true;
     } catch {
       return false;

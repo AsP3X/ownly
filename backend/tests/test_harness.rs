@@ -26,6 +26,8 @@ pub fn test_config(database_url: &str) -> Config {
         signing_secret: "test-signing-secret-not-default-value".to_string(),
         object_storage_jwt_secret: "test-nos-jwt-secret-not-default-value!!".to_string(),
         url_expiry_seconds: 3600,
+        jwt_access_ttl_hours: 168,
+        jwt_refresh_grace_hours: 72,
         ownly_environment: "development".to_string(),
         git_sha: None,
         auth_login_rpm: 15,

@@ -7,6 +7,8 @@ import {
   fetchCurrentUser,
   fetchMyInstancePermissions,
   postLogoutBestEffort,
+  DEFAULT_SESSION_TTL_SECS,
+  SESSION_REFRESH_CHECK_INTERVAL_MS,
   setSessionRefreshListener,
   setUnauthorizedHandler,
   shouldProactivelyRefreshToken,
@@ -114,45 +116,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   // Human: Keep session marker aligned when apiFetch silently rotates the HttpOnly cookie after refresh.
-  // Agent: LISTENS setSessionRefreshListener; RE-SCHEDULES proactive refresh window.
+  // Agent: LISTENS setSessionRefreshListener; UPDATES exp hint from server expires_in_seconds.
   useEffect(() => {
-    setSessionRefreshListener(() => {
+    setSessionRefreshListener((expiresInSeconds) => {
       setSessionHint();
       setToken(SESSION_ACTIVE);
-      sessionExpHintRef.current = Math.floor(Date.now() / 1000) + 24 * 3600;
+      const ttl =
+        typeof expiresInSeconds === "number" && expiresInSeconds > 0
+          ? expiresInSeconds
+          : DEFAULT_SESSION_TTL_SECS;
+      sessionExpHintRef.current = Math.floor(Date.now() / 1000) + ttl;
     });
     return () => setSessionRefreshListener(null);
   }, []);
 
-  // Human: Proactively refresh the access JWT before the 24h exp so idle tabs stay signed in.
-  // Agent: SCHEDULES tryRefreshAuthToken from exp hint; RE-SCHEDULES after each successful rotation.
+  // Human: Keep access cookies alive — browsers throttle multi-hour setTimeouts, so poll + focus refresh.
+  // Agent: INTERVAL every 10m; visibility/focus CALL tryRefreshAuthToken when near exp or hint missing.
   useEffect(() => {
     if (!token) return;
 
     let cancelled = false;
-    let timeoutId = 0;
 
-    const scheduleRefresh = () => {
+    const maybeRefresh = () => {
+      if (cancelled) return;
       const expHint = sessionExpHintRef.current;
-      if (expHint && shouldProactivelyRefreshToken(expHint)) {
+      if (!expHint || shouldProactivelyRefreshToken(expHint)) {
         void tryRefreshAuthToken();
-        return;
       }
-
-      const refreshAtMs = expHint
-        ? (expHint - 2 * 3600) * 1000
-        : Date.now() + 22 * 3600 * 1000;
-      const delayMs = Math.max(refreshAtMs - Date.now(), 60_000);
-      timeoutId = window.setTimeout(() => {
-        if (cancelled) return;
-        void tryRefreshAuthToken();
-      }, delayMs);
     };
 
-    scheduleRefresh();
+    // Human: Seed a conservative exp if login never provided one (cookie-only restore).
+    if (!sessionExpHintRef.current) {
+      sessionExpHintRef.current = Math.floor(Date.now() / 1000) + DEFAULT_SESSION_TTL_SECS;
+    }
+
+    maybeRefresh();
+    const intervalId = window.setInterval(maybeRefresh, SESSION_REFRESH_CHECK_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") maybeRefresh();
+    };
+    const onFocus = () => maybeRefresh();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
   }, [token]);
 

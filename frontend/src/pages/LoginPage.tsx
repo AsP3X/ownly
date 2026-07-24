@@ -103,7 +103,13 @@ export default function LoginPage() {
       } else {
         localStorage.removeItem(REMEMBER_EMAIL_KEY);
       }
-      const sessionExpHint = res.token ? getJwtExp(res.token) : null;
+      // Human: Prefer server expires_in_seconds (cookie session) over decoding JWT body.
+      const sessionExpHint =
+        typeof res.expires_in_seconds === "number" && res.expires_in_seconds > 0
+          ? Math.floor(Date.now() / 1000) + res.expires_in_seconds
+          : res.token
+            ? getJwtExp(res.token)
+            : null;
       setAuth(res.user, sessionExpHint);
       navigate(redirectTo, { replace: true });
     } catch (err) {

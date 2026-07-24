@@ -10,7 +10,7 @@ use crate::{
     admin::storage_nodes,
     audit,
     auth::handlers::{
-        create_token, hash_password, issue_session_auth_cookies, AuthResponse, UserDto,
+        create_token_with_ttl, hash_password, issue_session_auth_cookies, AuthResponse, UserDto,
     },
     db,
     error::AppError,
@@ -494,13 +494,14 @@ pub async fn setup(
     .await
     .ok();
 
-    let token = create_token(
+    let token = create_token_with_ttl(
         user_id.clone(),
         body.email.trim().to_lowercase(),
         "admin".into(),
         &state.jwt_secret,
         None,
         0,
+        state.jwt_access_ttl_hours as i64,
     )
     .map_err(AppError::Internal)?;
 
@@ -510,6 +511,7 @@ pub async fn setup(
         token: Some(token.clone()),
         pending_activation: false,
         csrf_token: None,
+        expires_in_seconds: Some((state.jwt_access_ttl_hours as i64).saturating_mul(3600)),
         user: UserDto {
             id: user_id,
             email: body.email.trim().to_lowercase(),
