@@ -72,6 +72,7 @@ pub fn storage_keys_for_file(storage_key: &str, segment_count: Option<i32>) -> V
         format!("{storage_key}/stream.m3u8"),
         format!("{storage_key}/key.bin"),
         format!("{storage_key}/init.mp4"),
+        format!("{storage_key}/{}", crate::hls::encode_job::SOURCE_MASTER_OBJECT),
         format!("{storage_key}/{EXPORT_OBJECT_SUFFIX}"),
         format!("{storage_key}/{}", crate::audio::WAVEFORM_OBJECT_SUFFIX),
         format!("{storage_key}/{}", crate::video::THUMBNAIL_MANIFEST_SUFFIX),

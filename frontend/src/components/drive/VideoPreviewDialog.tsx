@@ -4,7 +4,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileItem } from "@/api/client";
-import { fetchPublicVideoStreamUrl, fetchVideoStreamUrl, getErrorMessage } from "@/api/client";
+import {
+  fetchPublicVideoStreamUrl,
+  fetchVideoStreamUrl,
+  getErrorMessage,
+  reprocessFileHls,
+} from "@/api/client";
 import { VideoPlayerSurface } from "@/components/drive/video/VideoPlayerSurface";
 import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
 import { VideoVerticalGallery } from "@/components/drive/video/VideoVerticalGallery";
@@ -23,6 +28,7 @@ import {
   videoDialogDesktopRowClass,
 } from "@/components/drive/video/video-dialog-viewport";
 import { isVideoGallerySwipeZone } from "@/components/drive/video/video-gallery-swipe";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 export type VideoPreviewDialogProps = {
@@ -39,6 +45,8 @@ export type VideoPreviewDialogProps = {
   folderLabel?: string | null;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
+  /** Human: After rebuild is queued from the player — sync drive listings. */
+  onHlsReprocessQueued?: (file: FileItem) => void;
 };
 
 const SWIPE_THRESHOLD_PX = 48;
@@ -62,6 +70,7 @@ export function VideoPreviewDialog({
   folderLabel,
   onDownload,
   onShare,
+  onHlsReprocessQueued,
 }: VideoPreviewDialogProps) {
   const isDesktop = useIsDesktopPlayer(open);
   const isNarrow = !isDesktop;
@@ -75,6 +84,8 @@ export function VideoPreviewDialog({
   const [error, setError] = useState("");
   const [loadingStream, setLoadingStream] = useState(false);
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
+  const [attachKey, setAttachKey] = useState(0);
+  const [rebuildingStream, setRebuildingStream] = useState(false);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleVideoNodeChange = useCallback((node: HTMLVideoElement | null) => {
@@ -84,6 +95,30 @@ export function VideoPreviewDialog({
   const handleHlsError = useCallback((message: string) => {
     setError(message);
   }, []);
+
+  // Human: Soft recovery — re-attach hls.js without closing the dialog.
+  // Agent: CLEARS error; BUMPS attachKey so useHlsVideoAttach tears down and reloads.
+  const handleRetryPlayback = useCallback(() => {
+    setError("");
+    setAttachKey((key) => key + 1);
+  }, []);
+
+  // Human: Queue a clean re-encode when packaging is the root cause of freezes/desync.
+  // Agent: POST reprocess; CLOSES dialog; NOTIFIES parent to refresh listing badges.
+  const handleRebuildStream = useCallback(async () => {
+    if (!file?.id || rebuildingStream || shareToken) return;
+    setRebuildingStream(true);
+    try {
+      const { file: updated } = await reprocessFileHls(file.id);
+      toastSuccess("Stream rebuild started — open the video again when processing finishes.");
+      onHlsReprocessQueued?.(updated);
+      onOpenChange(false);
+    } catch (rebuildError) {
+      toastError(getErrorMessage(rebuildError));
+    } finally {
+      setRebuildingStream(false);
+    }
+  }, [file?.id, onHlsReprocessQueued, onOpenChange, rebuildingStream, shareToken]);
 
   const currentIndex = useMemo(
     () => (file ? videos.findIndex((item) => item.id === file.id) : -1),
@@ -154,6 +189,7 @@ export function VideoPreviewDialog({
     shareToken,
     sharePassword,
     onError: handleHlsError,
+    attachKey,
   });
 
   const goPrevious = useCallback(() => {
@@ -262,6 +298,10 @@ export function VideoPreviewDialog({
     onVideoNodeChange: handleVideoNodeChange,
     onDownload,
     onShare,
+    onRetryPlayback: handleRetryPlayback,
+    // Human: Rebuild only for signed-in drive (not public share visitors).
+    onRebuildStream: shareToken ? undefined : () => void handleRebuildStream(),
+    rebuildingStream,
   };
 
   return (

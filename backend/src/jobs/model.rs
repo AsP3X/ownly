@@ -102,14 +102,18 @@ pub struct BackgroundJob {
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Human: Payload for HLS transcode after video upload.
+/// Human: Payload for HLS transcode after video upload or user-triggered reprocess.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HlsEncodePayload {
     pub file_id: String,
     pub storage_key: String,
+    /// Human: Upload spool path when available; empty/omitted triggers remux-from-HLS for reprocess.
+    /// Agent: OPTIONAL so POST /files/:id/hls/reprocess can omit spool after ingest cleanup.
+    #[serde(default)]
     pub tmp_video: String,
-    /// Human: When zero, the worker runs ffprobe on `tmp_video` before ffmpeg starts.
+    /// Human: When zero, the worker runs ffprobe on the resolved source before ffmpeg starts.
     /// Agent: SET by upload handler after disk spool; UPDATES files.duration_seconds in worker.
+    #[serde(default)]
     pub duration_seconds: i32,
 }
 

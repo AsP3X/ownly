@@ -54,6 +54,8 @@ type DriveContextMenuProps = {
   onShareFolder: (folder: FolderItem) => void;
   onDetailsFile: (file: FileItem) => void;
   onDetailsFolder: (folder: FolderItem) => void;
+  /** Human: Queue HLS stream rebuild for a video with A/V freezes or desync. */
+  onReprocessHls?: (file: FileItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
   /** Human: Opens the folder picker to move the right-clicked folder (or bulk folder selection). */
@@ -122,6 +124,7 @@ export function DriveContextMenu({
   onShareFolder,
   onDetailsFile,
   onDetailsFolder,
+  onReprocessHls,
   onCopyToFolder,
   onMoveToFolder,
   onMoveFolderToFolder,
@@ -289,6 +292,23 @@ export function DriveContextMenu({
                     onClick={() => onDetailsFile(targetFile)}
                   >
                     Edit
+                  </ContextMenuItem>
+                ) : null}
+                {onReprocessHls ? (
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      (!targetFile.hls_ready &&
+                        targetFile.hls_encode_status !== "failed" &&
+                        targetFile.hls_encode_status !== "ready")
+                    }
+                    onClick={() => {
+                      onReprocessHls(targetFile);
+                      setOpen(false);
+                    }}
+                  >
+                    <RefreshCw />
+                    Rebuild stream
                   </ContextMenuItem>
                 ) : null}
               </>

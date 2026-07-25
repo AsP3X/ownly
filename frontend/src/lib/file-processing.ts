@@ -104,14 +104,30 @@ export function fileProcessingLabel(file: FileItem): string {
     return percent > 0 ? `Processing file ${percent}%` : "Processing file";
   }
 
+  // Human: User-triggered stream rebuild — clearer than generic "Processing file".
+  // Agent: reprocessing status set by reprocess_hls / mark_processing when segments already exist.
+  const isRebuilding =
+    file.hls_encode_status === "reprocessing" ||
+    (file.hls_encode_status === "processing" && file.conversion_progress > 0 && !file.hls_ready);
+
+  if (file.hls_encode_status === "reprocessing") {
+    const percent = Math.min(99, Math.max(0, file.conversion_progress));
+    return percent > 0 ? `Rebuilding stream ${percent}%` : "Rebuilding stream…";
+  }
+
   if (file.hls_encode_status === "queued") {
-    return "Processing file";
+    return isRebuilding ? "Rebuilding stream…" : "Processing file";
   }
   if (file.conversion_progress >= 50) {
     const storagePercent = Math.min(
       99,
       Math.round(((file.conversion_progress - 50) / 50) * 100),
     );
+    if (file.hls_encode_status === "reprocessing") {
+      return storagePercent > 0
+        ? `Rebuilding stream ${storagePercent}%`
+        : "Rebuilding stream…";
+    }
     return storagePercent > 0 ? `Moving to storage ${storagePercent}%` : "Moving to storage";
   }
   if (file.conversion_progress >= 40) {
@@ -123,9 +139,12 @@ export function fileProcessingLabel(file: FileItem): string {
   }
   if (file.conversion_progress > 0) {
     const encodePercent = Math.min(99, Math.round((file.conversion_progress / 40) * 100));
+    if (file.hls_encode_status === "reprocessing") {
+      return encodePercent > 0 ? `Rebuilding stream ${encodePercent}%` : "Rebuilding stream…";
+    }
     return encodePercent > 0 ? `Processing file ${encodePercent}%` : "Processing file";
   }
-  return "Processing file";
+  return file.hls_encode_status === "reprocessing" ? "Rebuilding stream…" : "Processing file";
 }
 
 // Human: Shorter badge copy for narrow grid tiles so labels do not bleed into neighbors.
@@ -143,6 +162,10 @@ export function fileProcessingCompactLabel(file: FileItem): string {
   if (label.startsWith("Processing file")) {
     const percent = label.match(/(\d+)%/)?.[1];
     return percent ? `Processing ${percent}%` : "Processing";
+  }
+  if (label.startsWith("Rebuilding stream")) {
+    const percent = label.match(/(\d+)%/)?.[1];
+    return percent ? `Rebuild ${percent}%` : "Rebuilding…";
   }
   return label;
 }

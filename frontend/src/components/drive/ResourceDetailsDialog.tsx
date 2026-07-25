@@ -2,8 +2,10 @@
 // Agent: READS FileItem/FolderItem; RENDERS ShareLinksPanel on Sharing tab; CALLS onShareChanged on revoke/create.
 
 import { useState } from "react";
-import { FileIcon, Folder, ImageIcon, Info, Link2 } from "lucide-react";
+import { FileIcon, Folder, ImageIcon, Info, Link2, RefreshCw } from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
+import { getErrorMessage, reprocessAllHls, reprocessFileHls } from "@/api/client";
+import { ConfirmRebuildAllVideosDialog } from "@/components/drive/ConfirmRebuildAllVideosDialog";
 import { ShareLinksPanel } from "@/components/drive/ShareLinksPanel";
 import { VideoThumbnailEditorDialog } from "@/components/drive/VideoThumbnailEditorDialog";
 import type { ShareTarget } from "@/components/drive/ShareDialog";
@@ -16,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { formatBytes, formatFileOpened } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +36,14 @@ type ResourceDetailsDialogProps = {
   onThumbnailSelected?: (file: FileItem, selectedIndex: number) => void;
   /** Human: Notifies parent when thumbnail job status changes (e.g. after regenerate). */
   onThumbnailUpdated?: (file: FileItem) => void;
+  /** Human: Notifies parent when HLS reprocess is queued (file becomes processing). */
+  onHlsReprocessQueued?: (file: FileItem) => void;
+  /** Human: After bulk rebuild — parent should refresh the whole file list. */
+  onHlsReprocessAllQueued?: (result: {
+    queued: number;
+    skipped: number;
+    concurrent_limit?: number;
+  }) => void;
 };
 
 type DetailsTab = "details" | "sharing";
@@ -71,15 +82,23 @@ export function ResourceDetailsDialog({
   onShareChanged,
   onThumbnailSelected,
   onThumbnailUpdated,
+  onHlsReprocessQueued,
+  onHlsReprocessAllQueued,
 }: ResourceDetailsDialogProps) {
   const [tab, setTab] = useState<DetailsTab>(initialTab);
   const [thumbnailEditorOpen, setThumbnailEditorOpen] = useState(false);
+  const [reprocessingHls, setReprocessingHls] = useState(false);
+  const [reprocessingAllHls, setReprocessingAllHls] = useState(false);
+  const [rebuildAllConfirmOpen, setRebuildAllConfirmOpen] = useState(false);
 
   function handleOpenChange(next: boolean) {
     if (next) {
       setTab(initialTab);
     } else {
       setThumbnailEditorOpen(false);
+      setReprocessingHls(false);
+      setReprocessingAllHls(false);
+      setRebuildAllConfirmOpen(false);
     }
     onOpenChange(next);
   }
@@ -89,6 +108,58 @@ export function ResourceDetailsDialog({
 
   const videoFile =
     target?.kind === "file" && target.file.mime_type?.startsWith("video/") ? target.file : null;
+
+  // Human: Allow rebuild once a stream existed (ready) or a prior encode finished/failed.
+  // Agent: DISABLE while queued/processing/reprocessing to avoid double-enqueue 409s.
+  const canReprocessHls =
+    Boolean(videoFile) &&
+    (Boolean(videoFile?.hls_ready) ||
+      videoFile?.hls_encode_status === "ready" ||
+      videoFile?.hls_encode_status === "failed") &&
+    videoFile?.hls_encode_status !== "queued" &&
+    videoFile?.hls_encode_status !== "processing" &&
+    videoFile?.hls_encode_status !== "reprocessing";
+
+  async function handleReprocessHls() {
+    if (!videoFile || reprocessingHls) return;
+    setReprocessingHls(true);
+    try {
+      const { file: updated } = await reprocessFileHls(videoFile.id);
+      toastSuccess("Video stream rebuild started — play again when processing finishes.");
+      onHlsReprocessQueued?.(updated);
+    } catch (error) {
+      toastError(getErrorMessage(error));
+    } finally {
+      setReprocessingHls(false);
+    }
+  }
+
+  async function handleConfirmRebuildAll() {
+    if (reprocessingAllHls) return;
+    setReprocessingAllHls(true);
+    try {
+      const result = await reprocessAllHls();
+      const limitHint =
+        result.concurrent_limit != null
+          ? ` Up to ${result.concurrent_limit} rebuild${result.concurrent_limit === 1 ? "" : "s"} run at once.`
+          : "";
+      toastSuccess(
+        result.queued > 0
+          ? `Queued ${result.queued} video${result.queued === 1 ? "" : "s"} for rebuild${
+              result.skipped ? ` (${result.skipped} skipped)` : ""
+            }.${limitHint}`
+          : result.skipped
+            ? `No new rebuilds queued (${result.skipped} already processing or none ready).`
+            : "No ready videos found to rebuild.",
+      );
+      onHlsReprocessAllQueued?.(result);
+      setRebuildAllConfirmOpen(false);
+    } catch (error) {
+      toastError(getErrorMessage(error));
+    } finally {
+      setReprocessingAllHls(false);
+    }
+  }
 
   return (
     <>
@@ -156,8 +227,50 @@ export function ResourceDetailsDialog({
                           Video
                         </span>
                         <Badge variant="secondary">
-                          {target.file.hls_ready ? "Ready to stream" : "Processing"}
+                          {target.file.hls_ready
+                            ? "Ready to stream"
+                            : target.file.hls_encode_status === "reprocessing" ||
+                                target.file.hls_encode_status === "queued" ||
+                                target.file.hls_encode_status === "processing"
+                              ? "Rebuilding stream"
+                              : "Processing"}
                         </Badge>
+                      </div>
+                      <div className="flex flex-col gap-2 border-t border-neutral-100 pt-4">
+                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                          Playback stream
+                        </span>
+                        <p className="text-sm text-neutral-500">
+                          If audio and video freeze or drift apart, rebuild the streaming package.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-fit gap-2"
+                            disabled={!canReprocessHls || reprocessingHls || reprocessingAllHls}
+                            onClick={() => void handleReprocessHls()}
+                          >
+                            <RefreshCw
+                              className={cn("size-4", reprocessingHls && "animate-spin")}
+                              aria-hidden
+                            />
+                            {reprocessingHls ? "Starting rebuild…" : "Rebuild this stream"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="w-fit gap-2 text-neutral-600"
+                            disabled={reprocessingAllHls || reprocessingHls}
+                            onClick={() => setRebuildAllConfirmOpen(true)}
+                          >
+                            <RefreshCw
+                              className={cn("size-4", reprocessingAllHls && "animate-spin")}
+                              aria-hidden
+                            />
+                            {reprocessingAllHls ? "Queueing all…" : "Rebuild all my videos"}
+                          </Button>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-2 border-t border-neutral-100 pt-4">
                         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -211,6 +324,12 @@ export function ResourceDetailsDialog({
       onOpenChange={setThumbnailEditorOpen}
       onSelected={onThumbnailSelected}
       onFileUpdated={onThumbnailUpdated}
+    />
+    <ConfirmRebuildAllVideosDialog
+      open={rebuildAllConfirmOpen}
+      onOpenChange={setRebuildAllConfirmOpen}
+      confirming={reprocessingAllHls}
+      onConfirm={() => void handleConfirmRebuildAll()}
     />
     </>
   );

@@ -51,41 +51,32 @@ pub async fn probe_codecs(path: &Path) -> CodecProbe {
     }
 }
 
-// Human: Pick the fastest ffmpeg path that still yields browser-safe fMP4 HLS.
-// Agent: PREFERS RemuxCopy for H.264+AAC; AlignSegments only for 24fps film GOP edge cases; else FullTranscode.
+// Human: Pick a browser-safe ffmpeg path — prefer GOP-aligned re-encode over stream copy.
+// Agent: H.264 → AlignSegmentsRetranscode (fixes irregular keyframes + A/V drift); else FullTranscode.
+// Agent: RemuxCopy is intentionally NOT chosen — stream copy freezes/desyncs on many phone & camera files.
 pub fn resolve_encode_mode(
     video_codec: Option<&str>,
     audio_codec: Option<&str>,
     avg_frame_rate: Option<f64>,
 ) -> HlsEncodeMode {
+    let _ = (audio_codec, avg_frame_rate);
     let video_h264 = matches!(video_codec, Some("h264"));
-    if !video_h264 {
-        return HlsEncodeMode::FullTranscode;
-    }
-
-    if audio_codec.is_some_and(is_browser_safe_aac) {
-        // Human: Re-encode only 24fps film when GOP alignment is likely to break HLS segment seeks.
-        // Agent: AlignSegmentsRetranscode for 23.9–24.1 fps band; RemuxCopy otherwise (preserves size/sync).
-        if needs_hls_segment_align(avg_frame_rate) {
-            HlsEncodeMode::AlignSegmentsRetranscode
-        } else {
-            HlsEncodeMode::RemuxCopy
-        }
-    } else if audio_codec.is_some() {
-        HlsEncodeMode::CopyVideoTranscodeAudio
+    if video_h264 {
+        HlsEncodeMode::AlignSegmentsRetranscode
     } else {
-        HlsEncodeMode::RemuxCopy
+        HlsEncodeMode::FullTranscode
     }
 }
 
 // Human: AAC-family audio can be remuxed into fMP4 HLS with the ADTS→ASC bitstream filter.
-// Agent: MATCHES ffprobe codec_name values aac and mp4a.
+// Agent: MATCHES ffprobe codec_name values aac and mp4a; kept for tests / future selective remux.
+#[allow(dead_code)]
 fn is_browser_safe_aac(codec: &str) -> bool {
     matches!(codec, "aac" | "mp4a")
 }
 
-// Human: True when HLS stream copy would likely produce irregular segment durations.
-// Agent: Kept for tests; H.264 ingest always uses AlignSegmentsRetranscode now.
+// Human: True when 24fps film sources historically needed GOP realignment for HLS seeks.
+// Agent: Kept for tests; all H.264 ingest now uses AlignSegmentsRetranscode regardless of fps.
 pub fn needs_hls_segment_align(avg_frame_rate: Option<f64>) -> bool {
     matches!(avg_frame_rate, Some(fps) if (23.9..=24.1).contains(&fps))
 }
@@ -329,10 +320,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_encode_mode_prefers_remux_for_h264_aac() {
+    fn resolve_encode_mode_aligns_all_h264_sources() {
         assert_eq!(
             resolve_encode_mode(Some("h264"), Some("aac"), Some(30.0)),
-            HlsEncodeMode::RemuxCopy
+            HlsEncodeMode::AlignSegmentsRetranscode
         );
         assert_eq!(
             resolve_encode_mode(Some("h264"), Some("aac"), Some(24.0)),
@@ -344,7 +335,7 @@ mod tests {
         );
         assert_eq!(
             resolve_encode_mode(Some("h264"), Some("ac3"), Some(24.0)),
-            HlsEncodeMode::CopyVideoTranscodeAudio
+            HlsEncodeMode::AlignSegmentsRetranscode
         );
         assert_eq!(
             resolve_encode_mode(Some("hevc"), Some("aac"), Some(24.0)),
@@ -352,7 +343,7 @@ mod tests {
         );
         assert_eq!(
             resolve_encode_mode(Some("h264"), None, Some(30.0)),
-            HlsEncodeMode::RemuxCopy
+            HlsEncodeMode::AlignSegmentsRetranscode
         );
     }
 }

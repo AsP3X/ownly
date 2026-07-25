@@ -197,6 +197,24 @@ pub struct AdminOverviewMetrics {
     pub alert_count: i64,
 }
 
+/// Human: HLS video packaging health for ops — encode modes, failures, average encode time.
+// Agent: FILLED by overview from files table aggregates; CONSUMED by AdminOverviewPanel.
+#[derive(Debug, Serialize)]
+pub struct AdminHlsVideoMetrics {
+    pub ready_count: i64,
+    pub processing_count: i64,
+    pub failed_count: i64,
+    pub source_master_count: i64,
+    pub avg_encode_ms: Option<i64>,
+    pub encode_mode_counts: Vec<AdminHlsEncodeModeCount>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminHlsEncodeModeCount {
+    pub mode: String,
+    pub count: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AdminOverviewStorageHealth {
     pub status: String,
@@ -232,6 +250,8 @@ pub struct AdminOverviewResponse {
     pub resource_allocation: Vec<AdminOverviewResourceRow>,
     pub workload: Vec<AdminOverviewWorkloadBar>,
     pub recent_alerts: Vec<AdminOverviewAlertRow>,
+    /// Human: Video stream packaging stats for the admin dashboard.
+    pub hls_video: AdminHlsVideoMetrics,
 }
 
 // Human: Aggregate instance KPIs and recent security events for the dashboard overview panel.
@@ -328,6 +348,8 @@ pub async fn overview(
         })
         .collect();
 
+    let hls_video = build_hls_video_metrics(&state.pool).await?;
+
     Ok(Json(AdminOverviewResponse {
         metrics: AdminOverviewMetrics {
             total_users: user_stats.0,
@@ -367,7 +389,71 @@ pub async fn overview(
         ],
         workload,
         recent_alerts,
+        hls_video,
     }))
+}
+
+// Human: Aggregate HLS packaging stats — ready/processing/failed, masters, encode modes, avg duration.
+// Agent: READS files video rows; TOLERATES missing hls_* columns by returning zeros on query error.
+async fn build_hls_video_metrics(pool: &sqlx::PgPool) -> Result<AdminHlsVideoMetrics, AppError> {
+    let counts: Result<(i64, i64, i64, i64, Option<f64>), sqlx::Error> = sqlx::query_as(
+        "SELECT \
+            COUNT(*) FILTER (WHERE hls_ready)::BIGINT, \
+            COUNT(*) FILTER (WHERE NOT hls_ready AND COALESCE(hls_encode_status, '') \
+                IN ('queued', 'processing', 'reprocessing'))::BIGINT, \
+            COUNT(*) FILTER (WHERE COALESCE(hls_encode_status, '') = 'failed')::BIGINT, \
+            COUNT(*) FILTER (WHERE COALESCE(hls_source_master, false))::BIGINT, \
+            AVG(hls_last_encode_ms) FILTER (WHERE hls_last_encode_ms IS NOT NULL AND hls_last_encode_ms > 0) \
+         FROM files \
+         WHERE deleted_at IS NULL AND mime_type LIKE 'video/%'",
+    )
+    .fetch_one(pool)
+    .await;
+
+    let (ready_count, processing_count, failed_count, source_master_count, avg_ms) = match counts {
+        Ok(row) => row,
+        Err(error) => {
+            tracing::warn!(%error, "HLS video metrics query failed; returning zeros");
+            return Ok(AdminHlsVideoMetrics {
+                ready_count: 0,
+                processing_count: 0,
+                failed_count: 0,
+                source_master_count: 0,
+                avg_encode_ms: None,
+                encode_mode_counts: vec![],
+            });
+        }
+    };
+
+    let mode_rows: Vec<(Option<String>, i64)> = sqlx::query_as(
+        "SELECT hls_encode_mode, COUNT(*)::BIGINT \
+         FROM files \
+         WHERE deleted_at IS NULL AND mime_type LIKE 'video/%' AND hls_encode_mode IS NOT NULL \
+         GROUP BY hls_encode_mode \
+         ORDER BY COUNT(*) DESC",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let encode_mode_counts = mode_rows
+        .into_iter()
+        .filter_map(|(mode, count)| {
+            mode.map(|m| AdminHlsEncodeModeCount {
+                mode: m,
+                count,
+            })
+        })
+        .collect();
+
+    Ok(AdminHlsVideoMetrics {
+        ready_count,
+        processing_count,
+        failed_count,
+        source_master_count,
+        avg_encode_ms: avg_ms.map(|v| v.round() as i64),
+        encode_mode_counts,
+    })
 }
 
 #[derive(Debug, Serialize)]

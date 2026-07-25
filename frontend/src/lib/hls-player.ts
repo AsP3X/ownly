@@ -1,5 +1,5 @@
 // Human: Shared hls.js setup for encrypted VOD playback — drive preview and public shares.
-// Agent: CONFIGURES fMP4-friendly worker remux, relaxed audio drift, and conservative gap nudging.
+// Agent: CONFIGURES fMP4-friendly worker remux, tight audio drift, mild media recovery (no seek-back jump).
 
 import Hls from "hls.js";
 
@@ -27,21 +27,23 @@ export function shouldPreferNativeHlsPlayback(video: HTMLVideoElement): boolean 
 }
 
 // Human: Build hls.js for AES-128 VOD — main-thread decrypt + transmux for encrypted fMP4.
-// Agent: enableWorker false (worker breaks AES-128 fMP4 in hls.js); maxAudioFramesDrift 4.
+// Agent: enableWorker false (worker breaks AES-128 fMP4); tight A/V drift — stretchShortVideoTrack off.
 export function createHlsInstance(xhrSetup?: HlsAuthSetup): Hls {
   return new Hls({
     enableWorker: false,
     lowLatencyMode: false,
     testBandwidth: false,
-    stretchShortVideoTrack: true,
+    // Human: Do not stretch video to match longer audio — that looked like freezes/desync.
+    stretchShortVideoTrack: false,
     maxBufferLength: 60,
     maxMaxBufferLength: 120,
     backBufferLength: 30,
-    maxBufferHole: 0.5,
-    maxFragLookUpTolerance: 2,
-    maxAudioFramesDrift: 4,
+    maxBufferHole: 0.3,
+    maxFragLookUpTolerance: 1,
+    // Human: Drop/resync sooner when audio frames drift instead of letting lips desync for seconds.
+    maxAudioFramesDrift: 1,
     nudgeOffset: 0.1,
-    nudgeMaxRetry: 8,
+    nudgeMaxRetry: 5,
     maxStarvationDelay: 8,
     maxLoadingDelay: 8,
     fragLoadingTimeOut: 120_000,
@@ -98,8 +100,8 @@ export function attachVodSeekRecovery(
   };
 }
 
-// Human: Fatal error handler — media recovery + seek-back nudge; no network restart-at-zero loop.
-// Agent: recoverMediaError up to 2x; then startLoad(currentTime - 12) once before surfacing fatal.
+// Human: Fatal error handler — one gentle media recovery, then surface a user-facing message.
+// Agent: recoverMediaError once only; NO seek-back 12s jump (that caused mid-play freezes).
 export function attachHlsErrorHandler(
   hls: Hls,
   video: HTMLVideoElement,
@@ -107,32 +109,23 @@ export function attachHlsErrorHandler(
   onFatal: (message: string) => void,
 ): void {
   let mediaRecoveries = 0;
-  let seekBackNudgeUsed = false;
 
   hls.on(Hls.Events.ERROR, (_event, data) => {
     if (!isActive()) return;
 
     if (!data.fatal) return;
 
-    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 1) {
       mediaRecoveries += 1;
       hls.recoverMediaError();
+      // Human: Soft-nudge load at current position without jumping 12 seconds back.
+      // Agent: startLoad(currentTime) only when the element already has a playhead.
+      if (Number.isFinite(video.currentTime) && video.currentTime > 0.5) {
+        hls.startLoad(Math.max(0, video.currentTime - 0.25));
+      }
       return;
     }
 
-    if (
-      data.type === Hls.ErrorTypes.MEDIA_ERROR &&
-      !seekBackNudgeUsed &&
-      video.currentTime > 12
-    ) {
-      seekBackNudgeUsed = true;
-      mediaRecoveries = 0;
-      hls.recoverMediaError();
-      hls.startLoad(Math.max(0, video.currentTime - 12));
-      return;
-    }
-
-    onFatal("Playback failed. Try again later.");
+    onFatal("Playback failed. You can retry or rebuild the stream.");
   });
 }
-

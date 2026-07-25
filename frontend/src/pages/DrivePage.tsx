@@ -15,6 +15,7 @@ import {
   FILES_PAGE_SIZE,
   getErrorMessage,
   copyFile,
+  reprocessFileHls,
   renameFile,
   renameFolder,
   listFiles,
@@ -76,6 +77,7 @@ import {
   type ExplorerFileListContext,
 } from "@/lib/explorer-file-list-updates";
 import { isFileProcessing, shouldPollFileThumbnail } from "@/lib/file-processing";
+import { toastError, toastSuccess } from "@/lib/toast";
 import {
   resetExplorerThumbnailWarmScope,
   touchCachedExplorerThumbnailsForFiles,
@@ -1323,6 +1325,51 @@ export default function DrivePage() {
     );
   }
 
+  // Human: Sync HLS reprocess status into listings so the grid shows processing again.
+  // Agent: MERGES hls_ready + encode fields; CLOSES preview if this file was open.
+  function handleHlsReprocessQueued(file: FileItem) {
+    const patch = (item: FileItem): FileItem =>
+      item.id === file.id
+        ? {
+            ...item,
+            hls_ready: file.hls_ready,
+            hls_encode_status: file.hls_encode_status,
+            hls_encode_error: file.hls_encode_error,
+            conversion_progress: file.conversion_progress,
+          }
+        : item;
+    setFiles((current) => current.map(patch));
+    setPreviewVideo((current) => (current?.id === file.id ? null : current));
+    setDetailsTarget((current) =>
+      current?.kind === "file" && current.file.id === file.id
+        ? { kind: "file", file: patch(current.file) }
+        : current,
+    );
+  }
+
+  // Human: After bulk rebuild, refresh the explorer so every video badge updates.
+  // Agent: CALLS refresh silently for current folder; CLOSES open video preview.
+  async function handleHlsReprocessAllQueued() {
+    setPreviewVideo(null);
+    try {
+      await refresh(undefined, { silent: true });
+    } catch {
+      // Queue toast already shown; silent refresh failure is non-fatal.
+    }
+  }
+
+  // Human: Context-menu rebuild for a single video stream.
+  // Agent: POST reprocessFileHls; MERGES file row via handleHlsReprocessQueued.
+  async function handleReprocessHlsFromMenu(file: FileItem) {
+    try {
+      const { file: updated } = await reprocessFileHls(file.id);
+      toastSuccess("Video stream rebuild started — play again when processing finishes.");
+      handleHlsReprocessQueued(updated);
+    } catch (error) {
+      toastError(getErrorMessage(error));
+    }
+  }
+
   // Human: Open the public link dialog for one file.
   // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
   function handleShareFile(file: FileItem) {
@@ -1655,6 +1702,7 @@ export default function DrivePage() {
       onDownload={handleDownload}
       onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
+      onReprocessHls={handleReprocessHlsFromMenu}
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
       onPreviewEpub={handlePreviewEpub}
@@ -1750,6 +1798,7 @@ export default function DrivePage() {
               onDownload: handleDownload,
               onShare: handleShareFile,
               folderLabel: videoPlayerFolderLabel,
+              onHlsReprocessQueued: handleHlsReprocessQueued,
             }}
           />
         ) : null}
@@ -1860,6 +1909,8 @@ export default function DrivePage() {
           onShareChanged={handleShareChanged}
           onThumbnailSelected={handleVideoThumbnailSelected}
           onThumbnailUpdated={handleVideoThumbnailUpdated}
+          onHlsReprocessQueued={handleHlsReprocessQueued}
+          onHlsReprocessAllQueued={handleHlsReprocessAllQueued}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}

@@ -18,10 +18,12 @@ type UseHlsVideoAttachOptions = {
   shareToken?: string;
   sharePassword?: string | null;
   onError: (message: string) => void;
+  /** Human: Bump to tear down and re-attach hls.js after a user Retry. */
+  attachKey?: number;
 };
 
 // Human: Wire encrypted VOD playback to the current dialog video element.
-// Agent: LISTENS video + streamUrl; DESTROYS hls on cleanup; CALLS onError on fatal failures.
+// Agent: LISTENS video + streamUrl + attachKey; DESTROYS hls on cleanup; CALLS onError on fatal failures.
 export function useHlsVideoAttach({
   video,
   streamUrl,
@@ -29,6 +31,7 @@ export function useHlsVideoAttach({
   shareToken,
   sharePassword,
   onError,
+  attachKey = 0,
 }: UseHlsVideoAttachOptions): void {
   useEffect(() => {
     if (!video || !streamUrl || !open) return;
@@ -73,5 +76,5 @@ export function useHlsVideoAttach({
       video.removeAttribute("src");
       video.load();
     };
-  }, [video, streamUrl, open, shareToken, sharePassword, onError]);
+  }, [video, streamUrl, open, shareToken, sharePassword, onError, attachKey]);
 }

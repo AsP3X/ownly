@@ -4946,3 +4946,111 @@ async fn grantee_upload_into_shared_folder_visible_to_owner() {
         .await
         .ok();
 }
+// Human: Owners can re-queue HLS packaging when playback freezes or A/V drifts.
+// Agent: POST /files/{id}/hls/reprocess; EXPECT 200 + hls_ready false + background job; 409 on double queue.
+#[tokio::test]
+async fn hls_reprocess_queues_encode_job_for_ready_video() {
+    let Some(state) =
+        test_harness::TestHarness::state("hls_reprocess_queues_encode_job_for_ready_video").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("hls-reprocess-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+    let storage_key = format!("users/{user_id}/files/{file_id}");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, hls_ready, \
+         segment_count, hls_encode_status, conversion_progress) \
+         VALUES ($1, $2, 'clip.mp4', $3, 'video/mp4', 1_048_576, true, 3, 'ready', 100)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .bind(&storage_key)
+    .execute(&state.pool)
+    .await
+    .expect("insert video file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/files/{file_id}/hls/reprocess"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["file"]["hls_ready"], false);
+    assert_eq!(body["file"]["hls_encode_status"], "reprocessing");
+    assert!(body["concurrent_limit"].as_u64().unwrap_or(0) >= 1);
+
+    let job: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM background_jobs WHERE resource_id = $1 AND kind = 'hls_encode' \
+         AND status IN ('queued', 'running') LIMIT 1",
+    )
+    .bind(&file_id)
+    .fetch_optional(&state.pool)
+    .await
+    .expect("lookup job");
+    assert!(job.is_some(), "reprocess must enqueue an hls_encode job");
+
+    let conflict = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/files/{file_id}/hls/reprocess"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+
+    sqlx::query("DELETE FROM background_jobs WHERE resource_id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}

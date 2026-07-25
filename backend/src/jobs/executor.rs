@@ -98,7 +98,11 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
     let encode_job = HlsEncodeJob {
         file_id: payload.file_id,
         storage_key: payload.storage_key,
-        tmp_video: PathBuf::from(payload.tmp_video),
+        tmp_video: if payload.tmp_video.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(payload.tmp_video))
+        },
         duration_seconds: payload.duration_seconds,
     };
 

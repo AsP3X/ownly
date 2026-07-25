@@ -147,8 +147,12 @@ impl HlsEncoder {
     ) -> anyhow::Result<HlsOutput> {
         let segment_target_secs = timing.segment_target_secs;
 
-        if matches!(codec_probe.encode_mode, HlsEncodeMode::FullTranscode)
-            && hardware.use_hardware_for_full_transcode()
+        // Human: Prefer GPU for full re-encodes and GOP-aligned H.264 (now the default path).
+        // Agent: TRIES hardware first; FALLS BACK to CPU when NVENC/VAAPI/QSV fails mid-job.
+        if matches!(
+            codec_probe.encode_mode,
+            HlsEncodeMode::FullTranscode | HlsEncodeMode::AlignSegmentsRetranscode
+        ) && hardware.use_hardware_for_full_transcode()
         {
             match Self::run_ffmpeg_session(FfmpegSessionParams {
                 input_path,
@@ -273,12 +277,10 @@ impl HlsEncoder {
         let mut pre_input_args: Vec<String> = Vec::new();
         let mut encode_args: Vec<String> = Vec::new();
 
-        // Human: Regenerate PTS on read so bad source timestamps do not break fMP4 HLS packaging.
-        // Agent: PREPENDED before `-i`; APPLIES to remux and transcode paths alike.
-        append_common_input_args(&mut pre_input_args);
-
         match codec_probe.encode_mode {
             HlsEncodeMode::RemuxCopy => {
+                // Human: Stream copy only — never regenerate PTS here (genpts desyncs A/V on remux).
+                // Agent: NO append_common_input_args; uses avoid_negative_ts only.
                 encode_args.extend([
                     "-c".into(),
                     "copy".into(),
@@ -289,6 +291,8 @@ impl HlsEncoder {
                 ]);
             }
             HlsEncodeMode::CopyVideoTranscodeAudio => {
+                // Human: Keep source video timing; re-encode audio only — genpts would desync tracks.
+                // Agent: NO append_common_input_args; SKIPS append_hls_timestamp_args.
                 encode_args.extend([
                     "-c:v".into(),
                     "copy".into(),
@@ -296,10 +300,11 @@ impl HlsEncoder {
                     "make_zero".into(),
                 ]);
                 append_hls_audio_encode(&mut encode_args);
-                // Human: Do not force CFR `-r:v` on stream-copied video — that corrupts timestamps.
-                // Agent: SKIPS append_hls_timestamp_args; audio-only re-encode keeps source video timing.
             }
             HlsEncodeMode::AlignSegmentsRetranscode => {
+                // Human: Repair corrupt source timestamps only when fully re-encoding both tracks.
+                // Agent: PREPENDS +genpts before `-i`; PAIRED with CFR + aresample async.
+                append_common_input_args(&mut pre_input_args);
                 let large_cap = if segment_target_secs >= HLS_SEGMENT_TARGET_SECS_LARGE {
                     Some(HlsAlignRateCap {
                         maxrate: large_maxrate,
@@ -325,6 +330,7 @@ impl HlsEncoder {
                 append_hls_timestamp_args(&mut encode_args, output_fps);
             }
             HlsEncodeMode::FullTranscode => {
+                append_common_input_args(&mut pre_input_args);
                 append_full_transcode_encoder_args(
                     &mut pre_input_args,
                     &mut encode_args,

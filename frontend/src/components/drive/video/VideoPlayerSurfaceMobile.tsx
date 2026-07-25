@@ -35,6 +35,7 @@ import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { DialogClose } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type VideoPlayerSurfaceMobileProps = {
   file: FileItem;
@@ -47,6 +48,9 @@ type VideoPlayerSurfaceMobileProps = {
   onVideoNodeChange?: (node: HTMLVideoElement | null) => void;
   onDownload?: (file: FileItem) => void;
   onShare?: (file: FileItem) => void;
+  onRetryPlayback?: () => void;
+  onRebuildStream?: () => void;
+  rebuildingStream?: boolean;
 };
 
 // Human: Floating blur circle used for top chrome buttons (close, more).
@@ -110,6 +114,9 @@ export function VideoPlayerSurfaceMobile({
   onVideoNodeChange,
   onDownload,
   onShare,
+  onRetryPlayback,
+  onRebuildStream,
+  rebuildingStream = false,
 }: VideoPlayerSurfaceMobileProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -232,18 +239,53 @@ export function VideoPlayerSurfaceMobile({
       ) : null}
 
       {error ? (
-        <p
-          className="absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+        <div
+          className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-4"
           role="alert"
         >
-          {error}
-        </p>
+          <p className="text-center text-sm text-red-400">{error}</p>
+          {onRetryPlayback || onRebuildStream ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {onRetryPlayback ? (
+                <Button type="button" size="sm" variant="secondary" onClick={onRetryPlayback}>
+                  Retry
+                </Button>
+              ) : null}
+              {onRebuildStream ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-white/30 bg-black/40 text-white hover:bg-black/60"
+                  disabled={rebuildingStream}
+                  onClick={onRebuildStream}
+                >
+                  {rebuildingStream ? "Starting rebuild…" : "Rebuild stream"}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {failed && !error ? (
-        <p className="absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 px-4 text-center text-sm text-red-400">
-          {file.hls_encode_error ?? "Video processing failed."}
-        </p>
+        <div className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-4">
+          <p className="text-center text-sm text-red-400">
+            {file.hls_encode_error ?? "Video processing failed."}
+          </p>
+          {onRebuildStream ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="border-white/30 bg-black/40 text-white hover:bg-black/60"
+              disabled={rebuildingStream}
+              onClick={onRebuildStream}
+            >
+              {rebuildingStream ? "Starting rebuild…" : "Rebuild stream"}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {loading ? (

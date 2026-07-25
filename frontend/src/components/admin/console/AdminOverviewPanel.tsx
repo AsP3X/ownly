@@ -7,6 +7,7 @@ import {
   Check,
   Database,
   Download,
+  Film,
   Info,
   Loader2,
   RotateCw,
@@ -209,6 +210,72 @@ export function AdminOverviewPanel() {
               </div>
             </AdminConsolePanel>
           </div>
+
+          {data.hls_video ? (
+            <AdminConsolePanel
+              title="Video stream packaging (HLS)"
+              subtitle="Encode modes, rebuild health, and average packaging time"
+              headerRight={
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[#666666]">
+                  <Film className="size-3.5" aria-hidden />
+                  Source masters: {data.hls_video.source_master_count.toLocaleString()}
+                </span>
+              }
+            >
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                    Ready to stream
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                    {data.hls_video.ready_count.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                    Processing / rebuilding
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                    {data.hls_video.processing_count.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                    Failed encodes
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-[#EF4444]">
+                    {data.hls_video.failed_count.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                    Avg encode time
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                    {data.hls_video.avg_encode_ms != null
+                      ? data.hls_video.avg_encode_ms >= 60_000
+                        ? `${(data.hls_video.avg_encode_ms / 60_000).toFixed(1)} min`
+                        : `${Math.round(data.hls_video.avg_encode_ms / 1000)} s`
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+              {data.hls_video.encode_mode_counts.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {data.hls_video.encode_mode_counts.map((entry) => (
+                    <AdminConsolePill key={entry.mode} tone="primary">
+                      {entry.mode}: {entry.count.toLocaleString()}
+                    </AdminConsolePill>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-[#666666]">
+                  Encode mode breakdown appears after videos finish packaging with the latest
+                  pipeline.
+                </p>
+              )}
+            </AdminConsolePanel>
+          ) : null}
 
           <AdminConsolePanel
             title="Recent Critical Alerts & Logs"

@@ -476,6 +476,15 @@ export type AdminOverviewResponse = {
     detail: string;
     timestamp: string;
   }[];
+  /** Human: HLS packaging health — encode modes, failures, average encode time. */
+  hls_video?: {
+    ready_count: number;
+    processing_count: number;
+    failed_count: number;
+    source_master_count: number;
+    avg_encode_ms: number | null;
+    encode_mode_counts: { mode: string; count: number }[];
+  };
 };
 
 // Human: Dashboard KPIs and recent alerts for the admin overview panel.
@@ -1078,6 +1087,27 @@ export async function regenerateFileThumbnails(fileId: string) {
   return apiFetch(`/files/${fileId}/thumbnails/regenerate`, {
     method: "POST",
   }) as Promise<{ file: FileItem }>;
+}
+
+// Human: Rebuild HLS packaging when playback freezes or audio drifts out of sync.
+// Agent: POST /files/:id/hls/reprocess; ENQUEUES HlsEncode; RETURNS { file } with hls_ready=false.
+export async function reprocessFileHls(fileId: string) {
+  return apiFetch(`/files/${fileId}/hls/reprocess`, {
+    method: "POST",
+  }) as Promise<{ file: FileItem }>;
+}
+
+// Human: Queue HLS reprocess for every ready video in the signed-in user's library.
+// Agent: POST /files/hls/reprocess-all; RETURNS { queued, skipped }.
+export async function reprocessAllHls() {
+  return apiFetch(`/files/hls/reprocess-all`, {
+    method: "POST",
+  }) as Promise<{
+    queued: number;
+    skipped: number;
+    concurrent_limit?: number;
+    note?: string;
+  }>;
 }
 
 // Human: Load waveform peaks for audio inside an anonymous public share link.

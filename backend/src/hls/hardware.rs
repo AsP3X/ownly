@@ -263,6 +263,10 @@ pub fn append_full_transcode_encoder_args(
         "128k".into(),
         "-ac".into(),
         "2".into(),
+        // Human: Stretch/compress audio to the video clock so A/V stay aligned across fMP4 segments.
+        // Agent: MATCHES AlignSegments aresample; first_pts=0 anchors audio at timeline zero.
+        "-af".into(),
+        "aresample=async=1:first_pts=0".into(),
     ]);
 }
 

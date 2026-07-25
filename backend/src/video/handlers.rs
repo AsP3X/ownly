@@ -1,5 +1,5 @@
-// Human: Authenticated video thumbnail routes — manifest, image bytes, and user poster selection.
-// Agent: GET/PATCH /files/:id/thumbnail(s); READS Nebular sidecars; AUDIT on selection change.
+// Human: Authenticated video thumbnail + HLS reprocess routes.
+// Agent: GET/PATCH /files/:id/thumbnail(s); POST /files/:id/hls/reprocess; READS Nebular sidecars.
 
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ use crate::{
     },
     jobs::{
         self,
-        model::{JobKind, VideoThumbnailPayload},
+        model::{HlsEncodePayload, JobKind, VideoThumbnailPayload},
     },
 };
 
@@ -437,4 +437,203 @@ pub async fn regenerate_thumbnails(
     .await?;
 
     Ok(Json(serde_json::json!({ "file": file })))
+}
+
+type ReprocessHlsRow = (String, Option<String>, String, bool, Option<i32>);
+
+// Human: Rebuild browser HLS with GOP-aligned re-encode when playback freezes or A/V drifts.
+// Agent: POST /files/:id/hls/reprocess; RESETS hls_ready; ENQUEUES HlsEncode with empty spool (remux source).
+pub async fn reprocess_hls(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentWrite,
+    )
+    .await?;
+
+    let row: Option<ReprocessHlsRow> = sqlx::query_as(
+        "SELECT storage_key, mime_type, name, hls_ready, segment_count FROM files \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (storage_key, mime_type, name, hls_ready, segment_count) =
+        row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    if !hls_ready && segment_count.unwrap_or(0) <= 0 {
+        return Err(AppError::BadRequest(
+            "video has no packaged stream to reprocess yet — wait for the first encode or re-upload"
+                .into(),
+        ));
+    }
+
+    if jobs::find_active_job(&state.pool, JobKind::HlsEncode, "file", &id)
+        .await?
+        .is_some()
+    {
+        return Err(AppError::Conflict(
+            "video is already being processed".into(),
+        ));
+    }
+
+    // Human: Hide stream while re-encode runs so the player does not keep serving the broken package.
+    // Agent: WRITES hls_ready=false + reprocessing; KEEP segment_count + source.master for the worker.
+    sqlx::query(
+        "UPDATE files SET hls_ready = false, hls_encode_status = 'reprocessing', hls_encode_error = NULL, \
+         conversion_progress = 0 WHERE id = $1",
+    )
+    .bind(&id)
+    .execute(&state.pool)
+    .await?;
+
+    let payload = HlsEncodePayload {
+        file_id: id.clone(),
+        storage_key,
+        tmp_video: String::new(),
+        duration_seconds: 0,
+    };
+
+    // Human: Job title shows rebuild intent in the transfer/job tray.
+    // Agent: ENQUEUES HlsEncode with display name "Rebuild stream — {name}".
+    let job_title = format!("Rebuild stream — {name}");
+    jobs::enqueue_job(
+        &state.pool,
+        &claims.sub,
+        JobKind::HlsEncode,
+        &job_title,
+        Some("file"),
+        Some(&id),
+        serde_json::to_value(payload)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("hls reprocess payload: {e}")))?,
+    )
+    .await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.hls.reprocess",
+        Some("file"),
+        Some(&id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
+    ))
+    .bind(&id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "file": file,
+        "concurrent_limit": state.user_transcode_gate.max_per_user(),
+    })))
+}
+
+// Human: Queue HLS reprocess for every ready video the caller owns (library-wide repair).
+// Agent: POST /files/hls/reprocess-all; ENQUEUES one HlsEncode job per hls_ready video;
+// Agent: WORKERS throttle via UserTranscodeGate (max concurrent ffmpeg per user).
+pub async fn reprocess_all_hls(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let concurrent_limit = state.user_transcode_gate.max_per_user();
+    let rows: Vec<(String, String, String, Option<i32>)> = sqlx::query_as(
+        "SELECT id, storage_key, name, segment_count FROM files \
+         WHERE user_id = $1 AND deleted_at IS NULL AND hls_ready = true \
+         AND mime_type LIKE 'video/%' AND COALESCE(segment_count, 0) > 0 \
+         ORDER BY created_at ASC",
+    )
+    .bind(&claims.sub)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut queued = 0u32;
+    let mut skipped = 0u32;
+
+    for (id, storage_key, name, _segment_count) in rows {
+        if jobs::find_active_job(&state.pool, JobKind::HlsEncode, "file", &id)
+            .await?
+            .is_some()
+        {
+            skipped += 1;
+            continue;
+        }
+
+        sqlx::query(
+            "UPDATE files SET hls_ready = false, hls_encode_status = 'reprocessing', hls_encode_error = NULL, \
+             conversion_progress = 0 WHERE id = $1",
+        )
+        .bind(&id)
+        .execute(&state.pool)
+        .await?;
+
+        let payload = HlsEncodePayload {
+            file_id: id.clone(),
+            storage_key,
+            tmp_video: String::new(),
+            duration_seconds: 0,
+        };
+
+        let job_title = format!("Rebuild stream — {name}");
+        match jobs::enqueue_job(
+            &state.pool,
+            &claims.sub,
+            JobKind::HlsEncode,
+            &job_title,
+            Some("file"),
+            Some(&id),
+            serde_json::to_value(payload)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("hls reprocess payload: {e}")))?,
+        )
+        .await
+        {
+            Ok(_) => {
+                queued += 1;
+                audit::write_audit(
+                    &state.pool,
+                    Some(&claims.sub),
+                    "files.hls.reprocess",
+                    Some("file"),
+                    Some(&id),
+                    Some(serde_json::json!({ "bulk": true })),
+                    &headers,
+                )
+                .await
+                .ok();
+            }
+            Err(error) => {
+                tracing::warn!(%id, %error, "failed to enqueue HLS reprocess");
+                skipped += 1;
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "queued": queued,
+        "skipped": skipped,
+        "concurrent_limit": concurrent_limit,
+        "note": format!(
+            "Jobs run at most {concurrent_limit} at a time per account; others wait in the job tray."
+        ),
+    })))
 }
