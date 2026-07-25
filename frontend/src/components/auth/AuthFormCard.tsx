@@ -13,7 +13,7 @@ type AuthFormCardProps = {
 
 export function AuthFormCard({ title, subtitle, children, footer }: AuthFormCardProps) {
   return (
-    <div className="w-full max-w-[480px] rounded-2xl border border-[#E5E7EB] bg-white p-12 shadow-[0_12px_32px_#00000014]">
+    <div className="w-full max-w-[480px] rounded-2xl border border-[#E5E7EB]/90 bg-white/92 p-12 shadow-[0_16px_48px_rgba(15,23,42,0.12)] backdrop-blur-md supports-backdrop-filter:bg-white/86">
       {/* Human: Brand row — cloud icon + Ownly wordmark per design Logo Header */}
       <div className="mb-6 flex items-center justify-center gap-2">
         <Cloud className="size-7 shrink-0 text-[#2563EB]" aria-hidden />
