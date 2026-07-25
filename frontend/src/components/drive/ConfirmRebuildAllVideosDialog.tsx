@@ -45,9 +45,11 @@ export function ConfirmRebuildAllVideosDialog({
             <div className="min-w-0 space-y-1">
               <DialogTitle>Rebuild all video streams?</DialogTitle>
               <DialogDescription className="text-sm text-neutral-600">
-                Every ready video in My Cloud will be re-packaged for smoother playback. Videos
-                cannot be played until each rebuild finishes. Jobs run a few at a time so the server
-                is not overloaded — progress appears in the job tray and on file badges.
+                Only ready videos that have not already completed a successful rebuild will be
+                re-packaged. Streams already rebuilt (and not broken) are skipped. Videos cannot be
+                played until each rebuild finishes. Jobs run a few at a time — progress appears in
+                the transfer tray and on file badges. Use “Rebuild this stream” on a single video if
+                you need to repair one again.
               </DialogDescription>
             </div>
           </div>

@@ -70,6 +70,7 @@ type ResourceDetailsDialogProps = {
   onHlsReprocessAllQueued?: (result: {
     queued: number;
     skipped: number;
+    skipped_already_rebuilt?: number;
     concurrent_limit?: number;
   }) => void;
   /** Human: After cancelling unfinished rebuilds — parent refreshes list + transfer tray. */
@@ -229,14 +230,19 @@ export function ResourceDetailsDialog({
         result.concurrent_limit != null
           ? ` Up to ${result.concurrent_limit} rebuild${result.concurrent_limit === 1 ? "" : "s"} run at once.`
           : "";
+      const already =
+        result.skipped_already_rebuilt != null && result.skipped_already_rebuilt > 0
+          ? ` ${result.skipped_already_rebuilt} already rebuilt skipped.`
+          : "";
+      const activeSkip = result.skipped
+        ? ` ${result.skipped} already processing skipped.`
+        : "";
       toastSuccess(
         result.queued > 0
-          ? `Queued ${result.queued} video${result.queued === 1 ? "" : "s"} for rebuild${
-              result.skipped ? ` (${result.skipped} skipped)` : ""
-            }.${limitHint}`
-          : result.skipped
-            ? `No new rebuilds queued (${result.skipped} already processing or none ready).`
-            : "No ready videos found to rebuild.",
+          ? `Queued ${result.queued} video${result.queued === 1 ? "" : "s"} for rebuild.${already}${activeSkip}${limitHint}`
+          : already || activeSkip
+            ? `No new rebuilds queued.${already}${activeSkip}`
+            : "No videos need a rebuild — all ready streams are already rebuilt, or none are ready.",
       );
       onHlsReprocessAllQueued?.(result);
       setRebuildAllConfirmOpen(false);

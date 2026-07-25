@@ -1097,14 +1097,15 @@ export async function reprocessFileHls(fileId: string) {
   }) as Promise<{ file: FileItem }>;
 }
 
-// Human: Queue HLS reprocess for every ready video in the signed-in user's library.
-// Agent: POST /files/hls/reprocess-all; RETURNS { queued, skipped }.
+// Human: Queue HLS reprocess for ready videos that have not already completed a rebuild.
+// Agent: POST /files/hls/reprocess-all; RETURNS { queued, skipped, skipped_already_rebuilt }.
 export async function reprocessAllHls() {
   return apiFetch(`/files/hls/reprocess-all`, {
     method: "POST",
   }) as Promise<{
     queued: number;
     skipped: number;
+    skipped_already_rebuilt?: number;
     concurrent_limit?: number;
     note?: string;
   }>;

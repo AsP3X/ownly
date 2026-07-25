@@ -548,8 +548,8 @@ pub async fn reprocess_hls(
     })))
 }
 
-// Human: Queue HLS reprocess for every ready video the caller owns (library-wide repair).
-// Agent: POST /files/hls/reprocess-all; ENQUEUES one HlsEncode job per hls_ready video;
+// Human: Queue HLS reprocess for ready videos that have not already completed a successful rebuild.
+// Agent: POST /files/hls/reprocess-all; SKIPS hls_stream_rebuilt=true packages; ENQUEUES remaining.
 // Agent: WORKERS throttle via UserTranscodeGate (max concurrent ffmpeg per user).
 pub async fn reprocess_all_hls(
     State(state): State<Arc<crate::AppState>>,
@@ -557,10 +557,27 @@ pub async fn reprocess_all_hls(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let concurrent_limit = state.user_transcode_gate.max_per_user();
+
+    // Human: Count healthy packages already rebuilt so the UI can explain why rebuild-all no-ops.
+    // Agent: READS hls_stream_rebuilt for ready videos owned by the caller.
+    let already_rebuilt: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM files \
+         WHERE user_id = $1 AND deleted_at IS NULL AND hls_ready = true \
+         AND mime_type LIKE 'video/%' AND COALESCE(segment_count, 0) > 0 \
+         AND COALESCE(hls_stream_rebuilt, false) = true",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    // Human: Only queue streams that still need a first successful rebuild (or were never flagged).
+    // Agent: EXCLUDES hls_stream_rebuilt; single-file rebuild can still re-run intentionally.
     let rows: Vec<(String, String, String, Option<i32>)> = sqlx::query_as(
         "SELECT id, storage_key, name, segment_count FROM files \
          WHERE user_id = $1 AND deleted_at IS NULL AND hls_ready = true \
          AND mime_type LIKE 'video/%' AND COALESCE(segment_count, 0) > 0 \
+         AND COALESCE(hls_stream_rebuilt, false) = false \
          ORDER BY created_at ASC",
     )
     .bind(&claims.sub)
@@ -631,9 +648,11 @@ pub async fn reprocess_all_hls(
     Ok(Json(serde_json::json!({
         "queued": queued,
         "skipped": skipped,
+        "skipped_already_rebuilt": already_rebuilt,
         "concurrent_limit": concurrent_limit,
         "note": format!(
-            "Jobs run at most {concurrent_limit} at a time per account; others wait in the job tray."
+            "Jobs run at most {concurrent_limit} at a time per account; others wait in the job tray. \
+             Videos that already completed a successful rebuild are skipped."
         ),
     })))
 }

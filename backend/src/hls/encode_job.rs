@@ -584,11 +584,15 @@ pub async fn run_hls_encode_job(
                     }
 
                     let encode_ms = encode_started.elapsed().as_millis() as i64;
+                    // Human: Mark successful user rebuilds so "rebuild all" skips healthy packages next time.
+                    // Agent: SET hls_stream_rebuilt when this job re-encoded an existing package (prior segments).
+                    let completed_user_rebuild = prior_segment_count.unwrap_or(0) > 0;
 
                     if let Err(e) = sqlx::query(
                         "UPDATE files SET hls_ready = true, hls_key_id = $1, segment_count = $2, \
                          hls_encode_status = 'ready', hls_encode_error = NULL, \
-                         hls_encode_mode = $3, hls_last_encode_ms = $4, hls_source_master = $5 \
+                         hls_encode_mode = $3, hls_last_encode_ms = $4, hls_source_master = $5, \
+                         hls_stream_rebuilt = CASE WHEN $7 THEN true ELSE hls_stream_rebuilt END \
                          WHERE id = $6",
                     )
                     .bind(key_id.to_string())
@@ -597,6 +601,7 @@ pub async fn run_hls_encode_job(
                     .bind(encode_ms)
                     .bind(has_source_master)
                     .bind(&file_id)
+                    .bind(completed_user_rebuild)
                     .execute(&pool)
                     .await
                     {
