@@ -139,6 +139,7 @@ async fn hls_playback_regression_build_playlist_upgrades_ts_when_fmp4_on_disk() 
         "/api/v1/files/id/init",
         3,
         0,
+        None,
     )
     .await
     .expect("build playlist");

@@ -43,13 +43,15 @@ const HLS_PLAYBACK_TICKET_TTL_SECS: u64 = 4 * 3600;
 
 // Human: Row shape for HLS playback lookups — storage key, readiness, segment count, source size.
 // Agent: READ by ensure_file_owned; size_bytes drives synthetic playlist segment duration tier.
-pub(crate) type HlsPlaybackRow = (String, Option<bool>, Option<i32>, Option<i64>);
+// Human: Playback row — storage key, readiness, segment count, source size, probed duration.
+// Agent: duration_seconds feeds synthetic playlist EXTINF when stream.m3u8 is missing.
+pub(crate) type HlsPlaybackRow = (String, Option<bool>, Option<i32>, Option<i64>, Option<i32>);
 
 async fn ensure_file_owned(
     state: &AppState,
     file_id: &str,
     user_id: &str,
-) -> Result<(String, Option<bool>, Option<i32>, Option<i64>), AppError> {
+) -> Result<HlsPlaybackRow, AppError> {
     crate::files::access::ensure_file_access(
         &state.pool,
         user_id,
@@ -59,7 +61,7 @@ async fn ensure_file_owned(
     .await?;
 
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files \
+        "SELECT storage_key, hls_ready, segment_count, size_bytes, duration_seconds FROM files \
          WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
@@ -85,7 +87,7 @@ async fn ensure_file_playback_for_ticket(
     .await?;
 
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files \
+        "SELECT storage_key, hls_ready, segment_count, size_bytes, duration_seconds FROM files \
          WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(file_id)
@@ -175,6 +177,7 @@ fn append_ticket_to_playlist_line(line: &str, encoded_ticket: &str) -> String {
 
 // Human: Load ffmpeg's stored stream.m3u8 and rewrite segment/key URIs for API playback.
 // Agent: READS {storage_key}/stream.m3u8; FALLBACK synthesizes playlist when object missing.
+// duration_seconds: preferred total length for synthetic EXTINF so the seek bar matches real media.
 pub(crate) async fn build_playlist_for_playback(
     storage: &dyn Storage,
     storage_key: &str,
@@ -183,6 +186,7 @@ pub(crate) async fn build_playlist_for_playback(
     init_uri: &str,
     segment_count: usize,
     source_size_bytes: u64,
+    duration_seconds: Option<i32>,
 ) -> Result<String, AppError> {
     let segment_target_secs = hls_segment_target_secs(source_size_bytes);
     let fmp4_on_storage = storage_hls_uses_fmp4(storage, storage_key).await;
@@ -243,11 +247,20 @@ pub(crate) async fn build_playlist_for_playback(
         segment_count
     };
 
+    // Human: Prefer real duration / segment count over fixed 6s/12s tiers for synthetic playlists.
+    // Agent: AVOIDS inflated seek-bar length (e.g. 29m UI for 23m media) that causes end-segment thrash.
+    let per_segment_secs = match duration_seconds {
+        Some(total) if total > 0 && effective_segment_count > 0 => {
+            (total as f64 / effective_segment_count as f64).clamp(0.5, 30.0)
+        }
+        _ => segment_target_secs,
+    };
+
     let mut segment_files = Vec::new();
     let mut segment_durations = Vec::new();
     for i in 0..effective_segment_count {
         segment_files.push(synthetic_segment_rel_path(i, fmp4));
-        segment_durations.push(segment_target_secs);
+        segment_durations.push(per_segment_secs);
     }
 
     Ok(PlaylistGenerator::generate(
@@ -444,7 +457,7 @@ pub async fn get_playlist(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let (storage_key, hls_ready, segment_count, size_bytes) =
+    let (storage_key, hls_ready, segment_count, size_bytes, duration_seconds) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -467,6 +480,7 @@ pub async fn get_playlist(
         &init_uri,
         count,
         source_size,
+        duration_seconds,
     )
     .await?;
 
@@ -487,7 +501,7 @@ pub async fn get_key(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let (storage_key, _, _, _) =
+    let (storage_key, _, _, _, _) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     let key = resolve_hls_aes_key(
@@ -513,7 +527,7 @@ pub async fn get_segment(
     Extension(claims): Extension<Claims>,
     Path((id, segment_name)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    let (storage_key, hls_ready, _, _) =
+    let (storage_key, hls_ready, _, _, _) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -543,7 +557,7 @@ pub async fn get_init(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let (storage_key, hls_ready, _, _) =
+    let (storage_key, hls_ready, _, _, _) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -573,7 +587,7 @@ pub async fn get_hls_manifest(
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
     let ticket = params.ticket.as_deref().expect("ticket checked");
 
-    let (storage_key, hls_ready, segment_count, size_bytes) =
+    let (storage_key, hls_ready, segment_count, size_bytes, duration_seconds) =
         ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -595,6 +609,7 @@ pub async fn get_hls_manifest(
         &init_uri,
         count,
         source_size,
+        duration_seconds,
     )
     .await?;
     let playlist = append_ticket_to_playlist(&playlist, ticket);
@@ -620,7 +635,7 @@ pub async fn get_hls_key(
 ) -> Result<Response, AppError> {
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, _, _, _) =
+    let (storage_key, _, _, _, _) =
         ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     let key = resolve_hls_aes_key(
@@ -650,7 +665,7 @@ pub async fn get_hls_init(
 ) -> Result<Response, AppError> {
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, hls_ready, _, _) =
+    let (storage_key, hls_ready, _, _, _) =
         ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {
@@ -679,7 +694,7 @@ pub async fn get_hls_segment(
 ) -> Result<Response, AppError> {
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
-    let (storage_key, hls_ready, _, _) =
+    let (storage_key, hls_ready, _, _, _) =
         ensure_file_playback_for_ticket(state.as_ref(), &id, &ticket_user).await?;
 
     if !hls_ready.unwrap_or(false) {

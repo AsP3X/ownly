@@ -657,12 +657,17 @@ pub async fn run_hls_encode_job(
                     // Human: Mark successful user rebuilds so "rebuild all" skips healthy packages next time.
                     // Agent: SET hls_stream_rebuilt when this job re-encoded an existing package (prior segments).
                     let completed_user_rebuild = prior_segment_count.unwrap_or(0) > 0;
+                    // Human: Authoritative duration is the sum of ffmpeg EXTINF, not the pre-encode probe.
+                    // Agent: AVOIDS inflated seek bars when remux/probe duration exceeds real media length.
+                    let playlist_duration_secs =
+                        playlist_duration_seconds_from_path(&output.playlist_path).await;
 
                     if let Err(e) = sqlx::query(
                         "UPDATE files SET hls_ready = true, hls_key_id = $1, segment_count = $2, \
                          hls_encode_status = 'ready', hls_encode_error = NULL, \
                          hls_encode_mode = $3, hls_last_encode_ms = $4, hls_source_master = $5, \
-                         hls_stream_rebuilt = CASE WHEN $7 THEN true ELSE hls_stream_rebuilt END \
+                         hls_stream_rebuilt = CASE WHEN $7 THEN true ELSE hls_stream_rebuilt END, \
+                         duration_seconds = COALESCE($8, duration_seconds) \
                          WHERE id = $6",
                     )
                     .bind(key_id.to_string())
@@ -672,6 +677,7 @@ pub async fn run_hls_encode_job(
                     .bind(has_source_master)
                     .bind(&file_id)
                     .bind(completed_user_rebuild)
+                    .bind(playlist_duration_secs)
                     .execute(&pool)
                     .await
                     {
@@ -970,6 +976,21 @@ async fn load_prior_segment_count(pool: &PgPool, file_id: &str) -> Option<i32> {
             .await
             .unwrap_or(None);
     row.and_then(|(count,)| count.filter(|n| *n > 0))
+}
+
+// Human: Sum #EXTINF durations from the local ffmpeg playlist after packaging.
+// Agent: READS stream.m3u8; RETURNS rounded seconds for files.duration_seconds; None when unreadable.
+async fn playlist_duration_seconds_from_path(playlist_path: &Path) -> Option<i32> {
+    let content = tokio::fs::read_to_string(playlist_path).await.ok()?;
+    let (_files, durations) = crate::hls::playlist::parse_segment_manifest(&content).ok()?;
+    if durations.is_empty() {
+        return None;
+    }
+    let total = durations.iter().sum::<f64>();
+    if !total.is_finite() || total <= 0.0 {
+        return None;
+    }
+    Some(total.round().clamp(1.0, i32::MAX as f64) as i32)
 }
 
 // Human: Remove segment objects past the new package length after a successful reprocess.

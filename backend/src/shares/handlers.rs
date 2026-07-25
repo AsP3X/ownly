@@ -1446,14 +1446,16 @@ pub async fn public_share_playlist(
     load_file_in_share_scope(&state.pool, &share, &file_id).await?;
 
     let row: Option<HlsPlaybackRow> = sqlx::query_as(
-        "SELECT storage_key, hls_ready, segment_count, size_bytes FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT storage_key, hls_ready, segment_count, size_bytes, duration_seconds \
+         FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&file_id)
     .bind(&share.user_id)
     .fetch_optional(&state.pool)
     .await?;
 
-    let (storage_key, hls_ready, segment_count, size_bytes) = row.ok_or(AppError::NotFound)?;
+    let (storage_key, hls_ready, segment_count, size_bytes, duration_seconds) =
+        row.ok_or(AppError::NotFound)?;
     if !hls_ready.unwrap_or(false) {
         return Err(AppError::BadRequest(
             "video is not ready for HLS playback yet".into(),
@@ -1474,6 +1476,7 @@ pub async fn public_share_playlist(
         &init_uri,
         count,
         source_size,
+        duration_seconds,
     )
     .await?;
 
