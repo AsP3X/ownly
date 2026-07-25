@@ -1397,13 +1397,31 @@ export default function DrivePage() {
     }
   }
 
-  // Human: Open the details dialog on the metadata or sharing tab.
+  // Human: Open the details overlay on the metadata or sharing tab.
   // Agent: SETS detailsTarget + detailsInitialTab; ResourceDetailsDialog manages tabs.
   function handleDetailsFile(file: FileItem, tab: "details" | "sharing" = "details") {
     if (isFileProcessing(file)) return;
     setDetailsInitialTab(tab);
     setDetailsTarget({ kind: "file", file });
     setDetailsOpen(true);
+  }
+
+  // Human: Context-menu Edit — type-specific editors (video poster, text, spreadsheet).
+  // Agent: ROUTES video → details with thumbnail section; text/spreadsheet → preview editors.
+  function handleEditFile(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (file.mime_type?.startsWith("video/")) {
+      // Human: Video edit opens details overlay where thumbnail management lives.
+      handleDetailsFile(file, "details");
+      return;
+    }
+    if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+      handlePreviewSpreadsheet(file);
+      return;
+    }
+    if (isTextCodePreviewMime(file.mime_type, file.name)) {
+      handlePreviewText(file);
+    }
   }
 
   function handleDetailsFolder(folder: FolderItem, tab: "details" | "sharing" = "details") {
@@ -1722,6 +1740,7 @@ export default function DrivePage() {
       onShareFile={handleShareFile}
       onShareFolder={handleShareFolder}
       onDetailsFile={handleDetailsFile}
+      onEditFile={handleEditFile}
       onDetailsFolder={handleDetailsFolder}
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}

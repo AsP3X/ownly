@@ -54,6 +54,8 @@ type DriveContextMenuProps = {
   onShareFolder: (folder: FolderItem) => void;
   onDetailsFile: (file: FileItem) => void;
   onDetailsFolder: (folder: FolderItem) => void;
+  /** Human: Type-specific edit (video thumbnail, text/spreadsheet editor). */
+  onEditFile?: (file: FileItem) => void;
   /** Human: Queue HLS stream rebuild for a video with A/V freezes or desync. */
   onReprocessHls?: (file: FileItem) => void;
   onCopyToFolder?: () => void;
@@ -69,6 +71,117 @@ type DriveContextMenuProps = {
   /** Human: Enter tap-to-select mode and check the target file. */
   onEnterMobileSelection?: (fileId: string) => void;
 };
+
+type FileOpenHandlers = {
+  onPreviewVideo?: (file: FileItem) => void;
+  onPreviewImage?: (file: FileItem) => void;
+  onPreviewPdf?: (file: FileItem) => void;
+  onPreviewEpub?: (file: FileItem) => void;
+  onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
+  onPreviewAudio?: (file: FileItem) => void;
+  onDetailsFile?: (file: FileItem) => void;
+};
+
+// Human: True when a default Open target exists for this mime (preview or details fallback).
+// Agent: READS mime helpers + optional handlers; USED to disable the Open split button.
+function canDefaultOpenFile(file: FileItem, handlers: FileOpenHandlers): boolean {
+  if (file.mime_type?.startsWith("video/")) {
+    return Boolean(file.hls_ready && handlers.onPreviewVideo);
+  }
+  if (file.mime_type?.startsWith("image/")) {
+    return Boolean(handlers.onPreviewImage);
+  }
+  if (isPdfMime(file.mime_type)) {
+    return Boolean(handlers.onPreviewPdf);
+  }
+  if (isEpubMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewEpub);
+  }
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewSpreadsheet);
+  }
+  if (isTextCodePreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewText);
+  }
+  if (isAudioMime(file.mime_type)) {
+    return Boolean(handlers.onPreviewAudio);
+  }
+  // Human: Generic files still open Details as the default Open action.
+  return Boolean(handlers.onDetailsFile);
+}
+
+// Human: Primary Open — prefer in-app preview for media/docs; fall back to Details.
+// Agent: CALLS the first matching preview handler; ELSE onDetailsFile.
+function openFileDefault(file: FileItem, handlers: FileOpenHandlers): void {
+  if (file.mime_type?.startsWith("video/") && file.hls_ready && handlers.onPreviewVideo) {
+    handlers.onPreviewVideo(file);
+    return;
+  }
+  if (file.mime_type?.startsWith("image/") && handlers.onPreviewImage) {
+    handlers.onPreviewImage(file);
+    return;
+  }
+  if (isPdfMime(file.mime_type) && handlers.onPreviewPdf) {
+    handlers.onPreviewPdf(file);
+    return;
+  }
+  if (isEpubMime(file.mime_type, file.name) && handlers.onPreviewEpub) {
+    handlers.onPreviewEpub(file);
+    return;
+  }
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name) && handlers.onPreviewSpreadsheet) {
+    handlers.onPreviewSpreadsheet(file);
+    return;
+  }
+  if (isTextCodePreviewMime(file.mime_type, file.name) && handlers.onPreviewText) {
+    handlers.onPreviewText(file);
+    return;
+  }
+  if (isAudioMime(file.mime_type) && handlers.onPreviewAudio) {
+    handlers.onPreviewAudio(file);
+    return;
+  }
+  handlers.onDetailsFile?.(file);
+}
+
+type FileEditHandlers = {
+  onEditFile?: (file: FileItem) => void;
+  onPreviewText?: (file: FileItem) => void;
+  onPreviewSpreadsheet?: (file: FileItem) => void;
+};
+
+// Human: Edit is available for videos (poster), text, and spreadsheets.
+// Agent: READS mime; USES onEditFile when provided, else text/spreadsheet previews.
+function canEditFile(file: FileItem, handlers: FileEditHandlers): boolean {
+  if (handlers.onEditFile) {
+    if (file.mime_type?.startsWith("video/")) return true;
+    if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return true;
+    if (isTextCodePreviewMime(file.mime_type, file.name)) return true;
+    return false;
+  }
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewSpreadsheet);
+  }
+  if (isTextCodePreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewText);
+  }
+  return false;
+}
+
+function editFile(file: FileItem, handlers: FileEditHandlers): void {
+  if (handlers.onEditFile) {
+    handlers.onEditFile(file);
+    return;
+  }
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+    handlers.onPreviewSpreadsheet?.(file);
+    return;
+  }
+  if (isTextCodePreviewMime(file.mime_type, file.name)) {
+    handlers.onPreviewText?.(file);
+  }
+}
 
 // Human: Walk DOM ancestors to find the file row or card that received the right click.
 // Agent: READS data-file-id attribute; RETURNS file id or null for workspace-level menu.
@@ -124,6 +237,7 @@ export function DriveContextMenu({
   onShareFolder,
   onDetailsFile,
   onDetailsFolder,
+  onEditFile,
   onReprocessHls,
   onCopyToFolder,
   onMoveToFolder,
@@ -274,130 +388,143 @@ export function DriveContextMenu({
               </ContextMenuItem>
             ) : null}
 
-            {/* Human: Mobile file menu order — Select, Open, Open with, Download, Favourites, Delete. */}
-            {/* Agent: Videos Open previews in-browser; desktop keeps Edit below Open for thumbnail picker. */}
-            {targetIsVideo ? (
-              <>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing || !targetFile.hls_ready || !onPreviewVideo
-                  }
-                  onClick={() => onPreviewVideo?.(targetFile)}
-                >
-                  Open
-                </ContextMenuItem>
-                {!enableMobileSelectActions ? (
-                  <ContextMenuItem
-                    disabled={targetProcessing}
-                    onClick={() => onDetailsFile(targetFile)}
-                  >
-                    Edit
-                  </ContextMenuItem>
-                ) : null}
-                {onReprocessHls ? (
-                  <ContextMenuItem
-                    disabled={
-                      targetProcessing ||
-                      (!targetFile.hls_ready &&
-                        targetFile.hls_encode_status !== "failed" &&
-                        targetFile.hls_encode_status !== "ready")
-                    }
-                    onClick={() => {
-                      onReprocessHls(targetFile);
-                      setOpen(false);
-                    }}
-                  >
-                    <RefreshCw />
-                    Rebuild stream
-                  </ContextMenuItem>
-                ) : null}
-              </>
-            ) : (
+            {/* Human: File menu order — Open (+open-with submenu), Edit, Download, Rename, Details. */}
+            {/* Agent: Split Open row: primary click = default open; chevron submenu = alternate openers. */}
+            <div className="flex w-full items-stretch gap-0.5">
               <ContextMenuItem
-                disabled={targetProcessing}
-                onClick={() => onDetailsFile(targetFile)}
+                className="min-w-0 flex-1"
+                disabled={targetProcessing || !canDefaultOpenFile(targetFile, {
+                  onPreviewVideo,
+                  onPreviewImage,
+                  onPreviewPdf,
+                  onPreviewEpub,
+                  onPreviewText,
+                  onPreviewSpreadsheet,
+                  onPreviewAudio,
+                })}
+                onClick={() => {
+                  openFileDefault(targetFile, {
+                    onPreviewVideo,
+                    onPreviewImage,
+                    onPreviewPdf,
+                    onPreviewEpub,
+                    onPreviewText,
+                    onPreviewSpreadsheet,
+                    onPreviewAudio,
+                    onDetailsFile,
+                  });
+                  setOpen(false);
+                }}
               >
                 Open
               </ContextMenuItem>
-            )}
-
-            <ContextMenuSub>
-              <ContextMenuSubTrigger disabled={targetProcessing}>Open with…</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
+              <ContextMenuSub>
+                <ContextMenuSubTrigger
                   disabled={targetProcessing}
-                  onClick={() => onDownload(targetFile)}
+                  className="w-8 shrink-0 justify-center px-0 [&>svg]:ml-0"
+                  aria-label="Open with"
                 >
-                  Download to device
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing ||
-                    !targetFile.mime_type?.startsWith("video/") ||
-                    !onPreviewVideo
-                  }
-                  onClick={() => targetFile && onPreviewVideo?.(targetFile)}
-                >
-                  Play in browser
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing ||
-                    !targetFile.mime_type?.startsWith("image/") ||
-                    !onPreviewImage
-                  }
-                  onClick={() => targetFile && onPreviewImage?.(targetFile)}
-                >
-                  View in gallery
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing || !isPdfMime(targetFile.mime_type) || !onPreviewPdf
-                  }
-                  onClick={() => targetFile && onPreviewPdf?.(targetFile)}
-                >
-                  View PDF
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing ||
-                    !isEpubMime(targetFile.mime_type, targetFile.name) ||
-                    !onPreviewEpub
-                  }
-                  onClick={() => targetFile && onPreviewEpub?.(targetFile)}
-                >
-                  Read EPUB
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing ||
-                    !isSpreadsheetPreviewMime(targetFile.mime_type, targetFile.name) ||
-                    !onPreviewSpreadsheet
-                  }
-                  onClick={() => targetFile && onPreviewSpreadsheet?.(targetFile)}
-                >
-                  Open spreadsheet
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing ||
-                    !isTextCodePreviewMime(targetFile.mime_type, targetFile.name) ||
-                    !onPreviewText
-                  }
-                  onClick={() => targetFile && onPreviewText?.(targetFile)}
-                >
-                  Edit in code editor
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={
-                    targetProcessing || !isAudioMime(targetFile.mime_type) || !onPreviewAudio
-                  }
-                  onClick={() => targetFile && onPreviewAudio?.(targetFile)}
-                >
-                  Play audio
-                </ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+                  <span className="sr-only">Open with</span>
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-[180px]">
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      !targetFile.mime_type?.startsWith("video/") ||
+                      !targetFile.hls_ready ||
+                      !onPreviewVideo
+                    }
+                    onClick={() => targetFile && onPreviewVideo?.(targetFile)}
+                  >
+                    Play in browser
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      !targetFile.mime_type?.startsWith("image/") ||
+                      !onPreviewImage
+                    }
+                    onClick={() => targetFile && onPreviewImage?.(targetFile)}
+                  >
+                    View in gallery
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing || !isPdfMime(targetFile.mime_type) || !onPreviewPdf
+                    }
+                    onClick={() => targetFile && onPreviewPdf?.(targetFile)}
+                  >
+                    View PDF
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      !isEpubMime(targetFile.mime_type, targetFile.name) ||
+                      !onPreviewEpub
+                    }
+                    onClick={() => targetFile && onPreviewEpub?.(targetFile)}
+                  >
+                    Read EPUB
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      !isSpreadsheetPreviewMime(targetFile.mime_type, targetFile.name) ||
+                      !onPreviewSpreadsheet
+                    }
+                    onClick={() => targetFile && onPreviewSpreadsheet?.(targetFile)}
+                  >
+                    Open spreadsheet
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
+                      !isTextCodePreviewMime(targetFile.mime_type, targetFile.name) ||
+                      !onPreviewText
+                    }
+                    onClick={() => targetFile && onPreviewText?.(targetFile)}
+                  >
+                    Edit in code editor
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing || !isAudioMime(targetFile.mime_type) || !onPreviewAudio
+                    }
+                    onClick={() => targetFile && onPreviewAudio?.(targetFile)}
+                  >
+                    Play audio
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    disabled={targetProcessing}
+                    onClick={() => onDownload(targetFile)}
+                  >
+                    Download to device
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </div>
+
+            <ContextMenuItem
+              disabled={
+                targetProcessing ||
+                !canEditFile(targetFile, {
+                  onEditFile,
+                  onPreviewText,
+                  onPreviewSpreadsheet,
+                })
+              }
+              onClick={() => {
+                editFile(targetFile, {
+                  onEditFile,
+                  onPreviewText,
+                  onPreviewSpreadsheet,
+                });
+                setOpen(false);
+              }}
+            >
+              Edit
+            </ContextMenuItem>
 
             <ContextMenuItem
               disabled={targetProcessing}
@@ -412,6 +539,15 @@ export function DriveContextMenu({
             >
               Rename
             </ContextMenuItem>
+
+            <ContextMenuItem
+              disabled={targetProcessing}
+              onClick={() => onDetailsFile(targetFile)}
+            >
+              Details
+            </ContextMenuItem>
+
+            <ContextMenuSeparator />
 
             <ContextMenuItem
               disabled={targetProcessing}
@@ -431,6 +567,24 @@ export function DriveContextMenu({
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
+
+            {targetIsVideo && onReprocessHls ? (
+              <ContextMenuItem
+                disabled={
+                  targetProcessing ||
+                  (!targetFile.hls_ready &&
+                    targetFile.hls_encode_status !== "failed" &&
+                    targetFile.hls_encode_status !== "ready")
+                }
+                onClick={() => {
+                  onReprocessHls(targetFile);
+                  setOpen(false);
+                }}
+              >
+                <RefreshCw />
+                Rebuild stream
+              </ContextMenuItem>
+            ) : null}
 
             <ContextMenuSeparator />
             <ContextMenuItem

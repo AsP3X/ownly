@@ -1,8 +1,20 @@
-// Human: Details modal for a file or folder — metadata tab plus share link management tab.
-// Agent: READS FileItem/FolderItem; RENDERS ShareLinksPanel on Sharing tab; CALLS onShareChanged on revoke/create.
+// Human: File/folder details overlay — Pencil file-details-overlay.pen (header, tabs, property rows).
+// Agent: READS FileItem/FolderItem; RENDERS ShareLinksPanel on Sharing tab; video stream rebuild actions.
 
 import { useState } from "react";
-import { FileIcon, Folder, ImageIcon, Info, Link2, RefreshCw } from "lucide-react";
+import {
+  FileIcon,
+  FileSpreadsheet,
+  FileText,
+  Film,
+  Folder,
+  ImageIcon,
+  Info,
+  Link2,
+  Music,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
 import { getErrorMessage, reprocessAllHls, reprocessFileHls } from "@/api/client";
 import { ConfirmRebuildAllVideosDialog } from "@/components/drive/ConfirmRebuildAllVideosDialog";
@@ -19,7 +31,15 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toastError, toastSuccess } from "@/lib/toast";
-import { formatBytes, formatFileOpened } from "@/lib/utils-app";
+import {
+  formatBytes,
+  formatFileOpened,
+  isAudioMime,
+  isEpubMime,
+  isPdfMime,
+  isSpreadsheetPreviewMime,
+  isTextCodePreviewMime,
+} from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
 export type DetailsTarget =
@@ -63,13 +83,62 @@ function toShareTarget(target: DetailsTarget): ShareTarget {
   };
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+// Human: Leading icon tile color by file kind — matches Pencil header icon chip.
+// Agent: READS mime/name; RETURNS Lucide icon component + bg/text classes.
+function resolveFileTypeIcon(file: FileItem) {
+  if (file.mime_type?.startsWith("video/")) {
+    return { Icon: Film, chip: "bg-[#EFF6FF] text-[#2563EB]" };
+  }
+  if (file.mime_type?.startsWith("image/")) {
+    return { Icon: ImageIcon, chip: "bg-[#F5F3FF] text-[#7C3AED]" };
+  }
+  if (isAudioMime(file.mime_type)) {
+    return { Icon: Music, chip: "bg-[#ECFDF5] text-[#059669]" };
+  }
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+    return { Icon: FileSpreadsheet, chip: "bg-[#ECFDF5] text-[#059669]" };
+  }
+  if (
+    isTextCodePreviewMime(file.mime_type, file.name) ||
+    isPdfMime(file.mime_type) ||
+    isEpubMime(file.mime_type, file.name)
+  ) {
+    return { Icon: FileText, chip: "bg-[#F3F4F6] text-[#4B5563]" };
+  }
+  return { Icon: FileIcon, chip: "bg-[#EFF6FF] text-[#2563EB]" };
+}
+
+function streamStatusLabel(file: FileItem): string {
+  if (file.hls_ready) return "Ready to stream";
+  if (
+    file.hls_encode_status === "reprocessing" ||
+    file.hls_encode_status === "queued" ||
+    file.hls_encode_status === "processing"
+  ) {
+    return "Rebuilding stream";
+  }
+  if (file.hls_encode_status === "failed") return "Stream failed";
+  return "Processing";
+}
+
+function fileKindLabel(file: FileItem): string {
+  if (file.mime_type?.startsWith("video/")) return "Video";
+  if (file.mime_type?.startsWith("image/")) return "Image";
+  if (isAudioMime(file.mime_type)) return "Audio";
+  if (isPdfMime(file.mime_type)) return "PDF";
+  if (isEpubMime(file.mime_type, file.name)) return "EPUB";
+  if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return "Spreadsheet";
+  if (isTextCodePreviewMime(file.mime_type, file.name)) return "Text";
+  return file.mime_type?.split("/")[0] ?? "File";
+}
+
+function PropertyRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-      <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-neutral-500">
-        {label}
-      </dt>
-      <dd className="min-w-0 break-all text-sm text-neutral-900">{value}</dd>
+    <div className="flex items-baseline justify-between gap-4 border-b border-[#F3F4F6] py-3.5 last:border-b-0">
+      <dt className="shrink-0 text-xs font-medium text-[#6B7280]">{label}</dt>
+      <dd className="min-w-0 break-all text-right text-[13px] font-medium text-[#111827]">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -104,13 +173,10 @@ export function ResourceDetailsDialog({
   }
 
   const name = target?.kind === "file" ? target.file.name : target?.folder.name;
-  const isFile = target?.kind === "file";
 
   const videoFile =
     target?.kind === "file" && target.file.mime_type?.startsWith("video/") ? target.file : null;
 
-  // Human: Allow rebuild once a stream existed (ready) or a prior encode finished/failed.
-  // Agent: DISABLE while queued/processing/reprocessing to avoid double-enqueue 409s.
   const canReprocessHls =
     Boolean(videoFile) &&
     (Boolean(videoFile?.hls_ready) ||
@@ -161,176 +227,228 @@ export function ResourceDetailsDialog({
     }
   }
 
+  const typeIcon =
+    target?.kind === "file"
+      ? resolveFileTypeIcon(target.file)
+      : { Icon: Folder, chip: "bg-[#FFFBEB] text-[#D97706]" };
+  const TypeIcon = typeIcon.Icon;
+
+  const subtitle =
+    target?.kind === "file"
+      ? [
+          fileKindLabel(target.file),
+          formatBytes(target.file.size_bytes),
+          target.file.mime_type?.startsWith("video/")
+            ? streamStatusLabel(target.file)
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "Folder";
+
   return (
     <>
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-lg">
-        <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
-          <div className="flex min-w-0 items-start gap-3">
-            {isFile ? (
-              <FileIcon className="mt-0.5 size-5 shrink-0 text-sky-600" />
-            ) : (
-              <Folder className="mt-0.5 size-5 shrink-0 text-amber-500" />
-            )}
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="truncate text-lg text-neutral-900">{name ?? "Details"}</DialogTitle>
-              <DialogDescription className="text-neutral-500">
-                {isFile ? "File properties and sharing" : "Folder properties and sharing"}
-              </DialogDescription>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          className="gap-0 overflow-hidden border border-[#E5E7EB] bg-white p-0 shadow-[0_16px_48px_rgba(0,0,0,0.16)] sm:max-w-[600px] sm:rounded-2xl"
+          overlayClassName="bg-[#0A0A10]/50 backdrop-blur-[8px]"
+        >
+          <DialogHeader className="min-w-0 space-y-0 border-b border-[#F3F4F6] px-7 py-6 pr-6 text-left">
+            <div className="flex min-w-0 items-center gap-4">
+              <div
+                className={cn(
+                  "flex size-12 shrink-0 items-center justify-center rounded-xl",
+                  typeIcon.chip,
+                )}
+              >
+                <TypeIcon className="size-6" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="truncate text-lg font-semibold text-[#111827]">
+                  {name ?? "Details"}
+                </DialogTitle>
+                <DialogDescription className="truncate text-[13px] text-[#6B7280]">
+                  {subtitle}
+                </DialogDescription>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenChange(false)}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#F3F4F6] text-[#6B7280] transition hover:bg-[#E5E7EB]"
+                aria-label="Close"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
             </div>
+          </DialogHeader>
+
+          <div className="flex gap-1 border-b border-[#F3F4F6] px-5">
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-2 border-b-2 px-4 py-3 text-[13px] transition",
+                tab === "details"
+                  ? "border-[#2563EB] font-semibold text-[#2563EB]"
+                  : "border-transparent font-medium text-[#6B7280] hover:text-[#111827]",
+              )}
+              onClick={() => setTab("details")}
+            >
+              <Info className="size-3.5" aria-hidden />
+              Details
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-2 border-b-2 px-4 py-3 text-[13px] transition",
+                tab === "sharing"
+                  ? "border-[#2563EB] font-semibold text-[#2563EB]"
+                  : "border-transparent font-medium text-[#6B7280] hover:text-[#111827]",
+              )}
+              onClick={() => setTab("sharing")}
+            >
+              <Link2 className="size-3.5" aria-hidden />
+              Sharing
+            </button>
           </div>
-        </DialogHeader>
 
-        <div className="flex gap-1 border-b border-neutral-100 px-6 pt-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "rounded-b-none border-b-2 border-transparent",
-              tab === "details" && "border-blue-600 text-blue-700",
-            )}
-            onClick={() => setTab("details")}
-          >
-            <Info className="size-4" />
-            Details
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "rounded-b-none border-b-2 border-transparent",
-              tab === "sharing" && "border-blue-600 text-blue-700",
-            )}
-            onClick={() => setTab("sharing")}
-          >
-            <Link2 className="size-4" />
-            Sharing
-          </Button>
-        </div>
-
-        <div className="max-h-[min(60vh,28rem)] overflow-y-auto px-6 py-5">
-          {!target ? null : tab === "details" ? (
-            <dl className="flex flex-col gap-4">
-              {target.kind === "file" ? (
-                <>
-                  <DetailRow label="Name" value={target.file.name} />
-                  <DetailRow label="Size" value={formatBytes(target.file.size_bytes)} />
-                  <DetailRow label="Type" value={target.file.mime_type ?? "Unknown"} />
-                  <DetailRow label="Modified" value={formatFileOpened(target.file.updated_at)} />
-                  <DetailRow label="Created" value={formatFileOpened(target.file.created_at)} />
-                  {target.file.mime_type?.startsWith("video/") ? (
-                    <>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                          Video
+          <div className="max-h-[min(52vh,28rem)] overflow-y-auto px-7 py-2">
+            {!target ? null : tab === "details" ? (
+              <dl className="flex flex-col">
+                {target.kind === "file" ? (
+                  <>
+                    <PropertyRow label="Name" value={target.file.name} />
+                    <PropertyRow label="Size" value={formatBytes(target.file.size_bytes)} />
+                    <PropertyRow label="Type" value={target.file.mime_type ?? "Unknown"} />
+                    <PropertyRow
+                      label="Modified"
+                      value={formatFileOpened(target.file.updated_at)}
+                    />
+                    <PropertyRow
+                      label="Created"
+                      value={formatFileOpened(target.file.created_at)}
+                    />
+                    {target.file.mime_type?.startsWith("video/") ? (
+                      <div className="mt-5 flex flex-col gap-3 border-t border-[#F3F4F6] pt-5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+                          Stream
                         </span>
-                        <Badge variant="secondary">
-                          {target.file.hls_ready
-                            ? "Ready to stream"
-                            : target.file.hls_encode_status === "reprocessing" ||
-                                target.file.hls_encode_status === "queued" ||
-                                target.file.hls_encode_status === "processing"
-                              ? "Rebuilding stream"
-                              : "Processing"}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-col gap-2 border-t border-neutral-100 pt-4">
-                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                          Playback stream
-                        </span>
-                        <p className="text-sm text-neutral-500">
-                          If audio and video freeze or drift apart, rebuild the streaming package.
-                        </p>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "w-fit border-0 font-medium",
+                              target.file.hls_ready
+                                ? "bg-[#ECFDF5] text-[#059669]"
+                                : "bg-[#F3F4F6] text-[#4B5563]",
+                            )}
+                          >
+                            {streamStatusLabel(target.file)}
+                          </Badge>
+                          <p className="text-xs leading-relaxed text-[#6B7280]">
+                            If playback freezes or audio drifts, rebuild the stream package.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2 border-[#E5E7EB] bg-white"
+                              disabled={!canReprocessHls || reprocessingHls || reprocessingAllHls}
+                              onClick={() => void handleReprocessHls()}
+                            >
+                              <RefreshCw
+                                className={cn("size-3.5", reprocessingHls && "animate-spin")}
+                                aria-hidden
+                              />
+                              {reprocessingHls ? "Starting rebuild…" : "Rebuild this stream"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="gap-2 text-[#4B5563]"
+                              disabled={reprocessingAllHls || reprocessingHls}
+                              onClick={() => setRebuildAllConfirmOpen(true)}
+                            >
+                              <RefreshCw
+                                className={cn(
+                                  "size-3.5",
+                                  reprocessingAllHls && "animate-spin",
+                                )}
+                                aria-hidden
+                              />
+                              {reprocessingAllHls ? "Queueing all…" : "Rebuild all my videos"}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+                            Thumbnail
+                          </span>
                           <Button
                             type="button"
                             variant="outline"
-                            className="w-fit gap-2"
-                            disabled={!canReprocessHls || reprocessingHls || reprocessingAllHls}
-                            onClick={() => void handleReprocessHls()}
+                            size="sm"
+                            className="w-fit gap-2 border-[#E5E7EB] bg-white"
+                            onClick={() => setThumbnailEditorOpen(true)}
                           >
-                            <RefreshCw
-                              className={cn("size-4", reprocessingHls && "animate-spin")}
-                              aria-hidden
-                            />
-                            {reprocessingHls ? "Starting rebuild…" : "Rebuild this stream"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="w-fit gap-2 text-neutral-600"
-                            disabled={reprocessingAllHls || reprocessingHls}
-                            onClick={() => setRebuildAllConfirmOpen(true)}
-                          >
-                            <RefreshCw
-                              className={cn("size-4", reprocessingAllHls && "animate-spin")}
-                              aria-hidden
-                            />
-                            {reprocessingAllHls ? "Queueing all…" : "Rebuild all my videos"}
+                            <ImageIcon className="size-3.5" aria-hidden />
+                            {videoFile?.video_thumbnail_ready
+                              ? "Manage thumbnail"
+                              : "Manage thumbnail"}
                           </Button>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-2 border-t border-neutral-100 pt-4">
-                        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                          Thumbnail
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-fit gap-2"
-                          onClick={() => setThumbnailEditorOpen(true)}
-                        >
-                          <ImageIcon className="size-4" aria-hidden />
-                          {videoFile?.video_thumbnail_ready ? "Thumbnail" : "Manage thumbnail"}
-                        </Button>
-                        {!videoFile?.video_thumbnail_ready ? (
-                          <p className="text-sm text-neutral-500">
-                            {videoFile?.video_thumbnail_status === "failed"
-                              ? "Thumbnail generation failed — open to regenerate."
-                              : "Poster frames generate while the upload is processing."}
-                          </p>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <DetailRow label="Name" value={target.folder.name} />
-                  <DetailRow label="Modified" value={formatFileOpened(target.folder.updated_at)} />
-                  <DetailRow label="Created" value={formatFileOpened(target.folder.created_at)} />
-                  <DetailRow label="Kind" value="Folder" />
-                </>
-              )}
-            </dl>
-          ) : (
-            <ShareLinksPanel target={toShareTarget(target)} onChanged={onShareChanged} />
-          )}
-        </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <PropertyRow label="Name" value={target.folder.name} />
+                    <PropertyRow
+                      label="Modified"
+                      value={formatFileOpened(target.folder.updated_at)}
+                    />
+                    <PropertyRow
+                      label="Created"
+                      value={formatFileOpened(target.folder.created_at)}
+                    />
+                    <PropertyRow label="Kind" value="Folder" />
+                  </>
+                )}
+              </dl>
+            ) : (
+              <div className="py-3">
+                <ShareLinksPanel target={toShareTarget(target)} onChanged={onShareChanged} />
+              </div>
+            )}
+          </div>
 
-        <div className="flex justify-end border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
-          <Button type="button" onClick={() => handleOpenChange(false)}>
-            Close
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className="flex justify-end border-t border-[#F3F4F6] bg-[#F9FAFB] px-7 py-4">
+            <Button
+              type="button"
+              className="bg-[#2563EB] px-5 font-semibold hover:bg-[#1D4ED8]"
+              onClick={() => handleOpenChange(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-    <VideoThumbnailEditorDialog
-      file={videoFile}
-      open={thumbnailEditorOpen}
-      onOpenChange={setThumbnailEditorOpen}
-      onSelected={onThumbnailSelected}
-      onFileUpdated={onThumbnailUpdated}
-    />
-    <ConfirmRebuildAllVideosDialog
-      open={rebuildAllConfirmOpen}
-      onOpenChange={setRebuildAllConfirmOpen}
-      confirming={reprocessingAllHls}
-      onConfirm={() => void handleConfirmRebuildAll()}
-    />
+      <VideoThumbnailEditorDialog
+        file={videoFile}
+        open={thumbnailEditorOpen}
+        onOpenChange={setThumbnailEditorOpen}
+        onSelected={onThumbnailSelected}
+        onFileUpdated={onThumbnailUpdated}
+      />
+      <ConfirmRebuildAllVideosDialog
+        open={rebuildAllConfirmOpen}
+        onOpenChange={setRebuildAllConfirmOpen}
+        confirming={reprocessingAllHls}
+        onConfirm={() => void handleConfirmRebuildAll()}
+      />
     </>
   );
 }
