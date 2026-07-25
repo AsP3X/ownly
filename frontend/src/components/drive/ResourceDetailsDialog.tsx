@@ -13,6 +13,7 @@ import {
   Link2,
   Music,
   RefreshCw,
+  Star,
   X,
 } from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
@@ -52,6 +53,10 @@ type ResourceDetailsDialogProps = {
   target: DetailsTarget | null;
   initialTab?: "details" | "sharing";
   onShareChanged?: () => void;
+  /** Human: Whether the current file is in the user's favourites set. */
+  isFavourited?: boolean;
+  /** Human: Toggle favourite from Details only (not the context menu). */
+  onToggleFavourite?: (fileId: string) => void;
   /** Human: Notifies parent when the user picks a different video poster frame. */
   onThumbnailSelected?: (file: FileItem, selectedIndex: number) => void;
   /** Human: Notifies parent when thumbnail job status changes (e.g. after regenerate). */
@@ -149,6 +154,8 @@ export function ResourceDetailsDialog({
   target,
   initialTab = "details",
   onShareChanged,
+  isFavourited = false,
+  onToggleFavourite,
   onThumbnailSelected,
   onThumbnailUpdated,
   onHlsReprocessQueued,
@@ -328,6 +335,31 @@ export function ResourceDetailsDialog({
                       label="Created"
                       value={formatFileOpened(target.file.created_at)}
                     />
+                    {onToggleFavourite ? (
+                      <div className="flex items-center justify-between gap-4 border-b border-[#F3F4F6] py-3.5">
+                        <span className="shrink-0 text-xs font-medium text-[#6B7280]">
+                          Favourites
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 border-[#E5E7EB] bg-white"
+                          onClick={() => onToggleFavourite(target.file.id)}
+                        >
+                          <Star
+                            className={cn(
+                              "size-3.5",
+                              isFavourited
+                                ? "fill-amber-400 text-amber-500"
+                                : "text-[#6B7280]",
+                            )}
+                            aria-hidden
+                          />
+                          {isFavourited ? "Remove from favourites" : "Add to favourites"}
+                        </Button>
+                      </div>
+                    ) : null}
                     {target.file.mime_type?.startsWith("video/") ? (
                       <div className="mt-5 flex flex-col gap-3 border-t border-[#F3F4F6] pt-5">
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">

@@ -28,7 +28,6 @@ type DriveContextMenuProps = {
   children: ReactNode;
   files: FileItem[];
   folders: FolderItem[];
-  favouriteIds: Set<string>;
   activeNav: NavItemId;
   selectedFileIds?: Set<string>;
   selectedFolderIds?: Set<string>;
@@ -45,7 +44,6 @@ type DriveContextMenuProps = {
   onDeleteFolder: (folderId: string) => void;
   /** Human: Delete every checked file when the context menu targets one of them. */
   onBulkDelete?: () => void;
-  onToggleFavourite: (fileId: string) => void;
   onUpload: () => void;
   onCreateFolder: () => void;
   onRefresh: () => void;
@@ -56,8 +54,6 @@ type DriveContextMenuProps = {
   onDetailsFolder: (folder: FolderItem) => void;
   /** Human: Type-specific edit (video thumbnail, text/spreadsheet editor). */
   onEditFile?: (file: FileItem) => void;
-  /** Human: Queue HLS stream rebuild for a video with A/V freezes or desync. */
-  onReprocessHls?: (file: FileItem) => void;
   onCopyToFolder?: () => void;
   onMoveToFolder?: () => void;
   /** Human: Opens the folder picker to move the right-clicked folder (or bulk folder selection). */
@@ -212,7 +208,6 @@ export function DriveContextMenu({
   children,
   files,
   folders,
-  favouriteIds,
   activeNav,
   selectedFileIds,
   selectedFolderIds,
@@ -228,7 +223,6 @@ export function DriveContextMenu({
   onDelete,
   onDeleteFolder,
   onBulkDelete,
-  onToggleFavourite,
   onUpload,
   onCreateFolder,
   onRefresh,
@@ -238,7 +232,6 @@ export function DriveContextMenu({
   onDetailsFile,
   onDetailsFolder,
   onEditFile,
-  onReprocessHls,
   onCopyToFolder,
   onMoveToFolder,
   onMoveFolderToFolder,
@@ -271,9 +264,7 @@ export function DriveContextMenu({
   );
   const targetFile = targetFileId ? fileById.get(targetFileId) : undefined;
   const targetFolder = targetFolderId ? folderById.get(targetFolderId) : undefined;
-  const targetFavourited = targetFile ? favouriteIds.has(targetFile.id) : false;
   const targetProcessing = targetFile ? isFileProcessing(targetFile) : false;
-  const targetIsVideo = targetFile?.mime_type?.startsWith("video/") ?? false;
   const multiSelectedFileCount = selectedFileIds?.size ?? 0;
   const multiSelectedFolderCount = selectedFolderIds?.size ?? 0;
   const multiSelectedCount = multiSelectedFileCount + multiSelectedFolderCount;
@@ -547,14 +538,7 @@ export function DriveContextMenu({
               Details
             </ContextMenuItem>
 
-            <ContextMenuSeparator />
-
-            <ContextMenuItem
-              disabled={targetProcessing}
-              onClick={() => onToggleFavourite(targetFile.id)}
-            >
-              {targetFavourited ? "Remove from favourites" : "Add to favourites"}
-            </ContextMenuItem>
+            {/* Human: Favourites + stream rebuild live only in the Details overlay, not the menu. */}
 
             <ContextMenuSub>
               <ContextMenuSubTrigger disabled={targetProcessing}>Share…</ContextMenuSubTrigger>
@@ -567,24 +551,6 @@ export function DriveContextMenu({
                 </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
-
-            {targetIsVideo && onReprocessHls ? (
-              <ContextMenuItem
-                disabled={
-                  targetProcessing ||
-                  (!targetFile.hls_ready &&
-                    targetFile.hls_encode_status !== "failed" &&
-                    targetFile.hls_encode_status !== "ready")
-                }
-                onClick={() => {
-                  onReprocessHls(targetFile);
-                  setOpen(false);
-                }}
-              >
-                <RefreshCw />
-                Rebuild stream
-              </ContextMenuItem>
-            ) : null}
 
             <ContextMenuSeparator />
             <ContextMenuItem

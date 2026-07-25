@@ -15,7 +15,6 @@ import {
   FILES_PAGE_SIZE,
   getErrorMessage,
   copyFile,
-  reprocessFileHls,
   renameFile,
   renameFolder,
   listFiles,
@@ -77,7 +76,6 @@ import {
   type ExplorerFileListContext,
 } from "@/lib/explorer-file-list-updates";
 import { isFileProcessing, shouldPollFileThumbnail } from "@/lib/file-processing";
-import { toastError, toastSuccess } from "@/lib/toast";
 import {
   resetExplorerThumbnailWarmScope,
   touchCachedExplorerThumbnailsForFiles,
@@ -1358,17 +1356,6 @@ export default function DrivePage() {
     }
   }
 
-  // Human: Context-menu rebuild for a single video stream.
-  // Agent: POST reprocessFileHls; MERGES file row via handleHlsReprocessQueued.
-  async function handleReprocessHlsFromMenu(file: FileItem) {
-    try {
-      const { file: updated } = await reprocessFileHls(file.id);
-      toastSuccess("Video stream rebuild started — play again when processing finishes.");
-      handleHlsReprocessQueued(updated);
-    } catch (error) {
-      toastError(getErrorMessage(error));
-    }
-  }
 
   // Human: Open the public link dialog for one file.
   // Agent: SETS shareTarget + shareDialogOpen; ShareDialog CALLS POST /shares.
@@ -1713,14 +1700,12 @@ export default function DrivePage() {
     <DriveContextMenu
       files={files}
       folders={visibleFolders}
-      favouriteIds={favouriteIds}
       activeNav={activeNav}
       selectedFileIds={selectedFileIds}
       selectedFolderIds={selectedFolderIds}
       onDownload={handleDownload}
       onDownloadFolder={handleDownloadFolder}
       onPreviewVideo={handlePreviewVideo}
-      onReprocessHls={handleReprocessHlsFromMenu}
       onPreviewImage={handlePreviewImage}
       onPreviewPdf={handlePreviewPdf}
       onPreviewEpub={handlePreviewEpub}
@@ -1730,7 +1715,6 @@ export default function DrivePage() {
       onDelete={requestDeleteFile}
       onDeleteFolder={requestDeleteFolder}
       onBulkDelete={handleBulkDeleteRequest}
-      onToggleFavourite={handleToggleFavourite}
       onUpload={() => setUploadDialogOpen(true)}
       onCreateFolder={() => setCreateFolderDialogOpen(true)}
       onRefresh={() =>
@@ -1926,6 +1910,12 @@ export default function DrivePage() {
           target={detailsTarget}
           initialTab={detailsInitialTab}
           onShareChanged={handleShareChanged}
+          isFavourited={
+            detailsTarget?.kind === "file"
+              ? favouriteIds.has(detailsTarget.file.id)
+              : false
+          }
+          onToggleFavourite={handleToggleFavourite}
           onThumbnailSelected={handleVideoThumbnailSelected}
           onThumbnailUpdated={handleVideoThumbnailUpdated}
           onHlsReprocessQueued={handleHlsReprocessQueued}
@@ -1989,10 +1979,8 @@ export default function DrivePage() {
             setMobileActionsOpen(open);
             if (!open) setMobileActionTarget(null);
           }}
-          favouriteIds={favouriteIds}
           onDownload={handleDownload}
           onDownloadFolder={handleDownloadFolder}
-          onToggleFavourite={handleToggleFavourite}
           onDelete={requestDeleteFile}
           onDeleteFolder={requestDeleteFolder}
           onBulkDelete={handleBulkDeleteRequest}

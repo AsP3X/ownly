@@ -11,7 +11,6 @@ import {
   ExternalLink,
   FolderInput,
   Link2,
-  Star,
   Trash2,
 } from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
@@ -41,10 +40,8 @@ type MobileFileActionsSheetProps = {
   target: MobileActionTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  favouriteIds: Set<string>;
   onDownload: (file: FileItem) => void;
   onDownloadFolder: (folder: FolderItem) => void;
-  onToggleFavourite: (fileId: string) => void;
   onDelete: (fileId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   /** Human: Delete every checked file when the sheet targets one of them. */
@@ -123,10 +120,8 @@ export function MobileFileActionsSheet({
   target,
   open,
   onOpenChange,
-  favouriteIds,
   onDownload,
   onDownloadFolder,
-  onToggleFavourite,
   onDelete,
   onDeleteFolder,
   onBulkDelete,
@@ -150,7 +145,6 @@ export function MobileFileActionsSheet({
   const [openWithExpanded, setOpenWithExpanded] = useState(false);
   const file = target?.kind === "file" ? target.file : undefined;
   const folder = target?.kind === "folder" ? target.folder : undefined;
-  const favourited = file ? favouriteIds.has(file.id) : false;
   const processing = file ? isFileProcessing(file) : false;
   const isVideo = file?.mime_type?.startsWith("video/") ?? false;
   const bulkSelectionOnTargetFile =
@@ -346,15 +340,7 @@ export function MobileFileActionsSheet({
               />
               <ActionDivider />
 
-              <ActionRow
-                icon={
-                  <Star className={cn("size-4", favourited && "fill-current text-amber-500")} />
-                }
-                label={favourited ? "Remove from favourites" : "Add to favourites"}
-                disabled={processing}
-                onClick={() => closeThen(() => onToggleFavourite(file.id))}
-              />
-              <ActionDivider />
+              {/* Human: Favourites live only in the Details overlay, not this sheet. */}
 
               <ActionRow
                 icon={<Link2 className="size-4" />}
