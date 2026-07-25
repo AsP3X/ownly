@@ -79,6 +79,22 @@ export function isFileProcessing(file: FileItem): boolean {
   return isVideoProcessing(file) || isAudioProcessing(file);
 }
 
+// Human: Whether this video is a user-triggered stream rebuild (vs first-time ingest).
+// Agent: READS hls_encode_status === "reprocessing" set by reprocess_hls / mark_processing.
+export function isVideoRebuilding(file: FileItem): boolean {
+  return file.hls_encode_status === "reprocessing";
+}
+
+// Human: Overall 0–100 job completion for circular progress on explorer thumbnails.
+// Agent: READS conversion_progress while isFileProcessing; CAPS at 99 until ready; 0 while queued.
+export function fileProcessingPercent(file: FileItem): number {
+  if (!isFileProcessing(file)) {
+    return 100;
+  }
+  const raw = Number.isFinite(file.conversion_progress) ? file.conversion_progress : 0;
+  return Math.min(99, Math.max(0, Math.round(raw)));
+}
+
 // Human: Short label for the processing badge in file rows and grid tiles.
 // Agent: READS conversion_progress + encode status; RETURNS video or audio status text.
 export function fileProcessingLabel(file: FileItem): string {
@@ -106,28 +122,23 @@ export function fileProcessingLabel(file: FileItem): string {
 
   // Human: User-triggered stream rebuild — clearer than generic "Processing file".
   // Agent: reprocessing status set by reprocess_hls / mark_processing when segments already exist.
-  const isRebuilding =
-    file.hls_encode_status === "reprocessing" ||
-    (file.hls_encode_status === "processing" && file.conversion_progress > 0 && !file.hls_ready);
-
-  if (file.hls_encode_status === "reprocessing") {
-    const percent = Math.min(99, Math.max(0, file.conversion_progress));
-    return percent > 0 ? `Rebuilding stream ${percent}%` : "Rebuilding stream…";
+  if (isVideoRebuilding(file)) {
+    // Human: Show overall job % so rebuild badges match the thumbnail progress ring.
+    // Agent: USES conversion_progress 0–99; EMPTY ellipsis only while still queued at 0.
+    const overallPercent = fileProcessingPercent(file);
+    return overallPercent > 0
+      ? `Rebuilding stream ${overallPercent}%`
+      : "Rebuilding stream…";
   }
 
   if (file.hls_encode_status === "queued") {
-    return isRebuilding ? "Rebuilding stream…" : "Processing file";
+    return "Processing file";
   }
   if (file.conversion_progress >= 50) {
     const storagePercent = Math.min(
       99,
       Math.round(((file.conversion_progress - 50) / 50) * 100),
     );
-    if (file.hls_encode_status === "reprocessing") {
-      return storagePercent > 0
-        ? `Rebuilding stream ${storagePercent}%`
-        : "Rebuilding stream…";
-    }
     return storagePercent > 0 ? `Moving to storage ${storagePercent}%` : "Moving to storage";
   }
   if (file.conversion_progress >= 40) {
@@ -139,12 +150,9 @@ export function fileProcessingLabel(file: FileItem): string {
   }
   if (file.conversion_progress > 0) {
     const encodePercent = Math.min(99, Math.round((file.conversion_progress / 40) * 100));
-    if (file.hls_encode_status === "reprocessing") {
-      return encodePercent > 0 ? `Rebuilding stream ${encodePercent}%` : "Rebuilding stream…";
-    }
     return encodePercent > 0 ? `Processing file ${encodePercent}%` : "Processing file";
   }
-  return file.hls_encode_status === "reprocessing" ? "Rebuilding stream…" : "Processing file";
+  return "Processing file";
 }
 
 // Human: Shorter badge copy for narrow grid tiles so labels do not bleed into neighbors.

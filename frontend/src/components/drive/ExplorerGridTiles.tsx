@@ -21,6 +21,7 @@ import { ExplorerDocumentThumbnail } from "@/components/drive/ExplorerDocumentTh
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
+import { FileProcessingProgressOverlay } from "@/components/drive/FileProcessingProgressOverlay";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
 import { splitFilenameExtension } from "@/lib/explorer-grid-filename";
@@ -518,6 +519,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           ) : (
             <ExplorerFileIcon mimeType={file.mime_type} />
           )}
+          {processing ? <FileProcessingProgressOverlay file={file} /> : null}
         </ExplorerGridPreviewSlot>
         <ExplorerGridFileName name={file.name} selected={isSelected} />
         <span
