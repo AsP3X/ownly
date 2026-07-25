@@ -356,6 +356,11 @@ pub async fn run_hls_encode_job(
     // Human: Prefer upload spool; fall back to remuxing stored HLS when reprocessing ready videos.
     // Agent: READS spool path or materialize_hls_mp4_for_ffmpeg; HOLDS Materialized TempDir for job.
     let prior_segment_count = load_prior_segment_count(&pool, &file_id).await;
+    // Human: Reprocess has no spool — source download can take a while before ffmpeg; show early %.
+    // Agent: tmp_video=None means remux/master path; SET conversion_progress=1 so grid/tray leave 0%.
+    if job.tmp_video.is_none() {
+        set_progress(&pool, &file_id, 1).await;
+    }
     let source = resolve_encode_video_source(
         &pool,
         storage.clone(),

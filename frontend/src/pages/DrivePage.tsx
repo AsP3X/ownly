@@ -65,9 +65,12 @@ import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import {
-  getUploadManagedIngestFileIds,
   subscribeUploadFileComplete,
+  subscribeUploadFileIngestProgress,
   subscribeUploadFileRegistered,
+  clearCancelledHlsReprocessItems,
+  trackActiveHlsEncodeJobs,
+  trackHlsReprocessFiles,
 } from "@/lib/upload-manager";
 import {
   mergeExplorerFileRow,
@@ -693,6 +696,19 @@ export default function DrivePage() {
     });
   }, [applyExplorerUploadFile, refreshDashboard]);
 
+  // Human: Live conversion % from the transfer tray poll into explorer tiles (rebuild + upload ingest).
+  // Agent: SUBSCRIBES subscribeUploadFileIngestProgress; PATCHES files/details rows by id.
+  useEffect(() => {
+    return subscribeUploadFileIngestProgress((file) => {
+      setFiles((prev) => patchExplorerFileRows(prev, [file]));
+      setDetailsTarget((current) =>
+        current?.kind === "file" && current.file.id === file.id
+          ? { kind: "file", file: { ...current.file, ...file } }
+          : current,
+      );
+    });
+  }, []);
+
   // Human: Poll ingest + pending thumbnail rows — patch local state so previews appear without refresh.
   // Agent: GET /files/:id every 3s; SKIPS ingest-only ids the upload manager already polls; WARMS LRU on ready.
   const BACKGROUND_FILE_POLL_MS = 3000;
@@ -711,12 +727,12 @@ export default function DrivePage() {
 
     const pollBackgroundFileRows = async () => {
       try {
-        const uploadManagedIds = getUploadManagedIngestFileIds();
+        // Human: Always batch-poll processing rows for live grid %; tray also polls managed ids separately.
+        // Agent: SKIPS only when the row no longer needs thumbnail or ingest polling.
         const idsToPoll = backgroundPollFileIds.filter((fileId) => {
           const file = filesRef.current.find((row) => row.id === fileId);
           if (!file) return false;
-          if (shouldPollFileThumbnail(file)) return true;
-          return isFileProcessing(file) && !uploadManagedIds.has(fileId);
+          return shouldPollFileThumbnail(file) || isFileProcessing(file);
         });
         if (idsToPoll.length === 0) return;
 
@@ -1324,7 +1340,7 @@ export default function DrivePage() {
   }
 
   // Human: Sync HLS reprocess status into listings so the grid shows processing again.
-  // Agent: MERGES hls_ready + encode fields; CLOSES preview if this file was open.
+  // Agent: MERGES hls_ready + encode fields; TRACKS transfer tray; CLOSES preview if this file was open.
   function handleHlsReprocessQueued(file: FileItem) {
     const patch = (item: FileItem): FileItem =>
       item.id === file.id
@@ -1343,16 +1359,38 @@ export default function DrivePage() {
         ? { kind: "file", file: patch(current.file) }
         : current,
     );
+    // Human: Show rebuild progress in the floating transfer panel while the job runs.
+    // Agent: CALLS trackHlsReprocessFiles so waitForFileIngestCompletion updates tray + grid.
+    trackHlsReprocessFiles([file]);
   }
 
-  // Human: After bulk rebuild, refresh the explorer so every video badge updates.
-  // Agent: CALLS refresh silently for current folder; CLOSES open video preview.
+  // Human: After bulk rebuild, refresh the explorer and open the transfer tray for each job.
+  // Agent: CALLS refresh silently; TRACKS active hls_encode jobs via trackActiveHlsEncodeJobs.
   async function handleHlsReprocessAllQueued() {
     setPreviewVideo(null);
     try {
       await refresh(undefined, { silent: true });
     } catch {
       // Queue toast already shown; silent refresh failure is non-fatal.
+    }
+    try {
+      await trackActiveHlsEncodeJobs();
+    } catch {
+      // Tray recovery is best-effort; grid badges still update from listing poll.
+    }
+  }
+
+  // Human: After cancelling unfinished rebuilds, refresh explorer so tiles show ready again.
+  // Agent: Tray already updated by cancelAllPendingHlsReprocess; silent refresh of current folder.
+  async function handleHlsReprocessAllCancelled(_result: {
+    cancelled_files: number;
+    cancelled_jobs: number;
+  }) {
+    clearCancelledHlsReprocessItems();
+    try {
+      await refresh(undefined, { silent: true });
+    } catch {
+      // Listing poll will eventually clear reprocessing badges.
     }
   }
 
@@ -1920,6 +1958,7 @@ export default function DrivePage() {
           onThumbnailUpdated={handleVideoThumbnailUpdated}
           onHlsReprocessQueued={handleHlsReprocessQueued}
           onHlsReprocessAllQueued={handleHlsReprocessAllQueued}
+          onHlsReprocessAllCancelled={handleHlsReprocessAllCancelled}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}

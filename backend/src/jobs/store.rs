@@ -281,6 +281,91 @@ pub async fn cancel_hls_encode_for_file(
     Ok(result.rows_affected() > 0)
 }
 
+/// Human: Cancel a stream rebuild and restore playback from the prior HLS package when possible.
+// Agent: CANCELS hls_encode job; RESTORES hls_ready when segment_count>0; ELSE marks cancelled.
+pub async fn cancel_hls_reprocess_for_file(
+    pool: &PgPool,
+    user_id: &str,
+    file_id: &str,
+) -> Result<bool, AppError> {
+    cancel_job_by_resource(pool, user_id, JobKind::HlsEncode, "file", file_id).await?;
+
+    // Human: Prefer restoring the previous package so cancel does not leave the video unplayable.
+    // Agent: ONLY when reprocessing and segments still exist; otherwise fall through to cancelled.
+    let restored = sqlx::query(
+        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', hls_encode_error = NULL, \
+         conversion_progress = 100 \
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL \
+           AND hls_encode_status = 'reprocessing' AND COALESCE(segment_count, 0) > 0",
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    if restored.rows_affected() > 0 {
+        return Ok(true);
+    }
+
+    let cancelled = sqlx::query(
+        "UPDATE files SET hls_encode_status = 'cancelled', hls_encode_error = NULL, conversion_progress = 0 \
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND NOT hls_ready \
+           AND hls_encode_status = 'reprocessing'",
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(cancelled.rows_affected() > 0)
+}
+
+/// Human: Cancel every unfinished stream rebuild for one user (queued or running).
+// Agent: CANCELS Rebuild stream jobs + reprocessing file rows; RESTORES hls_ready when segments exist.
+pub async fn cancel_all_hls_reprocess_for_user(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<(u32, u32), AppError> {
+    // Human: Cancel job rows first so workers exit without completing a partial rebuild.
+    // Agent: MATCHES label prefix from reprocess_hls / reprocess_all_hls job titles.
+    let jobs_result = sqlx::query(
+        "UPDATE background_jobs SET \
+            status = 'cancelled', locked_by = NULL, locked_at = NULL, updated_at = now() \
+         WHERE user_id = $1 AND kind = 'hls_encode' AND status IN ('queued', 'running') \
+           AND (label LIKE 'Rebuild stream%' OR resource_id IN ( \
+             SELECT id FROM files WHERE user_id = $1 AND deleted_at IS NULL \
+               AND hls_encode_status = 'reprocessing' \
+           ))",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    let restored = sqlx::query(
+        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', hls_encode_error = NULL, \
+         conversion_progress = 100 \
+         WHERE user_id = $1 AND deleted_at IS NULL \
+           AND hls_encode_status = 'reprocessing' AND COALESCE(segment_count, 0) > 0",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    let cancelled_without_package = sqlx::query(
+        "UPDATE files SET hls_encode_status = 'cancelled', hls_encode_error = NULL, conversion_progress = 0 \
+         WHERE user_id = $1 AND deleted_at IS NULL AND NOT hls_ready \
+           AND hls_encode_status = 'reprocessing'",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    let cancelled_files =
+        (restored.rows_affected() + cancelled_without_package.rows_affected()) as u32;
+    let cancelled_jobs = jobs_result.rows_affected() as u32;
+    Ok((cancelled_files, cancelled_jobs))
+}
+
 /// Human: Cancel an in-flight video thumbnail job and mark the row so UI polling can stop.
 // Agent: WRITES background_jobs cancelled; WRITES files.video_thumbnail_status=cancelled.
 pub async fn cancel_video_thumbnail_for_file(

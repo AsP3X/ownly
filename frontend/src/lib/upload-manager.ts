@@ -10,6 +10,10 @@ import {
 
   ApiError,
 
+  cancelAllHlsReprocess,
+
+  cancelHlsReprocess,
+
   cancelVideoIngest,
 
   deleteFile,
@@ -92,6 +96,9 @@ export type UploadItemSnapshot = {
 
   /** User paused this row — pump skips claiming it until resumed. */
   paused?: boolean;
+
+  /** True when this row is an HLS stream rebuild (not first-time upload ingest). */
+  isReprocess?: boolean;
 
   error?: string;
 
@@ -196,6 +203,9 @@ type InternalUploadItem = {
 
   paused?: boolean;
 
+  /** True when this row is an HLS stream rebuild (not first-time upload ingest). */
+  isReprocess?: boolean;
+
   error?: string;
 
 };
@@ -225,6 +235,8 @@ const batchListeners = new Set<UploadBatchListener>();
 const fileListeners = new Set<UploadFileListener>();
 
 const fileRegisteredListeners = new Set<UploadFileRegisteredListener>();
+
+const fileIngestProgressListeners = new Set<UploadFileRegisteredListener>();
 
 const resumingItemIds = new Set<string>();
 
@@ -288,6 +300,8 @@ function toItemSnapshot(item: InternalUploadItem): UploadItemSnapshot {
     partTransport: item.partTransport,
 
     paused: item.paused,
+
+    isReprocess: item.isReprocess,
 
     error: item.error,
 
@@ -386,10 +400,16 @@ function notifyFileUploaded(fileId: string) {
 
 
 
+// Human: Push intermediate conversion polls to the drive grid while the tray owns the loop.
+// Agent: CALLS fileIngestProgressListeners with each fetchFile row.
+function notifyFileIngestProgress(file: FileItem) {
+  for (const listener of fileIngestProgressListeners) {
+    listener(file);
+  }
+}
+
 // Human: Notify drive views as soon as the upload API returns a file row (before ingest finishes).
-
 // Agent: CALLS fileRegisteredListeners; USED by DrivePage to show processing badges on new rows.
-
 function notifyFileRegistered(file: FileItem) {
 
   for (const listener of fileRegisteredListeners) {
@@ -702,6 +722,9 @@ async function resumeUploadItemProcessing(item: InternalUploadItem) {
       () =>
         abortedUploadItemIds.has(uploadId) ||
         !batch?.items.some((entry) => entry.id === uploadId),
+      (polled) => {
+        notifyFileIngestProgress(polled);
+      },
     );
 
 
@@ -790,8 +813,17 @@ async function cancelServerVideoIngest(fileId: string) {
   });
 }
 
+// Human: Cancel a stream rebuild without deleting the video — restores prior HLS package.
+// Agent: POST cancel-reprocess; IGNORE races when the job already finished.
+async function cancelServerHlsReprocess(fileId: string) {
+  await cancelHlsReprocess(fileId).catch(() => {
+    // Human: Job may already be done or cancelled from another tab.
+  });
+}
+
 // Human: Best-effort removal of a partial server file row after the user cancels an upload.
 // Agent: CALLS cancelVideoIngest+deleteFile for video; CALLS deleteFile for other mime types.
+// Agent: Reprocess rows must NOT delete — use cancelServerHlsReprocess instead.
 function voidCleanupPartialServerFile(fileId: string, mimeType: string) {
   if (mimeType.startsWith("video/")) {
     void cancelServerVideoIngest(fileId);
@@ -855,27 +887,26 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
     folderId: null,
 
-    items: active.map((job) => ({
-
-      id: createClientId(),
-
-      fileName: job.label,
-
-      fileSize: 0,
-
-      mimeType: "video/",
-
-      status: "uploading" as const,
-
-      progress: mapConversionProgressToOverallPercent(job.progress),
-
-      phase: "processing" as const,
-
-      uploadedFileId: job.resource_id ?? undefined,
-
-      indeterminate: false,
-
-    })),
+    items: active.map((job) => {
+      const isReprocess = job.label.startsWith("Rebuild stream");
+      const rawProgress = Math.min(99, Math.max(0, job.progress));
+      return {
+        id: createClientId(),
+        fileName: isReprocess
+          ? job.label.replace(/^Rebuild stream —\s*/, "") || job.label
+          : job.label,
+        fileSize: 0,
+        mimeType: "video/",
+        status: "uploading" as const,
+        progress: isReprocess
+          ? rawProgress
+          : mapConversionProgressToOverallPercent(rawProgress),
+        phase: "processing" as const,
+        uploadedFileId: job.resource_id ?? undefined,
+        indeterminate: rawProgress <= 0,
+        isReprocess,
+      };
+    }),
 
   };
 
@@ -1386,7 +1417,125 @@ export function subscribeUploadFileRegistered(listener: UploadFileRegisteredList
 
 }
 
+// Human: Subscribe to intermediate ingest polls so the drive grid can show live conversion %.
+// Agent: CALLS listener with each fetchFile row from waitForFileIngestCompletion; USED by DrivePage.
+export function subscribeUploadFileIngestProgress(listener: UploadFileRegisteredListener) {
+  fileIngestProgressListeners.add(listener);
+  return () => {
+    fileIngestProgressListeners.delete(listener);
+  };
+}
 
+// Human: Ensure a transfer-panel batch exists so rebuild rows can appear without a new upload.
+// Agent: CREATES uploading batch when missing or complete; RETURNS active InternalUploadBatch.
+function ensureUploadingBatch(): InternalUploadBatch {
+  if (batch && batch.status === "uploading") {
+    return batch;
+  }
+  batch = {
+    id: createClientId(),
+    status: "uploading",
+    folderId: null,
+    items: batch?.status === "complete" ? [...batch.items] : [],
+  };
+  return batch;
+}
+
+// Human: Add HLS stream rebuild rows to the transfer tray and start ingest polling.
+// Agent: DEDUPES by uploadedFileId; WRITES isReprocess items; CALLS pumpProcessingQueue.
+export function trackHlsReprocessFiles(
+  files: Array<
+    Pick<FileItem, "id" | "name" | "size_bytes" | "mime_type" | "conversion_progress">
+  >,
+): void {
+  if (files.length === 0) return;
+
+  const active = ensureUploadingBatch();
+  let added = 0;
+
+  for (const file of files) {
+    const alreadyTracked = active.items.some(
+      (item) =>
+        item.uploadedFileId === file.id &&
+        (item.status === "uploading" || item.status === "queued"),
+    );
+    if (alreadyTracked) continue;
+
+    const rawProgress = Math.min(99, Math.max(0, file.conversion_progress ?? 0));
+    active.items.push({
+      id: createClientId(),
+      fileName: file.name,
+      fileSize: file.size_bytes,
+      mimeType: file.mime_type ?? "video/",
+      status: "uploading",
+      progress: rawProgress,
+      phase: "processing",
+      uploadedFileId: file.id,
+      indeterminate: rawProgress <= 0,
+      isReprocess: true,
+    });
+    added += 1;
+  }
+
+  if (added === 0) return;
+
+  active.status = "uploading";
+  emitBatch();
+  pumpProcessingQueue();
+}
+
+// Human: Pull active HLS encode jobs into the transfer tray (rebuild-all + page recovery).
+// Agent: GET /jobs; TRACKS missing resource_ids via trackHlsReprocessFiles-style rows.
+export async function trackActiveHlsEncodeJobs(): Promise<number> {
+  const { jobs } = await listBackgroundJobs();
+  const active = jobs.filter(
+    (job) =>
+      job.kind === "hls_encode" &&
+      (job.status === "queued" || job.status === "running") &&
+      job.resource_id,
+  );
+  if (active.length === 0) return 0;
+
+  const batchActive = ensureUploadingBatch();
+  let added = 0;
+
+  for (const job of active) {
+    const fileId = job.resource_id!;
+    const alreadyTracked = batchActive.items.some(
+      (item) =>
+        item.uploadedFileId === fileId &&
+        (item.status === "uploading" || item.status === "queued"),
+    );
+    if (alreadyTracked) continue;
+
+    const isReprocess = job.label.startsWith("Rebuild stream");
+    const rawProgress = Math.min(99, Math.max(0, job.progress));
+    batchActive.items.push({
+      id: createClientId(),
+      fileName: isReprocess
+        ? job.label.replace(/^Rebuild stream —\s*/, "") || job.label
+        : job.label,
+      fileSize: 0,
+      mimeType: "video/",
+      status: "uploading",
+      progress: isReprocess
+        ? rawProgress
+        : mapConversionProgressToOverallPercent(rawProgress),
+      phase: "processing",
+      uploadedFileId: fileId,
+      indeterminate: rawProgress <= 0,
+      isReprocess,
+    });
+    added += 1;
+  }
+
+  if (added === 0) return 0;
+
+  batchActive.status = "uploading";
+  emitBatch();
+  pumpProcessingQueue();
+  return added;
+}
 
 export type UploadBatchEntry = {
   file: File;
@@ -1657,6 +1806,7 @@ export function getUploadBatchOverallPercent(items: UploadItemSnapshot[]): numbe
 // Human: Cancel one queued or in-flight file — abort transfer, delete partial server row, remove from tray.
 
 // Agent: QUEUED → drop row; UPLOADING → abortUploadSession + voidCleanupPartialServerFile; REMOVES item.
+// Agent: isReprocess rows cancel rebuild only (restore package) — never delete the file.
 
 export function cancelUploadItem(itemId: string) {
 
@@ -1672,7 +1822,30 @@ export function cancelUploadItem(itemId: string) {
 
   abortedUploadItemIds.add(itemId);
 
-
+  // Human: Stream rebuild cancel restores prior HLS — do not run first-time ingest delete path.
+  // Agent: CALLS cancelHlsReprocess; MARKS row cancelled in tray; KEEPS file id.
+  if (item.isReprocess) {
+    if (item.uploadedFileId) {
+      void cancelServerHlsReprocess(item.uploadedFileId);
+    }
+    updateItems((items) =>
+      items.map((entry) =>
+        entry.id === itemId
+          ? {
+              ...entry,
+              status: "cancelled" as const,
+              error: "Cancelled",
+              indeterminate: false,
+            }
+          : entry,
+      ),
+    );
+    releaseAllPipelineStages(itemId);
+    resumingItemIds.delete(itemId);
+    maybeCompleteBatch();
+    pumpProcessingQueue();
+    return;
+  }
 
   if (item.status === "uploading") {
 
@@ -1708,7 +1881,7 @@ export function cancelUploadItem(itemId: string) {
 
 // Human: Cancel every queued or in-flight row in the active batch.
 
-// Agent: CALLS cancelUploadItem for each non-terminal uploading/queued row.
+// Agent: BULK-cancels rebuild rows via cancelAllPendingHlsReprocess; per-row for normal uploads.
 
 export function cancelAllUploadItems() {
 
@@ -1716,20 +1889,88 @@ export function cancelAllUploadItems() {
 
 
 
-  const pendingIds = batch.items
+  const pending = batch.items.filter(
+    (entry) => entry.status === "queued" || entry.status === "uploading",
+  );
+  if (pending.length === 0) return;
 
-    .filter((entry) => entry.status === "queued" || entry.status === "uploading")
-
-    .map((entry) => entry.id);
-
-
-
-  for (const itemId of pendingIds) {
-
-    cancelUploadItem(itemId);
-
+  const hasReprocess = pending.some((entry) => entry.isReprocess);
+  if (hasReprocess) {
+    // Human: One API call stops every unfinished rebuild (including ones not yet in the tray).
+    // Agent: AWAITS cancelAllPendingHlsReprocess; THEN cancels remaining non-rebuild rows.
+    void cancelAllPendingHlsReprocess().finally(() => {
+      if (!batch) return;
+      const remaining = batch.items
+        .filter(
+          (entry) =>
+            !entry.isReprocess &&
+            (entry.status === "queued" || entry.status === "uploading"),
+        )
+        .map((entry) => entry.id);
+      for (const itemId of remaining) {
+        cancelUploadItem(itemId);
+      }
+    });
+    return;
   }
 
+  for (const item of pending) {
+    cancelUploadItem(item.id);
+  }
+
+}
+
+// Human: Cancel every unfinished stream rebuild in the tray and on the server.
+// Agent: POST cancel-reprocess-all; MARKS isReprocess uploading rows cancelled; RETURNS API counts.
+export async function cancelAllPendingHlsReprocess(): Promise<{
+  cancelled_files: number;
+  cancelled_jobs: number;
+}> {
+  const result = await cancelAllHlsReprocess();
+
+  if (batch) {
+    const pendingReprocess = batch.items.filter(
+      (entry) =>
+        entry.isReprocess &&
+        (entry.status === "uploading" || entry.status === "queued"),
+    );
+    for (const item of pendingReprocess) {
+      abortedUploadItemIds.add(item.id);
+      releaseAllPipelineStages(item.id);
+      resumingItemIds.delete(item.id);
+    }
+    updateItems((items) =>
+      items.map((entry) =>
+        entry.isReprocess &&
+        (entry.status === "uploading" || entry.status === "queued")
+          ? {
+              ...entry,
+              status: "cancelled" as const,
+              error: "Cancelled",
+              indeterminate: false,
+            }
+          : entry,
+      ),
+    );
+    maybeCompleteBatch();
+  }
+
+  return result;
+}
+
+// Human: Drop finished/cancelled rebuild tray rows after a bulk cancel so the panel can dismiss.
+// Agent: FILTERS isReprocess cancelled rows; CALLS maybeCompleteBatch.
+export function clearCancelledHlsReprocessItems(): void {
+  if (!batch) return;
+  batch.items = batch.items.filter(
+    (entry) => !(entry.isReprocess && entry.status === "cancelled"),
+  );
+  if (batch.items.length === 0) {
+    batch = null;
+  } else {
+    maybeCompleteBatch();
+  }
+  emitBatch();
 }
 
 // Human: Re-queue one failed/cancelled upload that still has a local File handle.

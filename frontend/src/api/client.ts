@@ -1110,6 +1110,22 @@ export async function reprocessAllHls() {
   }>;
 }
 
+// Human: Cancel one unfinished stream rebuild and restore the prior package for playback.
+// Agent: POST /files/:id/hls/cancel-reprocess; RETURNS { ok, file }.
+export async function cancelHlsReprocess(fileId: string) {
+  return apiFetch(`/files/${fileId}/hls/cancel-reprocess`, {
+    method: "POST",
+  }) as Promise<{ ok: boolean; file: FileItem }>;
+}
+
+// Human: Cancel every unfinished stream rebuild for the signed-in user.
+// Agent: POST /files/hls/cancel-reprocess-all; RETURNS cancelled file/job counts.
+export async function cancelAllHlsReprocess() {
+  return apiFetch(`/files/hls/cancel-reprocess-all`, {
+    method: "POST",
+  }) as Promise<{ cancelled_files: number; cancelled_jobs: number }>;
+}
+
 // Human: Load waveform peaks for audio inside an anonymous public share link.
 // Agent: GET /public/shares/:token/files/:id/waveform; SENDS X-Share-Password when required.
 export async function fetchPublicShareWaveform(
@@ -1799,12 +1815,37 @@ function mapAudioIngestProgressUpdate(
 
 // Human: Map server conversion_progress into overall tray % for video HLS ingest.
 // Agent: phase from progress bands for status color; percent spans full conversion 0–100 after upload share.
+// Rebuild jobs have no byte-upload share — use raw conversion_progress so the ring and tray match.
 function mapVideoIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "hls_ready" | "hls_encode_status">,
   pollIndex = 0,
 ): UploadProgressUpdate {
   if (file.hls_ready) {
     return { phase: "storing", percent: 100, indeterminate: false };
+  }
+
+  // Human: Stream rebuild — no upload phase; show conversion_progress 0–99 as overall tray %.
+  // Agent: SKIP MEDIA_UPLOAD_PIPELINE_SHARE offset; INDETERMINATE while still preparing source at 0.
+  if (file.hls_encode_status === "reprocessing") {
+    const raw = Math.min(99, Math.max(0, file.conversion_progress));
+    if (raw <= 0) {
+      return {
+        phase: "processing",
+        percent: Math.min(8, queuedIngestDisplayPercent(pollIndex)),
+        indeterminate: true,
+      };
+    }
+    const phase: UploadProgressUpdate["phase"] =
+      raw >= HLS_STORAGE_PROGRESS_START
+        ? "storing"
+        : raw >= HLS_ENCRYPT_PROGRESS_START
+          ? "encrypting"
+          : "processing";
+    return {
+      phase,
+      percent: raw,
+      indeterminate: false,
+    };
   }
 
   if (file.hls_encode_status === "queued" && file.conversion_progress <= 0) {
@@ -1834,10 +1875,12 @@ function mapVideoIngestProgressUpdate(
 
 // Human: After multipart returns, poll files.conversion_progress until HLS ingest hits 100%.
 // Agent: CALLS fetchFile; MAPS conversion_progress to processing then storing bars; THROWS on failed/cancelled.
+// Optional onFileUpdate patches the drive grid while the transfer tray owns the poll loop.
 export async function waitForFileIngestCompletion(
   fileId: string,
   onProgress?: (update: UploadProgressUpdate) => void,
   isCancelled?: () => boolean,
+  onFileUpdate?: (file: FileItem) => void,
 ): Promise<FileItem> {
   const progress = createUploadProgressEmitter(onProgress);
   let pollIndex = 0;
@@ -1849,6 +1892,7 @@ export async function waitForFileIngestCompletion(
 
     const { file } = await fetchFile(fileId);
     pollIndex += 1;
+    onFileUpdate?.(file);
 
     if (isCancelled?.()) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);

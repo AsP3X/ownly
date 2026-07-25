@@ -87,11 +87,14 @@ export function isVideoRebuilding(file: FileItem): boolean {
 
 // Human: Overall 0–100 job completion for circular progress on explorer thumbnails.
 // Agent: READS conversion_progress while isFileProcessing; CAPS at 99 until ready; 0 while queued.
+// Rebuild and first-time ingest both use the server conversion_progress scale (0–100).
 export function fileProcessingPercent(file: FileItem): number {
   if (!isFileProcessing(file)) {
     return 100;
   }
   const raw = Number.isFinite(file.conversion_progress) ? file.conversion_progress : 0;
+  // Human: Treat tiny early bootstrap values (source resolve) as determinate so the ring moves.
+  // Agent: ROUND conversion_progress; KEEP 0 only when the job has not started writing progress.
   return Math.min(99, Math.max(0, Math.round(raw)));
 }
 

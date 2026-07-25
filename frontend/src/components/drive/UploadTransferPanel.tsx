@@ -93,6 +93,11 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
     ? 100
     : getUploadBatchOverallPercent(batch.items);
   const hasPending = counts.inFlight > 0 || counts.waiting > 0;
+  const pendingItems = batch.items.filter(
+    (item) => item.status === "uploading" || item.status === "queued",
+  );
+  const pendingAreOnlyRebuilds =
+    pendingItems.length > 0 && pendingItems.every((item) => item.isReprocess);
   const canRetryFailed = batch.items.some((item) => item.canRetry);
   const isBulkBatch = totalCount > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const isPaused = Boolean(batch.paused);
@@ -169,7 +174,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               aria-hidden={!hasPending}
               onClick={() => cancelAllUploadItems()}
             >
-              Cancel all
+              {pendingAreOnlyRebuilds ? "Cancel rebuilds" : "Cancel all"}
             </Button>
           ) : null}
           {isComplete ? (

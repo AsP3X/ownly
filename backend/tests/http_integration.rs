@@ -5026,6 +5026,7 @@ async fn hls_reprocess_queues_encode_job_for_ready_video() {
     assert!(job.is_some(), "reprocess must enqueue an hls_encode job");
 
     let conflict = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -5037,6 +5038,36 @@ async fn hls_reprocess_queues_encode_job_for_ready_video() {
         .await
         .unwrap();
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
+
+    // Human: Cancel unfinished rebuilds restores the prior package for playback.
+    // Agent: POST cancel-reprocess-all; EXPECT hls_ready true + job cancelled.
+    let cancel_all = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/files/hls/cancel-reprocess-all")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cancel_all.status(), StatusCode::OK);
+    let cancel_body = response_json(cancel_all).await;
+    assert!(
+        cancel_body["cancelled_files"].as_u64().unwrap_or(0) >= 1
+            || cancel_body["cancelled_jobs"].as_u64().unwrap_or(0) >= 1
+    );
+
+    let restored: (bool, Option<String>) = sqlx::query_as(
+        "SELECT hls_ready, hls_encode_status FROM files WHERE id = $1",
+    )
+    .bind(&file_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("load restored file");
+    assert!(restored.0, "cancel reprocess must restore hls_ready");
+    assert_eq!(restored.1.as_deref(), Some("ready"));
 
     sqlx::query("DELETE FROM background_jobs WHERE resource_id = $1")
         .bind(&file_id)

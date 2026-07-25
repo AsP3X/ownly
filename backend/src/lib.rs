@@ -628,8 +628,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(crate::video::handlers::reprocess_hls),
         )
         .route(
+            "/api/v1/files/{id}/hls/cancel-reprocess",
+            post(crate::video::handlers::cancel_reprocess_hls),
+        )
+        .route(
             "/api/v1/files/hls/reprocess-all",
             post(crate::video::handlers::reprocess_all_hls),
+        )
+        .route(
+            "/api/v1/files/hls/cancel-reprocess-all",
+            post(crate::video::handlers::cancel_all_reprocess_hls),
         )
         .route(
             "/api/v1/files/{id}/thumbnail",

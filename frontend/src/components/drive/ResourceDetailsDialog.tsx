@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import {
+  Ban,
   FileIcon,
   FileSpreadsheet,
   FileText,
@@ -18,7 +19,9 @@ import {
 } from "lucide-react";
 import type { FileItem, FolderItem } from "@/api/client";
 import { getErrorMessage, reprocessAllHls, reprocessFileHls } from "@/api/client";
+import { ConfirmCancelRebuildsDialog } from "@/components/drive/ConfirmCancelRebuildsDialog";
 import { ConfirmRebuildAllVideosDialog } from "@/components/drive/ConfirmRebuildAllVideosDialog";
+import { cancelAllPendingHlsReprocess } from "@/lib/upload-manager";
 import { ShareLinksPanel } from "@/components/drive/ShareLinksPanel";
 import { VideoThumbnailEditorDialog } from "@/components/drive/VideoThumbnailEditorDialog";
 import type { ShareTarget } from "@/components/drive/ShareDialog";
@@ -68,6 +71,11 @@ type ResourceDetailsDialogProps = {
     queued: number;
     skipped: number;
     concurrent_limit?: number;
+  }) => void;
+  /** Human: After cancelling unfinished rebuilds — parent refreshes list + transfer tray. */
+  onHlsReprocessAllCancelled?: (result: {
+    cancelled_files: number;
+    cancelled_jobs: number;
   }) => void;
 };
 
@@ -160,12 +168,15 @@ export function ResourceDetailsDialog({
   onThumbnailUpdated,
   onHlsReprocessQueued,
   onHlsReprocessAllQueued,
+  onHlsReprocessAllCancelled,
 }: ResourceDetailsDialogProps) {
   const [tab, setTab] = useState<DetailsTab>(initialTab);
   const [thumbnailEditorOpen, setThumbnailEditorOpen] = useState(false);
   const [reprocessingHls, setReprocessingHls] = useState(false);
   const [reprocessingAllHls, setReprocessingAllHls] = useState(false);
+  const [cancellingRebuilds, setCancellingRebuilds] = useState(false);
   const [rebuildAllConfirmOpen, setRebuildAllConfirmOpen] = useState(false);
+  const [cancelRebuildsConfirmOpen, setCancelRebuildsConfirmOpen] = useState(false);
 
   function handleOpenChange(next: boolean) {
     if (next) {
@@ -174,7 +185,9 @@ export function ResourceDetailsDialog({
       setThumbnailEditorOpen(false);
       setReprocessingHls(false);
       setReprocessingAllHls(false);
+      setCancellingRebuilds(false);
       setRebuildAllConfirmOpen(false);
+      setCancelRebuildsConfirmOpen(false);
     }
     onOpenChange(next);
   }
@@ -231,6 +244,29 @@ export function ResourceDetailsDialog({
       toastError(getErrorMessage(error));
     } finally {
       setReprocessingAllHls(false);
+    }
+  }
+
+  async function handleConfirmCancelRebuilds() {
+    if (cancellingRebuilds) return;
+    setCancellingRebuilds(true);
+    try {
+      // Human: One call cancels server jobs and marks transfer-tray rebuild rows cancelled.
+      // Agent: CALLS cancelAllPendingHlsReprocess; NOTIFIES parent to refresh explorer badges.
+      const result = await cancelAllPendingHlsReprocess();
+      toastSuccess(
+        result.cancelled_files > 0 || result.cancelled_jobs > 0
+          ? `Cancelled ${result.cancelled_files} unfinished rebuild${
+              result.cancelled_files === 1 ? "" : "s"
+            }.`
+          : "No unfinished rebuilds to cancel.",
+      );
+      onHlsReprocessAllCancelled?.(result);
+      setCancelRebuildsConfirmOpen(false);
+    } catch (error) {
+      toastError(getErrorMessage(error));
+    } finally {
+      setCancellingRebuilds(false);
     }
   }
 
@@ -386,7 +422,12 @@ export function ResourceDetailsDialog({
                               variant="outline"
                               size="sm"
                               className="gap-2 border-[#E5E7EB] bg-white"
-                              disabled={!canReprocessHls || reprocessingHls || reprocessingAllHls}
+                              disabled={
+                                !canReprocessHls ||
+                                reprocessingHls ||
+                                reprocessingAllHls ||
+                                cancellingRebuilds
+                              }
                               onClick={() => void handleReprocessHls()}
                             >
                               <RefreshCw
@@ -400,7 +441,9 @@ export function ResourceDetailsDialog({
                               variant="ghost"
                               size="sm"
                               className="gap-2 text-[#4B5563]"
-                              disabled={reprocessingAllHls || reprocessingHls}
+                              disabled={
+                                reprocessingAllHls || reprocessingHls || cancellingRebuilds
+                              }
                               onClick={() => setRebuildAllConfirmOpen(true)}
                             >
                               <RefreshCw
@@ -411,6 +454,27 @@ export function ResourceDetailsDialog({
                                 aria-hidden
                               />
                               {reprocessingAllHls ? "Queueing all…" : "Rebuild all my videos"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="gap-2 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                              disabled={
+                                cancellingRebuilds || reprocessingAllHls || reprocessingHls
+                              }
+                              onClick={() => setCancelRebuildsConfirmOpen(true)}
+                            >
+                              <Ban
+                                className={cn(
+                                  "size-3.5",
+                                  cancellingRebuilds && "animate-pulse",
+                                )}
+                                aria-hidden
+                              />
+                              {cancellingRebuilds
+                                ? "Cancelling rebuilds…"
+                                : "Cancel unfinished rebuilds"}
                             </Button>
                           </div>
                         </div>
@@ -480,6 +544,12 @@ export function ResourceDetailsDialog({
         onOpenChange={setRebuildAllConfirmOpen}
         confirming={reprocessingAllHls}
         onConfirm={() => void handleConfirmRebuildAll()}
+      />
+      <ConfirmCancelRebuildsDialog
+        open={cancelRebuildsConfirmOpen}
+        onOpenChange={setCancelRebuildsConfirmOpen}
+        confirming={cancellingRebuilds}
+        onConfirm={() => void handleConfirmCancelRebuilds()}
       />
     </>
   );

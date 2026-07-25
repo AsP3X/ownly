@@ -58,8 +58,19 @@ function phaseStyles(phase: UploadPhase) {
 }
 
 // Human: Status line for the active upload bar — overall % is conversion-aware for media.
-// Agent: READS phase; RETURNS Uploading → Processing → Encrypting → Moving to storage (Nebular blobs).
-function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
+// Agent: READS phase + isReprocess; RETURNS Rebuilding / Uploading → Processing → Encrypting → Storing.
+function getUploadPhaseStatus(
+  item: Pick<UploadItemSnapshot, "phase" | "isReprocess">,
+): string {
+  if (item.isReprocess) {
+    if (item.phase === "storing") {
+      return "Rebuilding stream (storage)";
+    }
+    if (item.phase === "encrypting") {
+      return "Rebuilding stream (encrypt)";
+    }
+    return "Rebuilding stream";
+  }
   if (item.phase === "storing") {
     return "Moving to storage";
   }

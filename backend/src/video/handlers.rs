@@ -637,3 +637,98 @@ pub async fn reprocess_all_hls(
         ),
     })))
 }
+
+// Human: Cancel one unfinished stream rebuild and restore the previous package for playback.
+// Agent: POST /files/:id/hls/cancel-reprocess; CALLS cancel_hls_reprocess_for_file; RETURNS { file }.
+pub async fn cancel_reprocess_hls(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentWrite,
+    )
+    .await?;
+
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT mime_type, hls_encode_status FROM files WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, status) = row.ok_or(AppError::NotFound)?;
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+    if status.as_deref() != Some("reprocessing") {
+        return Err(AppError::Conflict(
+            "video is not currently rebuilding".into(),
+        ));
+    }
+
+    let cancelled =
+        jobs::cancel_hls_reprocess_for_file(&state.pool, &claims.sub, &id).await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.hls.reprocess_cancel",
+        Some("file"),
+        Some(&id),
+        None,
+        &headers,
+    )
+    .await
+    .ok();
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
+    ))
+    .bind(&id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "ok": cancelled,
+        "file": file,
+    })))
+}
+
+// Human: Cancel every unfinished stream rebuild for the signed-in user (queued or in progress).
+// Agent: POST /files/hls/cancel-reprocess-all; RESTORES prior packages; RETURNS cancelled counts.
+pub async fn cancel_all_reprocess_hls(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let (cancelled_files, cancelled_jobs) =
+        jobs::cancel_all_hls_reprocess_for_user(&state.pool, &claims.sub).await?;
+
+    audit::write_audit(
+        &state.pool,
+        Some(&claims.sub),
+        "files.hls.reprocess_cancel_all",
+        None,
+        None,
+        Some(serde_json::json!({
+            "cancelled_files": cancelled_files,
+            "cancelled_jobs": cancelled_jobs,
+        })),
+        &headers,
+    )
+    .await
+    .ok();
+
+    Ok(Json(serde_json::json!({
+        "cancelled_files": cancelled_files,
+        "cancelled_jobs": cancelled_jobs,
+    })))
+}
