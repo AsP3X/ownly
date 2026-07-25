@@ -361,7 +361,7 @@ pub async fn run_hls_encode_job(
     if job.tmp_video.is_none() {
         set_progress(&pool, &file_id, 1).await;
     }
-    let source = resolve_encode_video_source(
+    let source = match resolve_encode_video_source(
         &pool,
         storage.clone(),
         &key_store,
@@ -370,7 +370,21 @@ pub async fn run_hls_encode_job(
         job.tmp_video.as_deref(),
         prior_segment_count,
     )
-    .await?;
+    .await
+    {
+        Ok(source) => source,
+        Err(msg) => {
+            // Human: Rebuild without a usable input must not leave the video unplayable.
+            // Agent: RESTORE prior package when segment_count>0; ELSE mark_failed for first-time ingest.
+            if prior_segment_count.unwrap_or(0) > 0 {
+                let detail = format!("Stream rebuild failed — previous package restored. ({msg})");
+                let _ = restore_package_after_failed_reprocess(&pool, &file_id, &detail).await;
+            } else {
+                mark_failed(&pool, &file_id, &msg).await;
+            }
+            return Err(msg);
+        }
+    };
     let tmp_video = source.path().to_path_buf();
     // Human: Keep all scratch files under a per-file work dir — never treat OS temp root as cleanup target.
     // Agent: Spool uses upload parent; remuxed reprocess uses ownly_hls_* so we never rmdir the source TempDir mid-job.
@@ -636,8 +650,8 @@ pub async fn run_hls_encode_job(
     }
 }
 
-// Human: Prefer upload spool, then retained source.master, then remux stored HLS.
-// Agent: READS spool → GET source.master → materialize_hls_mp4_for_ffmpeg; ERRORS when none work.
+// Human: Prefer upload spool, then retained master, cached export, then remux stored HLS.
+// Agent: READS spool → source.master → export.mp4 → materialize_hls_mp4_for_ffmpeg; NO mark_failed here.
 async fn resolve_encode_video_source(
     pool: &PgPool,
     storage: Arc<dyn Storage>,
@@ -676,8 +690,17 @@ async fn resolve_encode_video_source(
             return Ok(EncodeVideoSource::Master { _temp: temp, path });
         }
         Err(error) => {
-            tracing::debug!(%file_id, %error, "no source master for re-encode; trying HLS remux");
+            tracing::debug!(%file_id, %error, "no source master for re-encode; trying export/HLS remux");
         }
+    }
+
+    // Human: Cached download MP4 is a full-file source when spool/master are gone.
+    // Agent: GET export.mp4 when download_export_ready; USED for reprocess without source.master.
+    if let Ok(temp) = download_export_mp4_to_temp(pool, storage.as_ref(), file_id, storage_key).await
+    {
+        let path = temp.path().to_path_buf();
+        tracing::info!(%file_id, "HLS encode source loaded from cached export.mp4");
+        return Ok(EncodeVideoSource::Master { _temp: temp, path });
     }
 
     let segment_count = prior_segment_count.unwrap_or(0);
@@ -708,28 +731,57 @@ async fn resolve_encode_video_source(
                     %error,
                     "failed to materialize HLS source for re-encode"
                 );
+                return Err(format!(
+                    "could not rebuild from stored stream package: {error}"
+                ));
             }
         }
     }
 
-    mark_failed(pool, file_id, HLS_SOURCE_UNAVAILABLE).await;
+    // Human: Caller decides mark_failed vs restore package — do not mutate file status here.
+    // Agent: RETURNS constant when spool/master/export/segments all unavailable.
     Err(HLS_SOURCE_UNAVAILABLE.to_string())
 }
 
-// Human: Stream retained original video from Nebular into a temp file for ffmpeg.
-// Agent: GET `{storage_key}/source.master`; RETURNS NamedTempFile; ERR when missing.
-async fn download_source_master_to_temp(
+// Human: Download cached export.mp4 when a prior download remux exists.
+// Agent: READS download_export_ready + size; GET `{storage_key}/export.mp4`.
+async fn download_export_mp4_to_temp(
+    pool: &PgPool,
     storage: &dyn Storage,
+    file_id: &str,
     storage_key: &str,
+) -> Result<tempfile::NamedTempFile, String> {
+    let row: Option<(bool, Option<i64>)> = sqlx::query_as(
+        "SELECT COALESCE(download_export_ready, false), download_export_size_bytes \
+         FROM files WHERE id = $1",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("export flags load: {e}"))?;
+
+    let (ready, size) = row.unwrap_or((false, None));
+    if !crate::hls::export::export_cache_is_valid(ready, size) {
+        return Err("cached export not ready".into());
+    }
+
+    let key = format!("{storage_key}/{}", crate::hls::export_job::EXPORT_OBJECT_KEY);
+    download_storage_object_to_temp(storage, &key).await
+}
+
+// Human: Stream any storage object into a NamedTempFile for ffmpeg input.
+// Agent: GET key; WRITES temp path; ERR when empty/missing.
+async fn download_storage_object_to_temp(
+    storage: &dyn Storage,
+    key: &str,
 ) -> Result<tempfile::NamedTempFile, String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
-    let key = source_master_storage_key(storage_key);
     let (mut stream, _, _) = storage
-        .get_stream(&key)
+        .get_stream(key)
         .await
-        .map_err(|e| format!("source master download: {e}"))?;
+        .map_err(|e| format!("storage download {key}: {e}"))?;
 
     let temp = tempfile::NamedTempFile::new().map_err(|e| format!("temp file create: {e}"))?;
     let path = temp.path().to_path_buf();
@@ -738,22 +790,67 @@ async fn download_source_master_to_temp(
         .map_err(|e| format!("temp file open: {e}"))?;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("source master stream: {e}"))?;
+        let chunk = chunk.map_err(|e| format!("storage stream {key}: {e}"))?;
         file.write_all(&chunk)
             .await
-            .map_err(|e| format!("source master write: {e}"))?;
+            .map_err(|e| format!("storage write {key}: {e}"))?;
     }
     file.sync_all()
         .await
-        .map_err(|e| format!("source master flush: {e}"))?;
+        .map_err(|e| format!("storage flush {key}: {e}"))?;
 
     let meta = tokio::fs::metadata(&path)
         .await
-        .map_err(|e| format!("source master meta: {e}"))?;
+        .map_err(|e| format!("storage meta {key}: {e}"))?;
     if meta.len() == 0 {
-        return Err("source master is empty".into());
+        return Err(format!("storage object empty: {key}"));
     }
     Ok(temp)
+}
+
+// Human: After a failed rebuild, put the prior HLS package back online so playback still works.
+// Agent: WRITES hls_ready=true + ready when segment_count>0; KEEPS error message on row for UI.
+async fn restore_package_after_failed_reprocess(
+    pool: &PgPool,
+    file_id: &str,
+    message: &str,
+) -> bool {
+    let result = sqlx::query(
+        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', \
+         hls_encode_error = $1, conversion_progress = 100 \
+         WHERE id = $2 AND COALESCE(segment_count, 0) > 0 \
+           AND hls_encode_status IN ('reprocessing', 'processing', 'queued', 'failed')",
+    )
+    .bind(message)
+    .bind(file_id)
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::warn!(
+                %file_id,
+                error = %message,
+                "restored prior HLS package after rebuild source failure"
+            );
+            true
+        }
+        Ok(_) => false,
+        Err(error) => {
+            tracing::error!(%file_id, %error, "failed to restore HLS package after rebuild failure");
+            false
+        }
+    }
+}
+
+// Human: Stream retained original video from Nebular into a temp file for ffmpeg.
+// Agent: GET `{storage_key}/source.master`; RETURNS NamedTempFile; ERR when missing.
+async fn download_source_master_to_temp(
+    storage: &dyn Storage,
+    storage_key: &str,
+) -> Result<tempfile::NamedTempFile, String> {
+    let key = source_master_storage_key(storage_key);
+    download_storage_object_to_temp(storage, &key).await
 }
 
 // Human: Upload the upload-spool original next to the HLS package for later reprocess.

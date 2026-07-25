@@ -105,13 +105,16 @@ const INGEST_ORPHAN_GUARD: &str = "
 ";
 
 async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Result<u64, AppError> {
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&format!(
-        "SELECT f.id, f.user_id, f.name \
+    // Human: Include reprocessing so stuck rebuilds re-queue via remux when the upload spool is gone.
+    // Agent: READS segment_count to choose empty tmp_video (rebuild) vs spool path (first ingest).
+    let rows: Vec<(String, String, String, Option<i32>, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT f.id, f.user_id, f.name, f.segment_count, f.hls_encode_status \
          FROM files f \
          WHERE f.mime_type LIKE 'video/%' \
            AND NOT f.hls_ready \
            AND f.deleted_at IS NULL \
-           AND COALESCE(f.hls_encode_status, 'queued') IN ('queued', 'processing') \
+           AND COALESCE(f.hls_encode_status, 'queued') \
+               IN ('queued', 'processing', 'reprocessing') \
            AND f.created_at < now() - ($1::int * INTERVAL '1 minute') \
            {INGEST_ORPHAN_GUARD}"
     ))
@@ -120,12 +123,41 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
     .fetch_all(pool)
     .await?;
 
+    // Human: Heal prior rebuild failures that left segments online but marked the stream broken.
+    // Agent: RESTORES hls_ready for failed rows whose error is the missing-source message.
+    let healed = sqlx::query(
+        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', \
+         conversion_progress = 100, \
+         hls_encode_error = 'Stream rebuild could not find a source — previous package restored.' \
+         WHERE mime_type LIKE 'video/%' AND deleted_at IS NULL AND NOT hls_ready \
+           AND COALESCE(segment_count, 0) > 0 \
+           AND hls_encode_status = 'failed' \
+           AND hls_encode_error ILIKE '%source is no longer available%'",
+    )
+    .execute(pool)
+    .await?;
+    if healed.rows_affected() > 0 {
+        tracing::warn!(
+            count = healed.rows_affected(),
+            "restored HLS packages after prior source-unavailable rebuild failures"
+        );
+    }
+
     let mut restarted = 0u64;
-    for (file_id, user_id, name) in rows {
+    for (file_id, user_id, name, segment_count, status) in rows {
         let storage_key = format!("users/{user_id}/files/{file_id}");
         let spool_path = upload_spool_source_path(&file_id);
-        if tokio::fs::metadata(&spool_path).await.is_err() {
-            let message = "upload source is no longer available; re-upload the video to finish processing";
+        let spool_ok = tokio::fs::metadata(&spool_path)
+            .await
+            .map(|m| m.is_file() && m.len() > 0)
+            .unwrap_or(false);
+        let has_segments = segment_count.unwrap_or(0) > 0;
+        let is_rebuild =
+            status.as_deref() == Some("reprocessing") || (has_segments && !spool_ok);
+
+        if !spool_ok && !has_segments {
+            let message =
+                "upload source is no longer available; re-upload the video to finish processing";
             sqlx::query(
                 "UPDATE files SET hls_encode_status = 'failed', hls_encode_error = $1, conversion_progress = 0 \
                  WHERE id = $2 AND NOT hls_ready",
@@ -136,15 +168,32 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
             .await?;
             tracing::warn!(
                 file_id = %file_id,
-                "skipped orphaned HLS re-enqueue because upload spool is missing"
+                "skipped orphaned HLS re-enqueue because upload spool and segments are missing"
             );
             continue;
         }
 
+        // Human: Rebuilds re-queue with empty spool so the worker uses master/export/segment remux.
+        // Agent: tmp_video empty when is_rebuild; else spool path for first-time ingest.
+        let (tmp_video, job_label, next_status) = if is_rebuild {
+            (
+                String::new(),
+                format!("Rebuild stream — {name}"),
+                "reprocessing",
+            )
+        } else {
+            (
+                spool_path.to_string_lossy().to_string(),
+                name.clone(),
+                "queued",
+            )
+        };
+
         sqlx::query(
-            "UPDATE files SET hls_encode_status = 'queued', hls_encode_error = NULL, conversion_progress = 0 \
-             WHERE id = $1 AND NOT hls_ready",
+            "UPDATE files SET hls_encode_status = $1, hls_encode_error = NULL, conversion_progress = 0 \
+             WHERE id = $2 AND NOT hls_ready",
         )
+        .bind(next_status)
         .bind(&file_id)
         .execute(pool)
         .await?;
@@ -152,7 +201,7 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
         let payload = HlsEncodePayload {
             file_id: file_id.clone(),
             storage_key,
-            tmp_video: spool_path.to_string_lossy().to_string(),
+            tmp_video,
             duration_seconds: 0,
         };
 
@@ -160,7 +209,7 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
             pool,
             &user_id,
             JobKind::HlsEncode,
-            &name,
+            &job_label,
             Some("file"),
             Some(&file_id),
             serde_json::to_value(payload)
@@ -172,6 +221,7 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
         tracing::warn!(
             file_id = %file_id,
             kind = JobKind::HlsEncode.as_str(),
+            rebuild = is_rebuild,
             "re-enqueued orphaned video HLS ingest job"
         );
     }
