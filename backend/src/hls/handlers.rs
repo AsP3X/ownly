@@ -351,15 +351,21 @@ pub(crate) async fn resolve_hls_aes_key(
 }
 
 // Human: Tell the client which URL to pass to hls.js — playlist when ready, otherwise null with progress.
-// Agent: READS hls_ready; RETURNS JSON { url, hls_ready, conversion_progress, hls_encode_status }.
+// Agent: READS hls_ready; VERIFIES first segment in storage; RETURNS JSON with error when package missing.
 pub async fn get_stream_url(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    type StreamUrlRow = (Option<bool>, Option<i32>, Option<String>, Option<String>);
+    type StreamUrlRow = (
+        Option<bool>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        String,
+    );
     let row: Option<StreamUrlRow> = sqlx::query_as(
-        "SELECT hls_ready, conversion_progress, hls_encode_status, hls_encode_error \
+        "SELECT hls_ready, conversion_progress, hls_encode_status, hls_encode_error, storage_key \
          FROM files WHERE id = $1 AND user_id = $2",
     )
     .bind(&id)
@@ -367,10 +373,39 @@ pub async fn get_stream_url(
     .fetch_optional(&state.pool)
     .await?;
 
-    let (hls_ready, conversion_progress, hls_encode_status, hls_encode_error) =
+    let (hls_ready, conversion_progress, hls_encode_status, hls_encode_error, storage_key) =
         row.ok_or(AppError::NotFound)?;
 
     if hls_ready.unwrap_or(false) {
+        // Human: DB can say ready after a failed rebuild while objects were purged — fail closed for the player.
+        // Agent: EXISTS 0000.m4s/ts; MARKS failed + RETURNS hls_ready false with re-upload guidance.
+        if !storage_has_first_hls_segment(state.storage.as_ref(), &storage_key).await {
+            let missing =
+                "Stream package is missing from storage — re-upload the video or rebuild if a source exists.";
+            let _ = sqlx::query(
+                "UPDATE files SET hls_ready = false, hls_encode_status = 'failed', \
+                 hls_encode_error = $1, conversion_progress = 0 \
+                 WHERE id = $2 AND user_id = $3 AND hls_ready",
+            )
+            .bind(missing)
+            .bind(&id)
+            .bind(&claims.sub)
+            .execute(&state.pool)
+            .await;
+            tracing::error!(
+                file_id = %id,
+                storage_key = %storage_key,
+                "HLS ready in DB but first segment missing from object storage"
+            );
+            return Ok(Json(serde_json::json!({
+                "url": null,
+                "hls_ready": false,
+                "conversion_progress": 0,
+                "hls_encode_status": "failed",
+                "hls_encode_error": missing,
+            })));
+        }
+
         let ticket = stream_ticket::generate_ticket(
             &id,
             &claims.sub,
@@ -394,6 +429,14 @@ pub async fn get_stream_url(
         "hls_encode_status": hls_encode_status,
         "hls_encode_error": hls_encode_error,
     })))
+}
+
+// Human: True when the first media segment object exists (package is actually playable).
+// Agent: EXISTS 0000.m4s OR 0000.ts; USED by get_stream_url before issuing a ticket.
+async fn storage_has_first_hls_segment(storage: &dyn Storage, storage_key: &str) -> bool {
+    let m4s = format!("{storage_key}/segments/0000.{HLS_SEGMENT_EXTENSION}");
+    let ts = format!("{storage_key}/segments/0000.ts");
+    storage.exists(&m4s).await.unwrap_or(false) || storage.exists(&ts).await.unwrap_or(false)
 }
 
 pub async fn get_playlist(

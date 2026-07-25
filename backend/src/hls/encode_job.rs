@@ -374,11 +374,18 @@ pub async fn run_hls_encode_job(
     {
         Ok(source) => source,
         Err(msg) => {
-            // Human: Rebuild without a usable input must not leave the video unplayable.
-            // Agent: RESTORE prior package when segment_count>0; ELSE mark_failed for first-time ingest.
+            // Human: Rebuild without a usable input must not leave the video unplayable when media still exists.
+            // Agent: RESTORE only if segment 0 is still in storage; ELSE mark_failed with re-upload guidance.
             if prior_segment_count.unwrap_or(0) > 0 {
                 let detail = format!("Stream rebuild failed — previous package restored. ({msg})");
-                let _ = restore_package_after_failed_reprocess(&pool, &file_id, &detail).await;
+                let _ = restore_package_after_failed_reprocess(
+                    &pool,
+                    storage.as_ref(),
+                    &file_id,
+                    &storage_key,
+                    &detail,
+                )
+                .await;
             } else {
                 mark_failed(&pool, &file_id, &msg).await;
             }
@@ -395,9 +402,29 @@ pub async fn run_hls_encode_job(
         }
     };
     let hls_output_dir = work_dir.join("hls_out");
+    let is_reprocess_job = prior_segment_count.unwrap_or(0) > 0;
 
     if is_encode_cancelled(&pool, &file_id).await {
-        cleanup_cancelled_encode(storage, &storage_key, None, &work_dir).await;
+        // Human: Never purge an existing rebuild package on cancel before encode writes over it.
+        // Agent: preserve_package=true for reprocess; first-time cancel may purge partials.
+        cleanup_cancelled_encode(
+            storage.clone(),
+            &storage_key,
+            None,
+            &work_dir,
+            is_reprocess_job,
+        )
+        .await;
+        if is_reprocess_job {
+            let _ = restore_package_after_failed_reprocess(
+                &pool,
+                storage.as_ref(),
+                &file_id,
+                &storage_key,
+                "Stream rebuild cancelled — previous package restored.",
+            )
+            .await;
+        }
         return Ok(());
     }
 
@@ -536,13 +563,29 @@ pub async fn run_hls_encode_job(
                                 error = %msg,
                                 "HLS segment upload incomplete"
                             );
-                            mark_failed(&pool, &file_id, &msg).await;
-                            purge_file_storage(
-                                storage.clone(),
-                                &storage_key,
-                                Some(output.segment_count as i32),
-                            )
-                            .await;
+                            // Human: Reprocess may have overwritten some segments — never wipe the whole package.
+                            // Agent: SKIP purge_file_storage when prior segments existed; TRY restore if 0000 remains.
+                            if is_reprocess_job {
+                                let detail = format!(
+                                    "Stream rebuild failed during upload — previous package restored if still intact. ({msg})"
+                                );
+                                let _ = restore_package_after_failed_reprocess(
+                                    &pool,
+                                    storage.as_ref(),
+                                    &file_id,
+                                    &storage_key,
+                                    &detail,
+                                )
+                                .await;
+                            } else {
+                                mark_failed(&pool, &file_id, &msg).await;
+                                purge_file_storage(
+                                    storage.clone(),
+                                    &storage_key,
+                                    Some(output.segment_count as i32),
+                                )
+                                .await;
+                            }
                             discard_hls_output(&hls_output_dir).await;
                             return Err(msg);
                         }
@@ -552,13 +595,26 @@ pub async fn run_hls_encode_job(
                     set_progress(&pool, &file_id, 100).await;
 
                     if is_encode_cancelled(&pool, &file_id).await {
+                        // Human: After new segments uploaded, cancel still must not delete a reprocess package.
+                        // Agent: preserve_package for reprocess; first-time ingest purges partials.
                         cleanup_cancelled_encode(
-                            storage,
+                            storage.clone(),
                             &storage_key,
                             Some(output.segment_count as i32),
                             &work_dir,
+                            is_reprocess_job,
                         )
                         .await;
+                        if is_reprocess_job {
+                            let _ = restore_package_after_failed_reprocess(
+                                &pool,
+                                storage.as_ref(),
+                                &file_id,
+                                &storage_key,
+                                "Stream rebuild cancelled after upload — package left as-is when playable.",
+                            )
+                            .await;
+                        }
                         return Ok(());
                     }
 
@@ -808,18 +864,40 @@ async fn download_storage_object_to_temp(
     Ok(temp)
 }
 
-// Human: After a failed rebuild, put the prior HLS package back online so playback still works.
-// Agent: WRITES hls_ready=true + ready when segment_count>0; KEEPS error message on row for UI.
+// Human: True when storage still holds the first media segment (package is playable).
+// Agent: EXISTS 0000.m4s OR 0000.ts under `{storage_key}/segments/`.
+async fn storage_has_hls_media(storage: &dyn Storage, storage_key: &str) -> bool {
+    let m4s = format!("{storage_key}/segments/0000.{HLS_SEGMENT_EXTENSION}");
+    let ts = format!("{storage_key}/segments/0000.ts");
+    storage.exists(&m4s).await.unwrap_or(false) || storage.exists(&ts).await.unwrap_or(false)
+}
+
+// Human: After a failed rebuild, put the prior HLS package back online only when media still exists.
+// Agent: EXISTS first segment; WRITES hls_ready=true; ELSE mark_failed with re-upload guidance.
 async fn restore_package_after_failed_reprocess(
     pool: &PgPool,
+    storage: &dyn Storage,
     file_id: &str,
+    storage_key: &str,
     message: &str,
 ) -> bool {
+    if !storage_has_hls_media(storage, storage_key).await {
+        let missing = "Stream package is missing from storage — re-upload the video.";
+        mark_failed(pool, file_id, missing).await;
+        tracing::error!(
+            %file_id,
+            storage_key,
+            prior_error = %message,
+            "cannot restore HLS package — first segment missing from object storage"
+        );
+        return false;
+    }
+
     let result = sqlx::query(
         "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', \
          hls_encode_error = $1, conversion_progress = 100 \
          WHERE id = $2 AND COALESCE(segment_count, 0) > 0 \
-           AND hls_encode_status IN ('reprocessing', 'processing', 'queued', 'failed')",
+           AND hls_encode_status IN ('reprocessing', 'processing', 'queued', 'failed', 'cancelled')",
     )
     .bind(message)
     .bind(file_id)
@@ -831,7 +909,7 @@ async fn restore_package_after_failed_reprocess(
             tracing::warn!(
                 %file_id,
                 error = %message,
-                "restored prior HLS package after rebuild source failure"
+                "restored prior HLS package after rebuild failure"
             );
             true
         }
@@ -942,13 +1020,18 @@ fn is_deletable_work_dir(path: &Path) -> bool {
     path.starts_with(&temp_root) && path != temp_root.as_path()
 }
 
+// Human: Cancel cleanup — purge storage only for first-time ingest partials, never for reprocess packages.
+// Agent: WHEN preserve_package, only removes work_dir; ELSE purges HLS objects then work_dir.
 async fn cleanup_cancelled_encode(
     storage: Arc<dyn Storage>,
     storage_key: &str,
     segment_count: Option<i32>,
     work_dir: &Path,
+    preserve_package: bool,
 ) {
-    purge_file_storage(storage, storage_key, segment_count).await;
+    if !preserve_package {
+        purge_file_storage(storage, storage_key, segment_count).await;
+    }
     cleanup_work_dir(work_dir).await;
 }
 

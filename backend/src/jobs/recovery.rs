@@ -123,25 +123,8 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
     .fetch_all(pool)
     .await?;
 
-    // Human: Heal prior rebuild failures that left segments online but marked the stream broken.
-    // Agent: RESTORES hls_ready for failed rows whose error is the missing-source message.
-    let healed = sqlx::query(
-        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', \
-         conversion_progress = 100, \
-         hls_encode_error = 'Stream rebuild could not find a source — previous package restored.' \
-         WHERE mime_type LIKE 'video/%' AND deleted_at IS NULL AND NOT hls_ready \
-           AND COALESCE(segment_count, 0) > 0 \
-           AND hls_encode_status = 'failed' \
-           AND hls_encode_error ILIKE '%source is no longer available%'",
-    )
-    .execute(pool)
-    .await?;
-    if healed.rows_affected() > 0 {
-        tracing::warn!(
-            count = healed.rows_affected(),
-            "restored HLS packages after prior source-unavailable rebuild failures"
-        );
-    }
+    // Human: Do not auto-set hls_ready without checking object storage — segments may already be gone.
+    // Agent: Recovery only re-enqueues rebuild/ingest jobs; package restore is encode_job's responsibility.
 
     let mut restarted = 0u64;
     for (file_id, user_id, name, segment_count, status) in rows {
