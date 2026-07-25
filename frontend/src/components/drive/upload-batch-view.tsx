@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Clock, Loader2, X } from "lucide-react";
 import {
   getUploadBatchDisplayCounts,
+  getUploadBatchOverallPercent,
   type UploadItemSnapshot,
   type UploadPhase,
 } from "@/lib/upload-manager";
@@ -56,7 +57,7 @@ function phaseStyles(phase: UploadPhase) {
   };
 }
 
-// Human: Status line for the active upload bar — unified steps for generic files; media uses ingest bands.
+// Human: Status line for the active upload bar — overall % is conversion-aware for media.
 // Agent: READS phase; RETURNS Uploading → Processing → Encrypting → Moving to storage (Nebular blobs).
 function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
   if (item.phase === "storing") {
@@ -66,7 +67,7 @@ function getUploadPhaseStatus(item: Pick<UploadItemSnapshot, "phase">): string {
     return "Encrypting (AES-256-GCM)";
   }
   if (item.phase === "processing") {
-    return "Processing file";
+    return "Converting";
   }
   return "Uploading";
 }
@@ -537,8 +538,8 @@ export function UploadBatchProgressView({
     (item) => item.displayBucket === "error" || item.displayBucket === "cancelled",
   );
   const processedCount = counts.done + counts.failed + counts.cancelled;
-  const overallPercent =
-    items.length === 0 ? 0 : Math.round((processedCount / items.length) * 100);
+  // Human: Overall bar includes live conversion progress of active files, not only completed count.
+  const overallPercent = getUploadBatchOverallPercent(items);
   const isBulkBatch = items.length > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const showIndividualDoneRows =
     !isBulkBatch && doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;

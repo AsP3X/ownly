@@ -18,6 +18,8 @@ import {
 
   listBackgroundJobs,
 
+  mapConversionProgressToOverallPercent,
+
   uploadFileWithProgress,
 
   waitForFileIngestCompletion,
@@ -412,13 +414,28 @@ function updateItems(updater: (items: InternalUploadItem[]) => InternalUploadIte
 
 
 
-// Human: Merge API progress into a tray row — omitted indeterminate must not leave a stale shimmer.
-// Agent: WRITES percent/phase; SETS indeterminate only when explicitly true.
+// Human: Merge API progress into a tray row — never rewind overall % once conversion is underway.
+// Agent: WRITES percent/phase; CLAMPS progress to previous when new value is lower on post-upload phases.
 function applyUploadProgressUpdate(
   update: UploadProgressUpdate,
+  previousProgress = 0,
+  previousPhase: UploadPhase = "uploading",
 ): Pick<InternalUploadItem, "progress" | "phase" | "indeterminate"> {
+  const isPostUpload =
+    update.phase === "processing" ||
+    update.phase === "encrypting" ||
+    update.phase === "storing";
+  const wasPostUpload =
+    previousPhase === "processing" ||
+    previousPhase === "encrypting" ||
+    previousPhase === "storing";
+  // Human: Conversion overall % should only move forward (poll noise / phase remap edge cases).
+  const progress =
+    isPostUpload && wasPostUpload
+      ? Math.max(previousProgress, update.percent)
+      : update.percent;
   return {
-    progress: update.percent,
+    progress,
     phase: update.phase,
     indeterminate: update.indeterminate === true,
   };
@@ -444,7 +461,12 @@ async function applyPipelinedProgress(uploadId: string, update: UploadProgressUp
   }
   updateItems((items) =>
     items.map((item) =>
-      item.id === uploadId ? { ...item, ...applyUploadProgressUpdate(update) } : item,
+      item.id === uploadId
+        ? {
+            ...item,
+            ...applyUploadProgressUpdate(update, item.progress, item.phase),
+          }
+        : item,
     ),
   );
 }
@@ -845,7 +867,7 @@ async function restoreFromActiveBackgroundJobs(): Promise<boolean> {
 
       status: "uploading" as const,
 
-      progress: Math.min(99, Math.max(1, job.progress)),
+      progress: mapConversionProgressToOverallPercent(job.progress),
 
       phase: "processing" as const,
 
@@ -1605,6 +1627,29 @@ export function getUploadBatchDisplayCounts(
   }
 
   return counts;
+}
+
+// Human: Overall tray percent — average of each file including in-flight conversion progress.
+// Agent: done/error/cancelled = 100; queued = 0; active = item.progress (full pipeline for media).
+export function getUploadBatchOverallPercent(items: UploadItemSnapshot[]): number {
+  if (items.length === 0) return 0;
+  let sum = 0;
+  for (const item of items) {
+    if (item.displayBucket === "done") {
+      sum += 100;
+      continue;
+    }
+    if (item.displayBucket === "error" || item.displayBucket === "cancelled") {
+      sum += 100;
+      continue;
+    }
+    if (item.displayBucket === "queued") {
+      sum += 0;
+      continue;
+    }
+    sum += Math.min(99, Math.max(0, item.progress));
+  }
+  return Math.round(sum / items.length);
 }
 
 

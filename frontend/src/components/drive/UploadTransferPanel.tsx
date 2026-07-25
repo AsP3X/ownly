@@ -14,6 +14,7 @@ import {
   cancelUploadItem,
   dismissUploadBatch,
   getUploadBatchDisplayCounts,
+  getUploadBatchOverallPercent,
   reattachUploadFile,
   removeUploadBatchItem,
   retryFailedUploadItems,
@@ -87,8 +88,10 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
   const isComplete = batch.status === "complete";
   const totalCount = counts.total;
   const processedCount = counts.done + counts.failed + counts.cancelled;
-  const overallPercent =
-    totalCount === 0 ? 0 : Math.round((processedCount / totalCount) * 100);
+  // Human: Overall % tracks full upload + conversion progress across every file in the batch.
+  const overallPercent = isComplete
+    ? 100
+    : getUploadBatchOverallPercent(batch.items);
   const hasPending = counts.inFlight > 0 || counts.waiting > 0;
   const canRetryFailed = batch.items.some((item) => item.canRetry);
   const isBulkBatch = totalCount > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;

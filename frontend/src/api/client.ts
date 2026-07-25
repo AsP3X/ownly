@@ -1482,8 +1482,8 @@ export async function uploadFile(file: File) {
   return uploadFileWithProgress(file);
 }
 
-// Human: Progress snapshot for the upload tray — upload then processing → encrypting → storing (generic sim; media from ingest).
-// Agent: each phase owns a 0–100% bar; video/audio skip generic sim and use conversion_progress bands.
+// Human: Progress snapshot for the upload tray — continuous overall % for media conversion, phase for labels.
+// Agent: percent is pipeline overall (upload + conversion); phase drives status text and bar color.
 export type UploadProgressUpdate = {
   phase: "uploading" | "processing" | "encrypting" | "storing";
   percent: number;
@@ -1491,8 +1491,8 @@ export type UploadProgressUpdate = {
   indeterminate?: boolean;
 };
 
-// Human: Upload, encode, encrypt, and storage each use their own 0–100% bar; each phase replaces the prior bar.
-// Agent: uploading = XHR bytes; processing/encrypting/storing = conversion_progress bands from ingest jobs.
+// Human: Upload, encode, encrypt, and storage labels still change by phase; media % is overall 0–100.
+// Agent: uploading = XHR/resumable bytes; ingest = files.conversion_progress mapped into the remaining bar.
 const PROCESSING_DISPLAY_MAX = 99;
 const POST_UPLOAD_PROGRESS_ASYMPTOTE = 99.4;
 const POST_UPLOAD_PROGRESS_INTERVAL_MS = 320;
@@ -1502,12 +1502,35 @@ const MIN_UPLOAD_PHASE_DISPLAY_MS = 280;
 const GENERIC_UPLOAD_PHASE_BEAT_MS = 220;
 const POST_UPLOAD_STORE_COMPLETE_DWELL_MS = 120;
 const VIDEO_INGEST_POLL_MS = 800;
+/** Human: Share of the overall bar used by byte upload for video/audio before conversion fills the rest. */
+export const MEDIA_UPLOAD_PIPELINE_SHARE = 40;
 /** Human: Backend ffmpeg progress maps into conversion_progress ~5–50 before Nebular upload begins. */
 const HLS_ENCRYPT_PROGRESS_START = 40;
 const HLS_STORAGE_PROGRESS_START = 50;
 /** Human: Audio waveform jobs use 0–45 analyze, 45–75 extract, 75–100 Nebular PUT. */
 const AUDIO_ENCRYPT_PROGRESS_START = 45;
 const AUDIO_STORAGE_PROGRESS_START = 75;
+
+// Human: Map server conversion_progress (0–100) into overall tray percent after byte upload.
+// Agent: RETURNS MEDIA_UPLOAD_PIPELINE_SHARE…99 so the bar never rewinds when conversion starts.
+export function mapConversionProgressToOverallPercent(conversionProgress: number): number {
+  const raw = Math.min(100, Math.max(0, conversionProgress));
+  const remaining = 100 - MEDIA_UPLOAD_PIPELINE_SHARE;
+  return Math.min(
+    PROCESSING_DISPLAY_MAX,
+    MEDIA_UPLOAD_PIPELINE_SHARE + Math.round((raw / 100) * remaining),
+  );
+}
+
+// Human: Scale raw byte-upload percent into the leading segment of the overall media bar.
+// Agent: USED by upload progress emitters for video/audio files.
+export function mapMediaUploadPercentToOverall(uploadPercent: number): number {
+  const raw = Math.min(100, Math.max(0, uploadPercent));
+  return Math.min(
+    MEDIA_UPLOAD_PIPELINE_SHARE - 1,
+    Math.round((raw / 100) * MEDIA_UPLOAD_PIPELINE_SHARE),
+  );
+}
 
 function sleepMs(ms: number) {
   return new Promise<void>((resolve) => {
@@ -1740,8 +1763,8 @@ function isMediaAwaitingIngest(file: FileItem): boolean {
   return isVideoAwaitingIngest(file) || isAudioAwaitingWaveform(file);
 }
 
-// Human: Map audio waveform job progress (0–100) into the four-phase upload tray flow.
-// Agent: READS conversion_progress + audio_waveform_ready; RETURNS processing → encrypting → storing.
+// Human: Map audio waveform job progress into overall tray % (continues after upload share).
+// Agent: READS conversion_progress; phase for labels; percent is full-pipeline overall.
 function mapAudioIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "audio_waveform_ready" | "audio_encode_status">,
   pollIndex = 0,
@@ -1752,39 +1775,30 @@ function mapAudioIngestProgressUpdate(
   if (file.audio_encode_status === "queued" && file.conversion_progress <= 0) {
     return {
       phase: "processing",
-      percent: queuedIngestDisplayPercent(pollIndex),
+      percent: Math.min(
+        PROCESSING_DISPLAY_MAX,
+        MEDIA_UPLOAD_PIPELINE_SHARE + queuedIngestDisplayPercent(pollIndex),
+      ),
       indeterminate: false,
     };
   }
 
   const raw = file.conversion_progress;
-  if (raw >= AUDIO_STORAGE_PROGRESS_START) {
-    const percent = Math.min(
-      PROCESSING_DISPLAY_MAX,
-      Math.round(
-        ((raw - AUDIO_STORAGE_PROGRESS_START) / (100 - AUDIO_STORAGE_PROGRESS_START)) * 100,
-      ),
-    );
-    return { phase: "storing", percent, indeterminate: false };
-  }
-  if (raw >= AUDIO_ENCRYPT_PROGRESS_START) {
-    const span = AUDIO_STORAGE_PROGRESS_START - AUDIO_ENCRYPT_PROGRESS_START;
-    const percent = Math.min(
-      PROCESSING_DISPLAY_MAX,
-      Math.round(((raw - AUDIO_ENCRYPT_PROGRESS_START) / span) * 100),
-    );
-    return { phase: "encrypting", percent, indeterminate: false };
-  }
-
-  const percent = Math.min(
-    PROCESSING_DISPLAY_MAX,
-    Math.round((raw / AUDIO_ENCRYPT_PROGRESS_START) * 100),
-  );
-  return { phase: "processing", percent, indeterminate: false };
+  const phase: UploadProgressUpdate["phase"] =
+    raw >= AUDIO_STORAGE_PROGRESS_START
+      ? "storing"
+      : raw >= AUDIO_ENCRYPT_PROGRESS_START
+        ? "encrypting"
+        : "processing";
+  return {
+    phase,
+    percent: mapConversionProgressToOverallPercent(raw),
+    indeterminate: false,
+  };
 }
 
-// Human: Map server conversion_progress into processing, encrypting, and storage bars for the upload tray.
-// Agent: READS conversion_progress + hls_ready; RETURNS phase processing|encrypting|storing with 0–100% percent.
+// Human: Map server conversion_progress into overall tray % for video HLS ingest.
+// Agent: phase from progress bands for status color; percent spans full conversion 0–100 after upload share.
 function mapVideoIngestProgressUpdate(
   file: Pick<FileItem, "conversion_progress" | "hls_ready" | "hls_encode_status">,
   pollIndex = 0,
@@ -1796,33 +1810,26 @@ function mapVideoIngestProgressUpdate(
   if (file.hls_encode_status === "queued" && file.conversion_progress <= 0) {
     return {
       phase: "processing",
-      percent: queuedIngestDisplayPercent(pollIndex),
+      percent: Math.min(
+        PROCESSING_DISPLAY_MAX,
+        MEDIA_UPLOAD_PIPELINE_SHARE + queuedIngestDisplayPercent(pollIndex),
+      ),
       indeterminate: false,
     };
   }
 
   const raw = file.conversion_progress;
-  if (raw >= HLS_STORAGE_PROGRESS_START) {
-    const percent = Math.min(
-      PROCESSING_DISPLAY_MAX,
-      Math.round(((raw - HLS_STORAGE_PROGRESS_START) / HLS_STORAGE_PROGRESS_START) * 100),
-    );
-    return { phase: "storing", percent, indeterminate: false };
-  }
-  if (raw >= HLS_ENCRYPT_PROGRESS_START) {
-    const span = HLS_STORAGE_PROGRESS_START - HLS_ENCRYPT_PROGRESS_START;
-    const percent = Math.min(
-      PROCESSING_DISPLAY_MAX,
-      Math.round(((raw - HLS_ENCRYPT_PROGRESS_START) / span) * 100),
-    );
-    return { phase: "encrypting", percent, indeterminate: false };
-  }
-
-  const percent = Math.min(
-    PROCESSING_DISPLAY_MAX,
-    Math.round((raw / HLS_ENCRYPT_PROGRESS_START) * 100),
-  );
-  return { phase: "processing", percent, indeterminate: false };
+  const phase: UploadProgressUpdate["phase"] =
+    raw >= HLS_STORAGE_PROGRESS_START
+      ? "storing"
+      : raw >= HLS_ENCRYPT_PROGRESS_START
+        ? "encrypting"
+        : "processing";
+  return {
+    phase,
+    percent: mapConversionProgressToOverallPercent(raw),
+    indeterminate: false,
+  };
 }
 
 // Human: After multipart returns, poll files.conversion_progress until HLS ingest hits 100%.
@@ -1987,14 +1994,28 @@ function uploadFileWithProgressResumable(
       }
     };
 
-    onProgress?.({ phase: "uploading", percent: 0 });
+    onProgress?.({
+      phase: "uploading",
+      percent: isGenericUpload ? 0 : mapMediaUploadPercentToOverall(0),
+    });
 
     void (async () => {
       try {
         const registered = await uploadFileResumableBytes(file, {
           folderId: options?.folderId,
           existingSessionId: options?.resumableServerSessionId ?? session.resumableServerSessionId,
-          onProgress: (update) => onProgress?.(update),
+          onProgress: (update) => {
+            if (!onProgress) return;
+            if (isGenericUpload || update.phase !== "uploading") {
+              onProgress(update);
+              return;
+            }
+            // Human: Media keeps one continuous bar — upload only fills the first pipeline share.
+            onProgress({
+              ...update,
+              percent: mapMediaUploadPercentToOverall(update.percent),
+            });
+          },
           isCancelled: () => session.cancelled,
           signal: abortController.signal,
           onSessionReady: (serverSession) => {
@@ -2163,6 +2184,30 @@ async function startMultipartUpload(
         await options?.acquirePipelineStage?.("processing");
         if (session.cancelled) return;
         clearSimulatedProgress();
+        // Human: Media already holds upload share on the bar — sim only eases within remaining room.
+        // Agent: starts near MEDIA_UPLOAD_PIPELINE_SHARE until conversion_progress polls take over.
+        if (!isGenericUpload) {
+          onProgress?.({
+            phase: "processing",
+            percent: MEDIA_UPLOAD_PIPELINE_SHARE,
+            indeterminate: false,
+          });
+          stopSimulatedProgress = startSimulatedPhaseProgress(
+            "processing",
+            (update) => {
+              onProgress?.({
+                ...update,
+                percent: Math.min(
+                  PROCESSING_DISPLAY_MAX,
+                  MEDIA_UPLOAD_PIPELINE_SHARE +
+                    Math.round((update.percent / 100) * (100 - MEDIA_UPLOAD_PIPELINE_SHARE) * 0.15),
+                ),
+              });
+            },
+            () => session.cancelled,
+          );
+          return;
+        }
         stopSimulatedProgress = startSimulatedPhaseProgress(
           "processing",
           onProgress,
@@ -2171,20 +2216,29 @@ async function startMultipartUpload(
       })();
     };
 
-    onProgress?.({ phase: "uploading", percent: 0 });
+    onProgress?.({
+      phase: "uploading",
+      percent: isGenericUpload ? 0 : mapMediaUploadPercentToOverall(0),
+    });
 
     xhr.upload.addEventListener("progress", (event) => {
       if (!onProgress) return;
       if (event.lengthComputable && event.total > 0) {
         const ratio = event.loaded / event.total;
-        const percent = Math.min(100, Math.round(ratio * 100));
+        const rawPercent = Math.min(100, Math.round(ratio * 100));
+        const percent = isGenericUpload
+          ? rawPercent
+          : mapMediaUploadPercentToOverall(rawPercent);
         onProgress({ phase: "uploading", percent });
         if (ratio >= 1) {
           notifyUploadBytesComplete();
           emitPostUploadWaitPhase();
         }
       } else if (event.loaded > 0) {
-        onProgress({ phase: "uploading", percent: 50 });
+        onProgress({
+          phase: "uploading",
+          percent: isGenericUpload ? 50 : mapMediaUploadPercentToOverall(50),
+        });
       }
     });
 
