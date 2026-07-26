@@ -160,6 +160,7 @@ type ExcelSpreadsheetRibbonProps = {
   onTracePrecedents?: () => void;
   onTraceDependents?: () => void;
   onEvaluateFormula?: () => void;
+  onGoTo?: () => void;
   onNameManager?: () => void;
   onClearContents?: () => void;
   onDataValidation?: () => void;
@@ -768,6 +769,7 @@ function FormulasTabPanel(props: Pick<
   | "onTracePrecedents"
   | "onTraceDependents"
   | "onEvaluateFormula"
+  | "onGoTo"
   | "onNameManager"
   | "readOnly"
   | "showFormulas"
@@ -782,6 +784,7 @@ function FormulasTabPanel(props: Pick<
       <RibbonGroupDivider />
       <RibbonGroup label="Defined Names">
         <RibbonIconButton label="Name Manager" icon={<Calculator style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onNameManager} />
+        <RibbonIconButton label="Go To" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onGoTo} />
       </RibbonGroup>
       <RibbonGroupDivider />
       <RibbonGroup label="Formula Auditing">

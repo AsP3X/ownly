@@ -95,6 +95,21 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "MODE", category: "Statistical", description: "Most common value.", syntax: "MODE(number1, ...)" },
   { name: "QUARTILE", category: "Statistical", description: "Quartile of a data set.", syntax: "QUARTILE(array, quart)" },
   { name: "NORMSDIST", category: "Statistical", description: "Standard normal CDF.", syntax: "NORMSDIST(z)" },
+  { name: "PV", category: "Financial", description: "Present value.", syntax: "PV(rate, nper, pmt, [fv])" },
+  { name: "NPER", category: "Financial", description: "Number of periods.", syntax: "NPER(rate, pmt, pv, [fv])" },
+  { name: "RATE", category: "Financial", description: "Interest rate per period.", syntax: "RATE(nper, pmt, pv, [fv])" },
+  { name: "IPMT", category: "Financial", description: "Interest payment.", syntax: "IPMT(rate, per, nper, pv)" },
+  { name: "PPMT", category: "Financial", description: "Principal payment.", syntax: "PPMT(rate, per, nper, pv)" },
+  { name: "MIRR", category: "Financial", description: "Modified internal rate of return.", syntax: "MIRR(values, finance_rate, reinvest_rate)" },
+  { name: "SLN", category: "Financial", description: "Straight-line depreciation.", syntax: "SLN(cost, salvage, life)" },
+  { name: "LOOKUP", category: "Lookup", description: "Vector lookup.", syntax: "LOOKUP(lookup, lookup_vector, [result_vector])" },
+  { name: "ADDRESS", category: "Lookup", description: "Cell address as text.", syntax: "ADDRESS(row, col, [abs_num])" },
+  { name: "ROWS", category: "Lookup", description: "Number of rows in a range.", syntax: "ROWS(array)" },
+  { name: "COLUMNS", category: "Lookup", description: "Number of columns in a range.", syntax: "COLUMNS(array)" },
+  { name: "TOCOL", category: "Dynamic array", description: "Transform to a column.", syntax: "TOCOL(array)" },
+  { name: "TOROW", category: "Dynamic array", description: "Transform to a row.", syntax: "TOROW(array)" },
+  { name: "VSTACK", category: "Dynamic array", description: "Stack arrays vertically.", syntax: "VSTACK(array1, [array2], ...)" },
+  { name: "HSTACK", category: "Dynamic array", description: "Stack arrays horizontally.", syntax: "HSTACK(array1, [array2], ...)" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

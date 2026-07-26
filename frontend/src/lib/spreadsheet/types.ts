@@ -41,6 +41,9 @@ export type CellStyle = {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  // Human: Double underline (SheetJS underline === 2 or "double").
+  // Agent: RENDERED as double underline CSS; EXPORTED as underline: 2.
+  doubleUnderline?: boolean;
   // Human: Font strikethrough from ribbon or xlsx import.
   // Agent: RENDERED as line-through CSS; EXPORTED via cellStyleToXlsx strike.
   strikethrough?: boolean;

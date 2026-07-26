@@ -37,8 +37,9 @@ Last updated: 2026-07-26 (batch 3)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | Large catalog: IFS/SWITCH, trig (SIN/COS/…), FACT/COMBIN/ROMAN, date (DAYS/WEEKNUM/WORKDAY/TIME), stats (GEOMEAN/MODE/QUARTILE/NORMSDIST), info (ISEVEN/ISODD), text helpers, dynamic arrays, LET; still not full Excel library |
+| Formula evaluation / recalc | 🚧 | Large catalog + financial (PV/NPER/RATE/IPMT/PPMT/MIRR/SLN/…), LOOKUP/ADDRESS/ROWS/COLUMNS, TOCOL/TOROW/VSTACK/HSTACK, trig, date, stats; still not full Excel library |
 | Evaluate Formula dialog | ✅ | Formulas → Evaluate |
+| Go To | ✅ | Formulas → Go To (cell or named range) |
 | Insert hyperlink | ✅ | Insert → Link |
 | Clear contents | ✅ | Home → Clear keeps styles |
 | Status bar range stats | ✅ | Multi-cell Average/Count/Sum |
@@ -115,6 +116,8 @@ Last updated: 2026-07-26 (batch 3)
 | Comments + validation + defined names OOXML | ✅ | `xlsx-metadata-ooxml.ts` + VML |
 | Cell styles round-trip | 🚧 | Bold/italic/strike/align/fill/font/borders (thin–double + per-side colors); theme1.xml palette on import + theme index export when matched |
 | Theme colors from theme1.xml | ✅ | `loadThemePaletteFromXlsxBuffer` + tint + indexed palette |
+| Built-in numFmtId table | ✅ | `BUILTIN_NUMFMT_ID_CODES` + styles.xml numFmts parser |
+| Double underline | ✅ | Import/export + CSS `underline double` |
 | Chart insert OOXML | ✅ | Common types including scatter |
 
 ## Implementation files

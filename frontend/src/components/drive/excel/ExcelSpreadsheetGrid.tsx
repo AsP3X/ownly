@@ -235,7 +235,11 @@ function CellContent({
         color: cf?.textColor ?? cell.style?.textColor ?? (cell.hyperlink ? "#2563EB" : "#1A1A1A"),
         fontWeight: resolveFontWeight(cell.style, { headerRow, conditionalBold: cf?.bold }),
         textDecoration: [
-          cell.style?.underline || cell.hyperlink ? "underline" : "",
+          cell.style?.doubleUnderline
+            ? "underline double"
+            : cell.style?.underline || cell.hyperlink
+              ? "underline"
+              : "",
           cell.style?.strikethrough ? "line-through" : "",
         ]
           .filter(Boolean)

@@ -29,6 +29,7 @@ import { ExcelPivotTableDialog } from "@/components/drive/excel/ExcelPivotTableD
 import { ExcelPrintPreviewDialog } from "@/components/drive/excel/ExcelPrintPreviewDialog";
 import { ExcelTrackChangesDialog } from "@/components/drive/excel/ExcelTrackChangesDialog";
 import { ExcelEvaluateFormulaDialog } from "@/components/drive/excel/ExcelEvaluateFormulaDialog";
+import { ExcelGoToDialog } from "@/components/drive/excel/ExcelGoToDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -203,6 +204,7 @@ export function ExcelSpreadsheetDialog({
   const [drawColor, setDrawColor] = useState("#2563EB");
   const [trackChangesOpen, setTrackChangesOpen] = useState(false);
   const [evaluateFormulaOpen, setEvaluateFormulaOpen] = useState(false);
+  const [goToOpen, setGoToOpen] = useState(false);
 
   const activeSheet = editor.activeSheet;
   const activeCell =
@@ -964,6 +966,7 @@ export function ExcelSpreadsheetDialog({
                   setPrecedentHighlight(new Set(refs.map(dependentCellKey)));
                 }}
                 onEvaluateFormula={() => setEvaluateFormulaOpen(true)}
+                onGoTo={() => setGoToOpen(true)}
                 onNameManager={() => setNameManagerOpen(true)}
                 onDataValidation={() => setValidationOpen(true)}
                 onEditComment={() => setCommentOpen(true)}
@@ -1228,6 +1231,25 @@ export function ExcelSpreadsheetDialog({
           cellLabel={cellAddressLabel(editor.activeCellAddress)}
           formula={activeCell?.formula ?? null}
           resultDisplay={activeCell?.display ?? ""}
+        />
+
+        <ExcelGoToDialog
+          open={goToOpen}
+          onOpenChange={setGoToOpen}
+          namedRanges={editor.workbook?.namedRanges ?? []}
+          activeSheetName={activeSheet?.name ?? ""}
+          onGoToCell={(address) => editor.selectCell(address)}
+          onGoToNamedRange={(range) => {
+            const sheetIndex =
+              editor.workbook?.sheets.findIndex(
+                (sheet) => sheet.name.toLowerCase() === range.sheetName.toLowerCase(),
+              ) ?? -1;
+            if (sheetIndex >= 0) editor.setActiveSheetIndex(sheetIndex);
+            editor.selectCell({ row: range.startRow, col: range.startCol });
+            if (range.endRow !== range.startRow || range.endCol !== range.startCol) {
+              editor.selectCell({ row: range.endRow, col: range.endCol }, true);
+            }
+          }}
         />
 
         <ExcelCellCommentDialog

@@ -733,6 +733,103 @@ function evaluateFunction(
       const index = rangeValues.findIndex((value) => String(value ?? "").toLowerCase() === lookup);
       return index >= 0 ? index + 1 : ("#N/A" as FormulaError);
     }
+    case "LOOKUP": {
+      // Human: Vector form LOOKUP(lookup, lookup_vector, [result_vector]).
+      // Agent: EXACT then approximate last ≤ for sorted numeric vectors.
+      const parts = splitFunctionArgs(argsRaw);
+      const lookupValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[1]?.trim() ?? "");
+      const resultValues = parts[2]
+        ? collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[2].trim())
+        : lookupValues;
+      const target = String(args[0] ?? "").toLowerCase();
+      const targetNum = coerceNumber(args[0]);
+      let matchIndex = lookupValues.findIndex(
+        (value) => String(value ?? "").toLowerCase() === target,
+      );
+      if (matchIndex < 0 && Number.isFinite(targetNum)) {
+        let best = -1;
+        for (let index = 0; index < lookupValues.length; index += 1) {
+          const n = coerceNumber(lookupValues[index]);
+          if (Number.isFinite(n) && n <= targetNum) best = index;
+        }
+        matchIndex = best;
+      }
+      if (matchIndex < 0) return "#N/A" as FormulaError;
+      return resultValues[matchIndex] ?? ("#N/A" as FormulaError);
+    }
+    case "ADDRESS": {
+      const rowNum = Math.max(1, Math.round(coerceNumber(args[0])));
+      const colNum = Math.max(1, Math.round(coerceNumber(args[1])));
+      const absNum = args[2] !== undefined ? Math.round(coerceNumber(args[2])) : 1;
+      const colLetters = columnIndexToLetters(colNum - 1);
+      if (absNum === 1) return `$${colLetters}$${rowNum}`;
+      if (absNum === 2) return `${colLetters}$${rowNum}`;
+      if (absNum === 3) return `$${colLetters}${rowNum}`;
+      return `${colLetters}${rowNum}`;
+    }
+    case "AREAS":
+      return 1;
+    case "COLUMNS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const meta = getRangeMetaFromArg(ctx, sheetIndex, parts[0]?.trim() ?? "");
+      return meta?.cols ?? 1;
+    }
+    case "ROWS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const meta = getRangeMetaFromArg(ctx, sheetIndex, parts[0]?.trim() ?? "");
+      return meta?.rows ?? 1;
+    }
+    case "TOCOL": {
+      const parts = splitFunctionArgs(argsRaw);
+      const values = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      return { values, spillRows: values.length, spillCols: 1 };
+    }
+    case "TOROW": {
+      const parts = splitFunctionArgs(argsRaw);
+      const values = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      return { values, spillRows: 1, spillCols: Math.max(1, values.length) };
+    }
+    case "VSTACK": {
+      const parts = splitFunctionArgs(argsRaw);
+      const values: FormulaScalar[] = [];
+      for (const part of parts) {
+        values.push(...collectRangeValuesFromArg(ctx, sheetIndex, row, col, part.trim()));
+      }
+      return { values, spillRows: values.length, spillCols: 1 };
+    }
+    case "HSTACK": {
+      const parts = splitFunctionArgs(argsRaw);
+      const arrays = parts.map((part) =>
+        collectRangeValuesFromArg(ctx, sheetIndex, row, col, part.trim()),
+      );
+      const values = arrays.flat();
+      return { values, spillRows: 1, spillCols: Math.max(1, values.length) };
+    }
+    case "CHOOSECOLS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const meta = getRangeMetaFromArg(ctx, sheetIndex, parts[0]?.trim() ?? "");
+      const cols = meta?.cols ?? 1;
+      const rows = meta?.rows ?? 1;
+      const all = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const colIndex = Math.max(1, Math.round(coerceNumber(args[1]))) - 1;
+      const values: FormulaScalar[] = [];
+      for (let r = 0; r < rows; r += 1) {
+        values.push(all[r * cols + colIndex] ?? null);
+      }
+      return { values, spillRows: rows, spillCols: 1 };
+    }
+    case "CHOOSEROWS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const meta = getRangeMetaFromArg(ctx, sheetIndex, parts[0]?.trim() ?? "");
+      const cols = meta?.cols ?? 1;
+      const all = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const rowIndex = Math.max(1, Math.round(coerceNumber(args[1]))) - 1;
+      const values: FormulaScalar[] = [];
+      for (let c = 0; c < cols; c += 1) {
+        values.push(all[rowIndex * cols + c] ?? null);
+      }
+      return { values, spillRows: 1, spillCols: cols };
+    }
     case "SUMPRODUCT": {
       const parts = splitFunctionArgs(argsRaw);
       if (parts.length === 0) return 0;

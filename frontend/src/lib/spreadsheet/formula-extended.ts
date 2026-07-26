@@ -69,9 +69,124 @@ export function evaluateExtendedFunction(
       if (rate === 0) return -(pv + pmt * nper);
       return -(pv * (1 + rate) ** nper + (pmt * ((1 + rate) ** nper - 1)) / rate);
     }
+    case "PV": {
+      const rate = num(args[0]);
+      const nper = num(args[1]);
+      const pmt = num(args[2]);
+      const fv = num(args[3] ?? 0);
+      if (!Number.isFinite(rate) || !Number.isFinite(nper)) return "#VALUE!" as FormulaError;
+      if (rate === 0) return -(fv + pmt * nper);
+      return -(fv + pmt * ((1 + rate) ** nper - 1) / rate) / (1 + rate) ** nper;
+    }
+    case "NPER": {
+      const rate = num(args[0]);
+      const pmt = num(args[1]);
+      const pv = num(args[2]);
+      const fv = num(args[3] ?? 0);
+      if (!Number.isFinite(rate) || !Number.isFinite(pmt) || !Number.isFinite(pv)) return "#VALUE!" as FormulaError;
+      if (rate === 0) return -(pv + fv) / pmt;
+      return Math.log((pmt - fv * rate) / (pmt + pv * rate)) / Math.log(1 + rate);
+    }
+    case "RATE": {
+      // Human: Newton-Raphson RATE for loan-style cashflows.
+      // Agent: USES PV/PMT/NPER relationship; RETURNS approx annual period rate.
+      const nper = num(args[0]);
+      const pmt = num(args[1]);
+      const pv = num(args[2]);
+      const fv = num(args[3] ?? 0);
+      let rate = 0.1;
+      for (let i = 0; i < 40; i += 1) {
+        const f =
+          pv * (1 + rate) ** nper +
+          pmt * ((1 + rate) ** nper - 1) / rate +
+          fv;
+        const df =
+          nper * pv * (1 + rate) ** (nper - 1) +
+          pmt * (nper * (1 + rate) ** (nper - 1) * rate - ((1 + rate) ** nper - 1)) / (rate * rate);
+        if (Math.abs(df) < 1e-12) break;
+        const next = rate - f / df;
+        if (!Number.isFinite(next)) break;
+        if (Math.abs(next - rate) < 1e-8) {
+          rate = next;
+          break;
+        }
+        rate = next;
+      }
+      return rate;
+    }
+    case "IPMT": {
+      const rate = num(args[0]);
+      const per = Math.round(num(args[1]));
+      const nper = num(args[2]);
+      const pv = num(args[3]);
+      const pmt =
+        rate === 0
+          ? -pv / nper
+          : (-pv * rate) / (1 - (1 + rate) ** -nper);
+      const balance = pv * (1 + rate) ** (per - 1) + pmt * (((1 + rate) ** (per - 1) - 1) / rate);
+      return -balance * rate;
+    }
+    case "PPMT": {
+      const rate = num(args[0]);
+      const per = Math.round(num(args[1]));
+      const nper = num(args[2]);
+      const pv = num(args[3]);
+      const pmt =
+        rate === 0
+          ? -pv / nper
+          : (-pv * rate) / (1 - (1 + rate) ** -nper);
+      const balance =
+        rate === 0
+          ? pv + pmt * (per - 1)
+          : pv * (1 + rate) ** (per - 1) + pmt * (((1 + rate) ** (per - 1) - 1) / rate);
+      const ipmt = -balance * rate;
+      return pmt - ipmt;
+    }
     case "IRR": {
       const cashflows = nums(args);
       return irr(cashflows, num(args[1] ?? 0.1));
+    }
+    case "MIRR": {
+      const values = nums(args.slice(0, -2));
+      const financeRate = num(args[args.length - 2]);
+      const reinvestRate = num(args[args.length - 1]);
+      if (values.length < 2) return "#DIV/0!" as FormulaError;
+      let neg = 0;
+      let pos = 0;
+      values.forEach((cf, index) => {
+        if (cf < 0) neg += cf / (1 + financeRate) ** index;
+        else pos += cf * (1 + reinvestRate) ** (values.length - 1 - index);
+      });
+      if (neg === 0 || pos === 0) return "#DIV/0!" as FormulaError;
+      return (pos / -neg) ** (1 / (values.length - 1)) - 1;
+    }
+    case "SLN": {
+      const cost = num(args[0]);
+      const salvage = num(args[1]);
+      const life = num(args[2]);
+      if (life === 0) return "#DIV/0!" as FormulaError;
+      return (cost - salvage) / life;
+    }
+    case "SYD": {
+      const cost = num(args[0]);
+      const salvage = num(args[1]);
+      const life = num(args[2]);
+      const per = num(args[3]);
+      return ((cost - salvage) * (life - per + 1) * 2) / (life * (life + 1));
+    }
+    case "DB": {
+      const cost = num(args[0]);
+      const salvage = num(args[1]);
+      const life = num(args[2]);
+      const period = Math.round(num(args[3]));
+      const rate = 1 - (salvage / cost) ** (1 / life);
+      let book = cost;
+      let dep = 0;
+      for (let i = 1; i <= period; i += 1) {
+        dep = book * rate;
+        book -= dep;
+      }
+      return dep;
     }
     case "POWER":
     case "POW":

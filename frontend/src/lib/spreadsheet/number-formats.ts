@@ -20,6 +20,43 @@ export const RIBBON_NUMBER_FORMAT_OPTIONS: { value: NumberFormat; label: string 
   { value: "custom", label: "Custom" },
 ];
 
+// Human: Built-in Excel numFmtId → format code (subset used when SheetJS omits z).
+// Agent: READ by numberFormatFromXlsxNumFmtId; EXTEND as needed for ECMA-376 §18.8.30.
+export const BUILTIN_NUMFMT_ID_CODES: Record<number, string> = {
+  0: "General",
+  1: "0",
+  2: "0.00",
+  3: "#,##0",
+  4: "#,##0.00",
+  5: "$#,##0_);($#,##0)",
+  6: "$#,##0_);[Red]($#,##0)",
+  7: "$#,##0.00_);($#,##0.00)",
+  8: "$#,##0.00_);[Red]($#,##0.00)",
+  9: "0%",
+  10: "0.00%",
+  11: "0.00E+00",
+  12: "# ?/?",
+  13: "# ??/??",
+  14: "m/d/yyyy",
+  15: "d-mmm-yy",
+  16: "d-mmm",
+  17: "mmm-yy",
+  18: "h:mm AM/PM",
+  19: "h:mm:ss AM/PM",
+  20: "h:mm",
+  21: "h:mm:ss",
+  22: "m/d/yyyy h:mm",
+  37: "#,##0_);(#,##0)",
+  38: "#,##0_);[Red](#,##0)",
+  39: "#,##0.00_);(#,##0.00)",
+  40: "#,##0.00_);[Red](#,##0.00)",
+  45: "mm:ss",
+  46: "[h]:mm:ss",
+  47: "mmss.0",
+  48: "##0.0E+0",
+  49: "@",
+};
+
 // Human: Built-in Excel format codes keyed by our NumberFormat enum.
 // Agent: WRITTEN to cell.z on serialize when not custom.
 export const BUILTIN_FORMAT_CODES: Record<Exclude<NumberFormat, "custom">, string> = {
@@ -55,6 +92,24 @@ export function numberFormatFromXlsxCode(zCode: string | undefined, display?: st
   if (normalized.includes("$") || displayText.includes("$")) return "currency";
   if (normalized.includes("#") || normalized.includes("0")) return "number";
   return "custom";
+}
+
+// Human: Resolve numFmtId to a format code (custom map first, then built-ins).
+// Agent: USED when SheetJS leaves cell.z empty but styles.xml has the code.
+export function formatCodeFromNumFmtId(
+  numFmtId: number | undefined,
+  customMap?: Record<number, string>,
+): string | undefined {
+  if (numFmtId === undefined || !Number.isFinite(numFmtId)) return undefined;
+  if (customMap?.[numFmtId]) return customMap[numFmtId];
+  return BUILTIN_NUMFMT_ID_CODES[numFmtId];
+}
+
+export function numberFormatFromXlsxNumFmtId(
+  numFmtId: number | undefined,
+  customMap?: Record<number, string>,
+): NumberFormat {
+  return numberFormatFromXlsxCode(formatCodeFromNumFmtId(numFmtId, customMap));
 }
 
 // Human: Resolve the Excel z-code to write for a cell style on export.

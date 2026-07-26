@@ -16,6 +16,7 @@ const CELL_STYLE_KEYS: (keyof CellStyle)[] = [
   "bold",
   "italic",
   "underline",
+  "doubleUnderline",
   "strikethrough",
   "horizontalAlign",
   "verticalAlign",
@@ -58,7 +59,7 @@ export type XlsxCellStyle = {
   color?: XlsxColor;
   bold?: boolean;
   italic?: boolean;
-  underline?: boolean;
+  underline?: boolean | number | string;
   strike?: boolean;
   horizontal?: string;
   vertical?: string;
@@ -316,7 +317,12 @@ export function cellStyleFromXlsx(
   if (textColor) style.textColor = textColor;
   if (xlsxStyle.bold) style.bold = true;
   if (xlsxStyle.italic) style.italic = true;
-  if (xlsxStyle.underline) style.underline = true;
+  if (xlsxStyle.underline === 2 || xlsxStyle.underline === "double") {
+    style.underline = true;
+    style.doubleUnderline = true;
+  } else if (xlsxStyle.underline) {
+    style.underline = true;
+  }
   if (xlsxStyle.strike) style.strikethrough = true;
   if (xlsxStyle.horizontal) style.horizontalAlign = mapHorizontalAlign(xlsxStyle.horizontal);
   if (xlsxStyle.vertical) style.verticalAlign = mapVerticalAlign(xlsxStyle.vertical);
@@ -371,7 +377,8 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
 
   if (style.bold) xlsx.bold = true;
   if (style.italic) xlsx.italic = true;
-  if (style.underline) xlsx.underline = true;
+  if (style.doubleUnderline) xlsx.underline = 2;
+  else if (style.underline) xlsx.underline = true;
   if (style.strikethrough) xlsx.strike = true;
   if (style.horizontalAlign) xlsx.horizontal = style.horizontalAlign;
   if (style.verticalAlign) {

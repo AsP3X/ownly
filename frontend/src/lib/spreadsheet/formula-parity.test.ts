@@ -87,6 +87,25 @@ describe("formula parity", () => {
     expect(Number(result.rows[1][3].value)).toBe(3);
   });
 
+  it("evaluates PV, LOOKUP, ADDRESS, and TOCOL", () => {
+    const sheet = sheetFrom([
+      [cell(1), cell(2), cell(3), cell("a"), cell("b"), cell("c")],
+      [
+        cell(null, "=PV(0.05, 2, -100)"),
+        cell(null, '=LOOKUP(2, A1:C1, D1:F1)'),
+        cell(null, "=ADDRESS(3, 2)"),
+        cell(null, "=TOCOL(A1:C1)"),
+      ],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(Number(result.rows[1][0].value)).toBeCloseTo(185.94, 1);
+    expect(result.rows[1][1].display).toBe("b");
+    expect(result.rows[1][2].display).toBe("$B$3");
+    expect(Number(result.rows[1][3].value)).toBe(1);
+    expect(Number(result.rows[2][3].value)).toBe(2);
+    expect(result.rows[2][3].spillFrom).toBe("1:3");
+  });
+
   it("evaluates trig, FACT, ROMAN, and ISEVEN", () => {
     const sheet = sheetFrom([
       [
