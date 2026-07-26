@@ -49,6 +49,21 @@ import {
   parseRetryAfterSeconds,
   setupMutationHeaders,
 } from "@/api/core";
+// Human: Spreadsheet Copilot server reply (heuristic or future LLM).
+// Agent: POST /api/v1/spreadsheet/copilot; FALLBACK to local heuristics on network error.
+export async function postSpreadsheetCopilot(body: {
+  prompt: string;
+  cell?: string;
+  sheet_name?: string;
+  file_id?: string;
+}): Promise<{ reply: string; source: string }> {
+  return apiFetch("/spreadsheet/copilot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }) as Promise<{ reply: string; source: string }>;
+}
+
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }

@@ -158,11 +158,17 @@ type ExcelSpreadsheetRibbonProps = {
   onInsertTable?: () => void;
   onInsertPivot?: () => void;
   onTracePrecedents?: () => void;
+  onTraceDependents?: () => void;
   onNameManager?: () => void;
   onDataValidation?: () => void;
   onEditComment?: () => void;
   onProtectSheet?: () => void;
   onTrackChanges?: () => void;
+  trackChangesEnabled?: boolean;
+  onShowTrackChangesLog?: () => void;
+  onGroupRows?: () => void;
+  onUngroupRows?: () => void;
+  onSheetTabColor?: () => void;
   onPageSetup?: () => void;
   onTextToColumns?: () => void;
   onHideRow?: () => void;
@@ -381,8 +387,13 @@ function HomeTabPanel({
             >
               <Underline style={{ width: sm, height: sm }} />
             </RibbonToggleButton>
-            <RibbonToggleButton ariaLabel="Strikethrough" disabled={readOnly}>
-              <span style={{ fontSize: scaledPx(11), fontWeight: 600 }}>ab</span>
+            <RibbonToggleButton
+              ariaLabel="Strikethrough"
+              disabled={readOnly}
+              active={cellStyle.strikethrough}
+              onClick={() => onStyleChange({ strikethrough: cellStyle.strikethrough ? undefined : true })}
+            >
+              <span style={{ fontSize: scaledPx(11), fontWeight: 600, textDecoration: "line-through" }}>ab</span>
             </RibbonToggleButton>
             <RibbonToggleButton
               ariaLabel="Borders"
@@ -739,7 +750,14 @@ function PageLayoutTabPanel(props: Pick<
 
 function FormulasTabPanel(props: Pick<
   ExcelSpreadsheetRibbonProps,
-  "onAutoSum" | "onInsertFunction" | "onToggleShowFormulas" | "onTracePrecedents" | "onNameManager" | "readOnly" | "showFormulas"
+  | "onAutoSum"
+  | "onInsertFunction"
+  | "onToggleShowFormulas"
+  | "onTracePrecedents"
+  | "onTraceDependents"
+  | "onNameManager"
+  | "readOnly"
+  | "showFormulas"
 >) {
   const sz = iconSize();
   return (
@@ -756,6 +774,7 @@ function FormulasTabPanel(props: Pick<
       <RibbonGroup label="Formula Auditing">
         <RibbonIconButton label="Show Formulas" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} active={props.showFormulas} onClick={props.onToggleShowFormulas} />
         <RibbonIconButton label="Trace Precedents" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTracePrecedents} />
+        <RibbonIconButton label="Trace Dependents" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTraceDependents} />
       </RibbonGroup>
     </>
   );
@@ -776,6 +795,8 @@ function DataTabPanel(props: Pick<
   | "onImportCsv"
   | "onDataValidation"
   | "onTextToColumns"
+  | "onGroupRows"
+  | "onUngroupRows"
   | "readOnly"
 >) {
   const sz = iconSize();
@@ -807,6 +828,10 @@ function DataTabPanel(props: Pick<
           <RibbonIconButton label="Insert Col" icon={<span style={{ fontSize: scaledPx(9) }}>+C</span>} disabled={props.readOnly} onClick={props.onInsertColumn} />
           <RibbonIconButton label="Delete Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={props.readOnly} onClick={props.onDeleteColumn} />
         </RibbonIconStack>
+        <RibbonIconStack>
+          <RibbonIconButton label="Group" icon={<span style={{ fontSize: scaledPx(9) }}>Grp</span>} disabled={props.readOnly} onClick={props.onGroupRows} />
+          <RibbonIconButton label="Ungroup" icon={<span style={{ fontSize: scaledPx(9) }}>⊟</span>} disabled={props.readOnly} onClick={props.onUngroupRows} />
+        </RibbonIconStack>
       </RibbonGroup>
     </>
   );
@@ -815,7 +840,12 @@ function DataTabPanel(props: Pick<
 function ReviewTabPanel(
   props: Pick<
     ExcelSpreadsheetRibbonProps,
-    "onEditComment" | "onProtectSheet" | "onTrackChanges" | "readOnly"
+    | "onEditComment"
+    | "onProtectSheet"
+    | "onTrackChanges"
+    | "onShowTrackChangesLog"
+    | "trackChangesEnabled"
+    | "readOnly"
   >,
 ) {
   const sz = iconSize();
@@ -827,7 +857,13 @@ function ReviewTabPanel(
       <RibbonGroupDivider />
       <RibbonGroup label="Protect">
         <RibbonIconButton label="Protect Sheet" icon={<Sheet style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onProtectSheet} />
-        <RibbonIconButton label="Track Changes" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTrackChanges} />
+        <RibbonIconButton
+          label={props.trackChangesEnabled ? "Tracking On" : "Track Changes"}
+          icon={<Eye style={{ width: sz, height: sz }} aria-hidden />}
+          active={props.trackChangesEnabled}
+          onClick={props.onTrackChanges}
+        />
+        <RibbonIconButton label="Change Log" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onShowTrackChangesLog} />
       </RibbonGroup>
     </>
   );
@@ -841,6 +877,7 @@ function ViewTabPanel(props: Pick<
   | "onUnfreezePanes"
   | "onHideRow"
   | "onHideColumn"
+  | "onSheetTabColor"
   | "onZoomChange"
   | "showGridlines"
   | "showFormulas"
@@ -860,6 +897,7 @@ function ViewTabPanel(props: Pick<
         <RibbonIconButton label="Unfreeze Panes" icon={<span style={{ fontSize: scaledPx(10) }}>⊟</span>} onClick={props.onUnfreezePanes} />
         <RibbonIconButton label="Hide Row" icon={<span style={{ fontSize: scaledPx(9) }}>-R</span>} disabled={props.readOnly} onClick={props.onHideRow} />
         <RibbonIconButton label="Hide Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={props.readOnly} onClick={props.onHideColumn} />
+        <RibbonIconButton label="Tab Color" icon={<span style={{ fontSize: scaledPx(10) }}>◼</span>} disabled={props.readOnly} onClick={props.onSheetTabColor} />
       </RibbonGroup>
       <RibbonGroupDivider />
       <RibbonGroup label="Zoom">

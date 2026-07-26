@@ -2,13 +2,22 @@
 // Agent: READS DataValidationRule; VALIDATES user input before commit.
 
 export type DataValidationRule = {
-  type: "list" | "whole" | "decimal" | "textLength";
+  type: "list" | "whole" | "decimal" | "textLength" | "custom" | "date";
   values?: string[];
   min?: number;
   max?: number;
   allowBlank?: boolean;
   errorMessage?: string;
+  // Human: Custom formula expression for type="custom" (truthy when valid).
+  // Agent: EVALUATED lightly in validateCellInput; FULL formula engine optional.
+  formula?: string;
 };
+
+// Human: Stable map key for per-cell validation overrides.
+// Agent: USED by SheetData.cellValidations and commitEdit resolution.
+export function cellValidationKey(row: number, col: number): string {
+  return `${row}:${col}`;
+}
 
 function isBlankInput(raw: string): boolean {
   return raw.trim().length === 0;
@@ -56,6 +65,30 @@ export function validateCellInput(
       if (rule.min !== undefined && numeric < rule.min) return { valid: false, message: fallback };
       if (rule.max !== undefined && numeric > rule.max) return { valid: false, message: fallback };
       return { valid: true };
+    }
+    case "date": {
+      const parsed = Date.parse(input);
+      if (!Number.isFinite(parsed)) return { valid: false, message: fallback };
+      const serial = parsed / 86400000;
+      if (rule.min !== undefined && serial < rule.min) return { valid: false, message: fallback };
+      if (rule.max !== undefined && serial > rule.max) return { valid: false, message: fallback };
+      return { valid: true };
+    }
+    case "custom": {
+      // Human: Lightweight custom checks — numeric comparisons like =A1>0 or truthy non-empty.
+      // Agent: ACCEPTS non-empty input when formula absent; REJECTS blank when formula present.
+      if (!rule.formula) return { valid: input.length > 0 };
+      const formula = rule.formula.trim();
+      const numeric = parseNumericInput(input);
+      const gt = />(\s*)(-?\d+(?:\.\d+)?)/.exec(formula);
+      if (gt && numeric !== null) {
+        return numeric > Number(gt[2]) ? { valid: true } : { valid: false, message: fallback };
+      }
+      const lt = /<(\s*)(-?\d+(?:\.\d+)?)/.exec(formula);
+      if (lt && numeric !== null) {
+        return numeric < Number(lt[2]) ? { valid: true } : { valid: false, message: fallback };
+      }
+      return input.length > 0 ? { valid: true } : { valid: false, message: fallback };
     }
     case "textLength": {
       const length = input.length;

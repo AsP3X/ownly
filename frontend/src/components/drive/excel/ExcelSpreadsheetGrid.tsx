@@ -185,6 +185,7 @@ function CellContent({
         cell.style?.wrapText ? "whitespace-pre-wrap break-words" : "truncate",
         cell.style?.italic && "italic",
         cell.style?.underline && "underline",
+        cell.style?.strikethrough && "line-through",
         horizontalAlign === "center" && "text-center",
         horizontalAlign === "right" && "text-right",
       )}
@@ -193,7 +194,12 @@ function CellContent({
         fontFamily: cell.style?.fontFamily,
         color: cf?.textColor ?? cell.style?.textColor ?? (cell.hyperlink ? "#2563EB" : "#1A1A1A"),
         fontWeight: resolveFontWeight(cell.style, { headerRow, conditionalBold: cf?.bold }),
-        textDecoration: cell.style?.underline || cell.hyperlink ? "underline" : undefined,
+        textDecoration: [
+          cell.style?.underline || cell.hyperlink ? "underline" : "",
+          cell.style?.strikethrough ? "line-through" : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined,
       }}
     >
       {displayText}

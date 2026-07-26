@@ -10,6 +10,7 @@ const CELL_STYLE_KEYS: (keyof CellStyle)[] = [
   "bold",
   "italic",
   "underline",
+  "strikethrough",
   "horizontalAlign",
   "verticalAlign",
   "numberFormat",
@@ -43,6 +44,7 @@ export type XlsxCellStyle = {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strike?: boolean;
   horizontal?: string;
   vertical?: string;
   // Human: SheetJS flat font fields from cellStyles import.
@@ -276,6 +278,7 @@ export function cellStyleFromXlsx(
   if (xlsxStyle.bold) style.bold = true;
   if (xlsxStyle.italic) style.italic = true;
   if (xlsxStyle.underline) style.underline = true;
+  if (xlsxStyle.strike) style.strikethrough = true;
   if (xlsxStyle.horizontal) style.horizontalAlign = mapHorizontalAlign(xlsxStyle.horizontal);
   if (xlsxStyle.vertical) style.verticalAlign = mapVerticalAlign(xlsxStyle.vertical);
   if (typeof xlsxStyle.name === "string" && xlsxStyle.name.trim()) {
@@ -310,6 +313,7 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
   if (style.bold) xlsx.bold = true;
   if (style.italic) xlsx.italic = true;
   if (style.underline) xlsx.underline = true;
+  if (style.strikethrough) xlsx.strike = true;
   if (style.horizontalAlign) xlsx.horizontal = style.horizontalAlign;
   if (style.verticalAlign) {
     xlsx.vertical = style.verticalAlign === "middle" ? "center" : style.verticalAlign;

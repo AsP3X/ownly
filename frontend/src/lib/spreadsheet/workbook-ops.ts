@@ -451,6 +451,31 @@ export function setColumnValidation(
   };
 }
 
+// Human: Set or clear a per-cell data validation rule (overrides column rules).
+// Agent: WRITES cellValidations["row:col"]; USED by Data Validation dialog cell scope.
+export function setCellValidation(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  row: number,
+  col: number,
+  rule: DataValidationRule | null,
+): SpreadsheetWorkbook {
+  const key = `${row}:${col}`;
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const nextValidations = { ...(sheet.cellValidations ?? {}) };
+      if (rule) nextValidations[key] = rule;
+      else delete nextValidations[key];
+      return {
+        ...sheet,
+        cellValidations: Object.keys(nextValidations).length > 0 ? nextValidations : undefined,
+      };
+    }),
+  };
+}
+
 // Human: Attach or remove a comment note on a single cell.
 // Agent: EXPANDS sheet grid; WRITES SheetCell.comment string.
 export function setCellComment(
@@ -864,6 +889,36 @@ export function groupRowsInRange(
       return { ...sheet, rowOutlineLevels: levels };
     }),
   };
+}
+
+// Human: Decrease outline level for rows in range (Data → Ungroup).
+// Agent: CLAMPS at 0; REMOVES key when level reaches 0.
+export function ungroupRowsInRange(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  startRow: number,
+  endRow: number,
+): SpreadsheetWorkbook {
+  const minRow = Math.min(startRow, endRow);
+  const maxRow = Math.max(startRow, endRow);
+  return {
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const levels = { ...(sheet.rowOutlineLevels ?? {}) };
+      for (let row = minRow; row <= maxRow; row += 1) {
+        const next = Math.max(0, (levels[row] ?? 0) - 1);
+        if (next === 0) delete levels[row];
+        else levels[row] = next;
+      }
+      return { ...sheet, rowOutlineLevels: levels };
+    }),
+  };
+}
+
+// Human: Clear the workbook track-changes log (Review → Track Changes clear).
+// Agent: KEEPS trackChangesEnabled flag; EMPTIES trackChanges array.
+export function clearTrackChanges(workbook: SpreadsheetWorkbook): SpreadsheetWorkbook {
+  return { ...workbook, trackChanges: [] };
 }
 
 export function setCellHyperlink(

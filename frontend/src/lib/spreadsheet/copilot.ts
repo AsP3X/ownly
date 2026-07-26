@@ -41,8 +41,16 @@ export function buildCopilotAnalysis(
   let badge: string | null = null;
   let badgeTone: CopilotAnalysis["badgeTone"] = "neutral";
   let body = `This cell contains '${displayValue}'. Review the surrounding forecast row for context before making changes.`;
+  let primaryAction = "Draft SUM formula for this column";
+  let secondaryAction = "Write explanation comment";
 
-  if (numericValue !== null && budgetValue !== null && budgetValue > 0) {
+  if (cell.formula) {
+    badge = "Formula";
+    badgeTone = "neutral";
+    body = `Cell ${label} uses formula ${cell.formula} and currently displays '${displayValue}'. Trace precedents from the Formulas tab to audit inputs.`;
+    primaryAction = "Trace precedents for this formula";
+    secondaryAction = "Show dependents of this cell";
+  } else if (numericValue !== null && budgetValue !== null && budgetValue > 0) {
     const delta = numericValue - budgetValue;
     const percent = Math.abs((delta / budgetValue) * 100);
     if (delta > 0) {
@@ -57,23 +65,57 @@ export function buildCopilotAnalysis(
       badge = "On Track";
       body = `This cell contains '${displayValue}'. The forecast matches the budgeted amount of $${budgetValue.toLocaleString("en-US")}.`;
     }
+    const adjustTarget = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(budgetValue);
+    primaryAction = `Auto-adjust to match budget (${adjustTarget})`;
+    secondaryAction = "Write explanation comment";
   } else if (numericValue !== null) {
-    body = `This cell contains '${displayValue}'. Use Copilot to draft a formula, compare nearby rows, or explain this value to stakeholders.`;
+    body = `This cell contains '${displayValue}'. Suggested formula: =SUM(${label.replace(/\d+$/, "2")}:${label}) or compare with nearby rows.`;
+    primaryAction = `Insert =SUM above ${label}`;
+    secondaryAction = "Format as currency";
+  } else if (cell.comment?.trim()) {
+    badge = "Commented";
+    body = `Cell ${label} has a note: “${cell.comment.trim()}”. Value is '${displayValue}'.`;
+    primaryAction = "Edit comment";
+    secondaryAction = "Clear comment";
   }
-
-  const adjustTarget =
-    budgetValue !== null
-      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(
-          budgetValue,
-        )
-      : displayValue;
 
   return {
     title: `Cell ${label} (${rowLabel})`,
     badge,
     badgeTone,
     body,
-    primaryAction: `Auto-adjust to match budget (${adjustTarget})`,
-    secondaryAction: "Write explanation comment",
+    primaryAction,
+    secondaryAction,
   };
+}
+
+// Human: Local heuristic replies for Copilot prompt box (no server LLM yet).
+// Agent: MATCHES keywords; RETURNS assistant-style text for ExcelCopilotSidebar.
+export function buildCopilotPromptReply(prompt: string, address: CellAddress | null): string {
+  const text = prompt.trim().toLowerCase();
+  const cell = address ? cellAddressLabel(address) : "the active cell";
+  if (!text) return "Ask me to draft a formula, explain a value, or suggest formatting.";
+  if (text.includes("sum") || text.includes("total")) {
+    return `Try =SUM(${cell.replace(/\d+$/, "2")}:${cell}) on the cell below your data, or use AutoSum on the Formulas tab.`;
+  }
+  if (text.includes("average") || text.includes("mean")) {
+    return `Use =AVERAGE(range) for a simple mean, or =AVERAGEIF(range, criteria) to filter rows first.`;
+  }
+  if (text.includes("lookup") || text.includes("vlookup") || text.includes("xlookup")) {
+    return `Prefer =XLOOKUP(lookup, lookup_array, return_array). For legacy sheets, =VLOOKUP(lookup, table, col, FALSE) still works.`;
+  }
+  if (text.includes("filter") || text.includes("unique") || text.includes("sort")) {
+    return `Dynamic arrays: =FILTER(range, include), =SORT(range), =UNIQUE(range). Spills fill cells below/right — clear blockers to avoid #SPILL!.`;
+  }
+  if (text.includes("pivot")) {
+    return `Select your data range, then Insert → PivotTable. Pick row fields and value aggregations (sum/count/average).`;
+  }
+  if (text.includes("format") || text.includes("currency") || text.includes("percent")) {
+    return `Use Home → Number for Currency/Percent, or set a custom format. Format Painter copies style between cells.`;
+  }
+  return `I analyzed your request about ${cell}. For full LLM assistance, a server Copilot endpoint can be enabled later. Meanwhile try Insert Function, Trace Precedents, or describe a formula goal more specifically (sum, lookup, filter).`;
 }

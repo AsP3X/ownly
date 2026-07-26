@@ -43,6 +43,12 @@ export function ExcelPasteSpecialDialog({
           <Button type="button" variant="outline" className="justify-start" onClick={() => onPaste({ mode: "values", transpose: false })}>
             Values only
           </Button>
+          <Button type="button" variant="outline" className="justify-start" onClick={() => onPaste({ mode: "formats", transpose: false })}>
+            Formats only
+          </Button>
+          <Button type="button" variant="outline" className="justify-start" onClick={() => onPaste({ mode: "formulas", transpose: false })}>
+            Formulas only
+          </Button>
           <Button type="button" variant="outline" className="justify-start" onClick={() => onPaste({ mode: "all", transpose: true })}>
             All — Transpose
           </Button>

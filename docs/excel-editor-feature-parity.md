@@ -2,7 +2,7 @@
 
 Status legend: ✅ Done · 🚧 Partial · ⏳ Planned · ❌ Out of scope (Ownly)
 
-Last updated: 2026-06-18
+Last updated: 2026-07-26
 
 ## Ribbon UI
 
@@ -12,6 +12,12 @@ Last updated: 2026-06-18
 | Labeled command groups | ✅ | Clipboard, Font, Alignment, Number, Styles, Cells, Editing (Home) |
 | Ribbon collapse | ✅ | Chevron on tab strip |
 | Design tokens | ✅ | `excel-ribbon-tokens.ts` from login-screen + Office colors |
+| Format Painter | ✅ | Activate + apply on next cell click |
+| Strikethrough | ✅ | Style + grid + OOXML strike |
+| Group / Ungroup rows | ✅ | Data → Outline; `rowOutlineLevels` |
+| Sheet tab color | ✅ | View → Tab Color; tab bar accent |
+| Trace Dependents | ✅ | Formulas auditing |
+| Track Changes log UI | ✅ | Review → Tracking + Change Log dialog |
 
 ## Phase 1 — Core editing
 
@@ -22,6 +28,7 @@ Last updated: 2026-06-18
 | Keyboard navigation (arrows, Tab, Enter) | ✅ | Shift+arrow extends range |
 | Multi-cell / range selection | ✅ | Shift+click; range highlight |
 | Copy / Cut / Paste (Ctrl+C/X/V) | ✅ | Internal + system clipboard TSV |
+| Paste Special | ✅ | All / values / formats / formulas + transpose |
 | Undo / Redo (Ctrl+Z / Ctrl+Y) | ✅ | 50-level workbook snapshots |
 | Fill handle / drag-fill | ✅ | Bottom-right handle; numeric/date/text series |
 | Find & Replace | ✅ | Dialog + Ctrl+F; find next / replace / replace all |
@@ -30,11 +37,12 @@ Last updated: 2026-06-18
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | SUMIFS, MAXIFS/MINIFS, dynamic arrays (FILTER/SORT/UNIQUE/SEQUENCE/SORTBY), extended financial/stat subset; LAMBDA not yet |
+| Formula evaluation / recalc | 🚧 | Expanded catalog: TEXTJOIN, INDIRECT, SUMPRODUCT, XMATCH, TRANSPOSE, LET, LAMBDA (limited), financial/stat batch; still not full Excel library |
+| Dynamic arrays + #SPILL! | ✅ | Clear old spills; collision returns `#SPILL!`; multi-col FILTER/SORT/UNIQUE |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
-| Trace Precedents | ✅ | Highlights formula refs in amber on grid |
+| Trace Precedents / Dependents | ✅ | Amber highlight on grid |
 | Named ranges | ✅ | Name Manager + formula resolution + OOXML export |
-| Style persistence on save | ✅ | `cellStyleToXlsx` on serialize |
+| Style persistence on save | ✅ | `cellStyleToXlsx` including strikethrough |
 | Font family / size pickers | ✅ | Home ribbon selects |
 | Percent / number / currency formats | ✅ | Home ribbon toggles |
 | Vertical align | ✅ | Home ribbon top/middle/bottom |
@@ -54,8 +62,9 @@ Last updated: 2026-06-18
 | Sort ascending / descending | ✅ | Data tab; header row fixed |
 | AutoFilter | ✅ | Dialog with search + value checkboxes |
 | Remove duplicates | ✅ | Data tab; key column = active cell column |
-| Data validation | ✅ | List / number rules; import/export OOXML; commit guard |
+| Data validation | ✅ | List / number / date / custom; column or per-cell scope |
 | Insert Table | ✅ | Header + banded rows on selection; table metadata on sheet |
+| Multi-field pivot summary | ✅ | 1–2 row fields + 1–2 value aggregations → new sheet |
 
 ## Phase 4 — Ribbon tabs (non-Home)
 
@@ -66,8 +75,8 @@ Last updated: 2026-06-18
 | File — Print | ✅ | Opens print preview with margin guides |
 | Insert — Merge Cells | ✅ | |
 | Insert — Table | ✅ | Formats selection with banded rows |
-| Insert — Bar Chart | ✅ | SVG dialog from selection |
-| Insert — PivotTable | ✅ | Group-by summary dialog; inserts new sheet |
+| Insert — Charts | ✅ | Column/bar/line/area/pie/doughnut/**scatter** |
+| Insert — PivotTable | ✅ | Multi-field summary dialog; inserts new sheet |
 | Insert — Pictures / Shapes | ❌ | Requires asset upload pipeline |
 | Page Layout — gridlines toggle | ✅ | View flag |
 | Page Layout — freeze / unfreeze | ✅ | At active cell |
@@ -75,7 +84,7 @@ Last updated: 2026-06-18
 | Page Layout — margins | ✅ | Margins dialog; pageMargins OOXML export |
 | Page Layout — print preview | ✅ | Margin guides + isolated print/PDF export |
 | Formulas — Name Manager | ✅ | Create/delete defined names |
-| Formulas — Trace Precedents | ✅ | Formulas tab |
+| Formulas — Trace Precedents / Dependents | ✅ | Formulas tab |
 | Data — Find | ✅ | Opens find/replace dialog |
 | Data — From CSV | ✅ | Paste CSV/TSV as new sheet |
 | Data — Validation / Comment | ✅ | Data tab dialogs |
@@ -85,12 +94,12 @@ Last updated: 2026-06-18
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Copilot cell analysis | ✅ | Heuristic budget compare |
-| Copilot prompt / Send | 🚧 | Local heuristic replies (not LLM) |
+| Copilot cell analysis | ✅ | Formula / budget / comment heuristics |
+| Copilot prompt / Send | ✅ | `POST /api/v1/spreadsheet/copilot` + local fallback |
 | Copilot action buttons | ✅ | Navigate to related cells |
 | Real-time co-editing | ❌ | Requires backend sync |
-| Comments / notes | ✅ | In-app + OOXML import/export |
-| Track changes | ❌ | |
+| Comments / notes | ✅ | In-app + OOXML + **VML drawing** for Excel indicators |
+| Track changes | ✅ | Toggle + append on edit + Change Log dialog |
 
 ## Phase 6 — Save fidelity
 
@@ -99,32 +108,25 @@ Last updated: 2026-06-18
 | Values + formulas export | ✅ | |
 | Column / row dimensions export | ✅ | |
 | Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars, top10, duplicates, iconSet, aboveAverage |
-| Comments + validation + defined names OOXML | ✅ | `xlsx-metadata-ooxml.ts` |
-| Cell styles round-trip | 🚧 | Bold/italic/align/fill/font/borders export; full OOXML fidelity TBD |
+| Comments + validation + defined names OOXML | ✅ | `xlsx-metadata-ooxml.ts` + VML |
+| Cell styles round-trip | 🚧 | Bold/italic/strike/align/fill/font/borders export; theme edge cases remain |
+| Chart insert OOXML | ✅ | Common types including scatter |
 
 ## Implementation files
 
 | Area | Path |
 |------|------|
 | Tracker | `docs/excel-editor-feature-parity.md` |
-| Ribbon tokens | `frontend/src/components/drive/excel/excel-ribbon-tokens.ts` |
-| Ribbon primitives | `frontend/src/components/drive/excel/excel-ribbon-primitives.tsx` |
 | Ribbon shell | `frontend/src/components/drive/excel/ExcelSpreadsheetRibbon.tsx` |
-| Metadata OOXML | `frontend/src/lib/spreadsheet/xlsx-metadata-ooxml.ts` |
-| Page settings OOXML | `frontend/src/lib/spreadsheet/xlsx-page-settings-ooxml.ts` |
-| Page margins UI | `frontend/src/components/drive/excel/ExcelPageMarginsDialog.tsx` |
-| Named ranges | `frontend/src/lib/spreadsheet/named-ranges.ts` |
-| Name Manager UI | `frontend/src/components/drive/excel/ExcelNamedRangeDialog.tsx` |
-| Pivot summary | `frontend/src/lib/spreadsheet/pivot-summary.ts` |
-| PivotTable UI | `frontend/src/components/drive/excel/ExcelPivotTableDialog.tsx` |
-| Print preview | `frontend/src/lib/spreadsheet/print-preview.ts` |
-| Print preview UI | `frontend/src/components/drive/excel/ExcelPrintPreviewDialog.tsx` |
-| Workbook ops | `frontend/src/lib/spreadsheet/workbook-ops.ts` |
+| Track changes UI | `frontend/src/components/drive/excel/ExcelTrackChangesDialog.tsx` |
+| Formulas | `frontend/src/lib/spreadsheet/formulas.ts`, `formula-extended.ts`, `formula-dynamic-arrays.ts` |
+| Pivot | `frontend/src/lib/spreadsheet/pivot-summary.ts` |
+| Copilot API | `backend/src/spreadsheet/handlers.rs` + `frontend/src/api/client.ts` `postSpreadsheetCopilot` |
 
 ## Remaining high-value work
 
-1. Real Copilot LLM integration (`POST /api/v1/spreadsheet/copilot`)
-2. LAMBDA and fuller function library beyond current catalog
-3. Full OOXML style/chart round-trip edge cases
-4. Track changes UI + collaboration session token
-5. Comment VML drawing for Excel-native indicators
+1. Full Excel function library (hundreds of functions beyond current set)
+2. Real LLM behind Copilot (endpoint is heuristic-ready + audited)
+3. Full OOXML theme color / complex numFmt edge cases
+4. Real-time collaboration
+5. Mobile edit mode (read-only polish shipped; edit stays desktop-gated)

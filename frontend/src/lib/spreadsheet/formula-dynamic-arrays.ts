@@ -20,50 +20,89 @@ function flattenToNumbers(values: FormulaArrayValue[]): number[] {
     .filter((value) => Number.isFinite(value));
 }
 
-// Human: FILTER(array, include) — keep values where include is truthy.
-// Agent: PAIRS parallel arrays; RETURNS 1-column spill.
+function isTruthyFlag(flag: FormulaArrayValue): boolean {
+  return (
+    flag === true ||
+    flag === 1 ||
+    String(flag ?? "").toLowerCase() === "true" ||
+    (typeof flag === "number" && flag !== 0)
+  );
+}
+
+function compareValues(a: FormulaArrayValue, b: FormulaArrayValue, order: number): number {
+  const numA = Number(String(a ?? "").replace(/[$,%\s,]/g, ""));
+  const numB = Number(String(b ?? "").replace(/[$,%\s,]/g, ""));
+  let cmp = 0;
+  if (Number.isFinite(numA) && Number.isFinite(numB)) cmp = numA - numB;
+  else cmp = String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
+  return order < 0 ? -cmp : cmp;
+}
+
+// Human: FILTER(array, include) — keep rows where include is truthy; supports multi-column arrays.
+// Agent: TREATS include as one flag per row; RETURNS spillRows × spillCols grid.
 export function evalFilter(
   arrayValues: FormulaArrayValue[],
   includeFlags: FormulaArrayValue[],
+  spillCols = 1,
 ): EvalArray {
+  const cols = Math.max(1, spillCols);
+  const rowCount = Math.ceil(arrayValues.length / cols);
   const filtered: FormulaArrayValue[] = [];
-  const length = Math.min(arrayValues.length, includeFlags.length);
-  for (let index = 0; index < length; index += 1) {
-    const flag = includeFlags[index];
-    const truthy =
-      flag === true ||
-      flag === 1 ||
-      String(flag ?? "").toLowerCase() === "true" ||
-      (typeof flag === "number" && flag !== 0);
-    if (truthy) filtered.push(arrayValues[index]);
+  for (let row = 0; row < rowCount; row += 1) {
+    const flag = includeFlags[row] ?? includeFlags[row * cols] ?? null;
+    if (!isTruthyFlag(flag)) continue;
+    for (let col = 0; col < cols; col += 1) {
+      filtered.push(arrayValues[row * cols + col] ?? null);
+    }
   }
-  return { values: filtered, spillRows: filtered.length, spillCols: 1 };
+  const spillRows = cols > 0 ? Math.floor(filtered.length / cols) : 0;
+  return { values: filtered, spillRows, spillCols: cols };
 }
 
-// Human: SORT(array) — ascending sort of numeric/text values.
-// Agent: RETURNS sorted copy as vertical spill.
-export function evalSort(arrayValues: FormulaArrayValue[]): EvalArray {
-  const sorted = [...arrayValues].sort((a, b) => {
-    const numA = Number(String(a ?? "").replace(/[$,%\s,]/g, ""));
-    const numB = Number(String(b ?? "").replace(/[$,%\s,]/g, ""));
-    if (Number.isFinite(numA) && Number.isFinite(numB)) return numA - numB;
-    return String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
-  });
-  return { values: sorted, spillRows: sorted.length, spillCols: 1 };
+// Human: SORT(array, [sort_index], [sort_order]) — sort rows; multi-column aware.
+// Agent: sort_index is 1-based column within each row; sort_order 1 asc / -1 desc.
+export function evalSort(
+  arrayValues: FormulaArrayValue[],
+  spillCols = 1,
+  sortIndex = 1,
+  sortOrder = 1,
+): EvalArray {
+  const cols = Math.max(1, spillCols);
+  const rowCount = Math.ceil(arrayValues.length / cols);
+  const rows: FormulaArrayValue[][] = [];
+  for (let row = 0; row < rowCount; row += 1) {
+    const entry: FormulaArrayValue[] = [];
+    for (let col = 0; col < cols; col += 1) {
+      entry.push(arrayValues[row * cols + col] ?? null);
+    }
+    rows.push(entry);
+  }
+  const keyCol = Math.min(cols, Math.max(1, sortIndex)) - 1;
+  rows.sort((a, b) => compareValues(a[keyCol], b[keyCol], sortOrder));
+  const values = rows.flat();
+  return { values, spillRows: rows.length, spillCols: cols };
 }
 
-// Human: UNIQUE(array) — distinct values preserving first-seen order.
-// Agent: RETURNS deduped vertical spill.
-export function evalUnique(arrayValues: FormulaArrayValue[]): EvalArray {
+// Human: UNIQUE(array) — distinct rows preserving first-seen order (multi-col row identity).
+// Agent: KEYS entire row when spillCols > 1.
+export function evalUnique(arrayValues: FormulaArrayValue[], spillCols = 1): EvalArray {
+  const cols = Math.max(1, spillCols);
+  const rowCount = Math.ceil(arrayValues.length / cols);
   const seen = new Set<string>();
   const unique: FormulaArrayValue[] = [];
-  for (const value of arrayValues) {
-    const key = String(value ?? "").toLowerCase();
+  let spillRows = 0;
+  for (let row = 0; row < rowCount; row += 1) {
+    const rowValues: FormulaArrayValue[] = [];
+    for (let col = 0; col < cols; col += 1) {
+      rowValues.push(arrayValues[row * cols + col] ?? null);
+    }
+    const key = rowValues.map((value) => String(value ?? "").toLowerCase()).join("\u0001");
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push(value);
+    unique.push(...rowValues);
+    spillRows += 1;
   }
-  return { values: unique, spillRows: unique.length, spillCols: 1 };
+  return { values: unique, spillRows, spillCols: cols };
 }
 
 // Human: SEQUENCE(rows, cols, start, step) — fill a column or grid with a series.

@@ -46,6 +46,7 @@ pub mod request_tracking;
 pub mod secrets;
 pub mod setup;
 pub mod shares;
+pub mod spreadsheet;
 pub mod storage;
 pub mod stream_ticket;
 pub mod temp_cleanup;
@@ -490,6 +491,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         );
 
     let protected_routes = Router::new()
+        .route(
+            "/api/v1/spreadsheet/copilot",
+            post(spreadsheet::handlers::copilot),
+        )
         .route("/api/v1/me", get(auth::handlers::me))
         .route(
             "/api/v1/me/permissions",

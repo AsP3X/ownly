@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 
 type ExcelSheetTabsBarProps = {
   sheets: string[];
+  /** Human: Optional tab accent colors aligned with sheets[]. */
+  tabColors?: Array<string | undefined>;
   activeIndex: number;
   readOnly?: boolean;
   onSelectSheet: (index: number) => void;
@@ -25,6 +27,7 @@ type ExcelSheetTabsBarProps = {
 
 export function ExcelSheetTabsBar({
   sheets,
+  tabColors,
   activeIndex,
   readOnly = false,
   onSelectSheet,
@@ -76,6 +79,7 @@ export function ExcelSheetTabsBar({
         {sheets.map((name, index) => {
           const active = index === activeIndex;
           const isDropTarget = dropIndex === index && dragIndex !== null && dragIndex !== index;
+          const tabColor = tabColors?.[index];
 
           return (
             <button
@@ -117,7 +121,7 @@ export function ExcelSheetTabsBar({
                 setDropIndex(null);
               }}
               className={cn(
-                "shrink-0 rounded-t transition-colors",
+                "relative shrink-0 rounded-t transition-colors",
                 active
                   ? "border border-b-0 border-[#E5E7EB] bg-white font-semibold text-[#2563EB]"
                   : "font-normal text-[#666666] hover:text-[#1A1A1A]",
@@ -128,6 +132,7 @@ export function ExcelSheetTabsBar({
                 fontSize: scaledPx(12),
                 padding: `${scaledPx(8)}px ${scaledPx(16)}px`,
                 cursor: canReorder ? "grab" : undefined,
+                boxShadow: tabColor ? `inset 0 -3px 0 0 ${tabColor}` : undefined,
               }}
             >
               {name}

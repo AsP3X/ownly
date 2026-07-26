@@ -49,6 +49,19 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "IRR", category: "Financial", description: "Internal rate of return.", syntax: "IRR(values, [guess])" },
   { name: "PMT", category: "Financial", description: "Loan payment.", syntax: "PMT(rate, nper, pv)" },
   { name: "STDEV", category: "Statistical", description: "Sample standard deviation.", syntax: "STDEV(number1, [number2], ...)" },
+  { name: "TEXTJOIN", category: "Text", description: "Join text with a delimiter.", syntax: "TEXTJOIN(delimiter, ignore_empty, text1, ...)" },
+  { name: "INDIRECT", category: "Lookup", description: "Reference from a text address.", syntax: "INDIRECT(ref_text)" },
+  { name: "SUMPRODUCT", category: "Math", description: "Sum of products of arrays.", syntax: "SUMPRODUCT(array1, [array2], ...)" },
+  { name: "XMATCH", category: "Lookup", description: "Position of an item in an array.", syntax: "XMATCH(lookup, lookup_array)" },
+  { name: "TRANSPOSE", category: "Lookup", description: "Transpose a range.", syntax: "TRANSPOSE(array)" },
+  { name: "LET", category: "Logical", description: "Assign names and compute.", syntax: "LET(name1, value1, ..., calculation)" },
+  { name: "LAMBDA", category: "Logical", description: "Create a custom function (limited).", syntax: "LAMBDA(param, ..., calculation)" },
+  { name: "SORTBY", category: "Dynamic array", description: "Sort by a key array.", syntax: "SORTBY(array, by_array)" },
+  { name: "PRODUCT", category: "Math", description: "Multiply numbers.", syntax: "PRODUCT(number1, [number2], ...)" },
+  { name: "SUMSQ", category: "Math", description: "Sum of squares.", syntax: "SUMSQ(number1, [number2], ...)" },
+  { name: "EXACT", category: "Text", description: "Exact text match.", syntax: "EXACT(text1, text2)" },
+  { name: "EDATE", category: "Date", description: "Date plus months.", syntax: "EDATE(start_date, months)" },
+  { name: "EOMONTH", category: "Date", description: "End of month.", syntax: "EOMONTH(start_date, months)" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

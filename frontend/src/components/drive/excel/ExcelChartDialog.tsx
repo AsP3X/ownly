@@ -31,6 +31,7 @@ const CHART_TYPE_OPTIONS: Array<{ type: SheetChartType; label: string }> = [
   { type: "area", label: "Area" },
   { type: "pie", label: "Pie" },
   { type: "doughnut", label: "Doughnut" },
+  { type: "scatter", label: "Scatter" },
 ];
 
 const PREVIEW_WIDTH = 640;

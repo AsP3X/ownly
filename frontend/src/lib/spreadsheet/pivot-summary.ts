@@ -71,27 +71,78 @@ export function computePivotSummary(
   aggregation: PivotAggregation,
   skipHeaderRow = true,
 ): PivotSummaryResult {
+  return computeMultiFieldPivotSummary(
+    sheet,
+    range,
+    [rowFieldCol],
+    [{ col: valueFieldCol, aggregation }],
+    skipHeaderRow,
+  );
+}
+
+export type PivotValueField = {
+  col: number;
+  aggregation: PivotAggregation;
+};
+
+// Human: Multi-field pivot — group by one or more row fields, aggregate multiple value fields.
+// Agent: KEYS groups with unit-separator; HEADERS use header-row labels when present.
+export function computeMultiFieldPivotSummary(
+  sheet: SheetData,
+  range: CellRange,
+  rowFieldCols: number[],
+  valueFields: PivotValueField[],
+  skipHeaderRow = true,
+): PivotSummaryResult {
   const normalized = normalizeRange(range);
   const startRow = skipHeaderRow ? normalized.start.row + 1 : normalized.start.row;
-  const groups = new Map<string, number[]>();
+  const headerRow = sheet.rows[normalized.start.row];
+  const rowFields = rowFieldCols.length > 0 ? rowFieldCols : [normalized.start.col];
+  const values =
+    valueFields.length > 0
+      ? valueFields
+      : [{ col: normalized.end.col, aggregation: "sum" as PivotAggregation }];
+
+  const groups = new Map<string, { labels: string[]; buckets: number[][] }>();
 
   for (let row = startRow; row <= normalized.end.row; row += 1) {
-    const groupKey = cellDisplayValue(sheet.rows[row]?.[rowFieldCol]).trim() || "(blank)";
-    const numeric = numericFromCell(sheet.rows[row]?.[valueFieldCol]);
-    if (numeric === null && aggregation !== "count") continue;
-    const bucket = groups.get(groupKey) ?? [];
-    bucket.push(numeric ?? 0);
-    groups.set(groupKey, bucket);
+    const labels = rowFields.map(
+      (col) => cellDisplayValue(sheet.rows[row]?.[col]).trim() || "(blank)",
+    );
+    const groupKey = labels.join("\u0001");
+    let entry = groups.get(groupKey);
+    if (!entry) {
+      entry = { labels, buckets: values.map(() => []) };
+      groups.set(groupKey, entry);
+    }
+    values.forEach((field, fieldIndex) => {
+      const numeric = numericFromCell(sheet.rows[row]?.[field.col]);
+      if (numeric === null && field.aggregation !== "count") return;
+      entry!.buckets[fieldIndex].push(numeric ?? 0);
+    });
   }
 
-  const aggregationLabel =
-    aggregation === "average" ? "Average" : aggregation.charAt(0).toUpperCase() + aggregation.slice(1);
-  const headers = ["Group", aggregationLabel];
-  const rows = [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([groupKey, values]) => [
-      pivotCell(groupKey),
-      pivotCell(aggregateValues(values, aggregation)),
+  const rowHeaders = rowFields.map((col, index) => {
+    const label = cellDisplayValue(headerRow?.[col]).trim();
+    return label || `Row ${index + 1}`;
+  });
+  const valueHeaders = values.map((field) => {
+    const base = cellDisplayValue(headerRow?.[field.col]).trim() || "Value";
+    const aggregationLabel =
+      field.aggregation === "average"
+        ? "Average"
+        : field.aggregation.charAt(0).toUpperCase() + field.aggregation.slice(1);
+    return `${aggregationLabel} of ${base}`;
+  });
+
+  const headers = [...rowHeaders, ...valueHeaders];
+  const rows = [...groups.values()]
+    .sort((left, right) => left.labels.join("\u0001").localeCompare(right.labels.join("\u0001")))
+    .map((entry) => [
+      ...entry.labels.map((label) => pivotCell(label)),
+      ...entry.buckets.map((bucket, index) =>
+        pivotCell(aggregateValues(bucket, values[index].aggregation)),
+      ),
     ]);
 
   return { headers, rows };

@@ -185,6 +185,18 @@ function buildCommentsXml(comments: Array<{ ref: string; text: string }>): strin
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors><author>Ownly</author></authors><commentList>${items}</commentList></comments>`;
 }
 
+// Human: Legacy Excel VML drawing so comment indicators show in Excel Desktop.
+// Agent: WRITTEN as xl/drawings/vmlDrawingN.vml + sheet relationship; paired with commentsN.xml.
+function buildCommentsVml(comments: Array<{ ref: string; text: string }>): string {
+  const shapes = comments
+    .map((entry, index) => {
+      const id = `_x0000_s${1025 + index}`;
+      return `<v:shape id="${id}" type="#_x0000_t202" style="position:absolute;margin-left:59.25pt;margin-top:1.5pt;width:108pt;height:59.25pt;z-index:1;visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto"><v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/><v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox><x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill><x:Row>${Math.max(0, Number.parseInt(entry.ref.replace(/^[A-Z]+/i, ""), 10) - 1)}</x:Row><x:Column>${Math.max(0, entry.ref.replace(/\d+/g, "").toUpperCase().split("").reduce((n, c) => n * 26 + (c.charCodeAt(0) - 64), 0) - 1)}</x:Column></x:ClientData></v:shape>`;
+    })
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/></o:shapelayout><v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>${shapes}</xml>`;
+}
+
 function applyCommentsToRows(rows: SheetData["rows"], comments: Map<string, string>): SheetData["rows"] {
   if (comments.size === 0) return rows;
   return rows.map((row, rowIndex) =>
@@ -328,23 +340,59 @@ export async function exportWorkbookMetadataToXlsx(
 
       if (comments.length > 0) {
         const commentsPath = `xl/comments${commentIndex}.xml`;
+        const vmlPath = `xl/drawings/vmlDrawing${commentIndex}.vml`;
         entries.set(commentsPath, new TextEncoder().encode(buildCommentsXml(comments)));
+        entries.set(vmlPath, new TextEncoder().encode(buildCommentsVml(comments)));
         contentTypes = ensureContentTypeOverride(
           contentTypes,
           commentsPath,
           "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml",
         );
+        if (!contentTypes.includes('Extension="vml"')) {
+          contentTypes = contentTypes.includes("</Types>")
+            ? contentTypes.replace(
+                "</Types>",
+                `<Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/></Types>`,
+              )
+            : contentTypes;
+        }
 
         let sheetRels = new TextDecoder().decode(entries.get(relsPath) ?? new Uint8Array());
+        const relParts: string[] = [];
         if (!sheetRels.includes("/comments")) {
-          const relIdNext = nextRelationshipId(sheetRels);
-          const relationship = `<Relationship Id="${relIdNext}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments${commentIndex}.xml"/>`;
+          const relIdNext = nextRelationshipId(sheetRels + relParts.join(""));
+          relParts.push(
+            `<Relationship Id="${relIdNext}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments${commentIndex}.xml"/>`,
+          );
+        }
+        if (!sheetRels.includes("vmlDrawing")) {
+          const relIdVml = nextRelationshipId(sheetRels + relParts.join(""));
+          relParts.push(
+            `<Relationship Id="${relIdVml}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing" Target="../drawings/vmlDrawing${commentIndex}.vml"/>`,
+          );
+        }
+        if (relParts.length > 0) {
           if (sheetRels.includes("</Relationships>")) {
-            sheetRels = sheetRels.replace("</Relationships>", `${relationship}</Relationships>`);
+            sheetRels = sheetRels.replace("</Relationships>", `${relParts.join("")}</Relationships>`);
           } else {
-            sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationship}</Relationships>`;
+            sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relParts.join("")}</Relationships>`;
           }
           entries.set(relsPath, new TextEncoder().encode(sheetRels));
+        }
+
+        // Human: Legacy Excel needs legacyDrawing on the worksheet for red comment indicators.
+        // Agent: INJECTS r:id of vmlDrawing when missing.
+        let sheetXml = new TextDecoder().decode(entries.get(sheetPath) ?? new Uint8Array());
+        if (!sheetXml.includes("legacyDrawing") && sheetXml.includes("</worksheet>")) {
+          const vmlRelMatch = /Id="(rId\d+)"[^>]*vmlDrawing/i.exec(
+            new TextDecoder().decode(entries.get(relsPath) ?? new Uint8Array()),
+          );
+          const vmlRelId = vmlRelMatch?.[1] ?? "rIdVml";
+          sheetXml = sheetXml.replace(
+            "</worksheet>",
+            `<legacyDrawing r:id="${vmlRelId}"/></worksheet>`,
+          );
+          entries.set(sheetPath, new TextEncoder().encode(sheetXml));
         }
         commentIndex += 1;
       }

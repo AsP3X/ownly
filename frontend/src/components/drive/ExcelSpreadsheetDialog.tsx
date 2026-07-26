@@ -27,6 +27,7 @@ import { ExcelNamedRangeDialog } from "@/components/drive/excel/ExcelNamedRangeD
 import { ExcelPageMarginsDialog } from "@/components/drive/excel/ExcelPageMarginsDialog";
 import { ExcelPivotTableDialog } from "@/components/drive/excel/ExcelPivotTableDialog";
 import { ExcelPrintPreviewDialog } from "@/components/drive/excel/ExcelPrintPreviewDialog";
+import { ExcelTrackChangesDialog } from "@/components/drive/excel/ExcelTrackChangesDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -76,13 +77,19 @@ import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spre
 import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
 import { precedentCellKey, precedentCellsFromFormula } from "@/lib/spreadsheet/trace-precedents";
 import {
+  dependentCellKey,
+  dependentCellsForAddress,
+} from "@/lib/spreadsheet/trace-dependents";
+import {
   addSheet,
   activeSheetIndexAfterMove,
+  clearTrackChanges,
   deleteColumn,
   deleteRow,
   findInSheet,
   formatRangeAsTable,
   freezePanesAt,
+  groupRowsInRange,
   importCsvAsNewSheet,
   insertChartOnSheet,
   updateChartAnchorOnSheet,
@@ -97,7 +104,9 @@ import {
   renameSheet,
   replaceInWorkbook,
   setCellComment,
+  setCellValidation,
   setColumnValidation,
+  setSheetTabColor,
   setNamedRange,
   setPageMargins,
   setPageSetup,
@@ -111,6 +120,7 @@ import {
   toggleColumnHidden,
   toggleRowHidden,
   unfreezePanes,
+  ungroupRowsInRange,
 } from "@/lib/spreadsheet/workbook-ops";
 import {
   rulesFromPreset,
@@ -182,6 +192,7 @@ export function ExcelSpreadsheetDialog({
   const [textToColumnsOpen, setTextToColumnsOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<"pen" | "eraser" | null>(null);
   const [drawColor, setDrawColor] = useState("#2563EB");
+  const [trackChangesOpen, setTrackChangesOpen] = useState(false);
 
   const activeSheet = editor.activeSheet;
   const activeCell =
@@ -585,11 +596,49 @@ export function ExcelSpreadsheetDialog({
         <DialogContent className="gap-2 border border-[#E5E7EB] bg-white p-3 sm:max-w-full" overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl">
           <DialogHeader>
             <DialogTitle className="text-base">{file?.name ?? "Spreadsheet"}</DialogTitle>
-            <DialogDescription>Read-only mobile view. Use a desktop browser to edit.</DialogDescription>
+            <DialogDescription>
+              Read-only preview on this screen size. Open on a desktop (min 1024px) to edit, use formulas, and save.
+            </DialogDescription>
           </DialogHeader>
           {loading ? <p className="text-sm text-[#666666]">Loading…</p> : null}
           {loadError ? <p className="text-sm text-[#EF4444]">{loadError}</p> : null}
-          {activeSheet ? <div className="max-h-[70vh] overflow-auto">{mobileGrid}</div> : null}
+          {activeSheet ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-xs text-[#666666]">
+                <span className="font-medium text-[#1A1A1A]">
+                  {activeSheet.name}
+                  {editor.workbook && editor.workbook.sheets.length > 1
+                    ? ` · ${editor.activeSheetIndex + 1}/${editor.workbook.sheets.length}`
+                    : ""}
+                </span>
+                <span className="truncate font-mono">
+                  {cellAddressLabel(editor.activeCellAddress)}:{" "}
+                  {activeCell?.display || activeCell?.formula || "—"}
+                </span>
+              </div>
+              <div className="max-h-[60vh] overflow-auto rounded-lg border border-[#E5E7EB]">
+                {mobileGrid}
+              </div>
+              {editor.workbook && editor.workbook.sheets.length > 1 ? (
+                <div className="flex gap-1 overflow-x-auto pb-1">
+                  {editor.workbook.sheets.map((sheet, index) => (
+                    <button
+                      key={`${sheet.name}-${index}`}
+                      type="button"
+                      className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
+                        index === editor.activeSheetIndex
+                          ? "border-[#2563EB] bg-[#EFF6FF] font-semibold text-[#1D4ED8]"
+                          : "border-[#E5E7EB] bg-white text-[#666666]"
+                      }`}
+                      onClick={() => editor.setActiveSheetIndex(index)}
+                    >
+                      {sheet.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <DialogFooter className="border-0 bg-transparent px-0 py-0">
             <Button type="button" onClick={() => handleDialogOpenChange(false)}>Close</Button>
           </DialogFooter>
@@ -703,6 +752,40 @@ export function ExcelSpreadsheetDialog({
                     { bypassProtection: true },
                   )
                 }
+                trackChangesEnabled={editor.workbook?.trackChangesEnabled}
+                onShowTrackChangesLog={() => setTrackChangesOpen(true)}
+                onGroupRows={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    groupRowsInRange(
+                      current,
+                      editor.activeSheetIndex,
+                      editor.selectionRange.start.row,
+                      editor.selectionRange.end.row,
+                    ),
+                  )
+                }
+                onUngroupRows={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    ungroupRowsInRange(
+                      current,
+                      editor.activeSheetIndex,
+                      editor.selectionRange.start.row,
+                      editor.selectionRange.end.row,
+                    ),
+                  )
+                }
+                onSheetTabColor={() => {
+                  if (readOnly) return;
+                  const color = window.prompt("Sheet tab color (hex, empty to clear)", activeSheet?.tabColor ?? "#2563EB");
+                  if (color === null) return;
+                  editor.commitWorkbookMutation((current) =>
+                    setSheetTabColor(
+                      current,
+                      editor.activeSheetIndex,
+                      color.trim() ? color.trim() : null,
+                    ),
+                  );
+                }}
                 onHideRow={() =>
                   editor.commitWorkbookMutation((current) =>
                     toggleRowHidden(current, editor.activeSheetIndex, editor.activeCellAddress.row),
@@ -826,6 +909,11 @@ export function ExcelSpreadsheetDialog({
                   const refs = precedentCellsFromFormula(activeCell?.formula);
                   setPrecedentHighlight(new Set(refs.map(precedentCellKey)));
                 }}
+                onTraceDependents={() => {
+                  if (!activeSheet) return;
+                  const refs = dependentCellsForAddress(activeSheet, editor.activeCellAddress);
+                  setPrecedentHighlight(new Set(refs.map(dependentCellKey)));
+                }}
                 onNameManager={() => setNameManagerOpen(true)}
                 onDataValidation={() => setValidationOpen(true)}
                 onEditComment={() => setCommentOpen(true)}
@@ -899,6 +987,7 @@ export function ExcelSpreadsheetDialog({
                   />
                   <ExcelSheetTabsBar
                     sheets={editor.workbook?.sheets.map((sheet) => sheet.name) ?? []}
+                    tabColors={editor.workbook?.sheets.map((sheet) => sheet.tabColor)}
                     activeIndex={editor.activeSheetIndex}
                     readOnly={readOnly}
                     onSelectSheet={editor.setActiveSheetIndex}
@@ -952,6 +1041,9 @@ export function ExcelSpreadsheetDialog({
 
             <ExcelCopilotSidebar
               analysis={copilotAnalysis}
+              activeAddress={editor.activeCellAddress}
+              fileId={file?.id}
+              sheetName={activeSheet?.name}
               collapsed={copilotCollapsed}
               onCollapsedChange={setCopilotCollapsed}
               onNavigateToCell={(address) => editor.selectCell(address)}
@@ -1034,18 +1126,49 @@ export function ExcelSpreadsheetDialog({
         />
 
         <ExcelDataValidationDialog
-          key={`validation-${editor.activeCellAddress.col}-${validationOpen ? "open" : "closed"}`}
+          key={`validation-${editor.activeCellAddress.row}-${editor.activeCellAddress.col}-${validationOpen ? "open" : "closed"}`}
           open={validationOpen}
           onOpenChange={setValidationOpen}
           columnLabel={activeColumnLabel}
+          cellLabel={cellAddressLabel(editor.activeCellAddress)}
           initialRule={
-            activeSheet?.columnValidations?.[editor.activeCellAddress.col] ?? null
+            activeSheet?.cellValidations?.[
+              `${editor.activeCellAddress.row}:${editor.activeCellAddress.col}`
+            ] ??
+            activeSheet?.columnValidations?.[editor.activeCellAddress.col] ??
+            null
           }
-          onApply={(rule: DataValidationRule | null) => {
-            editor.commitWorkbookMutation((current) =>
-              setColumnValidation(current, editor.activeSheetIndex, editor.activeCellAddress.col, rule),
-            );
+          onApply={(rule: DataValidationRule | null, scope) => {
+            editor.commitWorkbookMutation((current) => {
+              if (scope === "cell") {
+                return setCellValidation(
+                  current,
+                  editor.activeSheetIndex,
+                  editor.activeCellAddress.row,
+                  editor.activeCellAddress.col,
+                  rule,
+                );
+              }
+              return setColumnValidation(
+                current,
+                editor.activeSheetIndex,
+                editor.activeCellAddress.col,
+                rule,
+              );
+            });
           }}
+        />
+
+        <ExcelTrackChangesDialog
+          open={trackChangesOpen}
+          onOpenChange={setTrackChangesOpen}
+          entries={editor.workbook?.trackChanges ?? []}
+          trackingEnabled={Boolean(editor.workbook?.trackChangesEnabled)}
+          onClear={() =>
+            editor.commitWorkbookMutation((current) => clearTrackChanges(current), {
+              bypassProtection: true,
+            })
+          }
         />
 
         <ExcelCellCommentDialog

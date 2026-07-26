@@ -18,18 +18,22 @@ import {
   type DataValidationRule,
 } from "@/lib/spreadsheet/data-validation";
 
+type ValidationScope = "column" | "cell";
+
 type ExcelDataValidationDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   columnLabel: string;
+  cellLabel?: string;
   initialRule: DataValidationRule | null;
-  onApply: (rule: DataValidationRule | null) => void;
+  onApply: (rule: DataValidationRule | null, scope: ValidationScope) => void;
 };
 
 export function ExcelDataValidationDialog({
   open,
   onOpenChange,
   columnLabel,
+  cellLabel,
   initialRule,
   onApply,
 }: ExcelDataValidationDialogProps) {
@@ -38,6 +42,8 @@ export function ExcelDataValidationDialog({
   const [minInput, setMinInput] = useState(initialRule?.min !== undefined ? String(initialRule.min) : "");
   const [maxInput, setMaxInput] = useState(initialRule?.max !== undefined ? String(initialRule.max) : "");
   const [errorMessage, setErrorMessage] = useState(initialRule?.errorMessage ?? "");
+  const [formulaInput, setFormulaInput] = useState(initialRule?.formula ?? "");
+  const [scope, setScope] = useState<ValidationScope>("column");
 
   const buildRule = (): DataValidationRule | null => {
     if (type === "list") {
@@ -46,6 +52,17 @@ export function ExcelDataValidationDialog({
       return {
         type: "list",
         values,
+        allowBlank: true,
+        errorMessage: errorMessage.trim() || undefined,
+      };
+    }
+
+    if (type === "custom") {
+      const formula = formulaInput.trim();
+      if (!formula) return null;
+      return {
+        type: "custom",
+        formula,
         allowBlank: true,
         errorMessage: errorMessage.trim() || undefined,
       };
@@ -68,11 +85,28 @@ export function ExcelDataValidationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-4 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Data Validation — {columnLabel}</DialogTitle>
-          <DialogDescription>Restrict values entered in this column.</DialogDescription>
+          <DialogTitle>
+            Data Validation — {scope === "cell" && cellLabel ? cellLabel : columnLabel}
+          </DialogTitle>
+          <DialogDescription>
+            Restrict values for this {scope === "cell" ? "cell" : "column"}.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="excel-validation-scope">Apply to</Label>
+            <select
+              id="excel-validation-scope"
+              className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              value={scope}
+              onChange={(event) => setScope(event.target.value as ValidationScope)}
+            >
+              <option value="column">Entire column ({columnLabel})</option>
+              <option value="cell">Active cell only{cellLabel ? ` (${cellLabel})` : ""}</option>
+            </select>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="excel-validation-type">Allow</Label>
             <select
@@ -84,7 +118,9 @@ export function ExcelDataValidationDialog({
               <option value="list">List</option>
               <option value="whole">Whole number</option>
               <option value="decimal">Decimal</option>
+              <option value="date">Date</option>
               <option value="textLength">Text length</option>
+              <option value="custom">Custom formula</option>
             </select>
           </div>
 
@@ -96,6 +132,16 @@ export function ExcelDataValidationDialog({
                 value={listInput}
                 onChange={(event) => setListInput(event.target.value)}
                 placeholder="Yes, No, Maybe"
+              />
+            </div>
+          ) : type === "custom" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="excel-validation-formula">Formula</Label>
+              <Input
+                id="excel-validation-formula"
+                value={formulaInput}
+                onChange={(event) => setFormulaInput(event.target.value)}
+                placeholder=">0"
               />
             </div>
           ) : (
@@ -134,7 +180,7 @@ export function ExcelDataValidationDialog({
             type="button"
             variant="outline"
             onClick={() => {
-              onApply(null);
+              onApply(null, scope);
               onOpenChange(false);
             }}
           >
@@ -143,7 +189,7 @@ export function ExcelDataValidationDialog({
           <Button
             type="button"
             onClick={() => {
-              onApply(buildRule());
+              onApply(buildRule(), scope);
               onOpenChange(false);
             }}
           >

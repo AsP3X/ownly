@@ -25,6 +25,9 @@ export type CellStyle = {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  // Human: Font strikethrough from ribbon or xlsx import.
+  // Agent: RENDERED as line-through CSS; EXPORTED via cellStyleToXlsx strike.
+  strikethrough?: boolean;
   horizontalAlign?: HorizontalAlign;
   verticalAlign?: VerticalAlign;
   numberFormat?: NumberFormat;
@@ -62,6 +65,9 @@ export type SheetCell = {
   // Human: Hyperlink URL shown as blue underlined text in grid.
   // Agent: EDITED via Insert Link; EXPORTED via cell.l in SheetJS.
   hyperlink?: string;
+  // Human: Dynamic-array spill origin key ("row:col") when this cell is a spill target.
+  // Agent: CLEARED on each recalc; SET by applySpillResult; BLOCKS #SPILL! when occupied.
+  spillFrom?: string;
 };
 
 // Human: Rectangular merged cell region (zero-based indices, inclusive).
@@ -193,6 +199,9 @@ export type SheetData = {
   // Human: Per-column data validation rules keyed by column index.
   // Agent: CHECKED on commitEdit; SET via Data Validation dialog.
   columnValidations?: Record<number, DataValidationRule>;
+  // Human: Per-cell validation overrides keyed by "row:col" (wins over column rules).
+  // Agent: CHECKED on commitEdit before columnValidations; SET via Data Validation dialog.
+  cellValidations?: Record<string, DataValidationRule>;
   // Human: Excel-style table metadata for banded row styling in grid.
   // Agent: SET via Insert Table; RENDERED as alternating row fills.
   tables?: SpreadsheetTable[];

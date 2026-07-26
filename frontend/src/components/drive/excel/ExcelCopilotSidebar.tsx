@@ -8,13 +8,18 @@ import {
   EXCEL_COPILOT_SIDEBAR_WIDTH_BASE,
   scaledPx,
 } from "@/components/drive/excel/excel-dialog-scale";
-import type { CopilotAnalysis } from "@/lib/spreadsheet/copilot";
+import { postSpreadsheetCopilot } from "@/api/client";
+import { cellAddressLabel } from "@/lib/spreadsheet/cells";
+import { buildCopilotPromptReply, type CopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cn } from "@/lib/utils";
 
 import type { CellAddress } from "@/lib/spreadsheet/types";
 
 type ExcelCopilotSidebarProps = {
   analysis: CopilotAnalysis | null;
+  activeAddress?: CellAddress | null;
+  fileId?: string;
+  sheetName?: string;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   onNavigateToCell?: (address: CellAddress) => void;
@@ -53,12 +58,16 @@ function CopilotLedge({ onExpand }: { onExpand: () => void }) {
 
 export function ExcelCopilotSidebar({
   analysis,
+  activeAddress = null,
+  fileId,
+  sheetName,
   collapsed,
   onCollapsedChange,
   onNavigateToCell,
 }: ExcelCopilotSidebarProps) {
   const [prompt, setPrompt] = useState("");
   const [promptReply, setPromptReply] = useState("");
+  const [sending, setSending] = useState(false);
   const expandedWidth = scaledPx(EXCEL_COPILOT_SIDEBAR_WIDTH_BASE);
   const ledgeWidth = scaledPx(EXCEL_COPILOT_LEDGE_WIDTH_BASE);
 
@@ -188,14 +197,27 @@ export function ExcelCopilotSidebar({
                 type="button"
                 aria-label="Send prompt"
                 className="text-[#2563EB]"
+                disabled={sending}
                 onClick={() => {
                   const trimmed = prompt.trim();
-                  if (!trimmed) return;
-                  setPromptReply(
-                    analysis
-                      ? `Based on ${analysis.title}: try a formula like =SUM(G2:G10) or review column G for budget comparisons.`
-                      : "Select a cell first, then ask about formulas, totals, or formatting.",
-                  );
+                  if (!trimmed || sending) return;
+                  setSending(true);
+                  const localFallback = buildCopilotPromptReply(trimmed, activeAddress);
+                  void postSpreadsheetCopilot({
+                    prompt: trimmed,
+                    cell: activeAddress ? cellAddressLabel(activeAddress) : undefined,
+                    sheet_name: sheetName,
+                    file_id: fileId,
+                  })
+                    .then((response) => {
+                      setPromptReply(response.reply);
+                      setPrompt("");
+                    })
+                    .catch(() => {
+                      setPromptReply(localFallback);
+                      setPrompt("");
+                    })
+                    .finally(() => setSending(false));
                 }}
               >
                 <Send style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />

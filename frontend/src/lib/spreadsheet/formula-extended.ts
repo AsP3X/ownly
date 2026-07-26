@@ -159,6 +159,107 @@ export function evaluateExtendedFunction(
       const day = date.getUTCDay();
       return day === 0 ? 7 : day;
     }
+    case "TEXTJOIN": {
+      const delimiter = String(args[0] ?? "");
+      const ignoreEmpty = Boolean(args[1]);
+      const parts = args.slice(2).map((value) => (value === null ? "" : String(value)));
+      return (ignoreEmpty ? parts.filter((part) => part !== "") : parts).join(delimiter);
+    }
+    case "EXACT":
+      return String(args[0] ?? "") === String(args[1] ?? "");
+    case "CHAR":
+      return String.fromCharCode(Math.round(num(args[0])));
+    case "CODE":
+      return String(args[0] ?? "").charCodeAt(0) || 0;
+    case "SIGN": {
+      const value = num(args[0]);
+      if (!Number.isFinite(value)) return "#VALUE!" as FormulaError;
+      return value === 0 ? 0 : value > 0 ? 1 : -1;
+    }
+    case "EVEN": {
+      const value = Math.ceil(num(args[0]));
+      return value % 2 === 0 ? value : value + (value >= 0 ? 1 : -1);
+    }
+    case "ODD": {
+      const value = Math.ceil(num(args[0]));
+      return value % 2 !== 0 ? value : value + (value >= 0 ? 1 : -1);
+    }
+    case "GCD": {
+      const values = nums(args).map((value) => Math.abs(Math.round(value)));
+      if (values.length === 0) return "#VALUE!" as FormulaError;
+      return values.reduce((a, b) => {
+        let x = a;
+        let y = b;
+        while (y) {
+          const t = y;
+          y = x % y;
+          x = t;
+        }
+        return x;
+      });
+    }
+    case "LCM": {
+      const values = nums(args).map((value) => Math.abs(Math.round(value)));
+      if (values.length === 0) return "#VALUE!" as FormulaError;
+      const gcd = (a: number, b: number): number => {
+        while (b) {
+          const t = b;
+          b = a % b;
+          a = t;
+        }
+        return a;
+      };
+      return values.reduce((a, b) => (a * b) / (gcd(a, b) || 1));
+    }
+    case "QUOTIENT":
+      return Math.trunc(num(args[0]) / num(args[1]));
+    case "PRODUCT":
+      return numericArgs.length === 0 ? 0 : numericArgs.reduce((a, b) => a * b, 1);
+    case "SUMSQ":
+      return numericArgs.reduce((sum, value) => sum + value * value, 0);
+    case "AVERAGEA": {
+      const values = args.map((value) => {
+        if (typeof value === "boolean") return value ? 1 : 0;
+        if (typeof value === "string" && value !== "" && !value.startsWith("#")) return 0;
+        return num(value);
+      }).filter((value) => Number.isFinite(value));
+      if (values.length === 0) return "#DIV/0!" as FormulaError;
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    }
+    case "COUNTBLANK":
+      return args.filter((value) => value === null || value === "").length;
+    case "EOMONTH": {
+      const serial = num(args[0]);
+      const months = Math.round(num(args[1]));
+      const date = new Date((serial - 25569) * 86400 * 1000);
+      date.setUTCMonth(date.getUTCMonth() + months + 1, 0);
+      return Math.floor(date.getTime() / 86400000 + 25569);
+    }
+    case "EDATE": {
+      const serial = num(args[0]);
+      const months = Math.round(num(args[1]));
+      const date = new Date((serial - 25569) * 86400 * 1000);
+      date.setUTCMonth(date.getUTCMonth() + months);
+      return Math.floor(date.getTime() / 86400000 + 25569);
+    }
+    case "YEARFRAC": {
+      const start = num(args[0]);
+      const end = num(args[1]);
+      return (end - start) / 365;
+    }
+    case "N":
+      return num(args[0]);
+    case "T":
+      return typeof args[0] === "string" && !String(args[0]).startsWith("#") ? String(args[0]) : "";
+    case "TYPE": {
+      const value = args[0];
+      if (value === null || value === "") return 1;
+      if (typeof value === "number") return 1;
+      if (typeof value === "string" && value.startsWith("#")) return 16;
+      if (typeof value === "string") return 2;
+      if (typeof value === "boolean") return 4;
+      return 1;
+    }
     default:
       return undefined;
   }

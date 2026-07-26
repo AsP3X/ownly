@@ -42,7 +42,7 @@ export function copyRangeFromSheet(sheet: SheetData, range: CellRange): Clipboar
   return { cells, rows, cols };
 }
 
-export type PasteMode = "all" | "values";
+export type PasteMode = "all" | "values" | "formats" | "formulas";
 
 export type PasteOptions = {
   mode?: PasteMode;
@@ -92,12 +92,38 @@ export function pasteRangeIntoWorkbook(
 
         const source = effective.cells[relRow][relCol];
         if (mode === "values") {
-          const value = source.formula ? source.value : source.value;
+          const value = source.value;
           return {
             ...cell,
             formula: undefined,
             value,
-            display: formatCellDisplay(value, cell.style?.numberFormat ?? "general"),
+            display: formatCellDisplay(value, cell.style?.numberFormat ?? "general", cell.style?.customNumberFormat),
+          };
+        }
+        if (mode === "formats") {
+          return {
+            ...cell,
+            style: source.style ? { ...source.style } : undefined,
+          };
+        }
+        if (mode === "formulas") {
+          if (source.formula) {
+            return {
+              ...cell,
+              formula: source.formula,
+              value: source.value,
+              display: source.display,
+            };
+          }
+          return {
+            ...cell,
+            formula: undefined,
+            value: source.value,
+            display: formatCellDisplay(
+              source.value,
+              cell.style?.numberFormat ?? "general",
+              cell.style?.customNumberFormat,
+            ),
           };
         }
 

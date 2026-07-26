@@ -14,30 +14,36 @@
 
 ## Remaining — Wave 1–2 (save fidelity + formulas)
 
-- [ ] Full `cell-styles.ts` / numFmt round-trip for edge cases (complex formats, locale)
-- [ ] Fuller `formula-extended.ts` statistical/financial batch beyond current subset
-- [ ] LAMBDA and advanced dynamic-array functions not yet in `formula-dynamic-arrays.ts`
-- [ ] Spill collision / `#SPILL!` semantics parity with Excel for overlapping ranges
+- [x] Spill collision / `#SPILL!` + multi-col dynamic arrays (2026-07-26)
+- [x] TEXTJOIN / INDIRECT / SUMPRODUCT / XMATCH / TRANSPOSE / LET (+ limited LAMBDA) (2026-07-26)
+- [x] Extended financial/stat/text batch in `formula-extended.ts` (2026-07-26)
+- [ ] Full `cell-styles.ts` / numFmt round-trip for remaining theme/locale edge cases
+- [ ] Full Excel function library (hundreds still missing)
 
 ## Remaining — Wave 3 (workbook operations)
 
-- [ ] Track changes log (`workbook-ops.ts` — partial types exist; UI not wired)
-- [ ] Format painter (if not yet exposed on ribbon)
-- [ ] Sheet tab color, group rows (verify against parity tracker)
+- [x] Track changes log + UI (append on edit, Change Log dialog) (2026-07-26)
+- [x] Format painter on ribbon
+- [x] Sheet tab color + group/ungroup rows (2026-07-26)
+- [x] Strikethrough style + OOXML (2026-07-26)
+- [x] Scatter chart insert (2026-07-26)
+- [x] Multi-field pivot + paste special formats/formulas + per-cell validation (2026-07-26)
 
 ## Remaining — Wave 4 (UI)
 
-- [ ] Mobile read-only preview polish on small viewports (edit stays gated by `useIsDesktopExcelViewport`)
-- [ ] Draw tab canvas (if still stub)
-- [ ] Automate scripts stub beyond current placeholder
+- [x] Mobile read-only preview polish (sheet chips + cell readout) (2026-07-26)
+- [x] Draw tab ink tools (pen/eraser)
+- [x] Automate scripts stub (disabled — out of scope)
 
 ## Remaining — Wave 5 (backend)
 
-- [ ] `POST /api/v1/spreadsheet/copilot` with audit log (today: local heuristics in `ExcelCopilotSidebar.tsx` only)
+- [x] `POST /api/v1/spreadsheet/copilot` with audit log + frontend fallback (2026-07-26; heuristic; LLM optional)
 - [ ] Co-editing session token endpoint (foundation — explicitly deferred for real-time sync)
+- [ ] Wire real LLM provider behind copilot when productized
 
 ## Wave 6 — Verification (ongoing)
 
+- [x] Spreadsheet unit tests (`formula-parity`, `pivot-summary`, existing suite)
 - [ ] `npm run build` + `npm run lint`
 - [ ] `cargo test` + clippy if backend touched
 - [ ] Round-trip: edit in Ownly → download → Excel Desktop → save → re-upload

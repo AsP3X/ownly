@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { parseSpreadsheetWorkbookInWorker } from "@/lib/spreadsheet/spreadsheet-parse-client";
 import { cellExportPayload, cellStyleFromXlsx } from "@/lib/spreadsheet/cell-styles";
 import { numberFormatFromXlsxCode } from "@/lib/spreadsheet/number-formats";
-import { formatCellDisplay } from "@/lib/spreadsheet/cells";
+import { columnIndexToLetters, formatCellDisplay } from "@/lib/spreadsheet/cells";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
   applyDimensionsToWorksheet,
@@ -44,6 +44,7 @@ import {
 } from "@/lib/spreadsheet/xlsx-charts-ooxml";
 import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
 import { listWorksheetCatalog } from "@/lib/spreadsheet/xlsx-sheet-links";
+import { appendTrackChange } from "@/lib/spreadsheet/workbook-ops";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -249,7 +250,7 @@ export async function serializeSpreadsheetWorkbook(workbook: SpreadsheetWorkbook
 }
 
 // Human: Apply a formula-bar edit to the active cell in the workbook model.
-// Agent: WRITES formula or literal value; UPDATES display string for grid rendering.
+// Agent: WRITES formula or literal value; UPDATES display string; APPENDS track-change entry when enabled.
 export function applyFormulaBarEdit(
   workbook: SpreadsheetWorkbook,
   sheetIndex: number,
@@ -257,6 +258,11 @@ export function applyFormulaBarEdit(
   col: number,
   input: string,
 ): SpreadsheetWorkbook {
+  const beforeCell = workbook.sheets[sheetIndex]?.rows[row]?.[col];
+  const before =
+    beforeCell?.formula ??
+    (beforeCell?.value === null || beforeCell?.value === undefined ? "" : String(beforeCell.value));
+
   const nextSheets = workbook.sheets.map((sheet, index) => {
     if (index !== sheetIndex) return sheet;
 
@@ -272,6 +278,7 @@ export function applyFormulaBarEdit(
                 formula: trimmed,
                 value: trimmed,
                 display: trimmed,
+                spillFrom: undefined,
               };
             }
             const numeric = Number(trimmed.replace(/[$,%\s,]/g, ""));
@@ -286,6 +293,7 @@ export function applyFormulaBarEdit(
                 cell.style?.numberFormat ?? "general",
                 cell.style?.customNumberFormat,
               ),
+              spillFrom: undefined,
             };
           })
         : [...sheetRow],
@@ -293,5 +301,20 @@ export function applyFormulaBarEdit(
     return { ...expanded, rows: nextRows };
   });
 
-  return recalculateWorkbook({ ...workbook, sheets: nextSheets });
+  let next: SpreadsheetWorkbook = recalculateWorkbook({ ...workbook, sheets: nextSheets });
+  if (workbook.trackChangesEnabled) {
+    const after = input.trim();
+    if (before !== after) {
+      next = appendTrackChange(next, {
+        id: `tc-${Date.now()}-${row}-${col}`,
+        timestamp: new Date().toISOString(),
+        author: "You",
+        sheetName: workbook.sheets[sheetIndex]?.name ?? "Sheet",
+        cell: `${columnIndexToLetters(col)}${row + 1}`,
+        before,
+        after,
+      });
+    }
+  }
+  return next;
 }

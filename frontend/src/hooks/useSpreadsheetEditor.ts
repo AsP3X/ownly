@@ -13,7 +13,7 @@ import {
   type PasteMode,
 } from "@/lib/spreadsheet/clipboard";
 import { fillRangeInWorkbook, fillTargetRange } from "@/lib/spreadsheet/fill-handle";
-import { validateCellInput } from "@/lib/spreadsheet/data-validation";
+import { cellValidationKey, validateCellInput } from "@/lib/spreadsheet/data-validation";
 import { recalculateWorkbook } from "@/lib/spreadsheet/formulas";
 import {
   applyGridColumnWidths,
@@ -339,7 +339,9 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
       }
       const value = input ?? editDraft;
       const sheet = workbook.sheets[activeSheetIndex];
-      const validationRule = sheet?.columnValidations?.[editingCell.col];
+      const validationRule =
+        sheet?.cellValidations?.[cellValidationKey(editingCell.row, editingCell.col)] ??
+        sheet?.columnValidations?.[editingCell.col];
       if (validationRule && !value.trim().startsWith("=")) {
         const result = validateCellInput(validationRule, value);
         if (!result.valid) {
@@ -358,7 +360,10 @@ export function useSpreadsheetEditor({ readOnly }: UseSpreadsheetEditorOptions) 
   const commitFormulaBar = useCallback(
     (input: string) => {
       if (!workbook || readOnly || isSheetProtected()) return;
-      const validationRule = workbook.sheets[activeSheetIndex]?.columnValidations?.[activeCellAddress.col];
+      const sheet = workbook.sheets[activeSheetIndex];
+      const validationRule =
+        sheet?.cellValidations?.[cellValidationKey(activeCellAddress.row, activeCellAddress.col)] ??
+        sheet?.columnValidations?.[activeCellAddress.col];
       if (validationRule && !input.trim().startsWith("=")) {
         const result = validateCellInput(validationRule, input);
         if (!result.valid) {
