@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
+  VideoCaptionsButton,
   VideoPiPButton,
   VideoQualityControl,
   VideoSpeedControl,
@@ -32,7 +33,9 @@ import {
 import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { HlsQualityState } from "@/hooks/useHlsVideoAttach";
+import { useVideoCaptions } from "@/hooks/useVideoCaptions";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
+import { useVideoScrubPreviews } from "@/hooks/useVideoScrubPreviews";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +56,8 @@ type VideoPlayerSurfaceProps = {
   rebuildingStream?: boolean;
   quality?: HlsQualityState;
   onSelectQualityLevel?: (levelIndex: number) => void;
+  /** Human: Load scrub storyboard + captions (disable on public share for now). */
+  enableSidecars?: boolean;
 };
 
 // Human: Portrait desktop shell — mobile immersive player inside a tall 9:16 column (Pencil 1.25× scale).
@@ -73,6 +78,7 @@ function VideoPlayerPortraitDesktop({
   rebuildingStream,
   quality,
   onSelectQualityLevel,
+  enableSidecars = true,
 }: VideoPlayerSurfaceProps & { naturalSize: VideoNaturalSize | null }) {
   const shellLayout = resolveDesktopVideoShellLayout("portrait", naturalSize);
 
@@ -100,6 +106,7 @@ function VideoPlayerPortraitDesktop({
         rebuildingStream={rebuildingStream}
         quality={quality}
         onSelectQualityLevel={onSelectQualityLevel}
+        enableSidecars={enableSidecars}
       />
     </div>
   );
@@ -121,6 +128,7 @@ function VideoPlayerLandscapeDesktop({
   rebuildingStream = false,
   quality,
   onSelectQualityLevel,
+  enableSidecars = true,
 }: VideoPlayerSurfaceProps & {
   naturalSize: VideoNaturalSize | null;
   setVideoRef: (node: HTMLVideoElement | null) => void;
@@ -161,6 +169,22 @@ function VideoPlayerLandscapeDesktop({
     fullscreenTargetRef: cardRef,
   });
 
+  const { frames: scrubFrames, captionsReady } = useVideoScrubPreviews({
+    file,
+    enabled: enableSidecars,
+  });
+  const {
+    trackUrl,
+    captionsOn,
+    captionsAvailable,
+    toggleCaptions,
+  } = useVideoCaptions({
+    videoRef,
+    fileId: file.id,
+    captionsReady,
+    enabled: enableSidecars,
+  });
+
   const timeLabel = `${formatVideoTime(progress)} / ${formatVideoTime(duration)}`;
   const metaLabel = `${file.name} • ${formatBytes(file.size_bytes)}`;
   const showCenterPlay = !isPlaying && !loading && !error && file.hls_ready;
@@ -194,7 +218,17 @@ function VideoPlayerLandscapeDesktop({
         onClick={isFullscreen ? undefined : togglePlay}
         onPointerMove={revealChrome}
         onMouseMove={revealChrome}
-      />
+      >
+        {trackUrl ? (
+          <track
+            kind="captions"
+            src={trackUrl}
+            srcLang="en"
+            label="Captions"
+            default={captionsOn}
+          />
+        ) : null}
+      </video>
 
       {isFullscreen ? (
         <div
@@ -357,6 +391,7 @@ function VideoPlayerLandscapeDesktop({
             bufferedSegments={bufferedSegments}
             disabled={transportDisabled}
             onSeek={handleSeek}
+            scrubFrames={scrubFrames}
           />
 
           <div className="flex shrink-0 items-center gap-4">
@@ -383,6 +418,13 @@ function VideoPlayerLandscapeDesktop({
                 onSelectLevel={onSelectQualityLevel}
               />
             ) : null}
+            <VideoCaptionsButton
+              available={captionsAvailable}
+              active={captionsOn}
+              disabled={transportDisabled}
+              density="desktop"
+              onToggle={toggleCaptions}
+            />
             <button
               type="button"
               onClick={toggleLoop}
@@ -440,6 +482,7 @@ export function VideoPlayerSurface({
   rebuildingStream,
   quality,
   onSelectQualityLevel,
+  enableSidecars = true,
 }: VideoPlayerSurfaceProps) {
   const { naturalSize, setVideoRef } = useVideoNaturalSize({
     videoRef,
@@ -468,6 +511,7 @@ export function VideoPlayerSurface({
         rebuildingStream={rebuildingStream}
         quality={quality}
         onSelectQualityLevel={onSelectQualityLevel}
+        enableSidecars={enableSidecars}
       />
     );
   }
@@ -487,6 +531,7 @@ export function VideoPlayerSurface({
       rebuildingStream={rebuildingStream}
       quality={quality}
       onSelectQualityLevel={onSelectQualityLevel}
+      enableSidecars={enableSidecars}
     />
   );
 }

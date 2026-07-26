@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
 import {
+  VideoCaptionsButton,
   VideoPiPButton,
   VideoQualityControl,
   VideoSpeedControl,
@@ -36,7 +37,9 @@ import {
   videoMobileVerticalFullBleedVideoClass,
 } from "@/components/drive/video/video-player-layout";
 import type { HlsQualityState } from "@/hooks/useHlsVideoAttach";
+import { useVideoCaptions } from "@/hooks/useVideoCaptions";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
+import { useVideoScrubPreviews } from "@/hooks/useVideoScrubPreviews";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { DialogClose } from "@/components/ui/dialog";
@@ -59,6 +62,7 @@ type VideoPlayerSurfaceMobileProps = {
   rebuildingStream?: boolean;
   quality?: HlsQualityState;
   onSelectQualityLevel?: (levelIndex: number) => void;
+  enableSidecars?: boolean;
 };
 
 // Human: Floating blur circle used for top chrome buttons (close, more).
@@ -127,6 +131,7 @@ export function VideoPlayerSurfaceMobile({
   rebuildingStream = false,
   quality,
   onSelectQualityLevel,
+  enableSidecars = true,
 }: VideoPlayerSurfaceMobileProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -165,6 +170,22 @@ export function VideoPlayerSurfaceMobile({
     error,
     fullscreenTargetRef: shellRef,
     preferVideoElementFullscreen: true,
+  });
+
+  const { frames: scrubFrames, captionsReady } = useVideoScrubPreviews({
+    file,
+    enabled: enableSidecars,
+  });
+  const {
+    trackUrl,
+    captionsOn,
+    captionsAvailable,
+    toggleCaptions,
+  } = useVideoCaptions({
+    videoRef,
+    fileId: file.id,
+    captionsReady,
+    enabled: enableSidecars,
   });
 
   const timeLabel = `${formatVideoTime(progress)} / ${formatVideoTime(duration)}`;
@@ -243,7 +264,17 @@ export function VideoPlayerSurfaceMobile({
           onClick={isFullscreen ? undefined : togglePlay}
           onPointerMove={revealChrome}
           onMouseMove={revealChrome}
-        />
+        >
+          {trackUrl ? (
+            <track
+              kind="captions"
+              src={trackUrl}
+              srcLang="en"
+              label="Captions"
+              default={captionsOn}
+            />
+          ) : null}
+        </video>
       </div>
 
       {isFullscreen ? (
@@ -450,6 +481,13 @@ export function VideoPlayerSurfaceMobile({
                   onSelectLevel={onSelectQualityLevel}
                 />
               ) : null}
+              <VideoCaptionsButton
+                available={captionsAvailable}
+                active={captionsOn}
+                disabled={transportDisabled}
+                density="mobile"
+                onToggle={toggleCaptions}
+              />
               <button
                 type="button"
                 onClick={toggleLoop}
@@ -490,6 +528,7 @@ export function VideoPlayerSurfaceMobile({
             bufferedSegments={bufferedSegments}
             disabled={transportDisabled}
             onSeek={handleSeek}
+            scrubFrames={scrubFrames}
           />
         </div>
       </div>
@@ -574,6 +613,7 @@ export function VideoPlayerSurfaceMobile({
               disabled={transportDisabled}
               onSeek={handleSeek}
               className="min-w-0 flex-1"
+              scrubFrames={scrubFrames}
             />
 
             <div className="flex shrink-0 items-center gap-2.5">
@@ -600,6 +640,13 @@ export function VideoPlayerSurfaceMobile({
                   onSelectLevel={onSelectQualityLevel}
                 />
               ) : null}
+              <VideoCaptionsButton
+                available={captionsAvailable}
+                active={captionsOn}
+                disabled={transportDisabled}
+                density="mobile"
+                onToggle={toggleCaptions}
+              />
               <button
                 type="button"
                 onClick={toggleLoop}

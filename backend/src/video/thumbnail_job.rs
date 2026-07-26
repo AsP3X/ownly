@@ -116,11 +116,39 @@ pub async fn run_video_thumbnail_job(
         return Ok(());
     }
 
-    set_thumbnail_progress(&pool, &job.file_id, 58).await;
+    set_thumbnail_progress(&pool, &job.file_id, 50).await;
     let options = extract_thumbnail_options(local_copy.input_path()).await?;
-    set_thumbnail_progress(&pool, &job.file_id, 88).await;
+    set_thumbnail_progress(&pool, &job.file_id, 70).await;
+
+    // Human: Dense seek-bar storyboard — best effort; poster options still ship if scrub fails.
+    // Agent: CALLS extract_scrub_frames; FALLS BACK to empty ladder on error.
+    let scrub_frames = match super::thumbnail::extract_scrub_frames(local_copy.input_path()).await {
+        Ok(frames) => frames,
+        Err(err) => {
+            tracing::warn!(
+                file_id = %job.file_id,
+                error = %err,
+                "video scrub storyboard extract failed; continuing without scrub frames"
+            );
+            Vec::new()
+        }
+    };
+    set_thumbnail_progress(&pool, &job.file_id, 85).await;
+
+    // Human: Pull embedded soft subs when present (no ASR — only source tracks).
+    // Agent: CALLS try_extract_captions_vtt; None when stream missing.
+    let captions_vtt =
+        super::thumbnail::try_extract_captions_vtt(local_copy.input_path()).await;
+
     set_thumbnail_progress(&pool, &job.file_id, 92).await;
-    let manifest = build_and_upload_manifest(storage, &job.storage_key, options).await?;
+    let manifest = build_and_upload_manifest(
+        storage,
+        &job.storage_key,
+        options,
+        scrub_frames,
+        captions_vtt,
+    )
+    .await?;
     let manifest_key = thumbnail_manifest_storage_key(&job.storage_key);
 
     sqlx::query(

@@ -1,9 +1,13 @@
-// Human: Video timeline — desktop rail, mobile edge strip, mobile landscape wide track.
-// Agent: PROPS variant + progress/duration; EMITS onSeek(seconds); READS pointer for hover tooltip (desktop).
+// Human: Video timeline — desktop rail, mobile edge strip, mobile landscape wide track; scrub image hover.
+// Agent: PROPS variant + progress/duration + optional scrubFrames; EMITS onSeek(seconds).
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { BufferedSegment } from "@/components/drive/audio/audio-buffered";
 import { formatVideoTime } from "@/components/drive/video/video-time";
+import {
+  findNearestScrubFrame,
+  type ScrubPreviewFrame,
+} from "@/hooks/useVideoScrubPreviews";
 import { cn } from "@/lib/utils";
 
 export type VideoSeekBarVariant = "desktop" | "mobile-landscape" | "mobile-edge";
@@ -16,6 +20,8 @@ type VideoSeekBarProps = {
   onSeek: (timeSeconds: number) => void;
   variant?: VideoSeekBarVariant;
   className?: string;
+  /** Human: Optional storyboard frames for hover / drag previews. */
+  scrubFrames?: ScrubPreviewFrame[];
 };
 
 export function VideoSeekBar({
@@ -26,10 +32,12 @@ export function VideoSeekBar({
   onSeek,
   variant = "desktop",
   className = "",
+  scrubFrames = [],
 }: VideoSeekBarProps) {
   const trackRailRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
-  const isHovering = hoverPercent !== null && variant === "desktop";
+  const showHoverChrome =
+    hoverPercent !== null && (variant === "desktop" || variant === "mobile-landscape");
 
   const updateHoverFromClientX = useCallback((clientX: number) => {
     const rail = trackRailRef.current;
@@ -43,7 +51,7 @@ export function VideoSeekBar({
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
-      if (variant !== "desktop") return;
+      if (variant === "mobile-edge") return;
       updateHoverFromClientX(event.clientX);
     },
     [updateHoverFromClientX, variant],
@@ -59,7 +67,14 @@ export function VideoSeekBar({
     trackDuration > 0 ? Math.min(100, (progress / trackDuration) * 100) : 0;
   const seekValue = trackDuration > 0 ? Math.min(progress, trackDuration) : progress;
   const hoverSeconds =
-    isHovering && trackDuration ? (trackDuration * (hoverPercent ?? 0)) / 100 : 0;
+    showHoverChrome && trackDuration ? (trackDuration * (hoverPercent ?? 0)) / 100 : 0;
+  const hoverFrame = useMemo(
+    () =>
+      showHoverChrome && scrubFrames.length > 0
+        ? findNearestScrubFrame(scrubFrames, hoverSeconds)
+        : null,
+    [hoverSeconds, scrubFrames, showHoverChrome],
+  );
   const seekInputDisabled = disabled || trackDuration <= 0;
 
   const isLandscape = variant === "mobile-landscape";
@@ -134,14 +149,14 @@ export function VideoSeekBar({
               />
             </div>
 
-            {isHovering ? (
+            {showHoverChrome ? (
               <div
                 className="pointer-events-none absolute top-1/2 z-20 size-[15px] -translate-y-1/2 rounded-full border-2 border-white bg-[#1A1A1A]"
                 style={{ left: `calc(${hoverPercent}% - 7.5px)` }}
               />
             ) : null}
 
-            {isHovering ? (
+            {showHoverChrome ? (
               <div
                 className="pointer-events-none absolute bottom-full z-50 mb-3 flex flex-col items-center"
                 style={{
@@ -149,7 +164,17 @@ export function VideoSeekBar({
                   transform: "translateX(-50%)",
                 }}
               >
-                <div className="flex h-12 min-w-[165px] items-center justify-center rounded-md bg-[#000000E0] px-4 text-xs font-bold tabular-nums text-white shadow-lg">
+                {hoverFrame ? (
+                  <div className="mb-1.5 overflow-hidden rounded-md border border-white/20 bg-black shadow-xl">
+                    <img
+                      src={hoverFrame.imageUrl}
+                      alt=""
+                      className="block h-[72px] w-auto max-w-[128px] object-cover"
+                      draggable={false}
+                    />
+                  </div>
+                ) : null}
+                <div className="flex h-8 min-w-[4.5rem] items-center justify-center rounded-md bg-[#000000E0] px-3 text-xs font-bold tabular-nums text-white shadow-lg">
                   {formatVideoTime(hoverSeconds)}
                 </div>
                 <div className="h-2 w-4 rotate-45 bg-[#000000E0]" aria-hidden />

@@ -28,7 +28,10 @@ use crate::{
     },
 };
 
-use super::{thumbnail::VideoThumbnailManifest, thumbnail_option_storage_key};
+use super::{
+    captions_storage_key, scrub_frame_storage_key, thumbnail::VideoThumbnailManifest,
+    thumbnail_option_storage_key,
+};
 
 type ThumbnailManifestRow = (Option<String>, bool, Option<String>, Option<i32>);
 type SelectedThumbnailRow = (
@@ -164,6 +167,128 @@ pub async fn get_selected_thumbnail(
         Some(thumbnail_etag(updated_at)),
     )
     .await
+}
+
+// Human: Stream one scrub storyboard JPEG for seek-bar hover previews.
+// Agent: GET /files/:id/thumbnails/scrub/:index; BUILDS key from storage_key + scrub index.
+pub async fn get_scrub_frame(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path((id, index)): Path<(String, u32)>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentRead,
+    )
+    .await?;
+
+    let row: Option<SelectedThumbnailRow> = sqlx::query_as(
+        "SELECT mime_type, storage_key, video_thumbnail_ready, video_thumbnail_selected_index, updated_at \
+         FROM files WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, storage_key, ready, _, updated_at) = row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    if !ready {
+        return Err(AppError::Conflict("video thumbnails are not ready yet".into()));
+    }
+
+    let thumb_key = scrub_frame_storage_key(&storage_key, index);
+    stream_thumbnail_bytes(
+        &state,
+        &thumb_key,
+        &headers,
+        Some(thumbnail_etag(updated_at)),
+    )
+    .await
+}
+
+// Human: Stream extracted WebVTT captions when the source had an embedded subtitle track.
+// Agent: GET /files/:id/captions; RETURNS text/vtt or 404 when no captions sidecar.
+pub async fn get_captions(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &id,
+        Permission::ContentRead,
+    )
+    .await?;
+
+    let row: Option<(Option<String>, String, bool)> = sqlx::query_as(
+        "SELECT mime_type, storage_key, video_thumbnail_ready FROM files \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (mime_type, storage_key, ready) = row.ok_or(AppError::NotFound)?;
+
+    if !mime_type
+        .as_deref()
+        .is_some_and(|m| m.starts_with("video/"))
+    {
+        return Err(AppError::BadRequest("file is not a video".into()));
+    }
+
+    // Human: Captions are extracted alongside thumbnails; not-ready means not extracted yet.
+    // Agent: RETURNS 404 when thumbnails unfinished or captions object missing.
+    if !ready {
+        return Err(AppError::NotFound);
+    }
+
+    let key = captions_storage_key(&storage_key);
+    let (stream, content_length, _) = state
+        .storage
+        .get_stream(&key)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        "text/vtt; charset=utf-8"
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content type")))?,
+    );
+    response_headers.insert(
+        header::CACHE_CONTROL,
+        "private, max-age=3600"
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid cache-control")))?,
+    );
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        let _ = if_none_match; // no etag for captions yet
+    }
+    if content_length > 0 {
+        response_headers.insert(
+            header::CONTENT_LENGTH,
+            content_length
+                .to_string()
+                .parse()
+                .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid content length")))?,
+        );
+    }
+
+    Ok((response_headers, Body::from_stream(stream)).into_response())
 }
 
 // Human: Stream one manifest option by index for the thumbnail picker UI.

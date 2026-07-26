@@ -1101,10 +1101,20 @@ export type VideoThumbnailOption = {
   storage_key: string;
 };
 
+export type VideoScrubFrame = {
+  index: number;
+  timestamp_seconds: number;
+  storage_key: string;
+};
+
 export type VideoThumbnailsResponse = {
   version: number;
   options: VideoThumbnailOption[];
   selected_index: number;
+  /** Human: Dense seek-bar hover frames (absent on older manifests). */
+  scrub_frames?: VideoScrubFrame[];
+  /** Human: Embedded captions were extracted to WebVTT during thumbnail processing. */
+  captions_ready?: boolean;
 };
 
 // Human: Build an authenticated URL for a video poster JPEG (selected or specific option).
@@ -1114,6 +1124,18 @@ export function fileThumbnailUrl(fileId: string, index?: number) {
   return index === undefined
     ? `${base}/thumbnail`
     : `${base}/thumbnails/${encodeURIComponent(String(index))}`;
+}
+
+// Human: Build URL for one seek-bar scrub storyboard JPEG.
+// Agent: RETURNS /api/v1/files/:id/thumbnails/scrub/:index.
+export function fileScrubFrameUrl(fileId: string, index: number) {
+  return `${API_BASE}/files/${encodeURIComponent(fileId)}/thumbnails/scrub/${encodeURIComponent(String(index))}`;
+}
+
+// Human: Build URL for extracted WebVTT captions sidecar.
+// Agent: RETURNS /api/v1/files/:id/captions.
+export function fileCaptionsUrl(fileId: string) {
+  return `${API_BASE}/files/${encodeURIComponent(fileId)}/captions`;
 }
 
 // Human: Authenticated URL for server-generated image grid JPEG sidecars.
@@ -1154,6 +1176,33 @@ export async function fetchFileThumbnailBlob(
   signal?: AbortSignal,
 ): Promise<Blob> {
   return fetchAuthenticatedBlob(fileThumbnailUrl(fileId, index), "thumbnail_failed", signal);
+}
+
+// Human: Fetch one scrub storyboard JPEG for seek hover previews.
+// Agent: GET /files/:id/thumbnails/scrub/:index; RETURNS Blob.
+export async function fetchFileScrubFrameBlob(
+  fileId: string,
+  index: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(fileScrubFrameUrl(fileId, index), "scrub_frame_failed", signal);
+}
+
+// Human: Fetch extracted WebVTT captions when available.
+// Agent: GET /files/:id/captions; RETURNS text; THROWS 404 when no sidecar.
+export async function fetchFileCaptionsText(
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(fileCaptionsUrl(fileId), {
+    cache: "force-cache",
+    signal,
+    credentials: API_FETCH_CREDENTIALS,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.statusText || "Captions not found", "captions_failed", response.status);
+  }
+  return response.text();
 }
 
 // Human: Fetch server-generated image grid JPEG for explorer tiles.

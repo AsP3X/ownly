@@ -10,7 +10,10 @@ use tokio::process::Command;
 use crate::hls::probe::probe_duration_seconds;
 use crate::media::subprocess::{run_command_with_timeout, FFMPEG_SHORT_TIMEOUT};
 
-use super::{thumbnail_manifest_storage_key, thumbnail_option_storage_key};
+use super::{
+    captions_storage_key, scrub_frame_storage_key, thumbnail_manifest_storage_key,
+    thumbnail_option_storage_key,
+};
 
 /// Human: Number of poster options surfaced in the drive UI (YouTube-style picker).
 pub const THUMBNAIL_OPTION_COUNT: usize = 5;
@@ -20,6 +23,15 @@ pub const MAX_CANDIDATE_FRAMES: usize = 12;
 
 /// Human: Target width for stored poster JPEGs — grid tiles scale down via CSS.
 pub const THUMBNAIL_WIDTH: u32 = 640;
+
+/// Human: Width of seek-bar hover scrub frames (small ladder along the timeline).
+pub const SCRUB_FRAME_WIDTH: u32 = 160;
+
+/// Human: Cap scrub storyboard density so long VODs stay cheap to store and fetch.
+pub const SCRUB_MAX_FRAMES: usize = 48;
+
+/// Human: Floor scrub count so short clips still get a useful ladder.
+pub const SCRUB_MIN_FRAMES: usize = 8;
 
 /// Human: Minimum Laplacian variance at thumbnail width — rejects motion blur.
 const MIN_SHARPNESS: f64 = 45.0;
@@ -38,6 +50,12 @@ pub struct VideoThumbnailManifest {
     pub version: u32,
     pub options: Vec<ThumbnailOption>,
     pub selected_index: u32,
+    /// Human: Dense seek-bar preview frames (optional — absent on older manifests).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scrub_frames: Vec<ScrubFrame>,
+    /// Human: True when an embedded subtitle track was extracted to WebVTT.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub captions_ready: bool,
 }
 
 /// Human: One scored poster candidate stored as `{storage_key}/thumbnails/{index}.jpg`.
@@ -49,6 +67,14 @@ pub struct ThumbnailOption {
     pub storage_key: String,
 }
 
+/// Human: One scrub-preview frame along the timeline for seek hover.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScrubFrame {
+    pub index: u32,
+    pub timestamp_seconds: f64,
+    pub storage_key: String,
+}
+
 impl VideoThumbnailManifest {
     pub fn selected_storage_key(&self) -> Option<&str> {
         self.options
@@ -56,6 +82,16 @@ impl VideoThumbnailManifest {
             .find(|opt| opt.index == self.selected_index)
             .map(|opt| opt.storage_key.as_str())
     }
+}
+
+// Human: How many scrub frames to sample for a given duration.
+// Agent: RETURNS clamp(ceil(duration/5), SCRUB_MIN_FRAMES, SCRUB_MAX_FRAMES).
+pub fn scrub_frame_count_for_duration(duration: f64) -> usize {
+    if !duration.is_finite() || duration <= 0.0 {
+        return 0;
+    }
+    let by_interval = (duration / 5.0).ceil() as usize;
+    by_interval.clamp(SCRUB_MIN_FRAMES, SCRUB_MAX_FRAMES)
 }
 
 pub(crate) struct ScoredFrame {
@@ -338,12 +374,122 @@ pub(crate) async fn extract_thumbnail_options(input: &Path) -> Result<Vec<Scored
     Ok(pick_diverse_options(scored))
 }
 
-// Human: Upload scored options + manifest JSON to Nebular for one video file row.
-// Agent: PUTS thumbnails/{index}.jpg; WRITES manifest; RETURNS manifest struct.
+// Human: Single-pass scrub storyboard — small JPEGs spaced along the full duration.
+// Agent: SPAWNS ffmpeg fps filter; RETURNS (timestamp, jpeg_bytes) pairs ordered by time.
+pub async fn extract_scrub_frames(input: &Path) -> Result<Vec<(f64, Vec<u8>)>, String> {
+    let duration = probe_duration_seconds(input).await.max(0) as f64;
+    let count = scrub_frame_count_for_duration(duration);
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let interval = (duration / count as f64).max(0.25);
+    let temp = TempDir::new().map_err(|e| format!("scrub temp dir: {e}"))?;
+    let pattern = temp.path().join("scrub_%03d.jpg");
+    let input_str = input.to_str().unwrap_or("");
+    let pattern_str = pattern.to_str().unwrap_or("");
+
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        input_str,
+        "-vf",
+        &format!("fps=1/{interval},scale={SCRUB_FRAME_WIDTH}:-1"),
+        "-frames:v",
+        &count.to_string(),
+        "-q:v",
+        "6",
+        "-y",
+        pattern_str,
+    ]);
+
+    let timeout = std::time::Duration::from_secs(
+        ((duration as u64).saturating_mul(2).max(30)).min(300),
+    );
+    let output = run_command_with_timeout(&mut command, timeout, "ffmpeg scrub extract")
+        .await
+        .map_err(|e| format!("ffmpeg scrub extract: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffmpeg scrub extract failed: {}", stderr.trim()));
+    }
+
+    let mut frames = Vec::new();
+    for i in 1..=count {
+        let path = temp.path().join(format!("scrub_{i:03}.jpg"));
+        if !path.is_file() {
+            break;
+        }
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|e| format!("read scrub jpeg: {e}"))?;
+        // Human: fps=1/interval starts near t=0; approximate mid-interval centers.
+        let ts = interval * (i as f64 - 0.5);
+        frames.push((ts.min(duration.max(0.0)), bytes));
+    }
+
+    Ok(frames)
+}
+
+// Human: Best-effort extract of the first embedded subtitle stream as WebVTT.
+// Agent: SPAWNS ffmpeg -map 0:s:0; RETURNS None when no subtitle track or extract fails.
+pub async fn try_extract_captions_vtt(input: &Path) -> Option<Vec<u8>> {
+    let temp = TempDir::new().ok()?;
+    let out_path = temp.path().join("captions.vtt");
+    let input_str = input.to_str()?;
+    let out_str = out_path.to_str()?;
+
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        input_str,
+        "-map",
+        "0:s:0",
+        "-f",
+        "webvtt",
+        "-y",
+        out_str,
+    ]);
+
+    let output = run_command_with_timeout(&mut command, FFMPEG_SHORT_TIMEOUT, "ffmpeg captions")
+        .await
+        .ok()?;
+
+    if !output.status.success() || !out_path.is_file() {
+        return None;
+    }
+
+    let bytes = tokio::fs::read(&out_path).await.ok()?;
+    // Human: Reject empty / header-only VTT so the player does not show a useless toggle.
+    // Agent: REQUIRES non-trivial payload beyond WEBVTT signature.
+    let text = String::from_utf8_lossy(&bytes);
+    let body = text
+        .lines()
+        .skip_while(|line| line.trim().is_empty() || line.trim().eq_ignore_ascii_case("WEBVTT"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if body.trim().len() < 8 {
+        return None;
+    }
+
+    Some(bytes)
+}
+
+// Human: Upload scored options + scrub frames + optional captions + manifest JSON.
+// Agent: PUTS thumbnails/* + scrub/* + captions; WRITES manifest; RETURNS manifest struct.
 pub(crate) async fn build_and_upload_manifest(
     storage: std::sync::Arc<dyn crate::storage::Storage>,
     storage_key: &str,
     options: Vec<ScoredFrame>,
+    scrub_frames: Vec<(f64, Vec<u8>)>,
+    captions_vtt: Option<Vec<u8>>,
 ) -> Result<VideoThumbnailManifest, String> {
     let mut manifest_options = Vec::with_capacity(options.len());
     for (index, frame) in options.into_iter().enumerate() {
@@ -360,10 +506,36 @@ pub(crate) async fn build_and_upload_manifest(
         });
     }
 
+    let mut scrub_manifest = Vec::with_capacity(scrub_frames.len());
+    for (index, (timestamp_seconds, jpeg_bytes)) in scrub_frames.into_iter().enumerate() {
+        let key = scrub_frame_storage_key(storage_key, index as u32);
+        storage
+            .put(&key, "image/jpeg", jpeg_bytes)
+            .await
+            .map_err(|e| format!("scrub frame PUT failed: {e}"))?;
+        scrub_manifest.push(ScrubFrame {
+            index: index as u32,
+            timestamp_seconds,
+            storage_key: key,
+        });
+    }
+
+    let mut captions_ready = false;
+    if let Some(vtt) = captions_vtt {
+        let key = captions_storage_key(storage_key);
+        storage
+            .put(&key, "text/vtt", vtt)
+            .await
+            .map_err(|e| format!("captions PUT failed: {e}"))?;
+        captions_ready = true;
+    }
+
     let manifest = VideoThumbnailManifest {
-        version: 1,
+        version: 2,
         selected_index: 0,
         options: manifest_options,
+        scrub_frames: scrub_manifest,
+        captions_ready,
     };
 
     let payload = serde_json::to_vec(&manifest).map_err(|e| format!("manifest json: {e}"))?;
@@ -386,6 +558,14 @@ mod tests {
         assert_eq!(points.len(), 4);
         assert!(points[0] >= 5.0);
         assert!(points[3] <= 95.0);
+    }
+
+    #[test]
+    fn scrub_frame_count_scales_with_duration() {
+        assert_eq!(scrub_frame_count_for_duration(10.0), SCRUB_MIN_FRAMES);
+        assert_eq!(scrub_frame_count_for_duration(120.0), 24);
+        assert_eq!(scrub_frame_count_for_duration(10_000.0), SCRUB_MAX_FRAMES);
+        assert_eq!(scrub_frame_count_for_duration(0.0), 0);
     }
 
     #[test]

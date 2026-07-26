@@ -304,6 +304,8 @@ export function VideoPreviewDialog({
     rebuildingStream,
     quality,
     onSelectQualityLevel: setQualityLevel,
+    // Human: Scrub storyboard + captions need authenticated sidecar APIs.
+    enableSidecars: !shareToken,
   };
 
   return (

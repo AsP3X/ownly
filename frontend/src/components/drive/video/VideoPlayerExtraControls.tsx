@@ -9,7 +9,15 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from "react";
-import { Gauge, PictureInPicture2, Settings2, Volume2, VolumeX } from "lucide-react";
+import {
+  Captions,
+  CaptionsOff,
+  Gauge,
+  PictureInPicture2,
+  Settings2,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import type { HlsQualityState } from "@/hooks/useHlsVideoAttach";
 import {
   VIDEO_PLAYBACK_RATES,
@@ -346,6 +354,44 @@ export function VideoPiPButton({
       )}
     >
       <PictureInPicture2 className={isMobile ? "size-4" : "size-6"} aria-hidden />
+    </button>
+  );
+}
+
+type CaptionsButtonProps = {
+  available: boolean;
+  active: boolean;
+  disabled?: boolean;
+  density?: Density;
+  onToggle: () => void;
+};
+
+// Human: Soft captions toggle — only when extracted WebVTT is available.
+// Agent: RETURNS null when no caption sidecar so chrome stays compact.
+export function VideoCaptionsButton({
+  available,
+  active,
+  disabled = false,
+  density = "desktop",
+  onToggle,
+}: CaptionsButtonProps) {
+  if (!available) return null;
+  const isMobile = density === "mobile";
+  const Icon = active ? Captions : CaptionsOff;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      aria-label={active ? "Hide captions" : "Show captions"}
+      aria-pressed={active}
+      className={cn(
+        "text-white transition hover:text-white/80 disabled:opacity-40",
+        active && "text-sky-400",
+      )}
+    >
+      <Icon className={isMobile ? "size-4" : "size-6"} aria-hidden />
     </button>
   );
 }

@@ -657,6 +657,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(crate::video::handlers::regenerate_thumbnails),
         )
         .route(
+            "/api/v1/files/{id}/thumbnails/scrub/{index}",
+            get(crate::video::handlers::get_scrub_frame),
+        )
+        .route(
+            "/api/v1/files/{id}/captions",
+            get(crate::video::handlers::get_captions),
+        )
+        .route(
             "/api/v1/files/{id}/hls/reprocess",
             post(crate::video::handlers::reprocess_hls),
         )
