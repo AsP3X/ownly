@@ -11,11 +11,15 @@ import {
   Play,
   Repeat,
   Share2,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import {
+  VideoPiPButton,
+  VideoQualityControl,
+  VideoSpeedControl,
+  VideoVolumeControl,
+} from "@/components/drive/video/VideoPlayerExtraControls";
 import { VideoPlayerSurfaceMobile } from "@/components/drive/video/VideoPlayerSurfaceMobile";
 import { VideoSeekBar } from "@/components/drive/video/VideoSeekBar";
 import { useVideoTransport } from "@/components/drive/video/useVideoTransport";
@@ -27,6 +31,7 @@ import {
 } from "@/components/drive/video/video-player-layout";
 import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import type { HlsQualityState } from "@/hooks/useHlsVideoAttach";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -46,6 +51,8 @@ type VideoPlayerSurfaceProps = {
   /** Human: Queue stream rebuild when packaging is bad. */
   onRebuildStream?: () => void;
   rebuildingStream?: boolean;
+  quality?: HlsQualityState;
+  onSelectQualityLevel?: (levelIndex: number) => void;
 };
 
 // Human: Portrait desktop shell — mobile immersive player inside a tall 9:16 column (Pencil 1.25× scale).
@@ -64,6 +71,8 @@ function VideoPlayerPortraitDesktop({
   onRetryPlayback,
   onRebuildStream,
   rebuildingStream,
+  quality,
+  onSelectQualityLevel,
 }: VideoPlayerSurfaceProps & { naturalSize: VideoNaturalSize | null }) {
   const shellLayout = resolveDesktopVideoShellLayout("portrait", naturalSize);
 
@@ -89,6 +98,8 @@ function VideoPlayerPortraitDesktop({
         onRetryPlayback={onRetryPlayback}
         onRebuildStream={onRebuildStream}
         rebuildingStream={rebuildingStream}
+        quality={quality}
+        onSelectQualityLevel={onSelectQualityLevel}
       />
     </div>
   );
@@ -108,6 +119,8 @@ function VideoPlayerLandscapeDesktop({
   onRetryPlayback,
   onRebuildStream,
   rebuildingStream = false,
+  quality,
+  onSelectQualityLevel,
 }: VideoPlayerSurfaceProps & {
   naturalSize: VideoNaturalSize | null;
   setVideoRef: (node: HTMLVideoElement | null) => void;
@@ -119,19 +132,27 @@ function VideoPlayerLandscapeDesktop({
     progress,
     duration,
     bufferedSegments,
+    volume,
+    effectiveVolume,
     muted,
+    playbackRate,
     loop,
     isFullscreen,
     isImmersive,
+    isPiP,
+    pipSupported,
     transportDisabled,
     failed,
     chromeVisible,
     revealChrome,
     togglePlay,
     handleSeek,
+    handleVolumeInput,
     toggleMute,
+    setPlaybackRate,
     toggleLoop,
     toggleFullscreen,
+    togglePictureInPicture,
   } = useVideoTransport({
     videoRef,
     file,
@@ -338,20 +359,30 @@ function VideoPlayerLandscapeDesktop({
             onSeek={handleSeek}
           />
 
-          <div className="flex shrink-0 items-center gap-6">
-            <button
-              type="button"
-              onClick={toggleMute}
+          <div className="flex shrink-0 items-center gap-4">
+            <VideoVolumeControl
+              volume={volume}
+              effectiveVolume={effectiveVolume}
+              muted={muted}
               disabled={transportDisabled}
-              aria-label={muted ? "Unmute" : "Mute"}
-              className="text-white transition hover:text-white/80 disabled:opacity-40"
-            >
-              {muted ? (
-                <VolumeX className="size-6" aria-hidden />
-              ) : (
-                <Volume2 className="size-6" aria-hidden />
-              )}
-            </button>
+              density="desktop"
+              onToggleMute={toggleMute}
+              onVolumeInput={handleVolumeInput}
+            />
+            <VideoSpeedControl
+              playbackRate={playbackRate}
+              disabled={transportDisabled}
+              density="desktop"
+              onSelectRate={setPlaybackRate}
+            />
+            {quality && onSelectQualityLevel ? (
+              <VideoQualityControl
+                quality={quality}
+                disabled={transportDisabled}
+                density="desktop"
+                onSelectLevel={onSelectQualityLevel}
+              />
+            ) : null}
             <button
               type="button"
               onClick={toggleLoop}
@@ -365,6 +396,13 @@ function VideoPlayerLandscapeDesktop({
             >
               <Repeat className="size-6" aria-hidden />
             </button>
+            <VideoPiPButton
+              supported={pipSupported}
+              active={isPiP}
+              disabled={transportDisabled}
+              density="desktop"
+              onToggle={togglePictureInPicture}
+            />
             <button
               type="button"
               onClick={toggleFullscreen}
@@ -400,6 +438,8 @@ export function VideoPlayerSurface({
   onRetryPlayback,
   onRebuildStream,
   rebuildingStream,
+  quality,
+  onSelectQualityLevel,
 }: VideoPlayerSurfaceProps) {
   const { naturalSize, setVideoRef } = useVideoNaturalSize({
     videoRef,
@@ -426,6 +466,8 @@ export function VideoPlayerSurface({
         onRetryPlayback={onRetryPlayback}
         onRebuildStream={onRebuildStream}
         rebuildingStream={rebuildingStream}
+        quality={quality}
+        onSelectQualityLevel={onSelectQualityLevel}
       />
     );
   }
@@ -443,6 +485,8 @@ export function VideoPlayerSurface({
       onRetryPlayback={onRetryPlayback}
       onRebuildStream={onRebuildStream}
       rebuildingStream={rebuildingStream}
+      quality={quality}
+      onSelectQualityLevel={onSelectQualityLevel}
     />
   );
 }

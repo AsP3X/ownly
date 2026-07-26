@@ -14,11 +14,15 @@ import {
   Play,
   Repeat,
   Share2,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 import type { FileItem } from "@/api/client";
+import {
+  VideoPiPButton,
+  VideoQualityControl,
+  VideoSpeedControl,
+  VideoVolumeControl,
+} from "@/components/drive/video/VideoPlayerExtraControls";
 import {
   VideoPlayerInfoSheet,
   VideoPlayerMoreMenuSheet,
@@ -31,11 +35,13 @@ import {
   videoMobileLetterboxVideoClass,
   videoMobileVerticalFullBleedVideoClass,
 } from "@/components/drive/video/video-player-layout";
+import type { HlsQualityState } from "@/hooks/useHlsVideoAttach";
 import { useVideoNaturalSize } from "@/hooks/useVideoNaturalSize";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import type { VideoPlaybackRate } from "@/lib/video-playback-preference";
 
 type VideoPlayerSurfaceMobileProps = {
   file: FileItem;
@@ -51,6 +57,8 @@ type VideoPlayerSurfaceMobileProps = {
   onRetryPlayback?: () => void;
   onRebuildStream?: () => void;
   rebuildingStream?: boolean;
+  quality?: HlsQualityState;
+  onSelectQualityLevel?: (levelIndex: number) => void;
 };
 
 // Human: Floating blur circle used for top chrome buttons (close, more).
@@ -117,6 +125,8 @@ export function VideoPlayerSurfaceMobile({
   onRetryPlayback,
   onRebuildStream,
   rebuildingStream = false,
+  quality,
+  onSelectQualityLevel,
 }: VideoPlayerSurfaceMobileProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -127,19 +137,27 @@ export function VideoPlayerSurfaceMobile({
     progress,
     duration,
     bufferedSegments,
+    volume,
+    effectiveVolume,
     muted,
+    playbackRate,
     loop,
     isFullscreen,
     isImmersive,
+    isPiP,
+    pipSupported,
     transportDisabled,
     failed,
     chromeVisible,
     revealChrome,
     togglePlay,
     handleSeek,
+    handleVolumeInput,
     toggleMute,
+    setPlaybackRate,
     toggleLoop,
     toggleFullscreen,
+    togglePictureInPicture,
   } = useVideoTransport({
     videoRef,
     file,
@@ -408,20 +426,30 @@ export function VideoPlayerSurfaceMobile({
               </button>
               <span className="text-[11px] tabular-nums text-[#E5E7EB]">{timeLabel}</span>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={toggleMute}
+            <div className="flex items-center gap-2.5">
+              <VideoVolumeControl
+                volume={volume}
+                effectiveVolume={effectiveVolume}
+                muted={muted}
                 disabled={transportDisabled}
-                aria-label={muted ? "Unmute" : "Mute"}
-                className="text-white disabled:opacity-40"
-              >
-                {muted ? (
-                  <VolumeX className="size-4" aria-hidden />
-                ) : (
-                  <Volume2 className="size-4" aria-hidden />
-                )}
-              </button>
+                density="mobile"
+                onToggleMute={toggleMute}
+                onVolumeInput={handleVolumeInput}
+              />
+              <VideoSpeedControl
+                playbackRate={playbackRate}
+                disabled={transportDisabled}
+                density="mobile"
+                onSelectRate={setPlaybackRate}
+              />
+              {quality && onSelectQualityLevel ? (
+                <VideoQualityControl
+                  quality={quality}
+                  disabled={transportDisabled}
+                  density="mobile"
+                  onSelectLevel={onSelectQualityLevel}
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={toggleLoop}
@@ -432,6 +460,13 @@ export function VideoPlayerSurfaceMobile({
               >
                 <Repeat className="size-4" aria-hidden />
               </button>
+              <VideoPiPButton
+                supported={pipSupported}
+                active={isPiP}
+                disabled={transportDisabled}
+                density="mobile"
+                onToggle={togglePictureInPicture}
+              />
               <button
                 type="button"
                 onClick={toggleFullscreen}
@@ -541,20 +576,30 @@ export function VideoPlayerSurfaceMobile({
               className="min-w-0 flex-1"
             />
 
-            <div className="flex shrink-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={toggleMute}
+            <div className="flex shrink-0 items-center gap-2.5">
+              <VideoVolumeControl
+                volume={volume}
+                effectiveVolume={effectiveVolume}
+                muted={muted}
                 disabled={transportDisabled}
-                aria-label={muted ? "Unmute" : "Mute"}
-                className="text-white disabled:opacity-40"
-              >
-                {muted ? (
-                  <VolumeX className="size-5" aria-hidden />
-                ) : (
-                  <Volume2 className="size-5" aria-hidden />
-                )}
-              </button>
+                density="mobile"
+                onToggleMute={toggleMute}
+                onVolumeInput={handleVolumeInput}
+              />
+              <VideoSpeedControl
+                playbackRate={playbackRate}
+                disabled={transportDisabled}
+                density="mobile"
+                onSelectRate={setPlaybackRate}
+              />
+              {quality && onSelectQualityLevel ? (
+                <VideoQualityControl
+                  quality={quality}
+                  disabled={transportDisabled}
+                  density="mobile"
+                  onSelectLevel={onSelectQualityLevel}
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={toggleLoop}
@@ -565,6 +610,13 @@ export function VideoPlayerSurfaceMobile({
               >
                 <Repeat className="size-5" aria-hidden />
               </button>
+              <VideoPiPButton
+                supported={pipSupported}
+                active={isPiP}
+                disabled={transportDisabled}
+                density="mobile"
+                onToggle={togglePictureInPicture}
+              />
               <button
                 type="button"
                 onClick={toggleFullscreen}
@@ -598,6 +650,10 @@ export function VideoPlayerSurfaceMobile({
         file={file}
         loop={loop}
         onToggleLoop={toggleLoop}
+        playbackRate={playbackRate}
+        onSelectPlaybackRate={(rate: VideoPlaybackRate) => setPlaybackRate(rate)}
+        quality={quality}
+        onSelectQualityLevel={onSelectQualityLevel}
         showDownloadAction={showDownloadAction}
         showShareAction={showShareAction}
         onDownload={onDownload}

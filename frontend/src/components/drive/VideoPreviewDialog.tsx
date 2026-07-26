@@ -182,7 +182,7 @@ export function VideoPreviewDialog({
     };
   }, [open, file?.id, file?.hls_ready, shareToken, sharePassword]);
 
-  useHlsVideoAttach({
+  const { quality, setQualityLevel } = useHlsVideoAttach({
     video: videoElement,
     streamUrl,
     open,
@@ -302,6 +302,8 @@ export function VideoPreviewDialog({
     // Human: Rebuild only for signed-in drive (not public share visitors).
     onRebuildStream: shareToken ? undefined : () => void handleRebuildStream(),
     rebuildingStream,
+    quality,
+    onSelectQualityLevel: setQualityLevel,
   };
 
   return (
