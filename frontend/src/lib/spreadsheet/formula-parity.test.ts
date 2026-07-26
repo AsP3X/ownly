@@ -86,4 +86,19 @@ describe("formula parity", () => {
     // Human: C1:E1 is 1,9,3 — 2nd largest is 3.
     expect(Number(result.rows[1][3].value)).toBe(3);
   });
+
+  it("supports COUNTBLANK, wildcards, and <> criteria", () => {
+    const sheet = sheetFrom([
+      [cell("apple"), cell("apricot"), cell(null), cell(10), cell(20)],
+      [
+        cell(null, '=COUNTIF(A1:B1, "ap*")'),
+        cell(null, "=COUNTBLANK(A1:C1)"),
+        cell(null, '=SUMIF(D1:E1, "<>10")'),
+      ],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(Number(result.rows[1][0].value)).toBe(2);
+    expect(Number(result.rows[1][1].value)).toBe(1);
+    expect(Number(result.rows[1][2].value)).toBe(20);
+  });
 });

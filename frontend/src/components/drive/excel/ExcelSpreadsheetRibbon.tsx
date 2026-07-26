@@ -159,7 +159,9 @@ type ExcelSpreadsheetRibbonProps = {
   onInsertPivot?: () => void;
   onTracePrecedents?: () => void;
   onTraceDependents?: () => void;
+  onEvaluateFormula?: () => void;
   onNameManager?: () => void;
+  onClearContents?: () => void;
   onDataValidation?: () => void;
   onEditComment?: () => void;
   onProtectSheet?: () => void;
@@ -248,6 +250,7 @@ function HomeTabPanel({
   onMergeCells,
   onFormatAsTable,
   onClearFormatting,
+  onClearContents,
   onFillDown,
 }: Pick<
   ExcelSpreadsheetRibbonProps,
@@ -271,6 +274,7 @@ function HomeTabPanel({
   | "onMergeCells"
   | "onFormatAsTable"
   | "onClearFormatting"
+  | "onClearContents"
   | "onFillDown"
 >) {
   const sz = iconSize();
@@ -629,7 +633,8 @@ function HomeTabPanel({
               label="Clear"
               icon={<Eraser style={{ width: sm, height: sm }} aria-hidden />}
               disabled={readOnly}
-              onClick={onClearFormatting}
+              onClick={onClearContents ?? onClearFormatting}
+              title="Clear cell contents (keeps formatting)"
             />
           </div>
           <div className="flex flex-col gap-0.5">
@@ -688,10 +693,11 @@ function InsertTabPanel({
   onInsertChart,
   onInsertTable,
   onInsertPivot,
+  onInsertLink,
   readOnly,
 }: Pick<
   ExcelSpreadsheetRibbonProps,
-  "onMergeCells" | "onInsertChart" | "onInsertTable" | "onInsertPivot" | "readOnly"
+  "onMergeCells" | "onInsertChart" | "onInsertTable" | "onInsertPivot" | "onInsertLink" | "readOnly"
 >) {
   const sz = iconSize();
   return (
@@ -703,6 +709,10 @@ function InsertTabPanel({
       <RibbonGroupDivider />
       <RibbonGroup label="Charts">
         <RibbonLargeButton label="Charts" icon={<BarChart3 style={{ width: sz, height: sz }} aria-hidden />} onClick={onInsertChart} />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+      <RibbonGroup label="Links">
+        <RibbonIconButton label="Link" icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>🔗</span>} disabled={readOnly} onClick={onInsertLink} />
       </RibbonGroup>
       <RibbonGroupDivider />
       <RibbonGroup label="Cells">
@@ -757,6 +767,7 @@ function FormulasTabPanel(props: Pick<
   | "onToggleShowFormulas"
   | "onTracePrecedents"
   | "onTraceDependents"
+  | "onEvaluateFormula"
   | "onNameManager"
   | "readOnly"
   | "showFormulas"
@@ -777,6 +788,7 @@ function FormulasTabPanel(props: Pick<
         <RibbonIconButton label="Show Formulas" icon={<Eye style={{ width: sz, height: sz }} aria-hidden />} active={props.showFormulas} onClick={props.onToggleShowFormulas} />
         <RibbonIconButton label="Trace Precedents" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTracePrecedents} />
         <RibbonIconButton label="Trace Dependents" icon={<Search style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onTraceDependents} />
+        <RibbonIconButton label="Evaluate" icon={<Calculator style={{ width: sz, height: sz }} aria-hidden />} onClick={props.onEvaluateFormula} />
       </RibbonGroup>
     </>
   );

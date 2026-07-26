@@ -2,7 +2,7 @@
 
 Status legend: ✅ Done · 🚧 Partial · ⏳ Planned · ❌ Out of scope (Ownly)
 
-Last updated: 2026-07-26
+Last updated: 2026-07-26 (batch 3)
 
 ## Ribbon UI
 
@@ -37,7 +37,11 @@ Last updated: 2026-07-26
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | Expanded catalog: TEXTJOIN, INDIRECT, SUMPRODUCT, XMATCH, TRANSPOSE, LET, LAMBDA (limited), financial/stat batch; still not full Excel library |
+| Formula evaluation / recalc | 🚧 | IFS/SWITCH, COUNTBLANK, AVERAGEIFS, wildcards/<> criteria, TEXTJOIN, INDIRECT, SUMPRODUCT, XMATCH, TRANSPOSE, LET, LAMBDA (limited), LARGE/SMALL; still not full Excel library |
+| Evaluate Formula dialog | ✅ | Formulas → Evaluate |
+| Insert hyperlink | ✅ | Insert → Link |
+| Clear contents | ✅ | Home → Clear keeps styles |
+| Status bar range stats | ✅ | Multi-cell Average/Count/Sum |
 | Dynamic arrays + #SPILL! | ✅ | Clear old spills; collision returns `#SPILL!`; multi-col FILTER/SORT/UNIQUE |
 | Insert Function / AutoSum | ✅ | Formulas tab + prompt |
 | Trace Precedents / Dependents | ✅ | Amber highlight on grid |

@@ -73,6 +73,9 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "LARGE", category: "Statistical", description: "Kth largest value.", syntax: "LARGE(array, k)" },
   { name: "SMALL", category: "Statistical", description: "Kth smallest value.", syntax: "SMALL(array, k)" },
   { name: "PERCENTILE", category: "Statistical", description: "Kth percentile.", syntax: "PERCENTILE(array, k)" },
+  { name: "COUNTBLANK", category: "Statistical", description: "Count blank cells.", syntax: "COUNTBLANK(range)" },
+  { name: "AVERAGEIFS", category: "Statistical", description: "Average with multiple criteria.", syntax: "AVERAGEIFS(avg_range, range1, criteria1, ...)" },
+  { name: "AVERAGEIF", category: "Statistical", description: "Average with criteria.", syntax: "AVERAGEIF(range, criteria, [avg_range])" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

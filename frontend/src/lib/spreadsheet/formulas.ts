@@ -206,33 +206,53 @@ function countIfValues(
   values: Array<string | number | boolean | null | FormulaError>,
   criteria: string,
 ): number {
-  const trimmed = criteria.trim();
-  const opMatch = /^([><]=?|=)(.+)$/.exec(trimmed);
+  const trimmed = criteria.trim().replace(/^"|"$/g, "");
+  const opMatch = /^(<>|>=|<=|>|<|=)(.+)$/.exec(trimmed);
   if (opMatch) {
     const op = opMatch[1];
-    const target = Number(opMatch[2].replace(/[$,%\s,]/g, ""));
+    const rawTarget = opMatch[2].trim().replace(/^"|"$/g, "");
+    const targetNum = Number(rawTarget.replace(/[$,%\s,]/g, ""));
     return values.filter((value) => {
+      if (op === "<>" || op === "=") {
+        const left = String(value ?? "").toLowerCase();
+        const right = rawTarget.toLowerCase();
+        if (Number.isFinite(targetNum) && Number.isFinite(coerceNumber(value))) {
+          const equal = coerceNumber(value) === targetNum;
+          return op === "=" ? equal : !equal;
+        }
+        const equal = left === right;
+        return op === "=" ? equal : !equal;
+      }
       const num = coerceNumber(value);
-      if (!Number.isFinite(num) || !Number.isFinite(target)) return false;
+      if (!Number.isFinite(num) || !Number.isFinite(targetNum)) return false;
       switch (op) {
         case ">":
-          return num > target;
+          return num > targetNum;
         case ">=":
-          return num >= target;
+          return num >= targetNum;
         case "<":
-          return num < target;
+          return num < targetNum;
         case "<=":
-          return num <= target;
-        case "=":
-          return num === target;
+          return num <= targetNum;
         default:
           return false;
       }
     }).length;
   }
 
-  const normalizedCriteria = trimmed.replace(/^"|"$/g, "").toLowerCase();
-  return values.filter((value) => String(value ?? "").toLowerCase().includes(normalizedCriteria)).length;
+  // Human: Simple wildcards * and ? for COUNTIF/SUMIF text criteria.
+  // Agent: CONVERTS to RegExp; CASE-insensitive match on string form.
+  if (trimmed.includes("*") || trimmed.includes("?")) {
+    const escaped = trimmed
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".");
+    const pattern = new RegExp(`^${escaped}$`, "i");
+    return values.filter((value) => pattern.test(String(value ?? ""))).length;
+  }
+
+  const normalizedCriteria = trimmed.toLowerCase();
+  return values.filter((value) => String(value ?? "").toLowerCase() === normalizedCriteria).length;
 }
 
 // Human: Test whether a row index satisfies paired range/criteria args for SUMIFS/COUNTIFS.
@@ -454,8 +474,36 @@ function evaluateFunction(
     }
     case "COUNTA": {
       const parts = splitFunctionArgs(argsRaw);
+      let count = 0;
+      for (const part of parts) {
+        const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, part.trim());
+        if (rangeValues.length > 0) {
+          count += rangeValues.filter((value) => value !== null && value !== "").length;
+        } else {
+          const scalar = toScalar(evaluateExpression(ctx, sheetIndex, row, col, part.trim()));
+          if (scalar !== null && scalar !== "") count += 1;
+        }
+      }
+      return count;
+    }
+    case "COUNTBLANK": {
+      const parts = splitFunctionArgs(argsRaw);
       const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
-      return rangeValues.filter((value) => value !== null && value !== "").length;
+      return rangeValues.filter((value) => value === null || value === "").length;
+    }
+    case "AVERAGEIFS": {
+      const parts = splitFunctionArgs(argsRaw);
+      const avgRangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      let total = 0;
+      let count = 0;
+      for (let index = 0; index < avgRangeValues.length; index += 1) {
+        if (!matchesAllCriteria(ctx, sheetIndex, row, col, parts, index, 1)) continue;
+        const numeric = coerceNumber(avgRangeValues[index]);
+        if (!Number.isFinite(numeric)) continue;
+        total += numeric;
+        count += 1;
+      }
+      return count === 0 ? ("#DIV/0!" as FormulaError) : total / count;
     }
     case "MEDIAN": {
       const sorted = [...numericArgs].sort((left, right) => left - right);

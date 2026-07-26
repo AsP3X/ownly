@@ -965,6 +965,7 @@ export function setCellHyperlink(
   url: string | null,
 ): SpreadsheetWorkbook {
   return {
+    ...workbook,
     sheets: workbook.sheets.map((sheet, index) => {
       if (index !== sheetIndex) return sheet;
       const expanded = expandSheetToAddress(sheet, row, col);
@@ -980,6 +981,43 @@ export function setCellHyperlink(
             ...cell,
             hyperlink: url.trim(),
             style: { ...cell.style, textColor: "#2563EB", underline: true },
+          };
+        }),
+      );
+      return { ...sheet, rows: nextRows };
+    }),
+  };
+}
+
+// Human: Clear cell contents (values/formulas) in a range, optionally keeping styles/comments.
+// Agent: USED by Home → Clear → Clear Contents; STRIPS spillFrom markers.
+export function clearContentsInRange(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+  range: { start: { row: number; col: number }; end: { row: number; col: number } },
+  options?: { keepStyle?: boolean; keepComments?: boolean },
+): SpreadsheetWorkbook {
+  const minRow = Math.min(range.start.row, range.end.row);
+  const maxRow = Math.max(range.start.row, range.end.row);
+  const minCol = Math.min(range.start.col, range.end.col);
+  const maxCol = Math.max(range.start.col, range.end.col);
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const nextRows = sheet.rows.map((row, rowIndex) =>
+        row.map((cell, colIndex) => {
+          if (rowIndex < minRow || rowIndex > maxRow || colIndex < minCol || colIndex > maxCol) {
+            return cell;
+          }
+          return {
+            value: null,
+            display: "",
+            style: options?.keepStyle === false ? undefined : cell.style,
+            comment: options?.keepComments === false ? undefined : cell.comment,
+            hyperlink: undefined,
+            formula: undefined,
+            spillFrom: undefined,
           };
         }),
       );

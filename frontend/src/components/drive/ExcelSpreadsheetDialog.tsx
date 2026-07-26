@@ -28,6 +28,7 @@ import { ExcelPageMarginsDialog } from "@/components/drive/excel/ExcelPageMargin
 import { ExcelPivotTableDialog } from "@/components/drive/excel/ExcelPivotTableDialog";
 import { ExcelPrintPreviewDialog } from "@/components/drive/excel/ExcelPrintPreviewDialog";
 import { ExcelTrackChangesDialog } from "@/components/drive/excel/ExcelTrackChangesDialog";
+import { ExcelEvaluateFormulaDialog } from "@/components/drive/excel/ExcelEvaluateFormulaDialog";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -74,7 +75,11 @@ import {
   writeExcelAutoSaveEnabled,
 } from "@/lib/spreadsheet/excel-editor-preferences";
 import { parseSpreadsheetBuffer, serializeSpreadsheetWorkbook } from "@/lib/spreadsheet/parse";
-import { computeSelectionStats, formatSelectionStatsLine } from "@/lib/spreadsheet/stats";
+import {
+  computeRangeSelectionStats,
+  computeSelectionStats,
+  formatSelectionStatsLine,
+} from "@/lib/spreadsheet/stats";
 import { precedentCellKey, precedentCellsFromFormula } from "@/lib/spreadsheet/trace-precedents";
 import {
   dependentCellKey,
@@ -83,6 +88,7 @@ import {
 import {
   addSheet,
   activeSheetIndexAfterMove,
+  clearContentsInRange,
   clearTrackChanges,
   deleteColumn,
   deleteRow,
@@ -104,6 +110,7 @@ import {
   renameSheet,
   replaceInWorkbook,
   setCellComment,
+  setCellHyperlink,
   setCellValidation,
   setColumnValidation,
   setSheetTabColor,
@@ -195,6 +202,7 @@ export function ExcelSpreadsheetDialog({
   const [drawMode, setDrawMode] = useState<"pen" | "eraser" | null>(null);
   const [drawColor, setDrawColor] = useState("#2563EB");
   const [trackChangesOpen, setTrackChangesOpen] = useState(false);
+  const [evaluateFormulaOpen, setEvaluateFormulaOpen] = useState(false);
 
   const activeSheet = editor.activeSheet;
   const activeCell =
@@ -208,9 +216,15 @@ export function ExcelSpreadsheetDialog({
   );
 
   const metricsLine = useMemo(() => {
-    const stats = computeSelectionStats(activeSheet?.rows ?? [], editor.activeCellAddress);
+    const rows = activeSheet?.rows ?? [];
+    const range = editor.selectionRange;
+    const isSingle =
+      range.start.row === range.end.row && range.start.col === range.end.col;
+    const stats = isSingle
+      ? computeSelectionStats(rows, editor.activeCellAddress)
+      : computeRangeSelectionStats(rows, range);
     return formatSelectionStatsLine(stats);
-  }, [activeSheet?.rows, editor.activeCellAddress]);
+  }, [activeSheet?.rows, editor.activeCellAddress, editor.selectionRange]);
 
   const chartSeries = useMemo(() => {
     if (!activeSheet) return [];
@@ -711,6 +725,29 @@ export function ExcelSpreadsheetDialog({
                   );
                 }}
                 onClearFormatting={() => editor.applyStyleToSelection(clearCellStylePatch())}
+                onClearContents={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    clearContentsInRange(current, editor.activeSheetIndex, editor.selectionRange, {
+                      keepStyle: true,
+                      keepComments: true,
+                    }),
+                  )
+                }
+                onInsertLink={() => {
+                  if (readOnly) return;
+                  const current = activeCell?.hyperlink ?? "https://";
+                  const url = window.prompt("Hyperlink URL (empty to remove)", current);
+                  if (url === null) return;
+                  editor.commitWorkbookMutation((currentWb) =>
+                    setCellHyperlink(
+                      currentWb,
+                      editor.activeSheetIndex,
+                      editor.activeCellAddress.row,
+                      editor.activeCellAddress.col,
+                      url.trim() || null,
+                    ),
+                  );
+                }
                 showGridlines={editor.viewFlags.showGridlines}
                 showFormulas={editor.viewFlags.showFormulas || activeSheet?.showFormulas}
                 onTabChange={setRibbonTab}
@@ -926,6 +963,7 @@ export function ExcelSpreadsheetDialog({
                   const refs = dependentCellsForAddress(activeSheet, editor.activeCellAddress);
                   setPrecedentHighlight(new Set(refs.map(dependentCellKey)));
                 }}
+                onEvaluateFormula={() => setEvaluateFormulaOpen(true)}
                 onNameManager={() => setNameManagerOpen(true)}
                 onDataValidation={() => setValidationOpen(true)}
                 onEditComment={() => setCommentOpen(true)}
@@ -1182,6 +1220,14 @@ export function ExcelSpreadsheetDialog({
               bypassProtection: true,
             })
           }
+        />
+
+        <ExcelEvaluateFormulaDialog
+          open={evaluateFormulaOpen}
+          onOpenChange={setEvaluateFormulaOpen}
+          cellLabel={cellAddressLabel(editor.activeCellAddress)}
+          formula={activeCell?.formula ?? null}
+          resultDisplay={activeCell?.display ?? ""}
         />
 
         <ExcelCellCommentDialog
