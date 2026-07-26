@@ -8,7 +8,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::hls::playlist::HLS_SEGMENT_EXTENSION;
+use crate::hls::playlist::{compare_segment_paths, HLS_SEGMENT_EXTENSION};
 use crate::storage::Storage;
 
 // Human: Target aggregate upload buffer — Nebular OOM at ~12×5 MiB concurrent bodies in Compose.
@@ -206,7 +206,9 @@ pub async fn collect_segment_sizes(
             .to_string();
         out.push((name, path, meta.len()));
     }
-    out.sort_by(|left, right| left.0.cmp(&right.0));
+    // Human: Numeric segment order (0000, 0001, …) — string sort alone is wrong for unpadded names.
+    // Agent: USES compare_segment_paths so upload listing matches playlist sequence.
+    out.sort_by(|left, right| compare_segment_paths(&left.0, &right.0));
     Ok(out)
 }
 

@@ -100,10 +100,10 @@ pub async fn encrypt_hls_segments_dir(
             .file_name()
             .and_then(|n| n.to_str())
             .context("segment path missing filename")?;
-        let sequence = seq_map
-            .get(name)
-            .copied()
-            .or_else(|| segment_sequence_from_filename(name))
+        // Human: Filename index is canonical for AES IV so encrypt matches playback rewrite.
+        // Agent: PREFERS segment_sequence_from_filename; FALLBACK seq_map for odd names.
+        let sequence = segment_sequence_from_filename(name)
+            .or_else(|| seq_map.get(name).copied())
             .with_context(|| format!("no AES sequence for segment {name}"))?;
         segments.push((path, sequence));
     }

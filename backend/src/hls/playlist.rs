@@ -7,6 +7,20 @@ use anyhow::Context;
 
 use super::segment_crypto::{hls_media_sequence_iv, segment_sequence_from_filename};
 
+// Human: Stable order for HLS segment basenames — numeric index first, then full name.
+// Agent: USED by generate + parse_segment_manifest sort; HANDLES zero-padded and bare digits.
+pub fn compare_segment_paths(left: &str, right: &str) -> std::cmp::Ordering {
+    let left_name = left.rsplit('/').next().unwrap_or(left);
+    let right_name = right.rsplit('/').next().unwrap_or(right);
+    match (
+        segment_sequence_from_filename(left_name),
+        segment_sequence_from_filename(right_name),
+    ) {
+        (Some(a), Some(b)) if a != b => a.cmp(&b),
+        _ => left_name.cmp(right_name),
+    }
+}
+
 // Human: Default HLS segment length from ffmpeg `-hls_time` for sources under the large-file threshold.
 // Agent: READ by encoder + synthetic playlist fallback; PAIRED with HLS_SEGMENT_TARGET_SECS_LARGE.
 pub const HLS_SEGMENT_TARGET_SECS: f64 = 6.0;
@@ -84,7 +98,7 @@ pub struct PlaylistGenerator;
 
 impl PlaylistGenerator {
     /// Human: Rewrite ffmpeg's on-disk playlist so segment/key URIs point at API routes.
-    /// Agent: KEEPS #EXTINF and IV tags from storage; REWRITES KEY, MAP, and media URIs.
+    /// Agent: PARSES EXTINF pairs; SORTS by numeric segment index; REBUILDS with filename-based AES IVs.
     pub fn rewrite_stored_playlist(
         content: &str,
         base_url: &str,
@@ -92,35 +106,25 @@ impl PlaylistGenerator {
         init_uri: &str,
         prefer_fmp4: bool,
     ) -> anyhow::Result<String> {
-        let mut out = Vec::new();
-        for line in content.lines() {
-            if line.starts_with("#EXT-X-KEY:") {
-                out.push(rewrite_key_uri(line, key_uri));
-            } else if line.starts_with("#EXT-X-MAP:") {
-                out.push(rewrite_map_uri(line, init_uri));
-            } else if !line.starts_with('#') && !line.trim().is_empty() {
-                let trimmed = line.trim();
-                if let Some(name) = trimmed.rsplit('/').next().filter(|s| !s.is_empty()) {
-                    // Human: fMP4 init is only referenced by EXT-X-MAP — not a media segment URI.
-                    // Agent: SKIP init.mp4 lines; WRONG to emit init_uri here (hls.js init-only loop).
-                    if name == HLS_INIT_FILENAME {
-                        continue;
-                    }
-                    let playback_name =
-                        normalize_playback_segment_basename(name, prefer_fmp4);
-                    out.push(format!("{base_url}/segments/{playback_name}"));
-                } else {
-                    out.push(trimmed.to_string());
-                }
-            } else {
-                out.push(line.to_string());
-            }
+        // Human: Prefer structured rebuild so media order is always 0000→N regardless of stored order.
+        // Agent: parse_segment_manifest sorts by filename; generate emits KEY IV from basename index.
+        let (files, durations) = parse_segment_manifest(content)?;
+        if files.is_empty() || files.len() != durations.len() {
+            anyhow::bail!("stored playlist has no media segments");
         }
-        if out.is_empty() {
-            anyhow::bail!("stored playlist is empty");
-        }
-        let text = normalize_aes128_map_before_key(&out.join("\n"));
-        inject_per_segment_aes128_keys(&text, key_uri)
+        let fmp4 = prefer_fmp4 || playlist_uses_fmp4(content);
+        let segment_files: Vec<String> = files
+            .iter()
+            .map(|path| normalize_segment_rel_path_for_playback(path, fmp4))
+            .collect();
+        Ok(Self::generate(
+            base_url,
+            &segment_files,
+            &durations,
+            key_uri,
+            init_uri,
+            fmp4,
+        ))
     }
 
     // Human: Build a VOD playlist for API playback (TS legacy or fMP4 with EXT-X-MAP).
@@ -133,9 +137,23 @@ impl PlaylistGenerator {
         init_uri: &str,
         fmp4: bool,
     ) -> String {
-        let target_duration = segment_durations
+        // Human: Keep media order numeric by filename (0000, 0001, …) even if callers pass unsorted lists.
+        // Agent: ZIPS files+durations; SORTS by segment_sequence_from_filename then name.
+        let mut paired: Vec<(String, f64)> = segment_files
             .iter()
-            .copied()
+            .cloned()
+            .zip(
+                segment_durations
+                    .iter()
+                    .copied()
+                    .chain(std::iter::repeat(HLS_SEGMENT_TARGET_SECS)),
+            )
+            .collect();
+        paired.sort_by(|(left, _), (right, _)| compare_segment_paths(left, right));
+
+        let target_duration = paired
+            .iter()
+            .map(|(_, d)| *d)
             .fold(0.0f64, f64::max)
             .ceil() as i32;
 
@@ -153,12 +171,16 @@ impl PlaylistGenerator {
             lines.push(format!("#EXT-X-MAP:URI=\"{init_uri}\""));
         }
 
-        for (i, file) in segment_files.iter().enumerate() {
-            let duration = segment_durations
-                .get(i)
-                .copied()
-                .unwrap_or(HLS_SEGMENT_TARGET_SECS);
-            lines.push(format_ext_x_key_line(key_uri, i as u32));
+        for (file, duration) in &paired {
+            let basename = file
+                .rsplit('/')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(file.as_str());
+            // Human: IV must match on-disk encryption — always derive from the segment filename index.
+            // Agent: USES segment_sequence_from_filename; FALLBACK 0 only for unparseable names.
+            let sequence = segment_sequence_from_filename(basename).unwrap_or(0);
+            lines.push(format_ext_x_key_line(key_uri, sequence));
             lines.push(format!("#EXTINF:{duration:.3},"));
             let segment_uri = if file.contains('/') {
                 format!("{base_url}/{file}")
@@ -176,28 +198,6 @@ impl PlaylistGenerator {
         let content = std::fs::read_to_string(playlist_path)?;
         parse_segment_manifest(&content)
     }
-}
-
-fn rewrite_key_uri(line: &str, key_uri: &str) -> String {
-    if let Some(uri_start) = line.find("URI=\"") {
-        let after_uri = uri_start + 5;
-        if let Some(uri_end) = line[after_uri..].find('"') {
-            let prefix = &line[..uri_start + 4];
-            let suffix = &line[after_uri + uri_end + 1..];
-            return format!("{prefix}\"{key_uri}\"{suffix}");
-        }
-    }
-    if let Some(uri_start) = line.find("URI=") {
-        let after_uri = uri_start + 4;
-        let end = line[after_uri..]
-            .find(',')
-            .map(|idx| after_uri + idx)
-            .unwrap_or(line.len());
-        let prefix = &line[..uri_start + 4];
-        let suffix = &line[end..];
-        return format!("{prefix}\"{key_uri}\"{suffix}");
-    }
-    format!("#EXT-X-KEY:METHOD=AES-128,URI=\"{key_uri}\"")
 }
 
 // Human: IV attribute for EXT-X-KEY — hls.js requires `0x` prefix on the 32-hex-digit value.
@@ -248,10 +248,10 @@ pub fn inject_per_segment_aes128_keys(content: &str, key_uri: &str) -> anyhow::R
                     .filter(|s| !s.is_empty())
                     .unwrap_or(segment_line);
                 if name != HLS_INIT_FILENAME {
-                    let sequence = seq_map
-                        .get(name)
-                        .copied()
-                        .or_else(|| segment_sequence_from_filename(name))
+                    // Human: Same IV rule as encrypt — filename sequence first so decrypt matches.
+                    // Agent: PREFERS segment_sequence_from_filename; FALLBACK seq_map then error.
+                    let sequence = segment_sequence_from_filename(name)
+                        .or_else(|| seq_map.get(name).copied())
                         .with_context(|| format!("no AES sequence for segment {name}"))?;
                     out.push(format_ext_x_key_line(key_uri, sequence));
                 }
@@ -273,6 +273,7 @@ pub fn inject_per_segment_aes128_keys(content: &str, key_uri: &str) -> anyhow::R
 
 // Human: EXT-X-MAP must appear before the first EXT-X-KEY so init.mp4 stays unencrypted.
 // Agent: REORDERS when ffmpeg or legacy rewrite put KEY above MAP; REQUIRED for hls.js fMP4.
+#[cfg(test)]
 fn normalize_aes128_map_before_key(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let key_idx = lines.iter().position(|l| l.starts_with("#EXT-X-KEY:"));
@@ -307,18 +308,6 @@ fn normalize_aes128_map_before_key(content: &str) -> String {
         text.push('\n');
     }
     text
-}
-
-fn rewrite_map_uri(line: &str, init_uri: &str) -> String {
-    if let Some(uri_start) = line.find("URI=\"") {
-        let after_uri = uri_start + 5;
-        if let Some(uri_end) = line[after_uri..].find('"') {
-            let prefix = &line[..uri_start + 4];
-            let suffix = &line[after_uri + uri_end + 1..];
-            return format!("{prefix}\"{init_uri}\"{suffix}");
-        }
-    }
-    format!("#EXT-X-MAP:URI=\"{init_uri}\"")
 }
 
 pub fn normalize_segment_rel_path(path: &str) -> String {
@@ -357,7 +346,7 @@ pub fn parse_media_sequence(content: &str) -> u32 {
 }
 
 // Human: Map each segment basename to its HLS media sequence number for AES IVs.
-// Agent: USES MEDIA-SEQUENCE + manifest order; SKIPS init.mp4 URI lines if present.
+// Agent: PREFERS numeric filename index (matches encrypt_hls_segments_dir); FALLBACK manifest order.
 pub fn segment_aes_sequence_map(
     content: &str,
 ) -> anyhow::Result<std::collections::HashMap<String, u32>> {
@@ -376,28 +365,58 @@ pub fn segment_aes_sequence_map(
         if name == HLS_INIT_FILENAME {
             continue;
         }
-        map.insert(name.to_string(), base.saturating_add(index));
+        // Human: Filename index is the source of truth for on-disk AES IV (0007.m4s → sequence 7).
+        // Agent: AVOIDS order-based IVs when playlist lines are reordered or synthetic.
+        let sequence = segment_sequence_from_filename(name).unwrap_or_else(|| base.saturating_add(index));
+        map.insert(name.to_string(), sequence);
         index = index.saturating_add(1);
     }
     Ok(map)
 }
 
+// Human: Pair each #EXTINF with the next media URI; sort by numeric segment index for stable order.
+// Agent: SKIPS comments between EXTINF and URI; DROPS init.mp4; SORTS via compare_segment_paths.
 pub fn parse_segment_manifest(content: &str) -> anyhow::Result<(Vec<String>, Vec<f64>)> {
-    let mut files = Vec::new();
-    let mut durations = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut pairs: Vec<(String, f64)> = Vec::new();
+    let mut i = 0usize;
 
-    for line in content.lines() {
+    while i < lines.len() {
+        let line = lines[i];
         if line.starts_with("#EXTINF:") {
-            let dur = line
+            let dur_str = line
                 .trim_start_matches("#EXTINF:")
-                .trim_end_matches(',')
-                .parse::<f64>()?;
-            durations.push(dur);
-        } else if !line.starts_with('#') && !line.trim().is_empty() {
-            files.push(line.trim().to_string());
+                .split(',')
+                .next()
+                .unwrap_or("0")
+                .trim();
+            let dur = dur_str
+                .parse::<f64>()
+                .with_context(|| format!("invalid EXTINF duration: {line}"))?;
+            let mut j = i + 1;
+            while j < lines.len() && (lines[j].starts_with('#') || lines[j].trim().is_empty()) {
+                j += 1;
+            }
+            if j < lines.len() {
+                let uri = lines[j].trim().to_string();
+                let name = uri
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(uri.as_str());
+                if name != HLS_INIT_FILENAME {
+                    pairs.push((uri, dur));
+                }
+                i = j + 1;
+                continue;
+            }
         }
+        i += 1;
     }
 
+    pairs.sort_by(|(left, _), (right, _)| compare_segment_paths(left, right));
+    let files = pairs.iter().map(|(f, _)| f.clone()).collect();
+    let durations = pairs.iter().map(|(_, d)| *d).collect();
     Ok((files, durations))
 }
 
@@ -428,21 +447,19 @@ segments/0001.ts
         )
         .expect("rewrite");
 
-        assert!(out.contains("#EXTINF:6.006000,"), "out={out}");
-        assert!(out.contains("#EXTINF:3.837000,"), "out={out}");
-        assert!(
-            out.contains(
-                "#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/abc/key\",IV=0x00000000000000000000000000000000"
-            ),
-            "out={out}"
+        assert!(out.contains("#EXTINF:6.006,"), "out={out}");
+        assert!(out.contains("#EXTINF:3.837,"), "out={out}");
+        // Human: KEY must appear before each media segment with filename-derived IV (0000→0, 0001→1).
+        let key0 = out.find(
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/abc/key\",IV=0x00000000000000000000000000000000",
         );
-        assert!(
-            out.contains(
-                "#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/abc/key\",IV=0x00000000000000000000000000000001"
-            ),
-            "out={out}"
+        let key1 = out.find(
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"/api/v1/files/abc/key\",IV=0x00000000000000000000000000000001",
         );
-        assert!(out.contains("/api/v1/files/abc/segments/0000.ts"));
+        let seg0 = out.find("/api/v1/files/abc/segments/0000.ts");
+        let seg1 = out.find("/api/v1/files/abc/segments/0001.ts");
+        assert!(key0.is_some() && key1.is_some() && seg0.is_some() && seg1.is_some(), "out={out}");
+        assert!(key0.unwrap() < seg0.unwrap() && seg0.unwrap() < key1.unwrap() && key1.unwrap() < seg1.unwrap(), "out={out}");
     }
 
     #[test]
@@ -593,5 +610,34 @@ segments/0000.ts
         let map_pos = out.find("#EXT-X-MAP:").expect("map");
         let key_pos = out.find("#EXT-X-KEY:").expect("key");
         assert!(map_pos < key_pos, "out={out}");
+    }
+
+    #[test]
+    fn rewrite_sorts_out_of_order_segment_lines() {
+        let stored = "\
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MAP:URI=\"init.mp4\"
+#EXTINF:4.000,
+segments/0002.m4s
+#EXTINF:6.000,
+segments/0000.m4s
+#EXTINF:5.000,
+segments/0001.m4s
+#EXT-X-ENDLIST
+";
+        let out = PlaylistGenerator::rewrite_stored_playlist(
+            stored,
+            "/api/v1/files/abc",
+            "/api/v1/files/abc/key",
+            "/api/v1/files/abc/init",
+            true,
+        )
+        .expect("rewrite");
+        let p0 = out.find("segments/0000.m4s").expect("0000");
+        let p1 = out.find("segments/0001.m4s").expect("0001");
+        let p2 = out.find("segments/0002.m4s").expect("0002");
+        assert!(p0 < p1 && p1 < p2, "out={out}");
+        assert!(out.contains("#EXTINF:6.000,"), "duration stays with 0000, out={out}");
     }
 }

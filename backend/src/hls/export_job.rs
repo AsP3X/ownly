@@ -256,12 +256,12 @@ async fn prepare_hls_workdir(
         }
         let (encrypted, resolved_name) =
             read_hls_segment_object(storage, &prefix, storage_name).await?;
-        let sequence = seq_map
-            .get(storage_name)
-            .copied()
-            .or_else(|| seq_map.get(&resolved_name).copied())
+        // Human: Decrypt with the same IV rule as encrypt — filename sequence first.
+        // Agent: PREFERS segment_sequence_from_filename on resolved basename; FALLBACK seq_map.
+        let sequence = segment_sequence_from_filename(&resolved_name)
             .or_else(|| segment_sequence_from_filename(storage_name))
-            .or_else(|| segment_sequence_from_filename(&resolved_name))
+            .or_else(|| seq_map.get(&resolved_name).copied())
+            .or_else(|| seq_map.get(storage_name).copied())
             .with_context(|| format!("no AES sequence for segment {storage_name}"))?;
         let clear = decrypt_hls_media_segment(&encrypted, &aes_key, sequence)?;
         tokio::fs::write(segments_dir.join(&resolved_name), &clear).await?;
