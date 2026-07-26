@@ -296,7 +296,7 @@ async fn build_app_state(
         ),
         storage_migration_coordinator:
             admin::storage_migration_run::StorageMigrationCoordinator::new(),
-        spreadsheet_collab: spreadsheet::collab::new_shared_store(),
+        spreadsheet_collab: spreadsheet::collab::CollabStore::from_redis_url(&config.redis_url).await,
     }))
 }
 

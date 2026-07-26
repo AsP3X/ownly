@@ -1,5 +1,5 @@
-// Human: Spreadsheet co-editing presence — join session, heartbeat, poll participants/ops.
-// Agent: USED by ExcelSpreadsheetDialog; FOUNDATION only (no CRDT merge of remote edits yet).
+// Human: Spreadsheet co-editing — join, heartbeat, poll ops, apply remote cell_edit locally.
+// Agent: USED by ExcelSpreadsheetDialog; LAST-WRITE-WINS apply via onApplyRemoteOps.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -20,6 +20,10 @@ type UseSpreadsheetCollabOptions = {
   activeCell: CellAddress | null;
   sheetName: string | null;
   displayName?: string;
+  /** Human: Local user id so remote apply can skip echo of our own ops. */
+  localUserId?: string | null;
+  /** Human: Apply remote ops into the editor workbook (without re-publishing). */
+  onApplyRemoteOps?: (ops: SpreadsheetCollabOp[]) => void;
 };
 
 export function useSpreadsheetCollab({
@@ -28,6 +32,8 @@ export function useSpreadsheetCollab({
   activeCell,
   sheetName,
   displayName,
+  localUserId,
+  onApplyRemoteOps,
 }: UseSpreadsheetCollabOptions) {
   const [session, setSession] = useState<SpreadsheetCollabSession | null>(null);
   const [participants, setParticipants] = useState<SpreadsheetCollabParticipant[]>([]);
@@ -35,12 +41,17 @@ export function useSpreadsheetCollab({
   const [error, setError] = useState<string | null>(null);
   const latestSeqRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
+  const localUserIdRef = useRef(localUserId);
+  const onApplyRemoteOpsRef = useRef(onApplyRemoteOps);
+  localUserIdRef.current = localUserId;
+  onApplyRemoteOpsRef.current = onApplyRemoteOps;
 
   useEffect(() => {
     if (!enabled || !fileId) {
       setSession(null);
       setParticipants([]);
       sessionIdRef.current = null;
+      latestSeqRef.current = 0;
       return;
     }
 
@@ -67,8 +78,10 @@ export function useSpreadsheetCollab({
   }, [displayName, enabled, fileId]);
 
   useEffect(() => {
-    if (!enabled || !sessionIdRef.current) return;
-    const sessionId = sessionIdRef.current;
+    if (!enabled || !session?.id) return;
+    const sessionId = session.id;
+    sessionIdRef.current = sessionId;
+
     const tick = () => {
       void heartbeatSpreadsheetCollabSession(sessionId, {
         active_cell: activeCell ? cellAddressLabel(activeCell) : undefined,
@@ -78,23 +91,30 @@ export function useSpreadsheetCollab({
           setSession(next);
           setParticipants(next.participants);
         })
-        .catch(() => {
-          /* session may expire — join effect re-runs on file change */
-        });
+        .catch(() => undefined);
 
       void listSpreadsheetCollabOps(sessionId, latestSeqRef.current)
         .then((ops) => {
           if (ops.length === 0) return;
-          latestSeqRef.current = Math.max(...ops.map((op) => op.seq));
+          latestSeqRef.current = Math.max(
+            latestSeqRef.current,
+            ...ops.map((entry) => entry.seq),
+          );
           setRecentOps((prev) => [...prev, ...ops].slice(-40));
+          const remote = ops.filter(
+            (entry) => !localUserIdRef.current || entry.user_id !== localUserIdRef.current,
+          );
+          if (remote.length > 0) {
+            onApplyRemoteOpsRef.current?.(remote);
+          }
         })
         .catch(() => undefined);
     };
 
     tick();
-    const id = window.setInterval(tick, 4000);
+    const id = window.setInterval(tick, 2500);
     return () => window.clearInterval(id);
-  }, [activeCell, enabled, sheetName, session?.id]);
+  }, [activeCell, enabled, session?.id, sheetName]);
 
   const publishOp = useCallback(
     async (opType: string, payload: Record<string, unknown>) => {

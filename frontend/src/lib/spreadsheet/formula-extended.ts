@@ -930,6 +930,61 @@ export function evaluateExtendedFunction(
       return numericArgs.length === 0 ? 0 : Math.max(...numericArgs);
     case "MINA":
       return numericArgs.length === 0 ? 0 : Math.min(...numericArgs);
+    // —— More common Excel functions ——
+    case "SUBTOTAL": {
+      // Human: SUBTOTAL(fn, …) — support common fn codes 1–11 (ignore hidden not modeled).
+      // Agent: MAPS 1=AVERAGE, 2=COUNT, 3=COUNTA, 4=MAX, 5=MIN, 9=SUM.
+      const code = Math.round(num(args[0]));
+      const values = nums(args.slice(1));
+      switch (code % 100) {
+        case 1:
+          return values.length === 0
+            ? ("#DIV/0!" as FormulaError)
+            : values.reduce((a, b) => a + b, 0) / values.length;
+        case 2:
+          return values.length;
+        case 3:
+          return args.slice(1).filter((v) => v !== null && v !== "").length;
+        case 4:
+          return values.length === 0 ? 0 : Math.max(...values);
+        case 5:
+          return values.length === 0 ? 0 : Math.min(...values);
+        case 9:
+          return values.reduce((a, b) => a + b, 0);
+        default:
+          return values.reduce((a, b) => a + b, 0);
+      }
+    }
+    case "AGGREGATE": {
+      // Human: AGGREGATE(fn, options, …) — simplified; options ignored.
+      // Agent: DELEGATES to SUBTOTAL-like mapping for fn 1–5, 9.
+      return evaluateExtendedFunction("SUBTOTAL", [args[0], ...args.slice(2)]);
+    }
+    case "CONVERT": {
+      // Human: Minimal unit conversion (common mass/length pairs).
+      // Agent: RETURNS #N/A for unsupported units.
+      const value = num(args[0]);
+      const from = String(args[1] ?? "").toLowerCase();
+      const to = String(args[2] ?? "").toLowerCase();
+      const factors: Record<string, number> = {
+        m: 1,
+        km: 1000,
+        cm: 0.01,
+        mm: 0.001,
+        in: 0.0254,
+        ft: 0.3048,
+        yd: 0.9144,
+        g: 0.001,
+        kg: 1,
+        lbm: 0.45359237,
+      };
+      const a = factors[from];
+      const b = factors[to];
+      if (a === undefined || b === undefined) return "#N/A" as FormulaError;
+      const mass = new Set(["g", "kg", "lbm"]);
+      if (mass.has(from) !== mass.has(to)) return "#N/A" as FormulaError;
+      return (value * a) / b;
+    }
     default:
       return undefined;
   }

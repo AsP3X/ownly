@@ -124,6 +124,10 @@ pub struct Config {
     /// Agent: READ by resolve_public_share; DEFAULT 8 wrong attempts/min before 429.
     #[serde(default = "default_share_password_rpm")]
     pub share_password_rpm: u32,
+    /// Human: Optional Redis URL for multi-instance spreadsheet co-editing sessions.
+    /// Agent: EMPTY = in-memory collab only; SET REDIS_URL=redis://… for Redis-backed sessions.
+    #[serde(default)]
+    pub redis_url: String,
 }
 
 impl Config {

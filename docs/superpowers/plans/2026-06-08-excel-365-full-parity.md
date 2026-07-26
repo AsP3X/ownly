@@ -39,8 +39,10 @@
 
 - [x] `POST /api/v1/spreadsheet/copilot` with audit log + frontend fallback (2026-07-26; heuristic; LLM optional)
 - [x] Co-editing session foundation (2026-07-26): join/heartbeat/ops + presence strip (not full CRDT)
+- [x] Apply remote `cell_edit` ops LWW into local workbook (2026-07-26)
+- [x] Optional Redis-backed collab (`REDIS_URL`, memory fallback) (2026-07-26)
 - [ ] Wire real LLM provider behind copilot when productized
-- [ ] Apply remote collab ops into local workbook (merge strategy)
+- [ ] Full OT/CRDT merge for concurrent overlapping edits
 
 ## Wave 6 — Verification (ongoing)
 

@@ -181,7 +181,8 @@ pub async fn join_session(
         .unwrap_or(claims.email.as_str());
     let session = state
         .spreadsheet_collab
-        .join_or_create(&file_id, &claims.sub, display);
+        .join_or_create(&file_id, &claims.sub, display)
+        .await;
     Ok(Json(session_view(&session)))
 }
 
@@ -195,6 +196,7 @@ pub async fn get_session(
     let session = state
         .spreadsheet_collab
         .get(&session_id)
+        .await
         .ok_or(AppError::NotFound)?;
     Ok(Json(session_view(&session)))
 }
@@ -215,6 +217,7 @@ pub async fn session_heartbeat(
             body.active_cell,
             body.sheet_name,
         )
+        .await
         .ok_or(AppError::NotFound)?;
     Ok(Json(session_view(&session)))
 }
@@ -230,6 +233,7 @@ pub async fn list_ops(
     let ops = state
         .spreadsheet_collab
         .ops_since(&session_id, query.after_seq)
+        .await
         .ok_or(AppError::NotFound)?;
     Ok(Json(ops))
 }
@@ -249,6 +253,7 @@ pub async fn post_op(
     let op = state
         .spreadsheet_collab
         .append_op(&session_id, &claims.sub, op_type, body.payload)
+        .await
         .ok_or(AppError::NotFound)?;
     Ok(Json(op))
 }

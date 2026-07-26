@@ -58,6 +58,7 @@ tempfile = "3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 calamine = "0.26"
 fontdue = "0.9"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

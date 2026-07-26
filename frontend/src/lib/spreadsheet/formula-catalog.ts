@@ -118,6 +118,9 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "CEILING.MATH", category: "Math", description: "Round up to significance.", syntax: "CEILING.MATH(number, [significance])" },
   { name: "FLOOR.MATH", category: "Math", description: "Round down to significance.", syntax: "FLOOR.MATH(number, [significance])" },
   { name: "SQRTPI", category: "Math", description: "Square root of (number × π).", syntax: "SQRTPI(number)" },
+  { name: "SUBTOTAL", category: "Math", description: "Aggregate with function code.", syntax: "SUBTOTAL(function_num, ref1, ...)" },
+  { name: "AGGREGATE", category: "Math", description: "Aggregate with options.", syntax: "AGGREGATE(function_num, options, ref1, ...)" },
+  { name: "CONVERT", category: "Engineering", description: "Convert between units.", syntax: "CONVERT(number, from_unit, to_unit)" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

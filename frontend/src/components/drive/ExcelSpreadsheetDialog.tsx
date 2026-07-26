@@ -55,6 +55,7 @@ import {
 import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
 import { useSpreadsheetCollab } from "@/hooks/useSpreadsheetCollab";
 import { useSpreadsheetEditor } from "@/hooks/useSpreadsheetEditor";
+import { applyCollabOpsToWorkbook } from "@/lib/spreadsheet/collab-ops";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cellAddressLabel, columnIndexToLetters, formulaBarValue } from "@/lib/spreadsheet/cells";
 import type { DataValidationRule } from "@/lib/spreadsheet/data-validation";
@@ -170,13 +171,29 @@ export function ExcelSpreadsheetDialog({
   const readOnly = Boolean(shareToken);
   const isDesktopViewport = useIsDesktopExcelViewport(open);
   const editor = useSpreadsheetEditor({ readOnly });
+  const { loadWorkbook: loadEditorWorkbook, resetEditor } = editor;
+  const applyingRemoteOpsRef = useRef(false);
+  const workbookRef = useRef(editor.workbook);
+  workbookRef.current = editor.workbook;
+  const setWorkbookRef = useRef(editor.setWorkbook);
+  setWorkbookRef.current = editor.setWorkbook;
   const collab = useSpreadsheetCollab({
     fileId: file?.id,
     enabled: open && !readOnly && Boolean(file?.id) && isDesktopViewport,
     activeCell: editor.activeCellAddress,
     sheetName: editor.activeSheet?.name ?? null,
+    onApplyRemoteOps: (ops) => {
+      const current = workbookRef.current;
+      if (!current || applyingRemoteOpsRef.current) return;
+      applyingRemoteOpsRef.current = true;
+      try {
+        const next = applyCollabOpsToWorkbook(current, ops);
+        setWorkbookRef.current(next, { recordUndo: false });
+      } finally {
+        applyingRemoteOpsRef.current = false;
+      }
+    },
   });
-  const { loadWorkbook: loadEditorWorkbook, resetEditor } = editor;
   const flushGridDimensionsRef = useRef<(() => void) | null>(null);
   // Human: Track which file id was loaded so replace-on-save does not re-fetch the workbook.
   // Agent: SET after load/save; READ in open effect to skip disruptive reload.

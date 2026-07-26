@@ -87,6 +87,16 @@ describe("formula parity", () => {
     expect(Number(result.rows[1][3].value)).toBe(3);
   });
 
+  it("evaluates SUBTOTAL and CONVERT", () => {
+    const sheet = sheetFrom([
+      [cell(10), cell(20), cell(30)],
+      [cell(null, "=SUBTOTAL(9, A1:C1)"), cell(null, '=CONVERT(1, "m", "cm")')],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(Number(result.rows[1][0].value)).toBe(60);
+    expect(Number(result.rows[1][1].value)).toBe(100);
+  });
+
   it("evaluates engineering and ceiling.math helpers", () => {
     const sheet = sheetFrom([
       [
