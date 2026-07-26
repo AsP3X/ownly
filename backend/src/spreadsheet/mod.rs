@@ -1,4 +1,5 @@
-// Human: Spreadsheet editor API — Copilot heuristic replies with audit trail.
-// Agent: EXPORTED as spreadsheet::handlers; MOUNTED at POST /api/v1/spreadsheet/copilot.
+// Human: Spreadsheet editor API — Copilot + co-editing session foundation.
+// Agent: EXPORTED handlers + collab store; MOUNTED under /api/v1/spreadsheet/*.
 
+pub mod collab;
 pub mod handlers;

@@ -64,6 +64,81 @@ export async function postSpreadsheetCopilot(body: {
   }) as Promise<{ reply: string; source: string }>;
 }
 
+export type SpreadsheetCollabParticipant = {
+  user_id: string;
+  display_name: string;
+  color: string;
+  last_seen: number;
+  active_cell?: string | null;
+  sheet_name?: string | null;
+};
+
+export type SpreadsheetCollabSession = {
+  id: string;
+  file_id: string;
+  participants: SpreadsheetCollabParticipant[];
+  latest_seq: number;
+};
+
+export type SpreadsheetCollabOp = {
+  id: string;
+  seq: number;
+  user_id: string;
+  ts: number;
+  op_type: string;
+  payload: Record<string, unknown>;
+};
+
+// Human: Join or create an in-memory co-editing session for a workbook file.
+// Agent: POST /spreadsheet/sessions; REQUIRES ContentRead on file_id.
+export async function joinSpreadsheetCollabSession(body: {
+  file_id: string;
+  display_name?: string;
+}): Promise<SpreadsheetCollabSession> {
+  return apiFetch("/spreadsheet/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<SpreadsheetCollabSession>;
+}
+
+export async function fetchSpreadsheetCollabSession(
+  sessionId: string,
+): Promise<SpreadsheetCollabSession> {
+  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}`, {
+    cache: "no-store",
+  }) as Promise<SpreadsheetCollabSession>;
+}
+
+export async function heartbeatSpreadsheetCollabSession(
+  sessionId: string,
+  body: { active_cell?: string; sheet_name?: string },
+): Promise<SpreadsheetCollabSession> {
+  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<SpreadsheetCollabSession>;
+}
+
+export async function postSpreadsheetCollabOp(
+  sessionId: string,
+  body: { op_type: string; payload: Record<string, unknown> },
+): Promise<SpreadsheetCollabOp> {
+  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ops`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<SpreadsheetCollabOp>;
+}
+
+export async function listSpreadsheetCollabOps(
+  sessionId: string,
+  afterSeq = 0,
+): Promise<SpreadsheetCollabOp[]> {
+  return apiFetch(
+    `/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ops?after_seq=${afterSeq}`,
+    { cache: "no-store" },
+  ) as Promise<SpreadsheetCollabOp[]>;
+}
+
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }

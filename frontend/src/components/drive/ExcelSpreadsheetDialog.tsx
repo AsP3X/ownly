@@ -30,6 +30,7 @@ import { ExcelPrintPreviewDialog } from "@/components/drive/excel/ExcelPrintPrev
 import { ExcelTrackChangesDialog } from "@/components/drive/excel/ExcelTrackChangesDialog";
 import { ExcelEvaluateFormulaDialog } from "@/components/drive/excel/ExcelEvaluateFormulaDialog";
 import { ExcelGoToDialog } from "@/components/drive/excel/ExcelGoToDialog";
+import { ExcelCollabPresence } from "@/components/drive/excel/ExcelCollabPresence";
 import { ExcelFormulaBar } from "@/components/drive/excel/ExcelFormulaBar";
 import { ExcelSheetTabsBar } from "@/components/drive/excel/ExcelSheetTabsBar";
 import {
@@ -52,6 +53,7 @@ import {
   excelDialogShellClass,
 } from "@/components/drive/excel/excel-dialog-scale";
 import { useIsDesktopExcelViewport } from "@/hooks/useIsDesktopExcelViewport";
+import { useSpreadsheetCollab } from "@/hooks/useSpreadsheetCollab";
 import { useSpreadsheetEditor } from "@/hooks/useSpreadsheetEditor";
 import { buildCopilotAnalysis } from "@/lib/spreadsheet/copilot";
 import { cellAddressLabel, columnIndexToLetters, formulaBarValue } from "@/lib/spreadsheet/cells";
@@ -168,6 +170,12 @@ export function ExcelSpreadsheetDialog({
   const readOnly = Boolean(shareToken);
   const isDesktopViewport = useIsDesktopExcelViewport(open);
   const editor = useSpreadsheetEditor({ readOnly });
+  const collab = useSpreadsheetCollab({
+    fileId: file?.id,
+    enabled: open && !readOnly && Boolean(file?.id) && isDesktopViewport,
+    activeCell: editor.activeCellAddress,
+    sheetName: editor.activeSheet?.name ?? null,
+  });
   const { loadWorkbook: loadEditorWorkbook, resetEditor } = editor;
   const flushGridDimensionsRef = useRef<(() => void) | null>(null);
   // Human: Track which file id was loaded so replace-on-save does not re-fetch the workbook.
@@ -698,6 +706,11 @@ export function ExcelSpreadsheetDialog({
             </p>
           ) : null}
 
+          <ExcelCollabPresence
+            participants={collab.participants}
+            error={collab.error}
+          />
+
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1">
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -976,7 +989,14 @@ export function ExcelSpreadsheetDialog({
                 cellLabel={editor.rangeAddressLabel}
                 value={formulaValue}
                 readOnly={readOnly}
-                onCommit={editor.commitFormulaBar}
+                onCommit={(input) => {
+                  editor.commitFormulaBar(input);
+                  void collab.publishOp("cell_edit", {
+                    sheet: activeSheet?.name,
+                    cell: cellAddressLabel(editor.activeCellAddress),
+                    value: input,
+                  });
+                }}
               />
 
               {loading ? (
@@ -1031,7 +1051,15 @@ export function ExcelSpreadsheetDialog({
                     onSelectAll={handleSelectAll}
                     onStartEditing={editor.startEditing}
                     onEditDraftChange={editor.setEditDraft}
-                    onCommitEdit={editor.commitEdit}
+                    onCommitEdit={() => {
+                      const draft = editor.editDraft;
+                      editor.commitEdit();
+                      void collab.publishOp("cell_edit", {
+                        sheet: activeSheet?.name,
+                        cell: cellAddressLabel(editor.activeCellAddress),
+                        value: draft,
+                      });
+                    }}
                     onGridKeyDown={handleGridKeyDown}
                     onFillDragEnd={editor.performFill}
                     onColumnWidthsChange={editor.setSheetColumnWidths}

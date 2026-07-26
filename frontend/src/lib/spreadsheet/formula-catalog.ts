@@ -110,6 +110,14 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "TOROW", category: "Dynamic array", description: "Transform to a row.", syntax: "TOROW(array)" },
   { name: "VSTACK", category: "Dynamic array", description: "Stack arrays vertically.", syntax: "VSTACK(array1, [array2], ...)" },
   { name: "HSTACK", category: "Dynamic array", description: "Stack arrays horizontally.", syntax: "HSTACK(array1, [array2], ...)" },
+  { name: "BIN2DEC", category: "Engineering", description: "Binary to decimal.", syntax: "BIN2DEC(number)" },
+  { name: "DEC2BIN", category: "Engineering", description: "Decimal to binary.", syntax: "DEC2BIN(number)" },
+  { name: "HEX2DEC", category: "Engineering", description: "Hex to decimal.", syntax: "HEX2DEC(number)" },
+  { name: "BITAND", category: "Engineering", description: "Bitwise AND.", syntax: "BITAND(number1, number2)" },
+  { name: "BITOR", category: "Engineering", description: "Bitwise OR.", syntax: "BITOR(number1, number2)" },
+  { name: "CEILING.MATH", category: "Math", description: "Round up to significance.", syntax: "CEILING.MATH(number, [significance])" },
+  { name: "FLOOR.MATH", category: "Math", description: "Round down to significance.", syntax: "FLOOR.MATH(number, [significance])" },
+  { name: "SQRTPI", category: "Math", description: "Square root of (number × π).", syntax: "SQRTPI(number)" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

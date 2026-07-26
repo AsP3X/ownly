@@ -87,6 +87,22 @@ describe("formula parity", () => {
     expect(Number(result.rows[1][3].value)).toBe(3);
   });
 
+  it("evaluates engineering and ceiling.math helpers", () => {
+    const sheet = sheetFrom([
+      [
+        cell(null, '=BIN2DEC("1010")'),
+        cell(null, "=BITAND(5, 3)"),
+        cell(null, "=CEILING.MATH(2.1, 1)"),
+        cell(null, "=HEX2DEC(\"FF\")"),
+      ],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(Number(result.rows[0][0].value)).toBe(10);
+    expect(Number(result.rows[0][1].value)).toBe(1);
+    expect(Number(result.rows[0][2].value)).toBe(3);
+    expect(Number(result.rows[0][3].value)).toBe(255);
+  });
+
   it("evaluates PV, LOOKUP, ADDRESS, and TOCOL", () => {
     const sheet = sheetFrom([
       [cell(1), cell(2), cell(3), cell("a"), cell("b"), cell("c")],

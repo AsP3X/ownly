@@ -1,7 +1,10 @@
-// Human: Spreadsheet Copilot endpoint — local heuristics until LLM is wired.
-// Agent: AUTH required; WRITES audit_logs action spreadsheet.copilot; RETURNS reply text.
+// Human: Spreadsheet Copilot + co-editing session HTTP handlers.
+// Agent: AUTH required; Copilot audits replies; collab uses in-memory session store.
 
-use axum::{extract::State, Extension, Json};
+use axum::{
+    extract::{Path, Query, State},
+    Extension, Json,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -10,6 +13,7 @@ use crate::{
     audit,
     auth::handlers::Claims,
     error::AppError,
+    spreadsheet::collab::{CollabOp, CollabParticipant, CollabSession},
     AppState,
 };
 
@@ -98,4 +102,153 @@ pub async fn copilot(
         reply,
         source: "heuristic",
     }))
+}
+
+// —— Co-editing foundation ——
+
+#[derive(Debug, Deserialize)]
+pub struct JoinSessionRequest {
+    pub file_id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionView {
+    pub id: String,
+    pub file_id: String,
+    pub participants: Vec<CollabParticipant>,
+    pub latest_seq: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HeartbeatRequest {
+    #[serde(default)]
+    pub active_cell: Option<String>,
+    #[serde(default)]
+    pub sheet_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PostOpRequest {
+    pub op_type: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListOpsQuery {
+    #[serde(default)]
+    pub after_seq: u64,
+}
+
+fn session_view(session: &CollabSession) -> SessionView {
+    let mut participants: Vec<_> = session.participants.values().cloned().collect();
+    participants.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+    SessionView {
+        id: session.id.clone(),
+        file_id: session.file_id.clone(),
+        participants,
+        latest_seq: session.next_seq.saturating_sub(1),
+    }
+}
+
+// Human: POST /api/v1/spreadsheet/sessions — join or create a co-edit session for a file.
+// Agent: UPSERTS participant presence; RETURNS session id + current participants.
+pub async fn join_session(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<JoinSessionRequest>,
+) -> Result<Json<SessionView>, AppError> {
+    let file_id = body.file_id.trim().to_string();
+    if file_id.is_empty() {
+        return Err(AppError::BadRequest("file_id is required".into()));
+    }
+    // Human: Require read access to the workbook before joining collab.
+    // Agent: CALLS ensure_file_access ContentRead.
+    crate::files::access::ensure_file_access(
+        &state.pool,
+        &claims.sub,
+        &file_id,
+        crate::authz::Permission::ContentRead,
+    )
+    .await?;
+
+    let display = body
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(claims.email.as_str());
+    let session = state
+        .spreadsheet_collab
+        .join_or_create(&file_id, &claims.sub, display);
+    Ok(Json(session_view(&session)))
+}
+
+// Human: GET /api/v1/spreadsheet/sessions/:id — snapshot participants + latest seq.
+// Agent: 404 when session expired or unknown.
+pub async fn get_session(
+    State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<Json<SessionView>, AppError> {
+    let session = state
+        .spreadsheet_collab
+        .get(&session_id)
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(session_view(&session)))
+}
+
+// Human: POST heartbeat — refresh presence + optional cursor cell.
+// Agent: 404 when session/participant missing (re-join required).
+pub async fn session_heartbeat(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(body): Json<HeartbeatRequest>,
+) -> Result<Json<SessionView>, AppError> {
+    let session = state
+        .spreadsheet_collab
+        .heartbeat(
+            &session_id,
+            &claims.sub,
+            body.active_cell,
+            body.sheet_name,
+        )
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(session_view(&session)))
+}
+
+// Human: GET ops since after_seq for light sync (not full OT/CRDT).
+// Agent: RETURNS ordered CollabOp list; clients apply best-effort.
+pub async fn list_ops(
+    State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Query(query): Query<ListOpsQuery>,
+) -> Result<Json<Vec<CollabOp>>, AppError> {
+    let ops = state
+        .spreadsheet_collab
+        .ops_since(&session_id, query.after_seq)
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(ops))
+}
+
+// Human: POST a collaboration op (cell_edit, selection, comment, …).
+// Agent: APPENDS to session log; RETURNS the stored op with seq.
+pub async fn post_op(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(body): Json<PostOpRequest>,
+) -> Result<Json<CollabOp>, AppError> {
+    let op_type = body.op_type.trim();
+    if op_type.is_empty() {
+        return Err(AppError::BadRequest("op_type is required".into()));
+    }
+    let op = state
+        .spreadsheet_collab
+        .append_op(&session_id, &claims.sub, op_type, body.payload)
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(op))
 }

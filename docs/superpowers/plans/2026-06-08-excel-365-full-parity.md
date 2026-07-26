@@ -38,8 +38,9 @@
 ## Remaining — Wave 5 (backend)
 
 - [x] `POST /api/v1/spreadsheet/copilot` with audit log + frontend fallback (2026-07-26; heuristic; LLM optional)
-- [ ] Co-editing session token endpoint (foundation — explicitly deferred for real-time sync)
+- [x] Co-editing session foundation (2026-07-26): join/heartbeat/ops + presence strip (not full CRDT)
 - [ ] Wire real LLM provider behind copilot when productized
+- [ ] Apply remote collab ops into local workbook (merge strategy)
 
 ## Wave 6 — Verification (ongoing)
 

@@ -46,6 +46,10 @@ import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
 import { listWorksheetCatalog } from "@/lib/spreadsheet/xlsx-sheet-links";
 import { appendTrackChange } from "@/lib/spreadsheet/workbook-ops";
 import { loadThemePaletteFromXlsxBuffer } from "@/lib/spreadsheet/excel-theme-colors";
+import {
+  applyStyleIndexFormatsToSheet,
+  importStyleFormatResolverFromXlsx,
+} from "@/lib/spreadsheet/xlsx-numfmts-ooxml";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -123,6 +127,9 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
   const chartsBySheet = await importChartsFromXlsx(buffer, sheetNames);
   const worksheetCatalog = await listWorksheetCatalog(buffer);
   const catalogByName = new Map(worksheetCatalog.map((entry) => [entry.name, entry]));
+  // Human: Resolve styles.xml cellXfs numFmtId when SheetJS left cell.z empty.
+  // Agent: APPLIED after sheetToRows via applyStyleIndexFormatsToSheet.
+  const styleFormatResolver = await importStyleFormatResolverFromXlsx(buffer, sheetNames);
 
   const sheets: SheetData[] = sheetNames.map((name) => {
     const catalogEntry = catalogByName.get(name);
@@ -163,7 +170,9 @@ export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<Sprea
       mergedRegions: mergedBySheet.get(name),
       charts: chartsBySheet.get(name),
     };
-    return normalizeSheetGrid(mergeCommentsIntoSheet(imported, commentsBySheet.get(name)));
+    const withComments = mergeCommentsIntoSheet(imported, commentsBySheet.get(name));
+    const withFormats = applyStyleIndexFormatsToSheet(withComments, styleFormatResolver);
+    return normalizeSheetGrid(withFormats);
   });
 
   // Human: Evaluate formula cells on load so chart series can read computed numeric values.

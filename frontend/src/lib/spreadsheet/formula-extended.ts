@@ -736,6 +736,200 @@ export function evaluateExtendedFunction(
       return true;
     case "FALSE":
       return false;
+    // —— More math ——
+    case "CEILING.MATH":
+    case "CEILING.PRECISE": {
+      const value = num(args[0]);
+      const significance = args[1] !== undefined ? Math.abs(num(args[1])) : 1;
+      if (significance === 0) return 0;
+      return Math.ceil(value / significance) * significance;
+    }
+    case "FLOOR.MATH":
+    case "FLOOR.PRECISE": {
+      const value = num(args[0]);
+      const significance = args[1] !== undefined ? Math.abs(num(args[1])) : 1;
+      if (significance === 0) return 0;
+      return Math.floor(value / significance) * significance;
+    }
+    case "ROUNDUP": {
+      const value = num(args[0]);
+      const digits = args[1] !== undefined ? Math.round(num(args[1])) : 0;
+      const factor = 10 ** digits;
+      return value >= 0 ? Math.ceil(value * factor) / factor : Math.floor(value * factor) / factor;
+    }
+    case "ROUNDDOWN": {
+      const value = num(args[0]);
+      const digits = args[1] !== undefined ? Math.round(num(args[1])) : 0;
+      const factor = 10 ** digits;
+      return value >= 0 ? Math.floor(value * factor) / factor : Math.ceil(value * factor) / factor;
+    }
+    case "SERIESSUM": {
+      const x = num(args[0]);
+      const n = num(args[1]);
+      const m = num(args[2]);
+      const coeffs = nums(args.slice(3));
+      return coeffs.reduce((sum, a, i) => sum + a * x ** (n + i * m), 0);
+    }
+    case "SQRTPI":
+      return Math.sqrt(num(args[0]) * Math.PI);
+    case "SUMX2MY2": {
+      const half = Math.floor(args.length / 2);
+      const a = nums(args.slice(0, half));
+      const b = nums(args.slice(half));
+      const len = Math.min(a.length, b.length);
+      let total = 0;
+      for (let i = 0; i < len; i += 1) total += a[i] ** 2 - b[i] ** 2;
+      return total;
+    }
+    case "SUMX2PY2": {
+      const half = Math.floor(args.length / 2);
+      const a = nums(args.slice(0, half));
+      const b = nums(args.slice(half));
+      const len = Math.min(a.length, b.length);
+      let total = 0;
+      for (let i = 0; i < len; i += 1) total += a[i] ** 2 + b[i] ** 2;
+      return total;
+    }
+    case "SUMXMY2": {
+      const half = Math.floor(args.length / 2);
+      const a = nums(args.slice(0, half));
+      const b = nums(args.slice(half));
+      const len = Math.min(a.length, b.length);
+      let total = 0;
+      for (let i = 0; i < len; i += 1) total += (a[i] - b[i]) ** 2;
+      return total;
+    }
+    // —— More text ——
+    case "BAHTTEXT":
+      return String(num(args[0]));
+    case "ASC":
+    case "DBCS":
+    case "JIS":
+      return String(args[0] ?? "");
+    case "PHONETIC":
+      return String(args[0] ?? "");
+    case "WIDECHAR":
+      return String(args[0] ?? "");
+    case "FINDB":
+    case "SEARCHB":
+    case "LEFTB":
+    case "RIGHTB":
+    case "MIDB":
+    case "LENB":
+    case "REPLACEB":
+      // Human: DBCS text functions — treat as UTF-16 code units (same as non-B forms).
+      // Agent: FALLTHROUGH aliases; FIND/SEARCH/LEFT/etc. already handled above or in core.
+      if (upper === "FINDB") {
+        const haystack = String(args[1] ?? "");
+        const needle = String(args[0] ?? "");
+        const start = Math.max(1, Math.round(num(args[2] ?? 1)));
+        const index = haystack.indexOf(needle, start - 1);
+        return index < 0 ? ("#VALUE!" as FormulaError) : index + 1;
+      }
+      if (upper === "SEARCHB") {
+        const haystack = String(args[1] ?? "").toLowerCase();
+        const needle = String(args[0] ?? "").toLowerCase();
+        const start = Math.max(1, Math.round(num(args[2] ?? 1)));
+        const index = haystack.indexOf(needle, start - 1);
+        return index < 0 ? ("#VALUE!" as FormulaError) : index + 1;
+      }
+      if (upper === "LEFTB") {
+        const text = String(args[0] ?? "");
+        return text.slice(0, Math.max(0, Math.round(num(args[1] ?? 1))));
+      }
+      if (upper === "RIGHTB") {
+        const text = String(args[0] ?? "");
+        const count = Math.max(0, Math.round(num(args[1] ?? 1)));
+        return text.slice(Math.max(0, text.length - count));
+      }
+      if (upper === "MIDB") {
+        const text = String(args[0] ?? "");
+        const start = Math.max(1, Math.round(num(args[1])));
+        const length = Math.max(0, Math.round(num(args[2] ?? 0)));
+        return text.slice(start - 1, start - 1 + length);
+      }
+      if (upper === "LENB") return String(args[0] ?? "").length;
+      {
+        const text = String(args[0] ?? "");
+        const start = Math.max(1, Math.round(num(args[1])));
+        const count = Math.max(0, Math.round(num(args[2])));
+        const replacement = String(args[3] ?? "");
+        return text.slice(0, start - 1) + replacement + text.slice(start - 1 + count);
+      }
+    case "TEXT": {
+      const value = num(args[0]);
+      const format = String(args[1] ?? "0");
+      if (format.includes("%")) return `${(value * 100).toFixed(0)}%`;
+      if (format.includes("0.00") || format.includes("#,##0.00")) {
+        return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      return String(value);
+    }
+    // —— Engineering (light) ——
+    case "BIN2DEC": {
+      const text = String(args[0] ?? "");
+      const parsed = Number.parseInt(text, 2);
+      return Number.isFinite(parsed) ? parsed : ("#NUM!" as FormulaError);
+    }
+    case "DEC2BIN": {
+      const value = Math.floor(num(args[0]));
+      if (value < -512 || value > 511) return "#NUM!" as FormulaError;
+      const unsigned = value < 0 ? value + 1024 : value;
+      return unsigned.toString(2);
+    }
+    case "HEX2DEC": {
+      const text = String(args[0] ?? "");
+      const parsed = Number.parseInt(text, 16);
+      return Number.isFinite(parsed) ? parsed : ("#NUM!" as FormulaError);
+    }
+    case "DEC2HEX": {
+      const value = Math.floor(num(args[0]));
+      return (value >>> 0).toString(16).toUpperCase();
+    }
+    case "OCT2DEC": {
+      const text = String(args[0] ?? "");
+      const parsed = Number.parseInt(text, 8);
+      return Number.isFinite(parsed) ? parsed : ("#NUM!" as FormulaError);
+    }
+    case "DEC2OCT": {
+      const value = Math.floor(num(args[0]));
+      return (value >>> 0).toString(8);
+    }
+    case "BITAND":
+      return Math.floor(num(args[0])) & Math.floor(num(args[1]));
+    case "BITOR":
+      return Math.floor(num(args[0])) | Math.floor(num(args[1]));
+    case "BITXOR":
+      return Math.floor(num(args[0])) ^ Math.floor(num(args[1]));
+    case "BITLSHIFT":
+      return Math.floor(num(args[0])) << Math.floor(num(args[1]));
+    case "BITRSHIFT":
+      return Math.floor(num(args[0])) >> Math.floor(num(args[1]));
+    case "DELTA":
+      return Math.abs(num(args[0]) - num(args[1] ?? 0)) < 1e-12 ? 1 : 0;
+    case "GESTEP":
+      return num(args[0]) >= num(args[1] ?? 0) ? 1 : 0;
+    case "COMPLEX":
+      return `${num(args[0])}+${num(args[1])}i`;
+    case "IMREAL": {
+      const text = String(args[0] ?? "");
+      const match = /^([+-]?\d*\.?\d+)/.exec(text);
+      return match ? Number(match[1]) : 0;
+    }
+    case "IMAGINARY": {
+      const text = String(args[0] ?? "");
+      const match = /([+-]?\d*\.?\d+)i$/i.exec(text);
+      return match ? Number(match[1]) : 0;
+    }
+    // —— Compatibility aliases ——
+    case "STDEVA":
+      return evaluateExtendedFunction("STDEV", args);
+    case "VARA":
+      return evaluateExtendedFunction("VAR", args);
+    case "MAXA":
+      return numericArgs.length === 0 ? 0 : Math.max(...numericArgs);
+    case "MINA":
+      return numericArgs.length === 0 ? 0 : Math.min(...numericArgs);
     default:
       return undefined;
   }

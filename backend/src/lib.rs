@@ -122,6 +122,9 @@ pub struct AppState {
     /// Human: Cooperative cancel flag for the active server-side storage migration worker.
     /// Agent: READ/WRITE by storage_migration_run cancel endpoint and background loop.
     pub storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator,
+    /// Human: In-memory spreadsheet co-editing sessions (presence + op log foundation).
+    /// Agent: READ/WRITE by spreadsheet collab handlers; NOT durable across restarts.
+    pub spreadsheet_collab: spreadsheet::collab::SharedCollabStore,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -293,6 +296,7 @@ async fn build_app_state(
         ),
         storage_migration_coordinator:
             admin::storage_migration_run::StorageMigrationCoordinator::new(),
+        spreadsheet_collab: spreadsheet::collab::new_shared_store(),
     }))
 }
 
@@ -494,6 +498,22 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/spreadsheet/copilot",
             post(spreadsheet::handlers::copilot),
+        )
+        .route(
+            "/api/v1/spreadsheet/sessions",
+            post(spreadsheet::handlers::join_session),
+        )
+        .route(
+            "/api/v1/spreadsheet/sessions/{session_id}",
+            get(spreadsheet::handlers::get_session),
+        )
+        .route(
+            "/api/v1/spreadsheet/sessions/{session_id}/heartbeat",
+            post(spreadsheet::handlers::session_heartbeat),
+        )
+        .route(
+            "/api/v1/spreadsheet/sessions/{session_id}/ops",
+            get(spreadsheet::handlers::list_ops).post(spreadsheet::handlers::post_op),
         )
         .route("/api/v1/me", get(auth::handlers::me))
         .route(

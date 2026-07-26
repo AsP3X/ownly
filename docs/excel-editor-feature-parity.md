@@ -102,7 +102,7 @@ Last updated: 2026-07-26 (batch 3)
 | Copilot cell analysis | ✅ | Formula / budget / comment heuristics |
 | Copilot prompt / Send | ✅ | `POST /api/v1/spreadsheet/copilot` + local fallback |
 | Copilot action buttons | ✅ | Navigate to related cells |
-| Real-time co-editing | ❌ | Requires backend sync |
+| Real-time co-editing | 🚧 | Session join + presence + op log foundation (`/spreadsheet/sessions/*`); not full CRDT/OT merge |
 | Comments / notes | ✅ | In-app + OOXML + **VML drawing** for Excel indicators |
 | Track changes | ✅ | Toggle + append on edit + Change Log dialog |
 
@@ -117,6 +117,7 @@ Last updated: 2026-07-26 (batch 3)
 | Cell styles round-trip | 🚧 | Bold/italic/strike/align/fill/font/borders (thin–double + per-side colors); theme1.xml palette on import + theme index export when matched |
 | Theme colors from theme1.xml | ✅ | `loadThemePaletteFromXlsxBuffer` + tint + indexed palette |
 | Built-in numFmtId table | ✅ | `BUILTIN_NUMFMT_ID_CODES` + styles.xml numFmts parser |
+| cellXfs s= → format when z missing | ✅ | `applyStyleIndexFormatsToSheet` maps worksheet `s` via styles.xml cellXfs numFmtId |
 | Double underline | ✅ | Import/export + CSS `underline double` |
 | Chart insert OOXML | ✅ | Common types including scatter |
 
