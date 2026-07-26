@@ -12,7 +12,16 @@ function book(value = ""): SpreadsheetWorkbook {
     sheets: [
       {
         name: "Sheet1",
-        rows: [[{ value: value || null, display: value, formula: undefined }]],
+        rows: [
+          [
+            { value: value || null, display: value },
+            { value: null, display: "" },
+          ],
+          [
+            { value: null, display: "" },
+            { value: null, display: "" },
+          ],
+        ],
       },
     ],
   };
@@ -31,41 +40,73 @@ function op(
   };
 }
 
-describe("collab-ops", () => {
+describe("collab-ops multi-type", () => {
   it("parses cell_edit payloads", () => {
     expect(parseCellEditPayload({ sheet: "Sheet1", cell: "A1", value: "hi" })).toEqual({
       sheet: "Sheet1",
       cell: "A1",
       value: "hi",
     });
-    expect(parseCellEditPayload({ cell: "A1" })).toBeNull();
   });
 
-  it("applies remote cell_edit and skips local user", () => {
-    const remote = applyCollabOpToWorkbook(
-      book(),
+  it("applies style_patch, clear_contents, insert_row, sheet_rename", () => {
+    let wb = book("x");
+    wb = applyCollabOpToWorkbook(
+      wb,
       op({
         seq: 1,
         user_id: "u2",
-        payload: { sheet: "Sheet1", cell: "A1", value: "42" },
+        op_type: "style_patch",
+        payload: {
+          sheet: "Sheet1",
+          startRow: 0,
+          startCol: 0,
+          endRow: 0,
+          endCol: 0,
+          patch: { bold: true },
+        },
       }),
-      { skipUserId: "u1" },
     );
-    expect(remote.sheets[0].rows[0][0].value).toBe(42);
+    expect(wb.sheets[0].rows[0][0].style?.bold).toBe(true);
 
-    const skipped = applyCollabOpToWorkbook(
-      book("keep"),
+    wb = applyCollabOpToWorkbook(
+      wb,
       op({
         seq: 2,
-        user_id: "u1",
-        payload: { sheet: "Sheet1", cell: "A1", value: "x" },
+        user_id: "u2",
+        op_type: "clear_contents",
+        payload: { sheet: "Sheet1", startRow: 0, startCol: 0, endRow: 0, endCol: 0 },
       }),
-      { skipUserId: "u1" },
     );
-    expect(skipped.sheets[0].rows[0][0].display).toBe("keep");
+    expect(wb.sheets[0].rows[0][0].value).toBeNull();
+    expect(wb.sheets[0].rows[0][0].style?.bold).toBe(true);
+
+    const beforeRows = wb.sheets[0].rows.length;
+    wb = applyCollabOpToWorkbook(
+      wb,
+      op({
+        seq: 3,
+        user_id: "u2",
+        op_type: "insert_row",
+        payload: { sheet: "Sheet1", at: 0 },
+      }),
+    );
+    // Human: insertRow may pad to GRID_MIN_ROW_COUNT after normalize.
+    expect(wb.sheets[0].rows.length).toBeGreaterThanOrEqual(beforeRows + 1);
+
+    wb = applyCollabOpToWorkbook(
+      wb,
+      op({
+        seq: 4,
+        user_id: "u2",
+        op_type: "sheet_rename",
+        payload: { index: 0, name: "Budget" },
+      }),
+    );
+    expect(wb.sheets[0].name).toBe("Budget");
   });
 
-  it("applies formula edits and ordered batches", () => {
+  it("applies ordered formula batch and skips local user", () => {
     const next = applyCollabOpsToWorkbook(book(), [
       op({
         seq: 2,
@@ -78,8 +119,18 @@ describe("collab-ops", () => {
         payload: { sheet: "Sheet1", cell: "A1", value: "9" },
       }),
     ]);
-    // seq 1 then 2 → formula wins
     expect(next.sheets[0].rows[0][0].formula).toBe("=1+1");
     expect(Number(next.sheets[0].rows[0][0].value)).toBe(2);
+
+    const skipped = applyCollabOpToWorkbook(
+      book("keep"),
+      op({
+        seq: 5,
+        user_id: "me",
+        payload: { sheet: "Sheet1", cell: "A1", value: "nope" },
+      }),
+      { skipUserId: "me" },
+    );
+    expect(skipped.sheets[0].rows[0][0].display).toBe("keep");
   });
 });

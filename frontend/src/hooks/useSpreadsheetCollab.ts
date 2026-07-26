@@ -1,8 +1,9 @@
-// Human: Spreadsheet co-editing — join, heartbeat, poll ops, apply remote cell_edit locally.
-// Agent: USED by ExcelSpreadsheetDialog; LAST-WRITE-WINS apply via onApplyRemoteOps.
+// Human: Spreadsheet co-editing — join, WS push + poll fallback, apply multi-type remote ops.
+// Agent: USED by ExcelSpreadsheetDialog; CENTRALIZED SEQ ORDER = sequential OT total order.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  API_BASE,
   heartbeatSpreadsheetCollabSession,
   joinSpreadsheetCollabSession,
   listSpreadsheetCollabOps,
@@ -20,11 +21,19 @@ type UseSpreadsheetCollabOptions = {
   activeCell: CellAddress | null;
   sheetName: string | null;
   displayName?: string;
-  /** Human: Local user id so remote apply can skip echo of our own ops. */
   localUserId?: string | null;
-  /** Human: Apply remote ops into the editor workbook (without re-publishing). */
   onApplyRemoteOps?: (ops: SpreadsheetCollabOp[]) => void;
+  onPresence?: (participants: SpreadsheetCollabParticipant[]) => void;
 };
+
+function collabWsUrl(sessionId: string): string {
+  const base =
+    typeof window !== "undefined" && API_BASE.startsWith("http")
+      ? API_BASE
+      : `${window.location.origin}${API_BASE.startsWith("/") ? API_BASE : `/${API_BASE}`}`;
+  const wsBase = base.replace(/^http/, "ws");
+  return `${wsBase}/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ws`;
+}
 
 export function useSpreadsheetCollab({
   fileId,
@@ -34,17 +43,31 @@ export function useSpreadsheetCollab({
   displayName,
   localUserId,
   onApplyRemoteOps,
+  onPresence,
 }: UseSpreadsheetCollabOptions) {
   const [session, setSession] = useState<SpreadsheetCollabSession | null>(null);
   const [participants, setParticipants] = useState<SpreadsheetCollabParticipant[]>([]);
   const [recentOps, setRecentOps] = useState<SpreadsheetCollabOp[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [transport, setTransport] = useState<"ws" | "poll">("poll");
   const latestSeqRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const localUserIdRef = useRef(localUserId);
   const onApplyRemoteOpsRef = useRef(onApplyRemoteOps);
+  const onPresenceRef = useRef(onPresence);
   localUserIdRef.current = localUserId;
   onApplyRemoteOpsRef.current = onApplyRemoteOps;
+  onPresenceRef.current = onPresence;
+
+  const ingestOps = useCallback((ops: SpreadsheetCollabOp[]) => {
+    if (ops.length === 0) return;
+    latestSeqRef.current = Math.max(latestSeqRef.current, ...ops.map((entry) => entry.seq));
+    setRecentOps((prev) => [...prev, ...ops].slice(-80));
+    const remote = ops.filter(
+      (entry) => !localUserIdRef.current || entry.user_id !== localUserIdRef.current,
+    );
+    if (remote.length > 0) onApplyRemoteOpsRef.current?.(remote);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !fileId) {
@@ -77,6 +100,56 @@ export function useSpreadsheetCollab({
     };
   }, [displayName, enabled, fileId]);
 
+  // WebSocket live channel
+  useEffect(() => {
+    if (!enabled || !session?.id) return;
+    const sessionId = session.id;
+    let socket: WebSocket | null = null;
+    let closed = false;
+
+    try {
+      socket = new WebSocket(collabWsUrl(sessionId));
+    } catch {
+      setTransport("poll");
+      return;
+    }
+
+    socket.onopen = () => {
+      if (!closed) setTransport("ws");
+    };
+    socket.onerror = () => {
+      if (!closed) setTransport("poll");
+    };
+    socket.onclose = () => {
+      if (!closed) setTransport("poll");
+    };
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(String(event.data)) as {
+          type?: string;
+          op?: SpreadsheetCollabOp;
+          session?: SpreadsheetCollabSession;
+        };
+        if (data.type === "op" && data.op) {
+          ingestOps([data.op]);
+        }
+        if (data.type === "presence" && data.session) {
+          setSession(data.session);
+          setParticipants(data.session.participants);
+          onPresenceRef.current?.(data.session.participants);
+        }
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+
+    return () => {
+      closed = true;
+      socket?.close();
+    };
+  }, [enabled, ingestOps, session?.id]);
+
+  // Heartbeat + poll fallback (also fills gaps if WS drops messages)
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
@@ -90,31 +163,20 @@ export function useSpreadsheetCollab({
         .then((next) => {
           setSession(next);
           setParticipants(next.participants);
+          onPresenceRef.current?.(next.participants);
         })
         .catch(() => undefined);
 
       void listSpreadsheetCollabOps(sessionId, latestSeqRef.current)
-        .then((ops) => {
-          if (ops.length === 0) return;
-          latestSeqRef.current = Math.max(
-            latestSeqRef.current,
-            ...ops.map((entry) => entry.seq),
-          );
-          setRecentOps((prev) => [...prev, ...ops].slice(-40));
-          const remote = ops.filter(
-            (entry) => !localUserIdRef.current || entry.user_id !== localUserIdRef.current,
-          );
-          if (remote.length > 0) {
-            onApplyRemoteOpsRef.current?.(remote);
-          }
-        })
+        .then((ops) => ingestOps(ops))
         .catch(() => undefined);
     };
 
     tick();
-    const id = window.setInterval(tick, 2500);
+    const intervalMs = transport === "ws" ? 8000 : 2000;
+    const id = window.setInterval(tick, intervalMs);
     return () => window.clearInterval(id);
-  }, [activeCell, enabled, session?.id, sheetName]);
+  }, [activeCell, enabled, ingestOps, session?.id, sheetName, transport]);
 
   const publishOp = useCallback(
     async (opType: string, payload: Record<string, unknown>) => {
@@ -123,7 +185,7 @@ export function useSpreadsheetCollab({
       try {
         const op = await postSpreadsheetCollabOp(sessionId, { op_type: opType, payload });
         latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
-        setRecentOps((prev) => [...prev, op].slice(-40));
+        setRecentOps((prev) => [...prev, op].slice(-80));
       } catch {
         /* best-effort */
       }
@@ -136,6 +198,7 @@ export function useSpreadsheetCollab({
     participants,
     recentOps,
     error,
+    transport,
     publishOp,
   };
 }

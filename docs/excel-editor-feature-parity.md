@@ -102,7 +102,7 @@ Last updated: 2026-07-26 (batch 3)
 | Copilot cell analysis | ✅ | Formula / budget / comment heuristics |
 | Copilot prompt / Send | ✅ | `POST /api/v1/spreadsheet/copilot` + local fallback |
 | Copilot action buttons | ✅ | Navigate to related cells |
-| Real-time co-editing | 🚧 | Presence + op log; **applies remote `cell_edit` LWW**; optional **Redis** (`REDIS_URL`) multi-instance; not full CRDT/OT |
+| Real-time co-editing | ✅ | Multi-type ops (edit/style/structure/sheets/comments); sequential server OT; **WebSocket push** + poll; optional **Redis**; presence strip |
 | Comments / notes | ✅ | In-app + OOXML + **VML drawing** for Excel indicators |
 | Track changes | ✅ | Toggle + append on edit + Change Log dialog |
 

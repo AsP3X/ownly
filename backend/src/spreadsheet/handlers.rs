@@ -214,11 +214,19 @@ pub async fn session_heartbeat(
         .heartbeat(
             &session_id,
             &claims.sub,
-            body.active_cell,
-            body.sheet_name,
+            body.active_cell.clone(),
+            body.sheet_name.clone(),
         )
         .await
         .ok_or(AppError::NotFound)?;
+    state.spreadsheet_collab_hub.publish(
+        &session_id,
+        json!({
+            "type": "presence",
+            "session": session_view(&session),
+        })
+        .to_string(),
+    );
     Ok(Json(session_view(&session)))
 }
 
@@ -255,5 +263,13 @@ pub async fn post_op(
         .append_op(&session_id, &claims.sub, op_type, body.payload)
         .await
         .ok_or(AppError::NotFound)?;
+    state.spreadsheet_collab_hub.publish(
+        &session_id,
+        json!({
+            "type": "op",
+            "op": op,
+        })
+        .to_string(),
+    );
     Ok(Json(op))
 }

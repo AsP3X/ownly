@@ -726,6 +726,7 @@ export function ExcelSpreadsheetDialog({
           <ExcelCollabPresence
             participants={collab.participants}
             error={collab.error}
+            transport={collab.transport}
           />
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -757,33 +758,58 @@ export function ExcelSpreadsheetDialog({
                   );
                 }}
                 onClearFormatting={() => editor.applyStyleToSelection(clearCellStylePatch())}
-                onClearContents={() =>
+                onClearContents={() => {
+                  const range = editor.selectionRange;
                   editor.commitWorkbookMutation((current) =>
-                    clearContentsInRange(current, editor.activeSheetIndex, editor.selectionRange, {
+                    clearContentsInRange(current, editor.activeSheetIndex, range, {
                       keepStyle: true,
                       keepComments: true,
                     }),
-                  )
-                }
+                  );
+                  void collab.publishOp("clear_contents", {
+                    sheet: activeSheet?.name,
+                    startRow: range.start.row,
+                    startCol: range.start.col,
+                    endRow: range.end.row,
+                    endCol: range.end.col,
+                  });
+                }}
                 onInsertLink={() => {
                   if (readOnly) return;
                   const current = activeCell?.hyperlink ?? "https://";
                   const url = window.prompt("Hyperlink URL (empty to remove)", current);
                   if (url === null) return;
+                  const nextUrl = url.trim() || null;
                   editor.commitWorkbookMutation((currentWb) =>
                     setCellHyperlink(
                       currentWb,
                       editor.activeSheetIndex,
                       editor.activeCellAddress.row,
                       editor.activeCellAddress.col,
-                      url.trim() || null,
+                      nextUrl,
                     ),
                   );
+                  void collab.publishOp("hyperlink", {
+                    sheet: activeSheet?.name,
+                    cell: cellAddressLabel(editor.activeCellAddress),
+                    url: nextUrl,
+                  });
                 }
                 showGridlines={editor.viewFlags.showGridlines}
                 showFormulas={editor.viewFlags.showFormulas || activeSheet?.showFormulas}
                 onTabChange={setRibbonTab}
-                onStyleChange={editor.applyStyleToSelection}
+                onStyleChange={(patch) => {
+                  editor.applyStyleToSelection(patch);
+                  const range = editor.selectionRange;
+                  void collab.publishOp("style_patch", {
+                    sheet: activeSheet?.name,
+                    startRow: range.start.row,
+                    startCol: range.start.col,
+                    endRow: range.end.row,
+                    endCol: range.end.col,
+                    patch,
+                  });
+                }}
                 onConditionalFormatPreset={handleConditionalFormatPreset}
                 onCopy={() => void editor.copySelection()}
                 onCut={() => void editor.cutSelection()}
@@ -907,31 +933,47 @@ export function ExcelSpreadsheetDialog({
                 }
                 onFilter={() => setFilterOpen(true)}
                 onClearFilter={handleClearFilter}
-                onInsertRow={() =>
+                onInsertRow={() => {
+                  const at = editor.activeCellAddress.row;
                   editor.commitWorkbookMutation((current) =>
-                    insertRow(current, editor.activeSheetIndex, editor.activeCellAddress.row),
-                  )
-                }
-                onDeleteRow={() =>
+                    insertRow(current, editor.activeSheetIndex, at),
+                  );
+                  void collab.publishOp("insert_row", { sheet: activeSheet?.name, at });
+                }}
+                onDeleteRow={() => {
+                  const at = editor.activeCellAddress.row;
                   editor.commitWorkbookMutation((current) =>
-                    deleteRow(current, editor.activeSheetIndex, editor.activeCellAddress.row),
-                  )
-                }
-                onInsertColumn={() =>
+                    deleteRow(current, editor.activeSheetIndex, at),
+                  );
+                  void collab.publishOp("delete_row", { sheet: activeSheet?.name, at });
+                }}
+                onInsertColumn={() => {
+                  const at = editor.activeCellAddress.col;
                   editor.commitWorkbookMutation((current) =>
-                    insertColumn(current, editor.activeSheetIndex, editor.activeCellAddress.col),
-                  )
-                }
-                onDeleteColumn={() =>
+                    insertColumn(current, editor.activeSheetIndex, at),
+                  );
+                  void collab.publishOp("insert_column", { sheet: activeSheet?.name, at });
+                }}
+                onDeleteColumn={() => {
+                  const at = editor.activeCellAddress.col;
                   editor.commitWorkbookMutation((current) =>
-                    deleteColumn(current, editor.activeSheetIndex, editor.activeCellAddress.col),
-                  )
-                }
-                onMergeCells={() =>
+                    deleteColumn(current, editor.activeSheetIndex, at),
+                  );
+                  void collab.publishOp("delete_column", { sheet: activeSheet?.name, at });
+                }}
+                onMergeCells={() => {
+                  const range = editor.selectionRange;
                   editor.commitWorkbookMutation((current) =>
-                    mergeCellsInRange(current, editor.activeSheetIndex, editor.selectionRange),
-                  )
-                }
+                    mergeCellsInRange(current, editor.activeSheetIndex, range),
+                  );
+                  void collab.publishOp("merge", {
+                    sheet: activeSheet?.name,
+                    startRow: range.start.row,
+                    startCol: range.start.col,
+                    endRow: range.end.row,
+                    endCol: range.end.col,
+                  });
+                }}
                 onFindReplace={() => setFindOpen(true)}
                 onFreezePanes={() =>
                   editor.commitWorkbookMutation((current) =>
@@ -1095,18 +1137,24 @@ export function ExcelSpreadsheetDialog({
                       const next = addSheet(editor.workbook);
                       editor.setWorkbook(next);
                       editor.setActiveSheetIndex(next.sheets.length - 1);
+                      void collab.publishOp("sheet_add", {
+                        name: next.sheets[next.sheets.length - 1]?.name,
+                      });
                     }}
                     onRenameSheet={(index, name) => {
                       if (readOnly) return;
                       editor.commitWorkbookMutation((current) => renameSheet(current, index, name));
+                      void collab.publishOp("sheet_rename", { index, name });
                     }}
                     onDeleteSheet={(index) => {
                       if (readOnly) return;
                       editor.commitWorkbookMutation((current) => removeSheet(current, index));
                       editor.setActiveSheetIndex(Math.max(0, index - 1));
+                      void collab.publishOp("sheet_remove", { index });
                     }}
                     onMoveSheet={(fromIndex, toIndex) => {
                       if (readOnly) return;
+                      void collab.publishOp("sheet_move", { fromIndex, toIndex });
                       const nextActive = activeSheetIndexAfterMove(
                         editor.activeSheetIndex,
                         fromIndex,
@@ -1314,6 +1362,11 @@ export function ExcelSpreadsheetDialog({
                 comment,
               ),
             );
+            void collab.publishOp("comment", {
+              sheet: activeSheet?.name,
+              cell: cellAddressLabel(editor.activeCellAddress),
+              comment,
+            });
           }}
           onDelete={() => {
             editor.commitWorkbookMutation((current) =>
@@ -1325,6 +1378,11 @@ export function ExcelSpreadsheetDialog({
                 null,
               ),
             );
+            void collab.publishOp("comment", {
+              sheet: activeSheet?.name,
+              cell: cellAddressLabel(editor.activeCellAddress),
+              comment: null,
+            });
           }}
         />
 

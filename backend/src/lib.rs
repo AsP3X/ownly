@@ -125,6 +125,9 @@ pub struct AppState {
     /// Human: In-memory spreadsheet co-editing sessions (presence + op log foundation).
     /// Agent: READ/WRITE by spreadsheet collab handlers; NOT durable across restarts.
     pub spreadsheet_collab: spreadsheet::collab::SharedCollabStore,
+    /// Human: Live WebSocket fan-out for collab ops/presence per session.
+    /// Agent: PUBLISH after op/heartbeat; SUBSCRIBE from WS upgrade handler.
+    pub spreadsheet_collab_hub: spreadsheet::hub::SharedCollabHub,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -297,6 +300,7 @@ async fn build_app_state(
         storage_migration_coordinator:
             admin::storage_migration_run::StorageMigrationCoordinator::new(),
         spreadsheet_collab: spreadsheet::collab::CollabStore::from_redis_url(&config.redis_url).await,
+        spreadsheet_collab_hub: spreadsheet::hub::new_shared_hub(),
     }))
 }
 
@@ -514,6 +518,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/spreadsheet/sessions/{session_id}/ops",
             get(spreadsheet::handlers::list_ops).post(spreadsheet::handlers::post_op),
+        )
+        .route(
+            "/api/v1/spreadsheet/sessions/{session_id}/ws",
+            get(spreadsheet::ws::session_ws),
         )
         .route("/api/v1/me", get(auth::handlers::me))
         .route(

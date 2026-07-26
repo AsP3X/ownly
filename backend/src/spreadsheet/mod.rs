@@ -3,3 +3,5 @@
 
 pub mod collab;
 pub mod handlers;
+pub mod hub;
+pub mod ws;

@@ -8,12 +8,14 @@ type ExcelCollabPresenceProps = {
   participants: SpreadsheetCollabParticipant[];
   currentUserId?: string | null;
   error?: string | null;
+  transport?: "ws" | "poll";
 };
 
 export function ExcelCollabPresence({
   participants,
   currentUserId,
   error,
+  transport,
 }: ExcelCollabPresenceProps) {
   if (error) {
     return (
@@ -35,7 +37,7 @@ export function ExcelCollabPresence({
       aria-label="Collaborators"
     >
       <span className="font-semibold text-[#64748B]" style={{ fontSize: scaledPx(10) }}>
-        Live
+        Live{transport === "ws" ? " · WS" : transport === "poll" ? " · poll" : ""}
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {participants.map((person) => {
