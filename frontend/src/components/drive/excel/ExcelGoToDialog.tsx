@@ -35,7 +35,17 @@ export function ExcelGoToDialog({
   onGoToNamedRange,
 }: ExcelGoToDialogProps) {
   const [reference, setReference] = useState("");
-  const listedRanges = useMemo(() => namedRanges, [namedRanges]);
+  // Human: Prefer sheet-local named ranges first, then workbook-scoped ones.
+  // Agent: SORTS namedRanges with active sheet matches first.
+  const listedRanges = useMemo(() => {
+    const sheet = activeSheetName.trim().toLowerCase();
+    return [...namedRanges].sort((a, b) => {
+      const aLocal = (a.sheetName ?? "").toLowerCase() === sheet ? 0 : 1;
+      const bLocal = (b.sheetName ?? "").toLowerCase() === sheet ? 0 : 1;
+      if (aLocal !== bLocal) return aLocal - bLocal;
+      return a.name.localeCompare(b.name);
+    });
+  }, [namedRanges, activeSheetName]);
 
   const apply = () => {
     const trimmed = reference.trim();

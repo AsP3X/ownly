@@ -151,12 +151,13 @@ export function useHlsVideoAttach({
       // Agent: ON MANIFEST_PARSED / LEVELS_UPDATED maps hls.levels into quality state.
       const syncLevels = () => {
         if (!hls || disposed) return;
-        const levels = mapHlsLevels(hls);
+        const instance = hls;
+        const levels = mapHlsLevels(instance);
         setQuality((prev) => ({
           levels,
           selectedLevel: prev.autoEnabled ? -1 : prev.selectedLevel,
           autoEnabled: prev.autoEnabled,
-          currentLevel: hls.currentLevel,
+          currentLevel: instance.currentLevel,
         }));
       };
 

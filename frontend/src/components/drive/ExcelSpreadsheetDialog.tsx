@@ -794,7 +794,7 @@ export function ExcelSpreadsheetDialog({
                     cell: cellAddressLabel(editor.activeCellAddress),
                     url: nextUrl,
                   });
-                }
+                }}
                 showGridlines={editor.viewFlags.showGridlines}
                 showFormulas={editor.viewFlags.showFormulas || activeSheet?.showFormulas}
                 onTabChange={setRibbonTab}
