@@ -109,15 +109,52 @@ function badgeClasses(tone: "on-track" | "over-budget" | "under-budget") {
   }
 }
 
+function cssBorderEdge(
+  line: import("@/lib/spreadsheet/types").BorderLineStyle | undefined,
+  color: string,
+): string {
+  switch (line) {
+    case "medium":
+      return `2px solid ${color}`;
+    case "thick":
+      return `3px solid ${color}`;
+    case "double":
+      return `3px double ${color}`;
+    case "dotted":
+      return `1px dotted ${color}`;
+    case "dashed":
+    case "mediumDashed":
+      return `1px dashed ${color}`;
+    case "dashDot":
+    case "mediumDashDot":
+    case "dashDotDot":
+    case "mediumDashDotDot":
+    case "slantDashDot":
+      return `1px dashed ${color}`;
+    case "hair":
+      return `1px solid ${color}`;
+    case "thin":
+    default:
+      return `1px solid ${color}`;
+  }
+}
+
 function cellBorderStyles(style?: CellStyle): CSSProperties {
   if (!style) return {};
-  const color = style.borderColor ?? "#1A1A1A";
-  const edge = `1px solid ${color}`;
+  const fallback = style.borderColor ?? "#1A1A1A";
   return {
-    borderTop: style.borderTop ? edge : undefined,
-    borderRight: style.borderRight ? edge : undefined,
-    borderBottom: style.borderBottom ? edge : undefined,
-    borderLeft: style.borderLeft ? edge : undefined,
+    borderTop: style.borderTop
+      ? cssBorderEdge(style.borderTopStyle ?? style.borderStyle, style.borderTopColor ?? fallback)
+      : undefined,
+    borderRight: style.borderRight
+      ? cssBorderEdge(style.borderRightStyle ?? style.borderStyle, style.borderRightColor ?? fallback)
+      : undefined,
+    borderBottom: style.borderBottom
+      ? cssBorderEdge(style.borderBottomStyle ?? style.borderStyle, style.borderBottomColor ?? fallback)
+      : undefined,
+    borderLeft: style.borderLeft
+      ? cssBorderEdge(style.borderLeftStyle ?? style.borderStyle, style.borderLeftColor ?? fallback)
+      : undefined,
   };
 }
 

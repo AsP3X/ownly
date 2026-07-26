@@ -87,6 +87,26 @@ describe("formula parity", () => {
     expect(Number(result.rows[1][3].value)).toBe(3);
   });
 
+  it("evaluates trig, FACT, ROMAN, and ISEVEN", () => {
+    const sheet = sheetFrom([
+      [
+        cell(null, "=SIN(0)"),
+        cell(null, "=DEGREES(PI())"),
+        cell(null, "=FACT(5)"),
+        cell(null, "=ROMAN(14)"),
+        cell(null, "=ISEVEN(4)"),
+        cell(null, "=GEOMEAN(1, 4, 1)"),
+      ],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(Number(result.rows[0][0].value)).toBe(0);
+    expect(Number(result.rows[0][1].value)).toBeCloseTo(180, 5);
+    expect(Number(result.rows[0][2].value)).toBe(120);
+    expect(result.rows[0][3].display).toBe("XIV");
+    expect(result.rows[0][4].display).toBe("TRUE");
+    expect(Number(result.rows[0][5].value)).toBeCloseTo(Math.cbrt(4), 5);
+  });
+
   it("supports COUNTBLANK, wildcards, and <> criteria", () => {
     const sheet = sheetFrom([
       [cell("apple"), cell("apricot"), cell(null), cell(10), cell(20)],

@@ -45,6 +45,7 @@ import {
 import { mergePassthroughXlsx } from "@/lib/spreadsheet/xlsx-passthrough";
 import { listWorksheetCatalog } from "@/lib/spreadsheet/xlsx-sheet-links";
 import { appendTrackChange } from "@/lib/spreadsheet/workbook-ops";
+import { loadThemePaletteFromXlsxBuffer } from "@/lib/spreadsheet/excel-theme-colors";
 
 function cellFromSheet(sheet: XLSX.WorkSheet, row: number, col: number): SheetCell {
   const address = XLSX.utils.encode_cell({ r: row, c: col });
@@ -101,6 +102,10 @@ function sheetToRows(sheet: XLSX.WorkSheet): SheetCell[][] {
 // Human: Parse uploaded spreadsheet bytes into an in-memory workbook model.
 // Agent: READS ArrayBuffer; IMPORTS conditional formatting from OOXML; RETURNS SpreadsheetWorkbook.
 export async function parseSpreadsheetBuffer(buffer: ArrayBuffer): Promise<SpreadsheetWorkbook> {
+  // Human: Install theme1.xml palette before cell styles so theme="N" colors resolve correctly.
+  // Agent: MUST run before sheetToRows → cellStyleFromXlsx → resolveXlsxColor.
+  await loadThemePaletteFromXlsxBuffer(buffer);
+
   const workbook = await parseSpreadsheetWorkbookInWorker(buffer, {
     cellFormula: true,
     cellStyles: true,

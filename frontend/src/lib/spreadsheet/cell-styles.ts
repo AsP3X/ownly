@@ -2,9 +2,15 @@
 // Agent: READS raw.s from XLSX.read({ cellStyles: true }); RETURNS background/font fields.
 
 import { formatCellDisplay } from "@/lib/spreadsheet/cells";
-import { resolveXlsxColor } from "@/lib/spreadsheet/excel-theme-colors";
+import { matchThemeIndex, resolveXlsxColor } from "@/lib/spreadsheet/excel-theme-colors";
 import { numberFormatFromXlsxCode, xlsxFormatCodeFromStyle } from "@/lib/spreadsheet/number-formats";
-import type { CellStyle, HorizontalAlign, NumberFormat, SheetCell } from "@/lib/spreadsheet/types";
+import type {
+  BorderLineStyle,
+  CellStyle,
+  HorizontalAlign,
+  NumberFormat,
+  SheetCell,
+} from "@/lib/spreadsheet/types";
 
 const CELL_STYLE_KEYS: (keyof CellStyle)[] = [
   "bold",
@@ -25,6 +31,15 @@ const CELL_STYLE_KEYS: (keyof CellStyle)[] = [
   "borderBottom",
   "borderLeft",
   "borderColor",
+  "borderStyle",
+  "borderTopStyle",
+  "borderRightStyle",
+  "borderBottomStyle",
+  "borderLeftStyle",
+  "borderTopColor",
+  "borderRightColor",
+  "borderBottomColor",
+  "borderLeftColor",
   "isHeaderRow",
   "isTotalRow",
 ];
@@ -57,6 +72,30 @@ export type XlsxCellStyle = {
   bottom?: { style?: string; color?: XlsxColor };
   left?: { style?: string; color?: XlsxColor };
 };
+
+const BORDER_LINE_STYLES = new Set<BorderLineStyle>([
+  "thin",
+  "medium",
+  "thick",
+  "double",
+  "dotted",
+  "dashed",
+  "hair",
+  "mediumDashed",
+  "dashDot",
+  "mediumDashDot",
+  "dashDotDot",
+  "mediumDashDotDot",
+  "slantDashDot",
+]);
+
+function mapBorderLineStyle(raw: string | undefined): BorderLineStyle | undefined {
+  if (!raw || raw === "none") return undefined;
+  if (BORDER_LINE_STYLES.has(raw as BorderLineStyle)) return raw as BorderLineStyle;
+  // Human: SheetJS sometimes uses mediumDashed vs mediumDashed variants.
+  if (raw.toLowerCase() === "mediumdashed") return "mediumDashed";
+  return "thin";
+}
 
 // Human: Merge ribbon style patches onto an existing cell style object.
 // Agent: SPREADS partial patch; USED by format painter full style copy.
@@ -289,16 +328,36 @@ export function cellStyleFromXlsx(
   }
   if (xlsxStyle.wrapText) style.wrapText = true;
 
-  if (hasBorderSide(xlsxStyle.top)) style.borderTop = true;
-  if (hasBorderSide(xlsxStyle.right)) style.borderRight = true;
-  if (hasBorderSide(xlsxStyle.bottom)) style.borderBottom = true;
-  if (hasBorderSide(xlsxStyle.left)) style.borderLeft = true;
+  if (hasBorderSide(xlsxStyle.top)) {
+    style.borderTop = true;
+    style.borderTopStyle = mapBorderLineStyle(xlsxStyle.top?.style);
+    const color = borderSideColor(xlsxStyle.top);
+    if (color) style.borderTopColor = color;
+  }
+  if (hasBorderSide(xlsxStyle.right)) {
+    style.borderRight = true;
+    style.borderRightStyle = mapBorderLineStyle(xlsxStyle.right?.style);
+    const color = borderSideColor(xlsxStyle.right);
+    if (color) style.borderRightColor = color;
+  }
+  if (hasBorderSide(xlsxStyle.bottom)) {
+    style.borderBottom = true;
+    style.borderBottomStyle = mapBorderLineStyle(xlsxStyle.bottom?.style);
+    const color = borderSideColor(xlsxStyle.bottom);
+    if (color) style.borderBottomColor = color;
+  }
+  if (hasBorderSide(xlsxStyle.left)) {
+    style.borderLeft = true;
+    style.borderLeftStyle = mapBorderLineStyle(xlsxStyle.left?.style);
+    const color = borderSideColor(xlsxStyle.left);
+    if (color) style.borderLeftColor = color;
+  }
   const borderColor =
-    borderSideColor(xlsxStyle.top) ??
-    borderSideColor(xlsxStyle.right) ??
-    borderSideColor(xlsxStyle.bottom) ??
-    borderSideColor(xlsxStyle.left);
+    style.borderTopColor ?? style.borderRightColor ?? style.borderBottomColor ?? style.borderLeftColor;
   if (borderColor) style.borderColor = borderColor;
+  const sharedStyle =
+    style.borderTopStyle ?? style.borderRightStyle ?? style.borderBottomStyle ?? style.borderLeftStyle;
+  if (sharedStyle) style.borderStyle = sharedStyle;
 
   return style;
 }
@@ -322,21 +381,53 @@ export function cellStyleToXlsx(style: CellStyle | undefined): Record<string, un
   if (typeof style.fontSize === "number") xlsx.sz = style.fontSize;
   if (style.wrapText) xlsx.wrapText = true;
   if (style.textColor) {
-    const hex = style.textColor.replace("#", "").toUpperCase();
-    xlsx.color = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+    const theme = matchThemeIndex(style.textColor);
+    if (theme !== null) {
+      xlsx.color = { theme };
+    } else {
+      const hex = style.textColor.replace("#", "").toUpperCase();
+      xlsx.color = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+    }
   }
   if (style.backgroundColor) {
-    const hex = style.backgroundColor.replace("#", "").toUpperCase();
     xlsx.patternType = "solid";
-    xlsx.fgColor = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+    const theme = matchThemeIndex(style.backgroundColor);
+    if (theme !== null) {
+      xlsx.fgColor = { theme };
+    } else {
+      const hex = style.backgroundColor.replace("#", "").toUpperCase();
+      xlsx.fgColor = { rgb: hex.length === 6 ? `FF${hex}` : hex };
+    }
   }
 
-  const borderHex = (style.borderColor ?? "#1A1A1A").replace("#", "").toUpperCase();
-  const borderSide = { style: "thin", color: { rgb: borderHex.length === 6 ? `FF${borderHex}` : borderHex } };
-  if (style.borderTop) xlsx.top = borderSide;
-  if (style.borderRight) xlsx.right = borderSide;
-  if (style.borderBottom) xlsx.bottom = borderSide;
-  if (style.borderLeft) xlsx.left = borderSide;
+  const buildBorderSide = (
+    enabled: boolean | undefined,
+    sideStyle: BorderLineStyle | undefined,
+    sideColor: string | undefined,
+  ) => {
+    if (!enabled) return undefined;
+    const line = sideStyle ?? style.borderStyle ?? "thin";
+    const css = sideColor ?? style.borderColor ?? "#1A1A1A";
+    const theme = matchThemeIndex(css);
+    const color = theme !== null
+      ? { theme }
+      : {
+          rgb: (() => {
+            const hex = css.replace("#", "").toUpperCase();
+            return hex.length === 6 ? `FF${hex}` : hex;
+          })(),
+        };
+    return { style: line, color };
+  };
+
+  const top = buildBorderSide(style.borderTop, style.borderTopStyle, style.borderTopColor);
+  const right = buildBorderSide(style.borderRight, style.borderRightStyle, style.borderRightColor);
+  const bottom = buildBorderSide(style.borderBottom, style.borderBottomStyle, style.borderBottomColor);
+  const left = buildBorderSide(style.borderLeft, style.borderLeftStyle, style.borderLeftColor);
+  if (top) xlsx.top = top;
+  if (right) xlsx.right = right;
+  if (bottom) xlsx.bottom = bottom;
+  if (left) xlsx.left = left;
 
   return Object.keys(xlsx).length > 0 ? xlsx : undefined;
 }

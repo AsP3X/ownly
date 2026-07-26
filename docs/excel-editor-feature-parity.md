@@ -37,7 +37,7 @@ Last updated: 2026-07-26 (batch 3)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Formula evaluation / recalc | 🚧 | IFS/SWITCH, COUNTBLANK, AVERAGEIFS, wildcards/<> criteria, TEXTJOIN, INDIRECT, SUMPRODUCT, XMATCH, TRANSPOSE, LET, LAMBDA (limited), LARGE/SMALL; still not full Excel library |
+| Formula evaluation / recalc | 🚧 | Large catalog: IFS/SWITCH, trig (SIN/COS/…), FACT/COMBIN/ROMAN, date (DAYS/WEEKNUM/WORKDAY/TIME), stats (GEOMEAN/MODE/QUARTILE/NORMSDIST), info (ISEVEN/ISODD), text helpers, dynamic arrays, LET; still not full Excel library |
 | Evaluate Formula dialog | ✅ | Formulas → Evaluate |
 | Insert hyperlink | ✅ | Insert → Link |
 | Clear contents | ✅ | Home → Clear keeps styles |
@@ -113,7 +113,8 @@ Last updated: 2026-07-26 (batch 3)
 | Column / row dimensions export | ✅ | |
 | Conditional formatting export (subset) | ✅ | cellIs, text, expression, scales, data bars, top10, duplicates, iconSet, aboveAverage |
 | Comments + validation + defined names OOXML | ✅ | `xlsx-metadata-ooxml.ts` + VML |
-| Cell styles round-trip | 🚧 | Bold/italic/strike/align/fill/font/borders export; theme edge cases remain |
+| Cell styles round-trip | 🚧 | Bold/italic/strike/align/fill/font/borders (thin–double + per-side colors); theme1.xml palette on import + theme index export when matched |
+| Theme colors from theme1.xml | ✅ | `loadThemePaletteFromXlsxBuffer` + tint + indexed palette |
 | Chart insert OOXML | ✅ | Common types including scatter |
 
 ## Implementation files

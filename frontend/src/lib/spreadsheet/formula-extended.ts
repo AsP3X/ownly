@@ -370,6 +370,257 @@ export function evaluateExtendedFunction(
       return typeof args[0] === "string" && String(args[0]).startsWith("=")
         ? String(args[0])
         : ("#N/A" as FormulaError);
+    // —— Math / trig ——
+    case "SIN":
+      return Math.sin(num(args[0]));
+    case "COS":
+      return Math.cos(num(args[0]));
+    case "TAN":
+      return Math.tan(num(args[0]));
+    case "ASIN":
+      return Math.asin(num(args[0]));
+    case "ACOS":
+      return Math.acos(num(args[0]));
+    case "ATAN":
+      return Math.atan(num(args[0]));
+    case "ATAN2":
+      return Math.atan2(num(args[1]), num(args[0]));
+    case "SINH":
+      return Math.sinh(num(args[0]));
+    case "COSH":
+      return Math.cosh(num(args[0]));
+    case "TANH":
+      return Math.tanh(num(args[0]));
+    case "DEGREES":
+      return (num(args[0]) * 180) / Math.PI;
+    case "RADIANS":
+      return (num(args[0]) * Math.PI) / 180;
+    case "ABS":
+      return Math.abs(num(args[0]));
+    case "FACT": {
+      const n = Math.floor(num(args[0]));
+      if (n < 0) return "#NUM!" as FormulaError;
+      if (n > 170) return "#NUM!" as FormulaError;
+      let result = 1;
+      for (let i = 2; i <= n; i += 1) result *= i;
+      return result;
+    }
+    case "COMBIN": {
+      const n = Math.floor(num(args[0]));
+      const k = Math.floor(num(args[1]));
+      if (n < 0 || k < 0 || k > n) return "#NUM!" as FormulaError;
+      let result = 1;
+      for (let i = 1; i <= k; i += 1) result = (result * (n - k + i)) / i;
+      return Math.round(result);
+    }
+    case "PERMUT": {
+      const n = Math.floor(num(args[0]));
+      const k = Math.floor(num(args[1]));
+      if (n < 0 || k < 0 || k > n) return "#NUM!" as FormulaError;
+      let result = 1;
+      for (let i = 0; i < k; i += 1) result *= n - i;
+      return result;
+    }
+    case "BASE": {
+      const value = Math.floor(num(args[0]));
+      const radix = Math.round(num(args[1]));
+      const minLength = args[2] !== undefined ? Math.round(num(args[2])) : 0;
+      if (radix < 2 || radix > 36) return "#NUM!" as FormulaError;
+      let text = Math.abs(value).toString(radix).toUpperCase();
+      if (minLength > text.length) text = text.padStart(minLength, "0");
+      return value < 0 ? `-${text}` : text;
+    }
+    case "DECIMAL": {
+      const text = String(args[0] ?? "");
+      const radix = Math.round(num(args[1]));
+      if (radix < 2 || radix > 36) return "#NUM!" as FormulaError;
+      const parsed = Number.parseInt(text, radix);
+      return Number.isFinite(parsed) ? parsed : ("#NUM!" as FormulaError);
+    }
+    case "ROMAN": {
+      const n = Math.round(num(args[0]));
+      if (n < 1 || n > 3999) return "#VALUE!" as FormulaError;
+      const map: Array<[number, string]> = [
+        [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+        [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+        [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+      ];
+      let remaining = n;
+      let out = "";
+      for (const [value, glyph] of map) {
+        while (remaining >= value) {
+          out += glyph;
+          remaining -= value;
+        }
+      }
+      return out;
+    }
+    case "ARABIC": {
+      const text = String(args[0] ?? "").toUpperCase();
+      const map: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+      let total = 0;
+      for (let i = 0; i < text.length; i += 1) {
+        const cur = map[text[i]] ?? 0;
+        const next = map[text[i + 1]] ?? 0;
+        total += cur < next ? -cur : cur;
+      }
+      return total;
+    }
+    // —— Date ——
+    case "DAYS":
+      return Math.round(num(args[0]) - num(args[1]));
+    case "WEEKNUM": {
+      const serial = num(args[0]);
+      const date = new Date((serial - 25569) * 86400 * 1000);
+      const start = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const day = Math.floor((date.getTime() - start.getTime()) / 86400000);
+      return Math.floor(day / 7) + 1;
+    }
+    case "ISOWEEKNUM": {
+      const serial = num(args[0]);
+      const date = new Date((serial - 25569) * 86400 * 1000);
+      const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+      const dayNum = target.getUTCDay() || 7;
+      target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+      return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+    }
+    case "WORKDAY": {
+      let serial = Math.floor(num(args[0]));
+      let days = Math.round(num(args[1]));
+      const step = days >= 0 ? 1 : -1;
+      days = Math.abs(days);
+      while (days > 0) {
+        serial += step;
+        const date = new Date((serial - 25569) * 86400 * 1000);
+        const dow = date.getUTCDay();
+        if (dow !== 0 && dow !== 6) days -= 1;
+      }
+      return serial;
+    }
+    case "HOUR": {
+      const serial = num(args[0]);
+      const fraction = serial - Math.floor(serial);
+      return Math.floor(fraction * 24);
+    }
+    case "MINUTE": {
+      const serial = num(args[0]);
+      const fraction = serial - Math.floor(serial);
+      return Math.floor((fraction * 1440) % 60);
+    }
+    case "SECOND": {
+      const serial = num(args[0]);
+      const fraction = serial - Math.floor(serial);
+      return Math.floor((fraction * 86400) % 60);
+    }
+    case "TIME": {
+      const h = num(args[0]);
+      const m = num(args[1]);
+      const s = num(args[2]);
+      return (h * 3600 + m * 60 + s) / 86400;
+    }
+    // —— Info ——
+    case "ISEVEN":
+      return Math.floor(num(args[0])) % 2 === 0;
+    case "ISODD":
+      return Math.floor(num(args[0])) % 2 !== 0;
+    case "ISLOGICAL":
+      return typeof args[0] === "boolean";
+    case "ISNONTEXT":
+      return typeof args[0] !== "string" || String(args[0]).startsWith("#");
+    case "ISREF":
+      return false;
+    case "ISEMPTY":
+    case "ISBLANK":
+      return args[0] === null || args[0] === "";
+    // —— Text ——
+    case "NUMBERVALUE": {
+      const text = String(args[0] ?? "").replace(/,/g, "");
+      const parsed = Number(text);
+      return Number.isFinite(parsed) ? parsed : ("#VALUE!" as FormulaError);
+    }
+    case "UNICHAR":
+      return String.fromCodePoint(Math.round(num(args[0])));
+    case "UNICODE":
+      return String(args[0] ?? "").codePointAt(0) ?? 0;
+    // —— Stats ——
+    case "GEOMEAN": {
+      if (numericArgs.length === 0) return "#NUM!" as FormulaError;
+      if (numericArgs.some((value) => value <= 0)) return "#NUM!" as FormulaError;
+      const logSum = numericArgs.reduce((sum, value) => sum + Math.log(value), 0);
+      return Math.exp(logSum / numericArgs.length);
+    }
+    case "HARMEAN": {
+      if (numericArgs.length === 0) return "#N/A" as FormulaError;
+      if (numericArgs.some((value) => value <= 0)) return "#N/A" as FormulaError;
+      const inv = numericArgs.reduce((sum, value) => sum + 1 / value, 0);
+      return numericArgs.length / inv;
+    }
+    case "MODE":
+    case "MODE.SNGL": {
+      if (numericArgs.length === 0) return "#N/A" as FormulaError;
+      const counts = new Map<number, number>();
+      for (const value of numericArgs) counts.set(value, (counts.get(value) ?? 0) + 1);
+      let best = numericArgs[0];
+      let bestCount = 0;
+      for (const [value, count] of counts) {
+        if (count > bestCount) {
+          best = value;
+          bestCount = count;
+        }
+      }
+      return bestCount < 2 ? ("#N/A" as FormulaError) : best;
+    }
+    case "QUARTILE":
+    case "QUARTILE.INC": {
+      const values = [...numericArgs].sort((a, b) => a - b);
+      const q = Math.round(num(args[args.length - 1]));
+      if (values.length === 0 || q < 0 || q > 4) return "#NUM!" as FormulaError;
+      const k = q / 4;
+      const pos = (values.length - 1) * k;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      if (values[base + 1] === undefined) return values[base];
+      return values[base] + rest * (values[base + 1] - values[base]);
+    }
+    case "AVEDEV": {
+      if (numericArgs.length === 0) return "#NUM!" as FormulaError;
+      const mean = numericArgs.reduce((a, b) => a + b, 0) / numericArgs.length;
+      return numericArgs.reduce((sum, value) => sum + Math.abs(value - mean), 0) / numericArgs.length;
+    }
+    case "DEVSQ": {
+      if (numericArgs.length === 0) return "#DIV/0!" as FormulaError;
+      const mean = numericArgs.reduce((a, b) => a + b, 0) / numericArgs.length;
+      return numericArgs.reduce((sum, value) => sum + (value - mean) ** 2, 0);
+    }
+    case "FISHER": {
+      const x = num(args[0]);
+      if (x <= -1 || x >= 1) return "#NUM!" as FormulaError;
+      return 0.5 * Math.log((1 + x) / (1 - x));
+    }
+    case "FISHERINV": {
+      const y = num(args[0]);
+      const e = Math.exp(2 * y);
+      return (e - 1) / (e + 1);
+    }
+    case "NORM.S.DIST":
+    case "NORMSDIST": {
+      const z = num(args[0]);
+      // Standard normal CDF approximation
+      const t = 1 / (1 + 0.2316419 * Math.abs(z));
+      const d = 0.3989423 * Math.exp((-z * z) / 2);
+      const p =
+        d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+      return z > 0 ? 1 - p : p;
+    }
+    case "PHI": {
+      const z = num(args[0]);
+      return Math.exp((-z * z) / 2) / Math.sqrt(2 * Math.PI);
+    }
+    case "TRUE":
+      return true;
+    case "FALSE":
+      return false;
     default:
       return undefined;
   }

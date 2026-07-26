@@ -7,6 +7,22 @@ import type { NamedRange } from "@/lib/spreadsheet/named-ranges";
 
 export type HorizontalAlign = "left" | "center" | "right";
 export type VerticalAlign = "top" | "middle" | "bottom";
+// Human: OOXML border line styles rendered as CSS border-width/style.
+// Agent: IMPORTED from SheetJS side style; EXPORTED via cellStyleToXlsx.
+export type BorderLineStyle =
+  | "thin"
+  | "medium"
+  | "thick"
+  | "double"
+  | "dotted"
+  | "dashed"
+  | "hair"
+  | "mediumDashed"
+  | "dashDot"
+  | "mediumDashDot"
+  | "dashDotDot"
+  | "mediumDashDotDot"
+  | "slantDashDot";
 export type NumberFormat =
   | "general"
   | "currency"
@@ -50,6 +66,17 @@ export type CellStyle = {
   borderBottom?: boolean;
   borderLeft?: boolean;
   borderColor?: string;
+  // Human: Shared or per-side border line style (medium/double/etc.).
+  // Agent: DEFAULT thin when boolean side is set without explicit style.
+  borderStyle?: BorderLineStyle;
+  borderTopStyle?: BorderLineStyle;
+  borderRightStyle?: BorderLineStyle;
+  borderBottomStyle?: BorderLineStyle;
+  borderLeftStyle?: BorderLineStyle;
+  borderTopColor?: string;
+  borderRightColor?: string;
+  borderBottomColor?: string;
+  borderLeftColor?: string;
   isHeaderRow?: boolean;
   isTotalRow?: boolean;
 };
