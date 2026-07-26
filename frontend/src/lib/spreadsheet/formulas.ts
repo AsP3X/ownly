@@ -308,6 +308,39 @@ function evaluateFunction(
       const condition = Boolean(args[0]);
       return condition ? args[1] ?? null : args[2] ?? null;
     }
+    case "IFS": {
+      // Human: IFS(cond1, val1, cond2, val2, ...) — first true condition wins.
+      // Agent: PAIRS sequential args; RETURNS #N/A when no condition matches.
+      for (let index = 0; index + 1 < args.length; index += 2) {
+        if (Boolean(args[index])) return args[index + 1] ?? null;
+      }
+      return "#N/A" as FormulaError;
+    }
+    case "SWITCH": {
+      // Human: SWITCH(expr, value1, result1, ..., [default]) — match first equal value.
+      // Agent: COMPARES as strings when non-numeric; ODD trailing arg is default.
+      const expression = args[0];
+      for (let index = 1; index + 1 < args.length; index += 2) {
+        const candidate = args[index];
+        if (
+          expression === candidate ||
+          String(expression ?? "").toLowerCase() === String(candidate ?? "").toLowerCase()
+        ) {
+          return args[index + 1] ?? null;
+        }
+      }
+      if (args.length >= 4 && (args.length - 1) % 2 === 1) {
+        return args[args.length - 1] ?? null;
+      }
+      return "#N/A" as FormulaError;
+    }
+    case "XOR": {
+      let trueCount = 0;
+      for (const value of args) {
+        if (Boolean(value)) trueCount += 1;
+      }
+      return trueCount % 2 === 1;
+    }
     case "AND":
       return args.every(Boolean);
     case "OR":
@@ -718,6 +751,33 @@ function evaluateFunction(
       // Agent: STORES raw body; CALL via LET(fn, LAMBDA(x, x+1), fn(2)) is not full Excel — returns body string.
       return `#LAMBDA(${argsRaw})`;
     }
+    case "LARGE":
+    case "SMALL": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const k = Math.max(1, Math.round(coerceNumber(args[args.length - 1])));
+      const nums = rangeValues
+        .map((value) => coerceNumber(value))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => (upper === "LARGE" ? b - a : a - b));
+      return nums[k - 1] ?? ("#NUM!" as FormulaError);
+    }
+    case "PERCENTILE":
+    case "PERCENTILE.INC": {
+      const parts = splitFunctionArgs(argsRaw);
+      const rangeValues = collectRangeValuesFromArg(ctx, sheetIndex, row, col, parts[0]?.trim() ?? "");
+      const k = coerceNumber(args[args.length - 1]);
+      const nums = rangeValues
+        .map((value) => coerceNumber(value))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+      if (nums.length === 0 || k < 0 || k > 1) return "#NUM!" as FormulaError;
+      const pos = (nums.length - 1) * k;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      if (nums[base + 1] === undefined) return nums[base];
+      return nums[base] + rest * (nums[base + 1] - nums[base]);
+    }
     default: {
       const extended = evaluateExtendedFunction(upper, args as FormulaScalar[]);
       if (extended !== undefined) return extended;
@@ -918,9 +978,19 @@ function evaluateExpression(
   expr = expr.replace(/&/g, "+");
 
   try {
-    const sanitized = expr.replace(/"[^"]*"/g, '""').replace(/\btrue\b|\bfalse\b|\bnull\b/gi, "0");
-    if (/[^0-9+\-*/().\s"]/.test(sanitized)) return "#ERROR!";
-    const evaluated = Function(`"use strict"; return (${expr});`)() as unknown;
+    // Human: Allow arithmetic + comparison operators used by IF/IFS criteria.
+    // Agent: REJECTS letters except true/false/null tokens already rewritten.
+    const sanitized = expr
+      .replace(/"[^"]*"/g, '""')
+      .replace(/\btrue\b|\bfalse\b|\bnull\b/gi, "0");
+    if (/[^0-9+\-*/().,\s"<>!=&|]/.test(sanitized)) return "#ERROR!";
+    // Human: Map Excel-style <> and = comparisons to JS operators before Function eval.
+    // Agent: <> first; then lone = (not part of <= >= === !==) becomes ===.
+    const jsExpr = expr
+      .replace(/<>/g, "!==")
+      .replace(/([^<>=!])=([^=])/g, "$1===$2")
+      .replace(/^=([^=])/, "===$1");
+    const evaluated = Function(`"use strict"; return (${jsExpr});`)() as unknown;
     if (typeof evaluated === "number" && !Number.isFinite(evaluated)) return "#DIV/0!";
     if (typeof evaluated === "boolean") return evaluated;
     if (typeof evaluated === "number") return evaluated;

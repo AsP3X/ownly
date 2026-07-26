@@ -260,6 +260,116 @@ export function evaluateExtendedFunction(
       if (typeof value === "boolean") return 4;
       return 1;
     }
+    case "TEXTBEFORE": {
+      const text = String(args[0] ?? "");
+      const delimiter = String(args[1] ?? "");
+      if (!delimiter) return text;
+      const index = text.indexOf(delimiter);
+      return index < 0 ? text : text.slice(0, index);
+    }
+    case "TEXTAFTER": {
+      const text = String(args[0] ?? "");
+      const delimiter = String(args[1] ?? "");
+      if (!delimiter) return text;
+      const index = text.indexOf(delimiter);
+      return index < 0 ? "" : text.slice(index + delimiter.length);
+    }
+    case "TEXTSPLIT": {
+      const text = String(args[0] ?? "");
+      const colDelimiter = String(args[1] ?? ",");
+      const parts = text.split(colDelimiter);
+      return parts[0] ?? "";
+    }
+    case "REPLACE": {
+      const text = String(args[0] ?? "");
+      const start = Math.max(1, Math.round(num(args[1])));
+      const count = Math.max(0, Math.round(num(args[2])));
+      const replacement = String(args[3] ?? "");
+      return text.slice(0, start - 1) + replacement + text.slice(start - 1 + count);
+    }
+    case "DOLLAR": {
+      const value = num(args[0]);
+      const decimals = args[1] !== undefined ? Math.round(num(args[1])) : 2;
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: Math.max(0, decimals),
+        maximumFractionDigits: Math.max(0, decimals),
+      }).format(value);
+    }
+    case "FIXED": {
+      const value = num(args[0]);
+      const decimals = args[1] !== undefined ? Math.round(num(args[1])) : 2;
+      const noCommas = Boolean(args[2]);
+      const fixed = value.toFixed(Math.max(0, decimals));
+      if (noCommas) return fixed;
+      const [whole, frac] = fixed.split(".");
+      const withCommas = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return frac !== undefined ? `${withCommas}.${frac}` : withCommas;
+    }
+    case "ROUND": {
+      const value = num(args[0]);
+      const digits = args[1] !== undefined ? Math.round(num(args[1])) : 0;
+      const factor = 10 ** digits;
+      return Math.round(value * factor) / factor;
+    }
+    case "TRUNC": {
+      const value = num(args[0]);
+      const digits = args[1] !== undefined ? Math.round(num(args[1])) : 0;
+      const factor = 10 ** digits;
+      return Math.trunc(value * factor) / factor;
+    }
+    case "MROUND": {
+      const value = num(args[0]);
+      const multiple = num(args[1]);
+      if (multiple === 0) return 0;
+      return Math.round(value / multiple) * multiple;
+    }
+    case "RANK":
+    case "RANK.EQ": {
+      const target = num(args[0]);
+      const values = nums(args.slice(1));
+      const order = 0;
+      const sorted = [...values].sort((a, b) => (order === 0 ? b - a : a - b));
+      const index = sorted.findIndex((value) => value === target);
+      return index < 0 ? ("#N/A" as FormulaError) : index + 1;
+    }
+    case "PERCENTILE":
+    case "PERCENTILE.INC": {
+      const values = nums(args.slice(0, -1)).sort((a, b) => a - b);
+      const k = num(args[args.length - 1]);
+      if (values.length === 0 || k < 0 || k > 1) return "#NUM!" as FormulaError;
+      const pos = (values.length - 1) * k;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      if (values[base + 1] === undefined) return values[base];
+      return values[base] + rest * (values[base + 1] - values[base]);
+    }
+    case "LARGE": {
+      const values = nums(args.slice(0, -1)).sort((a, b) => b - a);
+      const k = Math.round(num(args[args.length - 1]));
+      return values[k - 1] ?? ("#NUM!" as FormulaError);
+    }
+    case "SMALL": {
+      const values = nums(args.slice(0, -1)).sort((a, b) => a - b);
+      const k = Math.round(num(args[args.length - 1]));
+      return values[k - 1] ?? ("#NUM!" as FormulaError);
+    }
+    case "TRIMMEAN": {
+      const values = nums(args.slice(0, -1)).sort((a, b) => a - b);
+      const percent = num(args[args.length - 1]);
+      if (values.length === 0) return "#DIV/0!" as FormulaError;
+      const drop = Math.floor(values.length * percent);
+      const trimmed = values.slice(drop, values.length - drop || undefined);
+      if (trimmed.length === 0) return "#DIV/0!" as FormulaError;
+      return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    }
+    case "HYPERLINK":
+      return String(args[1] ?? args[0] ?? "");
+    case "FORMULATEXT":
+      return typeof args[0] === "string" && String(args[0]).startsWith("=")
+        ? String(args[0])
+        : ("#N/A" as FormulaError);
     default:
       return undefined;
   }

@@ -173,6 +173,8 @@ type ExcelSpreadsheetRibbonProps = {
   onTextToColumns?: () => void;
   onHideRow?: () => void;
   onHideColumn?: () => void;
+  onUnhideAllRows?: () => void;
+  onUnhideAllColumns?: () => void;
   onInsertLink?: () => void;
   drawMode?: "pen" | "eraser" | null;
   drawColor?: string;
@@ -877,6 +879,8 @@ function ViewTabPanel(props: Pick<
   | "onUnfreezePanes"
   | "onHideRow"
   | "onHideColumn"
+  | "onUnhideAllRows"
+  | "onUnhideAllColumns"
   | "onSheetTabColor"
   | "onZoomChange"
   | "showGridlines"
@@ -897,6 +901,8 @@ function ViewTabPanel(props: Pick<
         <RibbonIconButton label="Unfreeze Panes" icon={<span style={{ fontSize: scaledPx(10) }}>⊟</span>} onClick={props.onUnfreezePanes} />
         <RibbonIconButton label="Hide Row" icon={<span style={{ fontSize: scaledPx(9) }}>-R</span>} disabled={props.readOnly} onClick={props.onHideRow} />
         <RibbonIconButton label="Hide Col" icon={<span style={{ fontSize: scaledPx(9) }}>-C</span>} disabled={props.readOnly} onClick={props.onHideColumn} />
+        <RibbonIconButton label="Unhide Rows" icon={<span style={{ fontSize: scaledPx(9) }}>+R</span>} disabled={props.readOnly} onClick={props.onUnhideAllRows} />
+        <RibbonIconButton label="Unhide Cols" icon={<span style={{ fontSize: scaledPx(9) }}>+C</span>} disabled={props.readOnly} onClick={props.onUnhideAllColumns} />
         <RibbonIconButton label="Tab Color" icon={<span style={{ fontSize: scaledPx(10) }}>◼</span>} disabled={props.readOnly} onClick={props.onSheetTabColor} />
       </RibbonGroup>
       <RibbonGroupDivider />

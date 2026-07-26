@@ -139,10 +139,73 @@ export function formatValueWithNumberFormat(
     case "text":
       return String(value);
     case "custom":
-      return customCode ? String(value) : String(value);
+      return customCode ? formatWithCustomCode(value, customCode) : String(value);
     default:
       return Number.isInteger(value) ? String(value) : String(value);
   }
+}
+
+// Human: Apply a subset of Excel custom format codes for common patterns on display.
+// Agent: HANDLES 0/0.00/#,##0, %, simple dates; FALLBACK String(value) for exotic codes.
+function formatWithCustomCode(value: number, code: string): string {
+  const cleaned = code.trim();
+  if (!cleaned || cleaned.toLowerCase() === "general") return String(value);
+
+  // Human: Sectioned formats (positive;negative;zero;text) — use first section for positives.
+  // Agent: PICKS section by sign; IGNORES text section for numeric path.
+  const sections = cleaned.split(";");
+  let pattern = sections[0] ?? cleaned;
+  if (value < 0 && sections[1]) pattern = sections[1];
+  else if (value === 0 && sections[2]) pattern = sections[2];
+
+  // Human: Strip Excel color/locale wrappers like [Red] or [$-409].
+  // Agent: REMOVES bracket tokens before pattern matching.
+  pattern = pattern.replace(/\[[^\]]*]/g, "");
+
+  if (pattern.includes("%")) {
+    const decimals = (pattern.split(".")[1] ?? "").replace(/[^0#]/g, "").length;
+    return new Intl.NumberFormat("en-US", {
+      style: "percent",
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value);
+  }
+
+  if (/[ymdhs]/i.test(pattern) && !pattern.includes("#") && !pattern.includes("0")) {
+    const date = excelSerialToDate(value);
+    if (!date) return String(value);
+    if (/h|s/i.test(pattern) && /y|d|m/i.test(pattern)) return date.toLocaleString("en-US");
+    if (/h|s/i.test(pattern)) {
+      return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    }
+    return date.toLocaleDateString("en-US");
+  }
+
+  if (pattern.includes("E+") || pattern.includes("e+")) {
+    return value.toExponential(2).toUpperCase();
+  }
+
+  const hasThousands = pattern.includes("#,##") || pattern.includes("#,") || pattern.includes(",");
+  const decimalMatch = /\.(0+|#+)/.exec(pattern);
+  const decimals = decimalMatch ? decimalMatch[1].length : 0;
+  const abs = Math.abs(value);
+  const formatted = new Intl.NumberFormat("en-US", {
+    useGrouping: hasThousands,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(abs);
+
+  // Human: Accounting-style underscore placeholders — approximate with leading space + $.
+  // Agent: DETECTS $ or accounting pattern in original code.
+  const withCurrency =
+    cleaned.includes("$") && !formatted.startsWith("$")
+      ? value < 0
+        ? `($${formatted})`
+        : `$${formatted}`
+      : value < 0
+        ? `-${formatted}`
+        : formatted;
+  return withCurrency;
 }
 
 // Human: Convert Excel serial date number to JS Date (1900 date system).

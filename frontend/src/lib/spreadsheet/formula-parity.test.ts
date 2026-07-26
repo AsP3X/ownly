@@ -68,4 +68,22 @@ describe("formula parity", () => {
     expect(result.rows[1][0].spillFrom).toBe("0:0");
     expect(Number(result.rows[2][0].value)).toBe(12);
   });
+
+  it("evaluates IFS, SWITCH, TEXTBEFORE, and LARGE", () => {
+    const sheet = sheetFrom([
+      [cell(5), cell("hello-world"), cell(1), cell(9), cell(3)],
+      [
+        cell(null, '=IFS(A1>10, "big", A1>3, "mid", TRUE, "small")'),
+        cell(null, '=SWITCH(A1, 1, "one", 5, "five", "other")'),
+        cell(null, '=TEXTBEFORE(B1, "-")'),
+        cell(null, "=LARGE(C1:E1, 2)"),
+      ],
+    ]);
+    const result = recalculateSheet(sheet, 0, [sheet]);
+    expect(result.rows[1][0].display).toBe("mid");
+    expect(result.rows[1][1].display).toBe("five");
+    expect(result.rows[1][2].display).toBe("hello");
+    // Human: C1:E1 is 1,9,3 — 2nd largest is 3.
+    expect(Number(result.rows[1][3].value)).toBe(3);
+  });
 });

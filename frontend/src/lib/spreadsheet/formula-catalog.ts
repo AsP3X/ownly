@@ -62,6 +62,17 @@ export const FORMULA_CATALOG: FormulaCatalogEntry[] = [
   { name: "EXACT", category: "Text", description: "Exact text match.", syntax: "EXACT(text1, text2)" },
   { name: "EDATE", category: "Date", description: "Date plus months.", syntax: "EDATE(start_date, months)" },
   { name: "EOMONTH", category: "Date", description: "End of month.", syntax: "EOMONTH(start_date, months)" },
+  { name: "IFS", category: "Logical", description: "Multiple IF conditions.", syntax: "IFS(logical1, value1, ...)" },
+  { name: "SWITCH", category: "Logical", description: "Match expression to values.", syntax: "SWITCH(expr, value1, result1, ..., [default])" },
+  { name: "XOR", category: "Logical", description: "Exclusive OR.", syntax: "XOR(logical1, [logical2], ...)" },
+  { name: "TEXTBEFORE", category: "Text", description: "Text before delimiter.", syntax: "TEXTBEFORE(text, delimiter)" },
+  { name: "TEXTAFTER", category: "Text", description: "Text after delimiter.", syntax: "TEXTAFTER(text, delimiter)" },
+  { name: "REPLACE", category: "Text", description: "Replace by position.", syntax: "REPLACE(old_text, start, num_chars, new_text)" },
+  { name: "DOLLAR", category: "Text", description: "Format as currency text.", syntax: "DOLLAR(number, [decimals])" },
+  { name: "FIXED", category: "Text", description: "Format with fixed decimals.", syntax: "FIXED(number, [decimals], [no_commas])" },
+  { name: "LARGE", category: "Statistical", description: "Kth largest value.", syntax: "LARGE(array, k)" },
+  { name: "SMALL", category: "Statistical", description: "Kth smallest value.", syntax: "SMALL(array, k)" },
+  { name: "PERCENTILE", category: "Statistical", description: "Kth percentile.", syntax: "PERCENTILE(array, k)" },
 ];
 
 export const FORMULA_CATEGORIES = [...new Set(FORMULA_CATALOG.map((entry) => entry.category))].sort();

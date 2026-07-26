@@ -121,6 +121,8 @@ import {
   toggleRowHidden,
   unfreezePanes,
   ungroupRowsInRange,
+  unhideAllColumns,
+  unhideAllRows,
 } from "@/lib/spreadsheet/workbook-ops";
 import {
   rulesFromPreset,
@@ -796,6 +798,16 @@ export function ExcelSpreadsheetDialog({
                     toggleColumnHidden(current, editor.activeSheetIndex, editor.activeCellAddress.col),
                   )
                 }
+                onUnhideAllRows={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    unhideAllRows(current, editor.activeSheetIndex),
+                  )
+                }
+                onUnhideAllColumns={() =>
+                  editor.commitWorkbookMutation((current) =>
+                    unhideAllColumns(current, editor.activeSheetIndex),
+                  )
+                }
                 zoomPercent={activeSheet?.zoomPercent ?? 100}
                 onZoomChange={(percent) =>
                   editor.commitWorkbookMutation(
@@ -961,6 +973,7 @@ export function ExcelSpreadsheetDialog({
                     mergedRegions={activeSheet.mergedRegions}
                     hiddenRows={activeSheet.hiddenRows}
                     hiddenCols={activeSheet.hiddenCols}
+                    rowOutlineLevels={activeSheet.rowOutlineLevels}
                     zoomPercent={activeSheet.zoomPercent ?? 100}
                     charts={activeSheet.charts}
                     drawings={activeSheet.drawings}

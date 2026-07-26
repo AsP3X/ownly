@@ -56,6 +56,9 @@ type ExcelSpreadsheetGridProps = {
   filterHiddenRows?: Set<number>;
   hiddenRows?: number[];
   hiddenCols?: number[];
+  // Human: Data → Group outline levels keyed by row index.
+  // Agent: INDENTS row header + cell content by level × 8px.
+  rowOutlineLevels?: Record<number, number>;
   mergedRegions?: MergedRegion[];
   frozenRows?: number;
   frozenCols?: number;
@@ -268,6 +271,7 @@ export function ExcelSpreadsheetGrid({
   filterHiddenRows,
   hiddenRows,
   hiddenCols,
+  rowOutlineLevels,
   mergedRegions,
   frozenRows = 0,
   frozenCols = 0,
@@ -788,7 +792,8 @@ export function ExcelSpreadsheetGrid({
                         style={{
                           width: columnWidths[colIndex],
                           height: rowHeight,
-                          paddingInline: scaledPx(8),
+                          paddingLeft: scaledPx(8) + Math.max(0, rowOutlineLevels?.[rowIndex] ?? 0) * scaledPx(12),
+                          paddingRight: scaledPx(8),
                           backgroundColor: cellFill ?? undefined,
                           left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
                           ...cellBorderStyles(cell.style),
@@ -901,7 +906,8 @@ export function ExcelSpreadsheetGrid({
                       style={{
                         width: columnWidths[colIndex],
                         height: rowHeight,
-                        paddingInline: scaledPx(8),
+                        paddingLeft: scaledPx(8) + Math.max(0, rowOutlineLevels?.[rowIndex] ?? 0) * scaledPx(12),
+                        paddingRight: scaledPx(8),
                         backgroundColor: cellFill ?? undefined,
                         left: colIndex < frozenColCount ? colLeftOffsets[colIndex] : undefined,
                         ...cellBorderStyles(cell.style),

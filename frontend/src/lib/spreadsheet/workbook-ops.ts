@@ -688,6 +688,7 @@ export function toggleRowHidden(
   rowIndex: number,
 ): SpreadsheetWorkbook {
   return {
+    ...workbook,
     sheets: workbook.sheets.map((sheet, index) => {
       if (index !== sheetIndex) return sheet;
       const hidden = new Set(sheet.hiddenRows ?? []);
@@ -705,6 +706,7 @@ export function toggleColumnHidden(
   colIndex: number,
 ): SpreadsheetWorkbook {
   return {
+    ...workbook,
     sheets: workbook.sheets.map((sheet, index) => {
       if (index !== sheetIndex) return sheet;
       const hidden = new Set(sheet.hiddenCols ?? []);
@@ -712,6 +714,40 @@ export function toggleColumnHidden(
       else hidden.add(colIndex);
       const next = [...hidden].sort((a, b) => a - b);
       return { ...sheet, hiddenRows: sheet.hiddenRows, hiddenCols: next.length > 0 ? next : undefined };
+    }),
+  };
+}
+
+// Human: Clear all hidden rows on a sheet (View → Unhide All Rows).
+// Agent: REMOVES hiddenRows from the target sheet.
+export function unhideAllRows(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+): SpreadsheetWorkbook {
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const next = { ...sheet };
+      delete next.hiddenRows;
+      return next;
+    }),
+  };
+}
+
+// Human: Clear all hidden columns on a sheet (View → Unhide All Columns).
+// Agent: REMOVES hiddenCols from the target sheet.
+export function unhideAllColumns(
+  workbook: SpreadsheetWorkbook,
+  sheetIndex: number,
+): SpreadsheetWorkbook {
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet, index) => {
+      if (index !== sheetIndex) return sheet;
+      const next = { ...sheet };
+      delete next.hiddenCols;
+      return next;
     }),
   };
 }
