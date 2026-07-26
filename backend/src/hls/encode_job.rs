@@ -563,20 +563,15 @@ pub async fn run_hls_encode_job(
                                 error = %msg,
                                 "HLS segment upload incomplete"
                             );
-                            // Human: Reprocess may have overwritten some segments — never wipe the whole package.
-                            // Agent: SKIP purge_file_storage when prior segments existed; TRY restore if 0000 remains.
+                            // Human: In-place reprocess overwrites segment keys — any successful PUT can mix packages.
+                            // Agent: NEVER restore hls_ready after partial reprocess upload; mark_failed instead.
+                            // Agent: First-time ingest may purge partials; reprocess must not full-purge leftovers.
                             if is_reprocess_job {
                                 let detail = format!(
-                                    "Stream rebuild failed during upload — previous package restored if still intact. ({msg})"
+                                    "Stream rebuild partially overwrote the package and was stopped — \
+                                     re-upload the original or rebuild again from a retained source. ({msg})"
                                 );
-                                let _ = restore_package_after_failed_reprocess(
-                                    &pool,
-                                    storage.as_ref(),
-                                    &file_id,
-                                    &storage_key,
-                                    &detail,
-                                )
-                                .await;
+                                mark_failed(&pool, &file_id, &detail).await;
                             } else {
                                 mark_failed(&pool, &file_id, &msg).await;
                                 purge_file_storage(
@@ -595,8 +590,8 @@ pub async fn run_hls_encode_job(
                     set_progress(&pool, &file_id, 100).await;
 
                     if is_encode_cancelled(&pool, &file_id).await {
-                        // Human: After new segments uploaded, cancel still must not delete a reprocess package.
-                        // Agent: preserve_package for reprocess; first-time ingest purges partials.
+                        // Human: Cancel after segment PUTs may leave mixed keys — never mark ready.
+                        // Agent: preserve_package for reprocess (no full purge); mark_failed when reprocess.
                         cleanup_cancelled_encode(
                             storage.clone(),
                             &storage_key,
@@ -606,12 +601,11 @@ pub async fn run_hls_encode_job(
                         )
                         .await;
                         if is_reprocess_job {
-                            let _ = restore_package_after_failed_reprocess(
+                            mark_failed(
                                 &pool,
-                                storage.as_ref(),
                                 &file_id,
-                                &storage_key,
-                                "Stream rebuild cancelled after upload — package left as-is when playable.",
+                                "Stream rebuild cancelled after partial upload — \
+                                 re-upload the original or rebuild again from a retained source.",
                             )
                             .await;
                         }
