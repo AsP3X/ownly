@@ -1,7 +1,7 @@
 // Human: Non-blocking MEGA-style download tray — floats over drive; does not block browsing.
-// Agent: SUBSCRIBES download-manager; RENDERS queued/active/complete rows; CANCEL/DISMISS per row.
+// Agent: SUBSCRIBES download-manager; RENDERS pending summary + active + complete rows; CANCEL/DISMISS per row.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock, Download, Loader2, X } from "lucide-react";
 import {
   cancelDownloadJob,
@@ -52,9 +52,6 @@ function TransferProgressBar({
 }
 
 function phaseLabel(job: DownloadJob): string {
-  if (job.status === "queued") {
-    return "Waiting in queue…";
-  }
   if (job.phase === "processing") {
     if (job.kind === "folder" || job.kind === "bulk") {
       const target = job.kind === "folder" ? "folder" : "files";
@@ -68,8 +65,41 @@ function phaseLabel(job: DownloadJob): string {
   return "Downloading…";
 }
 
+// Human: Single queue row — all pending downloads collapse here so the list stays scannable.
+// Agent: RENDERS only when count > 0; CANCEL removes every queued job (active ones keep running).
+function QueuedDownloadsSummary({
+  count,
+  onCancelAll,
+}: {
+  count: number;
+  onCancelAll: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-2 border-b border-neutral-100 px-4 py-3">
+      <Clock className="size-4 shrink-0 text-neutral-400" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-neutral-900">
+          {count} download{count === 1 ? "" : "s"} waiting in queue
+        </p>
+        <p className="text-xs text-neutral-500">Starts when a slot is free</p>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 text-neutral-500"
+        aria-label={`Cancel ${count} queued download${count === 1 ? "" : "s"}`}
+        onClick={onCancelAll}
+      >
+        <X className="size-4" />
+      </Button>
+    </li>
+  );
+}
+
+// Human: Active or finished download row — queued jobs never render here (use QueuedDownloadsSummary).
+// Agent: RENDERS progress for downloading; complete bar / error text for terminal states.
 function DownloadJobRow({ job }: { job: DownloadJob }) {
-  const isQueued = job.status === "queued";
   const isActive = job.status === "downloading";
 
   return (
@@ -80,8 +110,6 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
             <CheckCircle2 className="size-4 text-green-600" aria-hidden />
           ) : job.status === "error" ? (
             <AlertCircle className="size-4 text-red-500" aria-hidden />
-          ) : isQueued ? (
-            <Clock className="size-4 text-neutral-400" aria-hidden />
           ) : (
             <Loader2 className="size-4 animate-spin text-blue-600" aria-hidden />
           )}
@@ -93,12 +121,10 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
               <span className="shrink-0 text-xs font-semibold tabular-nums text-blue-700">
                 {job.indeterminate ? "…" : `${job.progress}%`}
               </span>
-            ) : isQueued ? (
-              <span className="shrink-0 text-xs font-medium text-neutral-500">Queued</span>
             ) : null}
           </div>
           <p className="text-xs text-neutral-500">
-            {isActive || isQueued ? phaseLabel(job) : formatBytes(job.sizeBytes)}
+            {isActive ? phaseLabel(job) : formatBytes(job.sizeBytes)}
           </p>
         </div>
         <Button
@@ -106,9 +132,9 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
           variant="ghost"
           size="icon-sm"
           className="shrink-0 text-neutral-500"
-          aria-label={isActive || isQueued ? `Cancel download ${job.label}` : `Dismiss ${job.label}`}
+          aria-label={isActive ? `Cancel download ${job.label}` : `Dismiss ${job.label}`}
           onClick={() =>
-            isActive || isQueued ? cancelDownloadJob(job.id) : dismissDownloadJob(job.id)
+            isActive ? cancelDownloadJob(job.id) : dismissDownloadJob(job.id)
           }
         >
           <X className="size-4" />
@@ -127,6 +153,7 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
 }
 
 // Human: Floating download card — rendered inside TransferPanelStack (no fixed positioning here).
+// Agent: ORDER pending summary → active rows → finished rows; HIDES pending summary when queue empty.
 export function DownloadTransferPanel({
   minimized,
   onMinimizedChange,
@@ -135,10 +162,22 @@ export function DownloadTransferPanel({
 
   useEffect(() => subscribeDownloadJobs(setJobs), []);
 
-  if (jobs.length === 0) return null;
+  const { activeJobs, finishedJobs, queuedJobs, activeCount, queuedCount } = useMemo(() => {
+    const active = jobs.filter((job) => job.status === "downloading");
+    const finished = jobs.filter(
+      (job) => job.status === "complete" || job.status === "error",
+    );
+    const queued = jobs.filter((job) => job.status === "queued");
+    return {
+      activeJobs: active,
+      finishedJobs: finished,
+      queuedJobs: queued,
+      activeCount: active.length,
+      queuedCount: queued.length,
+    };
+  }, [jobs]);
 
-  const activeCount = jobs.filter((job) => job.status === "downloading").length;
-  const queuedCount = jobs.filter((job) => job.status === "queued").length;
+  if (jobs.length === 0) return null;
 
   return (
     <div
@@ -173,7 +212,21 @@ export function DownloadTransferPanel({
       </div>
       {!minimized ? (
         <ul className="max-h-64 overflow-y-auto">
-          {jobs.map((job) => (
+          {/* Human: Pending first as one row, then live progress, then finished at the bottom. */}
+          {queuedCount > 0 ? (
+            <QueuedDownloadsSummary
+              count={queuedCount}
+              onCancelAll={() => {
+                for (const job of queuedJobs) {
+                  cancelDownloadJob(job.id);
+                }
+              }}
+            />
+          ) : null}
+          {activeJobs.map((job) => (
+            <DownloadJobRow key={job.id} job={job} />
+          ))}
+          {finishedJobs.map((job) => (
             <DownloadJobRow key={job.id} job={job} />
           ))}
         </ul>

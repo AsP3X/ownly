@@ -7,9 +7,13 @@ import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import {
   EXCEL_RIBBON_BORDER,
   EXCEL_RIBBON_CONTENT_BG,
+  EXCEL_RIBBON_FILE_TAB,
   EXCEL_RIBBON_FONT,
   EXCEL_RIBBON_GROUP_DIVIDER,
   EXCEL_RIBBON_GROUP_LABEL,
+  EXCEL_RIBBON_HOVER,
+  EXCEL_RIBBON_SHARE,
+  EXCEL_RIBBON_SHARE_HOVER,
   EXCEL_RIBBON_TAB_INDICATOR,
   EXCEL_RIBBON_TAB_STRIP_BG,
   EXCEL_RIBBON_TEXT,
@@ -87,7 +91,7 @@ function ribbonButtonStyle(active: boolean): CSSProperties {
   };
 }
 
-// Human: Large Paste-style control — 24px icon stacked above caption + chevron.
+// Human: Large Paste-style control — 24px icon stacked above caption (+ optional chevron).
 export function RibbonLargeButton({
   label,
   icon,
@@ -95,7 +99,9 @@ export function RibbonLargeButton({
   disabled,
   onClick,
   title,
-}: RibbonButtonBaseProps) {
+  showChevron = true,
+  wide = false,
+}: RibbonButtonBaseProps & { showChevron?: boolean; wide?: boolean }) {
   return (
     <button
       type="button"
@@ -105,17 +111,27 @@ export function RibbonLargeButton({
       className={cn(ribbonButtonBaseClass, "flex-col hover:bg-[#F3F2F1]")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
-        minWidth: scaledPx(48),
+        minWidth: scaledPx(wide ? 64 : 48),
+        maxWidth: scaledPx(wide ? 76 : 64),
         padding: `${scaledPx(4)}px ${scaledPx(6)}px`,
         gap: scaledPx(2),
       }}
     >
-      <span style={{ width: scaledPx(24), height: scaledPx(24) }} className="flex items-center justify-center">
+      <span style={{ width: scaledPx(28), height: scaledPx(28) }} className="flex items-center justify-center">
         {icon}
       </span>
-      <span className="flex items-center gap-0.5" style={{ fontSize: scaledPx(10) }}>
-        {label}
-        <ChevronDown style={{ width: scaledPx(10), height: scaledPx(10) }} className="opacity-70" aria-hidden />
+      <span
+        className="flex items-start justify-center gap-0.5 text-center"
+        style={{ fontSize: scaledPx(10), lineHeight: 1.15 }}
+      >
+        <span className="whitespace-pre-line">{label}</span>
+        {showChevron ? (
+          <ChevronDown
+            style={{ width: scaledPx(10), height: scaledPx(10), marginTop: scaledPx(1) }}
+            className="shrink-0 opacity-70"
+            aria-hidden
+          />
+        ) : null}
       </span>
     </button>
   );
@@ -130,7 +146,15 @@ export function RibbonIconButton({
   onClick,
   title,
   showLabel = true,
-}: RibbonButtonBaseProps & { showLabel?: boolean }) {
+  showChevron = false,
+  iconSizePx,
+}: RibbonButtonBaseProps & {
+  showLabel?: boolean;
+  showChevron?: boolean;
+  /** Human: Override default 14px glyph box (e.g. chart gallery tiles). */
+  iconSizePx?: number;
+}) {
+  const glyph = iconSizePx ?? 14;
   return (
     <button
       type="button"
@@ -140,17 +164,30 @@ export function RibbonIconButton({
       className={cn(ribbonButtonBaseClass, "flex-col hover:bg-[#F3F2F1]")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
-        minWidth: showLabel ? scaledPx(36) : scaledPx(28),
-        padding: scaledPx(4),
+        minWidth: showLabel ? scaledPx(40) : scaledPx(28),
+        padding: scaledPx(3),
         gap: scaledPx(1),
       }}
     >
-      <span style={{ width: scaledPx(14), height: scaledPx(14) }} className="flex items-center justify-center">
+      <span
+        style={{ width: scaledPx(glyph), height: scaledPx(glyph) }}
+        className="flex items-center justify-center"
+      >
         {icon}
       </span>
       {showLabel ? (
-        <span style={{ fontSize: scaledPx(9), lineHeight: 1.1, maxWidth: scaledPx(48) }} className="text-center">
-          {label}
+        <span
+          className="flex items-start justify-center gap-0.5 text-center"
+          style={{ fontSize: scaledPx(9), lineHeight: 1.1, maxWidth: scaledPx(56) }}
+        >
+          <span className="whitespace-pre-line">{label}</span>
+          {showChevron ? (
+            <ChevronDown
+              style={{ width: scaledPx(9), height: scaledPx(9), marginTop: 1 }}
+              className="shrink-0 opacity-70"
+              aria-hidden
+            />
+          ) : null}
         </span>
       ) : null}
     </button>
@@ -284,32 +321,46 @@ type RibbonTabProps = {
   label: string;
   active: boolean;
   onClick: () => void;
+  /** Human: File tab uses Excel green when active. */
+  variant?: "default" | "file";
 };
 
-// Human: macOS ribbon tab — bottom-aligned label with green underline when active (no white fill).
-export function RibbonTab({ label, active, onClick }: RibbonTabProps) {
+// Human: Excel ribbon tab — bottom-aligned label with green underline when active.
+export function RibbonTab({ label, active, onClick, variant = "default" }: RibbonTabProps) {
+  const isFile = variant === "file";
   return (
     <button
       type="button"
       onClick={onClick}
-      className="relative shrink-0 transition-colors hover:bg-[#EBEBEB]"
+      className="relative shrink-0 transition-colors"
       style={{
         fontFamily: EXCEL_RIBBON_FONT,
         fontSize: scaledPx(12),
-        fontWeight: active ? 600 : 400,
-        color: active ? EXCEL_RIBBON_TEXT : EXCEL_RIBBON_TEXT_SECONDARY,
-        paddingInline: scaledPx(14),
-        paddingTop: scaledPx(8),
-        paddingBottom: scaledPx(6),
+        fontWeight: active || isFile ? 600 : 400,
+        color: isFile
+          ? EXCEL_RIBBON_FILE_TAB
+          : active
+            ? EXCEL_RIBBON_TEXT
+            : EXCEL_RIBBON_TEXT_SECONDARY,
+        paddingInline: scaledPx(12),
+        paddingTop: scaledPx(6),
+        paddingBottom: scaledPx(5),
+        backgroundColor: active && !isFile ? "transparent" : "transparent",
+      }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.backgroundColor = EXCEL_RIBBON_HOVER;
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.backgroundColor = "transparent";
       }}
     >
       {label}
-      {active ? (
+      {active && !isFile ? (
         <span
           className="absolute inset-x-2 bottom-0 mx-auto"
           style={{
             height: scaledPx(2),
-            maxWidth: scaledPx(48),
+            maxWidth: scaledPx(40),
             backgroundColor: EXCEL_RIBBON_TAB_INDICATOR,
           }}
           aria-hidden
@@ -323,28 +374,28 @@ type RibbonTabStripProps = {
   tabs: { id: string; label: string }[];
   activeTab: string;
   onTabChange: (id: string) => void;
-  overflowTabs?: { id: string; label: string }[];
-  onOverflowTab?: (id: string) => void;
+  /** Human: Comments + Share sit on the right of the tab row (real Excel). */
+  onComments?: () => void;
+  onShare?: () => void;
 };
 
-// Human: macOS tab row — scrollable tabs aligned to bottom of 32px strip; optional overflow menu.
+// Human: Excel tab row — full primary tabs + Comments/Share on the right.
 export function RibbonTabStrip({
   tabs,
   activeTab,
   onTabChange,
-  overflowTabs,
-  onOverflowTab,
+  onComments,
+  onShare,
 }: RibbonTabStripProps) {
-  const overflowActive = overflowTabs?.some((tab) => tab.id === activeTab) ?? false;
-
   return (
     <div
       className="flex shrink-0 items-end border-b"
       style={{
         backgroundColor: EXCEL_RIBBON_TAB_STRIP_BG,
         borderColor: EXCEL_RIBBON_BORDER,
-        minHeight: scaledPx(32),
-        paddingInline: scaledPx(8),
+        minHeight: scaledPx(30),
+        paddingInline: scaledPx(4),
+        paddingRight: scaledPx(8),
       }}
     >
       <div className="flex min-w-0 flex-1 items-end overflow-x-auto">
@@ -353,35 +404,69 @@ export function RibbonTabStrip({
             key={tab.id}
             label={tab.label}
             active={activeTab === tab.id}
+            variant={tab.id === "file" ? "file" : "default"}
             onClick={() => onTabChange(tab.id)}
           />
         ))}
       </div>
-      {overflowTabs && overflowTabs.length > 0 && onOverflowTab ? (
-        <div className="relative mb-1 shrink-0">
-          <select
-            aria-label="More ribbon tabs"
-            value={overflowActive ? activeTab : ""}
-            onChange={(event) => {
-              if (event.target.value) onOverflowTab(event.target.value);
-            }}
-            className="rounded-sm border-0 bg-transparent outline-none hover:bg-[#EBEBEB]"
+
+      <div className="mb-0.5 flex shrink-0 items-center" style={{ gap: scaledPx(6) }}>
+        {onComments ? (
+          <button
+            type="button"
+            onClick={onComments}
+            className="inline-flex items-center rounded-sm text-[#323130] transition-colors hover:bg-[#E8E4EC]"
             style={{
-              fontFamily: EXCEL_RIBBON_FONT,
-              fontSize: scaledPx(11),
-              color: overflowActive ? EXCEL_RIBBON_TEXT : EXCEL_RIBBON_TEXT_SECONDARY,
+              gap: scaledPx(5),
               padding: `${scaledPx(4)}px ${scaledPx(8)}px`,
+              fontSize: scaledPx(12),
+              fontFamily: EXCEL_RIBBON_FONT,
             }}
           >
-            <option value="">{overflowActive ? overflowTabs.find((t) => t.id === activeTab)?.label : "More…"}</option>
-            {overflowTabs.map((tab) => (
-              <option key={tab.id} value={tab.id}>
-                {tab.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
+            Comments
+          </button>
+        ) : null}
+
+        {onShare ? (
+          <button
+            type="button"
+            onClick={onShare}
+            className="inline-flex items-center rounded-sm font-semibold text-white transition-colors"
+            style={{
+              gap: scaledPx(4),
+              padding: `${scaledPx(4)}px ${scaledPx(10)}px`,
+              fontSize: scaledPx(12),
+              fontFamily: EXCEL_RIBBON_FONT,
+              backgroundColor: EXCEL_RIBBON_SHARE,
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.backgroundColor = EXCEL_RIBBON_SHARE_HOVER;
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = EXCEL_RIBBON_SHARE;
+            }}
+          >
+            Share
+            <ChevronDown style={{ width: scaledPx(12), height: scaledPx(12) }} aria-hidden />
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center rounded-sm font-semibold text-white opacity-50"
+            style={{
+              gap: scaledPx(4),
+              padding: `${scaledPx(4)}px ${scaledPx(10)}px`,
+              fontSize: scaledPx(12),
+              fontFamily: EXCEL_RIBBON_FONT,
+              backgroundColor: EXCEL_RIBBON_SHARE,
+            }}
+          >
+            Share
+            <ChevronDown style={{ width: scaledPx(12), height: scaledPx(12) }} aria-hidden />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

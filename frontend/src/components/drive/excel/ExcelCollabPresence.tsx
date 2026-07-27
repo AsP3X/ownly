@@ -1,5 +1,5 @@
 // Human: Compact co-editing presence strip — avatars of active participants + cursor cells.
-// Agent: READS SpreadsheetCollabParticipant[]; RENDERS under ribbon when session active.
+// Agent: READS SpreadsheetCollabParticipant[]; RENDERS under Excel title bar when session active.
 
 import type { SpreadsheetCollabParticipant } from "@/api/client";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";

@@ -1,30 +1,19 @@
-// Human: macOS Excel title bar — AutoSave, quick access, document title, search, comments, share.
-// Agent: READS file metadata; EMITS save/undo/redo/share/find/comment callbacks per excel-editor-dialog.pen.
+// Human: Windows Excel title bar — AutoSave, quick access, “Name - Excel”, search, window close.
+// Agent: READS file metadata; EMITS save/undo/redo/search/close callbacks per real Excel topbar.
 
 import type { ReactNode } from "react";
-import {
-  ChevronDown,
-  MessageSquare,
-  Redo2,
-  Save,
-  Search,
-  Share2,
-  Undo2,
-  Upload,
-} from "lucide-react";
+import { Redo2, Save, Search, Undo2, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import {
-  EXCEL_RIBBON_BORDER,
-  EXCEL_RIBBON_FILE_TAB,
-  EXCEL_RIBBON_FILE_TAB_HOVER,
+  EXCEL_RIBBON_CHROME_BG,
   EXCEL_RIBBON_FONT,
-  EXCEL_RIBBON_TAB_STRIP_BG,
+  EXCEL_RIBBON_SEARCH_BG,
+  EXCEL_RIBBON_SEARCH_BORDER,
   EXCEL_RIBBON_TEXT,
   EXCEL_RIBBON_TEXT_SECONDARY,
   EXCEL_RIBBON_TITLE_BAR_HEIGHT_PX,
 } from "@/components/drive/excel/excel-ribbon-tokens";
-import { cn } from "@/lib/utils";
 
 type ExcelToolbarTitleBarProps = {
   documentTitle: string;
@@ -36,19 +25,17 @@ type ExcelToolbarTitleBarProps = {
   onSave?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
-  onQuickAccessMenu?: () => void;
   onSearch?: () => void;
-  onComments?: () => void;
-  onShare?: () => void;
+  onClose?: () => void;
 };
 
-/** Human: Strip spreadsheet extension for centered workbook title (Book1-style). */
+/** Human: Strip spreadsheet extension for Book1-style workbook title. */
 export function spreadsheetDisplayTitle(filename: string): string {
   const base = filename.replace(/\.(xlsx|xls|xlsm|csv)$/i, "").trim();
   return base || "Book1";
 }
 
-// Human: Icon-only quick-access control (save, undo, redo).
+// Human: Compact icon-only quick-access control (save, undo, redo).
 function QuickAccessIconButton({
   label,
   disabled,
@@ -67,7 +54,8 @@ function QuickAccessIconButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="rounded-sm p-1.5 text-[#323130] transition-colors hover:bg-[#F3F2F1] disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex items-center justify-center rounded-sm text-[#323130] transition-colors hover:bg-[#E8E4EC] disabled:cursor-not-allowed disabled:opacity-40"
+      style={{ width: scaledPx(28), height: scaledPx(28) }}
     >
       {children}
     </button>
@@ -84,27 +72,34 @@ export function ExcelToolbarTitleBar({
   onSave,
   onUndo,
   onRedo,
-  onQuickAccessMenu,
   onSearch,
-  onComments,
-  onShare,
+  onClose,
 }: ExcelToolbarTitleBarProps) {
   const iconSize = scaledPx(14);
+  const titleLabel = `${documentTitle} - Excel`;
 
   return (
     <div
-      className="relative flex shrink-0 items-center justify-between border-b bg-white"
+      className="relative flex shrink-0 items-center"
       style={{
         height: scaledPx(EXCEL_RIBBON_TITLE_BAR_HEIGHT_PX),
-        borderColor: EXCEL_RIBBON_BORDER,
-        paddingInline: scaledPx(12),
+        backgroundColor: EXCEL_RIBBON_CHROME_BG,
+        paddingInline: scaledPx(8),
         fontFamily: EXCEL_RIBBON_FONT,
       }}
     >
-      {/* Human: Left — AutoSave toggle + quick access toolbar. */}
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span style={{ fontSize: scaledPx(12), color: EXCEL_RIBBON_TEXT }}>AutoSave</span>
+      {/* Human: Left — AutoSave + quick access (save / undo / redo). */}
+      <div className="z-10 flex min-w-0 shrink-0 items-center" style={{ gap: scaledPx(6) }}>
+        <div className="flex items-center" style={{ gap: scaledPx(6) }}>
+          <span
+            className="whitespace-nowrap"
+            style={{ fontSize: scaledPx(11), color: EXCEL_RIBBON_TEXT }}
+          >
+            AutoSave{" "}
+            <span style={{ color: EXCEL_RIBBON_TEXT_SECONDARY }}>
+              {autoSaveEnabled ? "On" : "Off"}
+            </span>
+          </span>
           <Switch
             size="sm"
             checked={autoSaveEnabled}
@@ -115,7 +110,7 @@ export function ExcelToolbarTitleBar({
           />
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center" style={{ gap: scaledPx(1), marginLeft: scaledPx(4) }}>
           {!autoSaveEnabled ? (
             <QuickAccessIconButton label="Save" disabled={readOnly} onClick={onSave}>
               <Save style={{ width: iconSize, height: iconSize }} aria-hidden />
@@ -127,98 +122,59 @@ export function ExcelToolbarTitleBar({
           <QuickAccessIconButton label="Redo" disabled={!canRedo} onClick={onRedo}>
             <Redo2 style={{ width: iconSize, height: iconSize }} aria-hidden />
           </QuickAccessIconButton>
-          <button
-            type="button"
-            aria-label="Customize Quick Access Toolbar"
-            title="Quick Access Toolbar"
-            onClick={onQuickAccessMenu}
-            className="rounded-sm p-1 text-[#605E5C] hover:bg-[#F3F2F1]"
-          >
-            <ChevronDown style={{ width: scaledPx(12), height: scaledPx(12) }} aria-hidden />
-          </button>
         </div>
       </div>
 
-      {/* Human: Center — workbook title. */}
+      {/* Human: Center — workbook title as “Name - Excel”. */}
       <p
-        className="pointer-events-none absolute left-1/2 max-w-[40%] -translate-x-1/2 truncate font-semibold"
-        style={{ fontSize: scaledPx(13), color: EXCEL_RIBBON_TEXT }}
+        className="pointer-events-none absolute left-1/2 max-w-[36%] -translate-x-1/2 truncate text-center"
+        style={{
+          fontSize: scaledPx(12),
+          fontWeight: 400,
+          color: EXCEL_RIBBON_TEXT,
+        }}
+        title={titleLabel}
       >
-        {documentTitle}
+        {titleLabel}
       </p>
 
-      {/* Human: Right — search, comments, green Share. */}
-      <div className="flex shrink-0 items-center gap-2.5">
+      {/* Human: Right — search pill + window-style close. */}
+      <div
+        className="z-10 ml-auto flex shrink-0 items-center"
+        style={{ gap: scaledPx(8) }}
+      >
         <button
           type="button"
           onClick={() => onSearch?.()}
-          className="flex items-center rounded-sm transition-colors hover:bg-[#EBEBEB]"
+          className="flex items-center rounded-full border transition-colors hover:bg-white"
           style={{
-            gap: scaledPx(8),
-            width: scaledPx(200),
-            backgroundColor: EXCEL_RIBBON_TAB_STRIP_BG,
-            padding: `${scaledPx(6)}px ${scaledPx(10)}px`,
+            gap: scaledPx(6),
+            width: scaledPx(220),
+            backgroundColor: EXCEL_RIBBON_SEARCH_BG,
+            borderColor: EXCEL_RIBBON_SEARCH_BORDER,
+            padding: `${scaledPx(4)}px ${scaledPx(12)}px`,
+            boxShadow: "inset 0 0 0 0 transparent",
           }}
         >
           <Search
-            style={{ width: iconSize, height: iconSize, color: EXCEL_RIBBON_TEXT_SECONDARY }}
+            style={{ width: scaledPx(13), height: scaledPx(13), color: EXCEL_RIBBON_TEXT_SECONDARY }}
             aria-hidden
           />
-          <span style={{ fontSize: scaledPx(11), color: EXCEL_RIBBON_TEXT_SECONDARY }}>
-            Search (Cmd + Ctrl + U)
-          </span>
+          <span style={{ fontSize: scaledPx(11), color: EXCEL_RIBBON_TEXT_SECONDARY }}>Search</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => onComments?.()}
-          className="inline-flex items-center rounded-sm text-[#323130] transition-colors hover:bg-[#F3F2F1]"
-          style={{ gap: scaledPx(6), padding: `${scaledPx(6)}px ${scaledPx(10)}px`, fontSize: scaledPx(12) }}
-        >
-          <MessageSquare style={{ width: iconSize, height: iconSize }} aria-hidden />
-          Comments
-        </button>
-
-        {onShare ? (
+        {onClose ? (
           <button
             type="button"
-            onClick={onShare}
-            className={cn(
-              "inline-flex items-center rounded-sm font-semibold text-white transition-colors",
-            )}
-            style={{
-              gap: scaledPx(6),
-              padding: `${scaledPx(6)}px ${scaledPx(12)}px`,
-              fontSize: scaledPx(12),
-              backgroundColor: EXCEL_RIBBON_FILE_TAB,
-            }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = EXCEL_RIBBON_FILE_TAB_HOVER;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = EXCEL_RIBBON_FILE_TAB;
-            }}
+            onClick={onClose}
+            aria-label="Close spreadsheet"
+            title="Close"
+            className="inline-flex items-center justify-center rounded-sm text-[#323130] transition-colors hover:bg-[#E81123] hover:text-white"
+            style={{ width: scaledPx(32), height: scaledPx(28) }}
           >
-            <Upload style={{ width: iconSize, height: iconSize }} aria-hidden />
-            Share
-            <ChevronDown style={{ width: scaledPx(12), height: scaledPx(12) }} aria-hidden />
+            <X style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
           </button>
-        ) : (
-          <button
-            type="button"
-            disabled
-            className="inline-flex items-center rounded-sm font-semibold text-white opacity-50"
-            style={{
-              gap: scaledPx(6),
-              padding: `${scaledPx(6)}px ${scaledPx(12)}px`,
-              fontSize: scaledPx(12),
-              backgroundColor: EXCEL_RIBBON_FILE_TAB,
-            }}
-          >
-            <Share2 style={{ width: iconSize, height: iconSize }} aria-hidden />
-            Share
-          </button>
-        )}
+        ) : null}
       </div>
     </div>
   );

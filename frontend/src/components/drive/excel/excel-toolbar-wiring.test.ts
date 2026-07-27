@@ -27,6 +27,7 @@ const REQUIRED_DIALOG_HANDLERS = [
   "onRedo={() => editor.performRedo()}",
   "onSaveCopy={() => void handleSaveCopy()}",
   "onPrint={() => setPrintPreviewOpen(true)}",
+  "onClose={() => handleDialogOpenChange(false)}",
 ] as const;
 
 describe("excel toolbar wiring", () => {
@@ -57,10 +58,35 @@ describe("excel toolbar wiring", () => {
       path.resolve(here, "ExcelToolbarTitleBar.tsx"),
       "utf8",
     );
-    const headerSource = readFileSync(path.resolve(here, "ExcelDialogHeader.tsx"), "utf8");
     expect(titleBarSource).toContain("!autoSaveEnabled");
-    expect(headerSource).toContain("!autoSaveEnabled");
-    expect(headerSource).toContain('aria-label="Close spreadsheet"');
+  });
+
+  it("matches real Excel topbar chrome (title - Excel, search, window close, Comments/Share on tabs)", () => {
+    const titleBarSource = readFileSync(
+      path.resolve(here, "ExcelToolbarTitleBar.tsx"),
+      "utf8",
+    );
+    const primitivesSource = readFileSync(
+      path.resolve(here, "excel-ribbon-primitives.tsx"),
+      "utf8",
+    );
+    const ribbonSource = readFileSync(
+      path.resolve(here, "ExcelSpreadsheetRibbon.tsx"),
+      "utf8",
+    );
+
+    expect(titleBarSource).toContain(" - Excel");
+    expect(titleBarSource).toContain(">Search<");
+    expect(titleBarSource).toContain('aria-label="Close spreadsheet"');
+    expect(titleBarSource).toContain("EXCEL_RIBBON_CHROME_BG");
+    expect(primitivesSource).toContain("onComments");
+    expect(primitivesSource).toContain("onShare");
+    expect(primitivesSource).toContain("EXCEL_RIBBON_SHARE");
+    expect(ribbonSource).toContain('{ id: "file", label: "File" }');
+    expect(ribbonSource).toContain('{ id: "draw", label: "Draw" }');
+    expect(ribbonSource).toContain('{ id: "automate", label: "Automate" }');
+    expect(ribbonSource).toContain('{ id: "help", label: "Help" }');
+    expect(dialogSource).not.toContain("ExcelDialogHeader");
   });
 
   it("persists AutoSave preference via excel-editor-preferences helpers", () => {

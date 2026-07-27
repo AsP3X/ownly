@@ -15,6 +15,8 @@ import {
 import { resolveConditionalFormat } from "@/lib/spreadsheet/conditional-formatting";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 import {
+  GRID_DEFAULT_COL_WIDTH,
+  GRID_DEFAULT_ROW_HEIGHT,
   GRID_HEADER_ROW_HEIGHT,
   GRID_MAX_COL_WIDTH,
   GRID_MIN_COL_WIDTH,
@@ -336,6 +338,12 @@ export function ExcelSpreadsheetGrid({
   const parentRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const fillHoverRef = useRef<CellAddress | null>(null);
+  /** Human: Excel click-drag multi-cell selection active while primary button is held. */
+  const isDragSelectingRef = useRef(false);
+  const lastDragSelectAddressRef = useRef<string | null>(null);
+  const dragSelectCleanupRef = useRef<(() => void) | null>(null);
+  const onSelectCellRef = useRef(onSelectCell);
+  onSelectCellRef.current = onSelectCell;
   const columnCount = Math.max(...rows.map((row) => row.length), 1);
   const normalizedSelection = useMemo(() => normalizeRange(selectionRange), [selectionRange]);
   const isFullSheetSelected = useMemo(
@@ -363,6 +371,7 @@ export function ExcelSpreadsheetGrid({
   const frozenRowCount = Math.max(0, frozenRows);
   const frozenColCount = Math.max(0, frozenCols);
   const [fillDragging, setFillDragging] = useState(false);
+  const [dragSelecting, setDragSelecting] = useState(false);
 
   const baseColumnWidths = useMemo(
     () => resolveColumnWidths({ rows, columnWidths: columnWidthsProp }, columnCount),
@@ -714,6 +723,171 @@ export function ExcelSpreadsheetGrid({
     return () => window.removeEventListener("pointerup", onUp);
   }, [fillDragging, onFillDragEnd]);
 
+  // Human: Keep geometry refs fresh for drag-select hit tests (listeners attach outside React).
+  const dragSelectGeometryRef = useRef({
+    columnCount,
+    columnWidths,
+    rowHeights,
+    rowCount: rows.length,
+    frozenRowCount,
+    zoomScale,
+    hiddenCols: hiddenColSet,
+    hiddenRows: hiddenRowSet,
+    filterHiddenRows: filterHiddenRows ?? null,
+  });
+  dragSelectGeometryRef.current = {
+    columnCount,
+    columnWidths,
+    rowHeights,
+    rowCount: rows.length,
+    frozenRowCount,
+    zoomScale,
+    hiddenCols: hiddenColSet,
+    hiddenRows: hiddenRowSet,
+    filterHiddenRows: filterHiddenRows ?? null,
+  };
+
+  // Human: Map pointer position to a cell using grid geometry (works with zoom + virtualization).
+  // Agent: PREFERS data attributes via elementFromPoint; FALLS BACK to width/height walk.
+  const cellAddressFromPoint = useCallback((clientX: number, clientY: number): CellAddress | null => {
+    // Agent: DOM hit test first — accounts for sticky freeze panes and CSS zoom transforms.
+    const hit = document.elementFromPoint(clientX, clientY);
+    if (hit instanceof Element) {
+      const cellEl = hit.closest("[data-cell-row][data-cell-col]");
+      if (cellEl instanceof HTMLElement) {
+        const row = Number(cellEl.dataset.cellRow);
+        const col = Number(cellEl.dataset.cellCol);
+        if (Number.isFinite(row) && Number.isFinite(col)) return { row, col };
+      }
+    }
+
+    const parent = parentRef.current;
+    if (!parent) return null;
+    const geo = dragSelectGeometryRef.current;
+    const rect = parent.getBoundingClientRect();
+    // Human: Content is scaled via CSS transform; convert viewport coords into layout space.
+    const x = (clientX - rect.left + parent.scrollLeft) / geo.zoomScale;
+    const y = (clientY - rect.top + parent.scrollTop) / geo.zoomScale;
+
+    if (x < GRID_ROW_INDEX_WIDTH || y < GRID_HEADER_ROW_HEIGHT) return null;
+
+    let col = -1;
+    let xCursor = GRID_ROW_INDEX_WIDTH;
+    for (let c = 0; c < geo.columnCount; c += 1) {
+      if (geo.hiddenCols.has(c)) continue;
+      const width = geo.columnWidths[c] ?? GRID_DEFAULT_COL_WIDTH;
+      if (x >= xCursor && x < xCursor + width) {
+        col = c;
+        break;
+      }
+      xCursor += width;
+    }
+    if (col < 0) return null;
+
+    let yCursor = GRID_HEADER_ROW_HEIGHT;
+    for (let r = 0; r < geo.rowCount; r += 1) {
+      if (geo.hiddenRows.has(r) || geo.filterHiddenRows?.has(r)) {
+        // Agent: Filtered/hidden rows still occupy virtualizer space only when not filtered from count;
+        // filter-hidden rows are skipped in paint but still take estimateSize space in virtualizer.
+        // Match paint: still walk height for index alignment with virtualizer layout.
+      }
+      const height = geo.rowHeights[r] ?? GRID_DEFAULT_ROW_HEIGHT;
+      if (y >= yCursor && y < yCursor + height) {
+        if (geo.hiddenRows.has(r) || geo.filterHiddenRows?.has(r)) return null;
+        return { row: r, col };
+      }
+      yCursor += height;
+    }
+    return null;
+  }, []);
+
+  const endCellDragSelect = useCallback(() => {
+    isDragSelectingRef.current = false;
+    lastDragSelectAddressRef.current = null;
+    setDragSelecting(false);
+    dragSelectCleanupRef.current?.();
+    dragSelectCleanupRef.current = null;
+    document.body.style.removeProperty("user-select");
+    document.body.style.removeProperty("cursor");
+  }, []);
+
+  const extendSelectionToPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!isDragSelectingRef.current) return;
+      const parent = parentRef.current;
+      if (parent) {
+        const rect = parent.getBoundingClientRect();
+        const edge = 28;
+        const step = 24;
+        if (clientY > rect.bottom - edge) parent.scrollTop += step;
+        else if (clientY < rect.top + edge) parent.scrollTop -= step;
+        if (clientX > rect.right - edge) parent.scrollLeft += step;
+        else if (clientX < rect.left + edge) parent.scrollLeft -= step;
+      }
+
+      const address = cellAddressFromPoint(clientX, clientY);
+      if (!address) return;
+      const key = `${address.row}:${address.col}`;
+      if (lastDragSelectAddressRef.current === key) return;
+      lastDragSelectAddressRef.current = key;
+      onSelectCellRef.current(address, true);
+    },
+    [cellAddressFromPoint],
+  );
+
+  // Human: Excel-style click-drag range selection — hold primary button and drag across cells.
+  // Agent: ATTACHES window listeners immediately (not in useEffect) so the first moves are not lost.
+  const beginCellDragSelect = useCallback(
+    (address: CellAddress, event: React.PointerEvent) => {
+      if (event.button !== 0) return;
+      if (fillDragging) return;
+      // Human: Stop text/image drag and keep focus on the grid for keyboard nav after select.
+      event.preventDefault();
+      event.stopPropagation();
+
+      dragSelectCleanupRef.current?.();
+      isDragSelectingRef.current = true;
+      lastDragSelectAddressRef.current = `${address.row}:${address.col}`;
+      setDragSelecting(true);
+      onSelectCellRef.current(address, event.shiftKey);
+      parentRef.current?.focus({ preventScroll: true });
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "cell";
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (!isDragSelectingRef.current) return;
+        if (moveEvent.buttons !== undefined && (moveEvent.buttons & 1) === 0) {
+          endCellDragSelect();
+          return;
+        }
+        extendSelectionToPoint(moveEvent.clientX, moveEvent.clientY);
+      };
+
+      const onUp = () => {
+        endCellDragSelect();
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
+      dragSelectCleanupRef.current = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
+      };
+    },
+    [endCellDragSelect, extendSelectionToPoint, fillDragging],
+  );
+
+  // Human: Cleanup drag-select listeners if the grid unmounts mid-drag.
+  useEffect(
+    () => () => {
+      dragSelectCleanupRef.current?.();
+      dragSelectCleanupRef.current = null;
+    },
+    [],
+  );
+
   const borderClass = showGridlines ? "border-[#E5E7EB]" : "border-transparent";
 
   return (
@@ -727,6 +901,7 @@ export function ExcelSpreadsheetGrid({
         "relative min-h-0 flex-1 overflow-auto bg-[#F7F8FA] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
         resizeDrag?.axis === "column" && "cursor-col-resize select-none",
         resizeDrag?.axis === "row" && "cursor-row-resize select-none",
+        dragSelecting && "select-none",
       )}
     >
       <div
@@ -808,16 +983,28 @@ export function ExcelSpreadsheetGrid({
                     const isPrintEdge = printArea ? isPrintAreaEdge(rowIndex, colIndex, printArea) : false;
 
                     return (
-                      <button
+                      <div
                         key={colIndex}
-                        type="button"
+                        role="gridcell"
+                        tabIndex={-1}
+                        data-cell-row={rowIndex}
+                        data-cell-col={colIndex}
                         aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
-                        onClick={(event) => onSelectCell({ row: rowIndex, col: colIndex }, event.shiftKey)}
+                        onPointerDown={(event) =>
+                          beginCellDragSelect({ row: rowIndex, col: colIndex }, event)
+                        }
+                        onPointerEnter={() => {
+                          if (!isDragSelectingRef.current) return;
+                          const key = `${rowIndex}:${colIndex}`;
+                          if (lastDragSelectAddressRef.current === key) return;
+                          lastDragSelectAddressRef.current = key;
+                          onSelectCellRef.current({ row: rowIndex, col: colIndex }, true);
+                        }}
                         onDoubleClick={() => {
                           if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
                         }}
                         className={cn(
-                          "relative flex shrink-0 overflow-hidden border-r border-b text-left transition-colors",
+                          "relative flex shrink-0 cursor-cell overflow-hidden border-r border-b text-left transition-colors",
                           borderClass,
                           verticalAlignItemsClass(cell.style),
                           horizontalAlignJustifyClass(cell),
@@ -862,7 +1049,7 @@ export function ExcelSpreadsheetGrid({
                           showFormulas={showFormulas}
                           headerRow={isHeader}
                         />
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -919,19 +1106,31 @@ export function ExcelSpreadsheetGrid({
                   const isPrintEdge = printArea ? isPrintAreaEdge(rowIndex, colIndex, printArea) : false;
 
                   return (
-                    <button
+                    <div
                       key={colIndex}
-                      type="button"
+                      role="gridcell"
+                      tabIndex={-1}
+                      data-cell-row={rowIndex}
+                      data-cell-col={colIndex}
                       aria-label={`Cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
-                      onClick={(event) => onSelectCell({ row: rowIndex, col: colIndex }, event.shiftKey)}
-                      onMouseEnter={() => {
+                      onPointerDown={(event) =>
+                        beginCellDragSelect({ row: rowIndex, col: colIndex }, event)
+                      }
+                      onPointerEnter={() => {
+                        if (isDragSelectingRef.current) {
+                          const key = `${rowIndex}:${colIndex}`;
+                          if (lastDragSelectAddressRef.current !== key) {
+                            lastDragSelectAddressRef.current = key;
+                            onSelectCellRef.current({ row: rowIndex, col: colIndex }, true);
+                          }
+                        }
                         if (fillDragging) fillHoverRef.current = { row: rowIndex, col: colIndex };
                       }}
                       onDoubleClick={() => {
                         if (!readOnly) onStartEditing({ row: rowIndex, col: colIndex });
                       }}
                       className={cn(
-                        "relative flex shrink-0 overflow-hidden border-r border-b text-left transition-colors",
+                        "relative flex shrink-0 cursor-cell overflow-hidden border-r border-b text-left transition-colors",
                         borderClass,
                         verticalAlignItemsClass(cell.style),
                         horizontalAlignJustifyClass(cell),
@@ -1002,7 +1201,7 @@ export function ExcelSpreadsheetGrid({
                         showFormulas={showFormulas}
                         headerRow={isHeader}
                       />
-                    </button>
+                    </div>
                   );
                 })}
               </div>

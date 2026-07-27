@@ -16,7 +16,6 @@ import { ExcelCellCommentDialog } from "@/components/drive/excel/ExcelCellCommen
 import { ExcelChartDialog } from "@/components/drive/excel/ExcelChartDialog";
 import { ExcelCopilotSidebar } from "@/components/drive/excel/ExcelCopilotSidebar";
 import { ExcelDataValidationDialog } from "@/components/drive/excel/ExcelDataValidationDialog";
-import { ExcelDialogHeader } from "@/components/drive/excel/ExcelDialogHeader";
 import { ExcelFindReplaceDialog } from "@/components/drive/excel/ExcelFindReplaceDialog";
 import { ExcelInsertFunctionDialog } from "@/components/drive/excel/ExcelInsertFunctionDialog";
 import { ExcelPageSetupDialog } from "@/components/drive/excel/ExcelPageSetupDialog";
@@ -202,8 +201,8 @@ export function ExcelSpreadsheetDialog({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [ribbonTab, setRibbonTab] = useState<RibbonTabId>("home");
-  const [copilotCollapsed, setCopilotCollapsed] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [copilotCollapsed, setCopilotCollapsed] = useState(true);
+  const [, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [findOpen, setFindOpen] = useState(false);
   const [chartOpen, setChartOpen] = useState(false);
@@ -368,7 +367,7 @@ export function ExcelSpreadsheetDialog({
         setSaving(false);
         setSaveError("");
         setRibbonTab("home");
-        setCopilotCollapsed(false);
+        setCopilotCollapsed(true);
         setFindOpen(false);
         setChartOpen(false);
         setFilterOpen(false);
@@ -704,30 +703,11 @@ export function ExcelSpreadsheetDialog({
         </DialogHeader>
 
         <div className={excelDialogShellClass}>
-          <ExcelDialogHeader
-            file={file}
-            dirty={editor.dirty}
-            saving={saving}
-            loading={loading}
-            loaded={editor.isLoaded}
-            readOnly={readOnly}
-            autoSaveEnabled={autoSaveEnabled}
-            onShare={file && onShare ? () => onShare(file) : undefined}
-            onSave={() => void handleSave()}
-            onClose={() => handleDialogOpenChange(false)}
-          />
-
           {saveError ? (
             <p className="border-b border-[#FECACA] bg-[#FEF2F2] px-5 py-2 text-xs text-[#B91C1C]" role="alert">
               {saveError}
             </p>
           ) : null}
-
-          <ExcelCollabPresence
-            participants={collab.participants}
-            error={collab.error}
-            transport={collab.transport}
-          />
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1">
@@ -743,6 +723,14 @@ export function ExcelSpreadsheetDialog({
                 autoSaveEnabled={autoSaveEnabled}
                 onAutoSaveChange={handleAutoSaveChange}
                 onShare={file && onShare ? () => onShare(file) : undefined}
+                onClose={() => handleDialogOpenChange(false)}
+                presenceSlot={
+                  <ExcelCollabPresence
+                    participants={collab.participants}
+                    error={collab.error}
+                    transport={collab.transport}
+                  />
+                }
                 onFillDown={() => {
                   if (readOnly) return;
                   const end = editor.selectionRange.end;

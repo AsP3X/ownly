@@ -1,7 +1,6 @@
 // Human: macOS Excel toolbar — title bar, tab strip, and ribbon content per excel-editor-dialog.pen.
 // Agent: READS activeRibbonTab + cellStyle; EMITS callbacks; COMPOSES ExcelToolbarTitleBar + ribbon primitives.
 
-import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlignCenter,
@@ -10,31 +9,57 @@ import {
   AlignLeft,
   AlignRight,
   AlignStartVertical,
+  AreaChart,
   ArrowDown,
   ArrowDownAZ,
   ArrowUpAZ,
   BarChart3,
+  BarChartHorizontal,
   Bold,
+  Box,
   Calculator,
+  Camera,
+  ChartColumn,
+  ChartLine,
+  CheckSquare,
   ClipboardPaste,
   Copy,
+  Cuboid,
   Eraser,
   Eye,
+  FileSignature,
   FileText,
   Filter,
+  FormInput,
   FunctionSquare,
   Grid3X3,
+  Heading,
+  Image,
   Italic,
+  LayoutGrid,
+  LineChart,
+  Link2,
+  Map,
   MessageSquare,
+  Omega,
   Paintbrush,
   Palette,
   PanelTop,
+  PenLine,
+  Pi,
+  PieChart,
   Printer,
+  ScatterChart,
   Scissors,
   Search,
+  Shapes,
   Sheet,
   Sigma,
+  Sparkles,
   Table2,
+  TableProperties,
+  TextCursorInput,
+  Type,
   Underline,
   WrapText,
 } from "lucide-react";
@@ -89,23 +114,19 @@ export type RibbonTabId =
   | "help"
   | "automate";
 
-/** Human: Primary tabs from excel-editor-dialog.pen (macOS toolbar). */
-const RIBBON_PRIMARY_TABS: { id: Exclude<RibbonTabId, "file" | "draw" | "help" | "automate">; label: string }[] = [
+/** Human: Full Excel tab order matching real Windows Excel topbar. */
+const RIBBON_PRIMARY_TABS: { id: RibbonTabId; label: string }[] = [
+  { id: "file", label: "File" },
   { id: "home", label: "Home" },
   { id: "insert", label: "Insert" },
+  { id: "draw", label: "Draw" },
   { id: "page-layout", label: "Page Layout" },
   { id: "formulas", label: "Formulas" },
   { id: "data", label: "Data" },
   { id: "review", label: "Review" },
   { id: "view", label: "View" },
-];
-
-/** Human: Extra tabs reachable via overflow select (preserves prior functionality). */
-const RIBBON_OVERFLOW_TABS: { id: RibbonTabId; label: string }[] = [
-  { id: "file", label: "File" },
-  { id: "draw", label: "Draw" },
-  { id: "help", label: "Help" },
   { id: "automate", label: "Automate" },
+  { id: "help", label: "Help" },
 ];
 
 type BorderPreset = "all" | "outline" | "top" | "bottom" | "left" | "right" | "clear";
@@ -192,10 +213,13 @@ type ExcelSpreadsheetRibbonProps = {
   onAutoSaveChange?: (enabled: boolean) => void;
   onSave?: () => void;
   onShare?: () => void;
+  onClose?: () => void;
   onFormatAsTable?: () => void;
   onClearFormatting?: () => void;
   /** Human: Ribbon Fill-down — extends selection by one row via fill handle logic. */
   onFillDown?: () => void;
+  /** Human: Optional collab strip rendered under the title bar (keeps Excel chrome on top). */
+  presenceSlot?: ReactNode;
 };
 
 // Human: Map border preset names to CellStyle patches for the Borders gallery.
@@ -689,35 +713,338 @@ function FileTabPanel({
   );
 }
 
+/** Human: Browser-unsupported Insert commands still render for Excel layout parity. */
+const INSERT_UNSUPPORTED = "Not available in the browser editor";
+
 function InsertTabPanel({
-  onMergeCells,
   onInsertChart,
   onInsertTable,
   onInsertPivot,
   onInsertLink,
+  onEditComment,
   readOnly,
 }: Pick<
   ExcelSpreadsheetRibbonProps,
-  "onMergeCells" | "onInsertChart" | "onInsertTable" | "onInsertPivot" | "onInsertLink" | "readOnly"
+  | "onInsertChart"
+  | "onInsertTable"
+  | "onInsertPivot"
+  | "onInsertLink"
+  | "onEditComment"
+  | "readOnly"
 >) {
   const sz = iconSize();
+  const lg = scaledPx(22);
+  const chartIcon = scaledPx(16);
+
   return (
     <>
-      <RibbonGroup label="Tables">
-        <RibbonLargeButton label="PivotTable" icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertPivot} />
-        <RibbonIconButton label="Table" icon={<Grid3X3 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onInsertTable} />
+      {/* Human: Tables — PivotTable, Recommended PivotTables, Table, Forms (real Excel Insert). */}
+      <RibbonGroup label="Tables" showLabel>
+        <RibbonLargeButton
+          label={"PivotTable"}
+          icon={<TableProperties style={{ width: lg, height: lg, color: "#107C41" }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onInsertPivot}
+          showChevron
+        />
+        <RibbonLargeButton
+          label={"Recommended\nPivotTables"}
+          icon={<LayoutGrid style={{ width: lg, height: lg, color: "#107C41" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron={false}
+          wide
+        />
+        <RibbonIconButton
+          label="Table"
+          icon={<Table2 style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onInsertTable}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Forms"
+          icon={<FormInput style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
       </RibbonGroup>
       <RibbonGroupDivider />
-      <RibbonGroup label="Charts">
-        <RibbonLargeButton label="Charts" icon={<BarChart3 style={{ width: sz, height: sz }} aria-hidden />} onClick={onInsertChart} />
+
+      {/* Human: Illustrations — Pictures, Shapes, Icons, SmartArt, 3D Models, Screenshot. */}
+      <RibbonGroup label="Illustrations" showLabel>
+        <RibbonIconButton
+          label="Pictures"
+          icon={<Image style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Shapes"
+          icon={<Shapes style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Icons"
+          icon={<Sparkles style={{ width: sz, height: sz, color: "#0EA5E9" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="SmartArt"
+          icon={<Box style={{ width: sz, height: sz, color: "#7C3AED" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label={"3D\nModels"}
+          icon={<Cuboid style={{ width: sz, height: sz, color: "#64748B" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Screenshot"
+          icon={<Camera style={{ width: sz, height: sz, color: "#475569" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
       </RibbonGroup>
       <RibbonGroupDivider />
-      <RibbonGroup label="Links">
-        <RibbonIconButton label="Link" icon={<span style={{ fontSize: scaledPx(11), fontWeight: 700 }}>🔗</span>} disabled={readOnly} onClick={onInsertLink} />
+
+      {/* Human: Controls — Checkbox. */}
+      <RibbonGroup label="Controls" showLabel>
+        <RibbonIconButton
+          label="Checkbox"
+          icon={<CheckSquare style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
       </RibbonGroup>
       <RibbonGroupDivider />
-      <RibbonGroup label="Cells">
-        <RibbonIconButton label="Merge Cells" icon={<Table2 style={{ width: sz, height: sz }} aria-hidden />} disabled={readOnly} onClick={onMergeCells} />
+
+      {/* Human: Charts — Recommended Charts + chart-type gallery + Maps + PivotChart. */}
+      <RibbonGroup label="Charts" showLabel>
+        <RibbonLargeButton
+          label={"Recommended\nCharts"}
+          icon={<BarChart3 style={{ width: lg, height: lg, color: "#2563EB" }} aria-hidden />}
+          onClick={onInsertChart}
+          showChevron={false}
+          wide
+        />
+        <div className="flex flex-col justify-center gap-0.5 px-0.5">
+          <div className="flex items-center gap-0.5">
+            <RibbonIconButton
+              label="Column"
+              showLabel={false}
+              title="Insert Column Chart"
+              icon={<ChartColumn style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+            <RibbonIconButton
+              label="Bar"
+              showLabel={false}
+              title="Insert Bar Chart"
+              icon={<BarChartHorizontal style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+            <RibbonIconButton
+              label="Pie"
+              showLabel={false}
+              title="Insert Pie Chart"
+              icon={<PieChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+          </div>
+          <div className="flex items-center gap-0.5">
+            <RibbonIconButton
+              label="Line"
+              showLabel={false}
+              title="Insert Line Chart"
+              icon={<ChartLine style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+            <RibbonIconButton
+              label="Area"
+              showLabel={false}
+              title="Insert Area Chart"
+              icon={<AreaChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+            <RibbonIconButton
+              label="Scatter"
+              showLabel={false}
+              title="Insert Scatter Chart"
+              icon={<ScatterChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              onClick={onInsertChart}
+              iconSizePx={18}
+            />
+          </div>
+        </div>
+        <RibbonIconButton
+          label="Maps"
+          icon={<Map style={{ width: sz, height: sz, color: "#0D9488" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="PivotChart"
+          icon={<BarChart3 style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Sparklines — Line, Column, Win/Loss. */}
+      <RibbonGroup label="Sparklines" showLabel>
+        <RibbonIconButton
+          label="Line"
+          icon={<LineChart style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Column"
+          icon={<ChartColumn style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label={"Win/\nLoss"}
+          icon={<BarChart3 style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Filters — Slicer, Timeline. */}
+      <RibbonGroup label="Filters" showLabel>
+        <RibbonIconButton
+          label="Slicer"
+          icon={<Filter style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Timeline"
+          icon={<PanelTop style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Links. */}
+      <RibbonGroup label="Links" showLabel>
+        <RibbonIconButton
+          label="Link"
+          icon={<Link2 style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onInsertLink}
+          showChevron
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Comments. */}
+      <RibbonGroup label="Comments" showLabel>
+        <RibbonIconButton
+          label="Comment"
+          icon={<MessageSquare style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled={readOnly}
+          onClick={onEditComment}
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Text — Text Box, Header & Footer, WordArt, Signature Line, Object. */}
+      <RibbonGroup label="Text" showLabel>
+        <RibbonIconButton
+          label={"Text\nBox"}
+          icon={<TextCursorInput style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label={"Header\n& Footer"}
+          icon={<Heading style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="WordArt"
+          icon={<Type style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label={"Signature\nLine"}
+          icon={<PenLine style={{ width: sz, height: sz, color: "#475569" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Object"
+          icon={<FileSignature style={{ width: sz, height: sz, color: "#64748B" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          showChevron
+          iconSizePx={16}
+        />
+      </RibbonGroup>
+      <RibbonGroupDivider />
+
+      {/* Human: Symbols — Equation, Symbol. */}
+      <RibbonGroup label="Symbols" showLabel>
+        <RibbonIconButton
+          label="Equation"
+          icon={<Pi style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
+        <RibbonIconButton
+          label="Symbol"
+          icon={<Omega style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          disabled
+          title={INSERT_UNSUPPORTED}
+          iconSizePx={16}
+        />
       </RibbonGroup>
     </>
   );
@@ -944,7 +1271,6 @@ function AutomateTabPanel() {
 
 export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
   const { activeTab, onTabChange } = props;
-  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const autoSaveEnabled = props.autoSaveEnabled ?? true;
 
   const documentTitle = spreadsheetDisplayTitle(props.fileName ?? "Book1");
@@ -996,8 +1322,6 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
       panel = null;
   }
 
-  const isPrimaryTab = RIBBON_PRIMARY_TABS.some((tab) => tab.id === activeTab);
-
   return (
     <div className="shrink-0 bg-white" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
       <ExcelToolbarTitleBar
@@ -1010,39 +1334,18 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
         onSave={props.onSave}
         onUndo={props.onUndo}
         onRedo={props.onRedo}
-        onQuickAccessMenu={() => setQuickMenuOpen((open) => !open)}
         onSearch={props.onFindReplace}
-        onComments={props.onEditComment}
-        onShare={props.onShare}
+        onClose={props.onClose}
       />
 
-      {quickMenuOpen ? (
-        <div
-          className="flex flex-wrap gap-2 border-b bg-[#FAFAFA] px-3 py-2"
-          style={{ borderColor: "#EDEBE9", fontSize: scaledPx(11) }}
-        >
-          <button type="button" className="rounded px-2 py-1 hover:bg-[#F3F2F1]" onClick={props.onSaveCopy}>
-            Save a Copy
-          </button>
-          <button type="button" className="rounded px-2 py-1 hover:bg-[#F3F2F1]" onClick={props.onPrint}>
-            Print
-          </button>
-          <button
-            type="button"
-            className="rounded px-2 py-1 hover:bg-[#F3F2F1]"
-            onClick={props.onExportPdf ?? props.onPrint}
-          >
-            Export PDF
-          </button>
-        </div>
-      ) : null}
+      {props.presenceSlot}
 
       <RibbonTabStrip
         tabs={RIBBON_PRIMARY_TABS}
-        activeTab={isPrimaryTab ? activeTab : ""}
+        activeTab={activeTab}
         onTabChange={(id) => onTabChange(id as RibbonTabId)}
-        overflowTabs={RIBBON_OVERFLOW_TABS}
-        onOverflowTab={(id) => onTabChange(id as RibbonTabId)}
+        onComments={props.onEditComment}
+        onShare={props.onShare}
       />
       <RibbonContent>{panel}</RibbonContent>
     </div>

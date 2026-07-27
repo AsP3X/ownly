@@ -178,7 +178,9 @@ export function ExcelSheetChartsOverlay({
   return (
     <svg
       ref={svgRef}
-      className="absolute left-0 top-0 touch-none"
+      // Human: Root must not steal cell clicks — only chart groups capture pointers.
+      // Agent: pointer-events-none on SVG + auto on groups (same pattern as drawings overlay).
+      className="pointer-events-none absolute left-0 top-0 touch-none"
       width={gridWidth}
       height={gridHeight}
       aria-hidden={readOnly}
@@ -194,11 +196,14 @@ export function ExcelSheetChartsOverlay({
           <g
             key={chart.id}
             transform={`translate(${translateX}, ${translateY})`}
-            style={{ pointerEvents: readOnly ? "none" : "auto", cursor: readOnly ? undefined : "move" }}
+            style={{
+              pointerEvents: readOnly ? "none" : "auto",
+              cursor: readOnly ? undefined : "move",
+            }}
             onPointerDown={(event) => handleChartPointerDown(event, chart.id, layout.x, layout.y)}
           >
             {/* Human: Transparent hit target so the full chart area is draggable. */}
-            {/* Agent: CAPTURES pointer before grid cell selection underneath. */}
+            {/* Agent: CAPTURES pointer only on the chart rect, not empty grid cells. */}
             <rect
               x={0}
               y={0}
