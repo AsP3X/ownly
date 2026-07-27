@@ -2160,24 +2160,30 @@ export default function DrivePage() {
 
             {activeNav === "my-files" ? (
               <div className="flex flex-col gap-4">
-                <BulkActionsBar
-                  selectedCount={totalSelectedCount}
-                  selectableCount={
-                    selectableBrowserFileIds.length + selectableBrowserFolderIds.length
-                  }
-                  allSelected={allBrowserItemsSelected}
-                  onSelectAll={handleSelectAllBrowserFiles}
-                  favouriteLabel={bulkFavouriteLabel}
-                  onDownload={handleBulkDownload}
-                  onToggleFavourite={handleBulkToggleFavourite}
-                  onDelete={handleBulkDeleteRequest}
-                  onClearSelection={handleClearBrowserSelection}
-                  onCopyToFolder={
-                    selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
-                  }
-                  onMoveToFolder={handleOpenFolderPicker}
-                  showMobileFolderActions={!isDesktopViewport}
-                />
+                {/* Human: Sticky host so bulk actions stay pinned while the file grid scrolls. */}
+                {/* Agent: sticky + solid page-bg backdrop on lg; mobile bar stays fixed via BulkActionsBar. */}
+                {totalSelectedCount > 0 ? (
+                  <div className="max-lg:contents lg:sticky lg:top-0 lg:z-20 lg:-mx-1 lg:bg-[#f3f2f1] lg:px-1 lg:pb-3 lg:pt-1">
+                    <BulkActionsBar
+                      selectedCount={totalSelectedCount}
+                      selectableCount={
+                        selectableBrowserFileIds.length + selectableBrowserFolderIds.length
+                      }
+                      allSelected={allBrowserItemsSelected}
+                      onSelectAll={handleSelectAllBrowserFiles}
+                      favouriteLabel={bulkFavouriteLabel}
+                      onDownload={handleBulkDownload}
+                      onToggleFavourite={handleBulkToggleFavourite}
+                      onDelete={handleBulkDeleteRequest}
+                      onClearSelection={handleClearBrowserSelection}
+                      onCopyToFolder={
+                        selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
+                      }
+                      onMoveToFolder={handleOpenFolderPicker}
+                      showMobileFolderActions={!isDesktopViewport}
+                    />
+                  </div>
+                ) : null}
                 <DriveCloudExplorer
                   folderStack={folderStack}
                   folders={visibleFolders}

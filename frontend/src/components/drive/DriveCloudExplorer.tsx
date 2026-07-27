@@ -1005,7 +1005,9 @@ export function DriveCloudExplorer({
                       }
                       onToggleSelected={toggleFileSelected}
                       onTapToggleFileSelection={
-                        mobileSelectionMode ? onTapToggleFileSelection : undefined
+                        mobileSelectionMode || hasActiveSelection
+                          ? onTapToggleFileSelection
+                          : undefined
                       }
                       onDragStart={handleFileDragStart}
                       onDragEnd={resetDragState}

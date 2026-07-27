@@ -355,13 +355,14 @@ export function FileListView({
                   <button
                     type="button"
                     onClick={() => {
-                      if (
-                        mobileSelectionMode &&
-                        selectionEnabled &&
-                        !processing &&
-                        onTapToggleFileSelection
-                      ) {
-                        onTapToggleFileSelection(file.id);
+                      // Human: In bulk-select mode the whole row toggles selection instead of opening preview.
+                      // Agent: READS showFileCheckboxes + selectionEnabled; CALLS tap toggle or toggleFileSelected.
+                      if (showFileCheckboxes && selectionEnabled && !processing) {
+                        if (onTapToggleFileSelection) {
+                          onTapToggleFileSelection(file.id);
+                        } else {
+                          toggleFileSelected(file.id, !isSelected);
+                        }
                         return;
                       }
                       if (canPreviewVideo) onPreviewVideo!(file);
@@ -374,8 +375,15 @@ export function FileListView({
                     }}
                     className={cn(
                       "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50",
-                      !canPreview && "cursor-default",
+                      !canPreview && !showFileCheckboxes && "cursor-default",
                     )}
+                    aria-label={
+                      showFileCheckboxes && selectionEnabled && !processing
+                        ? isSelected
+                          ? `Deselect ${file.name}`
+                          : `Select ${file.name}`
+                        : undefined
+                    }
                   >
                     <FileTypeTile mimeType={file.mime_type} />
                     <div className="min-w-0 flex-1">

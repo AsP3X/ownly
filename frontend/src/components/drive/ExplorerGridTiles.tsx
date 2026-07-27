@@ -144,6 +144,9 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
   onDrop,
 }: ExplorerFolderGridTileProps) {
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
+  // Human: Once bulk selection is active, the whole folder card toggles select instead of opening.
+  // Agent: READS hasActiveSelection + selectionEnabled; USED by onClick to call onToggleSelected.
+  const cardSelectMode = selectionEnabled && hasActiveSelection && onToggleSelected !== undefined;
 
   return (
     <div
@@ -162,6 +165,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
         isDragging && "opacity-50",
         isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
         touchDragEnabled && "touch-manipulation",
+        cardSelectMode && "cursor-pointer",
       )}
     >
       {selectionEnabled && onToggleSelected ? (
@@ -200,9 +204,19 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       <button
         type="button"
         draggable={dragEnabled && !touchDragEnabled}
-        aria-label={`Open folder ${folder.name}`}
+        aria-label={
+          cardSelectMode
+            ? isSelected
+              ? `Deselect folder ${folder.name}`
+              : `Select folder ${folder.name}`
+            : `Open folder ${folder.name}`
+        }
         onClick={() => {
           if (touchDragBindings?.consumeSuppressedClick()) return;
+          if (cardSelectMode && onToggleSelected) {
+            onToggleSelected(folder.id, !isSelected);
+            return;
+          }
           onOpenFolder(folder);
         }}
         onDragStart={(event) => onDragStart?.(event, folder.id)}
@@ -361,35 +375,55 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   const showLiveThumbnailPreview =
     showImagePreview || showVideoPreview || showDocumentPreview;
   const touchDragBindings = touchDragEnabled ? getTouchDragBindings?.() : undefined;
+  // Human: In bulk-select mode (or mobile selection mode), the whole card toggles selection.
+  // Agent: READS hasActiveSelection + mobileSelectionMode; USED by pointer/click handlers instead of preview.
+  const cardSelectMode =
+    selectionEnabled && !processing && (hasActiveSelection || mobileSelectionMode);
   // Human: Track tap start so scroll gestures on a tile do not toggle selection.
-  // Agent: READS pointer down/up delta; CALLS onTapToggleFileSelection only within MOBILE_TAP_SLOP_PX.
+  // Agent: READS pointer down/up delta; CALLS toggleCardSelection only within MOBILE_TAP_SLOP_PX.
   const mobileTapStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Human: After a touch/pen toggle on pointerup, ignore the synthetic click that follows.
+  // Agent: WRITES true on successful touch toggle; CLEARS in onClick to prevent double select.
+  const suppressNextClickRef = useRef(false);
   const MOBILE_TAP_SLOP_PX = 10;
 
+  function toggleCardSelection() {
+    if (onTapToggleFileSelection) {
+      onTapToggleFileSelection(file.id);
+      return;
+    }
+    onToggleSelected(file.id, !isSelected);
+  }
+
   function handleTilePointerDown(event: PointerEvent<HTMLButtonElement>) {
-    if (mobileSelectionMode && selectionEnabled && !processing) {
+    // Human: Touch scroll-safe select — arm only on coarse pointers while card-select is active.
+    // Agent: WRITES mobileTapStartRef for pointerType touch/pen; desktop mouse uses onClick instead.
+    if (cardSelectMode && (event.pointerType === "touch" || event.pointerType === "pen")) {
       mobileTapStartRef.current = { x: event.clientX, y: event.clientY };
       return;
     }
+    if (cardSelectMode) return;
     touchDragBindings?.onPointerDown(event);
   }
 
   function handleTilePointerUp(event: PointerEvent<HTMLButtonElement>) {
-    if (mobileSelectionMode && selectionEnabled && !processing) {
+    if (cardSelectMode && (event.pointerType === "touch" || event.pointerType === "pen")) {
       const start = mobileTapStartRef.current;
       mobileTapStartRef.current = null;
-      if (!start || !onTapToggleFileSelection) return;
+      if (!start) return;
       const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
       if (distance <= MOBILE_TAP_SLOP_PX) {
-        onTapToggleFileSelection(file.id);
+        toggleCardSelection();
+        suppressNextClickRef.current = true;
       }
       return;
     }
+    if (cardSelectMode) return;
     touchDragBindings?.onPointerUp(event);
   }
 
   function handleTilePointerCancel(event: PointerEvent<HTMLButtonElement>) {
-    if (mobileSelectionMode) {
+    if (cardSelectMode) {
       mobileTapStartRef.current = null;
       return;
     }
@@ -405,12 +439,14 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         isSelected
           ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
           : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
-        canPreview && !isSelected && "hover:bg-[#F7F8FA]",
+        canPreview && !isSelected && !cardSelectMode && "hover:bg-[#F7F8FA]",
         canPreview && isSelected && "hover:bg-blue-100/50",
+        cardSelectMode && !isSelected && "hover:bg-blue-50/60",
         processing && "opacity-80",
         isDragging && "opacity-50",
         isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
         touchDragEnabled && "touch-manipulation",
+        cardSelectMode && "cursor-pointer",
       )}
     >
       {selectionEnabled ? (
@@ -420,9 +456,9 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             isSelected || hasActiveSelection || mobileSelectionMode
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
-            // Human: Mobile tap-select uses one pointer handler on the tile — ignore checkbox hits.
-            // Agent: APPLIES pointer-events-none while mobileSelectionMode to avoid double toggles.
-            mobileSelectionMode && "pointer-events-none",
+            // Human: Card-select uses one handler on the tile — ignore checkbox hits to avoid double toggles.
+            // Agent: APPLIES pointer-events-none while cardSelectMode so only the tile button toggles.
+            cardSelectMode && "pointer-events-none",
           )}
         >
           <input
@@ -470,8 +506,16 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       ) : null}
       <button
         type="button"
-        draggable={dragEnabled && !processing && !touchDragEnabled}
-        aria-label={canPreview ? `Preview ${file.name}` : file.name}
+        draggable={dragEnabled && !processing && !touchDragEnabled && !cardSelectMode}
+        aria-label={
+          cardSelectMode
+            ? isSelected
+              ? `Deselect ${file.name}`
+              : `Select ${file.name}`
+            : canPreview
+              ? `Preview ${file.name}`
+              : file.name
+        }
         onDragStart={(event) => onDragStart(event, file.id)}
         onDragEnd={onDragEnd}
         onPointerDown={handleTilePointerDown}
@@ -479,7 +523,14 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         onPointerUp={handleTilePointerUp}
         onPointerCancel={handleTilePointerCancel}
         onClick={() => {
-          if (mobileSelectionMode && selectionEnabled && !processing) {
+          // Human: Mouse/keyboard activate the card for select or preview; touch select is pointer-up.
+          // Agent: SKIPS when suppressNextClickRef (touch already toggled); else toggles or previews.
+          if (cardSelectMode) {
+            if (suppressNextClickRef.current) {
+              suppressNextClickRef.current = false;
+              return;
+            }
+            toggleCardSelection();
             return;
           }
           if (touchDragBindings?.consumeSuppressedClick()) return;
@@ -496,7 +547,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           "flex h-full w-full flex-col items-stretch gap-1.5 p-1.5 text-center lg:gap-1.5 lg:p-2",
           // Human: pan-y keeps list scroll working on first touch over a tile; drag arms only after long-press.
           // Agent: AVOIDS touch-none here — that blocks native vertical scroll across the whole grid on mobile.
-          touchDragBindings && !mobileSelectionMode && "touch-pan-y",
+          touchDragBindings && !cardSelectMode && "touch-pan-y",
         )}
       >
         {/* Human: Every tile reserves the same preview frame — thumbnails fill it; others show a centered icon. */}
