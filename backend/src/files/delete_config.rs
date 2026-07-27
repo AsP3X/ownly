@@ -3,6 +3,6 @@
 
 pub use crate::storage::DELETE_BLOB_CONCURRENCY;
 
-/// Human: Max files purged in parallel during a delete job after DB rows are removed.
+/// Human: Max files purged / soft-deleted in parallel during a delete job.
 /// Agent: USED by run_delete_job permanent path and recycle soft-delete path.
-pub const DELETE_FILE_CONCURRENCY: usize = 16;
+pub const DELETE_FILE_CONCURRENCY: usize = 32;

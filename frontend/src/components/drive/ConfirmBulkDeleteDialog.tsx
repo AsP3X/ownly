@@ -22,6 +22,8 @@ import {
   confirmDialogWidthStyle,
 } from "@/lib/confirm-dialog-layout";
 import {
+  createSequentialDeleteStatus,
+  createStartingDeleteStatus,
   runDeleteJobWithProgress,
   runRecycleBinEmptyDeleteJobWithProgress,
   shouldUseDeleteJob,
@@ -161,36 +163,51 @@ export function ConfirmBulkDeleteDialog({
     setConfirming(true);
     setConfirmMode(permanent ? "permanent" : "recycle");
     setError("");
-    setDeleteJobStatus(null);
 
     const fileIds = items.map((item) => item.id);
+    // Human: Multi-select always uses the server delete job — sequential per-file HTTP was far too slow.
+    // Agent: TRUE for recycle-bin empty, 2+ files, or large permanent single-file blob purges.
     const useDeleteJob =
-      permanent &&
-      (recycleBinEmpty ||
-        (preview ? shouldUseDeleteJob(preview) : items.length > 1));
+      recycleBinEmpty ||
+      items.length > 1 ||
+      (permanent &&
+        preview !== null &&
+        shouldUseDeleteJob({
+          file_count: preview.file_count,
+          storage_object_count: preview.storage_object_count,
+        }));
+
+    // Human: Show a progress bar immediately — do not wait for the first network poll.
+    // Agent: WRITES starting/sequential DeleteJobStatus before awaiting delete APIs.
+    setDeleteJobStatus(
+      createStartingDeleteStatus({
+        total_files: preview?.file_count ?? (recycleBinEmpty ? count : items.length),
+        total_blobs: permanent ? (preview?.storage_object_count ?? 0) : 0,
+      }),
+    );
 
     try {
       if (useDeleteJob) {
         const previewTotals = preview
           ? {
               total_files: preview.file_count,
-              total_blobs: preview.storage_object_count,
+              total_blobs: permanent ? preview.storage_object_count : 0,
             }
-          : undefined;
+          : {
+              total_files: recycleBinEmpty ? count : items.length,
+              total_blobs: 0,
+            };
 
         const finalStatus = recycleBinEmpty
-          ? await runRecycleBinEmptyDeleteJobWithProgress(
-              previewTotals ?? { total_files: count, total_blobs: 0 },
-              (status) => {
-                setDeleteJobStatus(status);
-              },
-            )
+          ? await runRecycleBinEmptyDeleteJobWithProgress(previewTotals, (status) => {
+              setDeleteJobStatus(status);
+            })
           : await runDeleteJobWithProgress(
               fileIds,
               (status) => {
                 setDeleteJobStatus(status);
               },
-              { permanent: true, previewTotals },
+              { permanent, previewTotals },
             );
 
         if (finalStatus.deleted_file_ids.length > 0) {
@@ -198,7 +215,7 @@ export function ConfirmBulkDeleteDialog({
         }
 
         if (finalStatus.status === "complete") {
-          if (onPermanentComplete) {
+          if (permanent && onPermanentComplete) {
             await onPermanentComplete();
           }
           handleOpenChange(false);
@@ -210,14 +227,23 @@ export function ConfirmBulkDeleteDialog({
 
       const deletedIds: string[] = [];
       const failures: string[] = [];
+      const total = items.length;
 
-      for (const item of items) {
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]!;
         try {
           await deleteFile(item.id, { permanent });
           deletedIds.push(item.id);
         } catch (err) {
           failures.push(`${item.name}: ${getErrorMessage(err)}`);
         }
+        setDeleteJobStatus(
+          createSequentialDeleteStatus({
+            completed: index + 1,
+            total,
+            deletedFileIds: deletedIds,
+          }),
+        );
       }
 
       if (deletedIds.length > 0) {
@@ -252,32 +278,17 @@ export function ConfirmBulkDeleteDialog({
     !previewLoading &&
     !previewError &&
     preview.storage_object_count > 0;
-  const permanentDeleteUsesJob =
-    recycleBinEmpty ||
-    (preview ? shouldUseDeleteJob(preview) : items.length > 1);
-  // Human: Show the progress bar for the whole job, including before the first status poll returns.
-  // Agent: WHEN confirming permanent job delete; USE placeholder totals from preview until status exists.
-  const progressStatus: DeleteJobStatus | null =
-    deleteJobStatus ??
-    (confirming &&
-    confirmMode === "permanent" &&
-    permanentDeleteUsesJob &&
-    preview
-      ? {
-          job_id: "",
-          status: "starting",
-          progress: 0,
-          total_blobs: preview.storage_object_count,
-          deleted_blobs: 0,
-          total_files: preview.file_count,
-          deleted_files: 0,
-          ready: false,
-          error: null,
-          deleted_file_ids: [],
-        }
-      : null);
-  const showProgress =
-    confirming && confirmMode === "permanent" && progressStatus !== null;
+  // Human: Show progress for the entire confirm action (job path or sequential deletes).
+  // Agent: WHEN confirming; USE live deleteJobStatus or a starting placeholder from preview.
+  const progressStatus: DeleteJobStatus | null = confirming
+    ? deleteJobStatus ??
+      createStartingDeleteStatus({
+        total_files: preview?.file_count ?? (recycleBinEmpty ? count : items.length),
+        total_blobs:
+          confirmMode === "permanent" ? (preview?.storage_object_count ?? 0) : 0,
+      })
+    : null;
+  const showProgress = progressStatus !== null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={confirming}>

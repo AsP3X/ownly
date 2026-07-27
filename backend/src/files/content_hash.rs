@@ -152,6 +152,24 @@ pub async fn storage_key_still_referenced(pool: &PgPool, storage_key: &str) -> R
     Ok(row.is_some())
 }
 
+// Human: Which storage keys from a candidate set are still referenced by any remaining file row.
+// Agent: SELECT DISTINCT storage_key WHERE storage_key = ANY; USED by parallel_purge to skip shared blobs.
+pub async fn storage_keys_still_referenced(
+    pool: &PgPool,
+    storage_keys: &[String],
+) -> Result<std::collections::HashSet<String>, AppError> {
+    if storage_keys.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT DISTINCT storage_key FROM files WHERE storage_key = ANY($1)",
+    )
+    .bind(storage_keys)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(key,)| key).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::hash_file_sha256;

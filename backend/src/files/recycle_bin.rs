@@ -89,7 +89,7 @@ fn expires_at(deleted_at: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chr
 
 // Human: Revoke active public links when a file or folder enters the recycle bin.
 // Agent: UPDATE public_shares SET revoked_at WHERE resource matches and not already revoked.
-async fn revoke_shares_for_resource(
+pub(crate) async fn revoke_shares_for_resource(
     pool: &sqlx::PgPool,
     user_id: &str,
     resource_type: &str,
@@ -150,6 +150,30 @@ pub async fn soft_delete_file(
         .ok();
 
     Ok(name)
+}
+
+/// Human: Soft-delete many already-authorized files in one UPDATE (delete jobs only).
+/// Agent: CALLER must have run load_files_for_delete; RETURNS (id, name, owner_id) for shares/audit.
+pub async fn soft_delete_files_batch(
+    pool: &sqlx::PgPool,
+    file_ids: &[String],
+) -> Result<Vec<(String, String, String)>, AppError> {
+    if file_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Human: One statement moves the whole selection into the recycle bin.
+    // Agent: UPDATE … RETURNING id, name, user_id for already-authorized ids only.
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "UPDATE files SET deleted_at = now(), updated_at = now() \
+         WHERE id = ANY($1) AND deleted_at IS NULL \
+         RETURNING id, name, user_id",
+    )
+    .bind(file_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }
 
 // Human: Mark one owned file as deleted without touching object storage blobs.

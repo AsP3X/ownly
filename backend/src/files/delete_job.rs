@@ -398,19 +398,28 @@ async fn run_delete_job(
     }
 
     let deleted_blobs = StdArc::new(AtomicU32::new(0));
+    let deleted_files_counter = StdArc::new(AtomicU32::new(0));
     let reporter_blobs = deleted_blobs.clone();
+    let reporter_files = deleted_files_counter.clone();
     let reporter_state = state.clone();
     let reporter_key = registry_key.clone();
-    let reporter_total = total_blobs;
+    let reporter_total_blobs = total_blobs;
+    let reporter_total_files = total_files;
     let reporter = tokio::spawn(async move {
         loop {
-            let current = reporter_blobs.load(Ordering::Relaxed);
+            let current_blobs = reporter_blobs.load(Ordering::Relaxed);
+            let current_files = reporter_files.load(Ordering::Relaxed);
             if let Some(mut job) = reporter_state.delete_jobs.get(&reporter_key).await {
-                job.deleted_blobs = current;
-                job.progress = if reporter_total == 0 {
-                    0
+                job.deleted_blobs = current_blobs;
+                job.deleted_files = current_files.max(job.deleted_files);
+                // Human: Prefer blob progress for permanent purge; fall back to file count for recycle.
+                // Agent: WRITES progress percent from blobs when total_blobs > 0, else deleted_files.
+                job.progress = if reporter_total_blobs > 0 {
+                    ((current_blobs as f64 / reporter_total_blobs as f64) * 100.0).round() as i32
+                } else if reporter_total_files > 0 {
+                    ((current_files as f64 / reporter_total_files as f64) * 100.0).round() as i32
                 } else {
-                    ((current as f64 / reporter_total as f64) * 100.0).round() as i32
+                    0
                 };
                 reporter_state.delete_jobs.set(reporter_key.clone(), job).await;
             }
@@ -437,44 +446,60 @@ async fn run_delete_job(
                 deleted_files = total_files;
                 deleted_file_ids = file_ids.clone();
 
+                deleted_files_counter.store(deleted_files, Ordering::Relaxed);
                 if let Some(mut job) = state.delete_jobs.get(&registry_key).await {
                     job.deleted_files = deleted_files;
                     job.deleted_file_ids = deleted_file_ids.clone();
-                    job.progress = if total_blobs == 0 { 100 } else { job.progress };
+                    // Human: DB rows are gone — show partial progress while storage purge continues.
+                    // Agent: WHEN total_blobs > 0 keep blob progress; ELSE mark files complete at 100.
+                    job.progress = if total_blobs == 0 {
+                        100
+                    } else {
+                        // At least 5% so the bar moves as soon as DB work finishes.
+                        job.progress.max(5)
+                    };
                     state.delete_jobs.set(registry_key.clone(), job).await;
                 }
 
+                // Human: Never block blob purge on audit inserts — run both in parallel.
+                // Agent: join purge + concurrent audit writes; previous path awaited all audits first.
                 let pool = state.pool.clone();
                 let audit_user = user_id.clone();
                 let audit_headers = headers.clone();
-                stream::iter(purge_rows.clone())
-                    .for_each_concurrent(DELETE_FILE_CONCURRENCY, |row: FilePurgeRow| {
-                        let pool = pool.clone();
-                        let audit_user = audit_user.clone();
-                        let audit_headers = audit_headers.clone();
-                        async move {
-                            audit::write_audit(
-                                &pool,
-                                Some(&audit_user),
-                                "files.delete.permanent",
-                                Some("file"),
-                                Some(&row.id),
-                                Some(serde_json::json!({ "name": row.name })),
-                                &audit_headers,
-                            )
-                            .await
-                            .ok();
-                        }
-                    })
-                    .await;
-
-                parallel_purge_file_rows(
-                    state.storage.clone(),
-                    &state.pool,
-                    purge_rows,
-                    Some(deleted_blobs.clone()),
-                )
-                .await;
+                let audit_rows = purge_rows.clone();
+                let purge_storage = state.storage.clone();
+                let purge_pool = state.pool.clone();
+                let purge_progress = deleted_blobs.clone();
+                let (_, _) = tokio::join!(
+                    parallel_purge_file_rows(
+                        purge_storage,
+                        &purge_pool,
+                        purge_rows,
+                        Some(purge_progress),
+                    ),
+                    async {
+                        stream::iter(audit_rows)
+                            .for_each_concurrent(DELETE_FILE_CONCURRENCY, |row: FilePurgeRow| {
+                                let pool = pool.clone();
+                                let audit_user = audit_user.clone();
+                                let audit_headers = audit_headers.clone();
+                                async move {
+                                    audit::write_audit(
+                                        &pool,
+                                        Some(&audit_user),
+                                        "files.delete.permanent",
+                                        Some("file"),
+                                        Some(&row.id),
+                                        Some(serde_json::json!({ "name": row.name })),
+                                        &audit_headers,
+                                    )
+                                    .await
+                                    .ok();
+                                }
+                            })
+                            .await;
+                    },
+                );
             }
             Err(error) => {
                 first_error = Some(error.to_string());
@@ -514,56 +539,63 @@ async fn run_delete_job(
             }
         }
     } else {
-        let pool = state.pool.clone();
-        let recycle_user = user_id.clone();
-        let audit_headers = headers.clone();
-        let successes =
-            StdArc::new(tokio::sync::Mutex::new(Vec::<(String, String)>::new()));
-        let failures = StdArc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+        // Human: Authz already ran in load_files_for_delete — one UPDATE for the whole selection.
+        // Agent: CALLS soft_delete_files_batch; CONCURRENT share revoke + audit; UPDATES deleted_files_counter.
+        let trash_ids: Vec<String> = rows.iter().map(|(id, _, _)| id.clone()).collect();
+        match recycle_bin::soft_delete_files_batch(&state.pool, &trash_ids).await {
+            Ok(trashed) => {
+                deleted_files = trashed.len() as u32;
+                deleted_files_counter.store(deleted_files, Ordering::Relaxed);
+                deleted_file_ids = trashed.iter().map(|(id, _, _)| id.clone()).collect();
 
-        stream::iter(rows)
-            .for_each_concurrent(DELETE_FILE_CONCURRENCY, |(file_id, _name, _segment_count)| {
-                let pool = pool.clone();
-                let recycle_user = recycle_user.clone();
-                let successes = successes.clone();
-                let failures = failures.clone();
-                async move {
-                    match recycle_bin::soft_delete_file(&pool, &recycle_user, &file_id).await
-                    {
-                        Ok(deleted_name) => {
-                            successes.lock().await.push((file_id, deleted_name));
-                        }
-                        Err(error) => {
-                            failures
-                                .lock()
-                                .await
-                                .push(format!("{file_id}: {error}"));
-                        }
-                    }
+                if let Some(mut job) = state.delete_jobs.get(&registry_key).await {
+                    job.deleted_files = deleted_files;
+                    job.deleted_file_ids = deleted_file_ids.clone();
+                    job.progress = if total_files == 0 {
+                        100
+                    } else {
+                        ((deleted_files as f64 / total_files as f64) * 100.0).round() as i32
+                    };
+                    state.delete_jobs.set(registry_key.clone(), job).await;
                 }
-            })
-            .await;
 
-        for (file_id, deleted_name) in successes.lock().await.drain(..) {
-            deleted_files = deleted_files.saturating_add(1);
-            deleted_file_ids.push(file_id.clone());
-            audit::write_audit(
-                &state.pool,
-                Some(&user_id),
-                "files.trash",
-                Some("file"),
-                Some(&file_id),
-                Some(serde_json::json!({ "name": deleted_name })),
-                &audit_headers,
-            )
-            .await
-            .ok();
-        }
+                let pool = state.pool.clone();
+                let audit_user = user_id.clone();
+                let audit_headers = headers.clone();
+                stream::iter(trashed)
+                    .for_each_concurrent(DELETE_FILE_CONCURRENCY, |(file_id, name, owner_id)| {
+                        let pool = pool.clone();
+                        let audit_user = audit_user.clone();
+                        let audit_headers = audit_headers.clone();
+                        async move {
+                            recycle_bin::revoke_shares_for_resource(
+                                &pool, &owner_id, "file", &file_id,
+                            )
+                            .await
+                            .ok();
+                            audit::write_audit(
+                                &pool,
+                                Some(&audit_user),
+                                "files.trash",
+                                Some("file"),
+                                Some(&file_id),
+                                Some(serde_json::json!({ "name": name })),
+                                &audit_headers,
+                            )
+                            .await
+                            .ok();
+                        }
+                    })
+                    .await;
 
-        if first_error.is_none() {
-            let failure_list = failures.lock().await;
-            if let Some(message) = failure_list.first() {
-                first_error = Some(message.clone());
+                if deleted_files < total_files {
+                    first_error = Some(format!(
+                        "Moved {deleted_files} of {total_files} files to the recycle bin."
+                    ));
+                }
+            }
+            Err(error) => {
+                first_error = Some(error.to_string());
             }
         }
     }

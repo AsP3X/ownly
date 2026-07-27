@@ -1,33 +1,90 @@
 // Human: Blob purge progress bar shown while a delete job runs in confirmation dialogs.
-// Agent: READS DeleteJobStatus fields; RENDERS Progress + deleted/total blob counts.
+// Agent: READS DeleteJobStatus fields; RENDERS determinate bar + deleted/total counts.
 
 import type { DeleteJobStatus } from "@/api/client";
 import { formatStorageObjectCount } from "@/lib/delete-with-progress";
-import {
-  Progress,
-  ProgressLabel,
-  ProgressValue,
-} from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
 type DeleteJobProgressProps = {
   status: DeleteJobStatus;
 };
 
-// Human: Visualize server-side blob deletion progress during large file or bulk deletes.
-// Agent: DISPLAYS percent from status.progress; SHOWS deleted_blobs / total_blobs label.
+// Human: Prefer blob progress when the job tracks storage objects; otherwise file counts.
+// Agent: READS total_blobs / total_files; RETURNS 0–100 for the visual bar.
+function resolveProgressPercent(status: DeleteJobStatus): number {
+  if (Number.isFinite(status.progress) && status.progress > 0) {
+    return Math.min(100, Math.max(0, Math.round(status.progress)));
+  }
+  if (status.total_blobs > 0) {
+    return Math.min(
+      100,
+      Math.max(0, Math.round((status.deleted_blobs / status.total_blobs) * 100)),
+    );
+  }
+  if (status.total_files > 0) {
+    return Math.min(
+      100,
+      Math.max(0, Math.round((status.deleted_files / status.total_files) * 100)),
+    );
+  }
+  return 0;
+}
+
+// Human: Visualize server-side blob/file deletion progress during large deletes.
+// Agent: DISPLAYS percent + counts; USES explicit bar (not thin theme Progress) for reliable visibility.
 export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
-  const blobLabel = `${status.deleted_blobs.toLocaleString()} / ${status.total_blobs.toLocaleString()} storage objects removed`;
+  const percent = resolveProgressPercent(status);
+  const isStarting =
+    status.status === "starting" ||
+    status.status === "queued" ||
+    (percent === 0 && !status.ready && status.deleted_blobs === 0 && status.deleted_files === 0);
+  const useBlobs = status.total_blobs > 0;
+  const countLabel = useBlobs
+    ? `${status.deleted_blobs.toLocaleString()} / ${status.total_blobs.toLocaleString()} storage objects removed`
+    : status.total_files > 0
+      ? `${status.deleted_files.toLocaleString()} / ${status.total_files.toLocaleString()} files processed`
+      : "Preparing deletion…";
+  const heading = useBlobs
+    ? `Removing ${formatStorageObjectCount(status.total_blobs)}…`
+    : status.total_files > 1
+      ? `Deleting ${status.total_files.toLocaleString()} files…`
+      : status.total_files === 1
+        ? "Deleting file…"
+        : "Deleting…";
 
   return (
-    <div className="space-y-2 border-b border-neutral-100 px-6 py-4">
-      <Progress value={status.progress}>
-        <ProgressLabel className="text-sm text-neutral-700">
-          Removing {formatStorageObjectCount(status.total_blobs)}…
-        </ProgressLabel>
-        <ProgressValue />
-      </Progress>
-      <p className="text-xs text-neutral-500">{blobLabel}</p>
-      {status.total_files > 1 ? (
+    <div
+      className="space-y-3 border-b border-neutral-100 bg-neutral-50/80 px-6 py-4"
+      role="status"
+      aria-live="polite"
+      aria-busy={!status.ready}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-neutral-800">{heading}</p>
+        <p className="shrink-0 text-sm font-semibold tabular-nums text-neutral-700">
+          {isStarting && percent === 0 ? "…" : `${percent}%`}
+        </p>
+      </div>
+
+      <div
+        className="relative h-2.5 w-full overflow-hidden rounded-full bg-neutral-200"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-label={heading}
+      >
+        <div
+          className={cn(
+            "h-full rounded-full bg-[#2563EB] transition-[width] duration-300 ease-out",
+            isStarting && percent === 0 && "animate-pulse",
+          )}
+          style={{ width: isStarting && percent === 0 ? "12%" : `${percent}%` }}
+        />
+      </div>
+
+      <p className="text-xs text-neutral-500">{countLabel}</p>
+      {useBlobs && status.total_files > 1 ? (
         <p className="text-xs text-neutral-500">
           {status.deleted_files.toLocaleString()} / {status.total_files.toLocaleString()} files
           processed

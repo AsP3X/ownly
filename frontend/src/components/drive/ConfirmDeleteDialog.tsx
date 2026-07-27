@@ -29,6 +29,8 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { confirmDialogWidthStyle } from "@/lib/confirm-dialog-layout";
 import {
+  createSequentialDeleteStatus,
+  createStartingDeleteStatus,
   runDeleteJobWithProgress,
   shouldUseDeleteJob,
 } from "@/lib/delete-with-progress";
@@ -186,7 +188,20 @@ export function ConfirmDeleteDialog({
     setConfirming(true);
     setConfirmMode(permanent ? "permanent" : "recycle");
     setError("");
-    setDeleteJobStatus(null);
+
+    const startingTotals =
+      target.kind === "file"
+        ? {
+            total_files: 1,
+            total_blobs: permanent ? (filePreview?.storage_object_count ?? 0) : 0,
+          }
+        : {
+            total_files: Math.max(1, folderPreview?.file_count ?? 1),
+            total_blobs: permanent ? (folderPreview?.storage_object_count ?? 0) : 0,
+          };
+    // Human: Paint progress immediately so the dialog never sits on "Deleting…" with no bar.
+    // Agent: WRITES starting DeleteJobStatus before any await.
+    setDeleteJobStatus(createStartingDeleteStatus(startingTotals));
 
     try {
       if (target.kind === "file") {
@@ -226,6 +241,9 @@ export function ConfirmDeleteDialog({
         }
 
         await deleteFile(target.id, { permanent });
+        setDeleteJobStatus(
+          createSequentialDeleteStatus({ completed: 1, total: 1, deletedFileIds: [target.id] }),
+        );
       } else {
         const fileIds = folderPreview?.file_ids ?? [];
         const storageObjectCount = folderPreview?.storage_object_count ?? 0;
@@ -259,6 +277,13 @@ export function ConfirmDeleteDialog({
         }
 
         await deleteFolder(target.id, { permanent });
+        setDeleteJobStatus(
+          createSequentialDeleteStatus({
+            completed: Math.max(1, fileIds.length || 1),
+            total: Math.max(1, fileIds.length || 1),
+            deletedFileIds: fileIds,
+          }),
+        );
       }
 
       onDeleted?.(target);
@@ -286,46 +311,22 @@ export function ConfirmDeleteDialog({
     !folderPreviewLoading &&
     !folderPreviewError &&
     folderPreview.storage_object_count > 0;
-  const permanentDeleteUsesJob =
-    itemKind === "file"
-      ? filePreview
-        ? shouldUseDeleteJob({
-            file_count: 1,
-            storage_object_count: filePreview.storage_object_count,
-          })
-        : false
-      : folderPreview
-        ? shouldUseDeleteJob({
-            file_count: folderPreview.file_count,
-            storage_object_count: folderPreview.storage_object_count,
-          })
-        : false;
-  // Human: Show blob progress for the whole job, including before the first status poll.
-  // Agent: WHEN confirming permanent job delete; USE preview totals until deleteJobStatus arrives.
-  const progressStatus: DeleteJobStatus | null =
-    deleteJobStatus ??
-    (confirming &&
-    confirmMode === "permanent" &&
-    permanentDeleteUsesJob &&
-    (filePreview || folderPreview)
-      ? {
-          job_id: "",
-          status: "starting",
-          progress: 0,
-          total_blobs:
-            itemKind === "file"
+  // Human: Show progress for every confirm action (job or sync), not only large permanent jobs.
+  // Agent: WHEN confirming; USE live deleteJobStatus or starting totals from previews.
+  const progressStatus: DeleteJobStatus | null = confirming
+    ? deleteJobStatus ??
+      createStartingDeleteStatus({
+        total_files:
+          itemKind === "file" ? 1 : Math.max(1, folderPreview?.file_count ?? 1),
+        total_blobs:
+          confirmMode === "permanent"
+            ? itemKind === "file"
               ? (filePreview?.storage_object_count ?? 0)
-              : (folderPreview?.storage_object_count ?? 0),
-          deleted_blobs: 0,
-          total_files: itemKind === "file" ? 1 : (folderPreview?.file_count ?? 0),
-          deleted_files: 0,
-          ready: false,
-          error: null,
-          deleted_file_ids: [],
-        }
-      : null);
-  const showProgress =
-    confirming && confirmMode === "permanent" && progressStatus !== null;
+              : (folderPreview?.storage_object_count ?? 0)
+            : 0,
+      })
+    : null;
+  const showProgress = progressStatus !== null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={confirming}>

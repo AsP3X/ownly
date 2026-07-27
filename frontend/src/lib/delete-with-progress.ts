@@ -208,3 +208,48 @@ export function formatStorageObjectCount(count: number): string {
   if (count === 1) return "1 storage object";
   return `${count.toLocaleString()} storage objects`;
 }
+
+// Human: Placeholder job status so the dialog can show a progress bar before the first poll.
+// Agent: USED by confirm dialogs while confirming; REPLACED when real DeleteJobStatus arrives.
+export function createStartingDeleteStatus(totals: {
+  total_files: number;
+  total_blobs: number;
+}): DeleteJobStatus {
+  return {
+    job_id: "",
+    status: "starting",
+    progress: 0,
+    total_blobs: Math.max(0, totals.total_blobs),
+    deleted_blobs: 0,
+    total_files: Math.max(0, totals.total_files),
+    deleted_files: 0,
+    ready: false,
+    error: null,
+    deleted_file_ids: [],
+  };
+}
+
+// Human: Build a synthetic status while a sequential (non-job) multi-file delete runs.
+// Agent: READS completed/total; RETURNS DeleteJobStatus-shaped progress for DeleteJobProgress.
+export function createSequentialDeleteStatus(params: {
+  completed: number;
+  total: number;
+  deletedFileIds?: string[];
+}): DeleteJobStatus {
+  const total = Math.max(0, params.total);
+  const completed = Math.min(total, Math.max(0, params.completed));
+  const progress =
+    total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+  return {
+    job_id: "",
+    status: completed >= total && total > 0 ? "complete" : "deleting",
+    progress,
+    total_blobs: 0,
+    deleted_blobs: 0,
+    total_files: total,
+    deleted_files: completed,
+    ready: completed >= total && total > 0,
+    error: null,
+    deleted_file_ids: params.deletedFileIds ?? [],
+  };
+}

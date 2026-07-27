@@ -239,8 +239,20 @@ pub async fn ensure_each_file_access(
     file_ids: &[String],
     permission: Permission,
 ) -> Result<(), AppError> {
-    for file_id in file_ids {
-        ensure_file_access(pool, user_id, file_id, permission).await?;
+    use futures_util::stream::{self, StreamExt};
+
+    // Human: Parallelize authz checks for bulk delete jobs (sequential was O(n) round-trips).
+    // Agent: buffer_unordered 16; short-circuits on first NotFound/Forbidden via try_for_each style.
+    let mut stream = stream::iter(file_ids.iter().cloned())
+        .map(|file_id| {
+            let pool = pool.clone();
+            let user_id = user_id.to_string();
+            async move { ensure_file_access(&pool, &user_id, &file_id, permission).await }
+        })
+        .buffer_unordered(16);
+
+    while let Some(result) = stream.next().await {
+        result?;
     }
     Ok(())
 }
@@ -299,14 +311,24 @@ pub async fn load_files_for_delete(
 }
 
 // Human: Resolve file rows for permanent delete previews and purge jobs (includes recycle bin).
-// Agent: CALLS ensure_file_permanent_delete_access per id; READS trashed + active owned rows.
+// Agent: PARALLEL ensure_file_permanent_delete_access; READS trashed + active owned rows.
 pub async fn load_files_for_permanent_delete(
     pool: &PgPool,
     actor_id: &str,
     file_ids: &[String],
 ) -> Result<Vec<(String, String, Option<i32>)>, AppError> {
-    for file_id in file_ids {
-        ensure_file_permanent_delete_access(pool, actor_id, file_id).await?;
+    use futures_util::stream::{self, StreamExt};
+
+    let mut stream = stream::iter(file_ids.iter().cloned())
+        .map(|file_id| {
+            let pool = pool.clone();
+            let actor_id = actor_id.to_string();
+            async move { ensure_file_permanent_delete_access(&pool, &actor_id, &file_id).await }
+        })
+        .buffer_unordered(16);
+
+    while let Some(result) = stream.next().await {
+        result?;
     }
 
     let rows: Vec<(String, String, Option<i32>)> = sqlx::query_as(

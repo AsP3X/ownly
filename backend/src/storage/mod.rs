@@ -7,7 +7,9 @@ pub type StorageStream = Pin<Box<dyn futures_util::Stream<Item = Result<bytes::B
 
 /// Human: Max concurrent object-storage DELETE calls during prefix purge fallbacks.
 /// Agent: USED by NebulaStorage, MemoryStorage, and file_delete parallel key removal.
-pub const DELETE_BLOB_CONCURRENCY: usize = 12;
+/// Human: Parallel object DELETEs when Nebular bulk/prefix delete is unavailable.
+/// Agent: USED by NebulaStorage fallbacks and file_delete::delete_keys_parallel.
+pub const DELETE_BLOB_CONCURRENCY: usize = 32;
 
 #[async_trait::async_trait]
 pub trait Storage: Send + Sync {

@@ -350,7 +350,7 @@ pub async fn batch_delete_owned_file_rows(
 }
 
 // Human: Purge storage for many files concurrently after their DB rows are already deleted.
-// Agent: for_each_concurrent DELETE_FILE_CONCURRENCY; SKIPS keys still referenced by other files rows.
+// Agent: ONE refcount query for all keys; for_each_concurrent DELETE_FILE_CONCURRENCY; SKIPS shared keys.
 pub async fn parallel_purge_file_rows(
     storage: Arc<dyn Storage>,
     pool: &PgPool,
@@ -364,19 +364,26 @@ pub async fn parallel_purge_file_rows(
         unique_by_key.entry(row.storage_key.clone()).or_insert(row);
     }
 
-    stream::iter(unique_by_key.into_values())
+    // Human: Single DISTINCT lookup instead of one SELECT per file (was a major bulk-delete bottleneck).
+    // Agent: CALLS storage_keys_still_referenced; FILTERS unique_by_key before concurrent purge.
+    let candidate_keys: Vec<String> = unique_by_key.keys().cloned().collect();
+    let still_referenced = crate::files::content_hash::storage_keys_still_referenced(
+        pool,
+        &candidate_keys,
+    )
+    .await
+    .unwrap_or_else(|_| candidate_keys.iter().cloned().collect());
+
+    let purge_rows: Vec<FilePurgeRow> = unique_by_key
+        .into_values()
+        .filter(|row| !still_referenced.contains(&row.storage_key))
+        .collect();
+
+    stream::iter(purge_rows)
         .for_each_concurrent(DELETE_FILE_CONCURRENCY, |row| {
             let storage = storage.clone();
             let progress = progress.clone();
-            let pool = pool.clone();
             async move {
-                let still_referenced =
-                    crate::files::content_hash::storage_key_still_referenced(&pool, &row.storage_key)
-                        .await
-                        .unwrap_or(true);
-                if still_referenced {
-                    return;
-                }
                 purge_file_storage_with_mime(
                     storage,
                     &row.storage_key,
