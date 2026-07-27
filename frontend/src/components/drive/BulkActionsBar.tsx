@@ -1,7 +1,17 @@
 // Human: Command bar shown when one or more files are selected in the My files browser.
 // Agent: RENDERS selection count + bulk download/favourite/delete/clear; CALLS parent handlers only.
 
-import { Copy, Download, FolderInput, Star, Trash2, X } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  Check,
+  Copy,
+  Download,
+  FolderInput,
+  RefreshCw,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +30,80 @@ type BulkActionsBarProps = {
   onMoveToFolder?: () => void;
   /** Human: Show copy/move icon buttons on the mobile floating bar. */
   showMobileFolderActions?: boolean;
+  /** Human: Queue HLS rebuild for every rebuildable video in the selection. */
+  onRebuildStreams?: () => void;
+  /** Human: True while bulk reprocess requests are in flight. */
+  rebuildingStreams?: boolean;
+  /** Human: How many selected files can accept a stream rebuild (hides button when 0). */
+  rebuildableStreamCount?: number;
 };
 
-// Human: Bulk toolbar — compact floating pill on mobile, inline bar on desktop.
+type BulkActionButtonProps = {
+  /** Human: Accessible name and tooltip (full phrase, e.g. "Add to favourites"). */
+  label: string;
+  /** Human: Short desktop caption; falls back to label when omitted. */
+  desktopLabel?: string;
+  onClick: () => void;
+  icon: ReactNode;
+  /** Human: Show a text caption beside the icon on desktop. */
+  showDesktopLabel?: boolean;
+  tone?: "default" | "danger" | "ghost";
+  className?: string;
+  disabled?: boolean;
+  /** Human: Force this control to render only on mobile (e.g. copy/move). */
+  mobileOnly?: boolean;
+};
+
+// Human: Shared action control — icon-only on mobile, icon+label on desktop where useful.
+// Agent: APPLIES tone-based classes for default/danger/ghost; HIDES when mobileOnly on lg+.
+function BulkActionButton({
+  label,
+  desktopLabel,
+  onClick,
+  icon,
+  showDesktopLabel = false,
+  tone = "default",
+  className,
+  disabled,
+  mobileOnly = false,
+}: BulkActionButtonProps) {
+  const caption = desktopLabel ?? label;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "size-8 shrink-0 rounded-lg font-semibold transition-colors",
+        showDesktopLabel && "lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2.5",
+        mobileOnly && "lg:hidden",
+        // Mobile (dark floating bar)
+        "text-white/95 hover:bg-white/12 hover:text-white active:bg-white/15",
+        // Desktop (white toolbar)
+        "lg:text-[#374151] lg:hover:bg-[#F3F4F6] lg:hover:text-[#111827]",
+        tone === "default" &&
+          "lg:border lg:border-[#E5E7EB] lg:bg-white lg:shadow-sm lg:hover:border-[#D1D5DB] lg:hover:bg-[#F9FAFB]",
+        tone === "danger" &&
+          "lg:border lg:border-red-200/80 lg:bg-white lg:text-red-600 lg:shadow-sm lg:hover:border-red-300 lg:hover:bg-red-50 lg:hover:text-red-700",
+        tone === "ghost" &&
+          "lg:border-0 lg:bg-transparent lg:shadow-none lg:text-[#6B7280] lg:hover:bg-[#F3F4F6] lg:hover:text-[#111827]",
+        className,
+      )}
+    >
+      {icon}
+      {showDesktopLabel ? (
+        <span className="hidden text-[13px] leading-none lg:inline">{caption}</span>
+      ) : null}
+    </Button>
+  );
+}
+
+// Human: Bulk toolbar — refined floating dock on mobile, elevated white card on desktop.
 // Agent: DISABLES actions when selectedCount is 0; favouriteLabel reflects add vs remove intent.
 export function BulkActionsBar({
   selectedCount,
@@ -37,107 +118,154 @@ export function BulkActionsBar({
   onCopyToFolder,
   onMoveToFolder,
   showMobileFolderActions = false,
+  onRebuildStreams,
+  rebuildingStreams = false,
+  rebuildableStreamCount = 0,
 }: BulkActionsBarProps) {
   if (selectedCount === 0) return null;
 
   const showSelectAll = selectableCount > 0 && !allSelected;
   const showMobileCopyMove =
     showMobileFolderActions && selectedCount >= 2 && onCopyToFolder !== undefined;
+  const showRebuildStreams =
+    onRebuildStreams !== undefined && rebuildableStreamCount > 0;
+  const itemLabel = selectedCount === 1 ? "item" : "items";
 
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-600 px-3 py-2 text-white shadow-lg",
-        // Human: Mobile keeps a floating bottom pill; desktop is pinned by the sticky host in DrivePage.
-        // Agent: fixed bottom on max-lg; static bar styles on lg (parent provides sticky positioning).
+        "flex items-center gap-3",
+        // Human: Mobile — floating dark glass dock above the bottom nav.
+        // Agent: fixed bottom + blur + deep shadow; safe-area offset matches MobileBottomNav height.
         "max-lg:fixed max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] max-lg:left-3 max-lg:right-3 max-lg:z-30",
-        "lg:static lg:border-blue-200 lg:bg-blue-50 lg:text-blue-900 lg:shadow-sm",
+        "max-lg:rounded-2xl max-lg:border max-lg:border-white/10",
+        "max-lg:bg-[#0B1220]/92 max-lg:px-3 max-lg:py-2.5 max-lg:text-white",
+        "max-lg:shadow-[0_16px_40px_rgba(15,23,42,0.35)] max-lg:backdrop-blur-xl",
+        // Human: Desktop — white selection card matching explorer surfaces.
+        // Agent: static inside sticky host on DrivePage; ring + soft shadow for elevation.
+        "lg:rounded-xl lg:border lg:border-[#E5E7EB] lg:bg-white lg:px-3.5 lg:py-2.5",
+        "lg:shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_12px_rgba(16,24,40,0.04)]",
       )}
       role="toolbar"
       aria-label="Bulk file actions"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate text-sm font-semibold lg:font-medium">
-          {selectedCount} selected
+      {/* Selection summary */}
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-lg",
+            "bg-[#2563EB] text-white shadow-sm shadow-blue-600/25",
+            "ring-2 ring-[#2563EB]/15 lg:ring-4 lg:ring-[#2563EB]/10",
+          )}
+          aria-hidden
+        >
+          <Check className="size-4 stroke-[2.5]" />
         </span>
-        {showSelectAll ? (
-          <button
-            type="button"
-            className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-bold text-white/95 underline-offset-2 hover:bg-white/15 hover:underline lg:text-[13px] lg:text-blue-800 lg:hover:bg-blue-100 lg:hover:text-blue-900"
-            onClick={onSelectAll}
-            aria-label={`Select all ${selectableCount} files in this folder`}
-            title="Select all (Ctrl+A)"
-          >
-            Select all
-          </button>
-        ) : null}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold tracking-tight text-white lg:text-[#111827]">
+            <span className="tabular-nums">{selectedCount}</span> {itemLabel} selected
+          </p>
+          {showSelectAll ? (
+            <button
+              type="button"
+              className={cn(
+                "mt-0.5 text-left text-xs font-semibold underline-offset-2 transition-colors",
+                "text-blue-200/95 hover:text-white hover:underline",
+                "lg:text-[#2563EB] lg:hover:text-[#1d4ed8]",
+              )}
+              onClick={onSelectAll}
+              aria-label={`Select all ${selectableCount} items in this folder`}
+              title="Select all (Ctrl+A)"
+            >
+              Select all {selectableCount}
+            </button>
+          ) : allSelected && selectableCount > 0 ? (
+            <p className="mt-0.5 truncate text-xs font-medium text-white/55 lg:text-[#6B7280]">
+              All visible items selected
+            </p>
+          ) : null}
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 lg:gap-1">
+
+      {/* Actions */}
+      <div className="flex shrink-0 items-center gap-1 lg:gap-1.5">
         {showMobileCopyMove ? (
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-white hover:bg-white/15 lg:hidden"
+            <BulkActionButton
+              label="Copy to folder"
               onClick={onCopyToFolder}
-              aria-label="Copy selected to folder"
-            >
-              <Copy />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-white hover:bg-white/15 lg:hidden"
-              onClick={onMoveToFolder}
-              aria-label="Move selected to folder"
+              icon={<Copy className="size-4" />}
+              mobileOnly
+            />
+            <BulkActionButton
+              label="Move to folder"
+              onClick={() => onMoveToFolder?.()}
+              icon={<FolderInput className="size-4" />}
               disabled={!onMoveToFolder}
-            >
-              <FolderInput />
-            </Button>
+              mobileOnly
+            />
+            <span
+              className="mx-0.5 hidden h-5 w-px bg-white/15 max-lg:block"
+              aria-hidden
+            />
           </>
         ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-white hover:bg-white/15 lg:border lg:border-blue-200 lg:bg-white lg:text-blue-800 lg:hover:bg-blue-100"
+
+        <BulkActionButton
+          label="Download selected"
+          desktopLabel="Download"
           onClick={onDownload}
-          aria-label="Download selected"
-        >
-          <Download />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-white hover:bg-white/15 lg:border lg:border-blue-200 lg:bg-white lg:text-blue-800 lg:hover:bg-blue-100"
+          icon={<Download className="size-4" />}
+          showDesktopLabel
+        />
+        <BulkActionButton
+          label={favouriteLabel}
+          desktopLabel="Favourite"
           onClick={onToggleFavourite}
-          aria-label={favouriteLabel}
-        >
-          <Star />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-white hover:bg-white/15 lg:border lg:border-red-200 lg:bg-white lg:text-red-700 lg:hover:bg-red-50"
+          icon={<Star className="size-4" />}
+          showDesktopLabel
+        />
+        {showRebuildStreams ? (
+          <BulkActionButton
+            label={
+              rebuildingStreams
+                ? "Starting stream rebuild…"
+                : rebuildableStreamCount === 1
+                  ? "Rebuild stream for selected video"
+                  : `Rebuild streams for ${rebuildableStreamCount} selected videos`
+            }
+            desktopLabel={rebuildingStreams ? "Rebuilding…" : "Rebuild"}
+            onClick={onRebuildStreams}
+            icon={
+              <RefreshCw
+                className={cn("size-4", rebuildingStreams && "animate-spin")}
+              />
+            }
+            showDesktopLabel
+            disabled={rebuildingStreams}
+          />
+        ) : null}
+        <BulkActionButton
+          label="Delete selected"
+          desktopLabel="Delete"
           onClick={onDelete}
-          aria-label="Delete selected"
-        >
-          <Trash2 />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-white hover:bg-white/15 lg:text-blue-800 lg:hover:bg-blue-100"
+          icon={<Trash2 className="size-4" />}
+          showDesktopLabel
+          tone="danger"
+        />
+
+        <span
+          className="mx-0.5 hidden h-5 w-px bg-[#E5E7EB] lg:block"
+          aria-hidden
+        />
+        <span className="mx-0.5 h-5 w-px bg-white/15 lg:hidden" aria-hidden />
+
+        <BulkActionButton
+          label="Clear selection"
           onClick={onClearSelection}
-          aria-label="Clear selection"
-        >
-          <X />
-        </Button>
+          icon={<X className="size-4" />}
+          tone="ghost"
+        />
       </div>
     </div>
   );

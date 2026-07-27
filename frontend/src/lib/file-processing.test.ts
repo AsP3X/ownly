@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { FileItem } from "@/api/client";
 import {
+  canRebuildVideoStream,
   fileProcessingCompactLabel,
   fileProcessingLabel,
   fileProcessingPercent,
@@ -94,5 +95,48 @@ describe("file-processing video rebuild progress", () => {
     });
     expect(isVideoRebuilding(file)).toBe(false);
     expect(fileProcessingLabel(file)).toMatch(/^Processing file/);
+  });
+});
+
+describe("canRebuildVideoStream", () => {
+  it("allows ready videos with a packaged stream", () => {
+    const file = makeFile({
+      name: "clip.mp4",
+      mime_type: "video/mp4",
+      hls_ready: true,
+      hls_encode_status: "ready",
+    });
+    expect(canRebuildVideoStream(file)).toBe(true);
+  });
+
+  it("allows failed encodes so users can retry packaging", () => {
+    const file = makeFile({
+      name: "clip.mp4",
+      mime_type: "video/mp4",
+      hls_ready: false,
+      hls_encode_status: "failed",
+    });
+    expect(canRebuildVideoStream(file)).toBe(true);
+  });
+
+  it("blocks while a stream job is already active", () => {
+    for (const status of ["queued", "processing", "reprocessing"] as const) {
+      const file = makeFile({
+        name: "clip.mp4",
+        mime_type: "video/mp4",
+        hls_ready: false,
+        hls_encode_status: status,
+      });
+      expect(canRebuildVideoStream(file)).toBe(false);
+    }
+  });
+
+  it("rejects non-video files", () => {
+    const file = makeFile({
+      name: "notes.pdf",
+      mime_type: "application/pdf",
+      hls_ready: false,
+    });
+    expect(canRebuildVideoStream(file)).toBe(false);
   });
 });

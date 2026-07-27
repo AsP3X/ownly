@@ -17,6 +17,7 @@ import {
   copyFile,
   renameFile,
   renameFolder,
+  reprocessFileHls,
   listFiles,
   listFolders,
   moveFile,
@@ -78,7 +79,12 @@ import {
   shouldReflectUploadInFileList,
   type ExplorerFileListContext,
 } from "@/lib/explorer-file-list-updates";
-import { isFileProcessing, shouldPollFileThumbnail } from "@/lib/file-processing";
+import {
+  canRebuildVideoStream,
+  isFileProcessing,
+  shouldPollFileThumbnail,
+} from "@/lib/file-processing";
+import { toastError, toastSuccess } from "@/lib/toast";
 import {
   resetExplorerThumbnailWarmScope,
   touchCachedExplorerThumbnailsForFiles,
@@ -222,6 +228,9 @@ export default function DrivePage() {
   const [folderPreviewLoading, setFolderPreviewLoading] = useState(false);
   const [folderPreviewError, setFolderPreviewError] = useState("");
   const [bulkDeleteItems, setBulkDeleteItems] = useState<BulkDeleteItem[]>([]);
+  // Human: True while bulk stream rebuild requests are in flight for the current selection.
+  // Agent: WRITES true around reprocessFileHls loop; DISABLES rebuild button on BulkActionsBar.
+  const [bulkRebuildingStreams, setBulkRebuildingStreams] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(() => new Set());
   // Human: Synchronous mirror of selectedFileIds — mobile taps read/write this between React commits.
   // Agent: WRITES on every selection mutation; READ by handleTapToggleFileSelection before setState.
@@ -1561,6 +1570,61 @@ export default function DrivePage() {
     );
   }
 
+  // Human: Selected videos that can accept a stream rebuild (same rules as details overlay).
+  // Agent: FILTERS files by selectedFileIds + canRebuildVideoStream; USED by bulk toolbar button.
+  const rebuildableSelectedVideos = useMemo(
+    () => files.filter((file) => selectedFileIds.has(file.id) && canRebuildVideoStream(file)),
+    [files, selectedFileIds],
+  );
+
+  // Human: Queue HLS rebuild for every rebuildable video in the current selection.
+  // Agent: CALLS reprocessFileHls per file; MERGES via handleHlsReprocessQueued; TOAST summary.
+  async function handleBulkRebuildStreams() {
+    if (rebuildableSelectedVideos.length === 0 || bulkRebuildingStreams) return;
+
+    setBulkRebuildingStreams(true);
+    setError("");
+    let queued = 0;
+    let failed = 0;
+    let lastError = "";
+
+    try {
+      for (const file of rebuildableSelectedVideos) {
+        try {
+          const { file: updated } = await reprocessFileHls(file.id);
+          handleHlsReprocessQueued(updated);
+          queued += 1;
+        } catch (error) {
+          failed += 1;
+          lastError = getErrorMessage(error);
+        }
+      }
+
+      if (queued > 0) {
+        toastSuccess(
+          queued === 1
+            ? "Video stream rebuild started — play again when processing finishes."
+            : `Queued ${queued} video streams for rebuild. Progress appears in the transfer tray.`,
+        );
+        handleClearBrowserSelection();
+      }
+      if (failed > 0) {
+        const message =
+          queued === 0
+            ? lastError || "Could not start stream rebuild for the selected videos."
+            : `${failed} video${failed === 1 ? "" : "s"} could not be queued${
+                lastError ? `: ${lastError}` : "."
+              }`;
+        toastError(message);
+        if (queued === 0) {
+          setError(message);
+        }
+      }
+    } finally {
+      setBulkRebuildingStreams(false);
+    }
+  }
+
   // Human: Refresh drive state after bulk delete succeeds for one or more files.
   // Agent: CLEARS prefs + selection; CALLS refresh for the active My files view.
   function handleBulkDeleted(deletedIds: string[]) {
@@ -2163,7 +2227,7 @@ export default function DrivePage() {
                 {/* Human: Sticky host so bulk actions stay pinned while the file grid scrolls. */}
                 {/* Agent: sticky + solid page-bg backdrop on lg; mobile bar stays fixed via BulkActionsBar. */}
                 {totalSelectedCount > 0 ? (
-                  <div className="max-lg:contents lg:sticky lg:top-0 lg:z-20 lg:-mx-1 lg:bg-[#f3f2f1] lg:px-1 lg:pb-3 lg:pt-1">
+                  <div className="max-lg:contents lg:sticky lg:top-0 lg:z-20 lg:-mx-1 lg:bg-[#f3f2f1]/95 lg:px-1 lg:pb-3 lg:pt-1 lg:backdrop-blur-[2px]">
                     <BulkActionsBar
                       selectedCount={totalSelectedCount}
                       selectableCount={
@@ -2181,6 +2245,9 @@ export default function DrivePage() {
                       }
                       onMoveToFolder={handleOpenFolderPicker}
                       showMobileFolderActions={!isDesktopViewport}
+                      onRebuildStreams={() => void handleBulkRebuildStreams()}
+                      rebuildingStreams={bulkRebuildingStreams}
+                      rebuildableStreamCount={rebuildableSelectedVideos.length}
                     />
                   </div>
                 ) : null}

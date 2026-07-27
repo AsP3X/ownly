@@ -85,6 +85,23 @@ export function isVideoRebuilding(file: FileItem): boolean {
   return file.hls_encode_status === "reprocessing";
 }
 
+// Human: Whether the user can queue a stream rebuild for this video (details + bulk toolbar).
+// Agent: REQUIRES video mime + existing/ready/failed package; BLOCKS while encode job is active.
+export function canRebuildVideoStream(file: FileItem): boolean {
+  if (!file.mime_type?.startsWith("video/")) {
+    return false;
+  }
+  const status = file.hls_encode_status;
+  if (status === "queued" || status === "processing" || status === "reprocessing") {
+    return false;
+  }
+  return (
+    file.hls_ready === true ||
+    status === "ready" ||
+    status === "failed"
+  );
+}
+
 // Human: Overall 0–100 job completion for circular progress on explorer thumbnails.
 // Agent: READS conversion_progress while isFileProcessing; CAPS at 99 until ready; 0 while queued.
 // Rebuild and first-time ingest both use the server conversion_progress scale (0–100).

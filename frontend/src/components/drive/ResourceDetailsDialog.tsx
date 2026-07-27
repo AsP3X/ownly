@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { canRebuildVideoStream } from "@/lib/file-processing";
 import { toastError, toastSuccess } from "@/lib/toast";
 import {
   formatBytes,
@@ -198,14 +199,7 @@ export function ResourceDetailsDialog({
   const videoFile =
     target?.kind === "file" && target.file.mime_type?.startsWith("video/") ? target.file : null;
 
-  const canReprocessHls =
-    Boolean(videoFile) &&
-    (Boolean(videoFile?.hls_ready) ||
-      videoFile?.hls_encode_status === "ready" ||
-      videoFile?.hls_encode_status === "failed") &&
-    videoFile?.hls_encode_status !== "queued" &&
-    videoFile?.hls_encode_status !== "processing" &&
-    videoFile?.hls_encode_status !== "reprocessing";
+  const canReprocessHls = videoFile !== null && canRebuildVideoStream(videoFile);
 
   async function handleReprocessHls() {
     if (!videoFile || reprocessingHls) return;
