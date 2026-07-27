@@ -36,22 +36,75 @@ async fn warn_if_err_async<T, E: std::fmt::Display>(label: &'static str, result:
     warn_if_err(label, result);
 }
 
+// Human: Errors that will not succeed on retry — mark failed immediately instead of re-queueing.
+// Agent: READS lowercase message; USED by execute_job for zip/not-found/payload failures.
+fn is_permanent_job_failure(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower == "not found"
+        || lower.contains("not found")
+        || lower.contains("forbidden")
+        || lower.contains("unauthorized")
+        || lower.contains("invalid ")
+        || lower.contains("bad request")
+        || lower.contains("no files")
+}
+
 /// Human: Run one claimed job to completion — the worker pool calls this after claim_next_job.
-// Agent: MATCHES kind; RETURNS Ok on success; CALLS fail_job on Err; CHECKS cancellation for zip jobs.
+// Agent: MATCHES kind; ON Err CALLS fail_job/fail_job_permanent so the row is never left running.
+// Agent: RETURNS Ok after recording failure so the worker does not treat it as an orphan re-queue.
 pub async fn execute_job(state: Arc<AppState>, job: BackgroundJob) -> Result<(), String> {
     let kind =
         JobKind::parse(&job.kind).ok_or_else(|| format!("unknown job kind: {}", job.kind))?;
+    let job_id = job.id.clone();
 
-    match kind {
-        JobKind::HlsEncode => run_hls_encode(state, &job).await,
-        JobKind::HlsExport => run_hls_export(state, &job).await,
-        JobKind::AudioWaveform => run_audio_waveform(state, &job).await,
-        JobKind::VideoThumbnail => run_video_thumbnail(state, &job).await,
-        JobKind::ImageThumbnail => run_image_thumbnail(state, &job).await,
-        JobKind::DocumentThumbnail => run_document_thumbnail(state, &job).await,
-        JobKind::ZipBulk => run_zip_bulk(state, &job).await,
-        JobKind::ZipFolder => run_zip_folder(state, &job).await,
+    let result = match kind {
+        JobKind::HlsEncode => run_hls_encode(state.clone(), &job).await,
+        JobKind::HlsExport => run_hls_export(state.clone(), &job).await,
+        JobKind::AudioWaveform => run_audio_waveform(state.clone(), &job).await,
+        JobKind::VideoThumbnail => run_video_thumbnail(state.clone(), &job).await,
+        JobKind::ImageThumbnail => run_image_thumbnail(state.clone(), &job).await,
+        JobKind::DocumentThumbnail => run_document_thumbnail(state.clone(), &job).await,
+        JobKind::ZipBulk => run_zip_bulk(state.clone(), &job).await,
+        JobKind::ZipFolder => run_zip_folder(state.clone(), &job).await,
+    };
+
+    // Human: Zip/other handlers may return Err without updating background_jobs — always terminalize.
+    // Agent: IF job still running after Err, CALL fail_job(_permanent); RETURN Ok so orphan path is quiet.
+    if let Err(message) = &result {
+        let still_running: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM background_jobs WHERE id = $1 AND status = 'running'")
+                .bind(&job_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+        if still_running.is_some() {
+            let permanent = is_permanent_job_failure(message);
+            let fail_result = if permanent {
+                fail_job_permanent(&state.pool, &job_id, message).await
+            } else {
+                fail_job(&state.pool, &job_id, message).await
+            };
+            if let Err(error) = fail_result {
+                tracing::error!(
+                    job_id = %job_id,
+                    %error,
+                    failure = %message,
+                    "failed to record background job failure"
+                );
+                return Err(message.clone());
+            }
+            tracing::warn!(
+                job_id = %job_id,
+                error = %message,
+                permanent,
+                "background job failed and was terminalized"
+            );
+            // Recorded terminal status — do not surface as unhandled worker error.
+            return Ok(());
+        }
     }
+
+    result
 }
 
 async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), String> {
@@ -660,14 +713,16 @@ async fn finalize_zip_job(state: Arc<AppState>, job: &BackgroundJob) -> Result<(
         }
         Some(ref reg) if reg.status == "failed" => {
             let message = reg.error.clone().unwrap_or_else(|| "zip job failed".into());
-            fail_job(&state.pool, &job.id, &message)
+            // Human: Zip registry failures (missing files, IO) usually will not recover on retry.
+            // Agent: CALLS fail_job_permanent so "not found" never re-enters the claim loop.
+            fail_job_permanent(&state.pool, &job.id, &message)
                 .await
                 .map_err(|e| e.to_string())?;
             tracing::warn!(job_id = %job.id, error = %message, "zip job failed");
         }
         _ => {
             let message = "zip job ended in unexpected state".to_string();
-            fail_job(&state.pool, &job.id, &message)
+            fail_job_permanent(&state.pool, &job.id, &message)
                 .await
                 .map_err(|e| e.to_string())?;
             tracing::warn!(job_id = %job.id, error = %message, "zip job unexpected state");

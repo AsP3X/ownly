@@ -81,6 +81,7 @@ pub async fn find_active_job(
 
 /// Human: Atomically claim the oldest queued job for a worker — only one worker wins per row.
 // Agent: UPDATE … FOR UPDATE SKIP LOCKED; SETS status=running, locked_by, attempts+1.
+// Agent: SKIPS rows already at max_attempts so poisoned jobs cannot busy-loop.
 pub async fn claim_next_job(pool: &PgPool, worker_id: &str) -> Result<Option<BackgroundJob>, AppError> {
     let row = sqlx::query_as::<_, BackgroundJob>(
         "UPDATE background_jobs SET \
@@ -92,6 +93,7 @@ pub async fn claim_next_job(pool: &PgPool, worker_id: &str) -> Result<Option<Bac
          WHERE id = ( \
             SELECT id FROM background_jobs \
             WHERE status = 'queued' \
+              AND attempts < max_attempts \
             ORDER BY created_at ASC \
             FOR UPDATE SKIP LOCKED \
             LIMIT 1 \
@@ -430,7 +432,8 @@ pub async fn touch_job_heartbeat(
 }
 
 /// Human: Safety net after execute — re-queue if worker exited without completing/failing.
-// Agent: CLEARS lock on running rows still owned by this worker; PREVENTS permanent orphan locks.
+// Agent: CLEARS lock on running rows still owned by this worker; FAILS when attempts exhausted.
+// Agent: PREVENTS infinite re-queue spam when execute returns Err without calling fail_job.
 pub async fn ensure_worker_released_job(
     pool: &PgPool,
     job_id: &str,
@@ -438,11 +441,14 @@ pub async fn ensure_worker_released_job(
 ) -> Result<bool, AppError> {
     let result = sqlx::query(
         "UPDATE background_jobs SET \
-            status = 'queued', \
+            status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END, \
+            error = CASE \
+                WHEN attempts >= max_attempts THEN COALESCE(error, 'worker exited before job finished') \
+                ELSE COALESCE(error, 'worker exited before job finished') \
+            END, \
             locked_by = NULL, \
             locked_at = NULL, \
-            updated_at = now(), \
-            error = COALESCE(error, 'worker exited before job finished') \
+            updated_at = now() \
          WHERE id = $1 AND status = 'running' AND locked_by = $2",
     )
     .bind(job_id)
@@ -450,6 +456,23 @@ pub async fn ensure_worker_released_job(
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// Human: Kill poisoned queued jobs that already exhausted retries (e.g. pre-fix infinite loops).
+// Agent: WRITES status=failed WHERE queued AND attempts >= max_attempts; RUNS at worker startup.
+pub async fn fail_exhausted_queued_jobs(pool: &PgPool) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "UPDATE background_jobs SET \
+            status = 'failed', \
+            error = COALESCE(error, 'exceeded max attempts'), \
+            locked_by = NULL, \
+            locked_at = NULL, \
+            updated_at = now() \
+         WHERE status = 'queued' AND attempts >= max_attempts",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// Human: Cancel active background job matching a resource (e.g. folder or bulk download id).

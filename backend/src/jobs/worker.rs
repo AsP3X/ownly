@@ -12,8 +12,8 @@ use crate::AppState;
 use super::executor::execute_job;
 use super::recovery::recover_stuck_processing_jobs;
 use super::store::{
-    claim_next_job, ensure_worker_released_job, recover_running_jobs_on_startup,
-    recover_stale_jobs, touch_job_heartbeat,
+    claim_next_job, ensure_worker_released_job, fail_exhausted_queued_jobs,
+    recover_running_jobs_on_startup, recover_stale_jobs, touch_job_heartbeat,
 };
 
 const IDLE_POLL_MS: u64 = 500;
@@ -85,6 +85,21 @@ pub fn start_worker_pool(state: Arc<AppState>, settings: JobWorkerSettings) {
                 tracing::error!(%error, "failed to restart stuck processing jobs at startup");
             }
         }
+
+        // Human: Poisoned jobs left queued after infinite orphan re-queue loops (attempts >> max).
+        // Agent: CALLS fail_exhausted_queued_jobs; STOPS claim storms on restart.
+        match fail_exhausted_queued_jobs(&recovery_state.pool).await {
+            Ok(failed) if failed > 0 => {
+                tracing::warn!(
+                    failed,
+                    "marked exhausted queued background jobs as failed at startup"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(%error, "failed to clean exhausted queued jobs at startup");
+            }
+        }
     });
 
     let sweep_state = state.clone();
@@ -121,6 +136,19 @@ pub fn start_worker_pool(state: Arc<AppState>, settings: JobWorkerSettings) {
                 Ok(_) => {}
                 Err(error) => {
                     tracing::error!(%error, "periodic stuck processing job recovery failed");
+                }
+            }
+
+            match fail_exhausted_queued_jobs(&sweep_state.pool).await {
+                Ok(failed) if failed > 0 => {
+                    tracing::warn!(
+                        failed,
+                        "periodic sweep marked exhausted queued jobs as failed"
+                    );
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(%error, "periodic exhausted-job cleanup failed");
                 }
             }
         }
