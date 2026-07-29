@@ -254,8 +254,8 @@ export function measureLockBubbleRects(
   return next;
 }
 
-// Human: Measure a remote caret (and optional selection band) at plain-text offsets.
-// Agent: collapsed Range → getBoundingClientRect; FALLBACK expand one char when zero-size.
+// Human: Measure a remote caret at a plain-text offset (Docs-style colored bar).
+// Agent: Prefer next-char rect left edge; else previous-char right edge; else root fallback.
 export function measureCaretMarker(
   root: HTMLElement,
   container: HTMLElement,
@@ -264,47 +264,56 @@ export function measureCaretMarker(
   label: string,
   color: string,
 ): CaretMarker | null {
-  const point = rangeFromPlainOffsets(root, offset, offset + 1);
   const containerRect = container.getBoundingClientRect();
-  let rect: DOMRect | null = null;
-
-  if (point) {
-    const clientRects = point.getClientRects();
-    if (clientRects.length > 0) {
-      rect = clientRects[0] ?? null;
-    }
-    if (!rect || rect.height < 1) {
-      const br = point.getBoundingClientRect();
-      if (br.height >= 1) rect = br;
-    }
-  }
-
-  if (!rect || rect.height < 1) {
-    // Collapsed caret at EOF / empty block — try exact collapse
-    const collapsed = document.createRange();
-    const endPoint = rangeFromPlainOffsets(
-      root,
-      Math.max(0, offset),
-      Math.max(0, offset),
-    );
-    // rangeFromPlainOffsets rejects end<=start — use pointAt via one-char then collapse
-    const probe = rangeFromPlainOffsets(root, Math.max(0, offset - 1), Math.max(1, offset));
-    if (probe) {
-      probe.collapse(false);
-      const br = probe.getBoundingClientRect();
-      if (br.height >= 1) rect = br;
-    }
-    void collapsed;
-    void endPoint;
-  }
-
-  if (!rect || rect.height < 1) return null;
   const styles = colorParts(color);
+  const start = Math.max(0, Math.floor(offset));
+
+  // Next character (caret sits at its left edge)
+  const nextRange = rangeFromPlainOffsets(root, start, start + 1);
+  if (nextRange) {
+    const rects = nextRange.getClientRects();
+    const rect = rects[0] ?? nextRange.getBoundingClientRect();
+    if (rect && rect.height >= 1) {
+      return {
+        key: `caret-${userId}`,
+        top: rect.top - containerRect.top,
+        left: rect.left - containerRect.left,
+        height: Math.max(rect.height, 16),
+        color: styles.solid,
+        label,
+      };
+    }
+  }
+
+  // Previous character (caret sits at its right edge) — EOF / end of line
+  if (start > 0) {
+    const prevRange = rangeFromPlainOffsets(root, start - 1, start);
+    if (prevRange) {
+      const rects = prevRange.getClientRects();
+      const rect = rects[rects.length - 1] ?? prevRange.getBoundingClientRect();
+      if (rect && rect.height >= 1) {
+        return {
+          key: `caret-${userId}`,
+          top: rect.top - containerRect.top,
+          left: rect.right - containerRect.left,
+          height: Math.max(rect.height, 16),
+          color: styles.solid,
+          label,
+        };
+      }
+    }
+  }
+
+  // Empty document fallback — top of editor content box
+  const rootRect = root.getBoundingClientRect();
+  const style = window.getComputedStyle(root);
+  const padTop = Number.parseFloat(style.paddingTop || "0") || 0;
+  const padLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
   return {
     key: `caret-${userId}`,
-    top: rect.top - containerRect.top,
-    left: rect.left - containerRect.left,
-    height: Math.max(rect.height, 14),
+    top: rootRect.top - containerRect.top + padTop,
+    left: rootRect.left - containerRect.left + padLeft,
+    height: 18,
     color: styles.solid,
     label,
   };

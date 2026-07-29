@@ -280,11 +280,11 @@ export function RtfEditorDialog({
       const offsets = getSelectionPlainOffsets(root);
       if (!offsets) return;
       if (lockTimer !== null) window.clearTimeout(lockTimer);
-      // Human: Short debounce so peers see caret/lock quickly without flooding heartbeats.
+      // Human: Near-immediate caret broadcast (WS path); 16ms coalesce under rapid selectionchange.
       lockTimer = window.setTimeout(() => {
         const text = rootPlainText(root);
         void collab.acquireSentenceLock(text, offsets.start, offsets.end);
-      }, 60);
+      }, 16);
     };
 
     document.addEventListener("selectionchange", onSelectionChange);

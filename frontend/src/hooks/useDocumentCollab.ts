@@ -1,5 +1,5 @@
-// Human: Live RTF/document collab — WS + poll, sentence locks, throttled doc_html ops.
-// Agent: USED by RtfEditorDialog; RELIABLE publish (retry on failure); presence/lock sync for highlights.
+// Human: Live RTF collab — bidirectional WebSocket for ops + presence; HTTP fallback only.
+// Agent: USED by RtfEditorDialog; WS-first publish/heartbeat for near-zero latency carets/sync.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -20,17 +20,17 @@ import {
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
-/** Human: Coalesce typing into doc_html publishes — keep low for live feel. */
-const PUBLISH_DEBOUNCE_MS = 90;
-/** Human: Min gap between presence heartbeats (selection/cursor/lock). */
-const HEARTBEAT_MIN_INTERVAL_MS = 100;
-/** Human: Ops gap-fill when WebSocket is healthy. */
-const OPS_POLL_WS_MS = 2_000;
+/** Human: Coalesce typing into doc_html — one frame when possible. */
+const PUBLISH_DEBOUNCE_MS = 16;
+/** Human: Coalesce caret presence when WS is up. */
+const PRESENCE_DEBOUNCE_MS = 16;
+/** Human: Ops gap-fill when WebSocket is healthy (backup only). */
+const OPS_POLL_WS_MS = 5_000;
 /** Human: Ops gap-fill when falling back to HTTP-only transport. */
-const OPS_POLL_HTTP_MS = 700;
-/** Human: Presence/lock snapshot poll. */
-const SESSION_POLL_WS_MS = 1_500;
-const SESSION_POLL_HTTP_MS = 800;
+const OPS_POLL_HTTP_MS = 500;
+/** Human: Presence snapshot poll (backup). */
+const SESSION_POLL_WS_MS = 4_000;
+const SESSION_POLL_HTTP_MS = 500;
 
 type PublicShareCollab = {
   token: string;
@@ -98,22 +98,34 @@ export function useDocumentCollab({
   const pendingPublishRef = useRef<{ html: string; text: string } | null>(null);
   const lastPublishedHtmlRef = useRef<string | null>(null);
   const lastLockRef = useRef<{ start: number; end: number } | null>(null);
-  const lastHeartbeatAtRef = useRef(0);
-  const heartbeatInFlightRef = useRef(false);
+  const presenceTimerRef = useRef<number | null>(null);
   const pendingHeartbeatRef = useRef<HeartbeatBody | null>(null);
-  const heartbeatTimerRef = useRef<number | null>(null);
   const publishInFlightRef = useRef(false);
+  const socketRef = useRef<WebSocket | null>(null);
+  const transportRef = useRef<"ws" | "poll">("poll");
 
   localUserIdRef.current = localUserId;
   publicShareRef.current = publicShare;
   onRemoteDocumentRef.current = onRemoteDocument;
   onPresenceRef.current = onPresence;
   getSeedRef.current = getSeed;
+  transportRef.current = transport;
 
   const applySession = useCallback((next: DocumentCollabSession) => {
     setSession(next);
     setParticipants(Array.isArray(next.participants) ? next.participants : []);
     onPresenceRef.current?.(next.participants ?? []);
+  }, []);
+
+  const wsSend = useCallback((payload: Record<string, unknown>): boolean => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(payload));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   const ingestOps = useCallback((ops: DocumentCollabOp[]) => {
@@ -133,7 +145,13 @@ export function useDocumentCollab({
             const next = current.map((person) => {
               if (person.user_id !== op.user_id) return person;
               found = true;
-              return { ...person, lock_start: start, lock_end: end };
+              return {
+                ...person,
+                lock_start: start,
+                lock_end: end,
+                selection_start: person.selection_start ?? start,
+                selection_end: person.selection_end ?? start,
+              };
             });
             if (!found) {
               next.push({
@@ -141,8 +159,8 @@ export function useDocumentCollab({
                 display_name: "Collaborator",
                 color: "#2563EB",
                 last_seen: Date.now(),
-                selection_start: null,
-                selection_end: null,
+                selection_start: start,
+                selection_end: start,
                 lock_start: start,
                 lock_end: end,
               });
@@ -219,8 +237,6 @@ export function useDocumentCollab({
         latestSeqRef.current = joined.latest_seq;
         lastPublishedHtmlRef.current = joined.document_html || seed?.html || null;
         setError(null);
-        // Human: Only adopt remote seed when the session already has content from another peer.
-        // Agent: AVOIDS clobbering the local open document with an empty session seed.
         if (
           joined.document_html &&
           joined.document_html !== seed?.html &&
@@ -238,7 +254,7 @@ export function useDocumentCollab({
     };
   }, [applySession, displayName, enabled, fileId, publicShare?.token, publicShare?.guestId]);
 
-  // WebSocket live channel
+  // WebSocket live channel (bidirectional)
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
@@ -253,22 +269,27 @@ export function useDocumentCollab({
         socket = new WebSocket(collabWsUrl(sessionId, publicShareRef.current));
       } catch {
         setTransport("poll");
+        socketRef.current = null;
         return;
       }
+      socketRef.current = socket;
 
       socket.onopen = () => {
         if (closed) return;
         attempt = 0;
         setTransport("ws");
+        // Warm presence so peers know we are here immediately
+        wsSend({ type: "ping" });
       };
       socket.onerror = () => {
         /* onclose handles fallback */
       };
       socket.onclose = () => {
+        if (socketRef.current === socket) socketRef.current = null;
         if (closed) return;
         setTransport("poll");
         attempt += 1;
-        const delay = Math.min(8_000, 1_500 * attempt);
+        const delay = Math.min(4_000, 400 * attempt);
         reconnectTimer = window.setTimeout(connect, delay);
       };
       socket.onmessage = (event) => {
@@ -309,11 +330,12 @@ export function useDocumentCollab({
     return () => {
       closed = true;
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socketRef.current = null;
       socket?.close();
     };
-  }, [applySession, enabled, ingestOps, session?.id]);
+  }, [applySession, enabled, ingestOps, session?.id, wsSend]);
 
-  // Poll ops (document sync) and session (presence/locks) on separate cadences.
+  // HTTP poll backup only
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
@@ -350,11 +372,10 @@ export function useDocumentCollab({
     const sessionMs = transport === "ws" ? SESSION_POLL_WS_MS : SESSION_POLL_HTTP_MS;
     const opsId = window.setInterval(pollOps, opsMs);
     const sessionIdTimer = window.setInterval(pollSession, sessionMs);
-    // One warm poll so a late joiner catches remote content/locks quickly.
     const warm = window.setTimeout(() => {
       pollOps();
       pollSession();
-    }, 200);
+    }, 100);
     return () => {
       window.clearInterval(opsId);
       window.clearInterval(sessionIdTimer);
@@ -362,14 +383,11 @@ export function useDocumentCollab({
     };
   }, [applySession, enabled, ingestOps, session?.id, transport]);
 
-  const flushHeartbeat = useCallback(async () => {
+  const flushPresenceHttp = useCallback(async () => {
     const sessionId = sessionIdRef.current;
     const body = pendingHeartbeatRef.current;
-    if (!sessionId || !enabled || !body || heartbeatInFlightRef.current) return;
-
+    if (!sessionId || !enabled || !body) return;
     pendingHeartbeatRef.current = null;
-    heartbeatInFlightRef.current = true;
-    lastHeartbeatAtRef.current = Date.now();
     try {
       const share = publicShareRef.current;
       const next = share
@@ -386,11 +404,6 @@ export function useDocumentCollab({
       applySession(next);
     } catch {
       /* best-effort */
-    } finally {
-      heartbeatInFlightRef.current = false;
-      if (pendingHeartbeatRef.current) {
-        void flushHeartbeat();
-      }
     }
   }, [applySession, enabled]);
 
@@ -399,38 +412,57 @@ export function useDocumentCollab({
       const sessionId = sessionIdRef.current;
       if (!sessionId || !enabled) return;
 
+      // Optimistic local presence so our own UI stays consistent
+      if (localUserIdRef.current) {
+        setParticipants((current) =>
+          current.map((person) => {
+            if (person.user_id !== localUserIdRef.current) return person;
+            return {
+              ...person,
+              selection_start:
+                body.selection_start ?? person.selection_start ?? null,
+              selection_end: body.selection_end ?? person.selection_end ?? null,
+              lock_start:
+                body.clear_lock === true
+                  ? null
+                  : (body.lock_start ?? person.lock_start ?? null),
+              lock_end:
+                body.clear_lock === true
+                  ? null
+                  : (body.lock_end ?? person.lock_end ?? null),
+            };
+          }),
+        );
+      }
+
+      // Prefer WebSocket — no HTTP latency
+      if (
+        wsSend({
+          type: "heartbeat",
+          selection_start: body.selection_start,
+          selection_end: body.selection_end,
+          lock_start: body.lock_start,
+          lock_end: body.lock_end,
+          clear_lock: body.clear_lock,
+        })
+      ) {
+        return;
+      }
+
+      // HTTP fallback
       pendingHeartbeatRef.current = {
         ...pendingHeartbeatRef.current,
         ...body,
       };
-
-      // Human: Lock changes should reach peers ASAP; selection can wait the min interval.
-      const urgent =
-        body.lock_start != null ||
-        body.lock_end != null ||
-        body.clear_lock === true;
-
-      const elapsed = Date.now() - lastHeartbeatAtRef.current;
-      if (
-        (urgent || elapsed >= HEARTBEAT_MIN_INTERVAL_MS) &&
-        !heartbeatInFlightRef.current
-      ) {
-        await flushHeartbeat();
-        return;
+      if (presenceTimerRef.current !== null) {
+        window.clearTimeout(presenceTimerRef.current);
       }
-
-      if (heartbeatTimerRef.current !== null) {
-        window.clearTimeout(heartbeatTimerRef.current);
-      }
-      const wait = urgent
-        ? 0
-        : Math.max(0, HEARTBEAT_MIN_INTERVAL_MS - elapsed);
-      heartbeatTimerRef.current = window.setTimeout(() => {
-        heartbeatTimerRef.current = null;
-        void flushHeartbeat();
-      }, wait);
+      presenceTimerRef.current = window.setTimeout(() => {
+        presenceTimerRef.current = null;
+        void flushPresenceHttp();
+      }, PRESENCE_DEBOUNCE_MS);
     },
-    [enabled, flushHeartbeat],
+    [enabled, flushPresenceHttp, wsSend],
   );
 
   const flushPublish = useCallback(async () => {
@@ -442,8 +474,24 @@ export function useDocumentCollab({
       return;
     }
 
-    publishInFlightRef.current = true;
     const { html, text } = pending;
+
+    // Prefer WebSocket for live document sync
+    if (
+      wsSend({
+        type: "op",
+        op_type: "doc_html",
+        payload: { html, text },
+      })
+    ) {
+      lastPublishedHtmlRef.current = html;
+      if (pendingPublishRef.current?.html === html) {
+        pendingPublishRef.current = null;
+      }
+      return;
+    }
+
+    publishInFlightRef.current = true;
     try {
       const share = publicShareRef.current;
       const op = share
@@ -462,12 +510,11 @@ export function useDocumentCollab({
           });
       latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
       lastPublishedHtmlRef.current = html;
-      // Only clear pending if nothing newer arrived while in flight
       if (pendingPublishRef.current?.html === html) {
         pendingPublishRef.current = null;
       }
     } catch {
-      // Human: Leave pending so the next debounce/tick retries a failed publish.
+      /* retry via pending */
     } finally {
       publishInFlightRef.current = false;
       if (
@@ -483,7 +530,7 @@ export function useDocumentCollab({
         }, PUBLISH_DEBOUNCE_MS);
       }
     }
-  }, [enabled]);
+  }, [enabled, wsSend]);
 
   const publishDocument = useCallback(
     (html: string, text: string) => {
@@ -507,37 +554,71 @@ export function useDocumentCollab({
     async (text: string, caretStart: number, caretEnd: number) => {
       const range = sentenceRangeAround(text, caretStart, caretEnd);
       const prev = lastLockRef.current;
-      if (prev && prev.start === range.start && prev.end === range.end) {
-        await updatePresence({
-          selection_start: caretStart,
-          selection_end: caretEnd,
-        });
-        return range;
-      }
-      lastLockRef.current = { start: range.start, end: range.end };
-
-      // Optimistic local lock so peers see us quickly after our heartbeat returns
-      if (localUserIdRef.current) {
-        setParticipants((current) =>
-          current.map((person) =>
-            person.user_id === localUserIdRef.current
-              ? { ...person, lock_start: range.start, lock_end: range.end }
-              : person,
-          ),
-        );
+      const lockChanged = !(prev && prev.start === range.start && prev.end === range.end);
+      if (lockChanged) {
+        lastLockRef.current = { start: range.start, end: range.end };
       }
 
       await updatePresence({
         selection_start: caretStart,
         selection_end: caretEnd,
-        lock_start: range.start,
-        lock_end: range.end,
+        ...(lockChanged
+          ? { lock_start: range.start, lock_end: range.end }
+          : {}),
       });
 
+      // Lock op over WS for poll clients / store consistency
+      if (lockChanged) {
+        if (
+          !wsSend({
+            type: "op",
+            op_type: "lock",
+            payload: { start: range.start, end: range.end },
+          })
+        ) {
+          const sessionId = sessionIdRef.current;
+          if (sessionId) {
+            const share = publicShareRef.current;
+            void (share
+              ? postPublicDocumentCollabOp(
+                  {
+                    token: share.token,
+                    sharePassword: share.sharePassword,
+                    guestId: share.guestId,
+                  },
+                  sessionId,
+                  {
+                    op_type: "lock",
+                    payload: { start: range.start, end: range.end },
+                  },
+                )
+              : postDocumentCollabOp(sessionId, {
+                  op_type: "lock",
+                  payload: { start: range.start, end: range.end },
+                })
+            ).catch(() => undefined);
+          }
+        }
+      }
+      return range;
+    },
+    [updatePresence, wsSend],
+  );
+
+  const releaseLock = useCallback(async () => {
+    lastLockRef.current = null;
+    await updatePresence({ clear_lock: true });
+    if (
+      !wsSend({
+        type: "op",
+        op_type: "unlock",
+        payload: {},
+      })
+    ) {
       const sessionId = sessionIdRef.current;
       if (sessionId) {
         const share = publicShareRef.current;
-        const postPromise = share
+        void (share
           ? postPublicDocumentCollabOp(
               {
                 token: share.token,
@@ -545,46 +626,13 @@ export function useDocumentCollab({
                 guestId: share.guestId,
               },
               sessionId,
-              {
-                op_type: "lock",
-                payload: { start: range.start, end: range.end },
-              },
+              { op_type: "unlock", payload: {} },
             )
-          : postDocumentCollabOp(sessionId, {
-              op_type: "lock",
-              payload: { start: range.start, end: range.end },
-            });
-        void postPromise
-          .then((op) => {
-            latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
-          })
-          .catch(() => undefined);
+          : postDocumentCollabOp(sessionId, { op_type: "unlock", payload: {} })
+        ).catch(() => undefined);
       }
-      return range;
-    },
-    [updatePresence],
-  );
-
-  const releaseLock = useCallback(async () => {
-    lastLockRef.current = null;
-    await updatePresence({ clear_lock: true });
-    const sessionId = sessionIdRef.current;
-    if (sessionId) {
-      const share = publicShareRef.current;
-      const postPromise = share
-        ? postPublicDocumentCollabOp(
-            {
-              token: share.token,
-              sharePassword: share.sharePassword,
-              guestId: share.guestId,
-            },
-            sessionId,
-            { op_type: "unlock", payload: {} },
-          )
-        : postDocumentCollabOp(sessionId, { op_type: "unlock", payload: {} });
-      void postPromise.catch(() => undefined);
     }
-  }, [updatePresence]);
+  }, [updatePresence, wsSend]);
 
   const isRangeLockedByOther = useCallback(
     (start: number, end: number) => {
@@ -603,7 +651,7 @@ export function useDocumentCollab({
   useEffect(() => {
     return () => {
       if (publishTimerRef.current !== null) window.clearTimeout(publishTimerRef.current);
-      if (heartbeatTimerRef.current !== null) window.clearTimeout(heartbeatTimerRef.current);
+      if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
     };
   }, []);
 
