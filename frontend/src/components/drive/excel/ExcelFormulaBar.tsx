@@ -29,7 +29,7 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
 
   return (
     <div
-      className="flex shrink-0 items-center border-b border-[#E5E7EB] bg-white"
+      className="flex shrink-0 items-center border-b border-edge bg-panel"
       style={{
         height: scaledPx(36),
         gap: scaledPx(8),
@@ -38,7 +38,7 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
       }}
     >
       <div
-        className="flex items-center justify-center rounded border border-[#E5E7EB] bg-[#F7F8FA] font-bold text-[#1A1A1A]"
+        className="flex items-center justify-center rounded border border-edge bg-surface font-bold text-ink"
         style={{
           height: scaledPx(26),
           width: scaledPx(48),
@@ -47,8 +47,8 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
       >
         {cellLabel}
       </div>
-      <div className="bg-[#E5E7EB]" style={{ height: scaledPx(16), width: 1 }} aria-hidden />
-      <span className="font-bold italic text-[#888888]" style={{ fontSize: scaledPx(14), paddingInline: scaledPx(4) }}>
+      <div className="bg-edge" style={{ height: scaledPx(16), width: 1 }} aria-hidden />
+      <span className="font-bold italic text-ink-faint" style={{ fontSize: scaledPx(14), paddingInline: scaledPx(4) }}>
         fx
       </span>
       <input
@@ -67,8 +67,8 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
           if (draft !== value) onCommit(draft);
         }}
         className={cn(
-          "min-w-0 flex-1 rounded border border-[#E5E7EB] bg-white text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]",
-          readOnly && "cursor-default bg-[#F7F8FA]",
+          "min-w-0 flex-1 rounded border border-edge bg-panel text-ink outline-none focus:border-brand focus:ring-1 focus:ring-[#2563EB]",
+          readOnly && "cursor-default bg-surface",
         )}
         style={{
           fontSize: scaledPx(12),

@@ -1,5 +1,5 @@
-// Human: Skeleton placeholders for the mobile file list while folder listings load.
-// Agent: RENDERS grouped row shimmers matching FileListView layout; USED by DriveCloudExplorer on max-lg.
+// Human: Skeleton placeholders for the explorer list layout while folder listings load.
+// Agent: RENDERS row shimmers matching FileListView row height; USED by DriveCloudExplorer in list view.
 
 import { cn } from "@/lib/utils";
 
@@ -9,30 +9,28 @@ type ExplorerListSkeletonProps = {
   className?: string;
 };
 
-// Human: Animated skeleton list matching FileListView row height during loading.
+// Human: Animated skeleton rows matching the list layout during loading.
 // Agent: role=status + aria-busy; RESPECTS prefers-reduced-motion via animate-pulse guard.
-export function ExplorerListSkeleton({ count = 6, className }: ExplorerListSkeletonProps) {
+export function ExplorerListSkeleton({ count = 10, className }: ExplorerListSkeletonProps) {
   return (
     <div
-      className={cn("flex flex-col gap-5 lg:hidden", className)}
+      className={cn("flex flex-col", className)}
       role="status"
       aria-busy="true"
       aria-label="Loading files"
     >
-      <ul className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200/70">
-        {Array.from({ length: count }, (_, index) => (
-          <li
-            key={index}
-            className={cn(index > 0 && "border-t border-neutral-100", "flex items-center gap-3 px-3 py-3")}
-          >
-            <div className="size-11 shrink-0 animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-3.5 w-3/5 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-              <div className="h-2.5 w-2/5 animate-pulse rounded bg-muted/80 motion-reduce:animate-none" />
-            </div>
-          </li>
-        ))}
-      </ul>
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 border-b border-hairline px-2 py-2.5"
+        >
+          <div className="size-4 shrink-0 animate-pulse rounded bg-sunken motion-reduce:animate-none" />
+          <div className="h-3.5 flex-1 animate-pulse rounded bg-sunken motion-reduce:animate-none" />
+          <div className="hidden h-3 w-16 animate-pulse rounded bg-sunken motion-reduce:animate-none lg:block" />
+          <div className="hidden h-3 w-20 animate-pulse rounded bg-sunken motion-reduce:animate-none lg:block" />
+          <div className="hidden h-3 w-24 animate-pulse rounded bg-sunken motion-reduce:animate-none lg:block" />
+        </div>
+      ))}
     </div>
   );
 }

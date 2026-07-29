@@ -118,7 +118,7 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
       <section className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
           <Globe className="size-4 text-sky-600" />
-          <h3 className="text-sm font-semibold text-neutral-900">Public link</h3>
+          <h3 className="text-sm font-semibold text-ink">Public link</h3>
         </div>
         <p className="text-sm text-neutral-600">
           Anyone with the link can view and download this{" "}
@@ -126,10 +126,10 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
         </p>
 
         {publicShare ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50/80 p-4">
+          <div className="flex flex-col gap-3 rounded-lg border border-edge bg-neutral-50/80 p-4">
             <div className="flex min-w-0 items-stretch gap-2">
               <div
-                className="min-w-0 flex-1 overflow-hidden rounded-lg border border-input bg-white px-3 py-2"
+                className="min-w-0 flex-1 overflow-hidden rounded-lg border border-input bg-panel px-3 py-2"
                 title={pageUrl}
               >
                 <p className="truncate font-mono text-xs text-foreground">{pageUrl}</p>
@@ -176,10 +176,10 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
 
       <section className="flex flex-col gap-2 border-t border-neutral-100 pt-6">
         <div className="flex items-center gap-2">
-          <Users className="size-4 text-neutral-500" />
-          <h3 className="text-sm font-semibold text-neutral-900">Shared with users</h3>
+          <Users className="size-4 text-ink-muted" />
+          <h3 className="text-sm font-semibold text-ink">Shared with users</h3>
         </div>
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-ink-muted">
           Inviting specific people to this {target.resource_type} is not available yet.
         </p>
       </section>

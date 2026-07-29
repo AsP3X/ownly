@@ -79,7 +79,7 @@ function SharedFilesTabs({
   ];
 
   return (
-    <div className="flex gap-8 border-b border-[#E5E7EB]" role="tablist" aria-label="Shared files views">
+    <div className="flex gap-8 border-b border-edge" role="tablist" aria-label="Shared files views">
       {tabs.map((tab) => {
         const active = activeTab === tab.id;
         return (
@@ -90,12 +90,12 @@ function SharedFilesTabs({
             aria-selected={active}
             className={cn(
               "flex w-[140px] flex-col items-center gap-3 px-2 pb-3 pt-0 text-[15px] transition-colors",
-              active ? "font-semibold text-[#2563EB]" : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+              active ? "font-semibold text-brand" : "font-normal text-ink-muted hover:text-ink",
             )}
             onClick={() => onSelect(tab.id)}
           >
             <span>{tab.label}</span>
-            <span className={cn("h-0.5 w-full rounded-full", active ? "bg-[#2563EB]" : "bg-transparent")} aria-hidden />
+            <span className={cn("h-0.5 w-full rounded-full", active ? "bg-brand" : "bg-transparent")} aria-hidden />
           </button>
         );
       })}
@@ -111,7 +111,7 @@ function PermissionBadge({ permission }: { permission: SharedWithMeItem["permiss
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-[5px] text-xs font-medium",
-        canEdit ? "bg-[#EFF6FF] text-[#1D4ED8]" : "bg-[#F3F4F6] text-[#4B5563]",
+        canEdit ? "bg-brand-weak text-brand-hover" : "bg-sunken text-ink-muted",
       )}
     >
       {canEdit ? (
@@ -143,8 +143,8 @@ function SharedByOwnerCell({ email }: { email: string }) {
         {initials}
       </span>
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-[#1A1A1A]">{name}</p>
-        <p className="truncate text-xs text-[#666666]">{email}</p>
+        <p className="truncate text-sm font-medium text-ink">{name}</p>
+        <p className="truncate text-xs text-ink-muted">{email}</p>
       </div>
     </div>
   );
@@ -192,13 +192,13 @@ function SharedWithMeRowMenu({
     <>
       <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onClick={onClose} />
       <div
-        className="absolute right-5 top-full z-50 mt-1 w-[230px] rounded-lg border border-[#E5E7EB] bg-white p-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.12)]"
+        className="absolute right-5 top-full z-50 mt-1 w-[230px] rounded-lg border border-edge bg-panel p-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.12)]"
         role="menu"
       >
         <button
           type="button"
           role="menuitem"
-          className="flex w-full items-center gap-2.5 rounded-lg bg-[#F7F8FA] px-3 py-2 text-[13px] font-semibold text-[#2563EB]"
+          className="flex w-full items-center gap-2.5 rounded-lg bg-surface px-3 py-2 text-[13px] font-semibold text-brand"
           onClick={() => {
             onPreview();
             onClose();
@@ -210,7 +210,7 @@ function SharedWithMeRowMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#666666] hover:bg-[#F7F8FA]"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface"
           onClick={() => {
             onDownload();
             onClose();
@@ -222,7 +222,7 @@ function SharedWithMeRowMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#666666] hover:bg-[#F7F8FA]"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface"
           onClick={onClose}
         >
           <FolderPlus className="size-4 shrink-0" aria-hidden />
@@ -231,19 +231,19 @@ function SharedWithMeRowMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#666666] hover:bg-[#F7F8FA]"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface"
           onClick={onClose}
         >
           <Link2 className="size-4 shrink-0" aria-hidden />
           Copy Link
         </button>
         <div className="py-2">
-          <div className="h-px bg-[#E5E7EB]" />
+          <div className="h-px bg-edge" />
         </div>
         <button
           type="button"
           role="menuitem"
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#EF4444] hover:bg-[#FEF2F2]"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-danger hover:bg-danger-weak"
           onClick={() => {
             onLeave();
             onClose();
@@ -320,13 +320,13 @@ function SharedWithMeTable({
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
         <label className="relative block w-full max-w-[320px]">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#666666]" aria-hidden />
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden />
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search shared files..."
-            className="h-10 w-full rounded-lg border border-[#E5E7EB] bg-white py-0 pl-10 pr-3.5 text-sm text-[#1A1A1A] placeholder:text-[#888888] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+            className="h-10 w-full rounded-lg border border-edge bg-panel py-0 pl-10 pr-3.5 text-sm text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
             aria-label="Search shared files"
           />
         </label>
@@ -334,7 +334,7 @@ function SharedWithMeTable({
         <div className="relative">
           <button
             type="button"
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3.5 text-sm font-medium text-[#666666] hover:bg-[#F7F8FA]"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-edge bg-panel px-3.5 text-sm font-medium text-ink-muted hover:bg-surface"
             aria-expanded={filterOpen}
             onClick={() => setFilterOpen((open) => !open)}
           >
@@ -345,7 +345,7 @@ function SharedWithMeTable({
           {filterOpen ? (
             <>
               <button type="button" className="fixed inset-0 z-30" aria-label="Close filters" onClick={() => setFilterOpen(false)} />
-              <div className="absolute right-0 top-full z-40 mt-1 w-40 rounded-lg border border-[#E5E7EB] bg-white p-1 shadow-lg">
+              <div className="absolute right-0 top-full z-40 mt-1 w-40 rounded-lg border border-edge bg-panel p-1 shadow-lg">
                 {(
                   [
                     ["all", "All items"],
@@ -358,7 +358,7 @@ function SharedWithMeTable({
                     type="button"
                     className={cn(
                       "flex w-full rounded-md px-3 py-2 text-left text-sm",
-                      filter === value ? "bg-[#EFF6FF] font-medium text-[#2563EB]" : "text-[#666666] hover:bg-[#F7F8FA]",
+                      filter === value ? "bg-brand-weak font-medium text-brand" : "text-ink-muted hover:bg-surface",
                     )}
                     onClick={() => {
                       setFilter(value);
@@ -374,11 +374,11 @@ function SharedWithMeTable({
         </div>
       </div>
 
-      {actionError ? <p className="text-sm text-[#EF4444]">{actionError}</p> : null}
+      {actionError ? <p className="text-sm text-danger">{actionError}</p> : null}
 
-      <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+      <div className="overflow-hidden rounded-xl border border-edge bg-panel">
         <div className="hidden min-w-[1080px] lg:block">
-          <div className="flex h-12 items-center border-b border-[#E5E7EB] bg-[#F7F8FA] text-xs font-semibold text-[#666666]">
+          <div className="flex h-12 items-center border-b border-edge bg-surface text-xs font-semibold text-ink-muted">
             <div className="w-[340px] shrink-0 px-5">Name</div>
             <div className="w-[320px] shrink-0 px-5">Shared By</div>
             <div className="w-[150px] shrink-0 px-5">Date Shared</div>
@@ -387,23 +387,23 @@ function SharedWithMeTable({
           </div>
 
           {loading ? (
-            <p className="px-5 py-12 text-center text-sm text-[#666666]">Loading shared files…</p>
+            <p className="px-5 py-12 text-center text-sm text-ink-muted">Loading shared files…</p>
           ) : filtered.length === 0 ? (
-            <p className="px-5 py-12 text-center text-sm text-[#666666]">No shared files yet.</p>
+            <p className="px-5 py-12 text-center text-sm text-ink-muted">No shared files yet.</p>
           ) : (
             filtered.map((item) => (
               <div
                 key={item.id}
-                className="relative flex h-[68px] items-center border-b border-[#E5E7EB] last:border-b-0"
+                className="relative flex h-[68px] items-center border-b border-edge last:border-b-0"
               >
                 <div className="flex w-[340px] shrink-0 items-center gap-3 px-5">
                   <SharedWithMeResourceIcon item={item} />
-                  <span className="truncate text-sm font-medium text-[#1A1A1A]">{item.name}</span>
+                  <span className="truncate text-sm font-medium text-ink">{item.name}</span>
                 </div>
                 <div className="w-[320px] shrink-0 px-5">
                   <SharedByOwnerCell email={item.owner_email} />
                 </div>
-                <div className="w-[150px] shrink-0 px-5 text-sm text-[#666666]">
+                <div className="w-[150px] shrink-0 px-5 text-sm text-ink-muted">
                   {formatSharedCalendarDate(item.shared_at)}
                 </div>
                 <div className="w-[150px] shrink-0 px-5">
@@ -412,7 +412,7 @@ function SharedWithMeTable({
                 <div className="relative flex w-[120px] shrink-0 items-center gap-4 px-5">
                   <button
                     type="button"
-                    className="text-[#666666] transition hover:text-[#1A1A1A]"
+                    className="text-ink-muted transition hover:text-ink"
                     aria-label={`Preview ${item.name}`}
                     onClick={() => onPreview(item)}
                   >
@@ -420,7 +420,7 @@ function SharedWithMeTable({
                   </button>
                   <button
                     type="button"
-                    className="text-[#666666] transition hover:text-[#1A1A1A] disabled:opacity-40"
+                    className="text-ink-muted transition hover:text-ink disabled:opacity-40"
                     aria-label={`Download ${item.name}`}
                     disabled={item.resource_type !== "file"}
                     onClick={() => void handleDownload(item)}
@@ -429,7 +429,7 @@ function SharedWithMeTable({
                   </button>
                   <button
                     type="button"
-                    className="text-[#666666] transition hover:text-[#1A1A1A]"
+                    className="text-ink-muted transition hover:text-ink"
                     aria-label={`More actions for ${item.name}`}
                     onClick={() => setOpenMenuId((current) => (current === item.id ? null : item.id))}
                   >
@@ -452,17 +452,17 @@ function SharedWithMeTable({
         {/* Agent: RENDERS mobile list when desktop table is hidden. */}
         <div className="divide-y divide-[#E5E7EB] lg:hidden">
           {loading ? (
-            <p className="px-4 py-10 text-center text-sm text-[#666666]">Loading shared files…</p>
+            <p className="px-4 py-10 text-center text-sm text-ink-muted">Loading shared files…</p>
           ) : filtered.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-[#666666]">No shared files yet.</p>
+            <p className="px-4 py-10 text-center text-sm text-ink-muted">No shared files yet.</p>
           ) : (
             filtered.map((item) => (
               <div key={item.id} className="flex flex-col gap-3 px-4 py-4">
                 <div className="flex items-start gap-3">
                   <SharedWithMeResourceIcon item={item} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[#1A1A1A]">{item.name}</p>
-                    <p className="mt-1 text-xs text-[#666666]">{formatSharedCalendarDate(item.shared_at)}</p>
+                    <p className="truncate text-sm font-medium text-ink">{item.name}</p>
+                    <p className="mt-1 text-xs text-ink-muted">{formatSharedCalendarDate(item.shared_at)}</p>
                   </div>
                   <PermissionBadge permission={item.permission} />
                 </div>
@@ -470,14 +470,14 @@ function SharedWithMeTable({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-xs font-medium text-[#666666]"
+                    className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-muted"
                     onClick={() => onPreview(item)}
                   >
                     Preview
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-xs font-medium text-[#666666] disabled:opacity-40"
+                    className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-muted disabled:opacity-40"
                     disabled={item.resource_type !== "file"}
                     onClick={() => void handleDownload(item)}
                   >
@@ -485,7 +485,7 @@ function SharedWithMeTable({
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-[#EF4444]/30 px-3 py-1.5 text-xs font-medium text-[#EF4444]"
+                    className="rounded-lg border border-danger/30 px-3 py-1.5 text-xs font-medium text-danger"
                     onClick={() => void handleLeave(item)}
                   >
                     Remove
@@ -516,13 +516,13 @@ function SharedByMeMetricCard({
   iconWrapClass: string;
 }) {
   return (
-    <div className="flex flex-1 flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-white p-5">
+    <div className="flex flex-1 flex-col gap-3 rounded-xl border border-edge bg-panel p-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] font-semibold text-[#666666]">{label}</p>
+        <p className="text-[13px] font-semibold text-ink-muted">{label}</p>
         <span className={cn("flex size-8 items-center justify-center rounded-full", iconWrapClass)}>{icon}</span>
       </div>
-      <p className="text-2xl font-bold text-[#1A1A1A]">{value}</p>
-      <div className="flex items-center gap-1 text-xs font-semibold text-[#10B981]">
+      <p className="text-2xl font-bold text-ink">{value}</p>
+      <div className="flex items-center gap-1 text-xs font-semibold text-ok">
         <TrendingUp className="size-3.5" aria-hidden />
         {footer}
       </div>
@@ -536,7 +536,7 @@ function LinkSharingCell({ item }: { item: SharedByMeItem }) {
   const share = item.public_share;
   if (!share) {
     return (
-      <div className="flex items-center gap-2 text-[13px] font-semibold text-[#666666]">
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-ink-muted">
         <Lock className="size-3.5 shrink-0" aria-hidden />
         Restricted
       </div>
@@ -544,14 +544,14 @@ function LinkSharingCell({ item }: { item: SharedByMeItem }) {
   }
   if (share.requires_password) {
     return (
-      <div className="flex items-center gap-2 text-[13px] font-semibold text-[#10B981]">
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-ok">
         <ShieldAlert className="size-3.5 shrink-0" aria-hidden />
         Password Protected
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2 text-[13px] font-semibold text-[#2563EB]">
+    <div className="flex items-center gap-2 text-[13px] font-semibold text-brand">
       <Globe className="size-3.5 shrink-0" aria-hidden />
       Public Link
     </div>
@@ -562,7 +562,7 @@ function LinkSharingCell({ item }: { item: SharedByMeItem }) {
 // Agent: READS grantees + public_share; RENDERS overlapping initials or public label.
 function SharedWithCell({ item }: { item: SharedByMeItem }) {
   if (item.public_share && item.grantees.length === 0) {
-    return <span className="text-[13px] text-[#666666]">Anyone with link</span>;
+    return <span className="text-[13px] text-ink-muted">Anyone with link</span>;
   }
 
   const visible = item.grantees.slice(0, 2);
@@ -590,7 +590,7 @@ function SharedWithCell({ item }: { item: SharedByMeItem }) {
           </span>
         ))}
       </div>
-      <span className="text-[13px] text-[#666666]">{countLabel}</span>
+      <span className="text-[13px] text-ink-muted">{countLabel}</span>
     </div>
   );
 }
@@ -630,7 +630,7 @@ function SharedByMeSection({
           footer={
             metrics && metrics.active_links > 0 ? `${metrics.active_links} active` : "No links yet"
           }
-          icon={<Link2 className="size-4 text-[#2563EB]" aria-hidden />}
+          icon={<Link2 className="size-4 text-brand" aria-hidden />}
           iconWrapClass="bg-black"
         />
         <SharedByMeMetricCard
@@ -641,26 +641,26 @@ function SharedByMeSection({
               ? `${metrics.collaborators} invited`
               : "No collaborators yet"
           }
-          icon={<Users className="size-4 text-[#10B981]" aria-hidden />}
+          icon={<Users className="size-4 text-ok" aria-hidden />}
           iconWrapClass="bg-[#10B98120]"
         />
         <SharedByMeMetricCard
           label="Total Link Views"
           value={`${(metrics?.total_views ?? 0).toLocaleString()} Times`}
           footer="View tracking coming soon"
-          icon={<Eye className="size-4 text-[#F59E0B]" aria-hidden />}
+          icon={<Eye className="size-4 text-warn" aria-hidden />}
           iconWrapClass="bg-[#F59E0B20]"
         />
       </div>
 
-      {copyNotice ? <p className="text-sm font-medium text-[#2563EB]">{copyNotice}</p> : null}
+      {copyNotice ? <p className="text-sm font-medium text-brand">{copyNotice}</p> : null}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-6">
+      <div className="rounded-xl border border-edge bg-panel p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-bold text-[#1A1A1A]">Active Shares</h2>
+          <h2 className="text-base font-bold text-ink">Active Shares</h2>
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[13px] font-semibold text-[#666666] hover:bg-[#F7F8FA]"
+            className="inline-flex items-center gap-2 rounded-lg border border-edge px-3 py-2 text-[13px] font-semibold text-ink-muted hover:bg-surface"
           >
             <SlidersHorizontal className="size-3.5" aria-hidden />
             Filter &amp; Sort
@@ -668,7 +668,7 @@ function SharedByMeSection({
         </div>
 
         <div className="hidden min-w-[1084px] lg:block">
-          <div className="flex border-b border-[#E5E7EB] py-2 text-xs font-bold text-[#888888]">
+          <div className="flex border-b border-edge py-2 text-xs font-bold text-ink-faint">
             <div className="w-[320px] shrink-0">Name</div>
             <div className="w-[220px] shrink-0">Shared With</div>
             <div className="w-[180px] shrink-0">Link Sharing</div>
@@ -678,24 +678,24 @@ function SharedByMeSection({
           </div>
 
           {loading ? (
-            <p className="py-10 text-center text-sm text-[#666666]">Loading your shares…</p>
+            <p className="py-10 text-center text-sm text-ink-muted">Loading your shares…</p>
           ) : items.length === 0 ? (
-            <p className="py-10 text-center text-sm text-[#666666]">You have not shared anything yet.</p>
+            <p className="py-10 text-center text-sm text-ink-muted">You have not shared anything yet.</p>
           ) : (
             items.map((item) => (
               <div
                 key={`${item.resource_type}-${item.resource_id}`}
-                className="flex items-center border-b border-[#E5E7EB] py-3 last:border-b-0"
+                className="flex items-center border-b border-edge py-3 last:border-b-0"
               >
                 <div className="flex w-[320px] shrink-0 items-center gap-3">
                   {item.resource_type === "folder" ? (
-                    <Folder className="size-[18px] shrink-0 text-[#F59E0B]" aria-hidden />
+                    <Folder className="size-[18px] shrink-0 text-warn" aria-hidden />
                   ) : (
-                    <File className="size-[18px] shrink-0 text-[#2563EB]" aria-hidden />
+                    <File className="size-[18px] shrink-0 text-brand" aria-hidden />
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#1A1A1A]">{item.name}</p>
-                    <p className="text-xs text-[#888888]">
+                    <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
+                    <p className="text-xs text-ink-faint">
                       {item.resource_type === "folder" && item.size_bytes <= 0
                         ? "Folder"
                         : formatBytes(item.size_bytes)}
@@ -708,16 +708,16 @@ function SharedByMeSection({
                 <div className="w-[180px] shrink-0">
                   <LinkSharingCell item={item} />
                 </div>
-                <div className="w-[120px] shrink-0 text-sm text-[#666666]">
+                <div className="w-[120px] shrink-0 text-sm text-ink-muted">
                   {item.view_count.toLocaleString()} views
                 </div>
-                <div className="w-[120px] shrink-0 text-sm text-[#666666]">
+                <div className="w-[120px] shrink-0 text-sm text-ink-muted">
                   {formatSharedRelativeDate(item.shared_at)}
                 </div>
                 <div className="flex w-[124px] shrink-0 items-center justify-end gap-2">
                   <button
                     type="button"
-                    className="rounded-lg bg-[#F7F8FA] p-1.5 text-[#666666] hover:text-[#1A1A1A] disabled:opacity-40"
+                    className="rounded-lg bg-surface p-1.5 text-ink-muted hover:text-ink disabled:opacity-40"
                     aria-label={`Copy link for ${item.name}`}
                     disabled={!item.public_share}
                     onClick={() => void handleCopyLink(item)}
@@ -726,7 +726,7 @@ function SharedByMeSection({
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-xs font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]"
+                    className="rounded-lg border border-edge px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface"
                     onClick={() => onManage(item)}
                   >
                     Manage
@@ -739,21 +739,21 @@ function SharedByMeSection({
 
         <div className="divide-y divide-[#E5E7EB] lg:hidden">
           {loading ? (
-            <p className="py-10 text-center text-sm text-[#666666]">Loading your shares…</p>
+            <p className="py-10 text-center text-sm text-ink-muted">Loading your shares…</p>
           ) : items.length === 0 ? (
-            <p className="py-10 text-center text-sm text-[#666666]">You have not shared anything yet.</p>
+            <p className="py-10 text-center text-sm text-ink-muted">You have not shared anything yet.</p>
           ) : (
             items.map((item) => (
               <div key={`${item.resource_type}-${item.resource_id}`} className="flex flex-col gap-3 py-4">
                 <div className="flex items-start gap-3">
                   {item.resource_type === "folder" ? (
-                    <Folder className="size-5 shrink-0 text-[#F59E0B]" aria-hidden />
+                    <Folder className="size-5 shrink-0 text-warn" aria-hidden />
                   ) : (
-                    <File className="size-5 shrink-0 text-[#2563EB]" aria-hidden />
+                    <File className="size-5 shrink-0 text-brand" aria-hidden />
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[#1A1A1A]">{item.name}</p>
-                    <p className="text-xs text-[#888888]">{formatSharedRelativeDate(item.shared_at)}</p>
+                    <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
+                    <p className="text-xs text-ink-faint">{formatSharedRelativeDate(item.shared_at)}</p>
                   </div>
                 </div>
                 <SharedWithCell item={item} />
@@ -761,7 +761,7 @@ function SharedByMeSection({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-xs font-semibold text-[#1A1A1A] disabled:opacity-40"
+                    className="rounded-lg border border-edge px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
                     disabled={!item.public_share}
                     onClick={() => void handleCopyLink(item)}
                   >
@@ -769,7 +769,7 @@ function SharedByMeSection({
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white"
+                    className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-on"
                     onClick={() => onManage(item)}
                   >
                     Manage
@@ -822,10 +822,10 @@ export function SharedFilesPanel({
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-[28px] font-bold leading-tight text-[#1A1A1A]">Shared Files</h1>
+        <h1 className="text-[28px] font-bold leading-tight text-ink">Shared Files</h1>
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1D4ED8]"
+          className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-brand-on transition hover:bg-brand-hover"
           onClick={onShareNavigate}
         >
           <Share2 className="size-4" aria-hidden />
@@ -835,7 +835,7 @@ export function SharedFilesPanel({
 
       <SharedFilesTabs activeTab={activeTab} onSelect={setActiveTab} />
 
-      {error ? <p className="text-sm text-[#EF4444]">{error}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
 
       {activeTab === "with-me" ? (
         <SharedWithMeTable

@@ -39,24 +39,24 @@ export function ExcelTrackChangesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-72 overflow-auto rounded-lg border border-[#E5E7EB]">
+        <div className="max-h-72 overflow-auto rounded-lg border border-edge">
           {entries.length === 0 ? (
-            <p className="p-4 text-sm text-[#666666]">No changes recorded yet.</p>
+            <p className="p-4 text-sm text-ink-muted">No changes recorded yet.</p>
           ) : (
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="bg-[#F3F4F6]">
-                  <th className="border-b border-[#E5E7EB] px-2 py-1.5 text-left font-semibold">When</th>
-                  <th className="border-b border-[#E5E7EB] px-2 py-1.5 text-left font-semibold">Sheet</th>
-                  <th className="border-b border-[#E5E7EB] px-2 py-1.5 text-left font-semibold">Cell</th>
-                  <th className="border-b border-[#E5E7EB] px-2 py-1.5 text-left font-semibold">Before</th>
-                  <th className="border-b border-[#E5E7EB] px-2 py-1.5 text-left font-semibold">After</th>
+                <tr className="bg-sunken">
+                  <th className="border-b border-edge px-2 py-1.5 text-left font-semibold">When</th>
+                  <th className="border-b border-edge px-2 py-1.5 text-left font-semibold">Sheet</th>
+                  <th className="border-b border-edge px-2 py-1.5 text-left font-semibold">Cell</th>
+                  <th className="border-b border-edge px-2 py-1.5 text-left font-semibold">Before</th>
+                  <th className="border-b border-edge px-2 py-1.5 text-left font-semibold">After</th>
                 </tr>
               </thead>
               <tbody>
                 {[...entries].reverse().map((entry) => (
                   <tr key={entry.id} className="border-b border-[#F3F4F6]">
-                    <td className="px-2 py-1.5 text-[#666666]">
+                    <td className="px-2 py-1.5 text-ink-muted">
                       {new Date(entry.timestamp).toLocaleString()}
                     </td>
                     <td className="px-2 py-1.5">{entry.sheetName}</td>

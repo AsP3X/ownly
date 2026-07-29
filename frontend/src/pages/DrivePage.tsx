@@ -117,13 +117,16 @@ import {
   getFavouriteFileIds,
   getRecentFileIds,
   readExplorerFileSort,
+  readExplorerViewMode,
   recordFileAccess,
   removeFilePreferences,
   sortFilesByRecentAccess,
   toggleFavouriteFile,
   writeExplorerFileSort,
+  writeExplorerViewMode,
   explorerFileSortToApiParam,
   type ExplorerFileSort,
+  type ExplorerViewMode,
 } from "@/lib/drive-preferences";
 import { cn } from "@/lib/utils";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -152,7 +155,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
 
   return (
     <div
-      className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-200"
+      className="h-2.5 w-full overflow-hidden rounded-full bg-edge"
       role="progressbar"
       aria-valuenow={percent}
       aria-valuemin={0}
@@ -184,6 +187,9 @@ export default function DrivePage() {
   const [committedQuery, setCommittedQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>("all");
   const [fileSort, setFileSort] = useState<ExplorerFileSort>(() => readExplorerFileSort());
+  // Human: Explorer layout (thumbnail grid vs detail rows), restored from the user's last choice.
+  // Agent: READS ownly_explorer_view_mode on mount; WRITES via handleViewModeChange.
+  const [viewMode, setViewMode] = useState<ExplorerViewMode>(() => readExplorerViewMode());
   const [activeNav, setActiveNav] = useState<NavItemId>("home");
   // Human: Mirror drive view/folder/search into the URL so reload restores the same screen.
   // Agent: CALLS useDriveUrlState; READS/WRITES ?view &folder &q &type on pathname /.
@@ -1734,6 +1740,13 @@ export default function DrivePage() {
     }
   }
 
+  // Human: Persist the explorer layout choice — purely client-side, no refetch needed.
+  // Agent: WRITES ownly_explorer_view_mode; both layouts render the same already-loaded entries.
+  function handleViewModeChange(mode: ExplorerViewMode) {
+    setViewMode(mode);
+    writeExplorerViewMode(mode);
+  }
+
   // Human: Persist explorer file sort and reload the listing with server-side ordering.
   // Agent: WRITES ownly_explorer_file_sort; CALLS refresh so pagination matches sort mode.
   function handleFileSortChange(sort: ExplorerFileSort) {
@@ -1918,7 +1931,7 @@ export default function DrivePage() {
       {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
       {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
       <div
-        className="flex h-screen flex-col overflow-hidden bg-[#f3f2f1] text-neutral-900"
+        className="flex h-screen flex-col overflow-hidden bg-surface text-ink"
         onDragOver={(event) => {
           if (!event.dataTransfer?.types?.includes("Files")) return;
           event.preventDefault();
@@ -2232,16 +2245,10 @@ export default function DrivePage() {
           onNavChange={handleNavChange}
         />
 
-        {/* Main column — Pencil Main Content Area: desktop topbar + scrollable body on #F7F8FA. */}
+        {/* Human: Main column — desktop topbar plus the single scrollable body pane. */}
         {/* Agent: flex col on lg; topbar shrink-0; mainScrollRef on inner pane for explorer scroll sync. */}
-        <main
-          className={cn(
-            "relative flex min-h-0 flex-col overflow-hidden",
-            activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files"
-              ? "bg-[#F7F8FA]"
-              : "bg-[#f3f2f1] lg:bg-[#F7F8FA]",
-          )}
-        >
+        {/*        Every nav now shares one base surface, so no per-nav background branch remains. */}
+        <main className="relative flex min-h-0 flex-col overflow-hidden bg-surface">
           <DriveDesktopTopbar
             displayName={profileDisplayName}
             roleLabel={profileRoleLabel}
@@ -2262,6 +2269,12 @@ export default function DrivePage() {
               totalSelectedCount > 0
                 ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]"
                 : "pb-[calc(5.25rem+env(safe-area-inset-bottom))]",
+              // Human: My Cloud ends in a sticky status strip, which must sit flush with the
+              // scrollport floor. Desktop bottom padding would otherwise leave a gap that
+              // file rows scroll through underneath the bar.
+              // Agent: Mobile padding stays — it clears the fixed bottom nav, and the status
+              //        strip offsets itself by the same amount there.
+              activeNav === "my-files" && "lg:pb-0",
               explorerTouchScrollLocked && "touch-none overflow-hidden overscroll-none",
             )}
           >
@@ -2270,7 +2283,7 @@ export default function DrivePage() {
               "flex min-h-full flex-col gap-4 max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none",
               activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files"
                 ? "lg:min-h-full"
-                : "rounded-xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6",
+                : "rounded-xl border border-edge bg-panel p-4 shadow-sm md:p-6 lg:flex lg:min-h-full lg:gap-4 lg:p-6",
             )}
           >
             <div
@@ -2280,10 +2293,10 @@ export default function DrivePage() {
               )}
             >
               <div className="flex flex-col gap-2">
-                <h1 className="text-xl font-semibold text-neutral-900">
+                <h1 className="text-xl font-semibold text-ink">
                   {activeNav === "recycle-bin" ? "Recycle bin" : "Library"}
                 </h1>
-                <p className="text-sm text-neutral-500">
+                <p className="text-sm text-ink-muted">
                   {activeNav === "recycle-bin"
                     ? "Restore deleted files and folders, or remove them permanently"
                     : "Browse everything in your library"}
@@ -2313,41 +2326,44 @@ export default function DrivePage() {
 
             <Separator
               className={cn(
-                "hidden bg-neutral-200 lg:block",
+                "hidden bg-edge lg:block",
                 (activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files") && "lg:hidden",
               )}
             />
 
             {activeNav === "my-files" ? (
-              <div className="flex flex-col gap-4">
-                {/* Human: Sticky host so bulk actions stay pinned while the file grid scrolls. */}
-                {/* Agent: sticky + solid page-bg backdrop on lg; mobile bar stays fixed via BulkActionsBar. */}
-                {totalSelectedCount > 0 ? (
-                  <div className="max-lg:contents lg:sticky lg:top-0 lg:z-20 lg:-mx-1 lg:bg-[#f3f2f1]/95 lg:px-1 lg:pb-3 lg:pt-1 lg:backdrop-blur-[2px]">
-                    <BulkActionsBar
-                      selectedCount={totalSelectedCount}
-                      selectableCount={
-                        selectableBrowserFileIds.length + selectableBrowserFolderIds.length
-                      }
-                      allSelected={allBrowserItemsSelected}
-                      onSelectAll={handleSelectAllBrowserFiles}
-                      favouriteLabel={bulkFavouriteLabel}
-                      onDownload={handleBulkDownload}
-                      onToggleFavourite={handleBulkToggleFavourite}
-                      onDelete={handleBulkDeleteRequest}
-                      onClearSelection={handleClearBrowserSelection}
-                      onCopyToFolder={
-                        selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
-                      }
-                      onMoveToFolder={handleOpenFolderPicker}
-                      showMobileFolderActions={!isDesktopViewport}
-                      onRebuildStreams={() => void handleBulkRebuildStreams()}
-                      rebuildingStreams={bulkRebuildingStreams}
-                      rebuildableStreamCount={rebuildableSelectedVideos.length}
-                    />
-                  </div>
-                ) : null}
+              <div className="flex min-h-full flex-col">
+                {/* Human: Bulk bar renders inside the explorer's sticky toolbar block so the two */}
+                {/* no longer compete for `top: 0`. Mobile is unaffected — BulkActionsBar positions */}
+                {/* itself `fixed` above the bottom nav regardless of its DOM position. */}
                 <DriveCloudExplorer
+                  bulkActionsSlot={
+                    totalSelectedCount > 0 ? (
+                      <div className="max-lg:contents lg:pt-2.5">
+                        <BulkActionsBar
+                          selectedCount={totalSelectedCount}
+                          selectableCount={
+                            selectableBrowserFileIds.length + selectableBrowserFolderIds.length
+                          }
+                          allSelected={allBrowserItemsSelected}
+                          onSelectAll={handleSelectAllBrowserFiles}
+                          favouriteLabel={bulkFavouriteLabel}
+                          onDownload={handleBulkDownload}
+                          onToggleFavourite={handleBulkToggleFavourite}
+                          onDelete={handleBulkDeleteRequest}
+                          onClearSelection={handleClearBrowserSelection}
+                          onCopyToFolder={
+                            selectedFiles.length > 0 ? handleOpenFolderPicker : undefined
+                          }
+                          onMoveToFolder={handleOpenFolderPicker}
+                          showMobileFolderActions={!isDesktopViewport}
+                          onRebuildStreams={() => void handleBulkRebuildStreams()}
+                          rebuildingStreams={bulkRebuildingStreams}
+                          rebuildableStreamCount={rebuildableSelectedVideos.length}
+                        />
+                      </div>
+                    ) : null
+                  }
                   folderStack={folderStack}
                   folders={visibleFolders}
                   files={browserFiles}
@@ -2359,6 +2375,19 @@ export default function DrivePage() {
                   typeFilterOptions={TYPE_FILTERS}
                   fileSort={fileSort}
                   onFileSortChange={handleFileSortChange}
+                  viewMode={viewMode}
+                  onViewModeChange={handleViewModeChange}
+                  instanceName={instanceName}
+                  usedBytes={usedBytes}
+                  quotaBytes={quotaBytes}
+                  totalFolderCount={folderCount}
+                  totalFileCount={fileCount}
+                  selectedCount={totalSelectedCount}
+                  onSelectAll={handleSelectAllBrowserFiles}
+                  onClearSelection={handleClearBrowserSelection}
+                  allSelected={allBrowserItemsSelected}
+                  onDeleteFile={requestDeleteFile}
+                  onDeleteFolder={requestDeleteFolder}
                   isSearching={isSearchingMyFiles}
                   loading={loading}
                   dragEnabled={!isSearchingMyFiles}
@@ -2404,7 +2433,7 @@ export default function DrivePage() {
                 />
               </div>
             ) : loading && activeNav !== "shared-files" ? (
-              <p className="py-12 text-center text-sm text-neutral-500">Loading files…</p>
+              <p className="py-12 text-center text-sm text-ink-muted">Loading files…</p>
             ) : activeNav === "recycle-bin" ? (
               <RecycleBinPanel
                 data={recycleBinData}
@@ -2457,16 +2486,19 @@ export default function DrivePage() {
               />
             ) : null}
 
-            <p className="mt-auto hidden text-xs text-neutral-500 lg:block">
-              {instanceName}
-              {activeNav === "home"
-                ? ` · ${overviewFolders.length} folder${overviewFolders.length === 1 ? "" : "s"} · ${recentFiles.length} recent`
-                : activeNav === "shared-files"
-                  ? " · Files shared with you and by you"
-                : activeNav === "recycle-bin"
-                  ? " · Deleted items are kept for 30 days"
-                  : ` · ${folderCount} folder${folderCount === 1 ? "" : "s"} · ${files.length} of ${fileCount} file${fileCount === 1 ? "" : "s"}`}
-            </p>
+            {/* Human: Status line for the non-explorer navs. My Cloud has its own always-visible */}
+            {/* ExplorerStatusBar, which shows the same counts on mobile too, so it is skipped here. */}
+            {/* Agent: RENDERS for home/shared-files/recycle-bin only; my-files → ExplorerStatusBar. */}
+            {activeNav !== "my-files" ? (
+              <p className="mt-auto hidden text-xs text-ink-muted lg:block">
+                {instanceName}
+                {activeNav === "home"
+                  ? ` · ${overviewFolders.length} folder${overviewFolders.length === 1 ? "" : "s"} · ${recentFiles.length} recent`
+                  : activeNav === "shared-files"
+                    ? " · Files shared with you and by you"
+                    : " · Deleted items are kept for 30 days"}
+              </p>
+            ) : null}
           </div>
           </div>
         </main>

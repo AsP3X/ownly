@@ -462,7 +462,7 @@ export function TextCodeEditorDialog({
 
               {activeBuffer.error ? (
                 <p
-                  className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]"
+                  className="flex flex-1 items-center justify-center px-6 text-center text-sm text-danger"
                   role="alert"
                 >
                   {activeBuffer.error}

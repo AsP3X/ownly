@@ -293,7 +293,7 @@ export function VideoThumbnailPicker({
         {generating ? (
           <ThumbnailGenerationProgress file={file} />
         ) : (
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-ink-muted">
             {failed
               ? (file.video_thumbnail_error ?? "Thumbnail generation failed.")
               : cancelled
@@ -336,14 +336,14 @@ export function VideoThumbnailPicker({
         <p
           className={cn(
             "text-xs font-semibold uppercase tracking-wide",
-            isEditor ? "text-neutral-500" : "text-[#E5E7EB]",
+            isEditor ? "text-ink-muted" : "text-[#E5E7EB]",
           )}
         >
           {isEditor ? "Preview" : "Choose thumbnail"}
         </p>
         {loading ? (
           <Loader2
-            className={cn("size-4 animate-spin", isEditor ? "text-neutral-400" : "text-white/70")}
+            className={cn("size-4 animate-spin", isEditor ? "text-ink-faint" : "text-white/70")}
             aria-hidden
           />
         ) : null}
@@ -357,7 +357,7 @@ export function VideoThumbnailPicker({
 
       {/* Human: Large preview of the active poster — primary focus in the editor dialog. */}
       {isEditor ? (
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
+        <div className="overflow-hidden rounded-xl border border-edge bg-neutral-100">
           {selectedPreview ? (
             <img
               src={selectedPreview.url}
@@ -367,7 +367,7 @@ export function VideoThumbnailPicker({
             />
           ) : (
             <div className="flex aspect-video items-center justify-center">
-              <Loader2 className="size-6 animate-spin text-neutral-400" aria-hidden />
+              <Loader2 className="size-6 animate-spin text-ink-faint" aria-hidden />
             </div>
           )}
         </div>
@@ -375,7 +375,7 @@ export function VideoThumbnailPicker({
 
       <div>
         {isEditor ? (
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             Options
           </p>
         ) : null}
@@ -404,7 +404,7 @@ export function VideoThumbnailPicker({
                   "relative shrink-0 overflow-hidden rounded-lg border-2 transition-colors",
                   isEditor ? "h-20 w-32 sm:h-24 sm:w-40" : "h-16 w-28 sm:h-20 sm:w-36",
                   isSelected
-                    ? "border-[#2563EB]"
+                    ? "border-brand"
                     : isEditor
                       ? "border-transparent hover:border-neutral-300"
                       : "border-transparent hover:border-white/30",
@@ -417,7 +417,7 @@ export function VideoThumbnailPicker({
                   draggable={false}
                 />
                 {isSelected ? (
-                  <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-[#2563EB] text-white">
+                  <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-brand text-white">
                     <Check className="size-3" aria-hidden />
                   </span>
                 ) : null}
@@ -432,7 +432,7 @@ export function VideoThumbnailPicker({
           </div>
         </div>
         {isEditor && previews.length > 1 ? (
-          <p className="mt-1 text-[11px] text-neutral-400">Scroll sideways to see all options.</p>
+          <p className="mt-1 text-[11px] text-ink-faint">Scroll sideways to see all options.</p>
         ) : null}
       </div>
 
@@ -441,7 +441,7 @@ export function VideoThumbnailPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="w-fit gap-2 text-neutral-500"
+          className="w-fit gap-2 text-ink-muted"
           disabled={generating || regenerating}
           onClick={() => void handleRegenerate()}
         >

@@ -77,14 +77,14 @@ export function DriveDesktopTopbar({
   return (
     <header
       className={cn(
-        "hidden h-16 shrink-0 items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-6 lg:flex",
+        "hidden h-16 shrink-0 items-center justify-between rounded-xl border border-edge bg-panel px-6 lg:flex",
         className,
       )}
     >
       {/* Human: Left cluster — shield + encrypted session copy per Pencil Left Group */}
       <div className="flex min-w-0 items-center gap-3">
-        <ShieldCheck className="size-4 shrink-0 text-[#10B981]" aria-hidden />
-        <p className="truncate text-[13px] font-medium text-[#666666]">{statusText}</p>
+        <ShieldCheck className="size-4 shrink-0 text-ok" aria-hidden />
+        <p className="truncate text-[13px] font-medium text-ink-muted">{statusText}</p>
       </div>
 
       {/* Human: Right cluster — profile trigger + dropdown (no inline sign-out per Profile Menu wireframe) */}

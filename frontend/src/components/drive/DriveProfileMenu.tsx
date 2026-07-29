@@ -1,8 +1,13 @@
 // Human: Profile dropdown from login-signup.pencil — Standard (244px) and Admin (280px) explorer menus.
-// Agent: RENDERS header + rows; CALLS onLogout/onAdminConsole; Tailwind-only; parent owns open state and anchor ref.
+// Agent: RENDERS header + rows + theme switch; CALLS onLogout/onAdminConsole; parent owns open state and anchor ref.
 
 import type { ComponentType } from "react";
-import { LogOut, Settings, Shield, User } from "lucide-react";
+import { LogOut, Monitor, Moon, Settings, Shield, Sun, User } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
+import {
+  THEME_PREFERENCE_OPTIONS,
+  type ThemePreference,
+} from "@/lib/theme-preference";
 import { cn } from "@/lib/utils";
 
 export type DriveProfileMenuProps = {
@@ -25,6 +30,13 @@ function profileBadgeLabel(roleLabel: string): string {
   if (roleLabel === "Member") return "PRO MEMBER";
   return roleLabel.toUpperCase();
 }
+
+/** Human: Icon per theme choice — sun/moon/monitor matches the light/dark/system triple. */
+const THEME_ICONS: Record<ThemePreference, ComponentType<{ className?: string }>> = {
+  light: Sun,
+  dark: Moon,
+  system: Monitor,
+};
 
 // Human: Shared row chrome for icon + label menu lines inside the profile popover.
 // Agent: USED by profile/settings/logout/admin rows; destructive variant tints icon + label red.
@@ -59,16 +71,16 @@ function ProfileMenuRow({
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] outline-none transition-colors",
         highlighted
-          ? "bg-[#EFF6FF] font-semibold text-[#2563EB] hover:bg-[#EFF6FF]"
-          : "text-[#1A1A1A] hover:bg-[#F7F8FA] focus:bg-[#F7F8FA]",
-        destructive && "font-medium text-[#EF4444] hover:bg-[#F7F8FA] focus:bg-[#F7F8FA]",
+          ? "bg-brand-weak font-semibold text-brand hover:bg-brand-weak"
+          : "text-ink hover:bg-surface focus:bg-surface",
+        destructive && "font-medium text-danger hover:bg-danger-weak focus:bg-danger-weak",
         disabled && "pointer-events-none opacity-50",
       )}
     >
       <Icon
         className={cn(
           "size-3.5 shrink-0",
-          destructive ? "text-[#EF4444]" : highlighted ? "text-[#2563EB]" : "text-[#666666]",
+          destructive ? "text-danger" : highlighted ? "text-brand" : "text-ink-muted",
         )}
         aria-hidden
       />
@@ -81,9 +93,50 @@ function ProfileMenuRow({
 // Agent: RENDERS muted 10px caps label with section padding.
 function ProfileMenuSectionLabel({ children }: { children: string }) {
   return (
-    <p className="px-3 pb-0.5 pt-1.5 text-[10px] font-bold tracking-wide text-[#888888]">
+    <p className="px-3 pb-0.5 pt-1.5 text-[10px] font-bold tracking-wide text-ink-faint">
       {children}
     </p>
+  );
+}
+
+// Human: Segmented light/dark/system switch — the only place the drive theme is changed.
+// Agent: READS useTheme().preference; CALLS setPreference; radiogroup semantics for screen readers.
+function ThemeSwitchRow() {
+  const { preference, setPreference } = useTheme();
+
+  return (
+    <div className="px-3 py-1.5">
+      <p className="pb-1.5 text-[10px] font-bold tracking-wide text-ink-faint">APPEARANCE</p>
+      <div
+        role="radiogroup"
+        aria-label="Colour theme"
+        className="flex items-center gap-0.5 rounded-lg bg-sunken p-0.5"
+      >
+        {THEME_PREFERENCE_OPTIONS.map((option) => {
+          const Icon = THEME_ICONS[option.id];
+          const active = preference === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              title={option.label}
+              onClick={() => setPreference(option.id)}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                active
+                  ? "bg-panel text-ink shadow-sm"
+                  : "text-ink-muted hover:text-ink",
+              )}
+            >
+              <Icon className="size-3.5 shrink-0" aria-hidden />
+              <span>{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -109,7 +162,7 @@ export function DriveProfileMenu({
       role="menu"
       aria-label="Account menu"
       className={cn(
-        "absolute right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-2 shadow-[0_8px_24px_rgba(0,0,0,0.1)]",
+        "absolute right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-edge bg-raised p-2 shadow-[0_8px_24px_rgba(0,0,0,0.1)]",
         isAdmin ? "w-[280px]" : "w-[244px]",
         className,
       )}
@@ -119,7 +172,7 @@ export function DriveProfileMenu({
         <div className="flex items-center gap-3">
           <div
             className={cn(
-              "flex shrink-0 items-center justify-center rounded-full bg-[#2563EB] font-bold text-white",
+              "flex shrink-0 items-center justify-center rounded-full bg-brand font-bold text-brand-on",
               isAdmin ? "size-10 text-sm" : "size-9 text-[13px]",
             )}
             aria-hidden
@@ -127,13 +180,13 @@ export function DriveProfileMenu({
             {initials}
           </div>
           <div className="min-w-0 flex-1 flex-col gap-0.5">
-            <p className="truncate text-sm font-bold text-[#1A1A1A]">{displayName}</p>
+            <p className="truncate text-sm font-bold text-ink">{displayName}</p>
             {email ? (
-              <p className="truncate text-[11px] text-[#666666]">{email}</p>
+              <p className="truncate text-[11px] text-ink-muted">{email}</p>
             ) : null}
             {isAdmin ? (
               <div className="mt-1 flex items-center">
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-bold text-[#10B981]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-ok-weak px-2 py-0.5 text-[10px] font-bold text-ok">
                   <Shield className="size-2.5 shrink-0" aria-hidden />
                   Admin
                 </span>
@@ -144,15 +197,15 @@ export function DriveProfileMenu({
 
         {!isAdmin ? (
           <div className="flex items-center gap-2">
-            <span className="inline-flex rounded-md bg-[#DBEAFE] px-2 py-0.5 text-[9px] font-bold tracking-wide text-[#2563EB]">
+            <span className="inline-flex rounded-md bg-brand-weak px-2 py-0.5 text-[9px] font-bold tracking-wide text-brand">
               {profileBadgeLabel(roleLabel)}
             </span>
-            <span className="text-[11px] font-medium text-[#10B981]">• Active</span>
+            <span className="text-[11px] font-medium text-ok">• Active</span>
           </div>
         ) : null}
       </div>
 
-      <div className="h-px w-full bg-[#E5E7EB]" role="separator" />
+      <div className="h-px w-full bg-edge" role="separator" />
 
       {isAdmin ? (
         <>
@@ -178,7 +231,13 @@ export function DriveProfileMenu({
         />
       </div>
 
-      <div className="h-px w-full bg-[#E5E7EB]" role="separator" />
+      <div className="h-px w-full bg-edge" role="separator" />
+
+      {/* Human: Appearance switch sits between navigation rows and the destructive log-out row. */}
+      {/* Agent: RENDERS ThemeSwitchRow; READS/WRITES ThemeProvider preference. */}
+      <ThemeSwitchRow />
+
+      <div className="h-px w-full bg-edge" role="separator" />
 
       <div className="py-1">
         <ProfileMenuRow icon={LogOut} label="Log Out" destructive onClick={onLogout} />

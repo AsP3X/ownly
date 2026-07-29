@@ -31,15 +31,16 @@ export function ExplorerThumbnailShimmer({
       aria-label={label}
     >
       {/* Human: Static base gradient so the tile never reads as flat gray while idle between sweeps. */}
+      {/* Agent: Token-based — hardcoded light greys here rendered as bright white blocks in dark mode. */}
       <div
-        className="absolute inset-0 bg-gradient-to-br from-[#ECEEF1] via-[#E5E7EB] to-[#DDE1E6]"
+        className="absolute inset-0 bg-gradient-to-br from-sunken via-edge to-sunken"
         aria-hidden
       />
 
       {/* Human: Secondary soft bands suggest image content loading beneath the shimmer. */}
       <div className="absolute inset-0 opacity-40" aria-hidden>
-        <div className="absolute inset-x-[18%] top-[22%] h-[38%] rounded-md bg-[#D1D5DB]/35" />
-        <div className="absolute inset-x-[28%] bottom-[18%] h-[14%] rounded-sm bg-[#D1D5DB]/25" />
+        <div className="absolute inset-x-[18%] top-[22%] h-[38%] rounded-md bg-edge-strong/35" />
+        <div className="absolute inset-x-[28%] bottom-[18%] h-[14%] rounded-sm bg-edge-strong/25" />
       </div>
 
       {/* Human: Skewed highlight passes diagonally — matches common skeleton loaders, not progress bars. */}
@@ -48,7 +49,7 @@ export function ExplorerThumbnailShimmer({
           className={cn(
             "absolute -inset-y-6 -left-1/2 w-[85%]",
             "animate-[ownly-shimmer-sweep_1.85s_ease-in-out_infinite]",
-            "bg-gradient-to-r from-transparent via-white/75 to-transparent",
+            "bg-gradient-to-r from-transparent via-white/70 dark:via-white/12 to-transparent",
             "will-change-transform",
           )}
         />
@@ -57,7 +58,7 @@ export function ExplorerThumbnailShimmer({
             "absolute -inset-y-8 -left-1/2 w-[55%]",
             "animate-[ownly-shimmer-sweep_1.85s_ease-in-out_infinite]",
             "[animation-delay:0.35s]",
-            "bg-gradient-to-r from-transparent via-white/35 to-transparent",
+            "bg-gradient-to-r from-transparent via-white/30 dark:via-white/6 to-transparent",
             "will-change-transform",
           )}
         />

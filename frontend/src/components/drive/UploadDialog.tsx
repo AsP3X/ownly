@@ -76,26 +76,26 @@ function PendingFileRow({
         "flex min-w-0 flex-col gap-1 rounded-lg border px-3 py-2.5",
         storageWarning
           ? "border-amber-200 bg-amber-50/80"
-          : "border-[#E5E7EB] bg-[#F7F8FA]",
+          : "border-edge bg-surface",
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
         <FileText
-          className={cn("size-3.5 shrink-0", storageWarning ? "text-amber-700" : "text-[#2563EB]")}
+          className={cn("size-3.5 shrink-0", storageWarning ? "text-amber-700" : "text-brand")}
           aria-hidden
         />
         <p
-          className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#1A1A1A]"
+          className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink"
           title={name}
         >
           {name}
         </p>
-        <span className="shrink-0 whitespace-nowrap text-right text-[11px] tabular-nums text-[#666666]">
+        <span className="shrink-0 whitespace-nowrap text-right text-[11px] tabular-nums text-ink-muted">
           {formatBytes(sizeBytes)}
         </span>
         <button
         type="button"
-        className="shrink-0 rounded-md p-1 text-[#888888] transition hover:bg-[#E5E7EB]/60 hover:text-[#1A1A1A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+        className="shrink-0 rounded-md p-1 text-ink-faint transition hover:bg-edge/60 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
         aria-label={`Remove ${name}`}
         onClick={onRemove}
       >
@@ -513,23 +513,23 @@ export function UploadDialog({
         showCloseButton
         overlayClassName="bg-black/30 supports-backdrop-filter:backdrop-blur-[2px]"
         className={cn(
-          "flex max-h-[min(90dvh,40rem)] w-[min(36.25rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] min-w-0 flex-col gap-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-0 shadow-[0_16px_32px_rgba(0,0,0,0.15)] ring-0 sm:max-w-[min(36.25rem,calc(100vw-2rem))]",
-          "[&_[data-slot=dialog-close]]:top-6 [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:size-8 [&_[data-slot=dialog-close]]:text-[#666666] hover:[&_[data-slot=dialog-close]]:bg-[#F7F8FA]",
+          "flex max-h-[min(90dvh,40rem)] w-[min(36.25rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] min-w-0 flex-col gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 shadow-[0_16px_32px_rgba(0,0,0,0.15)] ring-0 sm:max-w-[min(36.25rem,calc(100vw-2rem))]",
+          "[&_[data-slot=dialog-close]]:top-6 [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:size-8 [&_[data-slot=dialog-close]]:text-ink-muted hover:[&_[data-slot=dialog-close]]:bg-surface",
         )}
       >
         {/* Human: Scrollable body + pinned footer so many files and long names never clip action buttons. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6 pb-4">
           <div className="flex min-w-0 shrink-0 flex-col gap-2 pr-10">
-            <DialogTitle className="text-xl font-bold leading-tight text-[#1A1A1A]">
+            <DialogTitle className="text-xl font-bold leading-tight text-ink">
               Upload files
             </DialogTitle>
-            <DialogDescription className="min-w-0 text-sm leading-snug break-words text-[#666666]">
+            <DialogDescription className="min-w-0 text-sm leading-snug break-words text-ink-muted">
               Choose files or an entire folder to add to your library. Upload progress appears in
               the panel at the bottom-right so you can keep browsing.
             </DialogDescription>
           </div>
 
-          <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
+          <div className="h-px w-full shrink-0 bg-edge" aria-hidden />
 
           <input
             ref={fileInputRef}
@@ -548,7 +548,7 @@ export function UploadDialog({
           />
 
           {activeUploadBatch ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]">
+            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]">
               Uploads are running in the panel at the bottom-right. Files you add here join the
               same queue.
             </p>
@@ -569,19 +569,19 @@ export function UploadDialog({
           ) : null}
 
           {conflictCheckError ? (
-            <p className="shrink-0 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-sm text-[#991B1B]">
+            <p className="shrink-0 rounded-lg border border-[#FECACA] bg-danger-weak px-3 py-2 text-sm text-[#991B1B]">
               {conflictCheckError}
             </p>
           ) : null}
 
           {hashProgress ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]" role="status">
+            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]" role="status">
               Preparing files… {hashProgress.completed} of {hashProgress.total} hashed
             </p>
           ) : null}
 
           {folderUploadRootName ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]">
+            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]">
               Folder <span className="font-semibold">{folderUploadRootName}</span> will be created
               here with its contents and subfolders preserved.
             </p>
@@ -592,7 +592,7 @@ export function UploadDialog({
               className={cn(
                 "grid shrink-0 gap-3 rounded-xl border-2 border-dashed p-2 sm:grid-cols-2",
                 isDragOver
-                  ? "border-[#2563EB] bg-[#EFF6FF]"
+                  ? "border-brand bg-brand-weak"
                   : "border-transparent",
               )}
               onDragEnter={handleDropZoneDragOver}
@@ -604,15 +604,15 @@ export function UploadDialog({
                 type="button"
                 onClick={openFilePicker}
                 className={cn(
-                  "flex w-full flex-col items-center gap-3 rounded-xl border border-[#E5E7EB] px-4 py-6 text-center transition",
-                  "hover:border-[#2563EB]/40 hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                  "flex w-full flex-col items-center gap-3 rounded-xl border border-edge px-4 py-6 text-center transition",
+                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
                 )}
               >
                 <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
-                  <Upload className="size-5 text-[#2563EB]" aria-hidden />
+                  <Upload className="size-5 text-brand" aria-hidden />
                 </div>
-                <span className="text-[15px] font-bold text-[#1A1A1A]">Browse files</span>
-                <span className="text-[13px] text-[#888888]">
+                <span className="text-[15px] font-bold text-ink">Browse files</span>
+                <span className="text-[13px] text-ink-faint">
                   {isDragOver ? "Drop files to add" : "Single or multiple files · or drag here"}
                 </span>
               </button>
@@ -620,34 +620,34 @@ export function UploadDialog({
                 type="button"
                 onClick={openFolderPicker}
                 className={cn(
-                  "flex w-full flex-col items-center gap-3 rounded-xl border border-[#E5E7EB] px-4 py-6 text-center transition",
-                  "hover:border-[#2563EB]/40 hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                  "flex w-full flex-col items-center gap-3 rounded-xl border border-edge px-4 py-6 text-center transition",
+                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
                 )}
               >
                 <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
-                  <FolderUp className="size-5 text-[#2563EB]" aria-hidden />
+                  <FolderUp className="size-5 text-brand" aria-hidden />
                 </div>
-                <span className="text-[15px] font-bold text-[#1A1A1A]">Browse folder</span>
-                <span className="text-[13px] text-[#888888]">Upload an entire folder</span>
+                <span className="text-[15px] font-bold text-ink">Browse folder</span>
+                <span className="text-[13px] text-ink-faint">Upload an entire folder</span>
               </button>
             </div>
           ) : (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-[#666666]">
-                <span className="font-semibold text-[#1A1A1A]">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-ink-muted">
+                <span className="font-semibold text-ink">
                   {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"} selected
                 </span>
                 <button
                   type="button"
                   onClick={openFilePicker}
-                  className="shrink-0 font-semibold text-[#2563EB] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                 >
                   Add files
                 </button>
                 <button
                   type="button"
                   onClick={openFolderPicker}
-                  className="shrink-0 font-semibold text-[#2563EB] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                 >
                   Add folder
                 </button>
@@ -671,10 +671,10 @@ export function UploadDialog({
           )}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[#E5E7EB] bg-[#FAFAFA] px-6 py-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-edge bg-[#FAFAFA] px-6 py-4">
           <button
             type="button"
-            className="shrink-0 rounded-lg border border-[#E5E7EB] bg-white px-5 py-2.5 text-sm font-semibold text-[#1A1A1A] transition hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+            className="shrink-0 rounded-lg border border-edge bg-panel px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
             onClick={() => handleOpenChange(false)}
           >
             Cancel
@@ -685,8 +685,8 @@ export function UploadDialog({
             className={cn(
               "shrink-0 rounded-lg px-5 py-2.5 text-sm font-bold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
               uploadDisabled
-                ? "cursor-not-allowed bg-[#2563EB]/40"
-                : "bg-[#2563EB] hover:bg-[#1D4ED8]",
+                ? "cursor-not-allowed bg-brand/40"
+                : "bg-brand hover:bg-brand-hover",
             )}
             onClick={() => void handleStartUpload()}
           >

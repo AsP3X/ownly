@@ -2,16 +2,14 @@
 // Agent: READS UploadItemSnapshot[]; RENDERED by UploadTransferPanel when expanded.
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Clock, Loader2, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Clock, Loader2, X } from "lucide-react";
+import { ExplorerFileGlyph } from "@/components/drive/ExplorerFileGlyph";
 import {
-  getUploadBatchDisplayCounts,
-  getUploadBatchOverallPercent,
   type UploadItemSnapshot,
   type UploadPhase,
 } from "@/lib/upload-manager";
 import {
   formatUploadDoneSummary,
-  formatUploadFilesProgress,
   formatUploadQueueSummary,
   getUploadPercentLabel,
   getUploadPhaseLabel,
@@ -21,8 +19,12 @@ import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-/** Human: Fixed height for the scrollable file list — prevents the tray from resizing as rows finish. */
-export const UPLOAD_PANEL_LIST_HEIGHT = "17.5rem";
+/**
+ * Human: Ceiling for the scrollable file list. The list sizes to its content and only scrolls
+ * past this point — a fixed height left a large empty void whenever few files were in flight.
+ * Agent: APPLIED as max-height; the list has no min-height so short batches render compactly.
+ */
+export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "19rem";
 
 /** Human: Reserved height for pinned queue/done summary slots. */
 export const UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT = "1.375rem";
@@ -30,46 +32,51 @@ export const UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT = "1.375rem";
 /** Human: Above this count, completed rows collapse to one summary line. */
 export const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
 
-// Human: Phase accent tokens — one palette for icon, percent, bar, and status text.
-// Agent: MAPS uploading | processing | encrypting | storing to Tailwind classes.
+// Human: Phase accent palette — one set of drive tokens for icon, percent, bar, and status text.
+// Agent: MAPS uploading | processing | encrypting | storing to token utilities so every phase
+//        colour adapts to dark mode. Raw Tailwind palettes here previously did not.
 function phaseStyles(phase: UploadPhase) {
   if (phase === "storing") {
     return {
-      icon: "text-emerald-600",
-      percent: "text-emerald-600",
-      bar: "bg-emerald-600",
-      status: "text-emerald-700",
-      shimmer: "bg-emerald-600",
-      track: "bg-emerald-100",
+      icon: "text-ok",
+      percent: "text-ok",
+      bar: "bg-ok",
+      status: "text-ok",
+      shimmer: "bg-ok",
+      track: "bg-ok-weak",
+      chip: "bg-ok-weak text-ok",
     };
   }
   if (phase === "encrypting") {
     return {
-      icon: "text-amber-600",
-      percent: "text-amber-600",
-      bar: "bg-amber-500",
-      status: "text-amber-700",
-      shimmer: "bg-amber-500",
-      track: "bg-amber-100",
+      icon: "text-warn",
+      percent: "text-warn",
+      bar: "bg-warn",
+      status: "text-warn",
+      shimmer: "bg-warn",
+      track: "bg-warn-weak",
+      chip: "bg-warn-weak text-warn",
     };
   }
   if (phase === "processing") {
     return {
-      icon: "text-fuchsia-700",
-      percent: "text-fuchsia-700",
-      bar: "bg-fuchsia-700",
-      status: "text-fuchsia-800",
-      shimmer: "bg-fuchsia-700",
-      track: "bg-fuchsia-100",
+      icon: "text-proc",
+      percent: "text-proc",
+      bar: "bg-proc",
+      status: "text-proc",
+      shimmer: "bg-proc",
+      track: "bg-proc-weak",
+      chip: "bg-proc-weak text-proc",
     };
   }
   return {
-    icon: "text-[#2563EB]",
-    percent: "text-[#2563EB]",
-    bar: "bg-[#2563EB]",
-    status: "text-[#2563EB]",
-    shimmer: "bg-[#2563EB]",
-    track: "bg-[#DBEAFE]",
+    icon: "text-brand",
+    percent: "text-brand",
+    bar: "bg-brand",
+    status: "text-brand",
+    shimmer: "bg-brand",
+    track: "bg-brand-weak",
+    chip: "bg-brand-weak text-brand",
   };
 }
 
@@ -104,7 +111,7 @@ export function UploadProgressBar({
     return (
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-full bg-[#E5E7EB]",
+          "relative w-full overflow-hidden rounded-full bg-edge",
           heightClass,
           className,
         )}
@@ -135,7 +142,7 @@ export function UploadProgressBar({
   return (
     <div
       className={cn(
-        "w-full overflow-hidden rounded-full bg-[#E5E7EB]",
+        "w-full overflow-hidden rounded-full bg-edge",
         heightClass,
         className,
       )}
@@ -233,10 +240,10 @@ function UploadRowMeta({
   detail?: string | null;
 }) {
   return (
-    <p className="truncate text-[11px] leading-tight text-[#888888]">
+    <p className="truncate text-[11px] leading-tight text-ink-faint">
       <span className="tabular-nums">{formatBytes(sizeBytes)}</span>
       <span aria-hidden> · </span>
-      <AnimatedPhaseStatus className={cn(statusClassName ?? "text-[#666666]")}>
+      <AnimatedPhaseStatus className={cn(statusClassName ?? "text-ink-muted")}>
         {status}
       </AnimatedPhaseStatus>
       {detail ? (
@@ -283,38 +290,35 @@ export function ActiveUploadRow({
   }
 
   return (
-    <div className="transfer-row-enter flex flex-col gap-1.5">
-      <div className="flex min-w-0 items-center justify-between gap-2">
+    <div className="transfer-row-enter flex gap-2.5 rounded-lg px-1 py-1.5 transition-colors hover:bg-surface">
+      {/* Human: File-type glyph with a spinning ring — identifies the file and shows it is live. */}
+      {/* Agent: REUSES ExplorerFileGlyph so a file looks the same here as in the explorer grid. */}
+      <span className="relative mt-0.5 flex size-7 shrink-0 items-center justify-center">
+        <Loader2
+          className={cn("absolute inset-0 size-7 animate-spin opacity-40", styles.icon)}
+          aria-hidden
+        />
+        <ExplorerFileGlyph mimeType={item.mimeType} className="size-3.5" />
+      </span>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">
-          <Loader2
-            className={cn(
-              "size-3.5 shrink-0 animate-spin transition-colors duration-300",
-              styles.icon,
-            )}
-            aria-hidden
-          />
-          <div className="min-w-0">
-            <p className="min-w-0 truncate text-[13px] font-semibold text-[#1A1A1A]">
-              {item.fileName}
-            </p>
-            {item.relativePath ? (
-              <p className="truncate text-[11px] text-[#888888]" title={item.relativePath}>
-                {item.relativePath}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
+          <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink" title={item.fileName}>
+            {item.fileName}
+          </p>
           <AnimatedPercentLabel
             label={percentLabel}
-            className={cn("text-[13px] font-semibold transition-colors duration-300", styles.percent)}
+            className={cn(
+              "shrink-0 text-[12px] font-semibold transition-colors duration-300",
+              styles.percent,
+            )}
           />
           {onCancel ? (
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-7 text-[#888888] transition-colors hover:text-[#1A1A1A]"
+              className="size-6 shrink-0 text-ink-faint transition-colors hover:text-danger"
               aria-label={`Cancel upload ${item.fileName}`}
               onClick={() => onCancel(item.id)}
             >
@@ -322,19 +326,39 @@ export function ActiveUploadRow({
             </Button>
           ) : null}
         </div>
+
+        <UploadProgressBar
+          value={item.progress}
+          phase={item.phase}
+          indeterminate={showIndeterminate}
+          statusLabel={phaseStatus}
+        />
+
+        <div className="flex min-w-0 items-center gap-1.5">
+          {/* Human: Phase as a chip, not prose — scannable across a stack of rows. */}
+          <span
+            className={cn(
+              "shrink-0 rounded px-1.5 py-px text-[10px] font-semibold leading-4",
+              styles.chip,
+            )}
+          >
+            <AnimatedPhaseStatus>{phaseStatus}</AnimatedPhaseStatus>
+          </span>
+          {/* Human: Rows restored from background jobs carry no byte count — omit rather than "0 B". */}
+          {/* Agent: READS fileSize > 0; falls back to detail fragments alone when size is unknown. */}
+          <span className="truncate text-[11px] tabular-nums text-ink-faint">
+            {[item.fileSize > 0 ? formatBytes(item.fileSize) : null, ...detailParts]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+
+        {item.relativePath ? (
+          <p className="truncate text-[10px] text-ink-faint" title={item.relativePath}>
+            {item.relativePath}
+          </p>
+        ) : null}
       </div>
-      <UploadProgressBar
-        value={item.progress}
-        phase={item.phase}
-        indeterminate={showIndeterminate}
-        statusLabel={phaseStatus}
-      />
-      <UploadRowMeta
-        sizeBytes={item.fileSize}
-        status={phaseStatus}
-        statusClassName={styles.status}
-        detail={detailParts.length > 0 ? detailParts.join(" · ") : null}
-      />
     </div>
   );
 }
@@ -344,16 +368,16 @@ export function CompletedUploadRow({ item }: { item: UploadItemSnapshot }) {
   return (
     <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
       <div className="flex min-w-0 items-center gap-2">
-        <Check className="size-3.5 shrink-0 text-emerald-500 transition-transform duration-300" aria-hidden />
+        <Check className="size-3.5 shrink-0 text-ok transition-transform duration-300" aria-hidden />
         <div className="min-w-0">
-          <p className="min-w-0 truncate text-[13px] font-medium text-[#1A1A1A]">{item.fileName}</p>
+          <p className="min-w-0 truncate text-[13px] font-medium text-ink">{item.fileName}</p>
           {item.relativePath ? (
-            <p className="truncate text-[11px] text-[#888888]">{item.relativePath}</p>
+            <p className="truncate text-[11px] text-ink-faint">{item.relativePath}</p>
           ) : null}
           <UploadRowMeta
             sizeBytes={item.fileSize}
             status={getUploadTerminalStatus("done")}
-            statusClassName="text-emerald-700"
+            statusClassName="text-ok"
           />
         </div>
       </div>
@@ -373,25 +397,31 @@ export function QueuedFileRow({
 }) {
   const status = item.paused ? "Paused" : "Queued";
 
+  // Human: Single compact line — queued files need identity and controls, not a progress block.
+  // Agent: Row controls stay mounted but reveal on hover/focus so the queue reads as a calm list.
   return (
-    <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
-        <div className="min-w-0">
-          <p className="min-w-0 truncate text-[13px] font-medium text-[#1A1A1A]">{item.fileName}</p>
-          {item.relativePath ? (
-            <p className="truncate text-[11px] text-[#888888]">{item.relativePath}</p>
-          ) : null}
-          <UploadRowMeta sizeBytes={item.fileSize} status={status} />
-        </div>
+    <div className="transfer-row-enter group flex items-center gap-2.5 rounded-lg px-1 py-1 transition-colors hover:bg-surface">
+      <span className="flex size-7 shrink-0 items-center justify-center" aria-hidden>
+        <ExplorerFileGlyph mimeType={item.mimeType} className="size-3.5 opacity-70" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="min-w-0 truncate text-[12px] font-medium text-ink-muted" title={item.fileName}>
+          {item.fileName}
+        </p>
+        {/* Agent: Same rule as active rows — a zero byte count is unknown, not "0 B". */}
+        <p className="truncate text-[10px] tabular-nums text-ink-faint">
+          {[item.fileSize > 0 ? formatBytes(item.fileSize) : null, status, item.relativePath]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         {onTogglePause ? (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs font-semibold text-[#666666] transition-colors hover:text-[#1A1A1A]"
+            className="h-6 px-1.5 text-[11px] font-semibold text-ink-muted transition-colors hover:text-ink"
             onClick={() => onTogglePause(item.id, !item.paused)}
           >
             {item.paused ? "Resume" : "Pause"}
@@ -402,7 +432,7 @@ export function QueuedFileRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-[#888888] transition-colors hover:text-[#1A1A1A]"
+            className="size-6 text-ink-faint transition-colors hover:text-danger"
             aria-label={`Cancel queued upload ${item.fileName}`}
             onClick={() => onCancel(item.id)}
           >
@@ -434,21 +464,21 @@ export function FailedUploadRow({
     <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
       <div className="flex min-w-0 items-center gap-2">
         {isFailed ? (
-          <AlertCircle className="size-3.5 shrink-0 text-red-500" aria-hidden />
+          <AlertCircle className="size-3.5 shrink-0 text-danger" aria-hidden />
         ) : (
-          <X className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
+          <X className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
         )}
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-[#1A1A1A]">{item.fileName}</p>
+          <p className="truncate text-[13px] font-semibold text-ink">{item.fileName}</p>
           {item.error ? (
-            <p className="truncate text-[11px] text-red-600" title={item.error}>
+            <p className="truncate text-[11px] text-danger" title={item.error}>
               {item.error}
             </p>
           ) : (
             <UploadRowMeta
               sizeBytes={item.fileSize}
               status={status}
-              statusClassName={isFailed ? "text-red-600" : "text-[#666666]"}
+              statusClassName={isFailed ? "text-danger" : "text-ink-muted"}
             />
           )}
         </div>
@@ -494,7 +524,7 @@ export function FailedUploadRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-[#888888] transition-colors hover:text-red-600"
+            className="size-7 text-ink-faint transition-colors hover:text-danger"
             aria-label={`Remove ${item.fileName} from uploads`}
             onClick={() => onRemove(item.id)}
           >
@@ -518,31 +548,48 @@ export function UploadOverallProgressBar({ percent }: { percent: number }) {
   );
 }
 
-// Human: Expanded-tray summary — files progress + active/failed counts (shared vocabulary).
-function UploadBatchSummaryRow({
-  processedCount,
-  totalCount,
-  counts,
+/**
+ * Human: Batch progress split into what is banked versus what is still moving.
+ * The solid green portion is files fully finished; the blue portion is work in flight.
+ * A single flat bar could not distinguish "nearly done" from "one file is 99% done".
+ * Agent: doneRatio and overallPercent both 0–100; active segment = overall − done, clamped ≥ 0.
+ */
+export function UploadSegmentedProgressBar({
+  donePercent,
+  overallPercent,
+  isPaused = false,
 }: {
-  processedCount: number;
-  totalCount: number;
-  counts: ReturnType<typeof getUploadBatchDisplayCounts>;
+  donePercent: number;
+  overallPercent: number;
+  isPaused?: boolean;
 }) {
-  const rightParts: string[] = [];
-  if (counts.inFlight > 0) rightParts.push(`${counts.inFlight} active`);
-  if (counts.waiting > 0) rightParts.push(`${counts.waiting} queued`);
-  if (counts.failed > 0) rightParts.push(`${counts.failed} failed`);
-  if (counts.cancelled > 0) rightParts.push(`${counts.cancelled} cancelled`);
-
-  const right = rightParts.length > 0 ? rightParts.join(" · ") : "Preparing…";
+  const done = Math.min(100, Math.max(0, donePercent));
+  const overall = Math.min(100, Math.max(done, overallPercent));
+  const activeWidth = Math.max(0, overall - done);
 
   return (
-    <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-xs text-[#666666]">
-      <span className="truncate font-medium tabular-nums text-[#1A1A1A]">
-        {formatUploadFilesProgress(processedCount, totalCount)}
-      </span>
-      {/* Human: Live counts update without enter animation — avoids flicker on every progress tick. */}
-      <span className="truncate text-right tabular-nums">{right}</span>
+    <div
+      className="relative h-2 w-full overflow-hidden rounded-full bg-edge"
+      role="progressbar"
+      aria-valuenow={Math.round(overall)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Overall upload progress"
+    >
+      {/* Human: Completed files — this portion cannot regress. */}
+      <div
+        className="transfer-progress-fill absolute inset-y-0 left-0 rounded-full bg-ok"
+        style={{ width: `${done}%` }}
+      />
+      {/* Human: Work in flight — sits immediately after the banked portion. */}
+      {/* Agent: Paused batches drop to a muted fill so the bar stops reading as live. */}
+      <div
+        className={cn(
+          "transfer-progress-fill absolute inset-y-0 rounded-full",
+          isPaused ? "bg-edge-strong" : "bg-brand",
+        )}
+        style={{ left: `${done}%`, width: `${activeWidth}%` }}
+      />
     </div>
   );
 }
@@ -565,8 +612,8 @@ export function UploadQueueBacklogSummary({
     >
       {count > 0 ? (
         <>
-          <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
-          <p className="truncate text-[11px] text-[#888888]">{label}</p>
+          <Clock className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
+          <p className="truncate text-[11px] text-ink-faint">{label}</p>
         </>
       ) : (
         <span className="sr-only">No files waiting in queue</span>
@@ -593,12 +640,68 @@ export function UploadDoneBacklogSummary({
     >
       {count > 0 ? (
         <>
-          <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
-          <p className="truncate text-[11px] text-[#888888]">{label}</p>
+          <Check className="size-3.5 shrink-0 text-ok" aria-hidden />
+          <p className="truncate text-[11px] text-ink-faint">{label}</p>
         </>
       ) : (
         <span className="sr-only">No completed uploads yet</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Human: Expandable queue section. Previously a batch of more than three files replaced every
+ * queued row with a single "N files waiting" line, so those uploads could not be paused or
+ * cancelled individually. They are now one click away.
+ * Agent: OWNS open state; RENDERS QueuedFileRow children; keeps per-item pause/cancel handlers.
+ */
+function UploadQueueDisclosure({
+  items,
+  defaultOpen,
+  onCancelItem,
+  onTogglePauseItem,
+}: {
+  items: UploadItemSnapshot[];
+  defaultOpen: boolean;
+  onCancelItem?: (itemId: string) => void;
+  onTogglePauseItem?: (itemId: string, paused: boolean) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const label = formatUploadQueueSummary(items.length);
+
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-lg px-1 py-1.5 text-left transition-colors hover:bg-surface"
+      >
+        <span className="flex size-7 shrink-0 items-center justify-center" aria-hidden>
+          <Clock className="size-3.5 text-ink-faint" />
+        </span>
+        <span className="flex-1 truncate text-[11px] font-medium text-ink-faint">{label}</span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-ink-faint transition-transform duration-200",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-0.5 border-l border-hairline pl-2 ml-4">
+          {items.map((item) => (
+            <QueuedFileRow
+              key={item.id}
+              item={item}
+              onCancel={onCancelItem}
+              onTogglePause={onTogglePauseItem}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -622,7 +725,6 @@ export function UploadBatchProgressView({
   onTogglePauseItem?: (itemId: string, paused: boolean) => void;
 }) {
   const batchReselectRef = useRef<HTMLInputElement | null>(null);
-  const counts = getUploadBatchDisplayCounts(items);
   const activeItems = items.filter((item) => item.displayBucket === "in_flight");
   const waitingItems = items.filter((item) => item.displayBucket === "queued");
   const doneItems = items.filter((item) => item.displayBucket === "done");
@@ -630,8 +732,7 @@ export function UploadBatchProgressView({
     (item) => item.displayBucket === "error" || item.displayBucket === "cancelled",
   );
   const needsReselectCount = items.filter((item) => item.needsFileReselect).length;
-  const processedCount = counts.done + counts.failed + counts.cancelled;
-  const overallPercent = getUploadBatchOverallPercent(items);
+  // Human: Batch percent and counts now live in the panel header, not in this body.
   const isBulkBatch = items.length > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const showIndividualDoneRows =
     !isBulkBatch && doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
@@ -639,21 +740,9 @@ export function UploadBatchProgressView({
 
   return (
     <>
-      <UploadBatchSummaryRow
-        processedCount={processedCount}
-        totalCount={items.length}
-        counts={counts}
-      />
-      <UploadOverallProgressBar percent={overallPercent} />
-
-      <UploadQueueBacklogSummary count={waitingItems.length} reserveSlot={isBulkBatch} />
-      {isBulkBatch ? (
-        <UploadDoneBacklogSummary count={doneItems.length} reserveSlot />
-      ) : null}
-
       {needsReselectCount > 1 && onReattachFiles ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-[11px] leading-snug text-amber-900">
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg border border-warn/30 bg-warn-weak px-3 py-2">
+          <p className="text-[11px] leading-snug text-warn">
             {needsReselectCount} uploads need the original files after reload.
           </p>
           <input
@@ -680,15 +769,15 @@ export function UploadBatchProgressView({
         </div>
       ) : null}
 
-      <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
-
+      {/* Human: List sizes to content up to a ceiling — no reserved void when few files are live. */}
+      {/* Agent: max-height only; overscroll-contain stops the drive scrolling behind the tray. */}
       <div
-        className="flex shrink-0 flex-col gap-3 overflow-y-auto overscroll-contain"
-        style={{ height: UPLOAD_PANEL_LIST_HEIGHT }}
+        className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
+        style={{ maxHeight: UPLOAD_PANEL_LIST_MAX_HEIGHT }}
       >
-        {listIsEmpty ? (
-          <p className="flex min-h-[3.25rem] items-center justify-center text-center text-sm text-[#888888]">
-            {waitingItems.length > 0 ? "Waiting for the next slot…" : "Preparing next files…"}
+        {listIsEmpty && waitingItems.length === 0 ? (
+          <p className="flex min-h-[2.5rem] items-center justify-center text-center text-[12px] text-ink-faint">
+            Preparing next files…
           </p>
         ) : null}
 
@@ -696,30 +785,37 @@ export function UploadBatchProgressView({
           <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
         ))}
 
-        {!isBulkBatch
-          ? waitingItems.map((item) => (
-              <QueuedFileRow
+        {failedItems.length > 0 ? (
+          <div className="flex flex-col gap-0.5 pt-1">
+            {failedItems.map((item) => (
+              <FailedUploadRow
                 key={item.id}
                 item={item}
-                onCancel={onCancelItem}
-                onTogglePause={onTogglePauseItem}
+                onRemove={onRemoveItem}
+                onReattachFile={onReattachFile}
+                onRetry={onRetryItem}
               />
-            ))
-          : null}
+            ))}
+          </div>
+        ) : null}
 
-        {showIndividualDoneRows
-          ? doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
-          : null}
-
-        {failedItems.map((item) => (
-          <FailedUploadRow
-            key={item.id}
-            item={item}
-            onRemove={onRemoveItem}
-            onReattachFile={onReattachFile}
-            onRetry={onRetryItem}
+        {/* Human: Queued files are now reachable instead of collapsing to a dead count line. */}
+        {/* Agent: Collapsed by default for bulk batches; every row keeps its pause/cancel controls. */}
+        {waitingItems.length > 0 ? (
+          <UploadQueueDisclosure
+            items={waitingItems}
+            defaultOpen={!isBulkBatch}
+            onCancelItem={onCancelItem}
+            onTogglePauseItem={onTogglePauseItem}
           />
-        ))}
+        ) : null}
+
+        {/* Human: Finished rows stay listed for small batches; bulk batches keep the count line. */}
+        {showIndividualDoneRows ? (
+          doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
+        ) : doneItems.length > 0 ? (
+          <UploadDoneBacklogSummary count={doneItems.length} />
+        ) : null}
       </div>
     </>
   );

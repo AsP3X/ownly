@@ -83,12 +83,12 @@ export function UploadConflictDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-[min(32rem,calc(100%-2rem))] gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-lg">
+      <DialogContent className="w-full max-w-[min(32rem,calc(100%-2rem))] gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-lg">
         <DialogHeader className="min-w-0 border-b border-neutral-100 px-5 py-4 pr-12">
-          <DialogTitle className="truncate text-base font-semibold text-neutral-900">
+          <DialogTitle className="truncate text-base font-semibold text-ink">
             {conflictDialogTitle(duplicateCount, recycleCount)}
           </DialogTitle>
-          <DialogDescription className="text-sm text-neutral-500">
+          <DialogDescription className="text-sm text-ink-muted">
             {conflictDialogDescription(duplicateCount, recycleCount)}
           </DialogDescription>
         </DialogHeader>
@@ -104,10 +104,10 @@ export function UploadConflictDialog({
                 </AlertDescription>
               </Alert>
 
-              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-neutral-200">
+              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-edge">
                 {recycleMatches.map((entry) => (
                   <li key={`${entry.upload_name}-${entry.upload_size_bytes}`} className="px-3 py-2.5">
-                    <p className="truncate text-sm font-medium text-neutral-900">
+                    <p className="truncate text-sm font-medium text-ink">
                       {entry.upload_name}
                     </p>
                     <p className="mt-1 text-xs text-neutral-600">
@@ -115,7 +115,7 @@ export function UploadConflictDialog({
                       <span className="font-medium text-neutral-800">
                         {existingFileLocation(entry.trashed.folder_name)}
                       </span>
-                      <span className="ml-2 tabular-nums text-neutral-500">
+                      <span className="ml-2 tabular-nums text-ink-muted">
                         {formatBytes(entry.trashed.size_bytes)}
                       </span>
                     </p>
@@ -144,10 +144,10 @@ export function UploadConflictDialog({
                 </AlertDescription>
               </Alert>
 
-              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-neutral-200">
+              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-edge">
                 {duplicates.map((entry) => (
                   <li key={entry.upload_content_hash} className="px-3 py-2.5">
-                    <p className="truncate text-sm font-medium text-neutral-900">
+                    <p className="truncate text-sm font-medium text-ink">
                       {entry.upload_name}
                     </p>
                     <ul className="mt-1 space-y-1">
@@ -162,7 +162,7 @@ export function UploadConflictDialog({
                               {existingFileLocation(match.folder_name)}
                             </span>
                           </span>
-                          <span className="tabular-nums text-neutral-500">
+                          <span className="tabular-nums text-ink-muted">
                             {formatBytes(match.size_bytes)}
                           </span>
                         </li>

@@ -68,14 +68,14 @@ export function CreateFolderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-md">
+      <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-md">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader className="border-b border-neutral-100 px-6 py-5">
-            <DialogTitle className="flex items-center gap-2 text-lg text-neutral-900">
+            <DialogTitle className="flex items-center gap-2 text-lg text-ink">
               <FolderPlus className="size-5 text-blue-600" aria-hidden />
               New folder
             </DialogTitle>
-            <DialogDescription className="text-neutral-500">
+            <DialogDescription className="text-ink-muted">
               Create a folder to organize files in your library.
             </DialogDescription>
           </DialogHeader>

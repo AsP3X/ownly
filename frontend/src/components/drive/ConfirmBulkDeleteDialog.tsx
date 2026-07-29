@@ -294,7 +294,7 @@ export function ConfirmBulkDeleteDialog({
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={confirming}>
       <DialogContent
         style={dialogWidthStyle}
-        className="w-full gap-0 overflow-x-hidden border-neutral-200 bg-white p-0 sm:max-w-none"
+        className="w-full gap-0 overflow-x-hidden border-edge bg-panel p-0 sm:max-w-none"
       >
         <form
           className="min-w-0"
@@ -303,11 +303,11 @@ export function ConfirmBulkDeleteDialog({
           }}
         >
           <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
-            <DialogTitle className="flex min-w-0 items-center gap-2 text-lg text-neutral-900">
+            <DialogTitle className="flex min-w-0 items-center gap-2 text-lg text-ink">
               <Trash2 className="size-5 shrink-0 text-red-600" aria-hidden />
               <span className="min-w-0 truncate">{title}</span>
             </DialogTitle>
-            <DialogDescription className="break-words text-neutral-500">
+            <DialogDescription className="break-words text-ink-muted">
               {description}
             </DialogDescription>
           </DialogHeader>

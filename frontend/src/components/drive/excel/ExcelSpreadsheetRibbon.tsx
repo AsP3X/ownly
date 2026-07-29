@@ -1323,7 +1323,7 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
   }
 
   return (
-    <div className="shrink-0 bg-white" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
+    <div className="shrink-0 bg-panel" style={{ fontFamily: EXCEL_RIBBON_FONT }}>
       <ExcelToolbarTitleBar
         documentTitle={documentTitle}
         readOnly={props.readOnly}

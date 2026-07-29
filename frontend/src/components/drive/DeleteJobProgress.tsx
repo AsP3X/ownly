@@ -67,7 +67,7 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
       </div>
 
       <div
-        className="relative h-2.5 w-full overflow-hidden rounded-full bg-neutral-200"
+        className="relative h-2.5 w-full overflow-hidden rounded-full bg-edge"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -76,16 +76,16 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
       >
         <div
           className={cn(
-            "h-full rounded-full bg-[#2563EB] transition-[width] duration-300 ease-out",
+            "h-full rounded-full bg-brand transition-[width] duration-300 ease-out",
             isStarting && percent === 0 && "animate-pulse",
           )}
           style={{ width: isStarting && percent === 0 ? "12%" : `${percent}%` }}
         />
       </div>
 
-      <p className="text-xs text-neutral-500">{countLabel}</p>
+      <p className="text-xs text-ink-muted">{countLabel}</p>
       {useBlobs && status.total_files > 1 ? (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-ink-muted">
           {status.deleted_files.toLocaleString()} / {status.total_files.toLocaleString()} files
           processed
         </p>
@@ -98,7 +98,7 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
 // Agent: RENDERS neutral text; SHOWN before deletion-preview API returns.
 export function DeletePreviewLoading() {
   return (
-    <p className="border-b border-neutral-100 px-6 py-4 text-sm text-neutral-500">
+    <p className="border-b border-neutral-100 px-6 py-4 text-sm text-ink-muted">
       Checking storage objects to remove…
     </p>
   );

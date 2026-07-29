@@ -591,7 +591,7 @@ export function ExcelSpreadsheetDialog({
         <Dialog open={open} onOpenChange={handleDialogOpenChange}>
           <DialogContent
             motionlessPopup
-            className="flex h-[100svh] max-h-[100svh] w-full min-h-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#F7F8FA] p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
+            className="flex h-[100svh] max-h-[100svh] w-full min-h-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-surface p-0 shadow-none ring-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh"
             overlayClassName="bg-[#0A0A10]/95 backdrop-blur-3xl"
             showCloseButton={false}
           >
@@ -600,14 +600,14 @@ export function ExcelSpreadsheetDialog({
               <DialogDescription>Read-only spreadsheet preview.</DialogDescription>
             </DialogHeader>
 
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] bg-white px-4 py-3">
-              <p className="min-w-0 truncate text-sm font-semibold text-[#1A1A1A]">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-edge bg-panel px-4 py-3">
+              <p className="min-w-0 truncate text-sm font-semibold text-ink">
                 {file?.name ?? "Spreadsheet"}
               </p>
               <button
                 type="button"
                 onClick={() => handleDialogOpenChange(false)}
-                className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F7F8FA] text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF]"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-edge bg-surface text-ink transition-colors hover:bg-brand-weak"
                 aria-label="Close spreadsheet preview"
               >
                 <X className="size-4" aria-hidden />
@@ -616,13 +616,13 @@ export function ExcelSpreadsheetDialog({
 
             <div className="relative min-h-0 flex-1 overflow-auto">
               {loading ? (
-                <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
                   <Loader2 className="size-5 animate-spin" aria-hidden />
                   Loading spreadsheet…
                 </div>
               ) : null}
               {loadError ? (
-                <p className="px-4 py-8 text-center text-sm text-[#EF4444]" role="alert">
+                <p className="px-4 py-8 text-center text-sm text-danger" role="alert">
                   {loadError}
                 </p>
               ) : null}
@@ -635,19 +635,19 @@ export function ExcelSpreadsheetDialog({
 
     return (
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="gap-2 border border-[#E5E7EB] bg-white p-3 sm:max-w-full" overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl">
+        <DialogContent className="gap-2 border border-edge bg-panel p-3 sm:max-w-full" overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl">
           <DialogHeader>
             <DialogTitle className="text-base">{file?.name ?? "Spreadsheet"}</DialogTitle>
             <DialogDescription>
               Read-only preview on this screen size. Open on a desktop (min 1024px) to edit, use formulas, and save.
             </DialogDescription>
           </DialogHeader>
-          {loading ? <p className="text-sm text-[#666666]">Loading…</p> : null}
-          {loadError ? <p className="text-sm text-[#EF4444]">{loadError}</p> : null}
+          {loading ? <p className="text-sm text-ink-muted">Loading…</p> : null}
+          {loadError ? <p className="text-sm text-danger">{loadError}</p> : null}
           {activeSheet ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-xs text-[#666666]">
-                <span className="font-medium text-[#1A1A1A]">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-surface px-3 py-2 text-xs text-ink-muted">
+                <span className="font-medium text-ink">
                   {activeSheet.name}
                   {editor.workbook && editor.workbook.sheets.length > 1
                     ? ` · ${editor.activeSheetIndex + 1}/${editor.workbook.sheets.length}`
@@ -658,7 +658,7 @@ export function ExcelSpreadsheetDialog({
                   {activeCell?.display || activeCell?.formula || "—"}
                 </span>
               </div>
-              <div className="max-h-[60vh] overflow-auto rounded-lg border border-[#E5E7EB]">
+              <div className="max-h-[60vh] overflow-auto rounded-lg border border-edge">
                 {mobileGrid}
               </div>
               {editor.workbook && editor.workbook.sheets.length > 1 ? (
@@ -669,8 +669,8 @@ export function ExcelSpreadsheetDialog({
                       type="button"
                       className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
                         index === editor.activeSheetIndex
-                          ? "border-[#2563EB] bg-[#EFF6FF] font-semibold text-[#1D4ED8]"
-                          : "border-[#E5E7EB] bg-white text-[#666666]"
+                          ? "border-brand bg-brand-weak font-semibold text-brand-hover"
+                          : "border-edge bg-panel text-ink-muted"
                       }`}
                       onClick={() => editor.setActiveSheetIndex(index)}
                     >
@@ -704,7 +704,7 @@ export function ExcelSpreadsheetDialog({
 
         <div className={excelDialogShellClass}>
           {saveError ? (
-            <p className="border-b border-[#FECACA] bg-[#FEF2F2] px-5 py-2 text-xs text-[#B91C1C]" role="alert">
+            <p className="border-b border-[#FECACA] bg-danger-weak px-5 py-2 text-xs text-[#B91C1C]" role="alert">
               {saveError}
             </p>
           ) : null}
@@ -1047,14 +1047,14 @@ export function ExcelSpreadsheetDialog({
               />
 
               {loading ? (
-                <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[#666666]">
+                <div className="flex flex-1 items-center justify-center gap-2 text-sm text-ink-muted">
                   <Loader2 className="size-5 animate-spin" aria-hidden />
                   Loading spreadsheet…
                 </div>
               ) : null}
 
               {loadError ? (
-                <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]" role="alert">
+                <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-danger" role="alert">
                   {loadError}
                 </p>
               ) : null}
@@ -1168,7 +1168,7 @@ export function ExcelSpreadsheetDialog({
               ) : null}
 
               {!loading && !loadError && !activeSheet ? (
-                <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#666666]">
+                <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-ink-muted">
                   Spreadsheet data could not be displayed. Try closing and reopening the file.
                 </p>
               ) : null}

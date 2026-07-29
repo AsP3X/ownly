@@ -92,7 +92,7 @@ function ActionRow({
       className={cn(
         "flex w-full items-center gap-3 py-3.5 text-left text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         indented ? "pl-8 pr-4" : "px-4",
-        destructive ? "text-red-600 active:bg-red-50" : "text-neutral-900 active:bg-neutral-50",
+        destructive ? "text-red-600 active:bg-red-50" : "text-ink active:bg-neutral-50",
       )}
     >
       {icon ? (
@@ -196,12 +196,12 @@ export function MobileFileActionsSheet({
       >
         <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-neutral-300/80" aria-hidden />
 
-        <SheetHeader className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-neutral-200/70">
+        <SheetHeader className="rounded-2xl bg-panel px-4 py-4 text-left shadow-sm ring-1 ring-neutral-200/70">
           <SheetTitle className="truncate text-base font-semibold">{title}</SheetTitle>
           {subtitle ? <SheetDescription>{subtitle}</SheetDescription> : null}
         </SheetHeader>
 
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200/70">
+        <div className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-neutral-200/70">
           {file ? (
             <>
               {onEnterMobileSelection ? (
@@ -230,13 +230,13 @@ export function MobileFileActionsSheet({
                 type="button"
                 disabled={processing}
                 onClick={() => setOpenWithExpanded((expanded) => !expanded)}
-                className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-medium text-neutral-900 transition-colors active:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-medium text-ink transition-colors active:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
                   <ExternalLink className="size-4" />
                 </span>
                 Open with
-                <span className="ml-auto text-neutral-400">
+                <span className="ml-auto text-ink-faint">
                   {openWithExpanded ? (
                     <ChevronUp className="size-4" aria-hidden />
                   ) : (
@@ -367,7 +367,7 @@ export function MobileFileActionsSheet({
               {showBulkActions ? (
                 <>
                   <ActionDivider />
-                  <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
+                  <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
                     {bulkSelectionCount} files selected
                   </p>
                   <ActionRow
@@ -436,7 +436,7 @@ export function MobileFileActionsSheet({
         <Button
           type="button"
           variant="outline"
-          className="h-12 w-full rounded-2xl border-0 bg-white text-[15px] font-semibold shadow-sm ring-1 ring-neutral-200/70"
+          className="h-12 w-full rounded-2xl border-0 bg-panel text-[15px] font-semibold shadow-sm ring-1 ring-neutral-200/70"
           onClick={() => onOpenChange(false)}
         >
           Cancel

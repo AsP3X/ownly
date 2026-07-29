@@ -9,7 +9,9 @@ import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
 import { InstanceNameProvider } from "@/context/InstanceNameContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
 import { StorageMigrationUi } from "@/components/drive/StorageMigrationUi";
 import { TransferPanelStack } from "@/components/drive/TransferPanelStack";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
@@ -141,8 +143,16 @@ function AuthenticatedDriveShellExtras() {
   );
 }
 
+// Human: Sonner toasts follow the drive theme instead of always rendering light.
+// Agent: READS resolved theme from ThemeProvider; PASSES it to Toaster's theme prop.
+function ThemedToaster() {
+  const { resolved } = useTheme();
+  return <Toaster richColors closeButton position="top-center" theme={resolved} />;
+}
+
 export default function App() {
   return (
+    <ThemeProvider>
     <BrowserRouter>
       <AuthProvider>
         <InstanceNameProvider>
@@ -191,10 +201,11 @@ export default function App() {
           </Suspense>
           </RouteErrorBoundary>
           <AuthenticatedDriveShellExtras />
-          <Toaster richColors closeButton position="top-center" />
+          <ThemedToaster />
         </SetupGuard>
         </InstanceNameProvider>
       </AuthProvider>
     </BrowserRouter>
+    </ThemeProvider>
   );
 }

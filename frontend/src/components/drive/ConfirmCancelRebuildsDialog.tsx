@@ -36,7 +36,7 @@ export function ConfirmCancelRebuildsDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="gap-0 overflow-hidden border-neutral-200 bg-white p-0"
+        className="gap-0 overflow-hidden border-edge bg-panel p-0"
         style={confirmDialogWidthStyle(["Cancel unfinished rebuilds?".length])}
       >
         <DialogHeader className="border-b border-neutral-100 px-6 py-5 pr-12">

@@ -52,16 +52,16 @@ function SidebarNavRow({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-sm transition-colors",
-        active && "bg-[#F7F8FA] font-semibold text-[#1A1A1A]",
-        !active && !disabled && "text-[#666666] hover:bg-[#F7F8FA]",
-        disabled && "cursor-not-allowed text-[#666666]/60",
+        active && "bg-surface font-semibold text-ink",
+        !active && !disabled && "text-ink-muted hover:bg-surface",
+        disabled && "cursor-not-allowed text-ink-muted/60",
       )}
     >
       <span
         className={cn(
           "flex size-[18px] shrink-0 items-center justify-center",
-          active ? "text-[#2563EB]" : "text-[#666666]",
-          disabled && "text-[#666666]/60",
+          active ? "text-brand" : "text-ink-muted",
+          disabled && "text-ink-muted/60",
         )}
         aria-hidden
       >
@@ -80,13 +80,13 @@ function StorageWidget({ usedBytes, quotaBytes }: { usedBytes: number; quotaByte
   const fillWidth = usedBytes > 0 ? Math.max(percent, 2) : 0;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-[#F7F8FA] p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Storage used</p>
-      <p className="text-[15px] font-bold text-[#1A1A1A]">
+    <div className="flex flex-col gap-3 rounded-xl bg-surface p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Storage used</p>
+      <p className="text-[15px] font-bold text-ink">
         {formatBytes(usedBytes)} of {formatBytes(quotaBytes)}
       </p>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
+        className="h-1.5 w-full overflow-hidden rounded-sm bg-edge"
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -94,7 +94,7 @@ function StorageWidget({ usedBytes, quotaBytes }: { usedBytes: number; quotaByte
         aria-label="Storage used"
       >
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
+          className="h-full rounded-sm bg-brand transition-[width] duration-300 ease-out"
           style={{ width: `${fillWidth}%` }}
         />
       </div>
@@ -115,10 +115,10 @@ export function DriveSidebar({
   const { status: uploadRateLimit, loading: uploadRateLimitLoading } = useUploadRateLimit();
 
   return (
-    <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
+    <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-edge bg-panel px-8 py-8 lg:flex">
       <div className="flex items-center justify-center gap-2">
-        <Cloud className="size-7 text-[#2563EB]" aria-hidden />
-        <span className="text-[22px] font-bold text-[#1A1A1A]">{instanceName}</span>
+        <Cloud className="size-7 text-brand" aria-hidden />
+        <span className="text-[22px] font-bold text-ink">{instanceName}</span>
       </div>
 
       <nav className="flex flex-col gap-2" aria-label="Drive navigation">

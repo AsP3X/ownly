@@ -104,13 +104,13 @@ export function FolderPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-lg">
+      <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-neutral-100 px-6 py-5">
-          <DialogTitle className="flex items-center gap-2 text-lg text-neutral-900">
+          <DialogTitle className="flex items-center gap-2 text-lg text-ink">
             <FolderInput className="size-5 text-blue-600" aria-hidden />
             {title}
           </DialogTitle>
-          <DialogDescription className="text-neutral-500">
+          <DialogDescription className="text-ink-muted">
             Browse to a folder, then {showCopyAction ? "copy or " : ""}move your selection into{" "}
             <span className="font-medium text-neutral-700">{destinationLabel}</span>.
           </DialogDescription>
@@ -128,7 +128,7 @@ export function FolderPickerDialog({
               className={cn(
                 "rounded px-1 hover:bg-neutral-100",
                 folderStack.length === 0
-                  ? "font-medium text-neutral-900"
+                  ? "font-medium text-ink"
                   : "font-medium text-blue-700 hover:bg-blue-50",
               )}
             >
@@ -136,14 +136,14 @@ export function FolderPickerDialog({
             </button>
             {folderStack.map((crumb, index) => (
               <span key={crumb.id} className="flex items-center gap-1">
-                <ChevronRight className="size-3.5 text-neutral-400" aria-hidden />
+                <ChevronRight className="size-3.5 text-ink-faint" aria-hidden />
                 <button
                   type="button"
                   onClick={() => goToFolderIndex(index)}
                   className={cn(
                     "rounded px-1 hover:bg-neutral-100",
                     index === folderStack.length - 1
-                      ? "font-medium text-neutral-900"
+                      ? "font-medium text-ink"
                       : "text-blue-700 hover:bg-blue-50",
                   )}
                 >
@@ -153,14 +153,14 @@ export function FolderPickerDialog({
             ))}
           </nav>
 
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-neutral-200">
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-edge">
             {loading ? (
-              <p className="flex items-center justify-center gap-2 py-10 text-sm text-neutral-500">
+              <p className="flex items-center justify-center gap-2 py-10 text-sm text-ink-muted">
                 <Loader2 className="size-4 animate-spin" aria-hidden />
                 Loading folders…
               </p>
             ) : visibleFolders.length === 0 ? (
-              <p className="py-10 text-center text-sm text-neutral-500">
+              <p className="py-10 text-center text-sm text-ink-muted">
                 {folderStack.length === 0
                   ? "No subfolders yet — items will go to the drive root."
                   : "This folder has no subfolders."}
@@ -176,7 +176,7 @@ export function FolderPickerDialog({
                       onDoubleClick={() => openFolder(folder)}
                     >
                       <Folder className="size-4 shrink-0 text-amber-500" aria-hidden />
-                      <span className="truncate font-medium text-neutral-900">{folder.name}</span>
+                      <span className="truncate font-medium text-ink">{folder.name}</span>
                     </button>
                   </li>
                 ))}
@@ -185,7 +185,7 @@ export function FolderPickerDialog({
           </div>
 
           {moveDisabled && moveDisabledReason ? (
-            <p className="text-xs text-neutral-500">{moveDisabledReason}</p>
+            <p className="text-xs text-ink-muted">{moveDisabledReason}</p>
           ) : null}
 
           {error ? (

@@ -146,7 +146,7 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "inline-flex items-center gap-1 rounded-sm text-[#323130] transition-colors hover:bg-[#F3F2F1] disabled:opacity-50",
+          "inline-flex items-center gap-1 rounded-sm text-[#323130] transition-colors hover:bg-surface disabled:opacity-50",
           open && "bg-[#E1DFDD]",
         )}
         style={{ padding: `${scaledPx(2)}px ${scaledPx(4)}px`, fontSize: scaledPx(8) }}
@@ -158,7 +158,7 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
 
       {open ? (
         <div
-          className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-lg border border-[#E5E7EB] bg-white py-1 shadow-lg"
+          className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-lg border border-edge bg-panel py-1 shadow-lg"
           role="menu"
         >
           {MENU.map((item) => (
@@ -167,10 +167,10 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
                 type="button"
                 role="menuitem"
                 onClick={() => handleItemClick(item)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F7F8FA]"
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-ink hover:bg-surface"
               >
                 {item.label}
-                {item.children ? <ChevronDown className="size-3 rotate-[-90deg] text-[#666666]" aria-hidden /> : null}
+                {item.children ? <ChevronDown className="size-3 rotate-[-90deg] text-ink-muted" aria-hidden /> : null}
               </button>
               {item.children && expanded === item.label ? (
                 <div className="border-t border-[#F3F4F6] bg-[#FAFAFA] py-1 pl-2">
@@ -180,7 +180,7 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
                       type="button"
                       role="menuitem"
                       onClick={() => handleItemClick(child)}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-[#444444] hover:bg-white"
+                      className="block w-full px-3 py-1.5 text-left text-xs text-[#444444] hover:bg-panel"
                     >
                       {child.label}
                     </button>

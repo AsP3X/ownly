@@ -15,7 +15,7 @@ export const EXPLORER_GRID_LAYOUT_CLASS =
 
 /** Human: Shared preview dimensions for explorer grid file and folder tiles. */
 export const EXPLORER_GRID_PREVIEW_SLOT_CLASS =
-  "relative w-full min-w-0 shrink-0 overflow-hidden rounded-lg bg-[#F3F4F6] aspect-[171/120] lg:aspect-square contain-[layout_paint]";
+  "relative w-full min-w-0 shrink-0 overflow-hidden rounded-md bg-sunken aspect-[171/120] lg:aspect-square contain-[layout_paint]";
 
 type ExplorerGridPreviewSlotProps = {
   children: ReactNode;

@@ -186,19 +186,19 @@ export function RecycleBinPanel({
         ) : null}
 
         {loading ? (
-          <p className="text-sm text-neutral-500">Loading recycle bin…</p>
+          <p className="text-sm text-ink-muted">Loading recycle bin…</p>
         ) : rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/80 px-6 py-12 text-center">
-            <Trash2 className="mx-auto mb-3 size-8 text-neutral-400" aria-hidden />
+          <div className="rounded-lg border border-dashed border-edge bg-neutral-50/80 px-6 py-12 text-center">
+            <Trash2 className="mx-auto mb-3 size-8 text-ink-faint" aria-hidden />
             <p className="text-sm font-medium text-neutral-800">Recycle bin is empty</p>
-            <p className="mt-1 text-sm text-neutral-500">
+            <p className="mt-1 text-sm text-ink-muted">
               Deleted files and folders will appear here.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-neutral-200">
+          <div className="overflow-x-auto rounded-lg border border-edge">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500">
+              <thead className="border-b border-edge bg-neutral-50 text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="hidden px-4 py-3 font-medium md:table-cell">Original location</th>
@@ -207,7 +207,7 @@ export function RecycleBinPanel({
                   <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 bg-white">
+              <tbody className="divide-y divide-neutral-100 bg-panel">
                 {rows.map((row) => {
                   const isFolder = row.kind === "folder";
                   const name = row.item.name;
@@ -227,13 +227,13 @@ export function RecycleBinPanel({
                           {isFolder ? (
                             <Folder className="size-4 shrink-0 text-amber-600" aria-hidden />
                           ) : (
-                            <Trash2 className="size-4 shrink-0 text-neutral-400" aria-hidden />
+                            <Trash2 className="size-4 shrink-0 text-ink-faint" aria-hidden />
                           )}
                           <div className="min-w-0">
                             <p className="truncate font-medium" title={name}>
                               {name}
                             </p>
-                            <p className="text-xs text-neutral-500 md:hidden">
+                            <p className="text-xs text-ink-muted md:hidden">
                               {location}
                               {sizeLabel ? ` · ${sizeLabel}` : null}
                               {fileCount !== null && fileCount > 0
@@ -246,7 +246,7 @@ export function RecycleBinPanel({
                       <td className="hidden px-4 py-3 text-neutral-600 md:table-cell">
                         {location}
                         {fileCount !== null && fileCount > 0 ? (
-                          <span className="text-neutral-400">
+                          <span className="text-ink-faint">
                             {" "}
                             · {fileCount} file{fileCount === 1 ? "" : "s"}
                           </span>

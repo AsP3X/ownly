@@ -100,7 +100,7 @@ function ShareDialogTabs({
 }) {
   return (
     <div
-      className="flex gap-6 border-b border-[#E5E7EB]"
+      className="flex gap-6 border-b border-edge"
       role="tablist"
       aria-label="Share options"
     >
@@ -111,8 +111,8 @@ function ShareDialogTabs({
         className={cn(
           "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
           activeTab === "invite"
-            ? "font-semibold text-[#2563EB]"
-            : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+            ? "font-semibold text-brand"
+            : "font-normal text-ink-muted hover:text-ink",
         )}
         onClick={() => onSelect("invite")}
       >
@@ -120,7 +120,7 @@ function ShareDialogTabs({
         <span
           className={cn(
             "h-0.5 w-full rounded-full",
-            activeTab === "invite" ? "bg-[#2563EB]" : "bg-transparent",
+            activeTab === "invite" ? "bg-brand" : "bg-transparent",
           )}
           aria-hidden
         />
@@ -132,8 +132,8 @@ function ShareDialogTabs({
         className={cn(
           "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
           activeTab === "public-link"
-            ? "font-semibold text-[#2563EB]"
-            : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+            ? "font-semibold text-brand"
+            : "font-normal text-ink-muted hover:text-ink",
         )}
         onClick={() => onSelect("public-link")}
       >
@@ -141,7 +141,7 @@ function ShareDialogTabs({
         <span
           className={cn(
             "h-0.5 w-full rounded-full",
-            activeTab === "public-link" ? "bg-[#2563EB]" : "bg-transparent",
+            activeTab === "public-link" ? "bg-brand" : "bg-transparent",
           )}
           aria-hidden
         />
@@ -173,17 +173,17 @@ function ShareProtectionRow({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Icon className="size-4 shrink-0 text-[#666666]" aria-hidden />
+          <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p className="text-[13px] font-semibold text-[#1A1A1A]">{title}</p>
-            <p className="text-[11px] leading-snug text-[#888888]">{subtitle}</p>
+            <p className="text-[13px] font-semibold text-ink">{title}</p>
+            <p className="text-[11px] leading-snug text-ink-faint">{subtitle}</p>
           </div>
         </div>
         <Switch
           checked={checked}
           disabled={disabled}
           onCheckedChange={onCheckedChange}
-          className="data-checked:bg-[#2563EB] data-unchecked:bg-[#E5E7EB]"
+          className="data-checked:bg-brand data-unchecked:bg-edge"
           aria-label={title}
         />
       </div>
@@ -513,17 +513,17 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
         showCloseButton={false}
         overlayClassName="bg-[#0A0A0A]/50 supports-backdrop-filter:backdrop-blur-[2px]"
         className={cn(
-          "gap-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-0 shadow-[0_12px_24px_rgba(0,0,0,0.1)] ring-0 sm:max-w-[540px]",
+          "gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 shadow-[0_12px_24px_rgba(0,0,0,0.1)] ring-0 sm:max-w-[540px]",
         )}
       >
         <div className="flex max-h-[min(640px,calc(100vh-4rem))] flex-col gap-5 overflow-y-auto p-6">
           <div className="flex items-center justify-between gap-4">
-            <DialogTitle className="text-lg font-bold leading-tight text-[#1A1A1A]">
+            <DialogTitle className="text-lg font-bold leading-tight text-ink">
               {dialogTitle}
             </DialogTitle>
             <button
               type="button"
-              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#F7F8FA] text-[#666666] transition hover:bg-[#E5E7EB]/70 hover:text-[#1A1A1A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-muted transition hover:bg-edge/70 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
               aria-label="Close share dialog"
               onClick={() => handleOpenChange(false)}
             >
@@ -532,7 +532,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
           </div>
 
           {target ? (
-            <p className="-mt-2 truncate text-sm font-medium text-[#666666]" title={target.name}>
+            <p className="-mt-2 truncate text-sm font-medium text-ink-muted" title={target.name}>
               {target.name}
             </p>
           ) : null}
@@ -543,7 +543,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
 
           {error ? (
             <p
-              className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-sm text-[#991B1B]"
+              className="rounded-lg border border-[#FECACA] bg-danger-weak px-3 py-2 text-sm text-[#991B1B]"
               role="alert"
             >
               {error}
@@ -554,19 +554,19 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
 
           {activeTab === "invite" ? (
             <div className="flex flex-col gap-4">
-              <p className="text-xs leading-relaxed text-[#888888]">
+              <p className="text-xs leading-relaxed text-ink-faint">
                 Invite people who already have an account on this Ownly instance. Choose the access
                 level they receive on this {target?.resource_type ?? "resource"}.
               </p>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">
                   Access level
                 </span>
                 <select
                   value={invitePermission}
                   onChange={(event) => setInvitePermission(event.target.value)}
-                  className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                   disabled={inviting}
                 >
                   {CONTENT_PERMISSION_OPTIONS.map((option) => (
@@ -578,22 +578,22 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
               </label>
 
               <div className="flex min-w-0 items-stretch gap-2">
-                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-3 py-2.5">
-                  <Mail className="size-3.5 shrink-0 text-[#666666]" aria-hidden />
+                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5">
+                  <Mail className="size-3.5 shrink-0 text-ink-muted" aria-hidden />
                   <input
                     type="email"
                     value={inviteEmail}
                     onChange={(event) => setInviteEmail(event.target.value)}
                     placeholder="name@company.com"
-                    className="min-w-0 flex-1 bg-transparent text-[13px] text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+                    className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
                     disabled={inviting}
                   />
                 </div>
                 <button
                   type="button"
                   className={cn(
-                    "inline-flex shrink-0 items-center rounded-lg bg-[#2563EB] px-4 py-2.5 text-[13px] font-semibold text-white transition",
-                    "hover:bg-[#1D4ED8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
+                    "inline-flex shrink-0 items-center rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-white transition",
+                    "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
                     "disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                   disabled={inviting || !target}
@@ -604,16 +604,16 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
               </div>
 
               <div className="flex flex-col gap-2">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">
                   Invited users
                 </p>
                 {loading ? (
-                  <p className="flex items-center gap-2 py-2 text-sm text-[#666666]">
+                  <p className="flex items-center gap-2 py-2 text-sm text-ink-muted">
                     <Loader2 className="size-4 animate-spin" />
                     Loading invitations…
                   </p>
                 ) : userShares.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#F7F8FA] px-3 py-4 text-center text-xs text-[#888888]">
+                  <p className="rounded-lg border border-dashed border-edge bg-surface px-3 py-4 text-center text-xs text-ink-faint">
                     No users invited yet.
                   </p>
                 ) : (
@@ -621,19 +621,19 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                     {userShares.map((row) => (
                       <li
                         key={row.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-panel px-3 py-2.5"
                       >
                         <div className="min-w-0">
-                          <p className="truncate text-[13px] font-semibold text-[#1A1A1A]">
+                          <p className="truncate text-[13px] font-semibold text-ink">
                             {row.grantee_email}
                           </p>
-                          <p className="text-[11px] text-[#888888]">
+                          <p className="text-[11px] text-ink-faint">
                             Invited {new Date(row.created_at).toLocaleDateString()}
                           </p>
                         </div>
                         <button
                           type="button"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[12px] font-semibold text-[#666666] transition hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30 disabled:opacity-50"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-edge px-2.5 py-1.5 text-[12px] font-semibold text-ink-muted transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30 disabled:opacity-50"
                           disabled={revokingUserId === row.id}
                           onClick={() => void handleRevokeUser(row.id)}
                         >
@@ -650,22 +650,22 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                 )}
               </div>
 
-              <div className="flex flex-col gap-2 border-t border-[#E5E7EB] pt-4">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+              <div className="flex flex-col gap-2 border-t border-edge pt-4">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">
                   Group access
                 </p>
-                <p className="text-xs leading-relaxed text-[#888888]">
+                <p className="text-xs leading-relaxed text-ink-faint">
                   Grant a permission to an instance group. Members inherit access through atomic
                   grants.
                 </p>
 
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
                   <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <span className="text-[11px] font-semibold text-[#666666]">Group</span>
+                    <span className="text-[11px] font-semibold text-ink-muted">Group</span>
                     <select
                       value={selectedGroupId}
                       onChange={(event) => setSelectedGroupId(event.target.value)}
-                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                       disabled={grantingGroup || assignableGroups.length === 0}
                     >
                       {assignableGroups.length === 0 ? (
@@ -680,11 +680,11 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                     </select>
                   </label>
                   <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <span className="text-[11px] font-semibold text-[#666666]">Permission</span>
+                    <span className="text-[11px] font-semibold text-ink-muted">Permission</span>
                     <select
                       value={groupPermission}
                       onChange={(event) => setGroupPermission(event.target.value)}
-                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                       disabled={grantingGroup}
                     >
                       {CONTENT_PERMISSION_OPTIONS.map((option) => (
@@ -697,8 +697,8 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2.5 text-[13px] font-semibold text-white transition",
-                      "hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50",
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-white transition",
+                      "hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50",
                     )}
                     disabled={grantingGroup || !selectedGroupId || !target}
                     onClick={() => void handleGrantGroup()}
@@ -713,7 +713,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                 </div>
 
                 {groupGrants.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#F7F8FA] px-3 py-3 text-center text-xs text-[#888888]">
+                  <p className="rounded-lg border border-dashed border-edge bg-surface px-3 py-3 text-center text-xs text-ink-faint">
                     No group grants on this {target?.resource_type ?? "resource"} yet.
                   </p>
                 ) : (
@@ -721,17 +721,17 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                     {groupGrants.map((grant) => (
                       <li
                         key={grant.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-panel px-3 py-2.5"
                       >
                         <div className="min-w-0">
-                          <p className="truncate text-[13px] font-semibold text-[#1A1A1A]">
+                          <p className="truncate text-[13px] font-semibold text-ink">
                             {groupLabel(grant.subject_id)}
                           </p>
-                          <p className="text-[11px] text-[#888888]">{grant.permission}</p>
+                          <p className="text-[11px] text-ink-faint">{grant.permission}</p>
                         </div>
                         <button
                           type="button"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[12px] font-semibold text-[#666666] transition hover:bg-[#F7F8FA] disabled:opacity-50"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-edge px-2.5 py-1.5 text-[12px] font-semibold text-ink-muted transition hover:bg-surface disabled:opacity-50"
                           disabled={revokingGrantId === grant.id}
                           onClick={() => void handleRevokeGroupGrant(grant.id)}
                         >
@@ -755,25 +755,25 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                   "flex items-start gap-3 rounded-xl border px-4 py-4",
                   pageUrl || linkBusy
                     ? "border-[#BAE6FD] bg-[#E0F2FE]"
-                    : "border-[#E5E7EB] bg-[#F7F8FA]",
+                    : "border-edge bg-surface",
                 )}
               >
                 <Globe
                   className={cn(
                     "mt-0.5 size-5 shrink-0",
-                    pageUrl || linkBusy ? "text-[#2563EB]" : "text-[#888888]",
+                    pageUrl || linkBusy ? "text-brand" : "text-ink-faint",
                   )}
                   aria-hidden
                 />
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <p className="text-sm font-semibold text-[#1A1A1A]">
+                  <p className="text-sm font-semibold text-ink">
                     {linkBusy
                       ? "Preparing public link…"
                       : pageUrl
                         ? "Public link sharing is active"
                         : "Public link unavailable"}
                   </p>
-                  <p className="text-xs leading-relaxed text-[#666666]">
+                  <p className="text-xs leading-relaxed text-ink-muted">
                     {linkBusy ? "Your shareable URL will appear in a moment." : statusSubtitle}
                   </p>
                 </div>
@@ -781,27 +781,27 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
 
               <div className="flex min-w-0 items-stretch gap-2.5">
                 <div
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-2.5"
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-edge bg-surface px-4 py-2.5"
                   title={pageUrl || undefined}
                 >
-                  <Link2 className="size-3.5 shrink-0 text-[#666666]" aria-hidden />
-                  <p className="truncate font-mono text-[13px] text-[#1A1A1A]">{linkDisplay}</p>
+                  <Link2 className="size-3.5 shrink-0 text-ink-muted" aria-hidden />
+                  <p className="truncate font-mono text-[13px] text-ink">{linkDisplay}</p>
                   {linkBusy ? (
-                    <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-[#888888]" />
+                    <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-ink-faint" />
                   ) : null}
                 </div>
                 <button
                   type="button"
                   className={cn(
-                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#1A1A1A] transition",
-                    "hover:bg-[#F7F8FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink transition",
+                    "hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
                     "disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                   disabled={!pageUrl || linkBusy}
                   onClick={() => void handleCopy()}
                 >
                   {copied ? (
-                    <Check className="size-3.5 text-[#10B981]" aria-hidden />
+                    <Check className="size-3.5 text-ok" aria-hidden />
                   ) : (
                     <Copy className="size-3.5" aria-hidden />
                   )}
@@ -810,7 +810,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
               </div>
 
               <div className="flex flex-col gap-4">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">
                   Link protection &amp; exporters
                 </p>
 
@@ -835,7 +835,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                         placeholder={
                           share?.requires_password ? "Enter new password to change" : "Share password"
                         }
-                        className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                         disabled={linkBusy || !share}
                       />
                     </div>
@@ -861,11 +861,11 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                         onChange={(event) =>
                           setSettings((current) => ({ ...current, expiresAt: event.target.value }))
                         }
-                        className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-[13px] text-[#1A1A1A] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
                         disabled={linkBusy || !share}
                       />
                       {expirationHint ? (
-                        <p className="text-[11px] text-[#888888]">{expirationHint}</p>
+                        <p className="text-[11px] text-ink-faint">{expirationHint}</p>
                       ) : null}
                     </div>
                   ) : null}
@@ -896,13 +896,13 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
             </>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-[#E5E7EB] pt-4">
+          <div className="flex items-center justify-between gap-3 border-t border-edge pt-4">
             {share ? (
               <button
                 type="button"
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border border-[#FCA5A5] px-4 py-2.5 text-[13px] font-semibold text-[#EF4444] transition",
-                  "hover:bg-[#FEF2F2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EF4444]/30",
+                  "inline-flex items-center gap-1.5 rounded-lg border border-[#FCA5A5] px-4 py-2.5 text-[13px] font-semibold text-danger transition",
+                  "hover:bg-danger-weak focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EF4444]/30",
                   "disabled:cursor-not-allowed disabled:opacity-50",
                 )}
                 disabled={revoking || linkBusy}
@@ -921,8 +921,8 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
             <button
               type="button"
               className={cn(
-                "ml-auto inline-flex items-center rounded-lg bg-[#2563EB] px-5 py-2.5 text-[13px] font-semibold text-white transition",
-                "hover:bg-[#1D4ED8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
+                "ml-auto inline-flex items-center rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-white transition",
+                "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
                 "disabled:cursor-not-allowed disabled:opacity-50",
               )}
               disabled={saving || (activeTab === "public-link" && linkBusy)}
