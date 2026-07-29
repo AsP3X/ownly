@@ -57,7 +57,10 @@ services:
       dockerfile: ../docker/nebular-os.Dockerfile
     container_name: ownly-object-storage
     environment:
-      <<: [*ownly-compose-dev-secrets, *ownly-logging]
+      <<: *ownly-compose-dev-secrets
+      # Human: Health/metrics probes every 10s — keep storage logs at info so DEBUG sqlx/tower noise stops.
+      # Agent: OVERRIDES global RUST_LOG=debug from *ownly-logging; still overridable via NOS_RUST_LOG.
+      RUST_LOG: ${NOS_RUST_LOG:-info,sqlx=warn,tower_http=warn,hyper=warn}
       NOS_BIND_ADDR: 0.0.0.0:9000
       NOS_DATA_DIR: /data/blobs
       NOS_META_PATH: /data/meta/metadata.db

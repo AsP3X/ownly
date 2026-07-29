@@ -22,8 +22,13 @@ import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
 const PUBLISH_DEBOUNCE_MS = 200;
 const HEARTBEAT_MIN_INTERVAL_MS = 600;
-const POLL_WS_MS = 5_000;
-const POLL_HTTP_MS = 1_500;
+/** Human: Ops gap-fill when WebSocket is healthy (rare catch-up only). */
+const OPS_POLL_WS_MS = 8_000;
+/** Human: Ops gap-fill when falling back to HTTP-only transport. */
+const OPS_POLL_HTTP_MS = 1_500;
+/** Human: Presence/lock snapshot poll — less often than ops (locks change slowly). */
+const SESSION_POLL_WS_MS = 20_000;
+const SESSION_POLL_HTTP_MS = 4_000;
 
 type PublicShareCollab = {
   token: string;
@@ -306,38 +311,51 @@ export function useDocumentCollab({
     };
   }, [applySession, enabled, ingestOps, session?.id]);
 
-  // Poll ops + session (presence/locks)
+  // Poll ops (document sync) and session (presence/locks) on separate cadences.
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
     sessionIdRef.current = sessionId;
 
-    const tick = () => {
+    const shareAuth = () => {
       const share = publicShareRef.current;
-      const auth = share
+      return share
         ? {
             token: share.token,
             sharePassword: share.sharePassword,
             guestId: share.guestId,
           }
         : null;
+    };
 
+    const pollOps = () => {
+      const auth = shareAuth();
       const listPromise = auth
         ? listPublicDocumentCollabOps(auth, sessionId, latestSeqRef.current)
         : listDocumentCollabOps(sessionId, latestSeqRef.current);
       void listPromise.then((ops) => ingestOps(ops)).catch(() => undefined);
+    };
 
+    const pollSession = () => {
+      const auth = shareAuth();
       const sessionPromise = auth
         ? getPublicDocumentCollabSession(auth, sessionId)
         : getDocumentCollabSession(sessionId);
       void sessionPromise.then((snap) => applySession(snap)).catch(() => undefined);
     };
 
-    const intervalMs = transport === "ws" ? POLL_WS_MS : POLL_HTTP_MS;
-    const id = window.setInterval(tick, intervalMs);
-    const warm = window.setTimeout(tick, 250);
+    const opsMs = transport === "ws" ? OPS_POLL_WS_MS : OPS_POLL_HTTP_MS;
+    const sessionMs = transport === "ws" ? SESSION_POLL_WS_MS : SESSION_POLL_HTTP_MS;
+    const opsId = window.setInterval(pollOps, opsMs);
+    const sessionIdTimer = window.setInterval(pollSession, sessionMs);
+    // One warm poll so a late joiner catches remote content/locks quickly.
+    const warm = window.setTimeout(() => {
+      pollOps();
+      pollSession();
+    }, 200);
     return () => {
-      window.clearInterval(id);
+      window.clearInterval(opsId);
+      window.clearInterval(sessionIdTimer);
       window.clearTimeout(warm);
     };
   }, [applySession, enabled, ingestOps, session?.id, transport]);
