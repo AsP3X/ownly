@@ -456,30 +456,10 @@ export function RtfEditorDialog({
                 readOnly={readOnly}
                 onChange={handleLocalChange}
                 className="min-h-0 flex-1"
+                collabParticipants={collabEnabled ? collab.participants : undefined}
+                collabCurrentUserId={localCollabUserId}
+                collabLayoutKey={collabEnabled ? draftHtml : undefined}
               />
-            ) : null}
-
-            {/* Human: Colored lock markers for remote protected sentences. */}
-            {collabEnabled && collab.participants.some((p) => p.lock_start != null) ? (
-              <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex max-w-xs flex-col gap-1">
-                {collab.participants
-                  .filter(
-                    (p) =>
-                      p.user_id !== user?.id &&
-                      p.lock_start != null &&
-                      p.lock_end != null &&
-                      (p.lock_end ?? 0) > (p.lock_start ?? 0),
-                  )
-                  .map((p) => (
-                    <span
-                      key={p.user_id}
-                      className="rounded-md px-2 py-1 text-[10px] font-semibold text-white shadow"
-                      style={{ backgroundColor: p.color }}
-                    >
-                      {p.display_name} editing chars {p.lock_start}–{p.lock_end}
-                    </span>
-                  ))}
-              </div>
             ) : null}
           </div>
 
