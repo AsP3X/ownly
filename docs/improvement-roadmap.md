@@ -398,30 +398,15 @@ Admin settings **persist** SMTP configuration in `app_settings` (host, port, fro
 
 ### 4.4 Backup and restore tooling
 
-**Priority:** P1 for production adopters  
-**Effort:** Medium
-
-#### Current state
-
-- README recommends **managed PostgreSQL** with backups for production — not Docker volumes.
-- Nebular blobs live on disk/volume under Nebular data dir.
-- `scripts/storage-audit.py` compares logical vs on-disk bytes — diagnostic, not backup.
-
-**No** documented runbook or scripted export/import.
-
-#### Proposed deliverables
+**Status:** **Shipped** — see [`docs/backup-restore.md`](backup-restore.md).
 
 | Artifact | Contents |
 |----------|----------|
-| `docs/backup-restore.md` | Runbook: pg_dump, blob volume snapshot, settings export, order of restore |
-| `scripts/backup-ownly.sh` | pg_dump + optional tar of Nebular data path + manifest JSON |
-| `scripts/restore-ownly.sh` | Validate manifest, restore DB, restore blobs, run migrations |
-| Compose profile | Optional `backup` sidecar (restic/borg) — only if user explicitly wants it |
+| `docs/backup-restore.md` | Runbook: full/partial backup, restore, off-site, RPO/RTO |
+| `scripts/backup-ownly.sh` | `pg_dump -Fc` + Nebular `/data` tar + `MANIFEST.json` + `SHA256SUMS` |
+| `scripts/restore-ownly.sh` | Checksums, drop/restore DB, extract blob volumes, restart services |
 
-#### Verification
-
-- Backup dev stack → wipe volumes (explicit test env) → restore → login, files downloadable
-- Document RPO/RTO expectations honestly for self-hosters
+**Remaining (optional):** Compose restic/borg sidecar profile; automated scheduled backups via cron/systemd; encrypted off-site upload helpers.
 
 ---
 

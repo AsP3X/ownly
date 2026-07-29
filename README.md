@@ -29,6 +29,8 @@ Open **http://localhost:8080**. On first launch, the setup wizard creates your a
 
 Do **not** run `docker compose down -v` unless you intend to wipe the local Postgres and blob volumes.
 
+**Backup before upgrades or volume changes:** see [Backup and restore](#backup-and-restore).
+
 ---
 
 ## First-run wizard
@@ -98,11 +100,80 @@ Generate `.env` files with random secrets (minimum 32 characters):
 
 Copies `.env.example` → `.env` and `backend/.env.example` → `backend/.env`, replacing `GENERATE_ME` placeholders. See `.env.example` and `backend/.env.example` for the full list.
 
-**Production database:** use managed PostgreSQL (RDS, Cloud SQL, etc.) with backups — not a Docker volume. Set `OWNLY_ENVIRONMENT=production` on API hosts.
+**Production database:** use managed PostgreSQL (RDS, Cloud SQL, etc.) with provider backups when possible — not only a Docker volume. Set `OWNLY_ENVIRONMENT=production` on API hosts. Still back up Nebular blob volumes (see below).
 
 **Secure deployment:** see [`docs/secure-deployment.md`](docs/secure-deployment.md) for firewall, secrets, CORS, and the production Compose overlay (`docker-compose.prod.yml`).
 
 **Disk and HLS tuning:** zstd levels, recompression, and video ingest quality — [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md).
+
+---
+
+## Backup and restore
+
+Ownly stores **two** durable datasets. A full disaster recovery needs both:
+
+| Component | Compose service | What it holds |
+|-----------|-----------------|---------------|
+| **PostgreSQL** | `postgres` | Users, folders, file metadata, shares, jobs, settings |
+| **Nebular OS** | `object-storage` | File blobs and Nebular on-disk metadata (`/data/blobs` + `/data/meta`) |
+
+Optional second storage node (`object-storage-b` from `docker-compose.rep.yml`) is included automatically when that container is running.
+
+### Create a full backup
+
+With the stack running (from the repo root):
+
+```bash
+./scripts/backup-ownly.sh
+```
+
+Writes a timestamped directory under `./backups/ownly-YYYYMMDD-HHMMSS/` containing:
+
+| File | Purpose |
+|------|---------|
+| `postgres.dump` | Full database (`pg_dump` custom format) |
+| `nebular-data.tar.gz` | Nebular `/data` tree (blobs + meta) |
+| `MANIFEST.json` | Inventory, sizes, git SHA |
+| `SHA256SUMS` | Checksums for integrity verification |
+
+Useful options:
+
+```bash
+# Custom output path
+./scripts/backup-ownly.sh -o /mnt/backups/ownly-weekly
+
+# Also copy .env / backend/.env into the archive (treat as credentials)
+./scripts/backup-ownly.sh --include-secrets
+
+# Database or blobs only
+./scripts/backup-ownly.sh --db-only
+./scripts/backup-ownly.sh --blobs-only
+
+# Production compose overlay
+./scripts/backup-ownly.sh -f docker-compose.yml -f docker-compose.prod.yml
+```
+
+Copy backup directories **off the same disk** as the live Docker volumes. Archives contain all library file contents and account data.
+
+### Restore (destructive)
+
+```bash
+OWNLY_CONFIRM_RESTORE=yes ./scripts/restore-ownly.sh --from ./backups/ownly-YYYYMMDD-HHMMSS
+```
+
+This overwrites the current database and object-storage volumes. The script verifies `SHA256SUMS` (unless `--skip-verify`), stops the app services, restores Postgres and Nebular data, then restarts the stack. Set `OWNLY_CONFIRM_RESTORE=yes` is required — restore will refuse to run without it.
+
+After restore: sign in, open a known folder, and download a file that existed before the backup. Video playback confirms HLS segments restored.
+
+### More detail
+
+Full runbook (schedules, off-site copies, host-path backups, RPO/RTO):  
+**[`docs/backup-restore.md`](docs/backup-restore.md)**
+
+Scripts:
+
+- [`scripts/backup-ownly.sh`](scripts/backup-ownly.sh)
+- [`scripts/restore-ownly.sh`](scripts/restore-ownly.sh)
 
 ---
 
@@ -193,8 +264,8 @@ Docker builds `object-storage` from `nebular-os/` using `docker/nebular-os.Docke
 ├── ios/               # Native iOS client (see ios/README.md)
 ├── docker-compose.yml
 ├── init-env.sh
-├── scripts/           # Compose helpers, security audit, storage audit
-└── docs/              # Storage tuning and design notes
+├── scripts/           # Backup/restore, Compose helpers, security audit, storage audit
+└── docs/              # Backup runbook, storage tuning, secure deployment
 ```
 
 ## Stack
@@ -210,6 +281,7 @@ Docker builds `object-storage` from `nebular-os/` using `docker/nebular-os.Docke
 
 | Topic | Location |
 |-------|----------|
+| **Backup and restore** | [`docs/backup-restore.md`](docs/backup-restore.md) · `scripts/backup-ownly.sh` · `scripts/restore-ownly.sh` |
 | Secure deployment checklist | [`docs/secure-deployment.md`](docs/secure-deployment.md) |
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md) |
 | Security audit probes (SEC-00x) | [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |

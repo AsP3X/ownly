@@ -27,3 +27,4 @@ ios/**/xcuserdata/
 tmp-login.json
 tmp-*.json
 mcps/
+backups/
