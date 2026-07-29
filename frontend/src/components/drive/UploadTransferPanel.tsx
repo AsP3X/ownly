@@ -72,14 +72,9 @@ function UploadHeaderStatusLine({
       ? "text-amber-800"
       : "text-[#666666]";
 
+  // Human: Do not remount/animate on every ETA or remaining-bytes tick — only color transitions.
   return (
-    <p
-      key={text}
-      className={cn(
-        "transfer-status-enter text-xs font-medium tabular-nums transition-colors duration-300",
-        tone,
-      )}
-    >
+    <p className={cn("text-xs font-medium tabular-nums transition-colors duration-300", tone)}>
       {text}
     </p>
   );

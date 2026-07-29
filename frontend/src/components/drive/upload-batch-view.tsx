@@ -153,17 +153,28 @@ export function UploadProgressBar({
   );
 }
 
-// Human: Cross-fade status text when the phase label changes (keeps tray feeling live).
-// Agent: KEY on children; RESTARTS transfer-status-enter animation on each label change.
-function AnimatedStatusText({
+// Human: Soft enter only when pipeline phase text changes (Uploading → Converting), not on every tick.
+// Agent: TRACKS previous label; APPLIES transfer-status-enter only on discrete label change.
+function AnimatedPhaseStatus({
   children,
   className,
 }: {
   children: string;
   className?: string;
 }) {
+  const prevRef = useRef(children);
+  const [enter, setEnter] = useState(false);
+
+  useEffect(() => {
+    if (prevRef.current === children) return;
+    prevRef.current = children;
+    setEnter(true);
+    const id = window.setTimeout(() => setEnter(false), 240);
+    return () => window.clearTimeout(id);
+  }, [children]);
+
   return (
-    <span key={children} className={cn("transfer-status-enter inline-block", className)}>
+    <span className={cn(enter && "transfer-status-enter", "inline-block", className)}>
       {children}
     </span>
   );
@@ -225,9 +236,9 @@ function UploadRowMeta({
     <p className="truncate text-[11px] leading-tight text-[#888888]">
       <span className="tabular-nums">{formatBytes(sizeBytes)}</span>
       <span aria-hidden> · </span>
-      <AnimatedStatusText className={cn(statusClassName ?? "text-[#666666]")}>
+      <AnimatedPhaseStatus className={cn(statusClassName ?? "text-[#666666]")}>
         {status}
-      </AnimatedStatusText>
+      </AnimatedPhaseStatus>
       {detail ? (
         <>
           <span aria-hidden> · </span>
@@ -527,12 +538,11 @@ function UploadBatchSummaryRow({
 
   return (
     <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-xs text-[#666666]">
-      <span className="truncate font-medium tabular-nums text-[#1A1A1A] transition-opacity duration-200">
+      <span className="truncate font-medium tabular-nums text-[#1A1A1A]">
         {formatUploadFilesProgress(processedCount, totalCount)}
       </span>
-      <span className="truncate text-right tabular-nums">
-        <AnimatedStatusText>{right}</AnimatedStatusText>
-      </span>
+      {/* Human: Live counts update without enter animation — avoids flicker on every progress tick. */}
+      <span className="truncate text-right tabular-nums">{right}</span>
     </div>
   );
 }
