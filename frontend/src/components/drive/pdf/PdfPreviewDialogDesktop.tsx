@@ -94,9 +94,9 @@ export function PdfPreviewDialogDesktop({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        // Human: Cap to the visible viewport — Safari clips fixed+centered dialogs taller than the window.
-        // Agent: min(100svh,100dvh) keeps room for Safari chrome; never use >100dvh (old 135dvh overflow).
-        className="flex max-h-[min(100svh,100dvh)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-2 shadow-none ring-0 sm:max-w-[min(112.5rem,calc(100%-2rem))] sm:p-4"
+        // Human: Fill most of the viewport without overflowing Safari (no 135dvh; commas → underscores for Tailwind).
+        // Agent: max-h/h use min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem)); NEVER bare commas inside arbitrary values.
+        className="flex h-[min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem))] max-h-[min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem))] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-2 shadow-none ring-0 sm:max-w-[min(112.5rem,_calc(100%-2rem))] sm:p-4"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
         showCloseButton={false}
       >
@@ -109,7 +109,7 @@ export function PdfPreviewDialogDesktop({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-[min(1275px,calc(100svh-2rem),calc(100dvh-2rem))] max-h-[min(1275px,calc(100svh-2rem),calc(100dvh-2rem))] w-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+        <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
           <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <FileText className="size-5 shrink-0 text-red-500" aria-hidden />
