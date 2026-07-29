@@ -1,5 +1,7 @@
 # Storage disk tuning (Ownly + Nebular OS)
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 Ownly sends **plaintext** file bytes to Nebular OS on normal drive uploads so zstd can compress them. Do **not** add whole-file blob encryption in the API before PUT — that defeats compression.
 
 HLS is the exception: **AES-128-CBC** segment encryption runs in Ownly before segments are uploaded. Nebular still wraps ciphertext in indexed blocks when it helps, but encrypted `.m4s` payloads rarely shrink. Save disk on video with **encode settings** (CRF/CQ, max resolution) and retention, not zstd level alone.

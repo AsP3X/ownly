@@ -1,5 +1,7 @@
 # Ownly Improvement Roadmap
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 **Date:** 2026-06-18 (pruned — completed items removed)  
 **Status:** Living document — tracks **remaining** product, platform, and operational improvements.  
 **Audience:** Maintainers, contributors, and agents planning feature work.
@@ -497,6 +499,8 @@ flowchart TD
 
 | Topic | Location |
 |-------|----------|
+| Documentation index | [`docs/README.md`](./README.md) |
+| Project README | [`README.md`](../README.md) |
 | Atomic permissions design (shipped) | [`docs/superpowers/specs/2026-05-25-atomic-permissions-design.md`](superpowers/specs/2026-05-25-atomic-permissions-design.md) |
 | Excel editor parity | [`docs/excel-editor-feature-parity.md`](excel-editor-feature-parity.md) |
 | Excel full parity plan | [`docs/superpowers/plans/2026-06-08-excel-365-full-parity.md`](superpowers/plans/2026-06-08-excel-365-full-parity.md) |
@@ -504,9 +508,9 @@ flowchart TD
 | Storage disk tuning | [`docs/storage-disk-tuning.md`](storage-disk-tuning.md) |
 | Storage disk savings plan | [`docs/storage-disk-improvements.md`](storage-disk-improvements.md) |
 | Resumable upload follow-ups | [`docs/resumable-upload-improvements.md`](resumable-upload-improvements.md) |
+| Backup and restore | [`docs/backup-restore.md`](backup-restore.md) |
 | Regression testing rule | [`.cursor/rules/regression-testing.mdc`](../.cursor/rules/regression-testing.mdc) |
 | iOS client | [`ios/README.md`](../ios/README.md) |
-| Project README | [`README.md`](../README.md) |
 
 ---
 

@@ -1,5 +1,7 @@
 # Ownly backup and restore
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 **Audience:** operators of self-hosted Ownly (Docker Compose).  
 **Goal:** full recovery of the **PostgreSQL** metadata database and **Nebular OS** object storage (file blobs + Nebular metadata).
 
@@ -152,6 +154,8 @@ docker compose up -d
 
 ## Related
 
-- [`secure-deployment.md`](secure-deployment.md) — production Compose, secrets, CORS  
-- [`storage-disk-tuning.md`](storage-disk-tuning.md) — disk layout and audit tooling  
-- [`improvement-roadmap.md`](improvement-roadmap.md) §4.4 — original backup tooling proposal  
+- [Documentation index](./README.md)
+- [Secure deployment](./secure-deployment.md) — production Compose, secrets, CORS  
+- [Configuration](./configuration.md) — env vars and managed Postgres  
+- [Storage disk tuning](./storage-disk-tuning.md) — disk layout and audit tooling  
+- [Getting started](./getting-started.md)

@@ -1,6 +1,8 @@
 # Secure deployment checklist
 
-Use this checklist before exposing Ownly on the public internet. It complements [`security-audit.md`](security-audit.md) (SEC-027).
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
+Use this checklist before exposing Ownly on the public internet. It complements [`security-audit.md`](../security-audit.md) (SEC-027).
 
 ## Before you expose port 443 (or any public HTTP)
 

@@ -1,5 +1,7 @@
 # Nebular OS implementation prompt — Postgres metadata mode and capacity enforcement
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 Use this document in the **nebular-os** repository (`AsP3X/nebular-os`). Ownly (this repo) already routes uploads using Postgres placement tables; Nebular changes below unlock **hard node quotas** and optional **blob-only** nodes when metadata lives in Ownly’s Postgres.
 
 ---

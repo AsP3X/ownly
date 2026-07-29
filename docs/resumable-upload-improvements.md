@@ -1,5 +1,7 @@
 # Resumable upload — follow-up improvements
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 **Date:** 2026-07-24 (B/C/D shipped)  
 **Status:** Web + iOS chunked uploads shipped. Content dedup, non-video object-storage staging, expiry audit, and transfer retry UX are **shipped**.  
 **Audience:** Maintainers planning the next upload reliability pass.

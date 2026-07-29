@@ -1,5 +1,7 @@
 # Excel 365 Full Parity Implementation Plan
 
+← [Back to main README](../../../README.md) · [Documentation index](../../README.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans.
 
 **Goal:** Close **remaining** gaps in the Excel 365 parity audit — LLM Copilot, collaboration, track changes, mobile edit, and OOXML fidelity edge cases.

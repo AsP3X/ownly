@@ -1,5 +1,7 @@
 # Security Audit — Ownly Stack
 
+← [Back to main README](./README.md) · [Documentation index](./docs/README.md)
+
 **Date:** 2026-06-02  
 **Scope:** Static code review of authentication, authorization, setup/bootstrap, file/share access, and admin mutation paths.  
 **Method:** Backend route wiring, middleware, SQL access checks, share scope queries, and frontend API client alignment. No live penetration testing was performed.

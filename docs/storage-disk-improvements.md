@@ -1,5 +1,7 @@
 # Storage disk savings — follow-up improvements
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 **Date:** 2026-07-24 (reviewed — §2 per-user content dedup shipped)  
 **Status:** Living plan — §2 is implemented; other items below remain open.  
 **Audience:** Maintainers reducing Nebular disk use without breaking playback, download, or upload flows.

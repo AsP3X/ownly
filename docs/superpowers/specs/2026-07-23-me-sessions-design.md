@@ -1,5 +1,7 @@
 # Self-service sessions + hygiene design
 
+← [Back to main README](../../../README.md) · [Documentation index](../../README.md)
+
 **Date:** 2026-07-23  
 **Status:** Approved  
 **Scope:** Honest Profile “Authorized Sessions” UX and light repo hygiene.

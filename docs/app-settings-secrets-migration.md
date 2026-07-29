@@ -1,5 +1,7 @@
 # app_settings secrets migration (SEC-032)
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 Ownly no longer stores sensitive `app_settings` values in plaintext.
 
 ## What changed

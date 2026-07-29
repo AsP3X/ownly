@@ -1,5 +1,7 @@
 # EPUB Grid Thumbnails Implementation Plan
 
+← [Back to main README](../../../README.md) · [Documentation index](../../README.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans.
 
 **Goal:** Ship server-generated EPUB cover thumbnails in the file browser grid, matching the existing PDF document sidecar pipeline (`grid-thumbnail.jpg` + `document_thumbnail_*` fields + shimmer/poll + `ExplorerDocumentThumbnail`).

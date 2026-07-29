@@ -1,5 +1,7 @@
 # Excel Editor Feature Parity Tracker
 
+← [Back to main README](../README.md) · [Documentation index](./README.md)
+
 Status legend: ✅ Done · 🚧 Partial · ⏳ Planned · ❌ Out of scope (Ownly)
 
 Last updated: 2026-07-26 (batch 3)

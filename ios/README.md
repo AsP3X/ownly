@@ -1,5 +1,7 @@
 ﻿# Ownly iOS
 
+← [Back to main README](../README.md) · [Documentation index](../docs/README.md)
+
 Native iOS client for [Ownly](../README.md), rebuilt from the **Cloudwrkz iOS 26** app shell.
 
 ## Requirements

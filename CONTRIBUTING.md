@@ -1,5 +1,7 @@
 # Contributing to Ownly
 
+← [Back to main README](./README.md) · [Documentation index](./docs/README.md)
+
 Thank you for improving Ownly. This document summarizes how to work in the monorepo safely.
 
 ## Prerequisites

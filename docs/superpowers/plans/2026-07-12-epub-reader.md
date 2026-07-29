@@ -1,5 +1,7 @@
 # EPUB Reader Implementation Plan
 
+← [Back to main README](../../../README.md) · [Documentation index](../../README.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans.
 
 **Goal:** Ship an in-browser EPUB reader matching `docs/design/epub-reader.pen` — desktop overlay reader with optional TOC panel, mobile fullscreen reader with settings sheet, integrated into drive and public share flows.

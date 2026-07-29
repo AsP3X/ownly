@@ -1,5 +1,7 @@
 # Atomic Permission System — Design Spec
 
+← [Back to main README](../../../README.md) · [Documentation index](../../README.md)
+
 **Date:** 2026-05-25  
 **Status:** Draft — awaiting approval
 

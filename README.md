@@ -2,6 +2,10 @@
 
 Self-hosted personal cloud storage for documents, images, videos, audio, and more — similar to OneDrive, Google Drive, or MEGA, but under your control.
 
+**Documentation hub:** [`docs/README.md`](docs/README.md)
+
+---
+
 ## Quick start
 
 **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and [Git](https://git-scm.com/downloads) with submodule support.
@@ -12,245 +16,72 @@ cd ownly
 docker compose up --build
 ```
 
-Open **http://localhost:8080**. On first launch, the setup wizard creates your admin account and wires Postgres + object storage. No `.env` file or `init-env` step is required for local Docker — secrets are baked into `docker-compose.yml` for zero-config dev.
+Open **http://localhost:8080**. Complete the first-run wizard (admin account, storage, database).
 
 | Service | URL |
 |---------|-----|
 | Web UI | http://localhost:8080 |
 | API | http://localhost:3000/api/v1 |
-| Nebular OS (object storage) | http://localhost:9000 |
-| PostgreSQL | localhost:5432 (`ownly` / `ownly`) |
+| Object storage (Nebular OS) | http://localhost:9000 |
+| PostgreSQL | localhost:5432 |
 
-**Stop the stack** (keeps your data):
+Stop the stack (keeps data): `./scripts/compose-dev-down.sh`  
+Do **not** use `docker compose down -v` unless you intend to wipe volumes.
 
-```bash
-./scripts/compose-dev-down.sh
-```
-
-Do **not** run `docker compose down -v` unless you intend to wipe the local Postgres and blob volumes.
-
-**Backup before upgrades or volume changes:** see [Backup and restore](#backup-and-restore).
+Full walkthrough: **[Getting started](docs/getting-started.md)**
 
 ---
 
-## First-run wizard
+## Documentation
 
-The onboarding flow at `/setup` configures:
+All setup, configuration, and operations guides live under **`docs/`**.
 
-1. **Admin account** — root administrator
-2. **Instance settings** — name, public registration, account approval
-3. **Object storage** — bucket name and default per-user quota
-4. **PostgreSQL** — connection test before setup completes
+| Topic | Guide |
+|-------|--------|
+| **Getting started** (wizard, submodules, stop/start) | [docs/getting-started.md](docs/getting-started.md) |
+| **Configuration** (env vars, secrets, URLs) | [docs/configuration.md](docs/configuration.md) |
+| **Architecture** | [docs/architecture.md](docs/architecture.md) |
+| **Local development** (Rust / Node, tests) | [docs/local-development.md](docs/local-development.md) |
+| **Compose profiles** (prod, multi-node, GPU) | [docs/compose-profiles.md](docs/compose-profiles.md) |
+| **Backup & restore** (Postgres + blobs) | [docs/backup-restore.md](docs/backup-restore.md) |
+| **Secure deployment** | [docs/secure-deployment.md](docs/secure-deployment.md) |
+| **Storage / disk tuning** | [docs/storage-disk-tuning.md](docs/storage-disk-tuning.md) |
+| **Nebular OS integration** | [docs/nebular-integration.md](docs/nebular-integration.md) |
+| **HTTP API (OpenAPI)** | [docs/api.md](docs/api.md) |
+| **Improvement roadmap** | [docs/improvement-roadmap.md](docs/improvement-roadmap.md) |
+| **Full index** | [docs/README.md](docs/README.md) |
 
-After setup you land in the drive UI: upload, search, download, delete, share links, and admin tools.
-
----
-
-## Clone without submodules?
-
-If you already cloned without `--recurse-submodules`, initialize Nebular OS before `docker compose up`:
-
-```bash
-git submodule update --init --recursive
-```
-
-An empty `nebular-os/` folder breaks the build with `failed to read dockerfile`. Confirm the checkout:
+### Common operations
 
 ```bash
-# Unix / Git Bash
-test -f nebular-os/Dockerfile && git submodule status
-
-# Windows PowerShell
-Test-Path .\nebular-os\Dockerfile
-git submodule status
-```
-
-You should see `nebular-os/Dockerfile` on disk and `git submodule status` showing a commit hash (no leading `-` on the `nebular-os` line).
-
-Install Git hooks (blocks accidental commits under the read-only submodule):
-
-```bash
-./scripts/install-git-hooks.sh
-```
-
----
-
-## Configuration
-
-### Local Docker (default)
-
-Edit values directly in `docker-compose.yml` when you need custom secrets or public URLs. Host `.env` files do **not** override the baked-in dev secrets in Compose — that is intentional for predictable local runs.
-
-Common overrides (set in shell or a `.env` file read by Compose for non-secret vars):
-
-| Variable | Purpose |
-|----------|---------|
-| `OBJECT_STORAGE_PUBLIC_URL` | Browser base for presigned media URLs (default `http://localhost:8080`) |
-| `MAX_UPLOAD_BYTES` | Upload size cap for API, nginx, and Nebular (default 10 GiB) |
-| `OWNLY_ENVIRONMENT` | Set `production` on real deployments |
-
-### Production or non-Docker dev
-
-Generate `.env` files with random secrets (minimum 32 characters):
-
-```bash
-./init-env.sh
-# or: docker compose --profile init run --rm init-env
-```
-
-Copies `.env.example` → `.env` and `backend/.env.example` → `backend/.env`, replacing `GENERATE_ME` placeholders. See `.env.example` and `backend/.env.example` for the full list.
-
-**Production database:** use managed PostgreSQL (RDS, Cloud SQL, etc.) with provider backups when possible — not only a Docker volume. Set `OWNLY_ENVIRONMENT=production` on API hosts. Still back up Nebular blob volumes (see below).
-
-**Secure deployment:** see [`docs/secure-deployment.md`](docs/secure-deployment.md) for firewall, secrets, CORS, and the production Compose overlay (`docker-compose.prod.yml`).
-
-**Disk and HLS tuning:** zstd levels, recompression, and video ingest quality — [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md).
-
----
-
-## Backup and restore
-
-Ownly stores **two** durable datasets. A full disaster recovery needs both:
-
-| Component | Compose service | What it holds |
-|-----------|-----------------|---------------|
-| **PostgreSQL** | `postgres` | Users, folders, file metadata, shares, jobs, settings |
-| **Nebular OS** | `object-storage` | File blobs and Nebular on-disk metadata (`/data/blobs` + `/data/meta`) |
-
-Optional second storage node (`object-storage-b` from `docker-compose.rep.yml`) is included automatically when that container is running.
-
-### Create a full backup
-
-With the stack running (from the repo root):
-
-```bash
+# Full backup (database + object storage)
 ./scripts/backup-ownly.sh
-```
 
-Writes a timestamped directory under `./backups/ownly-YYYYMMDD-HHMMSS/` containing:
-
-| File | Purpose |
-|------|---------|
-| `postgres.dump` | Full database (`pg_dump` custom format) |
-| `nebular-data.tar.gz` | Nebular `/data` tree (blobs + meta) |
-| `MANIFEST.json` | Inventory, sizes, git SHA |
-| `SHA256SUMS` | Checksums for integrity verification |
-
-Useful options:
-
-```bash
-# Custom output path
-./scripts/backup-ownly.sh -o /mnt/backups/ownly-weekly
-
-# Also copy .env / backend/.env into the archive (treat as credentials)
-./scripts/backup-ownly.sh --include-secrets
-
-# Database or blobs only
-./scripts/backup-ownly.sh --db-only
-./scripts/backup-ownly.sh --blobs-only
-
-# Production compose overlay
-./scripts/backup-ownly.sh -f docker-compose.yml -f docker-compose.prod.yml
-```
-
-Copy backup directories **off the same disk** as the live Docker volumes. Archives contain all library file contents and account data.
-
-### Restore (destructive)
-
-```bash
+# Restore (destructive — requires confirmation)
 OWNLY_CONFIRM_RESTORE=yes ./scripts/restore-ownly.sh --from ./backups/ownly-YYYYMMDD-HHMMSS
-```
 
-This overwrites the current database and object-storage volumes. The script verifies `SHA256SUMS` (unless `--skip-verify`), stops the app services, restores Postgres and Nebular data, then restarts the stack. Set `OWNLY_CONFIRM_RESTORE=yes` is required — restore will refuse to run without it.
-
-After restore: sign in, open a known folder, and download a file that existed before the backup. Video playback confirms HLS segments restored.
-
-### More detail
-
-Full runbook (schedules, off-site copies, host-path backups, RPO/RTO):  
-**[`docs/backup-restore.md`](docs/backup-restore.md)**
-
-Scripts:
-
-- [`scripts/backup-ownly.sh`](scripts/backup-ownly.sh)
-- [`scripts/restore-ownly.sh`](scripts/restore-ownly.sh)
-
----
-
-## Local development (without full Compose)
-
-Run services individually when iterating on frontend or backend code.
-
-### Backend
-
-```bash
-cd backend
-cp .env.example .env   # or use root init-env.sh
-cargo run
-```
-
-API listens on **http://localhost:3000**. Requires Postgres and Nebular OS reachable at the URLs in `.env`.
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Vite dev server proxies `/api/v1` to `http://localhost:3000`.
-
-### Verification
-
-| Area | Command |
-|------|---------|
-| Backend tests | `cd backend && cargo test` |
-| Backend lint | `cd backend && cargo clippy -p ownly-backend -- -D warnings` |
-| Frontend build | `cd frontend && npm run build && npm run lint` |
-
----
-
-## Optional Compose profiles
-
-**Production overlay** (no host ports on Postgres/object storage/API; hardened defaults):
-
-```bash
+# Production Compose overlay
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+
+# Generate production .env secrets
+./init-env.sh
 ```
 
-Requires `POSTGRES_PASSWORD`, `CORS_ALLOWED_ORIGINS`, and unique secrets. See [`docs/secure-deployment.md`](docs/secure-deployment.md).
-
-**Second storage node** (admin testing with two Nebular instances):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build
-```
-
-Node B is on **http://localhost:9001**. Register it in Admin → Add Storage Node with `http://object-storage-b:9000` inside the Compose network. See comments in `docker-compose.rep.yml`.
-
-**GPU HLS ingest** (NVIDIA NVENC):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-```
-
-Requires the NVIDIA Container Toolkit. See `HLS_HARDWARE_ENCODE` in `.env.example`.
+Details: [Backup and restore](docs/backup-restore.md) · [Compose profiles](docs/compose-profiles.md) · [Configuration](docs/configuration.md)
 
 ---
 
-## Nebular OS (object storage submodule)
+## Stack
 
-[Nebular OS](https://github.com/AsP3X/nebular-os) lives at `nebular-os/` as a **git submodule**. Ownly pins a specific commit; bump the pointer after upstream releases:
+| Layer | Technology |
+|-------|------------|
+| Frontend | Vite + React + TypeScript + Tailwind + shadcn/ui |
+| Backend | Rust (Axum) |
+| Database | PostgreSQL |
+| Object storage | [Nebular OS](https://github.com/AsP3X/nebular-os) (submodule) |
+| iOS | Native Swift client — [ios/README.md](ios/README.md) |
 
-```bash
-cd nebular-os && git fetch && git checkout <tag-or-sha>
-cd .. && git add nebular-os && git commit -m "CHORE: Bump nebular-os to <tag-or-sha>"
-```
-
-**Do not edit files under `nebular-os/` in this repo.** Storage service changes belong in [AsP3X/nebular-os](https://github.com/AsP3X/nebular-os). Export local diffs for upstream with `./scripts/nebular-export-patch.sh`.
-
-Docker builds `object-storage` from `nebular-os/` using `docker/nebular-os.Dockerfile`.
+More context: [Architecture](docs/architecture.md)
 
 ---
 
@@ -258,40 +89,37 @@ Docker builds `object-storage` from `nebular-os/` using `docker/nebular-os.Docke
 
 ```
 .
-├── backend/           # Rust Axum API
-├── frontend/        # Vite + React + shadcn/ui
-├── nebular-os/        # Nebular OS (git submodule — read-only here)
-├── ios/               # Native iOS client (see ios/README.md)
-├── docker-compose.yml
-├── init-env.sh
-├── scripts/           # Backup/restore, Compose helpers, security audit, storage audit
-└── docs/              # Backup runbook, storage tuning, secure deployment
+├── backend/              # Rust Axum API + SQL migrations
+├── frontend/             # Web application
+├── nebular-os/           # Object storage (git submodule — read-only here)
+├── ios/                  # Native iOS client
+├── docker-compose*.yml   # Base stack + prod / GPU / multi-node overlays
+├── scripts/              # Backup, restore, audit, Compose helpers
+├── docs/                 # All documentation (start at docs/README.md)
+├── CONTRIBUTING.md       # Branch flow and PR checks
+└── security-audit.md     # Security findings and remediations
 ```
 
-## Stack
-
-- **Frontend:** Vite + React + TypeScript + Tailwind CSS + [shadcn/ui](https://ui.shadcn.com)
-- **Backend:** Rust (Axum)
-- **Database:** PostgreSQL
-- **Object storage:** [Nebular OS](https://github.com/AsP3X/nebular-os)
+Nebular submodule rules: [Nebular integration](docs/nebular-integration.md)
 
 ---
 
-## Further reading
+## Contributing
 
-| Topic | Location |
-|-------|----------|
-| **Backup and restore** | [`docs/backup-restore.md`](docs/backup-restore.md) · `scripts/backup-ownly.sh` · `scripts/restore-ownly.sh` |
-| Secure deployment checklist | [`docs/secure-deployment.md`](docs/secure-deployment.md) |
-| Storage disk tuning | [`docs/storage-disk-tuning.md`](docs/storage-disk-tuning.md) |
-| Security audit probes (SEC-00x) | [`scripts/security-audit/README.md`](scripts/security-audit/README.md) |
-| iOS client | [`ios/README.md`](ios/README.md) |
-| Storage audit helper | `scripts/storage-audit.py` (needs Python venv from `scripts/setup-test-env.sh`) |
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for branch flow (`feature/*` → `dev` → `master`), CI commands, and commit prefixes.
 
-**Security audit one-time setup:**
+Local API/UI iteration: [Local development](docs/local-development.md)
 
-```bash
-bash scripts/setup-test-env.sh     # Windows: scripts\setup-test-env.bat
-source scripts/.venv/bin/activate  # Windows: scripts\.venv\Scripts\activate
-python -m unittest discover -s scripts/security-audit/tests -v
-```
+---
+
+## License
+
+**Ownly is source-available, not OSI open source.** It is licensed under the
+[Ownly Private Non-Commercial License (NOCL-1.0)](LICENSE).
+
+- **Free without a commercial agreement:** private, non-commercial use by an individual,
+  or private internal use by a qualifying non-profit — see Permitted Use in [LICENSE](LICENSE).
+- **Commercial / for-profit use** requires a written Commercial License Agreement and fee —
+  see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+- Bug and security reports: [Project Issue Tracker](https://github.com/AsP3X/ownly/issues/new)
+  (do not exploit vulnerabilities).
