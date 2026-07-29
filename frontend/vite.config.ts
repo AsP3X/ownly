@@ -45,6 +45,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Human: monaco-editor package exports map *.css to non-existent esm/*.js paths under Rolldown.
+      // Agent: Alias the bundled editor stylesheet to the real min/ file for production builds.
+      "monaco-editor/min/vs/editor/editor.main.css": path.resolve(
+        __dirname,
+        "node_modules/monaco-editor/min/vs/editor/editor.main.css",
+      ),
     },
   },
   build: {

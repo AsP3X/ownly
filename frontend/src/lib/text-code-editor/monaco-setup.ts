@@ -3,6 +3,8 @@
 
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
+// Human: Stylesheet resolved via vite alias — package exports block min/*.css under Rolldown.
+// Agent: Side-effect CSS import; path aliased in vite.config.ts to node_modules min file.
 import "monaco-editor/min/vs/editor/editor.main.css";
 
 let configured = false;
