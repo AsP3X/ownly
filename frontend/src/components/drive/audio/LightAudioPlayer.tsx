@@ -6,15 +6,19 @@ import {
   Music,
   Pause,
   Play,
+  Repeat,
   SkipBack,
   SkipForward,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
 import { AudioSeekBar } from "@/components/drive/audio/AudioSeekBar";
 import { AudioWaveformBars } from "@/components/drive/audio/audio-waveform-bars";
-import { useAudioTransport } from "@/components/drive/audio/useAudioTransport";
 import { formatAudioTime } from "@/components/drive/audio/audio-time";
+import {
+  AUDIO_SKIP_SECONDS,
+  useAudioTransport,
+} from "@/components/drive/audio/useAudioTransport";
+import { useAudioPlayerHotkeys } from "@/components/drive/audio/useAudioPlayerHotkeys";
+import { VolumeRail } from "@/components/drive/audio/VolumeRail";
 import { audioFormatLabel } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
@@ -34,8 +38,10 @@ type LightAudioPlayerProps = {
   onEnded?: () => void;
   /** Human: default = full metadata card; embedded = waveform + seek + controls for Audio preview dialog. */
   variant?: LightAudioPlayerVariant;
-  /** Human: Analyzed peak heights from Nebular waveform.json; embedded dialog shows decorative fallback when absent. */
+  /** Human: Analyzed peak heights from Nebular waveform.json; shows decorative fallback when absent. */
   waveformBars?: number[] | null;
+  /** Human: Enable document hotkeys (Space, J/L, arrows). Off for secondary inline embeds if needed. */
+  hotkeysEnabled?: boolean;
   className?: string;
 };
 
@@ -53,6 +59,7 @@ export function LightAudioPlayer({
   onEnded,
   variant = "default",
   waveformBars,
+  hotkeysEnabled = true,
   className,
 }: LightAudioPlayerProps) {
   const {
@@ -64,11 +71,45 @@ export function LightAudioPlayer({
     effectiveVolume,
     combinedError,
     transportDisabled,
+    repeatMode,
+    isScrubbing,
     togglePlay,
     handleSeek,
+    beginScrub,
+    endScrub,
+    skipBy,
     handleVolumeInput,
+    adjustVolume,
     toggleMute,
-  } = useAudioTransport({ src, loading, error, autoPlay, onEnded });
+    toggleRepeat,
+  } = useAudioTransport({
+    src,
+    loading,
+    error,
+    autoPlay,
+    onEnded,
+    mediaTitle: title,
+    hasPrevious,
+    hasNext,
+    onPrevious,
+    onNext,
+  });
+
+  useAudioPlayerHotkeys({
+    enabled: hotkeysEnabled,
+    transportDisabled,
+    togglePlay,
+    toggleMute,
+    toggleRepeat,
+    skipBy,
+    handleSeek,
+    adjustVolume,
+    duration,
+    hasPrevious,
+    hasNext,
+    onPrevious,
+    onNext,
+  });
 
   const isEmbedded = variant === "embedded";
   const formatLabel = audioFormatLabel(mimeType, title);
@@ -76,6 +117,30 @@ export function LightAudioPlayer({
   const playIconSize = isEmbedded ? "h-4 w-4" : "h-[18px] w-[18px]";
   const progressPercent =
     duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
+  const repeatActive = repeatMode === "track";
+
+  // Human: Prev/next skip through the gallery when available; otherwise jump ±10 seconds.
+  // Agent: CALLS onPrevious/onNext or skipBy; buttons stay enabled when relative skip is possible.
+  const handlePreviousClick = () => {
+    if (hasPrevious && onPrevious) {
+      onPrevious();
+      return;
+    }
+    skipBy(-AUDIO_SKIP_SECONDS);
+  };
+
+  const handleNextClick = () => {
+    if (hasNext && onNext) {
+      onNext();
+      return;
+    }
+    skipBy(AUDIO_SKIP_SECONDS);
+  };
+
+  const previousDisabled = transportDisabled || (!hasPrevious && duration <= 0);
+  const nextDisabled = transportDisabled || (!hasNext && duration <= 0);
+
+  const showWaveform = isEmbedded || Boolean(waveformBars?.length);
 
   return (
     <div
@@ -133,18 +198,29 @@ export function LightAudioPlayer({
         </p>
       ) : null}
 
-      {/* Human: Pencil Audio Preview Dialog — waveform row then seek rail + time labels (gap 8). */}
-      {isEmbedded ? (
+      {/* Human: Waveform + seek rail — embedded always; default when peaks are available. */}
+      {showWaveform ? (
         <div className="flex flex-col gap-2">
-          <AudioWaveformBars progressPercent={progressPercent} bars={waveformBars} />
+          <AudioWaveformBars
+            progressPercent={progressPercent}
+            bars={waveformBars}
+            duration={duration}
+            disabled={transportDisabled}
+            onSeek={handleSeek}
+            onSeekStart={beginScrub}
+            onSeekEnd={endScrub}
+          />
           <AudioSeekBar
             progress={progress}
             duration={duration}
             bufferedSegments={bufferedSegments}
             disabled={transportDisabled}
+            isScrubbing={isScrubbing}
             showTimeLabels
-            variant="minimal"
+            variant={isEmbedded ? "minimal" : "default"}
             onSeek={handleSeek}
+            onSeekStart={beginScrub}
+            onSeekEnd={endScrub}
           />
         </div>
       ) : (
@@ -153,27 +229,43 @@ export function LightAudioPlayer({
           duration={duration}
           bufferedSegments={bufferedSegments}
           disabled={transportDisabled}
+          isScrubbing={isScrubbing}
           showTimeLabels
           variant="default"
           onSeek={handleSeek}
+          onSeekStart={beginScrub}
+          onSeekEnd={endScrub}
         />
       )}
 
-      {/* Human: Transport row — centered playback cluster with volume rail on the right per Pencil layout. */}
+      {/* Human: Transport row — repeat, prev/play/next, volume rail. */}
       <div
         className={cn(
           "flex items-center justify-between",
           isEmbedded ? "h-11" : "h-12",
         )}
       >
-        <div className={cn("shrink-0", isEmbedded ? "w-[126px]" : "w-[120px]")} aria-hidden />
+        <div className={cn("flex shrink-0 items-center", isEmbedded ? "w-[126px]" : "w-[120px]")}>
+          <button
+            type="button"
+            onClick={toggleRepeat}
+            aria-label={repeatActive ? "Disable repeat" : "Repeat track"}
+            aria-pressed={repeatActive}
+            className={cn(
+              "inline-flex h-8 w-8 items-center justify-center transition-colors",
+              repeatActive ? "text-blue-600" : "text-[#666666] hover:text-[#1A1A1A]",
+            )}
+          >
+            <Repeat className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
 
         <div className="flex items-center gap-5">
           <button
             type="button"
-            onClick={onPrevious}
-            disabled={!hasPrevious || transportDisabled}
-            aria-label="Previous track"
+            onClick={handlePreviousClick}
+            disabled={previousDisabled}
+            aria-label={hasPrevious ? "Previous track" : `Skip back ${AUDIO_SKIP_SECONDS} seconds`}
             className={cn(
               "inline-flex items-center justify-center transition-opacity disabled:opacity-40 disabled:pointer-events-none",
               isEmbedded ? "text-[#666666]" : "text-[#1A1A1A]",
@@ -203,9 +295,9 @@ export function LightAudioPlayer({
 
           <button
             type="button"
-            onClick={onNext}
-            disabled={!hasNext || transportDisabled}
-            aria-label="Next track"
+            onClick={handleNextClick}
+            disabled={nextDisabled}
+            aria-label={hasNext ? "Next track" : `Skip forward ${AUDIO_SKIP_SECONDS} seconds`}
             className={cn(
               "inline-flex items-center justify-center transition-opacity disabled:opacity-40 disabled:pointer-events-none",
               isEmbedded ? "text-[#666666]" : "text-[#1A1A1A]",
@@ -217,58 +309,16 @@ export function LightAudioPlayer({
 
         <div
           className={cn(
-            "flex items-center gap-2 min-w-0 shrink-0",
-            isEmbedded ? "w-[126px] justify-end" : "w-[120px] justify-end",
+            "flex items-center justify-end min-w-0 shrink-0",
+            isEmbedded ? "w-[126px]" : "w-[120px]",
           )}
         >
-          <button
-            type="button"
-            onClick={toggleMute}
-            aria-label={effectiveVolume === 0 ? "Unmute" : "Mute"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[#666666] transition-colors hover:text-[#1A1A1A]"
-          >
-            {effectiveVolume === 0 ? (
-              <VolumeX className="h-[18px] w-[18px]" strokeWidth={1.75} />
-            ) : (
-              <Volume2 className="h-[18px] w-[18px]" strokeWidth={1.75} />
-            )}
-          </button>
-
-          {/* Human: Volume rail — 80px default core, 100px embedded dialog; 4px/6px track heights. */}
-          <div
-            className={cn(
-              "relative cursor-pointer",
-              isEmbedded ? "h-1.5 w-[100px]" : "h-3 w-20",
-            )}
-          >
-            <div
-              className={cn(
-                "absolute inset-x-0 rounded-sm bg-[#E5E7EB]",
-                isEmbedded ? "top-0 h-1.5" : "top-1/2 h-1 -translate-y-1/2",
-              )}
-            />
-            <div
-              className={cn(
-                "absolute left-0 rounded-sm",
-                isEmbedded ? "top-0 h-1.5 bg-[#4B5563]" : "top-1/2 h-1 -translate-y-1/2 bg-[#666666]",
-              )}
-              style={{ width: `${effectiveVolume * 100}%` }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 rounded-full bg-[#1A1A1A] pointer-events-none h-2 w-2"
-              style={{ left: `calc(${effectiveVolume * 100}% - 4px)` }}
-            />
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={effectiveVolume}
-              onChange={handleVolumeInput}
-              aria-label="Volume"
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-            />
-          </div>
+          <VolumeRail
+            effectiveVolume={effectiveVolume}
+            onToggleMute={toggleMute}
+            onVolumeInput={handleVolumeInput}
+            variant={isEmbedded ? "embedded" : "default"}
+          />
         </div>
       </div>
 

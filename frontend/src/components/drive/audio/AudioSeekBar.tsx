@@ -16,7 +16,11 @@ type AudioSeekBarProps = {
   disabled?: boolean;
   showTimeLabels?: boolean;
   variant?: AudioSeekBarVariant;
+  /** Human: True while the user is dragging — disables width/left transitions so scrubbing stays snappy. */
+  isScrubbing?: boolean;
   onSeek: (timeSeconds: number) => void;
+  onSeekStart?: () => void;
+  onSeekEnd?: () => void;
   className?: string;
 };
 
@@ -27,17 +31,22 @@ export function AudioSeekBar({
   disabled = false,
   showTimeLabels = true,
   variant = "default",
+  isScrubbing = false,
   onSeek,
+  onSeekStart,
+  onSeekEnd,
   className = "",
 }: AudioSeekBarProps) {
   const trackRailRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
+  const [touchScrubPercent, setTouchScrubPercent] = useState<number | null>(null);
   const isMinimal = variant === "minimal";
   const isMobileSheet = variant === "mobile-sheet";
   const isMobileCard = variant === "mobile-card";
   const isMobile = isMobileSheet || isMobileCard;
   const showTeardropHover = !isMobile;
-  const isHovering = showTeardropHover && hoverPercent !== null;
+  const isHovering = showTeardropHover && hoverPercent !== null && !isScrubbing;
+  const animateProgress = !isScrubbing;
 
   // Human: Map clientX to 0–100% on the visible rail — used by pointer move on input + wrapper.
   // Agent: READS trackRailRef rect; SETS hoverPercent; IGNORES when pointer leaves rail width.
@@ -72,6 +81,11 @@ export function AudioSeekBar({
   const hoverSeconds =
     isHovering && trackDuration ? (trackDuration * (hoverPercent ?? 0)) / 100 : 0;
   const seekInputDisabled = disabled || trackDuration <= 0;
+  const touchPreviewPercent = isMobile && isScrubbing ? (touchScrubPercent ?? progressPercent) : null;
+  const touchPreviewSeconds =
+    touchPreviewPercent !== null && trackDuration > 0
+      ? (trackDuration * touchPreviewPercent) / 100
+      : 0;
 
   // Human: Convert each TimeRanges entry into left/width percentages on the seek rail.
   // Agent: MAPS bufferedSegments against trackDuration; CLAMPS segment bounds to track length.
@@ -90,7 +104,21 @@ export function AudioSeekBar({
     .filter((bar): bar is NonNullable<typeof bar> => bar !== null);
 
   function handleSeekInput(event: React.ChangeEvent<HTMLInputElement>) {
-    onSeek(Number(event.target.value));
+    const next = Number(event.target.value);
+    onSeek(next);
+    if (isMobile && trackDuration > 0) {
+      setTouchScrubPercent(Math.min(100, (next / trackDuration) * 100));
+    }
+  }
+
+  function handlePointerDown() {
+    if (seekInputDisabled) return;
+    onSeekStart?.();
+  }
+
+  function handlePointerUp() {
+    onSeekEnd?.();
+    setTouchScrubPercent(null);
   }
 
   return (
@@ -127,19 +155,24 @@ export function AudioSeekBar({
                 !isMobile && !isMinimal && "h-1 top-1/2 -translate-y-1/2",
               )}
             >
-              {!isMinimal &&
-                !isMobile &&
-                bufferedBars.map((bar) => (
-                  <div
-                    key={bar.key}
-                    className="absolute top-1/2 -translate-y-1/2 h-1 rounded-sm bg-[#888888]/25"
-                    style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
-                  />
-                ))}
+              {bufferedBars.map((bar) => (
+                <div
+                  key={bar.key}
+                  className={cn(
+                    "absolute rounded-sm bg-[#888888]/25",
+                    isMobileSheet && "top-1/2 h-1 -translate-y-1/2",
+                    isMobileCard && "top-0 h-1.5",
+                    isMinimal && "top-0 h-1.5",
+                    !isMobile && !isMinimal && "top-1/2 h-1 -translate-y-1/2",
+                  )}
+                  style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
+                />
+              ))}
 
               <div
                 className={cn(
-                  "absolute top-0 left-0 rounded-sm transition-[width] duration-300 ease-linear z-[1]",
+                  "absolute top-0 left-0 rounded-sm z-[1]",
+                  animateProgress && "transition-[width] duration-100 ease-linear",
                   isMobileSheet && "h-1 bg-blue-600",
                   isMobileCard && "h-1.5 rounded-[3px] bg-blue-600",
                   isMinimal && "h-1.5 bg-[#1A1A1A]",
@@ -152,7 +185,8 @@ export function AudioSeekBar({
             {/* Human: Playback thumb — mobile-sheet white disc w/ blue ring; mobile-card solid blue circle. */}
             <div
               className={cn(
-                "absolute top-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10 transition-[left] duration-300 ease-linear",
+                "absolute top-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10",
+                animateProgress && "transition-[left] duration-100 ease-linear",
                 isMobileSheet &&
                   "h-4 w-4 border-[3px] border-blue-600 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.1)]",
                 isMobileCard && "h-3 w-3 bg-blue-600",
@@ -162,9 +196,7 @@ export function AudioSeekBar({
               style={{
                 left: isMobileSheet
                   ? `calc(${progressPercent}% - 8px)`
-                  : isMobileCard
-                    ? `calc(${progressPercent}% - 6px)`
-                    : `calc(${progressPercent}% - 6px)`,
+                  : `calc(${progressPercent}% - 6px)`,
               }}
             />
 
@@ -188,6 +220,21 @@ export function AudioSeekBar({
                 <AudioSeekTeardropTooltip timeLabel={formatAudioTime(hoverSeconds)} />
               </div>
             ) : null}
+
+            {/* Human: Mobile scrub time bubble — shown while dragging the range thumb. */}
+            {touchPreviewPercent !== null ? (
+              <div
+                className="absolute bottom-full z-50 mb-2 flex flex-col items-center pointer-events-none"
+                style={{
+                  left: `${touchPreviewPercent}%`,
+                  transform: "translateX(-50%)",
+                }}
+              >
+                <span className="rounded-md bg-[#1A1A1A] px-2 py-1 text-[10px] font-bold tabular-nums text-white">
+                  {formatAudioTime(touchPreviewSeconds)}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {/* Human: Keep input enabled so pointermove fires; block seek commits when transport is disabled. */}
@@ -201,6 +248,10 @@ export function AudioSeekBar({
               if (seekInputDisabled) return;
               handleSeekInput(event);
             }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onBlur={handlePointerUp}
             onPointerMove={showTeardropHover ? handlePointerMove : undefined}
             onPointerLeave={showTeardropHover ? handlePointerLeave : undefined}
             aria-label="Seek"

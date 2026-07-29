@@ -1,11 +1,15 @@
 // Human: Inline audio card for single-file public shares — Pencil mobile card + desktop Audio Player Core.
-// Agent: FETCHES stream URL; RENDERS MobileAudioPlayerCard below lg, LightAudioPlayer default on desktop.
+// Agent: FETCHES stream URL + waveform; RENDERS MobileAudioPlayerCard below lg, LightAudioPlayer default on desktop.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PublicShareMobileActionStack } from "@/components/public-share/PublicShareMobileActionStack";
 import { PublicShareSecurityBadge } from "@/components/public-share/PublicShareSecurityBadge";
 import type { FileItem } from "@/api/client";
-import { fetchPublicShareStreamUrlForPreview, getErrorMessage } from "@/api/client";
+import {
+  fetchPublicShareStreamUrlForPreview,
+  fetchPublicShareWaveform,
+  getErrorMessage,
+} from "@/api/client";
 import { LightAudioPlayer } from "@/components/drive/audio/LightAudioPlayer";
 import { MobileAudioPlayerCard } from "@/components/drive/audio/MobileAudioPlayerCard";
 import { useIsDesktopPlayer } from "@/hooks/useVideoPlayerLayout";
@@ -41,6 +45,7 @@ export function PublicShareInlineAudio({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [waveformBars, setWaveformBars] = useState<number[] | null>(null);
   const revokeRef = useRef<string | null>(null);
 
   const clearUrl = useCallback(() => {
@@ -74,6 +79,26 @@ export function PublicShareInlineAudio({
     };
   }, [token, file, sharePassword, clearUrl]);
 
+  // Human: Load analyzed waveform peaks for public single-file audio when the sidecar is ready.
+  // Agent: CALLS fetchPublicShareWaveform; SETS waveformBars; SILENT fallback when pending/failed.
+  useEffect(() => {
+    if (!file.audio_waveform_ready) {
+      setWaveformBars(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchPublicShareWaveform(token, file.id, sharePassword)
+      .then((artifact) => {
+        if (!cancelled) setWaveformBars(artifact.bars);
+      })
+      .catch(() => {
+        if (!cancelled) setWaveformBars(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, file.id, file.audio_waveform_ready, sharePassword]);
+
   const formatLabel = audioFormatLabel(file.mime_type, file.name);
   const specsLabel = `${formatLabel} • ${formatBytes(file.size_bytes)}`;
   const downloadLabel = `Download Audio (${formatBytes(file.size_bytes)})`;
@@ -84,6 +109,7 @@ export function PublicShareInlineAudio({
     mimeType: file.mime_type,
     loading,
     error,
+    waveformBars,
   };
 
   if (!isDesktop) {

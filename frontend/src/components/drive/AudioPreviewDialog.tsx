@@ -216,17 +216,9 @@ export function AudioPreviewDialog({
     onFileChange(tracks[currentIndex + 1]!);
   }, [currentIndex, hasNext, onFileChange, tracks]);
 
-  const goPreviousRef = useRef(goPrevious);
-  const goNextRef = useRef(goNext);
-
-  useEffect(() => {
-    goPreviousRef.current = goPrevious;
-    goNextRef.current = goNext;
-  }, [goPrevious, goNext]);
-
   const viewportRef = useRef<HTMLDivElement>(null);
 
-  // Human: Focus the player pane when opened so arrow keys reach gallery navigation first.
+  // Human: Focus the player pane when opened so keyboard shortcuts reach gallery navigation first.
   // Agent: FOCUSES viewportRef after paint; RE-FOCUSES when the active track changes.
   useEffect(() => {
     if (!open || !isDesktop) return;
@@ -236,40 +228,7 @@ export function AudioPreviewDialog({
     return () => window.clearTimeout(timer);
   }, [open, file?.id, isDesktop]);
 
-  // Human: Arrow keys move between tracks; capture phase runs before the dialog trap swallows them.
-  // Agent: LISTENS document keydown capture while open; CALLS goPrevious/goNext via refs.
-  useEffect(() => {
-    if (!open) return;
-
-    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.isComposing) return;
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        event.stopPropagation();
-        goPreviousRef.current();
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        event.stopPropagation();
-        goNextRef.current();
-      }
-    }
-
-    document.addEventListener("keydown", handleDocumentKeyDown, true);
-    return () => document.removeEventListener("keydown", handleDocumentKeyDown, true);
-  }, [open]);
-
-  const handleContentKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      goPrevious();
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      goNext();
-    }
-  };
-
-  // Human: Auto-advance to the next track in the folder gallery when playback ends.
+  // Human: Auto-advance to the next track in the folder gallery when playback ends (unless track-loop).
   // Agent: CALLS goNext when hasNext; STOPS at last track otherwise.
   const handleTrackEnded = useCallback(() => {
     if (hasNext) {
@@ -313,7 +272,6 @@ export function AudioPreviewDialog({
       <DialogContent
         className="gap-5 overflow-visible border border-[#E5E7EB] bg-white p-8 pt-10 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:max-w-[640px] rounded-3xl"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
-        onKeyDown={handleContentKeyDown}
       >
         {/* Human: Dialog header — title + filename subtitle per Pencil Audio Preview Dialog card. */}
         <DialogHeader className="gap-2 text-left">
@@ -336,6 +294,7 @@ export function AudioPreviewDialog({
             key={file?.id}
             variant="embedded"
             waveformBars={waveformBars}
+            hotkeysEnabled={open}
             {...playerProps}
           />
         </div>

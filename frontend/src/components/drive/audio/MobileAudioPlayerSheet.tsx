@@ -11,14 +11,18 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 import { AudioSeekBar } from "@/components/drive/audio/AudioSeekBar";
 import { AudioWaveformBars } from "@/components/drive/audio/audio-waveform-bars";
-import { useAudioTransport } from "@/components/drive/audio/useAudioTransport";
+import {
+  AUDIO_SKIP_SECONDS,
+  useAudioTransport,
+} from "@/components/drive/audio/useAudioTransport";
+import { useAudioPlayerHotkeys } from "@/components/drive/audio/useAudioPlayerHotkeys";
+import { VolumeRail } from "@/components/drive/audio/VolumeRail";
 import { Sheet, SheetClose, SheetContent } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 type MobileAudioPlayerSheetProps = {
   open: boolean;
@@ -63,13 +67,67 @@ export function MobileAudioPlayerSheet({
     effectiveVolume,
     combinedError,
     transportDisabled,
+    repeatMode,
+    isScrubbing,
     togglePlay,
     handleSeek,
+    beginScrub,
+    endScrub,
+    skipBy,
     handleVolumeInput,
+    adjustVolume,
     toggleMute,
-  } = useAudioTransport({ src, loading, error, autoPlay, onEnded });
+    toggleRepeat,
+  } = useAudioTransport({
+    src,
+    loading,
+    error,
+    autoPlay,
+    onEnded,
+    mediaTitle: title,
+    hasPrevious,
+    hasNext,
+    onPrevious,
+    onNext,
+  });
+
+  useAudioPlayerHotkeys({
+    enabled: open,
+    transportDisabled,
+    togglePlay,
+    toggleMute,
+    toggleRepeat,
+    skipBy,
+    handleSeek,
+    adjustVolume,
+    duration,
+    hasPrevious,
+    hasNext,
+    onPrevious,
+    onNext,
+  });
 
   const progressPercent = duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
+  const repeatActive = repeatMode === "track";
+
+  const handlePreviousClick = () => {
+    if (hasPrevious && onPrevious) {
+      onPrevious();
+      return;
+    }
+    skipBy(-AUDIO_SKIP_SECONDS);
+  };
+
+  const handleNextClick = () => {
+    if (hasNext && onNext) {
+      onNext();
+      return;
+    }
+    skipBy(AUDIO_SKIP_SECONDS);
+  };
+
+  const previousDisabled = transportDisabled || (!hasPrevious && duration <= 0);
+  const nextDisabled = transportDisabled || (!hasNext && duration <= 0);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -122,7 +180,15 @@ export function MobileAudioPlayerSheet({
           ) : null}
 
           <div className="mt-4">
-            <AudioWaveformBars progressPercent={progressPercent} bars={waveformBars} />
+            <AudioWaveformBars
+              progressPercent={progressPercent}
+              bars={waveformBars}
+              duration={duration}
+              disabled={transportDisabled}
+              onSeek={handleSeek}
+              onSeekStart={beginScrub}
+              onSeekEnd={endScrub}
+            />
           </div>
 
           <div className="mt-2">
@@ -131,13 +197,16 @@ export function MobileAudioPlayerSheet({
               duration={duration}
               bufferedSegments={bufferedSegments}
               disabled={transportDisabled}
+              isScrubbing={isScrubbing}
               showTimeLabels
               variant="mobile-sheet"
               onSeek={handleSeek}
+              onSeekStart={beginScrub}
+              onSeekEnd={endScrub}
             />
           </div>
 
-          {/* Human: Playback cluster — shuffle/repeat decorative; prev/next wired to gallery handlers. */}
+          {/* Human: Playback cluster — shuffle decorative; repeat wired; prev/next gallery or ±10s. */}
           <div className="mt-3 flex items-center justify-around px-0 py-3">
             <button
               type="button"
@@ -151,9 +220,9 @@ export function MobileAudioPlayerSheet({
 
             <button
               type="button"
-              onClick={onPrevious}
-              disabled={!hasPrevious || transportDisabled}
-              aria-label="Previous track"
+              onClick={handlePreviousClick}
+              disabled={previousDisabled}
+              aria-label={hasPrevious ? "Previous track" : `Skip back ${AUDIO_SKIP_SECONDS} seconds`}
               className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
             >
               <SkipBack className="h-6 w-6" strokeWidth={1.75} />
@@ -177,9 +246,9 @@ export function MobileAudioPlayerSheet({
 
             <button
               type="button"
-              onClick={onNext}
-              disabled={!hasNext || transportDisabled}
-              aria-label="Next track"
+              onClick={handleNextClick}
+              disabled={nextDisabled}
+              aria-label={hasNext ? "Next track" : `Skip forward ${AUDIO_SKIP_SECONDS} seconds`}
               className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
             >
               <SkipForward className="h-6 w-6" strokeWidth={1.75} />
@@ -187,10 +256,13 @@ export function MobileAudioPlayerSheet({
 
             <button
               type="button"
-              disabled
-              aria-hidden
-              tabIndex={-1}
-              className="inline-flex items-center justify-center text-[#666666] opacity-40"
+              onClick={toggleRepeat}
+              aria-label={repeatActive ? "Disable repeat" : "Repeat track"}
+              aria-pressed={repeatActive}
+              className={cn(
+                "inline-flex items-center justify-center transition-colors",
+                repeatActive ? "text-blue-600" : "text-[#666666]",
+              )}
             >
               <Repeat className="h-5 w-5" strokeWidth={1.75} />
             </button>
@@ -198,41 +270,12 @@ export function MobileAudioPlayerSheet({
 
           {/* Human: Volume rail left; output label right — device picker is display-only on web. */}
           <div className="mt-2 flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={toggleMute}
-                aria-label={effectiveVolume === 0 ? "Unmute" : "Mute"}
-                className="inline-flex h-8 w-8 items-center justify-center text-[#666666]"
-              >
-                {effectiveVolume === 0 ? (
-                  <VolumeX className="h-4 w-4" strokeWidth={1.75} />
-                ) : (
-                  <Volume2 className="h-4 w-4" strokeWidth={1.75} />
-                )}
-              </button>
-              <div className="relative h-3 w-[90px]">
-                <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-sm bg-[#E5E7EB]" />
-                <div
-                  className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-sm bg-[#666666]"
-                  style={{ width: `${effectiveVolume * 100}%` }}
-                />
-                <div
-                  className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#1A1A1A] pointer-events-none"
-                  style={{ left: `calc(${effectiveVolume * 100}% - 4px)` }}
-                />
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={effectiveVolume}
-                  onChange={handleVolumeInput}
-                  aria-label="Volume"
-                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                />
-              </div>
-            </div>
+            <VolumeRail
+              effectiveVolume={effectiveVolume}
+              onToggleMute={toggleMute}
+              onVolumeInput={handleVolumeInput}
+              variant="compact"
+            />
 
             <div
               className="flex items-center gap-1 text-[11px] font-medium text-[#666666]"
