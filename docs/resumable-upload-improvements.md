@@ -66,6 +66,20 @@ Improvements should preserve:
 | **DnD upload** | Drop OS files onto My Cloud → Upload dialog + same conflict flow |
 | **Signed-url RL** | Separate mint rate limit + metrics |
 
+## Shipped (2026-07-29 hardening)
+
+| Area | What landed |
+|------|-------------|
+| **Instant dedup** | `POST /complete` with session `content_hash` matching library skips all part PUTs |
+| **Hash plumbing** | Dialog preflight hash is reused by the upload batch (no double full-file hash) |
+| **Bounded hashing** | Parallel hash pool (3) + progress label while preparing large batches |
+| **Single-pass finalize** | Staged complete hashes while writing the final object (no second full GET) |
+| **Proxy parts** | Stream `Bytes` into storage without `Vec` clone-per-retry |
+| **Part checksums** | Proxy path verifies `x-ownly-part-sha256` when sent; confirm re-hashes staged object when `content_sha256` is sent |
+| **Session caps** | Max 32 active sessions/user; 24h TTL; 6h idle abort |
+| **Honest phases** | Generic files show Indexing/Saving — AES encrypt label only for media/HLS |
+| **UX** | Dialog drop zone; hash progress; toast re-pick; multi-file reattach after reload; byte-level progress |
+
 ## Remaining work
 
 ### 1. iOS full background URLSession lifecycle
@@ -83,7 +97,7 @@ Improvements should preserve:
 | Idea | Reason |
 |------|--------|
 | **TUS protocol** | Custom session API already works; adds dependency without clear win |
-| **Resume after reload without re-picking file** | Browser security prevents access to `File` bytes; web **Choose file** UX shipped |
+| **Resume after reload without re-picking file** | Browser security prevents access to `File` bytes; web **Choose file** + multi-reattach UX shipped |
 | **Lower chunk size globally** | More requests and DB rows; tune only if proxies misbehave |
 
 ---

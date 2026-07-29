@@ -15,7 +15,7 @@ use crate::{
         handlers::{FileDto, FILE_COLUMNS},
         upload_spool::{cleanup_upload_work_dir, storage_put_spooled_file, upload_is_video},
         upload_staging::{
-            cleanup_staging_prefix, hash_staged_parts, put_final_from_staged_parts, staging_part_keys,
+            cleanup_staging_prefix, hash_and_put_final_from_staged_parts, staging_part_keys,
         },
     },
     jobs::{
@@ -59,6 +59,22 @@ pub struct StagedUploadInput {
     pub total_parts: i32,
     pub size_bytes: u64,
     pub resumable: bool,
+    /// Human: Client-supplied hash from session create — enables early dedup without reading parts.
+    pub known_content_hash: Option<String>,
+}
+
+/// Human: Instant per-user dedup when content_hash already matches an active library file (no part bytes).
+/// Agent: PASSED from complete_session when parts were skipped; SHARES storage_key via insert_deduped_file.
+pub struct InstantDedupInput {
+    pub file_id: String,
+    pub user_id: String,
+    pub folder_id: Option<String>,
+    pub filename: String,
+    pub mime: String,
+    pub size_bytes: u64,
+    pub content_hash: String,
+    pub resumable: bool,
+    pub staged: bool,
 }
 
 // Human: Hash spool, PUT to Nebular (or queue HLS), insert files row, enqueue derivative jobs, audit.
@@ -116,8 +132,75 @@ pub async fn finalize_spooled_upload(
     finalize_new_blob_from_spool(state, request_id, headers, input, content_hash, is_video).await
 }
 
+// Human: Register a new library row that shares an existing blob when the client hash matches.
+// Agent: NO part reads; REQUIRES find_dedup_source hit for same user+size; AUDIT files.upload deduped.
+pub async fn finalize_instant_dedup_upload(
+    state: &Arc<AppState>,
+    request_id: &request_tracking::RequestId,
+    headers: &HeaderMap,
+    input: InstantDedupInput,
+) -> Result<FileDto, AppError> {
+    if input.size_bytes == 0 {
+        return Err(AppError::BadRequest("file is required".into()));
+    }
+
+    crate::quota::ensure_within_quota(&state.pool, &input.user_id, input.size_bytes as i64).await?;
+
+    let is_video = upload_is_video(&input.filename, &input.mime);
+    let source = find_dedup_source(
+        &state.pool,
+        &input.user_id,
+        &input.content_hash,
+        input.size_bytes as i64,
+        is_video,
+    )
+    .await?
+    .ok_or_else(|| {
+        AppError::Conflict(
+            "instant dedup is not available — content is not already in your library".into(),
+        )
+    })?;
+
+    let file = insert_deduped_file(
+        state,
+        &input.file_id,
+        &input.user_id,
+        &input.folder_id,
+        &input.filename,
+        &input.mime,
+        &input.content_hash,
+        &source,
+    )
+    .await?;
+
+    write_upload_audit(
+        state,
+        headers,
+        &input.user_id,
+        &input.file_id,
+        &input.filename,
+        file.size_bytes,
+        input.resumable,
+        true,
+        Some(&source.id),
+        input.staged,
+    )
+    .await;
+
+    tracing::info!(
+        request_id = %request_id.0,
+        file_id = %input.file_id,
+        source_file_id = %source.id,
+        storage_key = %source.storage_key,
+        instant = true,
+        "files.upload instant deduped to existing storage_key"
+    );
+
+    Ok(file)
+}
+
 // Human: Finalize non-video resumable parts already stored under upload-staging/{session}/.
-// Agent: HASHES staged parts; DEDUPS or STREAM-PUTs final key; CLEANS staging prefix; ENQUEUES jobs.
+// Agent: EARLY dedup via known_content_hash; ELSE single-pass hash+PUT; CLEANS staging; ENQUEUES jobs.
 pub async fn finalize_staged_upload(
     state: &Arc<AppState>,
     request_id: &request_tracking::RequestId,
@@ -131,8 +214,6 @@ pub async fn finalize_staged_upload(
 
     crate::quota::ensure_within_quota(&state.pool, &input.user_id, input.size_bytes as i64).await?;
 
-    let part_keys = staging_part_keys(&input.session_id, input.total_parts);
-    let content_hash = hash_staged_parts(&state.storage, &part_keys).await?;
     let is_video = upload_is_video(&input.filename, &input.mime);
     if is_video {
         cleanup_staging_prefix(&state.storage, &input.session_id).await;
@@ -141,6 +222,87 @@ pub async fn finalize_staged_upload(
         )));
     }
 
+    // Human: Skip all object reads when the session already carries a matching library hash.
+    if let Some(ref known_hash) = input.known_content_hash {
+        if let Some(source) = find_dedup_source(
+            &state.pool,
+            &input.user_id,
+            known_hash,
+            input.size_bytes as i64,
+            false,
+        )
+        .await?
+        {
+            let file = insert_deduped_file(
+                state,
+                &input.file_id,
+                &input.user_id,
+                &input.folder_id,
+                &input.filename,
+                &input.mime,
+                known_hash,
+                &source,
+            )
+            .await?;
+            cleanup_staging_prefix(&state.storage, &input.session_id).await;
+            write_upload_audit(
+                state,
+                headers,
+                &input.user_id,
+                &input.file_id,
+                &input.filename,
+                file.size_bytes,
+                input.resumable,
+                true,
+                Some(&source.id),
+                true,
+            )
+            .await;
+            tracing::info!(
+                request_id = %request_id.0,
+                file_id = %input.file_id,
+                source_file_id = %source.id,
+                storage_key = %source.storage_key,
+                "files.upload staged deduped to existing storage_key (known hash)"
+            );
+            return Ok(file);
+        }
+    }
+
+    let part_keys = staging_part_keys(&input.session_id, input.total_parts);
+    let storage_put_started = Instant::now();
+    tracing::info!(
+        request_id = %request_id.0,
+        file_id = %input.file_id,
+        storage_key = %input.storage_key,
+        size_bytes = input.size_bytes,
+        "files.upload staged object storage PUT starting (single-pass hash)"
+    );
+
+    let content_hash = match hash_and_put_final_from_staged_parts(
+        &state.storage,
+        &input.storage_key,
+        &input.mime,
+        &part_keys,
+        input.size_bytes,
+    )
+    .await
+    {
+        Ok(hash) => hash,
+        Err(error) => {
+            tracing::error!(
+                request_id = %request_id.0,
+                file_id = %input.file_id,
+                storage_key = %input.storage_key,
+                storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
+                error = %error,
+                "files.upload staged object storage PUT failed"
+            );
+            return Err(error);
+        }
+    };
+
+    // Human: Rare race — another concurrent upload finished the same bytes first; drop our PUT orphan.
     if let Some(source) = find_dedup_source(
         &state.pool,
         &input.user_id,
@@ -150,6 +312,7 @@ pub async fn finalize_staged_upload(
     )
     .await?
     {
+        let _ = state.storage.delete(&input.storage_key).await;
         let file = insert_deduped_file(
             state,
             &input.file_id,
@@ -175,43 +338,7 @@ pub async fn finalize_staged_upload(
             true,
         )
         .await;
-        tracing::info!(
-            request_id = %request_id.0,
-            file_id = %input.file_id,
-            source_file_id = %source.id,
-            storage_key = %source.storage_key,
-            "files.upload staged deduped to existing storage_key"
-        );
         return Ok(file);
-    }
-
-    let storage_put_started = Instant::now();
-    tracing::info!(
-        request_id = %request_id.0,
-        file_id = %input.file_id,
-        storage_key = %input.storage_key,
-        size_bytes = input.size_bytes,
-        "files.upload staged object storage PUT starting"
-    );
-
-    if let Err(error) = put_final_from_staged_parts(
-        &state.storage,
-        &input.storage_key,
-        &input.mime,
-        &part_keys,
-        input.size_bytes,
-    )
-    .await
-    {
-        tracing::error!(
-            request_id = %request_id.0,
-            file_id = %input.file_id,
-            storage_key = %input.storage_key,
-            storage_put_ms = storage_put_started.elapsed().as_millis() as u64,
-            error = %error,
-            "files.upload staged object storage PUT failed"
-        );
-        return Err(error);
     }
 
     tracing::info!(

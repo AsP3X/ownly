@@ -60,4 +60,20 @@ describe("ResumableServerSession direct_upload", () => {
     };
     expect(Boolean(session.direct_upload)).toBe(false);
   });
+
+  it("exposes dedup_source_file_id for instant complete without parts", () => {
+    const session: ResumableServerSession = {
+      session_id: "s1",
+      file_id: "f1",
+      chunk_size: UPLOAD_CHUNK_SIZE_BYTES,
+      total_parts: 2,
+      total_size: UPLOAD_CHUNK_SIZE_BYTES * 2,
+      bytes_received: 0,
+      parts_received: [],
+      status: "active",
+      expires_at: new Date().toISOString(),
+      dedup_source_file_id: "existing-file",
+    };
+    expect(session.dedup_source_file_id).toBe("existing-file");
+  });
 });

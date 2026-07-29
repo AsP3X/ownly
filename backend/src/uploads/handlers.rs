@@ -11,6 +11,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use futures_util::stream;
+use sha2::{Digest, Sha256};
+
 use crate::{
     audit,
     auth::handlers::Claims,
@@ -19,23 +22,25 @@ use crate::{
         access::resolve_upload_file_owner,
         handlers::UploadResponse,
         upload_finalize::{
-            finalize_spooled_upload, finalize_staged_upload, SpooledUploadInput, StagedUploadInput,
+            finalize_instant_dedup_upload, finalize_spooled_upload, finalize_staged_upload,
+            InstantDedupInput, SpooledUploadInput, StagedUploadInput,
         },
         upload_spool::{cleanup_upload_work_dir, upload_is_video, upload_work_dir},
         upload_staging::{cleanup_staging_prefix, staging_part_key},
-        upload_validation::normalize_upload_filename,
+        upload_validation::{normalize_content_hash, normalize_upload_filename},
     },
     rate_limit,
     request_tracking,
+    storage::StorageStream,
     AppState,
 };
 
 use super::assemble::{append_part_to_source, resolve_session_source};
 use super::store::{
-    consume_part_signed_token, expected_part_size, insert_session, list_received_parts,
-    load_session_for_user, mark_aborted, mark_complete, mark_completing, record_part_with_checksum,
-    set_part_signed_token, total_parts, UploadSessionRow, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE,
-    MIN_CHUNK_SIZE,
+    consume_part_signed_token, count_active_sessions_for_user, expected_part_size, insert_session,
+    list_received_parts, load_session_for_user, mark_aborted, mark_complete, mark_completing,
+    record_part_with_checksum, set_part_signed_token, total_parts, UploadSessionRow,
+    DEFAULT_CHUNK_SIZE, MAX_ACTIVE_SESSIONS_PER_USER, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 
 #[derive(Debug, Deserialize)]
@@ -178,6 +183,13 @@ pub async fn create_session(
         ));
     }
 
+    let active_sessions = count_active_sessions_for_user(&state.pool, &claims.sub).await?;
+    if active_sessions >= MAX_ACTIVE_SESSIONS_PER_USER {
+        return Err(AppError::BadRequest(format!(
+            "too many active upload sessions (max {MAX_ACTIVE_SESSIONS_PER_USER}) — complete or cancel existing uploads first"
+        )));
+    }
+
     let filename = normalize_upload_filename(&body.filename)?;
     let file_owner_id = resolve_upload_file_owner(
         &state.pool,
@@ -208,12 +220,10 @@ pub async fn create_session(
         content_type.to_string()
     };
 
-    let content_hash = body
-        .content_hash
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| value.len() == 64)
-        .map(|value| value.to_ascii_lowercase());
+    let content_hash = match body.content_hash.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        Some(raw) => Some(normalize_content_hash(raw)?),
+        None => None,
+    };
 
     let is_video = upload_is_video(&filename, &mime);
     let mut dedup_source_id: Option<String> = None;
@@ -469,12 +479,26 @@ pub async fn confirm_part(
         )));
     }
 
-    let checksum = body
+    let checksum = match body
         .as_ref()
         .and_then(|json| json.content_sha256.as_deref())
         .map(str::trim)
-        .filter(|value| value.len() == 64)
-        .map(|value| value.to_ascii_lowercase());
+        .filter(|value| !value.is_empty())
+    {
+        Some(raw) => Some(normalize_content_hash(raw)?),
+        None => None,
+    };
+
+    // Human: Optional integrity — when the client sent a part digest, re-hash staged bytes on confirm.
+    // Agent: GET stream SHA-256 when checksum present; REJECTS mismatch before recording the part.
+    if let Some(ref expected_hash) = checksum {
+        let actual = hash_storage_object(&state.storage, &staging_key).await?;
+        if actual != *expected_hash {
+            return Err(AppError::BadRequest(format!(
+                "staged part {part_number} checksum mismatch"
+            )));
+        }
+    }
 
     let bytes_received = record_part_with_checksum(
         &state.pool,
@@ -484,9 +508,6 @@ pub async fn confirm_part(
         checksum.as_deref(),
     )
     .await?;
-
-    // Human: Placeholder part rows used size 0 for the token — adjust bytes_received if needed.
-    // Agent: record_part_with_checksum handles upsert when size was 0 vs expected.
 
     state.upload_metrics.inc_parts_confirmed();
     state.upload_metrics.inc_parts_direct();
@@ -531,6 +552,26 @@ pub async fn upload_part(
         )));
     }
 
+    let checksum = match headers
+        .get("x-ownly-part-sha256")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(raw) => Some(normalize_content_hash(raw)?),
+        None => None,
+    };
+
+    // Human: When the client provides a part digest, verify before writing so bad parts never stage.
+    if let Some(ref expected_hash) = checksum {
+        let actual = hex::encode(Sha256::digest(body.as_ref()));
+        if actual != *expected_hash {
+            return Err(AppError::BadRequest(format!(
+                "part {part_number} checksum mismatch"
+            )));
+        }
+    }
+
     let is_video = upload_is_video(&session.filename, &session.mime_type);
     if is_video {
         let work_dir = upload_work_dir(&session.file_id);
@@ -546,26 +587,27 @@ pub async fn upload_part(
         .await?;
     } else {
         let staging_key = staging_part_key(&session_id, part_number);
-        let part_bytes = body.to_vec();
-        crate::storage::put_with_retry(
+        // Human: Stream the buffered part body into object storage without an extra Vec clone per retry.
+        // Agent: Bytes is refcounted; put_stream_with_retry reopens a once-stream of the same buffer.
+        let part_len = body.len() as u64;
+        let body_for_stream = body.clone();
+        crate::storage::put_stream_with_retry(
             state.storage.as_ref(),
             &staging_key,
             "application/octet-stream",
+            part_len,
             || {
-                let part_bytes = part_bytes.clone();
-                async move { Ok(part_bytes) }
+                let body_for_stream = body_for_stream.clone();
+                async move {
+                    let stream: StorageStream =
+                        Box::pin(stream::once(async move { Ok::<Bytes, std::io::Error>(body_for_stream) }));
+                    Ok(stream)
+                }
             },
         )
         .await
         .map_err(|error| AppError::Storage(format!("stage upload part: {error}")))?;
     }
-
-    let checksum = headers
-        .get("x-ownly-part-sha256")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| value.len() == 64)
-        .map(|value| value.to_ascii_lowercase());
 
     let bytes_received = record_part_with_checksum(
         &state.pool,
@@ -596,7 +638,7 @@ pub async fn upload_part(
 }
 
 // Human: Assemble received parts and register the file using the shared finalize path.
-// Agent: POST /uploads/{id}/complete; video → spool finalize; non-video → staged finalize.
+// Agent: POST /uploads/{id}/complete; instant dedup when content_hash matches library; else parts required.
 pub async fn complete_session(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -609,13 +651,39 @@ pub async fn complete_session(
 
     let parts = total_parts(session.total_size, session.chunk_size as i64);
     let received = list_received_parts(&state.pool, &session_id).await?;
-    if received.len() as i32 != parts {
-        return Err(AppError::Conflict(format!(
-            "upload incomplete: received {} of {parts} parts",
-            received.len()
-        )));
-    }
-    if session.bytes_received != session.total_size {
+    let is_video = upload_is_video(&session.filename, &session.mime_type);
+    let file_owner_id = resolve_upload_file_owner(
+        &state.pool,
+        &claims.sub,
+        session.folder_id.as_deref(),
+    )
+    .await?;
+
+    // Human: Instant dedup — same-user content already in library; skip part requirement entirely.
+    // Agent: ONLY when session.content_hash matches find_dedup_source; NO cross-user leak.
+    let instant_source = if let Some(ref hash) = session.content_hash {
+        crate::files::content_hash::find_dedup_source(
+            &state.pool,
+            &file_owner_id,
+            hash,
+            session.total_size,
+            is_video,
+        )
+        .await?
+    } else {
+        None
+    };
+
+    let parts_complete =
+        received.len() as i32 == parts && session.bytes_received == session.total_size;
+
+    if instant_source.is_none() && !parts_complete {
+        if received.len() as i32 != parts {
+            return Err(AppError::Conflict(format!(
+                "upload incomplete: received {} of {parts} parts",
+                received.len()
+            )));
+        }
         return Err(AppError::Conflict(
             "upload bytes_received does not match total_size".into(),
         ));
@@ -623,16 +691,47 @@ pub async fn complete_session(
 
     mark_completing(&state.pool, &session_id, &claims.sub).await?;
 
-    let file_owner_id = resolve_upload_file_owner(
-        &state.pool,
-        &claims.sub,
-        session.folder_id.as_deref(),
-    )
-    .await?;
     let storage_key = format!("users/{file_owner_id}/files/{}", session.file_id);
-    let is_video = upload_is_video(&session.filename, &session.mime_type);
 
-    let file = if is_video {
+    let file = if let (Some(_source), Some(ref hash)) = (&instant_source, &session.content_hash) {
+        match finalize_instant_dedup_upload(
+            &state,
+            &request_id,
+            &headers,
+            InstantDedupInput {
+                file_id: session.file_id.clone(),
+                user_id: file_owner_id.clone(),
+                folder_id: session.folder_id.clone(),
+                filename: session.filename.clone(),
+                mime: session.mime_type.clone(),
+                size_bytes: session.total_size as u64,
+                content_hash: hash.clone(),
+                resumable: true,
+                staged: !is_video,
+            },
+        )
+        .await
+        {
+            Ok(file) => {
+                if is_video {
+                    cleanup_upload_work_dir(&upload_work_dir(&session.file_id)).await;
+                } else {
+                    cleanup_staging_prefix(&state.storage, &session_id).await;
+                }
+                state.upload_metrics.inc_dedup_hits();
+                file
+            }
+            Err(error) => {
+                let _ = sqlx::query(
+                    "UPDATE upload_sessions SET status = 'active', updated_at = now() WHERE id = $1",
+                )
+                .bind(&session_id)
+                .execute(&state.pool)
+                .await;
+                return Err(error);
+            }
+        }
+    } else if is_video {
         let work_dir = upload_work_dir(&session.file_id);
         let (tmp_path, size_bytes) = match resolve_session_source(&session, &work_dir).await {
             Ok(result) => result,
@@ -693,6 +792,7 @@ pub async fn complete_session(
                 total_parts: parts,
                 size_bytes: session.total_size as u64,
                 resumable: true,
+                known_content_hash: session.content_hash.clone(),
             },
         )
         .await
@@ -720,10 +820,32 @@ pub async fn complete_session(
         file_id = %file.id,
         size_bytes = file.size_bytes,
         staged = !is_video,
+        instant_dedup = instant_source.is_some(),
         "uploads.session.complete"
     );
 
     Ok(Json(UploadResponse { file }))
+}
+
+// Human: Stream SHA-256 of one object key (staged part integrity on confirm).
+// Agent: GET stream; RETURNS lowercase hex; USED when client provided content_sha256.
+async fn hash_storage_object(
+    storage: &std::sync::Arc<dyn crate::storage::Storage>,
+    key: &str,
+) -> Result<String, AppError> {
+    use futures_util::StreamExt;
+    let (mut stream, _, _) = storage
+        .get_stream(key)
+        .await
+        .map_err(|_| AppError::BadRequest(format!("staged object {key} not found for hashing")))?;
+    let mut hasher = Sha256::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            AppError::Storage(format!("stream staged object for hash: {error}"))
+        })?;
+        hasher.update(&chunk);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 // Human: Abort a partial upload and remove spool or staging artifacts.

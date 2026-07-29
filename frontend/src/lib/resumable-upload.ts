@@ -26,6 +26,10 @@ export type ResumableUploadProgress = {
   phase: "uploading" | "processing" | "encrypting" | "storing";
   percent: number;
   indeterminate?: boolean;
+  /** Bytes confirmed uploaded for this file (byte-level progress). */
+  bytesUploaded?: number;
+  /** Total file size in bytes. */
+  bytesTotal?: number;
 };
 
 export type ResumableServerSession = {
@@ -297,8 +301,14 @@ async function uploadPartDirect(
   return "direct";
 }
 
+// Human: Expected size of one zero-based part for progress accounting.
+function partByteSize(totalSize: number, chunkSize: number, partNumber: number): number {
+  const offset = partNumber * chunkSize;
+  return Math.min(chunkSize, Math.max(0, totalSize - offset));
+}
+
 // Human: Upload all missing parts then call complete — skips parts the server already has.
-// Agent: direct_upload → signed Nebular PUT + confirm; else PUT body; POST /uploads/{id}/complete.
+// Agent: INSTANT dedup when dedup_source_file_id; else direct/proxy parts; POST complete.
 export async function uploadFileResumableBytes(
   file: File,
   options: {
@@ -314,10 +324,11 @@ export async function uploadFileResumableBytes(
 ): Promise<UploadFilePayload> {
   let contentHash = options.contentHash ?? null;
   // Human: Hash before create so the server can flag active/trash dedup without receiving bytes.
+  // Agent: SKIP when caller already hashed in the dialog; CAP at 512 MiB for in-band hashing cost.
   if (!contentHash && !options.existingSessionId && file.size > 0 && file.size <= 512 * 1024 * 1024) {
     try {
       const { computeFileContentHash } = await import("@/lib/file-content-hash");
-      contentHash = await computeFileContentHash(file);
+      contentHash = await computeFileContentHash(file, { signal: options.signal });
     } catch {
       contentHash = null;
     }
@@ -331,32 +342,67 @@ export async function uploadFileResumableBytes(
   );
   options.onSessionReady?.(session);
 
-  if (session.recycle_match_file_id && !session.dedup_source_file_id) {
-    // Human: Soft-deleted twin — still upload (new name) but surface id for optional restore UI later.
-    options.onPartTransport?.("proxy");
-  }
-
   const received = new Set(session.parts_received ?? []);
   const chunkSize = session.chunk_size;
   const totalParts = session.total_parts;
+  const totalSize = session.total_size || file.size;
   const useDirect = Boolean(session.direct_upload);
 
-  // Human: When server already has all parts (or zero-size edge), jump straight to complete.
+  let bytesUploaded = 0;
+  for (const partNumber of received) {
+    bytesUploaded += partByteSize(totalSize, chunkSize, partNumber);
+  }
+
+  const reportProgress = () => {
+    const percent =
+      totalSize <= 0
+        ? 100
+        : Math.min(100, Math.round((bytesUploaded / totalSize) * 100));
+    options.onProgress?.({
+      phase: "uploading",
+      percent,
+      bytesUploaded,
+      bytesTotal: totalSize,
+    });
+  };
+  reportProgress();
+
+  // Human: Instant per-user dedup — server already has these bytes; complete without part PUTs.
+  if (session.dedup_source_file_id) {
+    options.onProgress?.({
+      phase: "uploading",
+      percent: 100,
+      bytesUploaded: totalSize,
+      bytesTotal: totalSize,
+    });
+    if (options.isCancelled?.()) {
+      throw new ApiError("Upload cancelled", "upload_cancelled", 0);
+    }
+    const completeRes = await mutationFetch(
+      `${API_BASE}/uploads/${session.session_id}/complete`,
+      {
+        method: "POST",
+        signal: options.signal,
+      },
+    );
+    if (!completeRes.ok) {
+      throw await parseApiError(completeRes, "Could not complete upload");
+    }
+    const payload = (await completeRes.json()) as { file: UploadFilePayload };
+    return payload.file;
+  }
+
+  if (session.recycle_match_file_id) {
+    // Human: Soft-deleted twin — still upload a new row; restore was offered in the picker conflict UI.
+    options.onPartTransport?.("proxy");
+  }
+
   const missingParts: number[] = [];
   for (let partNumber = 0; partNumber < totalParts; partNumber += 1) {
     if (!received.has(partNumber)) {
       missingParts.push(partNumber);
     }
   }
-
-  const reportProgress = () => {
-    const uploadedParts = received.size;
-    const percent =
-      totalParts === 0
-        ? 100
-        : Math.min(100, Math.round((uploadedParts / totalParts) * 100));
-    options.onProgress?.({ phase: "uploading", percent });
-  };
 
   const partConcurrency = suggestedPartConcurrency();
   await mapWithConcurrency(missingParts, partConcurrency, async (partNumber) => {
@@ -374,6 +420,7 @@ export async function uploadFileResumableBytes(
     options.onPartTransport?.(transport);
 
     received.add(partNumber);
+    bytesUploaded += chunk.size;
     reportProgress();
   });
 
@@ -381,7 +428,12 @@ export async function uploadFileResumableBytes(
     throw new ApiError("Upload cancelled", "upload_cancelled", 0);
   }
 
-  options.onProgress?.({ phase: "uploading", percent: 100 });
+  options.onProgress?.({
+    phase: "uploading",
+    percent: 100,
+    bytesUploaded: totalSize,
+    bytesTotal: totalSize,
+  });
 
   const completeRes = await mutationFetch(
     `${API_BASE}/uploads/${session.session_id}/complete`,

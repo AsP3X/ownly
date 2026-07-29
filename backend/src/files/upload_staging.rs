@@ -81,14 +81,98 @@ impl futures_util::Stream for ReceiverByteStream {
     }
 }
 
-// Human: Open a StorageStream that yields staged parts in order (for final object PUT).
-// Agent: SPAWNS reader task; RE-CREATED on each put_stream_with_retry attempt.
-fn open_concat_parts_stream(
+// Human: Assemble staged parts into the permanent object key via streaming PUT (no API disk spool).
+// Agent: SINGLE-PART fast path streams one key; MULTI-PART concatenates ordered staging keys.
+pub async fn put_final_from_staged_parts(
+    storage: &Arc<dyn Storage>,
+    final_key: &str,
+    mime: &str,
+    part_keys: &[String],
+    total_size: u64,
+) -> Result<(), AppError> {
+    let _ = hash_and_put_final_from_staged_parts(storage, final_key, mime, part_keys, total_size)
+        .await?;
+    Ok(())
+}
+
+// Human: Stream staged parts once — SHA-256 while writing the final object (no second full read).
+// Agent: SPAWNS reader that updates hasher; put_stream consumes the same channel; RETURNS hex digest.
+// Agent: RETRIES re-open the concat stream and re-hash; AWAITS oneshot after successful PUT.
+pub async fn hash_and_put_final_from_staged_parts(
+    storage: &Arc<dyn Storage>,
+    final_key: &str,
+    mime: &str,
+    part_keys: &[String],
+    total_size: u64,
+) -> Result<String, AppError> {
+    if part_keys.is_empty() {
+        return Err(AppError::BadRequest("no staged parts to assemble".into()));
+    }
+
+    let keys = if part_keys.len() == 1 {
+        vec![part_keys[0].clone()]
+    } else {
+        part_keys.to_vec()
+    };
+
+    // Human: Last attempt's digest receiver — after put drains the stream the oneshot is ready.
+    let last_digest_rx: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<String>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    let storage_for_factory = storage.clone();
+    let mime = mime.to_string();
+    let key = final_key.to_string();
+    let digest_slot = last_digest_rx.clone();
+    crate::storage::put_stream_with_retry(
+        storage.as_ref(),
+        &key,
+        &mime,
+        total_size,
+        || {
+            let storage = storage_for_factory.clone();
+            let keys = keys.clone();
+            let digest_slot = digest_slot.clone();
+            async move {
+                let (stream, digest_rx) = open_concat_parts_stream_with_hash(storage, keys);
+                if let Ok(mut guard) = digest_slot.lock() {
+                    *guard = Some(digest_rx);
+                }
+                Ok(stream)
+            }
+        },
+    )
+    .await
+    .map_err(|error| AppError::Storage(error.to_string()))?;
+
+    let digest_rx = last_digest_rx
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "staged upload hash channel missing after successful put"
+            ))
+        })?;
+    digest_rx.await.map_err(|_| {
+        AppError::Internal(anyhow::anyhow!(
+            "staged upload hash missing after successful put"
+        ))
+    })
+}
+
+// Human: Concatenate staged parts and compute SHA-256 as bytes flow to put_stream.
+// Agent: RETURNS (StorageStream, oneshot digest); digest resolves after the reader finishes.
+fn open_concat_parts_stream_with_hash(
     storage: Arc<dyn Storage>,
     part_keys: Vec<String>,
-) -> StorageStream {
+) -> (
+    StorageStream,
+    tokio::sync::oneshot::Receiver<String>,
+) {
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+    let (digest_tx, digest_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
+        let mut hasher = Sha256::new();
         for key in part_keys {
             let opened = storage.get_stream(&key).await;
             let (mut stream, _, _) = match opened {
@@ -103,51 +187,23 @@ fn open_concat_parts_stream(
                 }
             };
             while let Some(chunk) = stream.next().await {
-                if tx.send(chunk).await.is_err() {
-                    return;
+                match chunk {
+                    Ok(bytes) => {
+                        hasher.update(&bytes);
+                        if tx.send(Ok(bytes)).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = tx.send(Err(error)).await;
+                        return;
+                    }
                 }
             }
         }
+        let _ = digest_tx.send(hex::encode(hasher.finalize()));
     });
-    Box::pin(ReceiverByteStream { rx })
-}
-
-// Human: Assemble staged parts into the permanent object key via streaming PUT (no API disk spool).
-// Agent: SINGLE-PART fast path streams one key; MULTI-PART concatenates ordered staging keys.
-pub async fn put_final_from_staged_parts(
-    storage: &Arc<dyn Storage>,
-    final_key: &str,
-    mime: &str,
-    part_keys: &[String],
-    total_size: u64,
-) -> Result<(), AppError> {
-    if part_keys.is_empty() {
-        return Err(AppError::BadRequest("no staged parts to assemble".into()));
-    }
-
-    // Human: Single-part uploads skip multi-key concat machinery (one stream, one PUT).
-    let keys = if part_keys.len() == 1 {
-        vec![part_keys[0].clone()]
-    } else {
-        part_keys.to_vec()
-    };
-
-    let storage_for_factory = storage.clone();
-    let mime = mime.to_string();
-    let key = final_key.to_string();
-    crate::storage::put_stream_with_retry(
-        storage.as_ref(),
-        &key,
-        &mime,
-        total_size,
-        || {
-            let storage = storage_for_factory.clone();
-            let keys = keys.clone();
-            async move { Ok(open_concat_parts_stream(storage, keys)) }
-        },
-    )
-    .await
-    .map_err(|error| AppError::Storage(error.to_string()))
+    (Box::pin(ReceiverByteStream { rx }), digest_rx)
 }
 
 #[cfg(test)]
@@ -171,11 +227,8 @@ mod tests {
             .unwrap();
 
         let keys = staging_part_keys(session_id, 2);
-        let hash = hash_staged_parts(&storage, &keys).await.unwrap();
         let expected = hex::encode(Sha256::digest(b"hello world"));
-        assert_eq!(hash, expected);
-
-        put_final_from_staged_parts(
+        let hash = hash_and_put_final_from_staged_parts(
             &storage,
             "users/u1/files/f1",
             "text/plain",
@@ -184,6 +237,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(hash, expected);
 
         let (mut stream, len, _) = storage.get_stream("users/u1/files/f1").await.unwrap();
         assert_eq!(len, 11);

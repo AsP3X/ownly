@@ -3485,8 +3485,9 @@ async fn resumable_upload_assembles_parts_into_file() {
         .await
         .unwrap();
 
-    assert_eq!(create.status(), StatusCode::OK);
+    let create_status = create.status();
     let create_json = response_json(create).await;
+    assert_eq!(create_status, StatusCode::OK, "create body: {create_json}");
     let session_id = create_json["session_id"]
         .as_str()
         .expect("session_id")
@@ -3671,8 +3672,9 @@ async fn resumable_upload_dedupes_identical_content() {
             )
             .await
             .unwrap();
-        assert_eq!(complete.status(), StatusCode::OK);
+        let complete_status = complete.status();
         let complete_json = response_json(complete).await;
+        assert_eq!(complete_status, StatusCode::OK, "complete body: {complete_json}");
         file_ids.push(complete_json["file"]["id"].as_str().unwrap().to_string());
     }
 
@@ -3688,8 +3690,266 @@ async fn resumable_upload_dedupes_identical_content() {
     assert_eq!(keys.len(), 2);
     assert_eq!(keys[0].0, keys[1].0, "deduped uploads must share storage_key");
 
+    // Human: Both library rows must still stream bytes after sharing one storage_key.
+    // Agent: GET /files/{id}/download for each id; EXPECT 200 and body length TOTAL_SIZE.
+    for file_id in &file_ids {
+        let download = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/files/{file_id}/download"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            download.status(),
+            StatusCode::OK,
+            "deduped file {file_id} must remain downloadable"
+        );
+        let body = to_bytes(download.into_body(), usize::MAX)
+            .await
+            .expect("download body");
+        assert_eq!(body.len() as i64, TOTAL_SIZE, "download bytes for {file_id}");
+    }
+
+    // Human: Instant complete without parts must not break the original library file.
+    // Agent: POST /uploads with content_hash of the known blob; complete immediately; GET original + new.
+    // Agent: SHA-256 of 1 MiB filled with 0xAB (matches `part` above).
+    let content_hash = "074c29674e21baa420ee0eca0d85b9283b0cfb3ac912da2098f6b3a7f8d6678f";
+    let create_instant = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/uploads")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "filename": "copy-instant.bin",
+                        "total_size": TOTAL_SIZE,
+                        "chunk_size": CHUNK_SIZE,
+                        "content_type": "application/octet-stream",
+                        "content_hash": content_hash,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_instant.status(), StatusCode::OK);
+    let instant_json = response_json(create_instant).await;
+    assert!(
+        instant_json["dedup_source_file_id"].as_str().is_some(),
+        "create should flag library match for instant dedup: {instant_json}"
+    );
+    let instant_session = instant_json["session_id"].as_str().unwrap().to_string();
+    let complete_instant = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/uploads/{instant_session}/complete"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let complete_instant_status = complete_instant.status();
+    let complete_instant_json = response_json(complete_instant).await;
+    assert_eq!(
+        complete_instant_status,
+        StatusCode::OK,
+        "instant complete body: {complete_instant_json}"
+    );
+    let instant_file_id = complete_instant_json["file"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for file_id in file_ids.iter().chain(std::iter::once(&instant_file_id)) {
+        let meta = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/files/{file_id}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(meta.status(), StatusCode::OK, "get_file {file_id}");
+        let download = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/files/{file_id}/download"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            download.status(),
+            StatusCode::OK,
+            "download after instant dedup {file_id}"
+        );
+    }
+
     sqlx::query("DELETE FROM files WHERE user_id = $1")
         .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
+// Human: Pre-existing library rows stay listable and downloadable after the upload pipeline changes.
+// Agent: SEEDS files row + MemoryStorage blob; GET list + get + download; EXPECT intact bytes.
+#[tokio::test]
+async fn pre_existing_file_remains_accessible_after_upload_changes() {
+    let Some(state) =
+        test_harness::TestHarness::state("pre_existing_file_remains_accessible_after_upload_changes")
+            .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let storage_key = format!("users/{user_id}/files/{file_id}");
+    let payload = b"legacy-library-bytes-v1".to_vec();
+    let email = format!("legacy-access-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    state
+        .storage
+        .put(&storage_key, "text/plain", payload.clone())
+        .await
+        .expect("seed blob");
+
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, storage_key, mime_type, size_bytes, content_hash) \
+         VALUES ($1, $2, 'legacy.txt', $3, 'text/plain', $4, $5)",
+    )
+    .bind(&file_id)
+    .bind(&user_id)
+    .bind(&storage_key)
+    .bind(payload.len() as i64)
+    .bind("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    .execute(&state.pool)
+    .await
+    .expect("insert legacy file");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email.clone(),
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/files")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let list_json = response_json(list).await;
+    let files = list_json["files"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        files.iter().any(|row| row["id"] == file_id),
+        "legacy file must appear in listing: {list_json}"
+    );
+
+    let get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::OK);
+    let get_json = response_json(get).await;
+    assert_eq!(get_json["file"]["name"], "legacy.txt");
+    assert_eq!(get_json["file"]["size_bytes"], payload.len() as i64);
+
+    let download = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    let body = to_bytes(download.into_body(), usize::MAX)
+        .await
+        .expect("download body");
+    assert_eq!(body.as_ref(), payload.as_slice());
+
+    let download_url = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{file_id}/download-url"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download_url.status(), StatusCode::OK);
+    let url_json = response_json(download_url).await;
+    assert!(
+        url_json["url"].as_str().is_some_and(|u| !u.is_empty()),
+        "presigned download-url must remain available: {url_json}"
+    );
+
+    sqlx::query("DELETE FROM files WHERE id = $1")
+        .bind(&file_id)
         .execute(&state.pool)
         .await
         .ok();

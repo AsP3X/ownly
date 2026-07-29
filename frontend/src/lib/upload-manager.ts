@@ -91,6 +91,9 @@ export type UploadItemSnapshot = {
   /** Relative folder path for folder-batch uploads (display only). */
   relativePath?: string;
 
+  /** Precomputed SHA-256 from the picker — avoids a second full-file hash. */
+  contentHash?: string;
+
   /** How the last part byte path ran — direct Nebular vs Ownly proxy. */
   partTransport?: "direct" | "proxy";
 
@@ -198,6 +201,8 @@ type InternalUploadItem = {
   needsFileReselect?: boolean;
 
   relativePath?: string;
+
+  contentHash?: string;
 
   partTransport?: "direct" | "proxy";
 
@@ -1158,6 +1163,7 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
       {
         folderId,
         sessionId: uploadId,
+        contentHash: claimed.contentHash,
         resumableServerSessionId: claimed.resumableServerSessionId,
         onResumableSessionReady: (serverSessionId) => {
           updateItems((items) =>
@@ -1543,6 +1549,8 @@ export type UploadBatchEntry = {
   folderId?: string | null;
   /** Relative path within a folder upload (for transfer panel grouping). */
   relativePath?: string;
+  /** Precomputed content hash from the upload dialog conflict check. */
+  contentHash?: string;
 };
 
 // Human: Map picked files into queued upload rows for the active batch.
@@ -1553,7 +1561,7 @@ function queuedItemsFromEntries(
   entries: UploadBatchEntry[],
   defaultFolderId: string | null,
 ): InternalUploadItem[] {
-  return entries.map(({ file, folderId, relativePath }) => ({
+  return entries.map(({ file, folderId, relativePath, contentHash }) => ({
     id: createClientId(),
     localFile: file,
     fileName: file.name,
@@ -1561,6 +1569,7 @@ function queuedItemsFromEntries(
     mimeType: file.type,
     folderId: folderId ?? defaultFolderId,
     relativePath,
+    contentHash,
     status: "queued" as const,
     progress: 0,
     phase: "uploading" as const,

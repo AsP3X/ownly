@@ -23,6 +23,7 @@ import {
   setUploadItemPaused,
 } from "@/lib/upload-manager";
 import { estimateRemainingSeconds } from "@/lib/upload-adaptive";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -274,7 +275,34 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             onTogglePauseItem={(itemId, paused) => setUploadItemPaused(itemId, paused)}
             onReattachFile={(itemId, file) => {
               if (!reattachUploadFile(itemId, file)) {
-                window.alert("Choose the same file (matching name and size) to continue the upload.");
+                toastError(
+                  "Choose the same file (matching name and size) to continue the upload.",
+                );
+                return;
+              }
+              toastSuccess("File reattached — upload will resume.");
+            }}
+            onReattachFiles={(files) => {
+              let matched = 0;
+              const needing = batch.items.filter((item) => item.needsFileReselect);
+              for (const item of needing) {
+                const match = files.find(
+                  (file) => file.name === item.fileName && file.size === item.fileSize,
+                );
+                if (match && reattachUploadFile(item.id, match)) {
+                  matched += 1;
+                }
+              }
+              if (matched === 0) {
+                toastError(
+                  "No matching files found. Re-select files with the same name and size.",
+                );
+              } else {
+                toastSuccess(
+                  matched === needing.length
+                    ? `Reattached ${matched} file${matched === 1 ? "" : "s"} — uploads will resume.`
+                    : `Reattached ${matched} of ${needing.length} files. Re-pick the rest if needed.`,
+                );
               }
             }}
           />

@@ -58,10 +58,12 @@ function phaseStyles(phase: UploadPhase) {
 }
 
 // Human: Status line for the active upload bar — overall % is conversion-aware for media.
-// Agent: READS phase + isReprocess; RETURNS Rebuilding / Uploading → Processing → Encrypting → Storing.
+// Agent: READS phase + isReprocess + mime; honest labels (AES only for HLS media encrypt phase).
 function getUploadPhaseStatus(
-  item: Pick<UploadItemSnapshot, "phase" | "isReprocess">,
+  item: Pick<UploadItemSnapshot, "phase" | "isReprocess" | "mimeType">,
 ): string {
+  const isMedia =
+    Boolean(item.mimeType?.startsWith("video/")) || Boolean(item.mimeType?.startsWith("audio/"));
   if (item.isReprocess) {
     if (item.phase === "storing") {
       return "Rebuilding stream (storage)";
@@ -72,13 +74,14 @@ function getUploadPhaseStatus(
     return "Rebuilding stream";
   }
   if (item.phase === "storing") {
-    return "Moving to storage";
+    return isMedia ? "Moving to storage" : "Saving to library";
   }
   if (item.phase === "encrypting") {
-    return "Encrypting (AES-256-GCM)";
+    // Human: AES-GCM applies to HLS segment packaging — not generic drive blob storage.
+    return isMedia ? "Encrypting stream (AES-256-GCM)" : "Finalizing";
   }
   if (item.phase === "processing") {
-    return "Converting";
+    return isMedia ? "Converting" : "Indexing";
   }
   return "Uploading";
 }
@@ -531,6 +534,7 @@ export function UploadBatchProgressView({
   onCancelItem,
   onRemoveItem,
   onReattachFile,
+  onReattachFiles,
   onRetryItem,
   onTogglePauseItem,
 }: {
@@ -538,9 +542,12 @@ export function UploadBatchProgressView({
   onCancelItem?: (itemId: string) => void;
   onRemoveItem?: (itemId: string) => void;
   onReattachFile?: (itemId: string, file: File) => void;
+  /** Human: Map a multi-file pick onto every needsFileReselect row by name+size. */
+  onReattachFiles?: (files: File[]) => void;
   onRetryItem?: (itemId: string) => void;
   onTogglePauseItem?: (itemId: string, paused: boolean) => void;
 }) {
+  const batchReselectRef = useRef<HTMLInputElement | null>(null);
   const counts = getUploadBatchDisplayCounts(items);
   const activeItems = items.filter((item) => item.displayBucket === "in_flight");
   const waitingItems = items.filter((item) => item.displayBucket === "queued");
@@ -548,6 +555,7 @@ export function UploadBatchProgressView({
   const failedItems = items.filter(
     (item) => item.displayBucket === "error" || item.displayBucket === "cancelled",
   );
+  const needsReselectCount = items.filter((item) => item.needsFileReselect).length;
   const processedCount = counts.done + counts.failed + counts.cancelled;
   // Human: Overall bar includes live conversion progress of active files, not only completed count.
   const overallPercent = getUploadBatchOverallPercent(items);
@@ -570,6 +578,35 @@ export function UploadBatchProgressView({
       <UploadQueueBacklogSummary count={waitingItems.length} reserveSlot={isBulkBatch} />
       {isBulkBatch ? (
         <UploadDoneBacklogSummary count={doneItems.length} reserveSlot />
+      ) : null}
+
+      {needsReselectCount > 1 && onReattachFiles ? (
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-[11px] leading-snug text-amber-900">
+            {needsReselectCount} uploads need the original files after reload.
+          </p>
+          <input
+            ref={batchReselectRef}
+            type="file"
+            multiple
+            className="hidden"
+            aria-hidden
+            onChange={(event) => {
+              const picked = event.target.files ? Array.from(event.target.files) : [];
+              if (picked.length > 0) onReattachFiles(picked);
+              event.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-xs"
+            onClick={() => batchReselectRef.current?.click()}
+          >
+            Choose files
+          </Button>
+        </div>
       ) : null}
 
       <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />

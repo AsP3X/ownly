@@ -1756,13 +1756,15 @@ function waitForNextPaint(): Promise<void> {
   });
 }
 
-// Human: Enforce minimum visible time per ingest phase; inserts encrypting when polls jump past it.
-// Agent: READS onProgress; WRITES phase updates with dwell + processing→storing bridge.
+// Human: Enforce minimum visible time per ingest phase; inserts encrypting for media when polls jump past it.
+// Agent: READS onProgress; WRITES phase updates with dwell; media-only processing→encrypting→storing bridge.
 function createUploadProgressEmitter(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
+  options?: { bridgeEncrypting?: boolean },
 ) {
   let lastPhase: UploadProgressUpdate["phase"] | null = null;
   let lastEmitAt = 0;
+  const bridgeEncrypting = options?.bridgeEncrypting ?? true;
 
   const emit = async (update: UploadProgressUpdate) => {
     if (!onProgress) return;
@@ -1774,7 +1776,11 @@ function createUploadProgressEmitter(
     ) {
       await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS - (now - lastEmitAt));
     }
-    if (lastPhase === "processing" && update.phase === "storing") {
+    if (
+      bridgeEncrypting &&
+      lastPhase === "processing" &&
+      update.phase === "storing"
+    ) {
       onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
       await waitForNextPaint();
       await sleepMs(MIN_UPLOAD_PHASE_DISPLAY_MS);
@@ -1788,8 +1794,8 @@ function createUploadProgressEmitter(
   return { emit };
 }
 
-// Human: Generic uploads — brief processing/encrypting beats while the API PUT runs; storing until response.
-// Agent: RACES serverResponsePromise during early phases; AWAITS full response only in storing.
+// Human: Generic uploads — brief "saving" beats while the API finishes (no fake AES encrypt label).
+// Agent: USES processing then storing phases only; RACES serverResponsePromise; AWAITS response in storing.
 async function runGenericPostUploadPhases(
   onProgress: ((update: UploadProgressUpdate) => void) | undefined,
   isCancelled: () => boolean,
@@ -1800,19 +1806,10 @@ async function runGenericPostUploadPhases(
 
   await acquirePipelineStage?.("processing");
   if (isCancelled()) return;
-  onProgress({ phase: "processing", percent: 35, indeterminate: false });
+  onProgress({ phase: "processing", percent: 40, indeterminate: false });
   await Promise.race([sleepMs(GENERIC_UPLOAD_PHASE_BEAT_MS), serverResponsePromise]);
   if (isCancelled()) return;
   onProgress({ phase: "processing", percent: 100, indeterminate: false });
-  await waitForNextPaint();
-
-  await acquirePipelineStage?.("encrypting");
-  if (isCancelled()) return;
-  const stopEncrypting = startSimulatedPhaseProgress("encrypting", onProgress, isCancelled);
-  await Promise.race([sleepMs(GENERIC_UPLOAD_PHASE_BEAT_MS), serverResponsePromise]);
-  stopEncrypting();
-  if (isCancelled()) return;
-  onProgress({ phase: "encrypting", percent: 100, indeterminate: false });
   await waitForNextPaint();
 
   await acquirePipelineStage?.("storing");
@@ -2086,6 +2083,8 @@ export function uploadFileWithProgress(
   options?: {
     folderId?: string | null;
     sessionId?: string;
+    /** Precomputed SHA-256 from the picker conflict check. */
+    contentHash?: string | null;
     /** Resume an in-progress server session after a transient failure. */
     resumableServerSessionId?: string | null;
     /** Fires when the resumable API allocates or reloads a server session id. */
@@ -2115,6 +2114,7 @@ function uploadFileWithProgressResumable(
   options?: {
     folderId?: string | null;
     sessionId?: string;
+    contentHash?: string | null;
     resumableServerSessionId?: string | null;
     onResumableSessionReady?: (serverSessionId: string) => void;
     onServerFileRegistered?: (file: FileItem) => void;
@@ -2188,6 +2188,7 @@ function uploadFileWithProgressResumable(
         const registered = await uploadFileResumableBytes(file, {
           folderId: options?.folderId,
           existingSessionId: options?.resumableServerSessionId ?? session.resumableServerSessionId,
+          contentHash: options?.contentHash,
           onProgress: (update) => {
             if (!onProgress) return;
             if (isGenericUpload || update.phase !== "uploading") {

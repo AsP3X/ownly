@@ -1,7 +1,7 @@
 // Human: File picker modal — select files or an entire folder, then hand off to the upload transfer panel.
 // Agent: WRITES startUploadBatch; CHECKS upload conflicts; CREATES folder tree for directory picks.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type InputHTMLAttributes } from "react";
 import { FileText, FolderUp, Upload, X } from "lucide-react";
 import { UploadConflictDialog } from "@/components/drive/UploadDuplicateDialog";
 import {
@@ -134,6 +134,11 @@ export function UploadDialog({
   const [conflictCheckError, setConflictCheckError] = useState("");
   const [storageSkipNotice, setStorageSkipNotice] = useState("");
   const [resolvingConflicts, setResolvingConflicts] = useState(false);
+  const [hashProgress, setHashProgress] = useState<{ completed: number; total: number } | null>(
+    null,
+  );
+  const [isDragOver, setIsDragOver] = useState(false);
+  const hashAbortRef = useRef<AbortController | null>(null);
 
   const uploadablePendingCount = pendingFiles.filter((item) => !item.storageWarning).length;
   const oversizedPendingCount = pendingFiles.length - uploadablePendingCount;
@@ -271,8 +276,10 @@ export function UploadDialog({
 
   function handleOpenChange(next: boolean) {
     if (!next) {
+      hashAbortRef.current?.abort();
       setPendingFiles([]);
       setFolderUploadRootName(null);
+      setHashProgress(null);
       resetConflictState();
     }
     onOpenChange(next);
@@ -300,11 +307,20 @@ export function UploadDialog({
           setPendingFiles([]);
           setFolderUploadRootName(null);
           onOpenChange(false);
+          const hashByKey = new Map(
+            entries.map((entry) => [
+              `${entry.file.name}\0${entry.file.size}\0${getFileRelativePath(entry.file) ?? ""}`,
+              entry.contentHash,
+            ]),
+          );
           startUploadBatch(
             parsed.entries.map(({ file, relativeDir }) => ({
               file,
               folderId: folderMap.get(relativeDir),
               relativePath: relativeDir || undefined,
+              contentHash: hashByKey.get(
+                `${file.name}\0${file.size}\0${getFileRelativePath(file) ?? ""}`,
+              ),
             })),
             folderId,
           );
@@ -347,7 +363,12 @@ export function UploadDialog({
         });
         onLibraryChanged?.();
       }
-      await beginUpload(plan.uploadFiles.map((file) => ({ file })));
+      await beginUpload(
+        plan.uploadFiles.map((item) => ({
+          file: item.file,
+          contentHash: item.contentHash,
+        })),
+      );
     } catch (error) {
       setConflictCheckError(getErrorMessage(error));
       setConflictDialogOpen(false);
@@ -357,13 +378,17 @@ export function UploadDialog({
   }
 
   // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
-  // Agent: HASHES pending files; POST checkUploadNameDuplicates; OPENS UploadConflictDialog when matches exist.
+  // Agent: HASHES pending files with progress; POST checkUploadNameDuplicates; PASSES contentHash to batch.
   async function handleStartUpload() {
     if (checkingConflicts) return;
 
     setConflictCheckError("");
     setStorageSkipNotice("");
     setCheckingConflicts(true);
+    setHashProgress(null);
+    hashAbortRef.current?.abort();
+    const abort = new AbortController();
+    hashAbortRef.current = abort;
     try {
       // Human: Re-check against live network node capacity before starting uploads.
       // Agent: CALLS onRefreshStorageLimits; RE-RUNS applyStorageWarningsInOrder on pending rows.
@@ -392,6 +417,10 @@ export function UploadDialog({
 
       const candidates = await buildUploadCheckCandidates(
         uploadable.map((item) => item.file),
+        {
+          signal: abort.signal,
+          onProgress: ({ completed, total }) => setHashProgress({ completed, total }),
+        },
       );
       const hashedUploadable = uploadable.map((item, index) => ({
         ...item,
@@ -412,11 +441,43 @@ export function UploadDialog({
         setConflictDialogOpen(true);
         return;
       }
-      await beginUpload(uploadable.map((item) => ({ file: item.file })));
+      await beginUpload(
+        hashedUploadable.map((item) => ({
+          file: item.file,
+          contentHash: item.contentHash,
+        })),
+      );
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
       setConflictCheckError(getErrorMessage(error));
     } finally {
       setCheckingConflicts(false);
+      setHashProgress(null);
+      hashAbortRef.current = null;
+    }
+  }
+
+  function handleDropZoneDragOver(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(true);
+  }
+
+  function handleDropZoneDragLeave(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+  }
+
+  function handleDropZoneDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+    const files = event.dataTransfer?.files;
+    if (files?.length) {
+      addPendingFiles(files, false);
     }
   }
 
@@ -435,7 +496,9 @@ export function UploadDialog({
 
   const uploadButtonLabel =
     checkingConflicts
-      ? "Checking…"
+      ? hashProgress
+        ? `Preparing ${hashProgress.completed}/${hashProgress.total}…`
+        : "Checking…"
       : uploadablePendingCount > 0
         ? oversizedPendingCount > 0
           ? `Upload (${uploadablePendingCount})`
@@ -511,6 +574,12 @@ export function UploadDialog({
             </p>
           ) : null}
 
+          {hashProgress ? (
+            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]" role="status">
+              Preparing files… {hashProgress.completed} of {hashProgress.total} hashed
+            </p>
+          ) : null}
+
           {folderUploadRootName ? (
             <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A8A]">
               Folder <span className="font-semibold">{folderUploadRootName}</span> will be created
@@ -519,7 +588,18 @@ export function UploadDialog({
           ) : null}
 
           {pendingFiles.length === 0 ? (
-            <div className="grid shrink-0 gap-3 sm:grid-cols-2">
+            <div
+              className={cn(
+                "grid shrink-0 gap-3 rounded-xl border-2 border-dashed p-2 sm:grid-cols-2",
+                isDragOver
+                  ? "border-[#2563EB] bg-[#EFF6FF]"
+                  : "border-transparent",
+              )}
+              onDragEnter={handleDropZoneDragOver}
+              onDragOver={handleDropZoneDragOver}
+              onDragLeave={handleDropZoneDragLeave}
+              onDrop={handleDropZoneDrop}
+            >
               <button
                 type="button"
                 onClick={openFilePicker}
@@ -532,7 +612,9 @@ export function UploadDialog({
                   <Upload className="size-5 text-[#2563EB]" aria-hidden />
                 </div>
                 <span className="text-[15px] font-bold text-[#1A1A1A]">Browse files</span>
-                <span className="text-[13px] text-[#888888]">Single or multiple files</span>
+                <span className="text-[13px] text-[#888888]">
+                  {isDragOver ? "Drop files to add" : "Single or multiple files · or drag here"}
+                </span>
               </button>
               <button
                 type="button"

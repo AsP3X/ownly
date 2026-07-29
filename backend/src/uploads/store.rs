@@ -15,8 +15,14 @@ pub const DEFAULT_CHUNK_SIZE: i64 = 16 * 1024 * 1024;
 pub const MIN_CHUNK_SIZE: i64 = 1024 * 1024;
 pub const MAX_CHUNK_SIZE: i64 = 32 * 1024 * 1024;
 
-/// Human: Active sessions expire after this many hours when not completed.
-pub const SESSION_TTL_HOURS: i64 = 72;
+/// Human: Absolute max lifetime for an active/completing session (even with part activity).
+pub const SESSION_TTL_HOURS: i64 = 24;
+
+/// Human: Abort active sessions with no part/create activity for this many hours (quota release).
+pub const SESSION_IDLE_HOURS: i64 = 6;
+
+/// Human: Cap concurrent in-flight sessions per user to limit quota-reservation parking.
+pub const MAX_ACTIVE_SESSIONS_PER_USER: i64 = 32;
 
 const SESSION_COLUMNS: &str = "id, user_id, file_id, folder_id, filename, mime_type, total_size, chunk_size, \
                 bytes_received, storage_key, status, expires_at, content_hash, quota_owner_id, quota_reserved_bytes";
@@ -357,16 +363,22 @@ pub struct ExpiredUploadSession {
     pub mime_type: String,
 }
 
-// Human: Abort expired upload sessions and return metadata for cleanup + audit logging.
+// Human: Abort expired or idle upload sessions and return metadata for cleanup + audit logging.
 // Agent: UPDATE status aborted; CLEARS quota reservation; spool uses file_id; staging uses session_id.
+// Agent: MATCHES expires_at OR active rows with updated_at older than SESSION_IDLE_HOURS.
 pub async fn expire_stale_upload_sessions(
     pool: &PgPool,
 ) -> Result<Vec<ExpiredUploadSession>, AppError> {
     let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
         "UPDATE upload_sessions SET status = 'aborted', quota_reserved_bytes = 0, updated_at = now() \
-         WHERE status IN ('active', 'completing') AND expires_at < now() \
+         WHERE status IN ('active', 'completing') \
+           AND (\
+             expires_at < now() \
+             OR (status = 'active' AND updated_at < now() - ($1::double precision * interval '1 hour'))\
+           ) \
          RETURNING id, user_id, file_id, filename, mime_type",
     )
+    .bind(SESSION_IDLE_HOURS as f64)
     .fetch_all(pool)
     .await?;
     Ok(rows
@@ -381,6 +393,19 @@ pub async fn expire_stale_upload_sessions(
             },
         )
         .collect())
+}
+
+// Human: Count in-flight upload sessions for one user (session-cap enforcement on create).
+// Agent: READS upload_sessions WHERE user_id + active/completing.
+pub async fn count_active_sessions_for_user(pool: &PgPool, user_id: &str) -> Result<i64, AppError> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM upload_sessions \
+         WHERE user_id = $1 AND status IN ('active', 'completing')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
 }
 
 // Human: True when an ownly_upload_* directory belongs to an in-flight resumable session.

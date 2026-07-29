@@ -10,7 +10,8 @@ export type PendingUploadFile = {
 
 export type UploadConflictPlan = {
   restoreFileIds: string[];
-  uploadFiles: File[];
+  /** Files still queued for upload after skip/restore decisions (with optional content hash). */
+  uploadFiles: PendingUploadFile[];
   restoreCount: number;
   uploadCount: number;
   skipDuplicateCount: number;
@@ -86,21 +87,19 @@ export function buildUploadConflictPlan(
     }
   }
 
-  const uploadFiles = pendingFiles
-    .filter((item) => {
-      if (item.contentHash && duplicateHashes.has(item.contentHash)) {
-        return false;
-      }
-      if (!options.restoreRecycle) {
-        return true;
-      }
-      const recycleMatch = findRecycleMatchForFile(item.file, recycleMatches);
-      if (recycleMatch?.trashed.can_restore) {
-        return false;
-      }
+  const uploadFiles = pendingFiles.filter((item) => {
+    if (item.contentHash && duplicateHashes.has(item.contentHash)) {
+      return false;
+    }
+    if (!options.restoreRecycle) {
       return true;
-    })
-    .map((item) => item.file);
+    }
+    const recycleMatch = findRecycleMatchForFile(item.file, recycleMatches);
+    if (recycleMatch?.trashed.can_restore) {
+      return false;
+    }
+    return true;
+  });
 
   return {
     restoreFileIds,

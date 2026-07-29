@@ -34,7 +34,8 @@ pub fn test_config(database_url: &str) -> Config {
         auth_register_rpm: 5,
         upload_rpm: 30,
         cors_allowed_origins: String::new(),
-        max_upload_bytes: 1024 * 1024,
+        // Human: Large enough for multi-part resumable tests (2× 1 MiB chunks).
+        max_upload_bytes: 64 * 1024 * 1024,
         hls_segment_rpm: 480,
         job_worker_count: 2,
         max_concurrent_transcodes_per_user: 2,
