@@ -815,6 +815,7 @@ export default function PublicSharePage() {
             onFileChange: setPreviewText,
             shareToken: token,
             sharePassword: sharePassword,
+            canEdit: Boolean(overview?.allow_edit),
           }}
         />
       ) : null}
@@ -830,8 +831,8 @@ export default function PublicSharePage() {
             },
             shareToken: token,
             sharePassword: sharePassword,
-            // Human: Anonymous public links are view-only; user-share edit opens via Drive with canEdit.
-            canEdit: false,
+            // Human: Public links are view-only unless the owner enabled allow_edit on the share.
+            canEdit: Boolean(overview?.allow_edit),
           }}
         />
       ) : null}

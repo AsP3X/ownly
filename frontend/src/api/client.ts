@@ -3100,6 +3100,39 @@ export async function replaceTextFileContent(
   });
 }
 
+// Human: Save text/RTF through a public share link that grants edit permission.
+// Agent: PUT /public/shares/:token/files/:id/content; SENDS X-Share-Password when required.
+export async function replacePublicShareFileContent(
+  token: string,
+  file: FileItem,
+  content: string,
+  sharePassword?: string | null,
+): Promise<{ file: FileItem }> {
+  const name = file.name || "document.txt";
+  const lower = name.toLowerCase();
+  const rawMime = (file.mime_type ?? "").toLowerCase();
+  const mime =
+    lower.endsWith(".rtf") || rawMime.includes("rtf")
+      ? "application/rtf"
+      : file.mime_type || "text/plain";
+  const bytes = new TextEncoder().encode(content);
+  if (bytes.byteLength <= 0) {
+    throw new ApiError("Cannot save an empty document", "empty_document", 400);
+  }
+
+  return (await apiFetch(
+    `/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(file.id)}/content`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": mime,
+        ...(sharePassword ? { "X-Share-Password": sharePassword } : {}),
+      },
+      body: bytes,
+    },
+  )) as Promise<{ file: FileItem }>;
+}
+
 // Human: Trigger browser save via temporary object URL (primary MEGA-style save path).
 // Agent: CREATES object URL; CLICKS hidden anchor; REVOKES URL after delay.
 function saveBlobAsFile(blob: Blob, filename: string) {
@@ -3299,6 +3332,7 @@ export type PublicShareInfo = {
   hls_ready: boolean | null;
   requires_password: boolean;
   block_download: boolean;
+  allow_edit: boolean;
   created_at: string;
   expires_at: string | null;
   shared_by_email: string;
@@ -3327,6 +3361,7 @@ export type ShareLink = {
   requires_password: boolean;
   expires_at: string | null;
   block_download: boolean;
+  allow_edit: boolean;
 };
 
 export type UserShare = {
@@ -3442,7 +3477,7 @@ export async function revokePublicShare(shareId: string) {
 }
 
 // Human: Persist protection settings on an active public share link.
-// Agent: PATCH /shares/:id; WRITES password, expiration, and download flags.
+// Agent: PATCH /shares/:id; WRITES password, expiration, download, and edit flags.
 export async function updatePublicShare(
   shareId: string,
   payload: {
@@ -3450,6 +3485,7 @@ export async function updatePublicShare(
     password?: string | null;
     expires_at?: string | null;
     block_download?: boolean;
+    allow_edit?: boolean;
   },
 ) {
   return apiFetch(`/shares/${shareId}`, {

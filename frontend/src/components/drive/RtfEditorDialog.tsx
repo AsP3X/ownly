@@ -14,6 +14,7 @@ import {
   fetchFileBlobForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
+  replacePublicShareFileContent,
   replaceTextFileContent,
 } from "@/api/client";
 import {
@@ -61,8 +62,8 @@ export function RtfEditorDialog({
   sharePassword,
   canEdit,
 }: RtfEditorDialogProps) {
-  // Human: Public share tokens are view-only unless canEdit is explicitly true (user share with write).
-  // Agent: readOnly when canEdit===false OR (shareToken without canEdit); collab requires !readOnly.
+  // Human: Public share tokens are view-only unless canEdit is explicitly true (allow_edit or user share write).
+  // Agent: readOnly when canEdit===false OR (shareToken without canEdit); collab requires auth (no public guest WS).
   const readOnly = canEdit === false || (Boolean(shareToken) && canEdit !== true);
   const { user } = useAuth();
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
@@ -87,7 +88,10 @@ export function RtfEditorDialog({
   draftHtmlRef.current = draftHtml;
   const dirty = draftHtml !== savedHtml;
 
-  const collabEnabled = open && !readOnly && Boolean(file?.id) && !loading && Boolean(documentKey);
+  // Human: Live collab uses authenticated document sessions — public-link editors save without multi-user WS.
+  // Agent: DISABLE collab when shareToken is set; user-share edit opens from Drive without shareToken.
+  const collabEnabled =
+    open && !readOnly && !shareToken && Boolean(file?.id) && !loading && Boolean(documentKey);
 
   const collab = useDocumentCollab({
     fileId: file?.id,
@@ -299,7 +303,9 @@ export function RtfEditorDialog({
         return;
       }
 
-      const { file: savedFile } = await replaceTextFileContent(file, rtf);
+      const { file: savedFile } = shareToken
+        ? await replacePublicShareFileContent(shareToken, file, rtf, sharePassword)
+        : await replaceTextFileContent(file, rtf);
 
       setDraftHtml(currentHtml);
       setSavedHtml(currentHtml);
@@ -314,7 +320,18 @@ export function RtfEditorDialog({
     } finally {
       setSaving(false);
     }
-  }, [collab, dirty, draftHtml, file, onFileSaved, readOnly, savedHtml, saving]);
+  }, [
+    collab,
+    dirty,
+    draftHtml,
+    file,
+    onFileSaved,
+    readOnly,
+    savedHtml,
+    saving,
+    sharePassword,
+    shareToken,
+  ]);
 
   useEffect(() => {
     if (!open) return;

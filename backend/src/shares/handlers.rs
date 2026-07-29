@@ -2,7 +2,7 @@
 // Agent: PROTECTED /api/v1/shares* requires Claims; PUBLIC /api/v1/public/shares/{token}* validates token scope.
 
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
@@ -22,6 +22,7 @@ use crate::{
         gif_preview::{self, qualifies_for_animated_preview},
         handlers::{FileDto, FILE_COLUMNS},
         processing::ensure_file_not_processing,
+        recycle_bin::ACTIVE_FILES_SQL,
         zip_job::{
             dedupe_zip_member_names, run_zip_entries_job, zip_status_json, FolderDownloadJob,
             FolderDownloadRegistry, ZipDownloadStatusResponse, ZipFileEntry,
@@ -35,11 +36,12 @@ use crate::{
     shares::store::{
         compute_share_tree_stats, ensure_browse_folder_in_share, ensure_file_ids_in_share,
         ensure_file_owned_for_share, ensure_folder_owned_for_share, ensure_share_download_allowed,
-        ensure_shared_file_ready, generate_share_token, list_all_files_in_share,
-        list_all_folders_in_share, list_share_folder_files, load_file_in_share_scope,
-        resolve_active_share, sharer_email,
-        verify_share_password, ShareRecord, SHARE_RECORD_COLUMNS,
+        ensure_share_edit_allowed, ensure_shared_file_ready, generate_share_token,
+        list_all_files_in_share, list_all_folders_in_share, list_share_folder_files,
+        load_file_in_share_scope, resolve_active_share, sharer_email, verify_share_password,
+        ShareRecord, SHARE_RECORD_COLUMNS,
     },
+    storage::put_with_retry,
     stream_ticket,
     AppState,
 };
@@ -75,6 +77,7 @@ pub struct ShareDto {
     pub requires_password: bool,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub block_download: bool,
+    pub allow_edit: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +86,7 @@ pub struct UpdateShareRequest {
     pub password: Option<String>,
     pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
     pub block_download: Option<bool>,
+    pub allow_edit: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,6 +183,7 @@ fn share_dto_from_record(record: ShareRecord) -> ShareDto {
         requires_password: record.password_hash.is_some(),
         expires_at: record.expires_at,
         block_download: record.block_download,
+        allow_edit: record.allow_edit,
     }
 }
 
@@ -415,6 +420,7 @@ pub struct PublicShareOverview {
     pub hls_ready: Option<bool>,
     pub requires_password: bool,
     pub block_download: bool,
+    pub allow_edit: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub shared_by_email: String,
@@ -684,14 +690,19 @@ pub async fn update_share(
         share.block_download = block_download;
     }
 
+    if let Some(allow_edit) = body.allow_edit {
+        share.allow_edit = allow_edit;
+    }
+
     sqlx::query(
         "UPDATE public_shares \
-         SET password_hash = $1, expires_at = $2, block_download = $3 \
-         WHERE id = $4 AND user_id = $5 AND revoked_at IS NULL",
+         SET password_hash = $1, expires_at = $2, block_download = $3, allow_edit = $4 \
+         WHERE id = $5 AND user_id = $6 AND revoked_at IS NULL",
     )
     .bind(&share.password_hash)
     .bind(share.expires_at)
     .bind(share.block_download)
+    .bind(share.allow_edit)
     .bind(&share.id)
     .bind(&claims.sub)
     .execute(&state.pool)
@@ -1067,6 +1078,7 @@ async fn public_overview_for_share(
             hls_ready: Some(hls_ready),
             requires_password: share.password_hash.is_some(),
             block_download: share.block_download,
+            allow_edit: share.allow_edit,
             created_at: share.created_at,
             expires_at: share.expires_at,
             shared_by_email: email,
@@ -1094,6 +1106,7 @@ async fn public_overview_for_share(
         hls_ready: None,
         requires_password: share.password_hash.is_some(),
         block_download: share.block_download,
+        allow_edit: share.allow_edit,
         created_at: share.created_at,
         expires_at: share.expires_at,
         shared_by_email: email,
@@ -1113,6 +1126,102 @@ pub async fn public_share_overview(
     let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
     let overview = public_overview_for_share(&state.pool, &share).await?;
     Ok(Json(PublicShareOverviewResponse { share: overview }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct PublicReplaceContentResponse {
+    pub file: FileDto,
+}
+
+// Human: Anonymous in-place content replace when a public link grants edit permission.
+// Agent: PUT /public/shares/{token}/files/{file_id}/content; REQUIRES allow_edit + share scope.
+pub async fn public_share_put_content(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, file_id)): Path<(String, String)>,
+    body: Bytes,
+) -> Result<Json<PublicReplaceContentResponse>, AppError> {
+    let share = resolve_public_share(state.as_ref(), &token, &headers).await?;
+    ensure_share_edit_allowed(&share)?;
+    let row = load_file_in_share_scope(&state.pool, &share, &file_id).await?;
+
+    if body.is_empty() {
+        return Err(AppError::BadRequest("content body must not be empty".into()));
+    }
+
+    // Human: Only text-like documents are safe to overwrite via public links (no media).
+    // Agent: ALLOWS text/*, application/rtf, application/json; REJECTS binary/media mime types.
+    let mime = row.mime_type.as_deref().unwrap_or("");
+    let name_lower = row.name.to_lowercase();
+    let text_like = mime.starts_with("text/")
+        || mime == "application/rtf"
+        || mime == "application/json"
+        || mime == "application/xml"
+        || name_lower.ends_with(".rtf")
+        || name_lower.ends_with(".txt")
+        || name_lower.ends_with(".md")
+        || name_lower.ends_with(".json")
+        || name_lower.ends_with(".csv")
+        || name_lower.ends_with(".xml");
+    if !text_like {
+        return Err(AppError::BadRequest(
+            "only text and RTF documents can be edited through a public link".into(),
+        ));
+    }
+
+    let content_type = if mime.is_empty() {
+        if name_lower.ends_with(".rtf") {
+            "application/rtf"
+        } else {
+            "text/plain"
+        }
+    } else {
+        mime
+    };
+    let size_bytes = body.len() as i64;
+    let data = body.to_vec();
+    let storage_key = row.storage_key.clone();
+
+    put_with_retry(state.storage.as_ref(), &storage_key, content_type, || {
+        let data = data.clone();
+        async move { Ok(data) }
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("storage put failed: {e}")))?;
+
+    sqlx::query(
+        "UPDATE files SET size_bytes = $2, updated_at = NOW() \
+         WHERE id = $1 AND user_id = $3 AND deleted_at IS NULL",
+    )
+    .bind(&file_id)
+    .bind(size_bytes)
+    .bind(&share.user_id)
+    .execute(&state.pool)
+    .await?;
+
+    let file: FileDto = sqlx::query_as(&format!(
+        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
+    ))
+    .bind(&file_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    audit::write_audit_logged(
+        &state.pool,
+        None,
+        "shares.public_content_replace",
+        Some("file"),
+        Some(&file_id),
+        Some(serde_json::json!({
+            "share_token": share.token,
+            "size_bytes": size_bytes,
+        })),
+        &headers,
+    )
+    .await;
+
+    Ok(Json(PublicReplaceContentResponse { file }))
 }
 
 // Human: List files and subfolders visible inside a folder-type public share.

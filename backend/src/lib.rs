@@ -466,6 +466,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(shares::handlers::public_share_download),
         )
         .route(
+            "/api/v1/public/shares/{token}/files/{file_id}/content",
+            put(shares::handlers::public_share_put_content)
+                .layer(DefaultBodyLimit::max(max_upload)),
+        )
+        .route(
             "/api/v1/public/shares/{token}/files/{file_id}/stream-url",
             get(shares::handlers::public_share_stream_url),
         )

@@ -999,6 +999,7 @@ async fn public_share_password_and_download_block() {
     let overview_json = response_json(overview).await;
     assert_eq!(overview_json["share"]["requires_password"], true);
     assert_eq!(overview_json["share"]["block_download"], false);
+    assert_eq!(overview_json["share"]["allow_edit"], false);
 
     let blocked = app
         .clone()

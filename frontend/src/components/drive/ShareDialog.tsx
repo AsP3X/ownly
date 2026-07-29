@@ -11,6 +11,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  Pencil,
   ShieldAlert,
   Trash2,
   UserMinus,
@@ -64,6 +65,7 @@ type ShareSettingsDraft = {
   expirationEnabled: boolean;
   expiresAt: string;
   blockDownload: boolean;
+  allowEdit: boolean;
 };
 
 // Human: Default expiration date ~30 days out for new share links.
@@ -83,6 +85,7 @@ function settingsFromShare(share: ShareLink | null): ShareSettingsDraft {
     expirationEnabled: Boolean(share?.expires_at),
     expiresAt: share?.expires_at?.slice(0, 10) ?? defaultExpirationDate(),
     blockDownload: share?.block_download ?? false,
+    allowEdit: share?.allow_edit ?? false,
   };
 }
 
@@ -377,10 +380,12 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
         password?: string | null;
         expires_at: string | null;
         block_download: boolean;
+        allow_edit: boolean;
       } = {
         requires_password: settings.requirePassword,
         expires_at: expiresAt,
         block_download: settings.blockDownload,
+        allow_edit: settings.allowEdit,
       };
 
       if (settings.password.trim()) {
@@ -487,8 +492,12 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
   const linkDisplay = linkBusy ? "Generating link…" : pageUrl;
   const statusSubtitle =
     target?.resource_type === "folder"
-      ? "Anyone on the internet with this link can browse this folder."
-      : "Anyone on the internet with this link can view this file.";
+      ? settings.allowEdit
+        ? "Anyone on the internet with this link can browse and edit documents in this folder."
+        : "Anyone on the internet with this link can browse this folder."
+      : settings.allowEdit
+        ? "Anyone on the internet with this link can view and edit this file."
+        : "Anyone on the internet with this link can view this file.";
   const expirationHint =
     settings.expirationEnabled && settings.expiresAt
       ? `Expires ${new Date(`${settings.expiresAt}T12:00:00`).toLocaleDateString(undefined, {
@@ -870,6 +879,17 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                   disabled={linkBusy || !share}
                   onCheckedChange={(checked) =>
                     setSettings((current) => ({ ...current, blockDownload: checked }))
+                  }
+                />
+
+                <ShareProtectionRow
+                  icon={Pencil}
+                  title="Allow editing"
+                  subtitle="Let anyone with the link edit text and RTF documents"
+                  checked={settings.allowEdit}
+                  disabled={linkBusy || !share}
+                  onCheckedChange={(checked) =>
+                    setSettings((current) => ({ ...current, allowEdit: checked }))
                   }
                 />
               </div>

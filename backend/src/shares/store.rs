@@ -25,6 +25,7 @@ pub struct ShareRecord {
     pub password_hash: Option<String>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub block_download: bool,
+    pub allow_edit: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +56,7 @@ type ShareScopedFileRow = (
 // Human: Columns loaded for every active share row used by token resolution and owner APIs.
 // Agent: INCLUDES protection fields; password_hash stays server-side only on ShareRecord.
 pub const SHARE_RECORD_COLUMNS: &str = "id, token, user_id, resource_type, resource_id, revoked_at, created_at, \
-    password_hash, expires_at, block_download";
+    password_hash, expires_at, block_download, allow_edit";
 
 // Human: True when a share row carries an expiration timestamp in the past.
 // Agent: CALLED before serving public content; TREATS expired links like revoked links.
@@ -94,6 +95,17 @@ pub fn ensure_share_download_allowed(share: &ShareRecord) -> Result<(), AppError
     if share.block_download {
         return Err(AppError::Forbidden(
             "downloads are disabled for this link".into(),
+        ));
+    }
+    Ok(())
+}
+
+// Human: Reject public content writes when the owner left the link view-only.
+// Agent: CALLED from public_share_put_content; REQUIRES allow_edit=true on the share row.
+pub fn ensure_share_edit_allowed(share: &ShareRecord) -> Result<(), AppError> {
+    if !share.allow_edit {
+        return Err(AppError::Forbidden(
+            "editing is disabled for this link".into(),
         ));
     }
     Ok(())

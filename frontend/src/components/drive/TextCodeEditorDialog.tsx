@@ -8,6 +8,7 @@ import {
   fetchFileBlobForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
+  replacePublicShareFileContent,
   replaceTextFileContent,
 } from "@/api/client";
 import { CodeEditorHeader } from "@/components/drive/text-code-editor/CodeEditorHeader";
@@ -54,9 +55,14 @@ export type TextCodeEditorDialogProps = {
   onFileSaved?: (previousId: string, file: FileItem) => void;
   /** Human: Parent folder label shown in the status bar as the git-branch analogue. */
   branchLabel?: string;
-  /** When set, bytes load through anonymous public share download (read-only). */
+  /** When set, bytes load through anonymous public share download. */
   shareToken?: string;
   sharePassword?: string | null;
+  /**
+   * Human: When false, force view-only (public link without allow_edit).
+   * Agent: DEFAULT true for owned Drive opens; false for anonymous public share tokens.
+   */
+  canEdit?: boolean;
 };
 
 type EditorBuffer = {
@@ -86,8 +92,11 @@ export function TextCodeEditorDialog({
   branchLabel = "cloud",
   shareToken,
   sharePassword,
+  canEdit,
 }: TextCodeEditorDialogProps) {
-  const readOnly = Boolean(shareToken);
+  // Human: Public share tokens are view-only unless canEdit is explicitly true (allow_edit).
+  // Agent: readOnly when canEdit===false OR (shareToken without canEdit).
+  const readOnly = canEdit === false || (Boolean(shareToken) && canEdit !== true);
   const [openTabs, setOpenTabs] = useState<FileItem[]>(tabs);
   const [buffers, setBuffers] = useState<Record<string, EditorBuffer>>({});
   const [preferences, setPreferences] = useState<EditorPreferences>(() => readEditorPreferences());
@@ -292,7 +301,14 @@ export function TextCodeEditorDialog({
     setSaving(true);
     setSaveError("");
     try {
-      const { file: savedFile } = await replaceTextFileContent(activeFile, activeBuffer.value);
+      const { file: savedFile } = shareToken
+        ? await replacePublicShareFileContent(
+            shareToken,
+            activeFile,
+            activeBuffer.value,
+            sharePassword,
+          )
+        : await replaceTextFileContent(activeFile, activeBuffer.value);
       setBuffers((current) => {
         const next = { ...current };
         delete next[activeFile.id];
@@ -314,7 +330,17 @@ export function TextCodeEditorDialog({
     } finally {
       setSaving(false);
     }
-  }, [activeBuffer.value, activeFile, dirty, onFileChange, onFileSaved, readOnly, saving]);
+  }, [
+    activeBuffer.value,
+    activeFile,
+    dirty,
+    onFileChange,
+    onFileSaved,
+    readOnly,
+    saving,
+    sharePassword,
+    shareToken,
+  ]);
 
   const handleDownload = useCallback(() => {
     if (!activeFile) return;
