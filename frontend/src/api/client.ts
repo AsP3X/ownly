@@ -2978,15 +2978,28 @@ export async function fetchFilePreviewStreamBlob(
   return fetchFileBlobForPreview(file, signal);
 }
 
-// Human: Replace editable text file bytes by permanently removing the old row and uploading new content.
+// Human: Replace editable text/RTF file bytes by permanently removing the old row and uploading new content.
 // Agent: DELETE /files/:id?permanent=true; POST /files/upload same folder_id + filename; RETURNS new FileItem.
 export async function replaceTextFileContent(
   file: FileItem,
   content: string,
 ): Promise<{ file: FileItem }> {
-  const mime = file.mime_type ?? "text/plain";
-  const blob = new Blob([content], { type: mime });
-  const nextFile = new File([blob], file.name, { type: mime });
+  const name = file.name || "document.txt";
+  const lower = name.toLowerCase();
+  const rawMime = (file.mime_type ?? "").toLowerCase();
+  // Human: Normalize RTF MIME so the upload pipeline stores a real rich-text document, not empty generic bytes.
+  // Agent: FORCES application/rtf for .rtf / rtf MIME; ELSE keeps original or text/plain.
+  const mime =
+    lower.endsWith(".rtf") || rawMime.includes("rtf")
+      ? "application/rtf"
+      : file.mime_type || "text/plain";
+  // Human: Encode as explicit UTF-8 so RTF control words and unicode escapes are not corrupted.
+  const bytes = new TextEncoder().encode(content);
+  const blob = new Blob([bytes], { type: mime });
+  const nextFile = new File([blob], name, { type: mime });
+  if (nextFile.size <= 0) {
+    throw new ApiError("Cannot save an empty document", "empty_document", 400);
+  }
   await deleteFile(file.id, { permanent: true });
   return uploadFileWithProgress(nextFile, undefined, {
     folderId: file.folder_id,

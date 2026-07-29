@@ -53,17 +53,21 @@ export function RtfEditorDialog({
   const readOnly = Boolean(shareToken);
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
   const activeFileIdRef = useRef<string | null>(null);
-  /** Human: After a successful save we already hold the HTML — skip the refetch that remounts empty. */
-  const skipReloadForFileIdRef = useRef<string | null>(null);
+  /** Human: After save, parent swaps file id — do not refetch and remount the document. */
+  const suppressLoadForFileIdsRef = useRef<Set<string>>(new Set());
+  const loadedFileIdRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [html, setHtml] = useState("<p><br></p>");
+  /** Human: Seed HTML for the uncontrolled surface — only changes on load, not while typing. */
+  const [documentKey, setDocumentKey] = useState("");
+  const [seedHtml, setSeedHtml] = useState("<p><br></p>");
   const [savedHtml, setSavedHtml] = useState("<p><br></p>");
+  const [draftHtml, setDraftHtml] = useState("<p><br></p>");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  const dirty = html !== savedHtml;
+  const dirty = draftHtml !== savedHtml;
 
   const syncLabel = saveError
     ? saveError
@@ -83,6 +87,15 @@ export function RtfEditorDialog({
         ? "dirty"
         : "saved";
 
+  const applyLoadedDocument = useCallback((fileId: string, nextHtml: string) => {
+    const html = nextHtml?.trim() ? nextHtml : "<p><br></p>";
+    loadedFileIdRef.current = fileId;
+    setSeedHtml(html);
+    setSavedHtml(html);
+    setDraftHtml(html);
+    setDocumentKey(`${fileId}:${Date.now()}`);
+  }, []);
+
   const loadFile = useCallback(
     async (target: FileItem) => {
       activeFileIdRef.current = target.id;
@@ -95,28 +108,33 @@ export function RtfEditorDialog({
           : await fetchFileBlobForPreview(target);
         if (activeFileIdRef.current !== target.id) return;
         const text = await blob.text();
-        const nextHtml = rtfToHtml(text);
-        setHtml(nextHtml);
-        setSavedHtml(nextHtml);
+        applyLoadedDocument(target.id, rtfToHtml(text));
       } catch (err) {
         if (activeFileIdRef.current !== target.id) return;
         setError(getErrorMessage(err));
-        setHtml("<p><br></p>");
-        setSavedHtml("<p><br></p>");
+        applyLoadedDocument(target.id, "<p><br></p>");
       } finally {
         if (activeFileIdRef.current === target.id) setLoading(false);
       }
     },
-    [sharePassword, shareToken],
+    [applyLoadedDocument, sharePassword, shareToken],
   );
 
   useEffect(() => {
     if (!open || !file) return;
 
-    // Human: Save creates a new file id — keep local HTML instead of blanking the surface during reload.
-    // Agent: SKIPS loadFile when skipReloadForFileIdRef matches the new file id.
-    if (skipReloadForFileIdRef.current === file.id) {
-      skipReloadForFileIdRef.current = null;
+    // Human: Save replaces the file id — keep the in-memory document instead of refetching.
+    // Agent: SKIPS load when this id was just produced by a successful save.
+    if (suppressLoadForFileIdsRef.current.has(file.id)) {
+      suppressLoadForFileIdsRef.current.delete(file.id);
+      activeFileIdRef.current = file.id;
+      loadedFileIdRef.current = file.id;
+      return;
+    }
+
+    // Human: Parent re-renders with a new FileItem object for the same id — do not re-seed the editor.
+    // Agent: SKIPS when file.id already loaded for this dialog session.
+    if (loadedFileIdRef.current === file.id) {
       activeFileIdRef.current = file.id;
       return;
     }
@@ -126,12 +144,15 @@ export function RtfEditorDialog({
 
   useEffect(() => {
     if (!open) {
-      setHtml("<p><br></p>");
+      setSeedHtml("<p><br></p>");
       setSavedHtml("<p><br></p>");
+      setDraftHtml("<p><br></p>");
+      setDocumentKey("");
       setError("");
       setSaveError("");
       setLoading(false);
-      skipReloadForFileIdRef.current = null;
+      loadedFileIdRef.current = null;
+      suppressLoadForFileIdsRef.current.clear();
     }
   }, [open]);
 
@@ -155,13 +176,12 @@ export function RtfEditorDialog({
     setSaving(true);
     setSaveError("");
     try {
-      const currentHtml = surfaceRef.current?.getHtml() ?? html;
+      // Human: Always read live DOM — draft state can lag a keystroke behind the surface.
+      const currentHtml = surfaceRef.current?.getHtml() ?? draftHtml;
 
-      // Human: Never replace the stored file with a blank document from an empty editor surface.
-      // Agent: ABORTS save when HTML has no visible text — protects against wipe-on-empty-DOM bugs.
       if (isEffectivelyEmptyHtml(currentHtml) && !isEffectivelyEmptyHtml(savedHtml)) {
         setSaveError(
-          "Save blocked: the editor looks empty. Reload the file or re-type your text before saving.",
+          "Save blocked: the editor looks empty. Click in the document and try again.",
         );
         return;
       }
@@ -172,18 +192,33 @@ export function RtfEditorDialog({
         return;
       }
 
+      // Human: Sanity-check round-trip before deleting the server file.
+      // Agent: PARSES generated RTF back to HTML; ABORTS when body text would be lost.
+      const roundTripHtml = rtfToHtml(rtf);
+      if (
+        !isEffectivelyEmptyHtml(currentHtml) &&
+        isEffectivelyEmptyHtml(roundTripHtml)
+      ) {
+        setSaveError(
+          "Save blocked: the RTF converter dropped the document text. Your file was not changed.",
+        );
+        return;
+      }
+
       const { file: savedFile } = await replaceTextFileContent(file, rtf);
-      setHtml(currentHtml);
+
+      // Human: Keep the editor content in place — do not remount or reseed after save.
+      setDraftHtml(currentHtml);
       setSavedHtml(currentHtml);
-      // Human: Parent swaps file id after delete+reupload — skip the automatic refetch for this id.
-      skipReloadForFileIdRef.current = savedFile.id;
+      loadedFileIdRef.current = savedFile.id;
+      suppressLoadForFileIdsRef.current.add(savedFile.id);
       onFileSaved?.(file.id, savedFile);
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [dirty, file, html, onFileSaved, readOnly, savedHtml, saving]);
+  }, [dirty, draftHtml, file, onFileSaved, readOnly, savedHtml, saving]);
 
   useEffect(() => {
     if (!open) return;
@@ -240,7 +275,7 @@ export function RtfEditorDialog({
           </header>
 
           <RtfEditorToolbar
-            disabled={loading || Boolean(error) || readOnly}
+            disabled={loading || Boolean(error) || readOnly || !documentKey}
             onCommand={(command, value) => surfaceRef.current?.exec(command, value)}
           />
 
@@ -253,17 +288,21 @@ export function RtfEditorDialog({
             ) : null}
 
             {error ? (
-              <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]" role="alert">
+              <p
+                className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]"
+                role="alert"
+              >
                 {error}
               </p>
             ) : null}
 
-            {!loading && !error ? (
+            {!loading && !error && documentKey ? (
               <RtfEditorSurface
                 ref={surfaceRef}
-                html={html}
+                documentKey={documentKey}
+                initialHtml={seedHtml}
                 readOnly={readOnly}
-                onChange={setHtml}
+                onChange={setDraftHtml}
               />
             ) : null}
           </div>

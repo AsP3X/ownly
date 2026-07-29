@@ -102,10 +102,21 @@ function colorCss(color: Color | undefined): string | null {
   return `rgb(${color.r}, ${color.g}, ${color.b})`;
 }
 
+function sanitizeCssFontName(font: string | undefined): string {
+  const cleaned = (font ?? "Helvetica").replace(/[;"'<>\\]/g, "").trim();
+  return cleaned || "Helvetica";
+}
+
+function isNearWhite(color: Color | undefined): boolean {
+  if (!color) return false;
+  return color.r >= 250 && color.g >= 250 && color.b >= 250;
+}
+
 function openSpan(char: CharState, fonts: string[], colors: Color[]): string {
   const styles: string[] = [];
-  const font = fonts[char.fontIndex];
-  if (font) styles.push(`font-family: ${JSON.stringify(font)}`);
+  // Human: Never nest double-quotes inside style="..." — that truncates the attribute and can hide text in the editor.
+  // Agent: USES unquoted sanitized family list so contenteditable innerHTML stays valid HTML.
+  styles.push(`font-family: ${sanitizeCssFontName(fonts[char.fontIndex])}, sans-serif`);
   styles.push(`font-size: ${Math.max(8, char.fontSizeHalfPoints / 2)}pt`);
   if (char.bold) styles.push("font-weight: 700");
   if (char.italic) styles.push("font-style: italic");
@@ -115,10 +126,13 @@ function openSpan(char: CharState, fonts: string[], colors: Color[]): string {
   if (decorations.length) styles.push(`text-decoration: ${decorations.join(" ")}`);
   if (char.superScript) styles.push("vertical-align: super", "font-size: 0.75em");
   if (char.subScript) styles.push("vertical-align: sub", "font-size: 0.75em");
-  const fg = colorCss(colors[char.colorIndex]);
-  if (fg && char.colorIndex > 0) styles.push(`color: ${fg}`);
-  const bg = colorCss(colors[char.highlightIndex]);
-  if (bg && char.highlightIndex > 0) styles.push(`background-color: ${bg}`);
+  const fgColor = colors[char.colorIndex];
+  const fg = colorCss(fgColor);
+  // Human: Skip near-white text colors (common TextEdit auto color tables) so text stays visible on white paper.
+  if (fg && char.colorIndex > 0 && !isNearWhite(fgColor)) styles.push(`color: ${fg}`);
+  const bgColor = colors[char.highlightIndex];
+  const bg = colorCss(bgColor);
+  if (bg && char.highlightIndex > 0 && !isNearWhite(bgColor)) styles.push(`background-color: ${bg}`);
   return `<span style="${styles.join("; ")}">`;
 }
 

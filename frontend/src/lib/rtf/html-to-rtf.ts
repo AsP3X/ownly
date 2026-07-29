@@ -171,9 +171,15 @@ export function htmlToRtf(html: string): string {
 
   const emitRun = (text: string, fmt: CharFmt) => {
     if (!text) return;
+    // Human: Skip pure whitespace-only control noise but keep intentional spaces.
+    if (!text.replace(/\u00a0/g, " ").trim() && !text.includes(" ") && !text.includes("\t") && !text.includes("\u00a0")) {
+      return;
+    }
     const f = ensureFont(fmt.font);
     const cf = ensureColor(fmt.color);
     const cb = ensureColor(fmt.highlight);
+    // Human: Emit flat controls + text (no nested groups) so rtfToHtml never drops body runs.
+    // Agent: Space delimiter after the last control word before plain text.
     let prefix = `\\f${f}\\fs${fmt.fontSizeHalfPoints}`;
     prefix += fmt.bold ? "\\b" : "\\b0";
     prefix += fmt.italic ? "\\i" : "\\i0";
@@ -185,7 +191,7 @@ export function htmlToRtf(html: string): string {
     if (cf > 0) prefix += `\\cf${cf}`;
     else prefix += "\\cf0";
     if (cb > 0) prefix += `\\highlight${cb}`;
-    body += `{${prefix} ${rtfEscapeText(text)}}`;
+    body += `${prefix} ${rtfEscapeText(text)}`;
   };
 
   const styleOf = (el: Element): CSSStyleDeclaration | null => {

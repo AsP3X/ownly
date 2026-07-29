@@ -1,5 +1,5 @@
-// Human: Contenteditable RTF surface — shows rendered rich text, not raw RTF source.
-// Agent: APPLIES execCommand from toolbar; EMITS html change events for dirty/save state.
+// Human: Contenteditable RTF surface — uncontrolled while typing; parent only seeds content on load.
+// Agent: EXPOSES imperative getHtml/setHtml/exec; EMITS onChange for dirty tracking only.
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,10 @@ export type RtfEditorSurfaceHandle = {
 };
 
 export type RtfEditorSurfaceProps = {
-  html: string;
+  /** Human: Document seed — applied only when documentKey changes (file open / explicit reload). */
+  initialHtml: string;
+  /** Human: Stable key for the loaded document version (e.g. file id + load generation). */
+  documentKey: string;
   readOnly?: boolean;
   disabled?: boolean;
   onChange: (html: string) => void;
@@ -32,71 +35,55 @@ export function isEffectivelyEmptyHtml(html: string): boolean {
 }
 
 export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurfaceProps>(
-  function RtfEditorSurface({ html, readOnly = false, disabled = false, onChange, className }, ref) {
+  function RtfEditorSurface(
+    { initialHtml, documentKey, readOnly = false, disabled = false, onChange, className },
+    ref,
+  ) {
     const editorRef = useRef<HTMLDivElement>(null);
-    /** Human: Last HTML we either wrote to the DOM or emitted via onChange. */
-    const lastHtmlRef = useRef<string>("");
-    /** Human: Ignore prop echoes while the user is actively typing. */
-    const typingRef = useRef(false);
+    const appliedKeyRef = useRef<string | null>(null);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
     useImperativeHandle(
       ref,
       () => ({
         focus: () => editorRef.current?.focus(),
-        getHtml: () => editorRef.current?.innerHTML ?? "",
+        getHtml: () => {
+          const el = editorRef.current;
+          if (!el) return "<p><br></p>";
+          const html = el.innerHTML;
+          return html.trim() ? html : "<p><br></p>";
+        },
         setHtml: (next) => {
           const el = editorRef.current;
           if (!el) return;
-          const value = next || "<p><br></p>";
-          el.innerHTML = value;
-          lastHtmlRef.current = el.innerHTML;
+          el.innerHTML = next?.trim() ? next : "<p><br></p>";
         },
         exec: (command, value) => {
           const el = editorRef.current;
           if (!el || readOnly || disabled) return;
           el.focus();
-          // Human: hiliteColor is non-standard; backColor is the wider-supported fallback.
           if (command === "hiliteColor") {
             const ok = document.execCommand("hiliteColor", false, value);
             if (!ok) document.execCommand("backColor", false, value);
           } else {
             document.execCommand(command, false, value);
           }
-          const next = el.innerHTML;
-          lastHtmlRef.current = next;
-          typingRef.current = true;
-          onChange(next);
+          onChangeRef.current(el.innerHTML);
         },
       }),
-      [disabled, onChange, readOnly],
+      [disabled, readOnly],
     );
 
-    // Human: Always push prop HTML into the contenteditable — including the first mount after load.
-    // Agent: WRITES innerHTML when prop differs from last known; SKIPS while focused+typing to avoid caret jumps.
+    // Human: Seed the editable DOM only when a new document version is loaded — never while typing.
+    // Agent: WRITES innerHTML when documentKey changes; IGNORES initialHtml prop updates for the same key.
     useEffect(() => {
       const el = editorRef.current;
       if (!el) return;
-
-      if (typingRef.current && html === lastHtmlRef.current) {
-        typingRef.current = false;
-        return;
-      }
-
-      // Human: External load/save path — replace DOM when the document HTML changed.
-      if (html !== lastHtmlRef.current || el.innerHTML !== html) {
-        // Don't clobber mid-edit when parent re-renders with the same logical value.
-        if (
-          document.activeElement === el &&
-          html === lastHtmlRef.current &&
-          el.innerHTML.length > 0
-        ) {
-          return;
-        }
-        el.innerHTML = html || "<p><br></p>";
-        lastHtmlRef.current = el.innerHTML;
-      }
-      typingRef.current = false;
-    }, [html]);
+      if (appliedKeyRef.current === documentKey) return;
+      appliedKeyRef.current = documentKey;
+      el.innerHTML = initialHtml?.trim() ? initialHtml : "<p><br></p>";
+    }, [documentKey, initialHtml]);
 
     return (
       <div className={cn("relative min-h-0 flex-1 overflow-auto bg-[#F3F4F6]", className)}>
@@ -119,18 +106,12 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
             onInput={() => {
               const el = editorRef.current;
               if (!el || readOnly) return;
-              const next = el.innerHTML;
-              lastHtmlRef.current = next;
-              typingRef.current = true;
-              onChange(next);
+              onChangeRef.current(el.innerHTML);
             }}
             onBlur={() => {
               const el = editorRef.current;
               if (!el || readOnly) return;
-              const next = el.innerHTML;
-              lastHtmlRef.current = next;
-              typingRef.current = false;
-              onChange(next);
+              onChangeRef.current(el.innerHTML);
             }}
           />
         </div>

@@ -1474,14 +1474,12 @@ export default function DrivePage() {
   }
 
   function handleRtfFileSaved(previousId: string, savedFile: FileItem) {
+    // Human: Keep the open RTF editor stable — only swap the file id/metadata after delete+reupload.
+    // Agent: UPDATES files list + previewRtf; AVOIDS immediate full refresh that could remount the dialog.
     setFiles((current) =>
       current.map((item) => (item.id === previousId ? savedFile : item)),
     );
     setPreviewRtf(savedFile);
-    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-      silent: true,
-      nav: activeNav,
-    });
   }
 
   function handleDetailsFolder(folder: FolderItem, tab: "details" | "sharing" = "details") {
