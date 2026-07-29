@@ -88,7 +88,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-row-field">Rows (primary)</Label>
             <select
               id="pivot-row-field"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={rowFieldCol}
               onChange={(event) => setRowFieldCol(Number.parseInt(event.target.value, 10))}
             >
@@ -103,7 +103,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-row-field-2">Rows (optional)</Label>
             <select
               id="pivot-row-field-2"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={rowFieldCol2 === "" ? "" : String(rowFieldCol2)}
               onChange={(event) =>
                 setRowFieldCol2(event.target.value === "" ? "" : Number.parseInt(event.target.value, 10))
@@ -121,7 +121,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-value-field">Values</Label>
             <select
               id="pivot-value-field"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={valueFieldCol}
               onChange={(event) => setValueFieldCol(Number.parseInt(event.target.value, 10))}
             >
@@ -136,7 +136,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-aggregation">Aggregate</Label>
             <select
               id="pivot-aggregation"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={aggregation}
               onChange={(event) => setAggregation(event.target.value as PivotAggregation)}
             >
@@ -151,7 +151,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-value-field-2">Values (optional)</Label>
             <select
               id="pivot-value-field-2"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={valueFieldCol2 === "" ? "" : String(valueFieldCol2)}
               onChange={(event) =>
                 setValueFieldCol2(event.target.value === "" ? "" : Number.parseInt(event.target.value, 10))
@@ -169,7 +169,7 @@ export function ExcelPivotTableDialog({
             <Label htmlFor="pivot-aggregation-2">Aggregate (optional)</Label>
             <select
               id="pivot-aggregation-2"
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm"
+              className="h-9 w-full rounded-lg border border-edge bg-panel px-2 text-sm"
               value={aggregation2}
               onChange={(event) => setAggregation2(event.target.value as PivotAggregation)}
               disabled={valueFieldCol2 === ""}
@@ -183,12 +183,12 @@ export function ExcelPivotTableDialog({
           </div>
         </div>
 
-        <div className="max-h-56 overflow-auto rounded-lg border border-[#E5E7EB]">
+        <div className="max-h-56 overflow-auto rounded-lg border border-edge">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-[#F3F4F6]">
+              <tr className="bg-sunken">
                 {preview.headers.map((header) => (
-                  <th key={header} className="border-b border-[#E5E7EB] px-3 py-2 text-left font-semibold">
+                  <th key={header} className="border-b border-edge px-3 py-2 text-left font-semibold">
                     {header}
                   </th>
                 ))}
@@ -197,15 +197,15 @@ export function ExcelPivotTableDialog({
             <tbody>
               {preview.rows.length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="px-3 py-6 text-center text-[#666666]">
+                  <td colSpan={2} className="px-3 py-6 text-center text-ink-muted">
                     No numeric values found for this pivot configuration.
                   </td>
                 </tr>
               ) : (
                 preview.rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="odd:bg-white even:bg-[#FAFAFA]">
+                  <tr key={rowIndex} className="odd:bg-panel even:bg-[#FAFAFA]">
                     {row.map((cell, colIndex) => (
-                      <td key={colIndex} className="border-b border-[#E5E7EB] px-3 py-2">
+                      <td key={colIndex} className="border-b border-edge px-3 py-2">
                         {cell.display}
                       </td>
                     ))}

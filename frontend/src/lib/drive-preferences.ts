@@ -4,6 +4,7 @@
 const RECENT_KEY = "ownly_recent_files";
 const FAVOURITES_KEY = "ownly_favourite_files";
 const EXPLORER_FILE_SORT_KEY = "ownly_explorer_file_sort";
+const EXPLORER_VIEW_MODE_KEY = "ownly_explorer_view_mode";
 const MAX_RECENT = 50;
 
 /** Human: Drive explorer file ordering — name or upload date, ascending or descending. */
@@ -15,6 +16,21 @@ export const EXPLORER_FILE_SORT_OPTIONS: { id: ExplorerFileSort; label: string }
   { id: "uploaded-desc", label: "Recent upload (newest)" },
   { id: "uploaded-asc", label: "Recent upload (oldest)" },
 ];
+
+/** Human: How the explorer lays out entries — thumbnail grid or detail rows. */
+export type ExplorerViewMode = "grid" | "list";
+
+export const EXPLORER_VIEW_MODES = new Set<ExplorerViewMode>(["grid", "list"]);
+
+/**
+ * Human: Which sort each list column header drives, and which way it toggles.
+ * Agent: MAPS column → the two existing ExplorerFileSort ids so list sorting adds no new
+ *        backend semantics. Columns absent from this map are not sortable.
+ */
+export const EXPLORER_LIST_COLUMN_SORTS: Record<"name" | "uploaded", [ExplorerFileSort, ExplorerFileSort]> = {
+  name: ["name-asc", "name-desc"],
+  uploaded: ["uploaded-desc", "uploaded-asc"],
+};
 
 // Human: Map UI sort ids to GET /files?sort= query values.
 // Agent: REPLACES hyphen with underscore for backend parse_file_list_sort().
@@ -112,6 +128,30 @@ export function readExplorerFileSort(): ExplorerFileSort {
 // Agent: WRITES ownly_explorer_file_sort.
 export function writeExplorerFileSort(sort: ExplorerFileSort) {
   localStorage.setItem(EXPLORER_FILE_SORT_KEY, sort);
+}
+
+// Human: Restore the user's last explorer layout choice (thumbnail grid vs detail rows).
+// Agent: READS ownly_explorer_view_mode; DEFAULTS to grid when missing/invalid.
+export function readExplorerViewMode(): ExplorerViewMode {
+  try {
+    const raw = localStorage.getItem(EXPLORER_VIEW_MODE_KEY);
+    if (raw !== null && EXPLORER_VIEW_MODES.has(raw as ExplorerViewMode)) {
+      return raw as ExplorerViewMode;
+    }
+  } catch {
+    // Agent: Ignore private-mode or quota failures; fall back to the default grid layout.
+  }
+  return "grid";
+}
+
+// Human: Persist explorer layout so it survives reloads and folder navigation.
+// Agent: WRITES ownly_explorer_view_mode; SWALLOWS quota/private-mode errors.
+export function writeExplorerViewMode(mode: ExplorerViewMode) {
+  try {
+    localStorage.setItem(EXPLORER_VIEW_MODE_KEY, mode);
+  } catch {
+    // Agent: Layout choice is best-effort; the in-memory mode still applies for this session.
+  }
 }
 
 // Human: Order file rows for Home → Recently accessed using stored access timestamps.

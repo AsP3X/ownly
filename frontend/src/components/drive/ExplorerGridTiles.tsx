@@ -2,20 +2,10 @@
 // Agent: EXTRACTED from DriveCloudExplorer; RENDERS previews, selection, drag-drop; MEMO avoids full-grid re-renders.
 
 import { memo, useRef, type ChangeEvent, type DragEvent, type PointerEvent } from "react";
-import {
-  Check,
-  FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Film,
-  Folder,
-  ImageIcon,
-  MoreVertical,
-  Music,
-  Presentation,
-} from "lucide-react";
+import { Check, Folder, MoreVertical } from "lucide-react";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
+import { ExplorerFileGlyph } from "@/components/drive/ExplorerFileGlyph";
 import { ExplorerGridPreviewSlot } from "@/components/drive/ExplorerGridPreviewSlot";
 import { ExplorerDocumentThumbnail } from "@/components/drive/ExplorerDocumentThumbnail";
 import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnail";
@@ -51,31 +41,6 @@ export type ExplorerGridEntry =
   | { kind: "folder"; folder: FolderItem }
   | { kind: "file"; file: FileItem };
 
-// Human: Large centered icon for explorer file tiles (32px per wireframe).
-// Agent: READS mime_type; RETURNS lucide icon in brand blue.
-function ExplorerFileIcon({ mimeType }: { mimeType: string | null }) {
-  const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-8 text-[#2563EB]";
-  if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
-  if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
-  if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
-  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return <FileSpreadsheet className={className} aria-hidden />;
-  }
-  if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return <Presentation className={className} aria-hidden />;
-  }
-  if (
-    mime.startsWith("text/") ||
-    mime.includes("pdf") ||
-    mime.includes("word") ||
-    mime.includes("document")
-  ) {
-    return <FileText className={className} aria-hidden />;
-  }
-  return <FileIcon className={className} aria-hidden />;
-}
-
 type ExplorerGridFileNameProps = {
   name: string;
   selected?: boolean;
@@ -88,13 +53,15 @@ function ExplorerGridFileName({ name, selected = false }: ExplorerGridFileNamePr
   return (
     <span
       className={cn(
-        "flex min-w-0 w-full items-baseline justify-center text-xs font-semibold leading-snug lg:text-[13px]",
-        selected ? "text-blue-950" : "text-[#1A1A1A]",
+        // Human: Left-aligned, not centered — centered filenames are the tell of a stock template
+        // and make scanning a column of names harder.
+        "flex min-w-0 w-full items-baseline text-xs font-medium leading-snug lg:text-[13px]",
+        selected ? "text-brand" : "text-ink",
       )}
       title={name}
     >
       <span className="min-w-0 truncate">{base}</span>
-      {extension ? <span className="shrink-0">{extension}</span> : null}
+      {extension ? <span className="shrink-0 text-ink-faint">{extension}</span> : null}
     </span>
   );
 }
@@ -152,19 +119,20 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
   return (
     <div
       data-folder-id={folder.id}
+      data-explorer-entry="folder"
       onDragEnter={(event) => onDragEnter(event, folder.id)}
       onDragOver={onDragOver}
       onDragLeave={() => onDragLeave(folder.id)}
       onDrop={(event) => onDrop(event, folder.id)}
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "group relative min-w-0 w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        "group relative min-w-0 w-full overflow-hidden rounded-lg border bg-panel transition-[border-color,box-shadow,background-color]",
         isSelected
-          ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
-          : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
-        isDropTarget && "border-blue-400 bg-blue-50/90 shadow-md shadow-blue-500/10",
+          ? "border-brand bg-brand-weak"
+          : "border-edge hover:border-edge-strong hover:bg-surface",
+        isDropTarget && "border-brand bg-brand-weak ring-2 ring-brand/25",
         isDragging && "opacity-50",
-        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
+        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-brand/50",
         touchDragEnabled && "touch-manipulation",
         cardSelectMode && "cursor-pointer",
       )}
@@ -191,10 +159,10 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
           <span
             className={cn(
               "flex size-5 items-center justify-center rounded-md border transition-colors",
-              "peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-1",
+              "peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-focus-visible:ring-offset-1",
               isSelected
-                ? "border-blue-600 bg-blue-600 text-white"
-                : "border-[#D1D5DB] bg-white text-transparent shadow-sm",
+                ? "border-brand bg-brand text-brand-on"
+                : "border-edge-strong bg-panel text-transparent shadow-sm",
             )}
             aria-hidden
           >
@@ -204,6 +172,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       ) : null}
       <button
         type="button"
+        data-explorer-activate
         draggable={dragEnabled && !touchDragEnabled}
         aria-label={
           cardSelectMode
@@ -227,33 +196,32 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
         onPointerUp={touchDragBindings?.onPointerUp}
         onPointerCancel={touchDragBindings?.onPointerCancel}
         className={cn(
-          "flex h-full w-full flex-col items-stretch gap-1.5 p-1.5 text-center lg:gap-1.5 lg:p-2",
+          "flex h-full w-full flex-col items-stretch p-1 text-left",
           touchDragBindings && "touch-pan-y",
         )}
       >
         {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
         {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
         <ExplorerGridPreviewSlot>
-          <Folder className="size-8 text-[#2563EB]" aria-hidden />
+          <Folder className="size-7 text-amber-600 dark:text-amber-400" aria-hidden />
         </ExplorerGridPreviewSlot>
-        <span
-          className={cn(
-            "w-full truncate text-xs font-semibold leading-snug lg:text-[13px]",
-            isSelected ? "text-blue-950" : "text-[#1A1A1A]",
-          )}
-          title={folder.name}
-        >
-          {folder.name}
+        {/* Human: Metadata footer separated by a hairline rather than floating under the image. */}
+        {/* Agent: mt-1 + border-t; keeps the tile's overall height stable for contain-intrinsic-size. */}
+        <span className="mt-1 flex flex-col gap-0.5 border-t border-hairline px-1 pt-1.5">
+          <span
+            className={cn(
+              "w-full truncate text-xs font-medium leading-snug lg:text-[13px]",
+              isSelected ? "text-brand" : "text-ink",
+            )}
+            title={folder.name}
+          >
+            {folder.name}
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-ink-faint lg:text-[11px]">
+            Folder
+            <SharedIndicator flags={shareFlags} className="size-3" />
+          </span>
         </span>
-        <span
-          className={cn(
-            "text-[10px] lg:text-[11px]",
-            isSelected ? "text-blue-700/80" : "text-[#888888]",
-          )}
-        >
-          Folder
-        </span>
-        <SharedIndicator flags={shareFlags} className="size-3" />
       </button>
     </div>
   );
@@ -441,18 +409,17 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   return (
     <div
       data-file-id={file.id}
+      data-explorer-entry="file"
       className={cn(
         EXPLORER_GRID_TILE_PERF,
-        "group relative min-w-0 w-full overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,background-color]",
+        "group relative min-w-0 w-full overflow-hidden rounded-lg border bg-panel transition-[border-color,box-shadow,background-color]",
         isSelected
-          ? "border-blue-500 bg-blue-50/90 shadow-md shadow-blue-500/10"
-          : "border-[#E5E7EB] hover:border-blue-200 hover:shadow-sm",
-        canPreview && !isSelected && !cardSelectMode && "hover:bg-[#F7F8FA]",
-        canPreview && isSelected && "hover:bg-blue-100/50",
-        cardSelectMode && !isSelected && "hover:bg-blue-50/60",
+          ? "border-brand bg-brand-weak"
+          : "border-edge hover:border-edge-strong hover:bg-surface",
+        cardSelectMode && !isSelected && "hover:bg-brand-weak/60",
         processing && "opacity-80",
         isDragging && "opacity-50",
-        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-blue-400/60",
+        isArmedForTouchDrag && !isDragging && "scale-[0.98] ring-2 ring-brand/50",
         touchDragEnabled && "touch-manipulation",
         cardSelectMode && "cursor-pointer",
       )}
@@ -483,10 +450,10 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           <span
             className={cn(
               "flex size-5 items-center justify-center rounded-md border transition-colors",
-              "peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-1",
+              "peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-focus-visible:ring-offset-1",
               isSelected
-                ? "border-blue-600 bg-blue-600 text-white"
-                : "border-[#D1D5DB] bg-white text-transparent shadow-sm",
+                ? "border-brand bg-brand text-brand-on"
+                : "border-edge-strong bg-panel text-transparent shadow-sm",
             )}
             aria-hidden
           >
@@ -500,8 +467,8 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           variant="ghost"
           size="icon-sm"
           className={cn(
-            "absolute left-1.5 top-1.5 z-10 size-7 text-[#888888] lg:hidden",
-            isSelected && "bg-white/80",
+            "absolute left-1.5 top-1.5 z-10 size-7 text-ink-faint lg:hidden",
+            isSelected && "bg-panel/80",
           )}
           aria-label={`Actions for ${file.name}`}
           onClick={(event) => {
@@ -514,6 +481,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
       ) : null}
       <button
         type="button"
+        data-explorer-activate
         draggable={dragEnabled && !processing && !touchDragEnabled && !cardSelectMode}
         aria-label={
           cardSelectMode
@@ -553,7 +521,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           else if (canPreviewAudio) onPreviewAudio!(file);
         }}
         className={cn(
-          "flex h-full w-full flex-col items-stretch gap-1.5 p-1.5 text-center lg:gap-1.5 lg:p-2",
+          "flex h-full w-full flex-col items-stretch p-1 text-left",
           // Human: pan-y keeps list scroll working on first touch over a tile; drag arms only after long-press.
           // Agent: AVOIDS touch-none here — that blocks native vertical scroll across the whole grid on mobile.
           touchDragBindings && !cardSelectMode && "touch-pan-y",
@@ -577,29 +545,26 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           ) : thumbnailProcessing ? (
             <ExplorerThumbnailShimmer slotFill />
           ) : (
-            <ExplorerFileIcon mimeType={file.mime_type} />
+            <ExplorerFileGlyph mimeType={file.mime_type} className="size-7" />
           )}
           {processing ? <FileProcessingProgressOverlay file={file} /> : null}
         </ExplorerGridPreviewSlot>
-        <ExplorerGridFileName name={file.name} selected={isSelected} />
-        <span
-          className={cn(
-            "text-[10px] lg:text-[11px]",
-            isSelected ? "text-blue-700/80" : "text-[#888888]",
-          )}
-        >
-          {formatBytes(file.size_bytes)} • {formatFileUpdatedRelative(file.updated_at)}
+        {/* Human: Metadata footer separated by a hairline — mirrors the folder tile rhythm. */}
+        {/* Agent: mt-1 + border-t; size/date use tabular numerals so columns of tiles line up. */}
+        <span className="mt-1 flex flex-col gap-0.5 border-t border-hairline px-1 pt-1.5">
+          <ExplorerGridFileName name={file.name} selected={isSelected} />
+          <span className="flex items-center gap-1 text-[10px] tabular-nums text-ink-faint lg:text-[11px]">
+            {formatBytes(file.size_bytes)}
+            <span aria-hidden>·</span>
+            {formatFileUpdatedRelative(file.updated_at)}
+            <SharedIndicator flags={shareFlags} className="size-3" />
+          </span>
+          {processing ? (
+            <span className="mt-0.5 flex w-full max-w-full overflow-hidden">
+              <FileProcessingBadge file={file} compact className="bg-proc-weak text-proc" />
+            </span>
+          ) : null}
         </span>
-        {processing ? (
-          <div className="mt-1 flex w-full max-w-full justify-center overflow-hidden px-0.5">
-            <FileProcessingBadge
-              file={file}
-              compact
-              className="bg-violet-100 text-violet-900"
-            />
-          </div>
-        ) : null}
-        <SharedIndicator flags={shareFlags} className="size-3" />
       </button>
     </div>
   );

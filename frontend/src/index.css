@@ -51,6 +51,41 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /*
+   * Human: Drive semantic palette — utility names for the filebrowser surfaces.
+   * Agent: MAPS --dr-* raw values below into Tailwind utilities (bg-surface, text-ink, border-edge, …).
+   * Names are deliberately distinct from the shadcn set (--accent, --card, --border, --ring) so
+   * redefining drive colours never changes shadcn component behaviour.
+   */
+  --color-surface: var(--dr-surface);
+  --color-panel: var(--dr-panel);
+  --color-raised: var(--dr-raised);
+  --color-sunken: var(--dr-sunken);
+
+  --color-ink: var(--dr-ink);
+  --color-ink-muted: var(--dr-ink-muted);
+  --color-ink-faint: var(--dr-ink-faint);
+
+  --color-hairline: var(--dr-hairline);
+  --color-edge: var(--dr-edge);
+  --color-edge-strong: var(--dr-edge-strong);
+
+  --color-brand: var(--dr-brand);
+  --color-brand-hover: var(--dr-brand-hover);
+  --color-brand-weak: var(--dr-brand-weak);
+  --color-brand-on: var(--dr-brand-on);
+
+  --color-ok: var(--dr-ok);
+  --color-ok-weak: var(--dr-ok-weak);
+  --color-danger: var(--dr-danger);
+  --color-danger-weak: var(--dr-danger-weak);
+  --color-warn: var(--dr-warn);
+  --color-warn-weak: var(--dr-warn-weak);
+  --color-proc: var(--dr-proc);
+  --color-proc-weak: var(--dr-proc-weak);
+
+  --color-focus: var(--dr-focus);
 }
 
 :root {
@@ -86,6 +121,41 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * Human: Drive light theme — neutral greys carry the UI; brand blue is reserved for
+   * selection, active navigation and focus only. Values are hex so they diff cleanly against
+   * the literals they replace (see docs/superpowers/specs/2026-07-29-filebrowser-ui-rework-design.md).
+   * Agent: CONSUMED via the --color-* mappings in @theme inline; overridden under .dark.
+   */
+  --dr-surface: #f6f7f9;
+  --dr-panel: #ffffff;
+  --dr-raised: #ffffff;
+  --dr-sunken: #eef0f4;
+
+  --dr-ink: #16181d;
+  --dr-ink-muted: #5a6070;
+  --dr-ink-faint: #878d9c;
+
+  --dr-hairline: #edeff3;
+  --dr-edge: #dfe3ea;
+  --dr-edge-strong: #c6ccd8;
+
+  --dr-brand: #2563eb;
+  --dr-brand-hover: #1d4ed8;
+  --dr-brand-weak: #eaf1fe;
+  --dr-brand-on: #ffffff;
+
+  --dr-ok: #0e9f6e;
+  --dr-ok-weak: #e6f6f0;
+  --dr-danger: #dc2626;
+  --dr-danger-weak: #fdecec;
+  --dr-warn: #d97706;
+  --dr-warn-weak: #fdf3e3;
+  --dr-proc: #7c3aed;
+  --dr-proc-weak: #f1ebfe;
+
+  --dr-focus: #2563eb;
 }
 
 .dark {
@@ -120,9 +190,55 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /*
+   * Human: Drive dark theme — same semantic roles, re-tuned for a dark base.
+   * Agent: Brand is lifted (#4c8dff) because #2563eb fails contrast on dark surfaces;
+   * --dr-brand-on flips to near-black so text on brand fills stays legible.
+   */
+  --dr-surface: #0e1015;
+  --dr-panel: #16191f;
+  --dr-raised: #1d2129;
+  --dr-sunken: #0a0c10;
+
+  --dr-ink: #e8eaee;
+  --dr-ink-muted: #a0a7b4;
+  --dr-ink-faint: #737b8a;
+
+  --dr-hairline: #1f242c;
+  --dr-edge: #2a3039;
+  --dr-edge-strong: #3a424e;
+
+  --dr-brand: #4c8dff;
+  --dr-brand-hover: #6ba1ff;
+  --dr-brand-weak: #16233a;
+  --dr-brand-on: #0b0f16;
+
+  --dr-ok: #34d399;
+  --dr-ok-weak: #10251e;
+  --dr-danger: #f87171;
+  --dr-danger-weak: #2a1416;
+  --dr-warn: #fbbf24;
+  --dr-warn-weak: #2a1f0c;
+  --dr-proc: #a78bfa;
+  --dr-proc-weak: #1e1733;
+
+  --dr-focus: #4c8dff;
 }
 
 @layer base {
+  /*
+   * Human: Tell the browser which theme is active so native scrollbars, form controls and
+   * the canvas behind rubber-band scrolling match instead of flashing white.
+   * Agent: READS the `dark` class ThemeProvider writes on <html>.
+   */
+  :root {
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

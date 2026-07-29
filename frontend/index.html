@@ -11,6 +11,24 @@
     <!-- Agent: Form fields use ≥16px on mobile so iOS Safari does not auto-zoom on focus. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Ownly</title>
+    <!-- Human: Apply the saved theme before first paint so dark users never see a white flash. -->
+    <!-- Agent: READS localStorage ownly_theme (light|dark|system); WRITES the `dark` class on <html>. -->
+    <!--         Mirrors lib/theme-preference.ts — keep the storage key and class name in sync. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("ownly_theme");
+          var pref = saved === "light" || saved === "dark" ? saved : "system";
+          var dark =
+            pref === "dark" ||
+            (pref === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (error) {
+          /* Agent: Private mode or disabled storage — fall through to the light default. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

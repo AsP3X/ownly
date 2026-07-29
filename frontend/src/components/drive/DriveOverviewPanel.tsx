@@ -62,7 +62,7 @@ type DriveOverviewPanelProps = {
 // Agent: READS mime_type; RETURNS blue lucide icon sized to 16px.
 function ActivityFileIcon({ mimeType }: { mimeType: string | null }) {
   const mime = (mimeType ?? "").toLowerCase();
-  const className = "size-4 shrink-0 text-[#2563EB]";
+  const className = "size-4 shrink-0 text-brand";
   if (mime.startsWith("image/")) return <ImageIcon className={className} aria-hidden />;
   if (mime.startsWith("video/")) return <Film className={className} aria-hidden />;
   if (mime.startsWith("audio/")) return <Music className={className} aria-hidden />;
@@ -97,15 +97,15 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <article className="flex flex-col gap-2 rounded-xl border border-[#E5E7EB] bg-white p-5">
+    <article className="flex flex-col gap-2 rounded-xl border border-edge bg-panel p-5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-[#888888]">{label}</p>
-        <span className="text-[#2563EB]" aria-hidden>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">{label}</p>
+        <span className="text-brand" aria-hidden>
           {icon}
         </span>
       </div>
-      <p className="text-[22px] font-bold leading-tight text-[#1A1A1A]">{value}</p>
-      <p className="text-xs text-[#666666]">{description}</p>
+      <p className="text-[22px] font-bold leading-tight text-ink">{value}</p>
+      <p className="text-xs text-ink-muted">{description}</p>
     </article>
   );
 }
@@ -116,15 +116,15 @@ function SecurityCell({ flags }: { flags?: ShareFlags }) {
   const isShared = Boolean(flags?.public || flags?.users);
   if (isShared) {
     return (
-      <span className="inline-flex items-center gap-2 text-[13px] text-[#666666]">
-        <LockOpen className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
+      <span className="inline-flex items-center gap-2 text-[13px] text-ink-muted">
+        <LockOpen className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
         Shared
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-2 text-[13px] text-[#1A1A1A]">
-      <Lock className="size-3.5 shrink-0 text-[#2563EB]" aria-hidden />
+    <span className="inline-flex items-center gap-2 text-[13px] text-ink">
+      <Lock className="size-3.5 shrink-0 text-brand" aria-hidden />
       Encrypted
     </span>
   );
@@ -147,18 +147,18 @@ function FolderOverviewCard({
     <button
       type="button"
       onClick={onOpen}
-      className="flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-white p-5 text-left transition-colors hover:border-[#2563EB]/40 hover:shadow-sm"
+      className="flex flex-col gap-3 rounded-xl border border-edge bg-panel p-5 text-left transition-colors hover:border-brand/40 hover:shadow-sm"
     >
       <div className="flex items-start justify-between gap-2">
-        <Folder className="size-6 text-[#2563EB]" aria-hidden />
+        <Folder className="size-6 text-brand" aria-hidden />
         {isShared ? (
-          <LockOpen className="size-4 text-[#888888]" aria-hidden />
+          <LockOpen className="size-4 text-ink-faint" aria-hidden />
         ) : (
-          <Lock className="size-4 text-[#2563EB]" aria-hidden />
+          <Lock className="size-4 text-brand" aria-hidden />
         )}
       </div>
-      <p className="text-[15px] font-bold text-[#1A1A1A]">{folder.name}</p>
-      <p className="text-xs text-[#888888]">Updated {formatFileOpened(folder.updated_at)}</p>
+      <p className="text-[15px] font-bold text-ink">{folder.name}</p>
+      <p className="text-xs text-ink-faint">Updated {formatFileOpened(folder.updated_at)}</p>
     </button>
   );
 }
@@ -191,12 +191,12 @@ export function DriveOverviewPanel({
     <div className="flex flex-col gap-8">
       {/* Content header — title + primary actions */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-[32px] font-bold leading-tight text-[#1A1A1A]">My Cloud</h1>
+        <h1 className="text-[32px] font-bold leading-tight text-ink">My Cloud</h1>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
             variant="outline"
-            className="h-auto gap-2 rounded-lg border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]"
+            className="h-auto gap-2 rounded-lg border-edge bg-panel px-4 py-2.5 text-sm font-semibold text-ink hover:bg-surface"
             onClick={onCreateFolder}
           >
             <FolderPlus className="size-4" aria-hidden />
@@ -204,7 +204,7 @@ export function DriveOverviewPanel({
           </Button>
           <Button
             type="button"
-            className="h-auto gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#1d4ed8]"
+            className="h-auto gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-on hover:bg-brand-hover"
             onClick={onUpload}
           >
             <Upload className="size-4" aria-hidden />
@@ -237,9 +237,9 @@ export function DriveOverviewPanel({
 
       {/* Folders */}
       <section className="flex flex-col gap-4">
-        <h2 className="text-base font-bold text-[#1A1A1A]">Folders</h2>
+        <h2 className="text-base font-bold text-ink">Folders</h2>
         {folders.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-[#E5E7EB] bg-white px-6 py-10 text-center text-sm text-[#666666]">
+          <p className="rounded-xl border border-dashed border-edge bg-panel px-6 py-10 text-center text-sm text-ink-muted">
             No folders yet. Create one to organize your library.
           </p>
         ) : (
@@ -257,27 +257,27 @@ export function DriveOverviewPanel({
       </section>
 
       {/* Recent activity table */}
-      <section className="flex flex-col gap-4 rounded-xl border border-[#E5E7EB] bg-white p-6">
+      <section className="flex flex-col gap-4 rounded-xl border border-edge bg-panel p-6">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-bold text-[#1A1A1A]">Recent Activity</h2>
+          <h2 className="text-base font-bold text-ink">Recent Activity</h2>
           <button
             type="button"
             onClick={onViewAllFiles}
-            className="text-sm font-semibold text-[#2563EB] hover:underline"
+            className="text-sm font-semibold text-brand hover:underline"
           >
             View All
           </button>
         </div>
 
-        <div className="hidden border-b border-[#E5E7EB] py-2 md:grid md:grid-cols-[minmax(0,1fr)_120px_140px_140px] md:gap-4">
-          <span className="text-xs font-bold text-[#888888]">Name</span>
-          <span className="text-xs font-bold text-[#888888]">Size</span>
-          <span className="text-xs font-bold text-[#888888]">Security</span>
-          <span className="text-xs font-bold text-[#888888]">Date Modified</span>
+        <div className="hidden border-b border-edge py-2 md:grid md:grid-cols-[minmax(0,1fr)_120px_140px_140px] md:gap-4">
+          <span className="text-xs font-bold text-ink-faint">Name</span>
+          <span className="text-xs font-bold text-ink-faint">Size</span>
+          <span className="text-xs font-bold text-ink-faint">Security</span>
+          <span className="text-xs font-bold text-ink-faint">Date Modified</span>
         </div>
 
         {recentFiles.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[#666666]">
+          <p className="py-8 text-center text-sm text-ink-muted">
             No recent files yet. Open or upload something from My Cloud.
           </p>
         ) : (
@@ -321,7 +321,7 @@ export function DriveOverviewPanel({
               return (
                 <li
                   key={file.id}
-                  className="border-b border-[#E5E7EB] py-3 last:border-b-0"
+                  className="border-b border-edge py-3 last:border-b-0"
                 >
                   <div
                     role={canPreview ? "button" : undefined}
@@ -350,14 +350,14 @@ export function DriveOverviewPanel({
                     }}
                     className={cn(
                       "grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_140px_140px] md:items-center md:gap-4",
-                      canPreview && "cursor-pointer rounded-lg md:hover:bg-[#F7F8FA]",
+                      canPreview && "cursor-pointer rounded-lg md:hover:bg-surface",
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <ActivityFileIcon mimeType={file.mime_type} />
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate text-sm font-semibold text-[#1A1A1A]">
+                          <span className="truncate text-sm font-semibold text-ink">
                             {file.name}
                           </span>
                           <SharedIndicator flags={fileShareFlags[file.id]} className="size-3" />
@@ -370,19 +370,19 @@ export function DriveOverviewPanel({
                             />
                           </div>
                         ) : null}
-                        <p className="mt-0.5 text-xs text-[#666666] md:hidden">
+                        <p className="mt-0.5 text-xs text-ink-muted md:hidden">
                           {formatBytes(file.size_bytes)} ·{" "}
                           {formatFileOpened(file.updated_at)}
                         </p>
                       </div>
                     </div>
-                    <span className="hidden text-sm text-[#666666] md:block">
+                    <span className="hidden text-sm text-ink-muted md:block">
                       {formatBytes(file.size_bytes)}
                     </span>
                     <span className="hidden md:block">
                       <SecurityCell flags={fileShareFlags[file.id]} />
                     </span>
-                    <span className="hidden text-sm text-[#666666] md:block">
+                    <span className="hidden text-sm text-ink-muted md:block">
                       {formatFileOpened(file.updated_at)}
                     </span>
                   </div>

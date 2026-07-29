@@ -118,12 +118,12 @@ export function MobileDriveHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 shrink-0 border-b border-[#E5E7EB] backdrop-blur-xl lg:hidden",
+        "sticky top-0 z-30 shrink-0 border-b border-edge backdrop-blur-xl lg:hidden",
         activeNav === "home" || activeNav === "my-files"
-          ? "bg-[#F7F8FA]/95"
+          ? "bg-surface/95"
           : activeNav === "shared-files"
-            ? "bg-[#F7F8FA]/95"
-          : "bg-[#f3f2f1]/95",
+            ? "bg-surface/95"
+          : "bg-surface/95",
       )}
     >
       <div className="flex items-center gap-2 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
@@ -132,7 +132,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 text-[#666666]"
+            className="shrink-0 text-ink-muted"
             aria-label="Go back"
             onClick={onBack}
           >
@@ -143,7 +143,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 text-[#666666]"
+            className="shrink-0 text-ink-muted"
             aria-label="Open menu"
             onClick={onMenuOpen}
           >
@@ -152,10 +152,10 @@ export function MobileDriveHeader({
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium uppercase tracking-wide text-[#888888]">
+          <p className="truncate text-xs font-medium uppercase tracking-wide text-ink-faint">
             {inFolder ? "Folder" : activeNav === "home" ? instanceName : "Library"}
           </p>
-          <h1 className="truncate text-lg font-semibold tracking-tight text-[#1A1A1A]">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-ink">
             {pageTitle}
           </h1>
         </div>
@@ -166,7 +166,7 @@ export function MobileDriveHeader({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-[#666666]"
+              className="text-ink-muted"
               aria-label="New folder"
               onClick={onCreateFolder}
             >
@@ -177,7 +177,7 @@ export function MobileDriveHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="text-[#2563EB]"
+            className="text-brand"
             aria-label="Upload files"
             onClick={onUpload}
           >
@@ -191,8 +191,8 @@ export function MobileDriveHeader({
               aria-haspopup="menu"
               onClick={onProfileToggle}
               className={cn(
-                "flex size-9 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white shadow-sm outline-none",
-                profileOpen && "ring-2 ring-[#2563EB]/30 ring-offset-2 ring-offset-[#F7F8FA]",
+                "flex size-9 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on shadow-sm outline-none",
+                profileOpen && "ring-2 ring-brand/30 ring-offset-2 ring-offset-surface",
               )}
             >
               {initials}
@@ -216,12 +216,12 @@ export function MobileDriveHeader({
       {activeNav !== "home" && activeNav !== "my-files" ? (
         <div className="px-4 pb-3">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#888888]" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
             <Input
               ref={searchInputRef}
               className={cn(
-                "h-10 rounded-lg border border-[#E5E7EB] bg-white pl-10 shadow-none",
-                "placeholder:text-[#888888] focus-visible:border-[#2563EB] focus-visible:ring-[#2563EB]/25",
+                "h-10 rounded-lg border border-edge bg-panel pl-10 shadow-none",
+                "placeholder:text-ink-faint focus-visible:border-brand focus-visible:ring-brand/25",
               )}
               placeholder="Search files"
               value={query}

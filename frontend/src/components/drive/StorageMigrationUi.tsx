@@ -85,9 +85,9 @@ function StorageMigrationResultDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden border-neutral-200 bg-white p-0 sm:max-w-md">
+      <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-md">
         <DialogHeader className="border-b border-neutral-100 px-6 py-5">
-          <DialogTitle className="flex items-center gap-2 text-lg text-neutral-900">
+          <DialogTitle className="flex items-center gap-2 text-lg text-ink">
             {success ? (
               <CheckCircle2 className="size-5 shrink-0 text-green-600" aria-hidden />
             ) : (
@@ -95,7 +95,7 @@ function StorageMigrationResultDialog({
             )}
             {resultTitle(job)}
           </DialogTitle>
-          <DialogDescription className="text-neutral-500">
+          <DialogDescription className="text-ink-muted">
             {isPreview
               ? "Legacy object storage preview finished. Review the totals below before starting migration."
               : "Legacy object storage migration finished. Review the totals below."}

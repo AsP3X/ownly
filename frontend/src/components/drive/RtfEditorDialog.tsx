@@ -547,15 +547,15 @@ export function RtfEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
-          <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 sm:px-5">
+        <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+          <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-edge px-4 sm:px-5">
             <div className="flex min-w-0 items-center gap-3">
-              <FileText className="size-5 shrink-0 text-[#2563EB]" aria-hidden />
+              <FileText className="size-5 shrink-0 text-brand" aria-hidden />
               <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-[#1A1A1A]">
+                <p className="truncate text-sm font-bold text-ink">
                   {file?.name ?? "Rich text"}
                 </p>
-                <p className="text-[11px] text-[#888888]">
+                <p className="text-[11px] text-ink-faint">
                   Rich Text Document · RTF
                   {collabEnabled ? " · Live co-edit" : ""}
                 </p>
@@ -601,7 +601,7 @@ export function RtfEditorDialog({
 
             {error ? (
               <p
-                className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]"
+                className="flex flex-1 items-center justify-center px-6 text-center text-sm text-danger"
                 role="alert"
               >
                 {error}
@@ -632,25 +632,25 @@ export function RtfEditorDialog({
             ) : null}
           </div>
 
-          <footer className="flex h-12 shrink-0 items-center justify-between gap-3 border-t border-[#E5E7EB] bg-[#F7F8FA] px-3 sm:px-4">
+          <footer className="flex h-12 shrink-0 items-center justify-between gap-3 border-t border-edge bg-surface px-3 sm:px-4">
             <div className="flex min-w-0 items-center gap-2">
               <CloudLightning
                 className={cn(
                   "size-3.5 shrink-0",
-                  syncTone === "saved" && "text-[#10B981]",
-                  syncTone === "dirty" && "text-[#F59E0B]",
-                  syncTone === "saving" && "text-[#2563EB]",
-                  syncTone === "error" && "text-[#EF4444]",
+                  syncTone === "saved" && "text-ok",
+                  syncTone === "dirty" && "text-warn",
+                  syncTone === "saving" && "text-brand",
+                  syncTone === "error" && "text-danger",
                 )}
                 aria-hidden
               />
               <span
                 className={cn(
                   "truncate text-xs",
-                  syncTone === "saved" && "text-[#10B981]",
-                  syncTone === "dirty" && "text-[#F59E0B]",
-                  syncTone === "saving" && "text-[#2563EB]",
-                  syncTone === "error" && "text-[#EF4444]",
+                  syncTone === "saved" && "text-ok",
+                  syncTone === "dirty" && "text-warn",
+                  syncTone === "saving" && "text-brand",
+                  syncTone === "error" && "text-danger",
                 )}
               >
                 {syncLabel}
@@ -661,7 +661,7 @@ export function RtfEditorDialog({
               <button
                 type="button"
                 onClick={() => handleCloseRequest(false)}
-                className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-xs font-medium text-[#666] transition-colors hover:bg-black/5"
+                className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-[#666] transition-colors hover:bg-black/5"
               >
                 Close
               </button>
@@ -670,7 +670,7 @@ export function RtfEditorDialog({
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={!dirty || saving || loading || Boolean(error)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
                   Save

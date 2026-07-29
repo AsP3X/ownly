@@ -1,5 +1,5 @@
-// Human: My Cloud file explorer — breadcrumbs, search/action bar, folder + file grids per Pencil wireframe.
-// Agent: TAILWIND-only layout; SUPPORTS folder navigation, search, type filters, HTML5 + touch drag-drop, selection, previews.
+// Human: My Cloud file explorer — toolbar, grid or list of folders and files, and a status strip.
+// Agent: OWNS drag-drop + selection state; DELEGATES chrome to ExplorerToolbar/ExplorerStatusBar.
 
 import {
   useCallback,
@@ -7,20 +7,11 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type DragEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
-import {
-  ArrowUpDown,
-  ChevronRight,
-  FileIcon,
-  Folder,
-  FolderPlus,
-  Search,
-  SlidersHorizontal,
-  Upload,
-} from "lucide-react";
+import { FileIcon, Folder, FolderPlus, Search, Upload } from "lucide-react";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import {
@@ -28,9 +19,18 @@ import {
   ExplorerFolderGridTile,
   type ExplorerGridEntry,
 } from "@/components/drive/ExplorerGridTiles";
+import {
+  ExplorerFileListRow,
+  ExplorerFolderListRow,
+  ExplorerListHeader,
+} from "@/components/drive/FileListView";
 import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
 import { ExplorerGridSkeleton } from "@/components/drive/ExplorerGridSkeleton";
+import { ExplorerListSkeleton } from "@/components/drive/ExplorerListSkeleton";
+import { ExplorerStatusBar } from "@/components/drive/ExplorerStatusBar";
+import { ExplorerToolbar } from "@/components/drive/ExplorerToolbar";
 import { EXPLORER_GRID_LAYOUT_CLASS } from "@/components/drive/ExplorerGridPreviewSlot";
+import { useExplorerKeyboardNav } from "@/components/drive/useExplorerKeyboardNav";
 import { useExplorerTouchDrag } from "@/components/drive/useExplorerTouchDrag";
 import {
   FILE_DRAG_MIME,
@@ -42,15 +42,27 @@ import {
 import { isFileProcessing } from "@/lib/file-processing";
 import { type FileTypeFilter } from "@/lib/utils-app";
 import {
-  EXPLORER_FILE_SORT_OPTIONS,
   type ExplorerFileSort,
+  type ExplorerViewMode,
 } from "@/lib/drive-preferences";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type ExplorerFolderCrumb = { id: string; name: string };
+// Human: Re-exported so existing importers (DrivePage) keep their current import path.
+// Agent: CANONICAL definition now lives in ExplorerBreadcrumbs.
+export type { ExplorerFolderCrumb } from "@/components/drive/ExplorerBreadcrumbs";
+import type { ExplorerFolderCrumb } from "@/components/drive/ExplorerBreadcrumbs";
 
 type TypeFilterOption = { id: FileTypeFilter; label: string };
+
+/**
+ * Human: The sticky toolbar and status strip must span the full width of the scroll pane,
+ * not just the padded content column, or list rows show through beside them while scrolling.
+ * Agent: Negative margins cancel DrivePage's scroll-pane padding (px-4 / md:p-6 / lg:px-12),
+ *        and the matching padding puts the inner content back where it was.
+ */
+const EXPLORER_STICKY_BLEED =
+  "-mx-4 px-4 md:-mx-6 md:px-6 lg:-mx-12 lg:px-12";
 
 type DriveCloudExplorerProps = {
   folderStack: ExplorerFolderCrumb[];
@@ -65,6 +77,9 @@ type DriveCloudExplorerProps = {
   /** Human: How file rows are ordered in the explorer grid (folders stay A–Z). */
   fileSort: ExplorerFileSort;
   onFileSortChange: (sort: ExplorerFileSort) => void;
+  /** Human: Thumbnail grid or detail rows; persisted by DrivePage via drive-preferences. */
+  viewMode: ExplorerViewMode;
+  onViewModeChange: (mode: ExplorerViewMode) => void;
   /** Human: True while filtering by name across the library — hides the Folders section. */
   isSearching?: boolean;
   /** Human: True while the explorer listing is being fetched — shows a loading indicator without unmounting search. */
@@ -117,198 +132,25 @@ type DriveCloudExplorerProps = {
   mobileSelectionMode?: boolean;
   /** Human: Authoritative mobile tap toggle — reads/writes the synchronous selection ref in DrivePage. */
   onTapToggleFileSelection?: (fileId: string) => void;
+
+  // Human: Status strip inputs — sourced from the drive shell's dashboard + listing totals.
+  // Agent: PASSED THROUGH to ExplorerStatusBar; no fetching happens in this component.
+  instanceName: string;
+  usedBytes: number;
+  quotaBytes: number;
+  totalFolderCount: number;
+  totalFileCount: number;
+  selectedCount: number;
+  /** Human: Select-all handler for the desktop list header checkbox. */
+  onSelectAll?: () => void;
+  onClearSelection?: () => void;
+  allSelected?: boolean;
+  /** Human: Delete key targets — routed to the same confirm dialogs the context menu uses. */
+  onDeleteFile?: (fileId: string) => void;
+  onDeleteFolder?: (folderId: string) => void;
+  /** Human: BulkActionsBar from DrivePage — stacked inside the sticky toolbar block. */
+  bulkActionsSlot?: ReactNode;
 };
-
-/** Human: Collapse deep folder trails on viewports below Tailwind `lg`. */
-const MOBILE_BREADCRUMB_COLLAPSE_DEPTH = 2;
-
-// Human: Match Tailwind lg breakpoint for mobile-only breadcrumb behavior.
-// Agent: READS matchMedia (max-width: 1023px); SUBSCRIBES to viewport resize.
-function useMaxLgViewport(): boolean {
-  return useSyncExternalStore(
-    (onStoreChange) => {
-      const mediaQuery = window.matchMedia("(max-width: 1023px)");
-      mediaQuery.addEventListener("change", onStoreChange);
-      return () => mediaQuery.removeEventListener("change", onStoreChange);
-    },
-    () => window.matchMedia("(max-width: 1023px)").matches,
-    () => false,
-  );
-}
-
-type ExplorerBreadcrumbCrumbProps = {
-  label: string;
-  isCurrent: boolean;
-  onClick: () => void;
-  className?: string;
-  /** Human: When set, this crumb accepts drag-drop moves into the encoded parent folder (root = `root`). */
-  breadcrumbDropTarget?: string;
-  isDropTarget?: boolean;
-  dragEnabled?: boolean;
-  onBreadcrumbDragEnter?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
-  onBreadcrumbDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
-  onBreadcrumbDragLeave?: (dropTarget: string) => void;
-  onBreadcrumbDrop?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
-};
-
-// Human: One tappable breadcrumb segment with mobile truncation for long folder names.
-// Agent: RENDERS button; TRUNCATES label below lg; SETS title tooltip to full name; OPTIONAL drop target.
-function ExplorerBreadcrumbCrumb({
-  label,
-  isCurrent,
-  onClick,
-  className,
-  breadcrumbDropTarget,
-  isDropTarget = false,
-  dragEnabled = false,
-  onBreadcrumbDragEnter,
-  onBreadcrumbDragOver,
-  onBreadcrumbDragLeave,
-  onBreadcrumbDrop,
-}: ExplorerBreadcrumbCrumbProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      data-breadcrumb-drop={breadcrumbDropTarget}
-      onDragEnter={
-        dragEnabled && breadcrumbDropTarget !== undefined
-          ? (event) => onBreadcrumbDragEnter?.(event, breadcrumbDropTarget)
-          : undefined
-      }
-      onDragOver={dragEnabled ? onBreadcrumbDragOver : undefined}
-      onDragLeave={
-        dragEnabled && breadcrumbDropTarget !== undefined
-          ? () => onBreadcrumbDragLeave?.(breadcrumbDropTarget)
-          : undefined
-      }
-      onDrop={
-        dragEnabled && breadcrumbDropTarget !== undefined
-          ? (event) => onBreadcrumbDrop?.(event, breadcrumbDropTarget)
-          : undefined
-      }
-      className={cn(
-        "shrink-0 transition-colors hover:text-[#2563EB] max-lg:max-w-[9.5rem] max-lg:truncate",
-        isCurrent ? "font-bold text-[#1A1A1A]" : "text-[#888888]",
-        isDropTarget && "rounded-md bg-blue-50 px-1 text-[#2563EB] ring-2 ring-blue-300",
-        className,
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-// Human: Wireframe breadcrumb trail — Home › My Cloud › folder path; crumbs accept drag-drop moves.
-// Agent: CALLS parent navigation handlers; SCROLLS horizontally on mobile; COLLAPSES deep paths.
-function ExplorerBreadcrumbs({
-  folderStack,
-  onNavigateHome,
-  onNavigateMyCloudRoot,
-  onGoToFolderIndex,
-  dragEnabled = false,
-  dropTargetBreadcrumb,
-  onBreadcrumbDragEnter,
-  onBreadcrumbDragOver,
-  onBreadcrumbDragLeave,
-  onBreadcrumbDrop,
-}: {
-  folderStack: ExplorerFolderCrumb[];
-  onNavigateHome: () => void;
-  onNavigateMyCloudRoot: () => void;
-  onGoToFolderIndex: (index: number) => void;
-  dragEnabled?: boolean;
-  dropTargetBreadcrumb?: string | null;
-  onBreadcrumbDragEnter?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
-  onBreadcrumbDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
-  onBreadcrumbDragLeave?: (dropTarget: string) => void;
-  onBreadcrumbDrop?: (event: DragEvent<HTMLButtonElement>, dropTarget: string) => void;
-}) {
-  const isMobile = useMaxLgViewport();
-
-  const shouldCollapse =
-    isMobile && folderStack.length > MOBILE_BREADCRUMB_COLLAPSE_DEPTH;
-
-  const visibleFolderCrumbs = useMemo(() => {
-    if (!shouldCollapse) {
-      return folderStack.map((crumb, index) => ({ crumb, index }));
-    }
-    return folderStack.slice(-2).map((crumb, offset) => ({
-      crumb,
-      index: folderStack.length - 2 + offset,
-    }));
-  }, [folderStack, shouldCollapse]);
-
-  const collapsedJumpIndex = shouldCollapse ? folderStack.length - 3 : -1;
-  const collapsedJumpLabel =
-    collapsedJumpIndex >= 0 ? folderStack[collapsedJumpIndex]?.name : null;
-
-  return (
-    <nav
-      className={cn(
-        "flex items-center gap-1.5 text-xs lg:flex-wrap lg:gap-2 lg:text-sm",
-        "max-lg:-mx-1 max-lg:overflow-x-auto max-lg:pb-0.5",
-        "max-lg:[scrollbar-width:none] max-lg:[&::-webkit-scrollbar]:hidden",
-      )}
-      aria-label="Folder path"
-    >
-      <ExplorerBreadcrumbCrumb
-        label="Home"
-        isCurrent={false}
-        onClick={onNavigateHome}
-      />
-      <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
-      <ExplorerBreadcrumbCrumb
-        label="My Cloud"
-        isCurrent={folderStack.length === 0}
-        onClick={onNavigateMyCloudRoot}
-        breadcrumbDropTarget="root"
-        isDropTarget={dropTargetBreadcrumb === "root"}
-        dragEnabled={dragEnabled}
-        onBreadcrumbDragEnter={onBreadcrumbDragEnter}
-        onBreadcrumbDragOver={onBreadcrumbDragOver}
-        onBreadcrumbDragLeave={onBreadcrumbDragLeave}
-        onBreadcrumbDrop={onBreadcrumbDrop}
-      />
-      {shouldCollapse ? (
-        <>
-          <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
-          <button
-            type="button"
-            onClick={() => onGoToFolderIndex(collapsedJumpIndex)}
-            title={collapsedJumpLabel ?? "Show earlier folders"}
-            aria-label={
-              collapsedJumpLabel
-                ? `Go to ${collapsedJumpLabel}`
-                : "Show earlier folders"
-            }
-            className="shrink-0 px-0.5 text-[#888888] transition-colors hover:text-[#2563EB]"
-          >
-            …
-          </button>
-        </>
-      ) : null}
-      {visibleFolderCrumbs.map(({ crumb, index }) => (
-        <span key={crumb.id} className="flex shrink-0 items-center gap-1.5 lg:gap-2">
-          <ChevronRight className="size-3 shrink-0 text-[#888888] lg:size-3.5" aria-hidden />
-          <ExplorerBreadcrumbCrumb
-            label={crumb.name}
-            isCurrent={index === folderStack.length - 1}
-            onClick={() => onGoToFolderIndex(index)}
-            breadcrumbDropTarget={crumb.id}
-            isDropTarget={dropTargetBreadcrumb === crumb.id}
-            dragEnabled={dragEnabled}
-            onBreadcrumbDragEnter={onBreadcrumbDragEnter}
-            onBreadcrumbDragOver={onBreadcrumbDragOver}
-            onBreadcrumbDragLeave={onBreadcrumbDragLeave}
-            onBreadcrumbDrop={onBreadcrumbDrop}
-          />
-        </span>
-      ))}
-    </nav>
-  );
-}
 
 /** Human: My Cloud browser surface matching Ownly File Explorer Pencil frame. */
 export function DriveCloudExplorer({
@@ -323,6 +165,8 @@ export function DriveCloudExplorer({
   typeFilterOptions,
   fileSort,
   onFileSortChange,
+  viewMode,
+  onViewModeChange,
   isSearching = false,
   loading = false,
   dragEnabled = false,
@@ -361,9 +205,19 @@ export function DriveCloudExplorer({
   onExplorerTouchScrollLockChange,
   mobileSelectionMode = false,
   onTapToggleFileSelection,
+  instanceName,
+  usedBytes,
+  quotaBytes,
+  totalFolderCount,
+  totalFileCount,
+  selectedCount,
+  onSelectAll,
+  onClearSelection,
+  allSelected = false,
+  onDeleteFile,
+  onDeleteFolder,
+  bulkActionsSlot,
 }: DriveCloudExplorerProps) {
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [sortOpen, setSortOpen] = useState(false);
   const [activeDrag, setActiveDrag] = useState<ExplorerDragPayload | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const [dropTargetBreadcrumb, setDropTargetBreadcrumb] = useState<string | null | undefined>(
@@ -373,9 +227,10 @@ export function DriveCloudExplorer({
   const breadcrumbDragDepthRef = useRef<Map<string, number>>(new Map());
   const activeDragRef = useRef<ExplorerDragPayload | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
-  const sortRef = useRef<HTMLDivElement>(null);
+  const entriesContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const fallbackScrollRef = useRef<HTMLElement | null>(null);
   const explorerScrollRef = scrollElementRef ?? fallbackScrollRef;
 
@@ -415,6 +270,24 @@ export function DriveCloudExplorer({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Human: Publish the sticky toolbar's height so the list column header can pin right below it.
+  // Agent: WRITES --explorer-toolbar-h on the explorer root; RE-MEASURES when the bulk bar appears.
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    const root = rootRef.current;
+    if (!toolbar || !root) return;
+
+    function publishHeight() {
+      const height = toolbar?.getBoundingClientRect().height ?? 0;
+      root?.style.setProperty("--explorer-toolbar-h", `${Math.round(height)}px`);
+    }
+
+    publishHeight();
+    const observer = new ResizeObserver(publishHeight);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
   }, []);
 
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
@@ -482,18 +355,15 @@ export function DriveCloudExplorer({
   const hasActiveSelection =
     selectionEnabled &&
     ((selectedFileIds?.size ?? 0) > 0 || (selectedFolderIds?.size ?? 0) > 0);
-  const activeFilterLabel =
-    typeFilterOptions.find((option) => option.id === typeFilter)?.label ?? "All";
-  const activeSortLabel =
-    EXPLORER_FILE_SORT_OPTIONS.find((option) => option.id === fileSort)?.label ?? "Name (A–Z)";
 
   const listEmptyMessage = isSearching
     ? "Try a different search term or clear filters."
     : "Create a folder, upload a file, or change your search and filters.";
   const showEmptyState = folders.length === 0 && files.length === 0;
+  const isListView = viewMode === "list";
 
-  // Human: Flatten folders + files into one grid sequence (folders first when browsing).
-  // Agent: RENDERED in a static grid; off-screen paint skipped via content-visibility on each tile.
+  // Human: Flatten folders + files into one sequence (folders first when browsing).
+  // Agent: SHARED by both layouts; off-screen paint skipped via content-visibility on each tile.
   const gridEntries = useMemo(() => {
     const entries: ExplorerGridEntry[] = [];
     if (!isSearching) {
@@ -506,32 +376,6 @@ export function DriveCloudExplorer({
     }
     return entries;
   }, [files, folders, isSearching]);
-
-  // Human: Close the filter popover when clicking outside the filter control cluster.
-  // Agent: LISTENS mousedown on document; WRITES filterOpen false when outside filterRef.
-  useEffect(() => {
-    if (!filterOpen) return;
-    function handlePointerDown(event: MouseEvent) {
-      if (!(event.target instanceof Node)) return;
-      if (filterRef.current?.contains(event.target)) return;
-      setFilterOpen(false);
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [filterOpen]);
-
-  // Human: Close the sort popover when clicking outside the sort control cluster.
-  // Agent: LISTENS mousedown on document; WRITES sortOpen false when outside sortRef.
-  useEffect(() => {
-    if (!sortOpen) return;
-    function handlePointerDown(event: MouseEvent) {
-      if (!(event.target instanceof Node)) return;
-      if (sortRef.current?.contains(event.target)) return;
-      setSortOpen(false);
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [sortOpen]);
 
   useEffect(() => {
     const root = scrollElementRef?.current ?? null;
@@ -625,13 +469,13 @@ export function DriveCloudExplorer({
   // Agent: READS selectedFileIds + mobileSelectionMode; RETURNS count label or undefined for single file.
   const resolveTouchDragGhostLabel = useCallback(
     (fileId: string, fileName: string) => {
-      const selectedCount = selectedFileIds?.size ?? 0;
+      const selectedFileCount = selectedFileIds?.size ?? 0;
       if (
         mobileSelectionMode &&
-        selectedCount > 1 &&
+        selectedFileCount > 1 &&
         selectedFileIds?.has(fileId) === true
       ) {
-        return `${selectedCount} files`;
+        return `${selectedFileCount} files`;
       }
       return fileName;
     },
@@ -654,6 +498,76 @@ export function DriveCloudExplorer({
     },
     [onSelectedFolderIdsChange, selectionEnabled],
   );
+
+  // Human: List header tick box selects or clears every selectable entry in the folder.
+  // Agent: CALLS DrivePage's onSelectAll / onClearSelection so both layouts share one code path.
+  const handleToggleSelectAll = useCallback(
+    (checked: boolean) => {
+      if (checked) onSelectAll?.();
+      else onClearSelection?.();
+    },
+    [onClearSelection, onSelectAll],
+  );
+
+  // Human: Space on a focused entry toggles its selection, folders included.
+  // Agent: READS gridEntries[index]; SKIPS files still processing (their checkbox is disabled too).
+  const handleKeyboardToggleSelect = useCallback(
+    (index: number) => {
+      const entry = gridEntries[index];
+      if (!entry || !selectionEnabled) return;
+      if (entry.kind === "folder") {
+        toggleFolderSelected(
+          entry.folder.id,
+          !(selectedFolderIds?.has(entry.folder.id) ?? false),
+        );
+        return;
+      }
+      if (isFileProcessing(entry.file)) return;
+      toggleFileSelected(entry.file.id, !(selectedFileIds?.has(entry.file.id) ?? false));
+    },
+    [
+      gridEntries,
+      selectedFileIds,
+      selectedFolderIds,
+      selectionEnabled,
+      toggleFileSelected,
+      toggleFolderSelected,
+    ],
+  );
+
+  // Human: Delete on a focused entry opens the same confirm dialog the context menu uses.
+  // Agent: CALLS onDeleteFile/onDeleteFolder; no deletion happens without that confirmation.
+  const handleKeyboardDelete = useCallback(
+    (index: number) => {
+      const entry = gridEntries[index];
+      if (!entry) return;
+      if (entry.kind === "folder") onDeleteFolder?.(entry.folder.id);
+      else onDeleteFile?.(entry.file.id);
+    },
+    [gridEntries, onDeleteFile, onDeleteFolder],
+  );
+
+  // Human: Backspace leaves the current folder; at the root there is nowhere to go.
+  // Agent: CALLS onGoToFolderIndex(length - 2) which resolves to My Cloud root at depth 1.
+  const handleKeyboardNavigateUp = useCallback(() => {
+    if (folderStack.length === 0) return;
+    onGoToFolderIndex(folderStack.length - 2);
+  }, [folderStack.length, onGoToFolderIndex]);
+
+  const handleKeyboardClearSelection = useCallback(() => {
+    onClearSelection?.();
+  }, [onClearSelection]);
+
+  useExplorerKeyboardNav({
+    enabled: !loading && gridEntries.length > 0,
+    entryCount: gridEntries.length,
+    containerRef: entriesContainerRef,
+    isListView,
+    onToggleSelectIndex: handleKeyboardToggleSelect,
+    onClearSelection: handleKeyboardClearSelection,
+    onNavigateUp: handleKeyboardNavigateUp,
+    onDeleteIndex: handleKeyboardDelete,
+  });
 
   const beginHtmlDrag = useCallback(
     (payload: ExplorerDragPayload) => {
@@ -776,8 +690,11 @@ export function DriveCloudExplorer({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <ExplorerBreadcrumbs
+    <div ref={rootRef} className="flex min-h-full flex-col">
+      <ExplorerToolbar
+        containerRef={toolbarRef}
+        // Human: Also pulls up over the pane's top padding so nothing scrolls above the bar.
+        className={cn(EXPLORER_STICKY_BLEED, "-mt-4 pt-4 md:-mt-6 md:pt-6 lg:mt-0 lg:pt-2")}
         folderStack={folderStack}
         onNavigateHome={onNavigateHome}
         onNavigateMyCloudRoot={onNavigateMyCloudRoot}
@@ -788,256 +705,265 @@ export function DriveCloudExplorer({
         onBreadcrumbDragOver={handleBreadcrumbDragOver}
         onBreadcrumbDragLeave={handleBreadcrumbDragLeave}
         onBreadcrumbDrop={handleBreadcrumbDrop}
+        query={query}
+        onQueryChange={onQueryChange}
+        onSearchKeyDown={handleSearchKeyDown}
+        searchInputRef={searchInputRef}
+        typeFilter={typeFilter}
+        onTypeFilterChange={onTypeFilterChange}
+        typeFilterOptions={typeFilterOptions}
+        fileSort={fileSort}
+        onFileSortChange={onFileSortChange}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        onCreateFolder={onCreateFolder}
+        onUpload={onUpload}
+        bulkActionsSlot={bulkActionsSlot}
       />
 
-      {/* Action bar — search + filter + folder/upload actions */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative flex w-full max-w-[320px] items-center gap-2.5 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5">
-          <Search className="size-4 shrink-0 text-[#888888]" aria-hidden />
-          <input
-            ref={searchInputRef}
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            placeholder="Search files... (Ctrl+K)"
-            aria-label="Search files. Press Enter to search, Ctrl+K or Command+K to focus."
-            className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#888888] focus:outline-none"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div ref={filterRef} className="relative">
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "h-auto gap-2 rounded-lg border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]",
-                filterOpen && "ring-2 ring-[#2563EB]/30",
-              )}
-              onClick={() => setFilterOpen((open) => !open)}
-              aria-expanded={filterOpen}
-              aria-haspopup="listbox"
-              aria-controls="explorer-type-filter-menu"
-            >
-              <SlidersHorizontal className="size-4" aria-hidden />
-              Filter
-              {typeFilter !== "all" ? (
-                <span className="rounded-full bg-[#2563EB]/10 px-2 py-0.5 text-xs font-semibold text-[#2563EB]">
-                  {activeFilterLabel}
-                </span>
-              ) : null}
-            </Button>
-            {filterOpen ? (
-              <div
-                id="explorer-type-filter-menu"
-                role="listbox"
-                aria-label="Filter by file type"
-                className="absolute right-0 top-full z-20 mt-2 min-w-[12rem] rounded-lg border border-[#E5E7EB] bg-white p-2 shadow-lg"
-              >
-                {typeFilterOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    role="option"
-                    aria-selected={typeFilter === option.id}
-                    onClick={() => {
-                      onTypeFilterChange(option.id);
-                      setFilterOpen(false);
-                    }}
-                    className={cn(
-                      "flex w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
-                      typeFilter === option.id
-                        ? "bg-[#F7F8FA] font-semibold text-[#2563EB]"
-                        : "text-[#666666] hover:bg-[#F7F8FA]",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div ref={sortRef} className="relative">
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "h-auto gap-2 rounded-lg border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]",
-                sortOpen && "ring-2 ring-[#2563EB]/30",
-              )}
-              onClick={() => setSortOpen((open) => !open)}
-              aria-expanded={sortOpen}
-              aria-haspopup="listbox"
-              aria-controls="explorer-file-sort-menu"
-            >
-              <ArrowUpDown className="size-4" aria-hidden />
-              Sort
-              {fileSort !== "name-asc" ? (
-                <span className="rounded-full bg-[#2563EB]/10 px-2 py-0.5 text-xs font-semibold text-[#2563EB]">
-                  {activeSortLabel}
-                </span>
-              ) : null}
-            </Button>
-            {sortOpen ? (
-              <div
-                id="explorer-file-sort-menu"
-                role="listbox"
-                aria-label="Sort files"
-                className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] rounded-lg border border-[#E5E7EB] bg-white p-2 shadow-lg"
-              >
-                {EXPLORER_FILE_SORT_OPTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    role="option"
-                    aria-selected={fileSort === option.id}
-                    onClick={() => {
-                      onFileSortChange(option.id);
-                      setSortOpen(false);
-                    }}
-                    className={cn(
-                      "flex w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
-                      fileSort === option.id
-                        ? "bg-[#F7F8FA] font-semibold text-[#2563EB]"
-                        : "text-[#666666] hover:bg-[#F7F8FA]",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto gap-2 rounded-lg border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F8FA]"
-            onClick={onCreateFolder}
-          >
-            <FolderPlus className="size-4" aria-hidden />
-            New Folder
-          </Button>
-          <Button
-            type="button"
-            className="h-auto gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#1d4ed8]"
-            onClick={onUpload}
-          >
-            <Upload className="size-4" aria-hidden />
-            Upload Files
-          </Button>
-        </div>
-      </div>
-
-      {/* Human: Single grid — folders first, then files (matches Pencil explorer, one list). */}
-      {/* Agent: RENDERS folders when not searching; FILES follow in same grid; EMPTY when both absent. */}
-      <section className="flex flex-col gap-5">
-        <h2 className="text-base font-bold text-[#1A1A1A]">All Files</h2>
+      {/* Human: One sequence — folders first, then files, in whichever layout is active. */}
+      {/* Agent: RENDERS folders when not searching; FILES follow; EMPTY state when both absent. */}
+      {/* Human: pb-4 keeps the final row off the sticky status strip below. */}
+      <section className="flex flex-1 flex-col pb-4 pt-4">
         {loading ? (
-          <ExplorerGridSkeleton count={8} />
+          isListView ? (
+            <ExplorerListSkeleton />
+          ) : (
+            <ExplorerGridSkeleton count={8} />
+          )
         ) : showEmptyState ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-center">
-            <FileIcon className="size-9 text-[#888888]" aria-hidden />
-            <p className="font-semibold text-[#1A1A1A]">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
+            <span
+              className="flex size-12 items-center justify-center rounded-xl bg-sunken"
+              aria-hidden
+            >
+              {isSearching ? (
+                <Search className="size-5 text-ink-faint" />
+              ) : (
+                <FileIcon className="size-5 text-ink-faint" />
+              )}
+            </span>
+            <p className="text-sm font-semibold text-ink">
               {isSearching ? "No matching files" : "Nothing here yet"}
             </p>
-            <p className="max-w-sm text-sm text-[#666666]">{listEmptyMessage}</p>
+            <p className="max-w-sm text-[13px] text-ink-muted">{listEmptyMessage}</p>
+            {/* Human: Empty folders offer the two actions that resolve the state. */}
+            {/* Agent: HIDDEN while searching — creating a folder would not clear the query. */}
+            {!isSearching ? (
+              <div className="mt-1 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-edge bg-panel text-ink hover:bg-surface"
+                  onClick={onCreateFolder}
+                >
+                  <FolderPlus className="size-4" aria-hidden />
+                  New Folder
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-2 bg-brand text-brand-on hover:bg-brand-hover"
+                  onClick={onUpload}
+                >
+                  <Upload className="size-4" aria-hidden />
+                  Upload Files
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <>
+            {/* Human: Ref host for keyboard navigation — the hook queries entries beneath it. */}
+            {/* Agent: MUST wrap both layouts so [data-explorer-entry] order matches gridEntries. */}
             <ExplorerScrollProvider scrollElementRef={explorerScrollRef}>
-              <div className={EXPLORER_GRID_LAYOUT_CLASS}>
-                {gridEntries.map((entry) =>
-                  entry.kind === "folder" ? (
-                    <ExplorerFolderGridTile
-                      key={`folder-${entry.folder.id}`}
-                      folder={entry.folder}
-                      shareFlags={folderShareFlags[entry.folder.id]}
-                      isDropTarget={activeDropTargetFolderId === entry.folder.id}
-                      dragEnabled={dragEnabled && !isSearching}
-                      selectionEnabled={selectionEnabled}
-                      isSelected={
-                        selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
-                      }
-                      hasActiveSelection={hasActiveSelection}
-                      isDragging={activeDraggingFolderId === entry.folder.id}
-                      isArmedForTouchDrag={
-                        armedItemKind === "folder" && armedItemId === entry.folder.id
-                      }
-                      touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
-                      getTouchDragBindings={
-                        touchDragEnabled && !mobileSelectionMode
-                          ? () => getFolderDragBindings(entry.folder.id, entry.folder.name)
-                          : undefined
-                      }
-                      onToggleSelected={toggleFolderSelected}
-                      onOpenFolder={onOpenFolder}
-                      onDragStart={handleFolderDragStart}
-                      onDragEnd={resetDragState}
-                      onDragEnter={handleFolderDragEnter}
-                      onDragOver={handleFolderDragOver}
-                      onDragLeave={handleFolderDragLeave}
-                      onDrop={handleFolderDrop}
-                    />
-                  ) : (
-                    <ExplorerFileGridTile
-                      key={entry.file.id}
-                      file={entry.file}
-                      shareFlags={fileShareFlags[entry.file.id]}
-                      selectionEnabled={selectionEnabled}
-                      isSelected={selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)}
-                      hasActiveSelection={hasActiveSelection}
-                      mobileSelectionMode={mobileSelectionMode}
-                      isDragging={activeDraggingFileId === entry.file.id}
-                      isArmedForTouchDrag={
-                        armedItemKind === "file" && armedItemId === entry.file.id
-                      }
-                      dragEnabled={dragEnabled}
-                      touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
-                      getTouchDragBindings={
-                        touchDragEnabled && !mobileSelectionMode
-                          ? () =>
-                              getFileDragBindings(
-                                entry.file.id,
-                                resolveTouchDragGhostLabel(entry.file.id, entry.file.name),
-                              )
-                          : undefined
-                      }
-                      onToggleSelected={toggleFileSelected}
-                      onTapToggleFileSelection={
-                        mobileSelectionMode || hasActiveSelection
-                          ? onTapToggleFileSelection
-                          : undefined
-                      }
-                      onDragStart={handleFileDragStart}
-                      onDragEnd={resetDragState}
-                      onPreviewVideo={onPreviewVideo}
-                      onPreviewImage={onPreviewImage}
-                      onPreviewPdf={onPreviewPdf}
-                      onPreviewEpub={onPreviewEpub}
-                      onPreviewText={onPreviewText}
-                      onPreviewRtf={onPreviewRtf}
-                      onPreviewSpreadsheet={onPreviewSpreadsheet}
-                      onPreviewAudio={onPreviewAudio}
-                      onOpenActions={onOpenActions}
-                    />
-                  ),
-                )}
+              <div ref={entriesContainerRef}>
+              {isListView ? (
+                <div className="flex flex-col">
+                  <ExplorerListHeader
+                    fileSort={fileSort}
+                    onFileSortChange={onFileSortChange}
+                    allSelected={allSelected}
+                    someSelected={hasActiveSelection}
+                    onToggleSelectAll={handleToggleSelectAll}
+                    selectionEnabled={selectionEnabled}
+                  />
+                  {gridEntries.map((entry) =>
+                    entry.kind === "folder" ? (
+                      <ExplorerFolderListRow
+                        key={`folder-${entry.folder.id}`}
+                        folder={entry.folder}
+                        shareFlags={folderShareFlags[entry.folder.id]}
+                        isDropTarget={activeDropTargetFolderId === entry.folder.id}
+                        dragEnabled={dragEnabled && !isSearching}
+                        selectionEnabled={selectionEnabled}
+                        isSelected={
+                          selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
+                        }
+                        hasActiveSelection={hasActiveSelection}
+                        isDragging={activeDraggingFolderId === entry.folder.id}
+                        isArmedForTouchDrag={
+                          armedItemKind === "folder" && armedItemId === entry.folder.id
+                        }
+                        touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
+                        getTouchDragBindings={
+                          touchDragEnabled && !mobileSelectionMode
+                            ? () => getFolderDragBindings(entry.folder.id, entry.folder.name)
+                            : undefined
+                        }
+                        onToggleSelected={toggleFolderSelected}
+                        onOpenFolder={onOpenFolder}
+                        onOpenActions={onOpenActions}
+                        onDragStart={handleFolderDragStart}
+                        onDragEnd={resetDragState}
+                        onDragEnter={handleFolderDragEnter}
+                        onDragOver={handleFolderDragOver}
+                        onDragLeave={handleFolderDragLeave}
+                        onDrop={handleFolderDrop}
+                      />
+                    ) : (
+                      <ExplorerFileListRow
+                        key={entry.file.id}
+                        file={entry.file}
+                        shareFlags={fileShareFlags[entry.file.id]}
+                        selectionEnabled={selectionEnabled}
+                        isSelected={
+                          selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)
+                        }
+                        hasActiveSelection={hasActiveSelection}
+                        mobileSelectionMode={mobileSelectionMode}
+                        isDragging={activeDraggingFileId === entry.file.id}
+                        isArmedForTouchDrag={
+                          armedItemKind === "file" && armedItemId === entry.file.id
+                        }
+                        dragEnabled={dragEnabled}
+                        touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
+                        getTouchDragBindings={
+                          touchDragEnabled && !mobileSelectionMode
+                            ? () =>
+                                getFileDragBindings(
+                                  entry.file.id,
+                                  resolveTouchDragGhostLabel(entry.file.id, entry.file.name),
+                                )
+                            : undefined
+                        }
+                        onToggleSelected={toggleFileSelected}
+                        onTapToggleFileSelection={
+                          mobileSelectionMode || hasActiveSelection
+                            ? onTapToggleFileSelection
+                            : undefined
+                        }
+                        onDragStart={handleFileDragStart}
+                        onDragEnd={resetDragState}
+                        onPreviewVideo={onPreviewVideo}
+                        onPreviewImage={onPreviewImage}
+                        onPreviewPdf={onPreviewPdf}
+                        onPreviewEpub={onPreviewEpub}
+                        onPreviewText={onPreviewText}
+                        onPreviewRtf={onPreviewRtf}
+                        onPreviewSpreadsheet={onPreviewSpreadsheet}
+                        onPreviewAudio={onPreviewAudio}
+                        onOpenActions={onOpenActions}
+                      />
+                    ),
+                  )}
+                </div>
+              ) : (
+                <div className={EXPLORER_GRID_LAYOUT_CLASS}>
+                  {gridEntries.map((entry) =>
+                    entry.kind === "folder" ? (
+                      <ExplorerFolderGridTile
+                        key={`folder-${entry.folder.id}`}
+                        folder={entry.folder}
+                        shareFlags={folderShareFlags[entry.folder.id]}
+                        isDropTarget={activeDropTargetFolderId === entry.folder.id}
+                        dragEnabled={dragEnabled && !isSearching}
+                        selectionEnabled={selectionEnabled}
+                        isSelected={
+                          selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
+                        }
+                        hasActiveSelection={hasActiveSelection}
+                        isDragging={activeDraggingFolderId === entry.folder.id}
+                        isArmedForTouchDrag={
+                          armedItemKind === "folder" && armedItemId === entry.folder.id
+                        }
+                        touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
+                        getTouchDragBindings={
+                          touchDragEnabled && !mobileSelectionMode
+                            ? () => getFolderDragBindings(entry.folder.id, entry.folder.name)
+                            : undefined
+                        }
+                        onToggleSelected={toggleFolderSelected}
+                        onOpenFolder={onOpenFolder}
+                        onDragStart={handleFolderDragStart}
+                        onDragEnd={resetDragState}
+                        onDragEnter={handleFolderDragEnter}
+                        onDragOver={handleFolderDragOver}
+                        onDragLeave={handleFolderDragLeave}
+                        onDrop={handleFolderDrop}
+                      />
+                    ) : (
+                      <ExplorerFileGridTile
+                        key={entry.file.id}
+                        file={entry.file}
+                        shareFlags={fileShareFlags[entry.file.id]}
+                        selectionEnabled={selectionEnabled}
+                        isSelected={
+                          selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)
+                        }
+                        hasActiveSelection={hasActiveSelection}
+                        mobileSelectionMode={mobileSelectionMode}
+                        isDragging={activeDraggingFileId === entry.file.id}
+                        isArmedForTouchDrag={
+                          armedItemKind === "file" && armedItemId === entry.file.id
+                        }
+                        dragEnabled={dragEnabled}
+                        touchDragEnabled={touchDragEnabled && !mobileSelectionMode}
+                        getTouchDragBindings={
+                          touchDragEnabled && !mobileSelectionMode
+                            ? () =>
+                                getFileDragBindings(
+                                  entry.file.id,
+                                  resolveTouchDragGhostLabel(entry.file.id, entry.file.name),
+                                )
+                            : undefined
+                        }
+                        onToggleSelected={toggleFileSelected}
+                        onTapToggleFileSelection={
+                          mobileSelectionMode || hasActiveSelection
+                            ? onTapToggleFileSelection
+                            : undefined
+                        }
+                        onDragStart={handleFileDragStart}
+                        onDragEnd={resetDragState}
+                        onPreviewVideo={onPreviewVideo}
+                        onPreviewImage={onPreviewImage}
+                        onPreviewPdf={onPreviewPdf}
+                        onPreviewEpub={onPreviewEpub}
+                        onPreviewText={onPreviewText}
+                        onPreviewRtf={onPreviewRtf}
+                        onPreviewSpreadsheet={onPreviewSpreadsheet}
+                        onPreviewAudio={onPreviewAudio}
+                        onOpenActions={onOpenActions}
+                      />
+                    ),
+                  )}
+                </div>
+              )}
               </div>
             </ExplorerScrollProvider>
             <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
             {!isSearching && hasMoreFolders && loadingMoreFolders ? (
-              <p className="text-center text-xs text-[#666666]">Loading more folders…</p>
+              <p className="py-2 text-center text-xs text-ink-muted">Loading more folders…</p>
             ) : null}
             {!isSearching && hasMoreFolders && onLoadMoreFolders ? (
-              <div className="flex justify-center">
+              <div className="flex justify-center py-2">
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="text-[#2563EB]"
+                  className="text-brand hover:bg-brand-weak"
                   onClick={() => void onLoadMoreFolders()}
                   disabled={loadingMoreFolders}
                 >
@@ -1046,26 +972,42 @@ export function DriveCloudExplorer({
               </div>
             ) : null}
             {hasMoreFiles && loadingMoreFiles ? (
-              <p className="text-center text-xs text-[#666666]">Loading more files…</p>
+              <p className="py-2 text-center text-xs text-ink-muted">Loading more files…</p>
             ) : null}
           </>
         )}
         {ghostPosition && ghostLabel ? (
           <div
             data-explorer-touch-drag-ghost
-            className="pointer-events-none fixed z-[80] flex max-w-[min(72vw,16rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl border border-blue-300 bg-white/95 px-3 py-2 text-sm font-semibold text-[#1A1A1A] shadow-lg shadow-blue-500/20"
+            className="pointer-events-none fixed z-[80] flex max-w-[min(72vw,16rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl border border-brand/40 bg-panel/95 px-3 py-2 text-sm font-semibold text-ink shadow-lg shadow-brand/20"
             style={{ left: ghostPosition.x, top: ghostPosition.y }}
             aria-hidden
           >
             {ghostKind === "folder" ? (
-              <Folder className="size-4 shrink-0 text-[#2563EB]" />
+              <Folder className="size-4 shrink-0 text-brand" />
             ) : (
-              <FileIcon className="size-4 shrink-0 text-[#2563EB]" />
+              <FileIcon className="size-4 shrink-0 text-brand" />
             )}
             <span className="truncate">{ghostLabel}</span>
           </div>
         ) : null}
       </section>
+
+      {/* Human: Status strip pinned to the bottom of the explorer, above the mobile bottom nav. */}
+      {/* Agent: mt-auto keeps it at the floor when content is short; sticky handles long lists. */}
+      {/*        pt-4 above it stops the last row sitting flush against the strip. */}
+      <ExplorerStatusBar
+        className={cn("mt-auto", EXPLORER_STICKY_BLEED)}
+        instanceName={instanceName}
+        folderCount={totalFolderCount}
+        loadedFileCount={files.length}
+        totalFileCount={totalFileCount}
+        selectedCount={selectedCount}
+        usedBytes={usedBytes}
+        quotaBytes={quotaBytes}
+        loading={loading || loadingMoreFiles || loadingMoreFolders}
+        isSearching={isSearching}
+      />
     </div>
   );
 }

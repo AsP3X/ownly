@@ -31,19 +31,19 @@ export function DriveProfileTrigger({
       onClick={onClick}
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-3 py-1.5 outline-none transition-colors",
-        open ? "bg-[#F7F8FA]" : "hover:bg-[#F7F8FA]",
+        open ? "bg-surface" : "hover:bg-surface",
         className,
       )}
     >
       <div
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on"
         aria-hidden
       >
         {initials}
       </div>
       <div className="hidden min-w-0 flex-col gap-0.5 text-left sm:flex">
-        <span className="truncate text-[13px] font-bold text-[#1A1A1A]">{displayName}</span>
-        <span className="truncate text-[11px] text-[#666666]">{roleLabel}</span>
+        <span className="truncate text-[13px] font-bold text-ink">{displayName}</span>
+        <span className="truncate text-[11px] text-ink-muted">{roleLabel}</span>
       </div>
     </button>
   );

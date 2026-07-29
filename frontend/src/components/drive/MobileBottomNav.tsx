@@ -31,7 +31,7 @@ function TabButton({ label, active, onClick, icon }: TabProps) {
       onClick={onClick}
       className={cn(
         "flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 transition-colors",
-        active ? "text-blue-700" : "text-neutral-500 active:text-neutral-700",
+        active ? "text-blue-700" : "text-ink-muted active:text-neutral-700",
       )}
       aria-current={active ? "page" : undefined}
     >
@@ -58,7 +58,7 @@ export function MobileBottomNav({
 }: MobileBottomNavProps) {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-200/80 bg-white/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-edge/80 bg-white/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
       aria-label="Mobile navigation"
     >
       <div className="mx-auto grid h-[4.25rem] max-w-lg grid-cols-4 items-center px-2">

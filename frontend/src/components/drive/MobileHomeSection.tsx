@@ -91,8 +91,8 @@ export function MobileHomeSection({
   if (files.length === 0) {
     return (
       <section className="lg:hidden">
-        <h2 className="mb-2 px-1 text-sm font-semibold text-neutral-900">{title}</h2>
-        <p className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-neutral-500 shadow-sm ring-1 ring-neutral-200/70">
+        <h2 className="mb-2 px-1 text-sm font-semibold text-ink">{title}</h2>
+        <p className="rounded-2xl bg-panel px-4 py-6 text-center text-sm text-ink-muted shadow-sm ring-1 ring-neutral-200/70">
           {emptyMessage}
         </p>
       </section>
@@ -101,8 +101,8 @@ export function MobileHomeSection({
 
   return (
     <section className="lg:hidden">
-      <h2 className="mb-2 px-1 text-sm font-semibold text-neutral-900">{title}</h2>
-      <ul className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200/70">
+      <h2 className="mb-2 px-1 text-sm font-semibold text-ink">{title}</h2>
+      <ul className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-neutral-200/70">
         {files.map((file, index) => {
           const isVideo = file.mime_type?.startsWith("video/") ?? false;
           const isImage = isImageMime(file.mime_type);
@@ -142,10 +142,10 @@ export function MobileHomeSection({
                   <HomeFileIcon mimeType={file.mime_type} />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-neutral-900">{file.name}</span>
+                      <span className="truncate font-medium text-ink">{file.name}</span>
                       <SharedIndicator flags={fileShareFlags[file.id]} />
                     </div>
-                    <p className="truncate text-xs text-neutral-500">
+                    <p className="truncate text-xs text-ink-muted">
                       {locationLabel} · {formatFileOpened(file.updated_at)} · {formatBytes(file.size_bytes)}
                     </p>
                     {processing ? (
@@ -159,7 +159,7 @@ export function MobileHomeSection({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="shrink-0 text-neutral-400"
+                  className="shrink-0 text-ink-faint"
                   aria-label={`Actions for ${file.name}`}
                   onClick={() => onOpenActions({ kind: "file", file })}
                 >

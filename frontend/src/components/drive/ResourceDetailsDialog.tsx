@@ -103,16 +103,16 @@ function toShareTarget(target: DetailsTarget): ShareTarget {
 // Agent: READS mime/name; RETURNS Lucide icon component + bg/text classes.
 function resolveFileTypeIcon(file: FileItem) {
   if (file.mime_type?.startsWith("video/")) {
-    return { Icon: Film, chip: "bg-[#EFF6FF] text-[#2563EB]" };
+    return { Icon: Film, chip: "bg-brand-weak text-brand" };
   }
   if (file.mime_type?.startsWith("image/")) {
     return { Icon: ImageIcon, chip: "bg-[#F5F3FF] text-[#7C3AED]" };
   }
   if (isAudioMime(file.mime_type)) {
-    return { Icon: Music, chip: "bg-[#ECFDF5] text-[#059669]" };
+    return { Icon: Music, chip: "bg-ok-weak text-[#059669]" };
   }
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
-    return { Icon: FileSpreadsheet, chip: "bg-[#ECFDF5] text-[#059669]" };
+    return { Icon: FileSpreadsheet, chip: "bg-ok-weak text-[#059669]" };
   }
   if (
     isTextCodePreviewMime(file.mime_type, file.name) ||
@@ -120,9 +120,9 @@ function resolveFileTypeIcon(file: FileItem) {
     isPdfMime(file.mime_type) ||
     isEpubMime(file.mime_type, file.name)
   ) {
-    return { Icon: FileText, chip: "bg-[#F3F4F6] text-[#4B5563]" };
+    return { Icon: FileText, chip: "bg-sunken text-[#4B5563]" };
   }
-  return { Icon: FileIcon, chip: "bg-[#EFF6FF] text-[#2563EB]" };
+  return { Icon: FileIcon, chip: "bg-brand-weak text-brand" };
 }
 
 function streamStatusLabel(file: FileItem): string {
@@ -153,8 +153,8 @@ function fileKindLabel(file: FileItem): string {
 function PropertyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-[#F3F4F6] py-3.5 last:border-b-0">
-      <dt className="shrink-0 text-xs font-medium text-[#6B7280]">{label}</dt>
-      <dd className="min-w-0 break-all text-right text-[13px] font-medium text-[#111827]">
+      <dt className="shrink-0 text-xs font-medium text-ink-muted">{label}</dt>
+      <dd className="min-w-0 break-all text-right text-[13px] font-medium text-ink">
         {value}
       </dd>
     </div>
@@ -297,7 +297,7 @@ export function ResourceDetailsDialog({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="gap-0 overflow-hidden border border-[#E5E7EB] bg-white p-0 shadow-[0_16px_48px_rgba(0,0,0,0.16)] sm:max-w-[600px] sm:rounded-2xl"
+          className="gap-0 overflow-hidden border border-edge bg-panel p-0 shadow-[0_16px_48px_rgba(0,0,0,0.16)] sm:max-w-[600px] sm:rounded-2xl"
           overlayClassName="bg-[#0A0A10]/50 backdrop-blur-[8px]"
         >
           <DialogHeader className="min-w-0 space-y-0 border-b border-[#F3F4F6] px-7 py-6 pr-6 text-left">
@@ -311,17 +311,17 @@ export function ResourceDetailsDialog({
                 <TypeIcon className="size-6" aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
-                <DialogTitle className="truncate text-lg font-semibold text-[#111827]">
+                <DialogTitle className="truncate text-lg font-semibold text-ink">
                   {name ?? "Details"}
                 </DialogTitle>
-                <DialogDescription className="truncate text-[13px] text-[#6B7280]">
+                <DialogDescription className="truncate text-[13px] text-ink-muted">
                   {subtitle}
                 </DialogDescription>
               </div>
               <button
                 type="button"
                 onClick={() => handleOpenChange(false)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#F3F4F6] text-[#6B7280] transition hover:bg-[#E5E7EB]"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sunken text-ink-muted transition hover:bg-edge"
                 aria-label="Close"
               >
                 <X className="size-4" aria-hidden />
@@ -335,8 +335,8 @@ export function ResourceDetailsDialog({
               className={cn(
                 "inline-flex items-center gap-2 border-b-2 px-4 py-3 text-[13px] transition",
                 tab === "details"
-                  ? "border-[#2563EB] font-semibold text-[#2563EB]"
-                  : "border-transparent font-medium text-[#6B7280] hover:text-[#111827]",
+                  ? "border-brand font-semibold text-brand"
+                  : "border-transparent font-medium text-ink-muted hover:text-ink",
               )}
               onClick={() => setTab("details")}
             >
@@ -348,8 +348,8 @@ export function ResourceDetailsDialog({
               className={cn(
                 "inline-flex items-center gap-2 border-b-2 px-4 py-3 text-[13px] transition",
                 tab === "sharing"
-                  ? "border-[#2563EB] font-semibold text-[#2563EB]"
-                  : "border-transparent font-medium text-[#6B7280] hover:text-[#111827]",
+                  ? "border-brand font-semibold text-brand"
+                  : "border-transparent font-medium text-ink-muted hover:text-ink",
               )}
               onClick={() => setTab("sharing")}
             >
@@ -376,14 +376,14 @@ export function ResourceDetailsDialog({
                     />
                     {onToggleFavourite ? (
                       <div className="flex items-center justify-between gap-4 border-b border-[#F3F4F6] py-3.5">
-                        <span className="shrink-0 text-xs font-medium text-[#6B7280]">
+                        <span className="shrink-0 text-xs font-medium text-ink-muted">
                           Favourites
                         </span>
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="gap-2 border-[#E5E7EB] bg-white"
+                          className="gap-2 border-edge bg-panel"
                           onClick={() => onToggleFavourite(target.file.id)}
                         >
                           <Star
@@ -391,7 +391,7 @@ export function ResourceDetailsDialog({
                               "size-3.5",
                               isFavourited
                                 ? "fill-amber-400 text-amber-500"
-                                : "text-[#6B7280]",
+                                : "text-ink-muted",
                             )}
                             aria-hidden
                           />
@@ -401,22 +401,22 @@ export function ResourceDetailsDialog({
                     ) : null}
                     {target.file.mime_type?.startsWith("video/") ? (
                       <div className="mt-5 flex flex-col gap-3 border-t border-[#F3F4F6] pt-5">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                           Stream
                         </span>
-                        <div className="flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+                        <div className="flex flex-col gap-3 rounded-xl border border-edge bg-surface p-4">
                           <Badge
                             variant="secondary"
                             className={cn(
                               "w-fit border-0 font-medium",
                               target.file.hls_ready
-                                ? "bg-[#ECFDF5] text-[#059669]"
-                                : "bg-[#F3F4F6] text-[#4B5563]",
+                                ? "bg-ok-weak text-[#059669]"
+                                : "bg-sunken text-[#4B5563]",
                             )}
                           >
                             {streamStatusLabel(target.file)}
                           </Badge>
-                          <p className="text-xs leading-relaxed text-[#6B7280]">
+                          <p className="text-xs leading-relaxed text-ink-muted">
                             If playback freezes or audio drifts, rebuild the stream package.
                           </p>
                           <div className="flex flex-wrap gap-2">
@@ -424,7 +424,7 @@ export function ResourceDetailsDialog({
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="gap-2 border-[#E5E7EB] bg-white"
+                              className="gap-2 border-edge bg-panel"
                               disabled={
                                 !canReprocessHls ||
                                 reprocessingHls ||
@@ -482,14 +482,14 @@ export function ResourceDetailsDialog({
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 pt-1">
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                             Thumbnail
                           </span>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="w-fit gap-2 border-[#E5E7EB] bg-white"
+                            className="w-fit gap-2 border-edge bg-panel"
                             onClick={() => setThumbnailEditorOpen(true)}
                           >
                             <ImageIcon className="size-3.5" aria-hidden />
@@ -523,10 +523,10 @@ export function ResourceDetailsDialog({
             )}
           </div>
 
-          <div className="flex justify-end border-t border-[#F3F4F6] bg-[#F9FAFB] px-7 py-4">
+          <div className="flex justify-end border-t border-[#F3F4F6] bg-surface px-7 py-4">
             <Button
               type="button"
-              className="bg-[#2563EB] px-5 font-semibold hover:bg-[#1D4ED8]"
+              className="bg-brand px-5 font-semibold hover:bg-brand-hover"
               onClick={() => handleOpenChange(false)}
             >
               Close

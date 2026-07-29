@@ -108,7 +108,7 @@ export function RibbonLargeButton({
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={cn(ribbonButtonBaseClass, "flex-col hover:bg-[#F3F2F1]")}
+      className={cn(ribbonButtonBaseClass, "flex-col hover:bg-surface")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
         minWidth: scaledPx(wide ? 64 : 48),
@@ -161,7 +161,7 @@ export function RibbonIconButton({
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={cn(ribbonButtonBaseClass, "flex-col hover:bg-[#F3F2F1]")}
+      className={cn(ribbonButtonBaseClass, "flex-col hover:bg-surface")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
         minWidth: showLabel ? scaledPx(40) : scaledPx(28),
@@ -214,7 +214,7 @@ export function RibbonSquareIconButton({
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={onClick}
-      className={cn(ribbonButtonBaseClass, "hover:bg-[#F3F2F1]")}
+      className={cn(ribbonButtonBaseClass, "hover:bg-surface")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
         width: scaledPx(22),
@@ -242,7 +242,7 @@ export function RibbonCompactButton({
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={cn(ribbonButtonBaseClass, "hover:bg-[#F3F2F1]")}
+      className={cn(ribbonButtonBaseClass, "hover:bg-surface")}
       style={{
         ...ribbonButtonStyle(Boolean(active)),
         gap: scaledPx(4),
@@ -276,7 +276,7 @@ export function RibbonColorButton({
   return (
     <label
       className={cn(
-        "inline-flex cursor-pointer flex-col items-center rounded-sm hover:bg-[#F3F2F1]",
+        "inline-flex cursor-pointer flex-col items-center rounded-sm hover:bg-surface",
         disabled && "cursor-not-allowed opacity-40",
       )}
       style={{ padding: scaledPx(4), gap: scaledPx(2) }}
@@ -518,7 +518,7 @@ export function RibbonSelect({
       disabled={disabled}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="rounded-sm border bg-white outline-none hover:bg-[#FAFAFA] disabled:opacity-40"
+      className="rounded-sm border bg-panel outline-none hover:bg-[#FAFAFA] disabled:opacity-40"
       style={{
         width: scaledPx(width),
         fontSize: scaledPx(10),
@@ -558,7 +558,7 @@ export function RibbonToggleButton({
       aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
-      className="rounded-sm transition-colors hover:bg-[#F3F2F1] disabled:opacity-40"
+      className="rounded-sm transition-colors hover:bg-surface disabled:opacity-40"
       style={{
         ...ribbonButtonStyle(Boolean(active)),
         padding: scaledPx(4),

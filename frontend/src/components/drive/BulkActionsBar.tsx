@@ -85,13 +85,13 @@ function BulkActionButton({
         // Mobile (dark floating bar)
         "text-white/95 hover:bg-white/12 hover:text-white active:bg-white/15",
         // Desktop (white toolbar)
-        "lg:text-[#374151] lg:hover:bg-[#F3F4F6] lg:hover:text-[#111827]",
+        "lg:text-ink lg:hover:bg-sunken lg:hover:text-ink",
         tone === "default" &&
-          "lg:border lg:border-[#E5E7EB] lg:bg-white lg:shadow-sm lg:hover:border-[#D1D5DB] lg:hover:bg-[#F9FAFB]",
+          "lg:border lg:border-edge lg:bg-panel lg:shadow-sm lg:hover:border-edge-strong lg:hover:bg-surface",
         tone === "danger" &&
-          "lg:border lg:border-red-200/80 lg:bg-white lg:text-red-600 lg:shadow-sm lg:hover:border-red-300 lg:hover:bg-red-50 lg:hover:text-red-700",
+          "lg:border lg:border-danger/30 lg:bg-panel lg:text-danger lg:shadow-sm lg:hover:border-danger/50 lg:hover:bg-danger-weak",
         tone === "ghost" &&
-          "lg:border-0 lg:bg-transparent lg:shadow-none lg:text-[#6B7280] lg:hover:bg-[#F3F4F6] lg:hover:text-[#111827]",
+          "lg:border-0 lg:bg-transparent lg:shadow-none lg:text-ink-muted lg:hover:bg-sunken lg:hover:text-ink",
         className,
       )}
     >
@@ -137,13 +137,15 @@ export function BulkActionsBar({
         "flex items-center gap-3",
         // Human: Mobile — floating dark glass dock above the bottom nav.
         // Agent: fixed bottom + blur + deep shadow; safe-area offset matches MobileBottomNav height.
+        // NOTE: #0B1220 is a deliberate token exception — this dock stays dark in BOTH themes so it
+        // reads as an overlay above the content rather than as another page surface.
         "max-lg:fixed max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] max-lg:left-3 max-lg:right-3 max-lg:z-30",
         "max-lg:rounded-2xl max-lg:border max-lg:border-white/10",
         "max-lg:bg-[#0B1220]/92 max-lg:px-3 max-lg:py-2.5 max-lg:text-white",
         "max-lg:shadow-[0_16px_40px_rgba(15,23,42,0.35)] max-lg:backdrop-blur-xl",
         // Human: Desktop — white selection card matching explorer surfaces.
         // Agent: static inside sticky host on DrivePage; ring + soft shadow for elevation.
-        "lg:rounded-xl lg:border lg:border-[#E5E7EB] lg:bg-white lg:px-3.5 lg:py-2.5",
+        "lg:rounded-xl lg:border lg:border-edge lg:bg-panel lg:px-3.5 lg:py-2.5",
         "lg:shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_12px_rgba(16,24,40,0.04)]",
       )}
       role="toolbar"
@@ -154,15 +156,15 @@ export function BulkActionsBar({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-lg",
-            "bg-[#2563EB] text-white shadow-sm shadow-blue-600/25",
-            "ring-2 ring-[#2563EB]/15 lg:ring-4 lg:ring-[#2563EB]/10",
+            "bg-brand text-white shadow-sm shadow-blue-600/25",
+            "ring-2 ring-brand/15 lg:ring-4 lg:ring-brand/10",
           )}
           aria-hidden
         >
           <Check className="size-4 stroke-[2.5]" />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold tracking-tight text-white lg:text-[#111827]">
+          <p className="truncate text-sm font-semibold tracking-tight text-white lg:text-ink">
             <span className="tabular-nums">{selectedCount}</span> {itemLabel} selected
           </p>
           {showSelectAll ? (
@@ -171,7 +173,7 @@ export function BulkActionsBar({
               className={cn(
                 "mt-0.5 text-left text-xs font-semibold underline-offset-2 transition-colors",
                 "text-blue-200/95 hover:text-white hover:underline",
-                "lg:text-[#2563EB] lg:hover:text-[#1d4ed8]",
+                "lg:text-brand lg:hover:text-brand-hover",
               )}
               onClick={onSelectAll}
               aria-label={`Select all ${selectableCount} items in this folder`}
@@ -180,7 +182,7 @@ export function BulkActionsBar({
               Select all {selectableCount}
             </button>
           ) : allSelected && selectableCount > 0 ? (
-            <p className="mt-0.5 truncate text-xs font-medium text-white/55 lg:text-[#6B7280]">
+            <p className="mt-0.5 truncate text-xs font-medium text-white/55 lg:text-ink-muted">
               All visible items selected
             </p>
           ) : null}
@@ -255,7 +257,7 @@ export function BulkActionsBar({
         />
 
         <span
-          className="mx-0.5 hidden h-5 w-px bg-[#E5E7EB] lg:block"
+          className="mx-0.5 hidden h-5 w-px bg-edge lg:block"
           aria-hidden
         />
         <span className="mx-0.5 h-5 w-px bg-white/15 lg:hidden" aria-hidden />

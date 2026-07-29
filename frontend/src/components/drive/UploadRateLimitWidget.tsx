@@ -24,9 +24,9 @@ function formatUploadCount(value: number): string {
 export function UploadRateLimitWidget({ status, loading = false }: UploadRateLimitWidgetProps) {
   if (!status && loading) {
     return (
-      <div className="flex flex-col gap-2 rounded-xl bg-[#F7F8FA] p-4" aria-busy="true">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Upload rate</p>
-        <p className="text-xs text-[#666666]">Loading…</p>
+      <div className="flex flex-col gap-2 rounded-xl bg-surface p-4" aria-busy="true">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Upload rate</p>
+        <p className="text-xs text-ink-muted">Loading…</p>
       </div>
     );
   }
@@ -49,19 +49,19 @@ export function UploadRateLimitWidget({ status, loading = false }: UploadRateLim
     : `${formatUploadCount(remaining)} of ${formatUploadCount(limit)} uploads left this minute`;
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-[#F7F8FA] p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Upload rate</p>
+    <div className="flex flex-col gap-2 rounded-xl bg-surface p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Upload rate</p>
       <p
         className={cn(
           "text-xs leading-snug",
-          isExhausted ? "font-semibold text-[#DC2626]" : "text-[#666666]",
-          isLow && !isExhausted && "text-[#D97706]",
+          isExhausted ? "font-semibold text-danger" : "text-ink-muted",
+          isLow && !isExhausted && "text-warn",
         )}
       >
         {detailText}
       </p>
       <div
-        className="h-1 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
+        className="h-1 w-full overflow-hidden rounded-sm bg-edge"
         role="progressbar"
         aria-valuenow={percentRemaining}
         aria-valuemin={0}
@@ -71,7 +71,7 @@ export function UploadRateLimitWidget({ status, loading = false }: UploadRateLim
         <div
           className={cn(
             "h-full rounded-sm transition-[width] duration-300 ease-out",
-            isExhausted ? "bg-[#DC2626]" : isLow ? "bg-[#F59E0B]" : "bg-[#2563EB]",
+            isExhausted ? "bg-danger" : isLow ? "bg-warn" : "bg-brand",
           )}
           style={{ width: `${fillWidth}%` }}
         />
