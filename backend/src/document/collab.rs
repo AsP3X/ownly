@@ -542,19 +542,8 @@ impl DocCollabStore {
                 (index, index.saturating_add(length))
             }
             "doc_html" => {
-                // Full document write requires no foreign locks, or only locks owned by this user.
-                for (id, p) in &session.participants {
-                    if id == user_id {
-                        continue;
-                    }
-                    if p.lock_start.is_some() && p.lock_end.is_some() {
-                        let ls = p.lock_start.unwrap_or(0);
-                        let le = p.lock_end.unwrap_or(0);
-                        if le > ls {
-                            return Err(AppendOpError::Locked);
-                        }
-                    }
-                }
+                // Human: Full-document sync is last-write-wins; sentence locks are advisory (UI blocks typing).
+                // Agent: ALWAYS allow doc_html — rejecting it freezes live collab as soon as any peer locks.
                 return Ok(());
             }
             "lock" | "unlock" => return Ok(()),

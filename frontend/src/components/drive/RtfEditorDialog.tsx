@@ -134,8 +134,9 @@ export function RtfEditorDialog({
     onRemoteDocument: (html, _text, fromUserId) => {
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
-      // Human: Don't clobber in-flight local keystrokes (40ms publish window + typing lag).
-      if (Date.now() - lastLocalEditAtRef.current < 120) return;
+      // Human: Don't clobber in-flight local keystrokes (publish debounce + typing lag).
+      if (Date.now() - lastLocalEditAtRef.current < 280) return;
+      if (html === draftHtmlRef.current) return;
       applyingRemoteRef.current = true;
       try {
         surfaceRef.current?.setHtml(html);
