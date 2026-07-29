@@ -8,6 +8,7 @@ import {
   UploadBatchProgressView,
   UploadOverallProgressBar,
   UploadQueueBacklogSummary,
+  UploadSegmentedProgressBar,
 } from "@/components/drive/upload-batch-view";
 import {
   cancelAllUploadItems,
@@ -66,11 +67,11 @@ function UploadHeaderStatusLine({
 
   const tone = isComplete
     ? counts.failed > 0 || counts.cancelled > 0
-      ? "text-amber-800"
-      : "text-emerald-800"
+      ? "text-warn"
+      : "text-ok"
     : isPaused
-      ? "text-amber-800"
-      : "text-[#666666]";
+      ? "text-warn"
+      : "text-ink-muted";
 
   // Human: Do not remount/animate on every ETA or remaining-bytes tick — only color transitions.
   return (
@@ -95,6 +96,9 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
   const overallPercent = isComplete
     ? 100
     : getUploadBatchOverallPercent(batch.items);
+  // Human: Share of the batch that is fully banked — drives the solid segment of the overall bar.
+  // Agent: Counts only terminal-done files so the green portion can never regress.
+  const donePercent = totalCount > 0 ? Math.round((counts.done / totalCount) * 100) : 0;
   const hasPending = counts.inFlight > 0 || counts.waiting > 0;
   const pendingItems = batch.items.filter(
     (item) => item.status === "uploading" || item.status === "queued",
@@ -127,7 +131,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
   return (
     <div
       className={cn(
-        "transfer-panel-enter pointer-events-auto flex w-full flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white transition-shadow duration-300",
+        "transfer-panel-enter pointer-events-auto flex w-full flex-col overflow-hidden rounded-xl border border-edge bg-panel transition-shadow duration-300",
         minimized ? "shadow-[0_8px_16px_rgba(0,0,0,0.08)]" : "shadow-[0_12px_24px_rgba(0,0,0,0.1)]",
       )}
       role="region"
@@ -137,18 +141,18 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       <div
         className={cn(
           "grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-5 pt-4 transition-[padding,border-color] duration-300",
-          !minimized ? "border-b border-[#E5E7EB] pb-3" : "border-b border-transparent pb-1",
+          !minimized ? "border-b border-edge pb-3" : "border-b border-transparent pb-1",
         )}
       >
         <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2">
           <Upload
             className={cn(
-              "size-4 shrink-0 text-[#2563EB] transition-transform duration-300",
+              "size-4 shrink-0 text-brand transition-transform duration-300",
               !isComplete && hasPending && "animate-pulse",
             )}
             aria-hidden
           />
-          <span className="truncate text-sm font-bold text-[#1A1A1A]">Uploads</span>
+          <span className="truncate text-sm font-bold text-ink">Uploads</span>
         </div>
 
         <div className="col-start-2 row-start-1 flex h-7 shrink-0 items-center justify-end gap-0.5 self-start">
@@ -157,7 +161,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs font-semibold text-[#2563EB] transition-colors hover:text-[#1D4ED8]"
+              className="h-7 px-2 text-xs font-semibold text-brand transition-colors hover:text-brand-hover"
               onClick={() => retryFailedUploadItems()}
             >
               Retry failed
@@ -168,7 +172,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs font-semibold text-[#666666] transition-colors hover:text-[#1A1A1A]"
+              className="h-7 px-2 text-xs font-semibold text-ink-muted transition-colors hover:text-ink"
               onClick={() => setUploadBatchPaused(!isPaused)}
             >
               {isPaused ? "Resume" : "Pause"}
@@ -180,7 +184,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               variant="ghost"
               size="sm"
               className={cn(
-                "h-7 px-2 text-xs font-semibold text-[#666666] transition-all hover:text-[#1A1A1A]",
+                "h-7 px-2 text-xs font-semibold text-ink-muted transition-all hover:text-ink",
                 hasPending ? "visible opacity-100" : "invisible pointer-events-none opacity-0",
               )}
               tabIndex={hasPending ? 0 : -1}
@@ -195,7 +199,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-[#888888] transition-colors hover:text-[#1A1A1A]"
+              className="text-ink-faint transition-colors hover:text-ink"
               aria-label="Dismiss uploads"
               onClick={() => dismissUploadBatch()}
             >
@@ -206,7 +210,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-[#888888] transition-colors hover:text-[#1A1A1A]"
+              className="text-ink-faint transition-colors hover:text-ink"
               aria-label={minimized ? "Expand uploads panel" : "Minimize uploads panel"}
               onClick={() => onMinimizedChange(!minimized)}
             >
@@ -241,10 +245,10 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
         <div className="transfer-panel-body-inner">
           <div className="flex min-h-[6.75rem] flex-col gap-2.5 px-4 pb-4 pt-3">
             <div className="flex items-baseline justify-between gap-2">
-              <p className="text-[13px] font-semibold text-[#1A1A1A] transition-opacity duration-200">
+              <p className="text-[13px] font-semibold text-ink transition-opacity duration-200">
                 {formatUploadFilesProgress(processedCount, totalCount)}
               </p>
-              <span className="shrink-0 text-[13px] font-bold tabular-nums text-[#2563EB] transition-[color,transform] duration-300">
+              <span className="shrink-0 text-[13px] font-bold tabular-nums text-brand transition-[color,transform] duration-300">
                 {overallPercent}%
               </span>
             </div>
@@ -252,7 +256,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             <UploadQueueBacklogSummary count={counts.waiting} reserveSlot={isBulkBatch} />
             <p
               className={cn(
-                "min-h-[1rem] text-xs text-amber-800 transition-opacity duration-300",
+                "min-h-[1rem] text-xs text-warn transition-opacity duration-300",
                 counts.failed > 0 || counts.cancelled > 0 ? "opacity-100" : "opacity-0",
               )}
               aria-hidden={counts.failed === 0 && counts.cancelled === 0}
@@ -275,12 +279,12 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       >
         <div className="transfer-panel-body-inner">
           <div className="flex items-center justify-between gap-2 px-4 pb-4 pt-3">
-            <p className="text-[13px] font-semibold text-[#1A1A1A]">
+            <p className="text-[13px] font-semibold text-ink">
               {formatUploadBatchStatusLine({ counts, isComplete: true })}
             </p>
             <button
               type="button"
-              className="shrink-0 rounded-md px-2 py-1 text-xs font-bold text-[#666666] transition hover:bg-[#F7F8FA]"
+              className="shrink-0 rounded-md px-2 py-1 text-xs font-bold text-ink-muted transition hover:bg-surface"
               onClick={() => dismissUploadBatch()}
             >
               Done
@@ -297,7 +301,30 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
         aria-hidden={!showExpandedLive}
       >
         <div className="transfer-panel-body-inner">
-          <div className="flex min-h-0 shrink-0 flex-col gap-3 px-5 pb-5 pt-4">
+          <div className="flex min-h-0 shrink-0 flex-col gap-3 px-4 pb-4 pt-3">
+            {/* Human: Single source of batch truth — hero percent plus one segmented bar. */}
+            {/* Agent: REPLACES the former duplicate "X of Y files" + "N active · N queued" row. */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-end justify-between gap-2">
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="text-2xl font-semibold leading-none tabular-nums text-ink">
+                    {overallPercent}
+                  </span>
+                  <span className="text-sm font-medium leading-none text-ink-faint">%</span>
+                </div>
+                <p className="truncate text-[11px] tabular-nums text-ink-muted">
+                  <span className="font-semibold text-ink">{counts.done}</span> of {totalCount} done
+                </p>
+              </div>
+              <UploadSegmentedProgressBar
+                donePercent={donePercent}
+                overallPercent={overallPercent}
+                isPaused={isPaused}
+              />
+            </div>
+
+            <div className="h-px w-full shrink-0 bg-hairline" aria-hidden />
+
             <UploadBatchProgressView
               items={batch.items}
               onCancelItem={cancelUploadItem}
@@ -356,8 +383,8 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
               className={cn(
                 "transfer-row-enter flex items-center gap-2 rounded-lg px-3 py-2 transition-colors duration-300",
                 counts.failed > 0 || counts.cancelled > 0
-                  ? "bg-amber-50 text-amber-900"
-                  : "bg-emerald-50 text-emerald-900",
+                  ? "bg-warn-weak text-warn"
+                  : "bg-ok-weak text-ok",
               )}
             >
               {counts.failed > 0 || counts.cancelled > 0 ? (
@@ -369,7 +396,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
                 {formatUploadBatchStatusLine({ counts, isComplete: true })}
               </p>
             </div>
-            <ul className="max-h-40 divide-y divide-[#E5E7EB] overflow-y-auto rounded-lg border border-[#E5E7EB]">
+            <ul className="max-h-40 divide-y divide-hairline overflow-y-auto rounded-lg border border-edge">
               {batch.items.map((item, index) => {
                 const canRemove = item.status === "error" || item.status === "cancelled";
                 const terminal =
@@ -381,35 +408,35 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
                 return (
                   <li
                     key={item.id}
-                    className="transfer-row-enter flex items-center gap-2 px-3 py-2.5 transition-colors duration-200 hover:bg-[#F9FAFB]"
+                    className="transfer-row-enter flex items-center gap-2 px-3 py-2.5 transition-colors duration-200 hover:bg-surface"
                     style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
                   >
                     {item.status === "done" ? (
-                      <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
+                      <CheckCircle2 className="size-3.5 shrink-0 text-ok" aria-hidden />
                     ) : item.status === "cancelled" ? (
-                      <X className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
+                      <X className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
                     ) : (
-                      <AlertCircle className="size-3.5 shrink-0 text-red-500" aria-hidden />
+                      <AlertCircle className="size-3.5 shrink-0 text-danger" aria-hidden />
                     )}
                     <div className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-[#1A1A1A]">
+                      <span className="block truncate text-[13px] font-medium text-ink">
                         {item.fileName}
                       </span>
                       {item.status === "error" && item.error ? (
-                        <span className="block truncate text-[11px] text-red-600" title={item.error}>
+                        <span className="block truncate text-[11px] text-danger" title={item.error}>
                           {item.error}
                         </span>
                       ) : (
-                        <span className="block truncate text-[11px] text-[#888888]">
+                        <span className="block truncate text-[11px] text-ink-faint">
                           {formatBytes(item.fileSize)}
                           <span aria-hidden> · </span>
                           <span
                             className={
                               item.status === "done"
-                                ? "text-emerald-700"
+                                ? "text-ok"
                                 : item.status === "error"
-                                  ? "text-red-600"
-                                  : "text-[#666666]"
+                                  ? "text-danger"
+                                  : "text-ink-muted"
                             }
                           >
                             {terminal}
@@ -433,7 +460,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="size-7 shrink-0 text-[#888888] transition-colors hover:text-red-600"
+                        className="size-7 shrink-0 text-ink-faint transition-colors hover:text-danger"
                         aria-label={`Remove ${item.fileName} from uploads`}
                         onClick={() => removeUploadBatchItem(item.id)}
                       >
@@ -456,7 +483,7 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
             ) : null}
             <button
               type="button"
-              className="self-end rounded-lg bg-[#2563EB] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#1D4ED8] active:scale-[0.98]"
+              className="self-end rounded-lg bg-brand px-5 py-2 text-sm font-bold text-brand-on transition hover:bg-brand-hover active:scale-[0.98]"
               onClick={() => dismissUploadBatch()}
             >
               Done
