@@ -1,4 +1,4 @@
-// Human: Shared upload batch progress UI — per-file rows and phase-colored progress bars.
+// Human: Shared upload batch progress UI — consistent status copy, bars, and row chrome.
 // Agent: READS UploadItemSnapshot[]; RENDERED by UploadTransferPanel when expanded.
 
 import { useEffect, useRef, useState } from "react";
@@ -9,28 +9,38 @@ import {
   type UploadItemSnapshot,
   type UploadPhase,
 } from "@/lib/upload-manager";
+import {
+  formatUploadDoneSummary,
+  formatUploadFilesProgress,
+  formatUploadQueueSummary,
+  getUploadPercentLabel,
+  getUploadPhaseLabel,
+  getUploadTerminalStatus,
+} from "@/lib/upload-status-copy";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-/** Human: Fixed height for the scrollable in-flight list — prevents the tray from resizing as rows finish. */
+/** Human: Fixed height for the scrollable file list — prevents the tray from resizing as rows finish. */
 export const UPLOAD_PANEL_LIST_HEIGHT = "17.5rem";
 
-/** Human: Reserved height for the pinned queue/done summary slots in the fixed top band. */
+/** Human: Reserved height for pinned queue/done summary slots. */
 export const UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT = "1.375rem";
 
-/** Human: Above this count, completed rows collapse to one summary line to avoid list height churn. */
+/** Human: Above this count, completed rows collapse to one summary line. */
 export const UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS = 3;
 
-// Human: Phase accent tokens from Pencil Upload Progress Panel (blue / purple / amber / green).
-// Agent: MAPS uploading | processing | encrypting | storing to Tailwind text and bar fill classes.
+// Human: Phase accent tokens — one palette for icon, percent, bar, and status text.
+// Agent: MAPS uploading | processing | encrypting | storing to Tailwind classes.
 function phaseStyles(phase: UploadPhase) {
   if (phase === "storing") {
     return {
       icon: "text-emerald-600",
       percent: "text-emerald-600",
       bar: "bg-emerald-600",
-      meta: "text-emerald-600",
+      status: "text-emerald-700",
+      shimmer: "bg-emerald-600",
+      track: "bg-emerald-100",
     };
   }
   if (phase === "encrypting") {
@@ -38,7 +48,9 @@ function phaseStyles(phase: UploadPhase) {
       icon: "text-amber-600",
       percent: "text-amber-600",
       bar: "bg-amber-500",
-      meta: "text-amber-600",
+      status: "text-amber-700",
+      shimmer: "bg-amber-500",
+      track: "bg-amber-100",
     };
   }
   if (phase === "processing") {
@@ -46,97 +58,72 @@ function phaseStyles(phase: UploadPhase) {
       icon: "text-fuchsia-700",
       percent: "text-fuchsia-700",
       bar: "bg-fuchsia-700",
-      meta: "text-fuchsia-700",
+      status: "text-fuchsia-800",
+      shimmer: "bg-fuchsia-700",
+      track: "bg-fuchsia-100",
     };
   }
   return {
     icon: "text-[#2563EB]",
     percent: "text-[#2563EB]",
     bar: "bg-[#2563EB]",
-    meta: "text-[#888888]",
+    status: "text-[#2563EB]",
+    shimmer: "bg-[#2563EB]",
+    track: "bg-[#DBEAFE]",
   };
 }
 
-// Human: Status line for the active upload bar — overall % is conversion-aware for media.
-// Agent: READS phase + isReprocess + mime; honest labels (AES only for HLS media encrypt phase).
-function getUploadPhaseStatus(
-  item: Pick<UploadItemSnapshot, "phase" | "isReprocess" | "mimeType">,
-): string {
-  const isMedia =
-    Boolean(item.mimeType?.startsWith("video/")) || Boolean(item.mimeType?.startsWith("audio/"));
-  if (item.isReprocess) {
-    if (item.phase === "storing") {
-      return "Rebuilding stream (storage)";
-    }
-    if (item.phase === "encrypting") {
-      return "Rebuilding stream (encrypt)";
-    }
-    return "Rebuilding stream";
-  }
-  if (item.phase === "storing") {
-    return isMedia ? "Moving to storage" : "Saving to library";
-  }
-  if (item.phase === "encrypting") {
-    // Human: AES-GCM applies to HLS segment packaging — not generic drive blob storage.
-    return isMedia ? "Encrypting stream (AES-256-GCM)" : "Finalizing";
-  }
-  if (item.phase === "processing") {
-    return isMedia ? "Converting" : "Indexing";
-  }
-  return "Uploading";
+function isPostUploadPhase(phase: UploadPhase): boolean {
+  return phase === "processing" || phase === "encrypting" || phase === "storing";
 }
 
-// Human: Shimmer track tint and fill for indeterminate post-upload bars.
-// Agent: MAPS processing|encrypting|storing to Tailwind classes for UploadProgressBar.
-function indeterminateBarStyles(phase: UploadPhase) {
-  if (phase === "storing") {
-    return { shimmer: "bg-emerald-600", track: "bg-emerald-200/50" };
-  }
-  if (phase === "encrypting") {
-    return { shimmer: "bg-amber-500", track: "bg-amber-200/50" };
-  }
-  return { shimmer: "bg-fuchsia-700", track: "bg-fuchsia-200/50" };
-}
-
-// Human: Thin progress track — 4px bar with phase-colored fill or shimmer when indeterminate.
-// Agent: RENDERS one bar at a time from phase; post-upload phases use upload-shimmer when indeterminate.
+// Human: Shared progress track — same height/radius for per-file and overall bars.
+// Agent: DETERMINATE width from value with transfer-progress-fill; SHIMMER when indeterminate.
 export function UploadProgressBar({
   value,
-  phase,
+  phase = "uploading",
   indeterminate,
   statusLabel,
+  size = "sm",
   className,
 }: {
   value: number;
-  phase: UploadPhase;
+  phase?: UploadPhase;
   indeterminate?: boolean;
   statusLabel?: string;
+  /** sm = per-file (4px), md = overall batch (6px) */
+  size?: "sm" | "md";
   className?: string;
 }) {
   const styles = phaseStyles(phase);
-  const ariaLabel =
-    phase === "uploading" ? "Uploading to server" : (statusLabel ?? "Upload in progress");
+  const heightClass = size === "md" ? "h-1.5" : "h-1";
+  const ariaLabel = statusLabel ?? (phase === "uploading" ? "Uploading" : "Upload in progress");
+  const useShimmer = Boolean(indeterminate && isPostUploadPhase(phase));
 
-  const isPostUploadPhase =
-    phase === "processing" || phase === "encrypting" || phase === "storing";
-
-  if (indeterminate && isPostUploadPhase) {
-    const shimmer = indeterminateBarStyles(phase);
-
+  if (useShimmer) {
     return (
       <div
-        className={cn("relative h-1 w-full overflow-hidden rounded-sm bg-[#E5E7EB]", className)}
+        className={cn(
+          "relative w-full overflow-hidden rounded-full bg-[#E5E7EB]",
+          heightClass,
+          className,
+        )}
         role="progressbar"
         aria-busy="true"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={ariaLabel}
       >
-        <div className={cn("absolute inset-y-0 left-0 w-full", shimmer.track)} />
         <div
           className={cn(
-            "absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-sm",
-            shimmer.shimmer,
+            "absolute inset-y-0 left-0 w-full transition-colors duration-300 ease-out",
+            styles.track,
+          )}
+        />
+        <div
+          className={cn(
+            "absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full",
+            styles.shimmer,
           )}
         />
       </div>
@@ -147,7 +134,11 @@ export function UploadProgressBar({
 
   return (
     <div
-      className={cn("h-1 w-full overflow-hidden rounded-sm bg-[#E5E7EB]", className)}
+      className={cn(
+        "w-full overflow-hidden rounded-full bg-[#E5E7EB]",
+        heightClass,
+        className,
+      )}
       role="progressbar"
       aria-valuenow={clamped}
       aria-valuemin={0}
@@ -155,10 +146,59 @@ export function UploadProgressBar({
       aria-label={ariaLabel}
     >
       <div
-        className={cn("h-full rounded-sm transition-[width] duration-150 ease-out", styles.bar)}
+        className={cn("transfer-progress-fill h-full rounded-full", styles.bar)}
         style={{ width: `${clamped}%` }}
       />
     </div>
+  );
+}
+
+// Human: Cross-fade status text when the phase label changes (keeps tray feeling live).
+// Agent: KEY on children; RESTARTS transfer-status-enter animation on each label change.
+function AnimatedStatusText({
+  children,
+  className,
+}: {
+  children: string;
+  className?: string;
+}) {
+  return (
+    <span key={children} className={cn("transfer-status-enter inline-block", className)}>
+      {children}
+    </span>
+  );
+}
+
+// Human: Percent label with a light pop when the integer value advances.
+function AnimatedPercentLabel({
+  label,
+  className,
+}: {
+  label: string;
+  className?: string;
+}) {
+  const prevRef = useRef(label);
+  const [tick, setTick] = useState(false);
+
+  useEffect(() => {
+    if (prevRef.current === label) return;
+    prevRef.current = label;
+    if (label === "…") return;
+    setTick(true);
+    const id = window.setTimeout(() => setTick(false), 280);
+    return () => window.clearTimeout(id);
+  }, [label]);
+
+  return (
+    <span
+      className={cn(
+        "inline-block tabular-nums will-change-transform",
+        tick && "transfer-percent-tick",
+        className,
+      )}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -169,8 +209,37 @@ function formatElapsed(seconds: number) {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
-// Human: Active upload row — filename, percent, thin bar, and meta line per Pencil item layout.
-// Agent: READS UploadItemSnapshot; CALLS onCancel to abort, delete partial server file, and remove row.
+// Human: Meta fragments under every row — size · status · optional detail (always same separators).
+function UploadRowMeta({
+  sizeBytes,
+  status,
+  statusClassName,
+  detail,
+}: {
+  sizeBytes: number;
+  status: string;
+  statusClassName?: string;
+  detail?: string | null;
+}) {
+  return (
+    <p className="truncate text-[11px] leading-tight text-[#888888]">
+      <span className="tabular-nums">{formatBytes(sizeBytes)}</span>
+      <span aria-hidden> · </span>
+      <AnimatedStatusText className={cn(statusClassName ?? "text-[#666666]")}>
+        {status}
+      </AnimatedStatusText>
+      {detail ? (
+        <>
+          <span aria-hidden> · </span>
+          <span className="transition-opacity duration-200">{detail}</span>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+// Human: Active upload row — filename, percent, bar, and meta in one consistent layout.
+// Agent: READS UploadItemSnapshot; CALLS onCancel to abort and remove row.
 export function ActiveUploadRow({
   item,
   onCancel,
@@ -178,30 +247,41 @@ export function ActiveUploadRow({
   item: UploadItemSnapshot;
   onCancel?: (itemId: string) => void;
 }) {
-  const isPostUpload =
-    item.phase === "processing" || item.phase === "encrypting" || item.phase === "storing";
+  const postUpload = isPostUploadPhase(item.phase);
   const styles = phaseStyles(item.phase);
-  const phaseStatus = getUploadPhaseStatus(item);
+  const phaseStatus = getUploadPhaseLabel(item);
+  const percentLabel = getUploadPercentLabel(item);
+  const showIndeterminate = postUpload && Boolean(item.indeterminate) && item.progress <= 0;
   const [phaseElapsedSec, setPhaseElapsedSec] = useState(0);
 
   useEffect(() => {
-    if (!isPostUpload) return;
+    if (!postUpload) return;
     const started = Date.now();
     const timerId = window.setInterval(() => {
       setPhaseElapsedSec(Math.floor((Date.now() - started) / 1000));
     }, 1000);
     return () => window.clearInterval(timerId);
-  }, [isPostUpload, item.phase]);
+  }, [postUpload, item.phase]);
 
-  const showIndeterminateLabel =
-    isPostUpload && Boolean(item.indeterminate) && item.progress <= 0;
-  const percentLabel = showIndeterminateLabel ? "Working…" : `${item.progress}%`;
+  const detailParts: string[] = [];
+  if (item.paused) detailParts.push("Paused");
+  if (postUpload && phaseElapsedSec > 0) detailParts.push(formatElapsed(phaseElapsedSec));
+  // Human: Transport is diagnostic only — muted and after status, not competing with phase color.
+  if (item.phase === "uploading" && item.partTransport) {
+    detailParts.push(item.partTransport === "direct" ? "Direct" : "Via API");
+  }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="transfer-row-enter flex flex-col gap-1.5">
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Loader2 className={cn("size-3 shrink-0 animate-spin", styles.icon)} aria-hidden />
+          <Loader2
+            className={cn(
+              "size-3.5 shrink-0 animate-spin transition-colors duration-300",
+              styles.icon,
+            )}
+            aria-hidden
+          />
           <div className="min-w-0">
             <p className="min-w-0 truncate text-[13px] font-semibold text-[#1A1A1A]">
               {item.fileName}
@@ -214,15 +294,16 @@ export function ActiveUploadRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <span className={cn("text-[13px] font-semibold tabular-nums", styles.percent)}>
-            {percentLabel}
-          </span>
+          <AnimatedPercentLabel
+            label={percentLabel}
+            className={cn("text-[13px] font-semibold transition-colors duration-300", styles.percent)}
+          />
           {onCancel ? (
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-7 text-[#888888] hover:text-[#1A1A1A]"
+              className="size-7 text-[#888888] transition-colors hover:text-[#1A1A1A]"
               aria-label={`Cancel upload ${item.fileName}`}
               onClick={() => onCancel(item.id)}
             >
@@ -234,48 +315,42 @@ export function ActiveUploadRow({
       <UploadProgressBar
         value={item.progress}
         phase={item.phase}
-        indeterminate={showIndeterminateLabel}
+        indeterminate={showIndeterminate}
         statusLabel={phaseStatus}
       />
-      <p className="truncate text-[11px] leading-tight">
-        <span className="text-[#888888]">{formatBytes(item.fileSize)}</span>
-        <span className="text-[#888888]"> · </span>
-        <span className={styles.meta}>{phaseStatus}</span>
-        {item.partTransport ? (
-          <>
-            <span className="text-[#888888]"> · </span>
-            <span className={styles.meta}>
-              {item.partTransport === "direct" ? "Direct to storage" : "Via API"}
-            </span>
-          </>
-        ) : null}
-        {isPostUpload ? (
-          <>
-            <span className="text-[#888888]"> · </span>
-            <span className={styles.meta}>{formatElapsed(phaseElapsedSec)}</span>
-          </>
-        ) : null}
-      </p>
+      <UploadRowMeta
+        sizeBytes={item.fileSize}
+        status={phaseStatus}
+        statusClassName={styles.status}
+        detail={detailParts.length > 0 ? detailParts.join(" · ") : null}
+      />
     </div>
   );
 }
 
-// Human: Completed file row — green check and muted filename per Pencil completed item.
+// Human: Completed file row — same meta pattern as active (size · Done).
 export function CompletedUploadRow({ item }: { item: UploadItemSnapshot }) {
   return (
-    <div className="flex items-center justify-between gap-2 py-1">
+    <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
       <div className="flex min-w-0 items-center gap-2">
-        <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
-        <p className="min-w-0 truncate text-[13px] text-[#888888]">{item.fileName}</p>
+        <Check className="size-3.5 shrink-0 text-emerald-500 transition-transform duration-300" aria-hidden />
+        <div className="min-w-0">
+          <p className="min-w-0 truncate text-[13px] font-medium text-[#1A1A1A]">{item.fileName}</p>
+          {item.relativePath ? (
+            <p className="truncate text-[11px] text-[#888888]">{item.relativePath}</p>
+          ) : null}
+          <UploadRowMeta
+            sizeBytes={item.fileSize}
+            status={getUploadTerminalStatus("done")}
+            statusClassName="text-emerald-700"
+          />
+        </div>
       </div>
-      <span className="shrink-0 text-[11px] text-[#888888]">
-        {formatBytes(item.fileSize)} · Done!
-      </span>
     </div>
   );
 }
 
-// Human: Queued file row — waiting state before a worker slot is available.
+// Human: Queued file row — same icon/name/meta structure as other rows.
 export function QueuedFileRow({
   item,
   onCancel,
@@ -285,27 +360,27 @@ export function QueuedFileRow({
   onCancel?: (itemId: string) => void;
   onTogglePause?: (itemId: string, paused: boolean) => void;
 }) {
+  const status = item.paused ? "Paused" : "Queued";
+
   return (
-    <div className="flex items-center justify-between gap-2 py-1">
+    <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
       <div className="flex min-w-0 items-center gap-2">
         <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
         <div className="min-w-0">
-          <p className="min-w-0 truncate text-[13px] text-[#1A1A1A]">{item.fileName}</p>
+          <p className="min-w-0 truncate text-[13px] font-medium text-[#1A1A1A]">{item.fileName}</p>
           {item.relativePath ? (
             <p className="truncate text-[11px] text-[#888888]">{item.relativePath}</p>
           ) : null}
+          <UploadRowMeta sizeBytes={item.fileSize} status={status} />
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <span className="text-[11px] text-[#888888]">
-          {formatBytes(item.fileSize)} · {item.paused ? "Paused" : "Queued"}
-        </span>
+      <div className="flex shrink-0 items-center gap-0.5">
         {onTogglePause ? (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-[#666666]"
+            className="h-7 px-2 text-xs font-semibold text-[#666666] transition-colors hover:text-[#1A1A1A]"
             onClick={() => onTogglePause(item.id, !item.paused)}
           >
             {item.paused ? "Resume" : "Pause"}
@@ -316,7 +391,7 @@ export function QueuedFileRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-[#888888] hover:text-[#1A1A1A]"
+            className="size-7 text-[#888888] transition-colors hover:text-[#1A1A1A]"
             aria-label={`Cancel queued upload ${item.fileName}`}
             onClick={() => onCancel(item.id)}
           >
@@ -328,8 +403,7 @@ export function QueuedFileRow({
   );
 }
 
-// Human: Terminal failed or cancelled upload row — retry, re-pick file after reload, or dismiss.
-// Agent: READS error message; CALLS onRetry when canRetry; onReattachFile when needsFileReselect.
+// Human: Terminal failed or cancelled row — size · Failed/Cancelled + actions.
 export function FailedUploadRow({
   item,
   onRemove,
@@ -343,9 +417,10 @@ export function FailedUploadRow({
 }) {
   const isFailed = item.status === "error";
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const status = getUploadTerminalStatus(item.status);
 
   return (
-    <div className="flex items-center justify-between gap-2 py-1">
+    <div className="transfer-row-enter flex items-center justify-between gap-2 py-0.5">
       <div className="flex min-w-0 items-center gap-2">
         {isFailed ? (
           <AlertCircle className="size-3.5 shrink-0 text-red-500" aria-hidden />
@@ -358,16 +433,22 @@ export function FailedUploadRow({
             <p className="truncate text-[11px] text-red-600" title={item.error}>
               {item.error}
             </p>
-          ) : null}
+          ) : (
+            <UploadRowMeta
+              sizeBytes={item.fileSize}
+              status={status}
+              statusClassName={isFailed ? "text-red-600" : "text-[#666666]"}
+            />
+          )}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-0.5">
         {item.canRetry && onRetry ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 px-2 text-xs"
+            className="h-7 px-2 text-xs font-semibold transition-colors"
             onClick={() => onRetry(item.id)}
           >
             Retry
@@ -390,20 +471,19 @@ export function FailedUploadRow({
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7 px-2 text-xs font-semibold transition-colors"
               onClick={() => inputRef.current?.click()}
             >
               Choose file
             </Button>
           </>
         ) : null}
-        <span className="text-[11px] text-[#888888]">{isFailed ? "Failed" : "Cancelled"}</span>
         {onRemove ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-[#888888] hover:text-red-600"
+            className="size-7 text-[#888888] transition-colors hover:text-red-600"
             aria-label={`Remove ${item.fileName} from uploads`}
             onClick={() => onRemove(item.id)}
           >
@@ -415,28 +495,19 @@ export function FailedUploadRow({
   );
 }
 
-// Human: Overall progress bar for the batch — 6px track per Pencil Overall Progress Bar.
+// Human: Overall progress bar for the batch — same chrome as per-file, slightly taller.
 export function UploadOverallProgressBar({ percent }: { percent: number }) {
-  const clamped = Math.min(100, Math.max(0, percent));
   return (
-    <div
-      className="h-1.5 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
-      role="progressbar"
-      aria-valuenow={clamped}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label="Overall upload progress"
-    >
-      <div
-        className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
-        style={{ width: `${clamped}%` }}
-      />
-    </div>
+    <UploadProgressBar
+      value={percent}
+      phase="uploading"
+      size="md"
+      statusLabel="Overall upload progress"
+    />
   );
 }
 
-// Human: Fixed-height tray summary — stable counts only; per-stage detail stays on in-flight rows.
-// Agent: READS UploadBatchDisplayCounts; RENDERS two truncated lines that do not resize the panel.
+// Human: Expanded-tray summary — files progress + active/failed counts (shared vocabulary).
 function UploadBatchSummaryRow({
   processedCount,
   totalCount,
@@ -446,29 +517,27 @@ function UploadBatchSummaryRow({
   totalCount: number;
   counts: ReturnType<typeof getUploadBatchDisplayCounts>;
 }) {
-  const backlogParts: string[] = [];
-  if (counts.inFlight > 0) {
-    backlogParts.push(`${counts.inFlight} active`);
-  }
-  // Human: Waiting files always use UploadQueueBacklogSummary in the fixed top band — not repeated here.
-  if (counts.failed + counts.cancelled > 0) {
-    backlogParts.push(`${counts.failed + counts.cancelled} failed`);
-  }
+  const rightParts: string[] = [];
+  if (counts.inFlight > 0) rightParts.push(`${counts.inFlight} active`);
+  if (counts.waiting > 0) rightParts.push(`${counts.waiting} queued`);
+  if (counts.failed > 0) rightParts.push(`${counts.failed} failed`);
+  if (counts.cancelled > 0) rightParts.push(`${counts.cancelled} cancelled`);
+
+  const right = rightParts.length > 0 ? rightParts.join(" · ") : "Preparing…";
 
   return (
     <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-xs text-[#666666]">
-      <span className="truncate tabular-nums">
-        {processedCount} of {totalCount} completed
+      <span className="truncate font-medium tabular-nums text-[#1A1A1A] transition-opacity duration-200">
+        {formatUploadFilesProgress(processedCount, totalCount)}
       </span>
       <span className="truncate text-right tabular-nums">
-        {backlogParts.length > 0 ? backlogParts.join(" · ") : "Preparing…"}
+        <AnimatedStatusText>{right}</AnimatedStatusText>
       </span>
     </div>
   );
 }
 
-// Human: One-line queue backlog — always occupies a fixed slot in the top band when reserved.
-// Agent: READS waiting count; RENDERS clock + label or empty placeholder to keep tray height stable.
+// Human: Queue backlog line — fixed slot height when reserved for bulk batches.
 export function UploadQueueBacklogSummary({
   count,
   reserveSlot = false,
@@ -477,6 +546,7 @@ export function UploadQueueBacklogSummary({
   reserveSlot?: boolean;
 }) {
   if (count === 0 && !reserveSlot) return null;
+  const label = formatUploadQueueSummary(count);
 
   return (
     <div
@@ -486,9 +556,7 @@ export function UploadQueueBacklogSummary({
       {count > 0 ? (
         <>
           <Clock className="size-3.5 shrink-0 text-[#888888]" aria-hidden />
-          <p className="truncate text-[11px] text-[#888888]">
-            {count} file{count === 1 ? "" : "s"} waiting in queue
-          </p>
+          <p className="truncate text-[11px] text-[#888888]">{label}</p>
         </>
       ) : (
         <span className="sr-only">No files waiting in queue</span>
@@ -497,8 +565,7 @@ export function UploadQueueBacklogSummary({
   );
 }
 
-// Human: Collapsed completed summary — pinned in the fixed top band for large batches.
-// Agent: READS done count; RENDERS check + label or empty placeholder when reserveSlot keeps layout stable.
+// Human: Done backlog line for large batches.
 export function UploadDoneBacklogSummary({
   count,
   reserveSlot = false,
@@ -507,6 +574,7 @@ export function UploadDoneBacklogSummary({
   reserveSlot?: boolean;
 }) {
   if (count === 0 && !reserveSlot) return null;
+  const label = formatUploadDoneSummary(count);
 
   return (
     <div
@@ -516,9 +584,7 @@ export function UploadDoneBacklogSummary({
       {count > 0 ? (
         <>
           <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
-          <p className="truncate text-[11px] text-[#888888]">
-            {count} file{count === 1 ? "" : "s"} completed
-          </p>
+          <p className="truncate text-[11px] text-[#888888]">{label}</p>
         </>
       ) : (
         <span className="sr-only">No completed uploads yet</span>
@@ -528,7 +594,6 @@ export function UploadDoneBacklogSummary({
 }
 
 // Human: Upload batch body — overall summary, divider, and unified scrollable file list.
-// Agent: READS UploadItemSnapshot displayBucket; CALLS onCancel/onRemove; USED by UploadTransferPanel when expanded.
 export function UploadBatchProgressView({
   items,
   onCancelItem,
@@ -542,7 +607,6 @@ export function UploadBatchProgressView({
   onCancelItem?: (itemId: string) => void;
   onRemoveItem?: (itemId: string) => void;
   onReattachFile?: (itemId: string, file: File) => void;
-  /** Human: Map a multi-file pick onto every needsFileReselect row by name+size. */
   onReattachFiles?: (files: File[]) => void;
   onRetryItem?: (itemId: string) => void;
   onTogglePauseItem?: (itemId: string, paused: boolean) => void;
@@ -557,7 +621,6 @@ export function UploadBatchProgressView({
   );
   const needsReselectCount = items.filter((item) => item.needsFileReselect).length;
   const processedCount = counts.done + counts.failed + counts.cancelled;
-  // Human: Overall bar includes live conversion progress of active files, not only completed count.
   const overallPercent = getUploadBatchOverallPercent(items);
   const isBulkBatch = items.length > UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const showIndividualDoneRows =
@@ -573,8 +636,6 @@ export function UploadBatchProgressView({
       />
       <UploadOverallProgressBar percent={overallPercent} />
 
-      {/* Human: Fixed-height top slots — bulk batches reserve space so the tray never reflows. */}
-      {/* Agent: queue/done summaries stay above the divider; scroll list height stays constant. */}
       <UploadQueueBacklogSummary count={waitingItems.length} reserveSlot={isBulkBatch} />
       {isBulkBatch ? (
         <UploadDoneBacklogSummary count={doneItems.length} reserveSlot />
@@ -601,7 +662,7 @@ export function UploadBatchProgressView({
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 shrink-0 px-2 text-xs"
+            className="h-7 shrink-0 px-2 text-xs font-semibold"
             onClick={() => batchReselectRef.current?.click()}
           >
             Choose files
@@ -612,7 +673,7 @@ export function UploadBatchProgressView({
       <div className="h-px w-full shrink-0 bg-[#E5E7EB]" aria-hidden />
 
       <div
-        className="flex shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain"
+        className="flex shrink-0 flex-col gap-3 overflow-y-auto overscroll-contain"
         style={{ height: UPLOAD_PANEL_LIST_HEIGHT }}
       >
         {listIsEmpty ? (

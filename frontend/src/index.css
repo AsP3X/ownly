@@ -165,3 +165,111 @@
     transform: translateX(220%) skewX(-12deg);
   }
 }
+
+/* Human: Transfer tray entrance — slide up + fade from the bottom-right stack. */
+@keyframes transfer-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Human: File row enter — light rise so new/active uploads feel responsive. */
+@keyframes transfer-row-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Human: Status / percent chip soft crossfade when phase text changes. */
+@keyframes transfer-status-in {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Human: Brief scale pulse when a progress milestone jumps (optional class). */
+@keyframes transfer-percent-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transfer-panel-enter,
+  .transfer-row-enter,
+  .transfer-status-enter,
+  .transfer-percent-tick {
+    animation: none !important;
+  }
+
+  .transfer-progress-fill {
+    transition: none !important;
+  }
+}
+
+.transfer-panel-enter {
+  animation: transfer-panel-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.transfer-row-enter {
+  animation: transfer-row-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.transfer-status-enter {
+  animation: transfer-status-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.transfer-percent-tick {
+  animation: transfer-percent-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Human: Progress fill — snappy but smooth; used by upload tray bars. */
+.transfer-progress-fill {
+  transition:
+    width 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.35s ease;
+}
+
+/* Human: Expand/collapse tray body without janky height jumps. */
+.transfer-panel-body {
+  display: grid;
+  transition:
+    grid-template-rows 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease;
+}
+
+.transfer-panel-body-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.transfer-panel-body-closed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.transfer-panel-body > .transfer-panel-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
