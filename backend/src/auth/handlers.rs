@@ -743,7 +743,7 @@ fn dummy_login_hash() -> &'static str {
 }
 
 // Human: Best-effort session revoke — always clears cookies even when JWT is missing or stale.
-// Agent: POST /auth/logout PUBLIC; OPTIONAL decode via decode_token_for_refresh; AUDIT when revoke succeeds.
+// Agent: POST /auth/logout PUBLIC; OPTIONAL decode; NEVER fail closed on audit/FK (stale JWT after DB wipe).
 pub async fn logout(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -751,19 +751,42 @@ pub async fn logout(
     if let Some(token) = session_cookie::bearer_or_session_token(&headers) {
         if let Ok(claims) = decode_token_for_refresh(&token, &state.jwt_secret) {
             if let Some(sid) = claims.sid.as_deref() {
-                crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid).await?;
+                // Human: Session revoke is optional — user row may be gone after volume recreate.
+                let _ = crate::user_sessions::revoke_session_id(&state.pool, &claims.sub, sid)
+                    .await;
             }
 
-            audit::write_audit_required(
+            // Human: audit_logs.user_id FK fails when the user no longer exists — audit with NULL then.
+            // Agent: EXISTS check; write_audit_logged (best-effort) so cookies still clear.
+            let user_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)",
+            )
+            .bind(&claims.sub)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(false);
+
+            let audit_user = if user_exists {
+                Some(claims.sub.as_str())
+            } else {
+                None
+            };
+            let context = if user_exists {
+                None
+            } else {
+                Some(serde_json::json!({ "stale_user_id": claims.sub }))
+            };
+
+            let _ = audit::write_audit_logged(
                 &state.pool,
-                Some(&claims.sub),
+                audit_user,
                 "auth.logout",
                 Some("user"),
                 Some(&claims.sub),
-                None,
+                context,
                 &headers,
             )
-            .await?;
+            .await;
         }
     }
 
