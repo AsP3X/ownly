@@ -19,6 +19,7 @@ import {
   isAudioMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
@@ -55,6 +56,7 @@ type MobileFileActionsSheetProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onCopyToFolder?: () => void;
@@ -134,6 +136,7 @@ export function MobileFileActionsSheet({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   onCopyToFolder,
@@ -305,6 +308,18 @@ export function MobileFileActionsSheet({
                       onPreviewSpreadsheet === undefined
                     }
                     onClick={() => closeThen(() => onPreviewSpreadsheet?.(file))}
+                  />
+                  <ActionDivider />
+                  <ActionRow
+                    icon={null}
+                    label="Edit rich text"
+                    indented
+                    disabled={
+                      processing ||
+                      !isRtfPreviewMime(file.mime_type, file.name) ||
+                      onPreviewRtf === undefined
+                    }
+                    onClick={() => closeThen(() => onPreviewRtf?.(file))}
                   />
                   <ActionDivider />
                   <ActionRow

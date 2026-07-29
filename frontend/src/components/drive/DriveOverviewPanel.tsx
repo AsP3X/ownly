@@ -30,6 +30,7 @@ import {
   isImageMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
@@ -52,6 +53,7 @@ type DriveOverviewPanelProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
 };
@@ -178,6 +180,7 @@ export function DriveOverviewPanel({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
 }: DriveOverviewPanelProps) {
@@ -299,6 +302,10 @@ export function DriveOverviewPanel({
                 isTextCodePreviewMime(file.mime_type, file.name) &&
                 onPreviewText !== undefined &&
                 !processing;
+              const canPreviewRtf =
+                isRtfPreviewMime(file.mime_type, file.name) &&
+                onPreviewRtf !== undefined &&
+                !processing;
               const canPreviewAudio =
                 isAudio && onPreviewAudio !== undefined && !processing;
               const canPreview =
@@ -308,6 +315,7 @@ export function DriveOverviewPanel({
                 canPreviewEpub ||
                 canPreviewSpreadsheet ||
                 canPreviewText ||
+                canPreviewRtf ||
                 canPreviewAudio;
 
               return (
@@ -325,6 +333,7 @@ export function DriveOverviewPanel({
                       else if (canPreviewPdf) onPreviewPdf!(file);
                       else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
+                      else if (canPreviewRtf) onPreviewRtf!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}
@@ -335,6 +344,7 @@ export function DriveOverviewPanel({
                       else if (canPreviewPdf) onPreviewPdf!(file);
                       else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
+                      else if (canPreviewRtf) onPreviewRtf!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}

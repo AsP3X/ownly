@@ -27,7 +27,7 @@ import {
 import { PublicShareExplorer, type PublicShareBreadcrumb } from "@/components/public-share/PublicShareExplorer";
 import { PublicShareInlineAudio } from "@/components/public-share/PublicShareInlineAudio";
 import { PublicShareInlineImage } from "@/components/public-share/PublicShareInlineImage";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadRtfEditorDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import {
   LazyPublicShareInlinePdf,
   LazyPublicShareInlineVideo,
@@ -47,6 +47,7 @@ import {
   isImageMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
@@ -97,6 +98,7 @@ export default function PublicSharePage() {
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
   const [previewEpub, setPreviewEpub] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
+  const [previewRtf, setPreviewRtf] = useState<FileItem | null>(null);
   const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
 
@@ -375,6 +377,11 @@ export default function PublicSharePage() {
     if (autoOpenedPreviewRef.current) return;
     if (!overview || overview.resource_type !== "file" || !singleFileItem || !accessGranted) return;
 
+    if (isRtfPreviewMime(overview.mime_type, overview.name)) {
+      autoOpenedPreviewRef.current = true;
+      setPreviewRtf(singleFileItem);
+      return;
+    }
     if (isTextCodePreviewMime(overview.mime_type, overview.name)) {
       autoOpenedPreviewRef.current = true;
       setPreviewText(singleFileItem);
@@ -530,6 +537,7 @@ export default function PublicSharePage() {
   const singleIsAudio = isAudioMime(singleMime);
   const singleIsVideo = singleMime.startsWith("video/");
   const singleIsText = isTextCodePreviewMime(singleMime, overview.name);
+  const singleIsRtf = isRtfPreviewMime(singleMime, overview.name);
   const singleIsSpreadsheet = isSpreadsheetPreviewMime(singleMime, overview.name);
 
   return (
@@ -574,6 +582,7 @@ export default function PublicSharePage() {
               onPreviewPdf={(file) => setPreviewPdf(file)}
               onPreviewEpub={(file) => setPreviewEpub(file)}
               onPreviewText={(file) => setPreviewText(file)}
+              onPreviewRtf={(file) => setPreviewRtf(file)}
               onPreviewSpreadsheet={(file) => setPreviewSpreadsheet(file)}
               onPreviewAudio={(file) => setPreviewAudio(file)}
               allowDownload={!overview.block_download}
@@ -666,7 +675,10 @@ export default function PublicSharePage() {
                 saveLoading={saveLoading}
               />
             ) : null}
-            {(singleIsText || singleIsSpreadsheet) && !previewText && !previewSpreadsheet ? (
+            {(singleIsText || singleIsRtf || singleIsSpreadsheet) &&
+            !previewText &&
+            !previewRtf &&
+            !previewSpreadsheet ? (
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
                 <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
                 {overview.size_bytes != null ? (
@@ -801,6 +813,21 @@ export default function PublicSharePage() {
               if (!open) setPreviewText(null);
             },
             onFileChange: setPreviewText,
+            shareToken: token,
+            sharePassword: sharePassword,
+          }}
+        />
+      ) : null}
+
+      {previewRtf !== null ? (
+        <DynamicImportPreview
+          loader={loadRtfEditorDialog}
+          previewProps={{
+            file: previewRtf,
+            open: true,
+            onOpenChange: (open) => {
+              if (!open) setPreviewRtf(null);
+            },
             shareToken: token,
             sharePassword: sharePassword,
           }}

@@ -6,7 +6,7 @@ import { CheckSquare, Clipboard, FolderPlus, RefreshCw, Upload } from "lucide-re
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import type { FileItem, FolderItem } from "@/api/client";
 import { isFileProcessing } from "@/lib/file-processing";
-import { isAudioMime, isEpubMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { isAudioMime, isEpubMime, isPdfMime, isRtfPreviewMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -38,6 +38,7 @@ type DriveContextMenuProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onDelete: (fileId: string) => void;
@@ -74,6 +75,7 @@ type FileOpenHandlers = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onDetailsFile?: (file: FileItem) => void;
@@ -96,6 +98,9 @@ function canDefaultOpenFile(file: FileItem, handlers: FileOpenHandlers): boolean
   }
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
     return Boolean(handlers.onPreviewSpreadsheet);
+  }
+  if (isRtfPreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewRtf);
   }
   if (isTextCodePreviewMime(file.mime_type, file.name)) {
     return Boolean(handlers.onPreviewText);
@@ -130,6 +135,10 @@ function openFileDefault(file: FileItem, handlers: FileOpenHandlers): void {
     handlers.onPreviewSpreadsheet(file);
     return;
   }
+  if (isRtfPreviewMime(file.mime_type, file.name) && handlers.onPreviewRtf) {
+    handlers.onPreviewRtf(file);
+    return;
+  }
   if (isTextCodePreviewMime(file.mime_type, file.name) && handlers.onPreviewText) {
     handlers.onPreviewText(file);
     return;
@@ -144,20 +153,25 @@ function openFileDefault(file: FileItem, handlers: FileOpenHandlers): void {
 type FileEditHandlers = {
   onEditFile?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
 };
 
-// Human: Edit is available for videos (poster), text, and spreadsheets.
-// Agent: READS mime; USES onEditFile when provided, else text/spreadsheet previews.
+// Human: Edit is available for videos (poster), text, RTF, and spreadsheets.
+// Agent: READS mime; USES onEditFile when provided, else text/rtf/spreadsheet previews.
 function canEditFile(file: FileItem, handlers: FileEditHandlers): boolean {
   if (handlers.onEditFile) {
     if (file.mime_type?.startsWith("video/")) return true;
     if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return true;
+    if (isRtfPreviewMime(file.mime_type, file.name)) return true;
     if (isTextCodePreviewMime(file.mime_type, file.name)) return true;
     return false;
   }
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
     return Boolean(handlers.onPreviewSpreadsheet);
+  }
+  if (isRtfPreviewMime(file.mime_type, file.name)) {
+    return Boolean(handlers.onPreviewRtf);
   }
   if (isTextCodePreviewMime(file.mime_type, file.name)) {
     return Boolean(handlers.onPreviewText);
@@ -172,6 +186,10 @@ function editFile(file: FileItem, handlers: FileEditHandlers): void {
   }
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
     handlers.onPreviewSpreadsheet?.(file);
+    return;
+  }
+  if (isRtfPreviewMime(file.mime_type, file.name)) {
+    handlers.onPreviewRtf?.(file);
     return;
   }
   if (isTextCodePreviewMime(file.mime_type, file.name)) {
@@ -218,6 +236,7 @@ export function DriveContextMenu({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   onDelete,
@@ -390,6 +409,7 @@ export function DriveContextMenu({
                   onPreviewPdf,
                   onPreviewEpub,
                   onPreviewText,
+                  onPreviewRtf,
                   onPreviewSpreadsheet,
                   onPreviewAudio,
                 })}
@@ -400,6 +420,7 @@ export function DriveContextMenu({
                     onPreviewPdf,
                     onPreviewEpub,
                     onPreviewText,
+                    onPreviewRtf,
                     onPreviewSpreadsheet,
                     onPreviewAudio,
                     onDetailsFile,
@@ -470,6 +491,16 @@ export function DriveContextMenu({
                   <ContextMenuItem
                     disabled={
                       targetProcessing ||
+                      !isRtfPreviewMime(targetFile.mime_type, targetFile.name) ||
+                      !onPreviewRtf
+                    }
+                    onClick={() => targetFile && onPreviewRtf?.(targetFile)}
+                  >
+                    Edit rich text
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={
+                      targetProcessing ||
                       !isTextCodePreviewMime(targetFile.mime_type, targetFile.name) ||
                       !onPreviewText
                     }
@@ -502,6 +533,7 @@ export function DriveContextMenu({
                 !canEditFile(targetFile, {
                   onEditFile,
                   onPreviewText,
+                  onPreviewRtf,
                   onPreviewSpreadsheet,
                 })
               }
@@ -509,6 +541,7 @@ export function DriveContextMenu({
                 editFile(targetFile, {
                   onEditFile,
                   onPreviewText,
+                  onPreviewRtf,
                   onPreviewSpreadsheet,
                 });
                 setOpen(false);

@@ -2,6 +2,9 @@
 // Agent: READS number; RETURNS human-readable string with B/KB/MB/GB.
 
 import type { ExplorerFileSort } from "@/lib/drive-preferences";
+import { isRtfPreviewMime } from "@/lib/rtf/rtf-detect";
+
+export { isRtfPreviewMime };
 
 // Human: Client-side row/session ids must work on HTTP live hosts, not only HTTPS/localhost.
 // Agent: USES crypto.randomUUID in secure contexts; FALLBACK time+random when API is missing.
@@ -260,11 +263,15 @@ const TEXT_CODE_EXTENSIONS = new Set([
 ]);
 
 // Human: True when a stored file should open in the text/code editor dialog.
-// Agent: READS mime_type + filename extension; RETURNS true for text/* and common code types.
+// Agent: READS mime_type + filename extension; RETURNS true for text/* and common code types; EXCLUDES RTF.
 export function isTextCodePreviewMime(
   mimeType: string | null | undefined,
   filename?: string | null,
 ): boolean {
+  // Human: RTF opens in the rich-text editor — never the raw Monaco source view.
+  // Agent: SHORT-CIRCUIT when isRtfPreviewMime matches.
+  if (isRtfPreviewMime(mimeType, filename)) return false;
+
   const mime = (mimeType ?? "").toLowerCase();
   if (
     mime.startsWith("text/") ||

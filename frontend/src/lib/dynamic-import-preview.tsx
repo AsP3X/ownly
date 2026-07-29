@@ -7,6 +7,7 @@ import type { ImagePreviewDialogProps } from "@/components/drive/ImagePreviewDia
 import type { PdfPreviewDialogProps } from "@/components/drive/PdfPreviewDialog";
 import type { ExcelSpreadsheetDialogProps } from "@/components/drive/ExcelSpreadsheetDialog";
 import type { TextCodeEditorDialogProps } from "@/components/drive/TextCodeEditorDialog";
+import type { RtfEditorDialogProps } from "@/components/drive/RtfEditorDialog";
 import type { VideoPreviewDialogProps } from "@/components/drive/VideoPreviewDialog";
 import type { EpubPreviewDialogProps } from "@/components/drive/epub/EpubPreviewDialog";
 
@@ -94,6 +95,18 @@ export function loadTextCodeEditorDialog(): Promise<ComponentType<TextCodeEditor
   return import("@/components/drive/TextCodeEditorDialog").then((module) => {
     cachedTextCodeEditorDialog = module.TextCodeEditorDialog;
     return module.TextCodeEditorDialog;
+  });
+}
+
+let cachedRtfEditorDialog: ComponentType<RtfEditorDialogProps> | null = null;
+
+// Human: Load RtfEditorDialog on first open — WYSIWYG rich-text chunk stays off the drive bundle.
+// Agent: dynamic import(); CACHES module singleton for faster reopen.
+export function loadRtfEditorDialog(): Promise<ComponentType<RtfEditorDialogProps>> {
+  if (cachedRtfEditorDialog) return Promise.resolve(cachedRtfEditorDialog);
+  return import("@/components/drive/RtfEditorDialog").then((module) => {
+    cachedRtfEditorDialog = module.RtfEditorDialog;
+    return module.RtfEditorDialog;
   });
 }
 

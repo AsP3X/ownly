@@ -61,7 +61,7 @@ import {
   ResourceDetailsDialog,
   type DetailsTarget,
 } from "@/components/drive/ResourceDetailsDialog";
-import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
+import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadRtfEditorDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { UploadDialog } from "@/components/drive/UploadDialog";
 import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -103,6 +103,7 @@ import {
   isImageMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
   sortFilesByName,
@@ -257,6 +258,7 @@ export default function DrivePage() {
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
   const [previewEpub, setPreviewEpub] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
+  const [previewRtf, setPreviewRtf] = useState<FileItem | null>(null);
   const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
@@ -1229,6 +1231,15 @@ export default function DrivePage() {
     setPreviewText(file);
   }
 
+  // Human: Open the RTF rich-text editor — WYSIWYG formatting, not raw RTF source.
+  // Agent: SETS previewRtf; RtfEditorDialog CONVERTS rtf↔html and SAVES via replaceTextFileContent.
+  function handlePreviewRtf(file: FileItem) {
+    if (isFileProcessing(file)) return;
+    if (!isRtfPreviewMime(file.mime_type, file.name)) return;
+    recordFileAccess(file.id);
+    setPreviewRtf(file);
+  }
+
   // Human: Open the Excel-style spreadsheet dialog for .xlsx/.xls/.ods workbooks.
   // Agent: SETS previewSpreadsheet; ExcelSpreadsheetDialog FETCHES blob and PARSES via SheetJS.
   function handlePreviewSpreadsheet(file: FileItem) {
@@ -1453,9 +1464,24 @@ export default function DrivePage() {
       handlePreviewSpreadsheet(file);
       return;
     }
+    if (isRtfPreviewMime(file.mime_type, file.name)) {
+      handlePreviewRtf(file);
+      return;
+    }
     if (isTextCodePreviewMime(file.mime_type, file.name)) {
       handlePreviewText(file);
     }
+  }
+
+  function handleRtfFileSaved(previousId: string, savedFile: FileItem) {
+    setFiles((current) =>
+      current.map((item) => (item.id === previousId ? savedFile : item)),
+    );
+    setPreviewRtf(savedFile);
+    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
+      silent: true,
+      nav: activeNav,
+    });
   }
 
   function handleDetailsFolder(folder: FolderItem, tab: "details" | "sharing" = "details") {
@@ -1812,6 +1838,7 @@ export default function DrivePage() {
       onPreviewPdf={handlePreviewPdf}
       onPreviewEpub={handlePreviewEpub}
       onPreviewText={handlePreviewText}
+      onPreviewRtf={handlePreviewRtf}
       onPreviewSpreadsheet={handlePreviewSpreadsheet}
       onPreviewAudio={handlePreviewAudio}
       onDelete={requestDeleteFile}
@@ -1965,6 +1992,19 @@ export default function DrivePage() {
             }}
           />
         ) : null}
+        {previewRtf !== null ? (
+          <DynamicImportPreview
+            loader={loadRtfEditorDialog}
+            previewProps={{
+              file: previewRtf,
+              open: true,
+              onOpenChange: (open) => {
+                if (!open) setPreviewRtf(null);
+              },
+              onFileSaved: handleRtfFileSaved,
+            }}
+          />
+        ) : null}
         {previewSpreadsheet !== null ? (
           <DynamicImportPreview
             loader={loadExcelSpreadsheetDialog}
@@ -2096,6 +2136,7 @@ export default function DrivePage() {
           onPreviewPdf={handlePreviewPdf}
           onPreviewEpub={handlePreviewEpub}
           onPreviewText={handlePreviewText}
+      onPreviewRtf={handlePreviewRtf}
           onPreviewSpreadsheet={handlePreviewSpreadsheet}
           onPreviewAudio={handlePreviewAudio}
           onCopyToFolder={handleOpenFolderPicker}
@@ -2299,6 +2340,7 @@ export default function DrivePage() {
                   onPreviewPdf={handlePreviewPdf}
       onPreviewEpub={handlePreviewEpub}
                   onPreviewText={handlePreviewText}
+      onPreviewRtf={handlePreviewRtf}
                   onPreviewSpreadsheet={handlePreviewSpreadsheet}
                   onPreviewAudio={handlePreviewAudio}
                   onOpenActions={handleOpenMobileActions}
@@ -2353,6 +2395,7 @@ export default function DrivePage() {
                 onPreviewPdf={handlePreviewPdf}
                 onPreviewEpub={handlePreviewEpub}
                 onPreviewText={handlePreviewText}
+      onPreviewRtf={handlePreviewRtf}
                 onPreviewSpreadsheet={handlePreviewSpreadsheet}
                 onPreviewAudio={handlePreviewAudio}
               />

@@ -19,7 +19,7 @@ import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { isFileProcessing } from "@/lib/file-processing";
-import { formatBytes, formatFileOpened, isAudioMime, isEpubMime, isImageMime, isPdfMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
+import { formatBytes, formatFileOpened, isAudioMime, isEpubMime, isImageMime, isPdfMime, isRtfPreviewMime, isSpreadsheetPreviewMime, isTextCodePreviewMime } from "@/lib/utils-app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +42,7 @@ type FileListViewProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   fileShareFlags?: Record<string, ShareFlags>;
@@ -133,6 +134,7 @@ export function FileListView({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   fileShareFlags = {},
@@ -321,6 +323,10 @@ export function FileListView({
               isTextCodePreviewMime(file.mime_type, file.name) &&
               onPreviewText !== undefined &&
               !processing;
+            const canPreviewRtf =
+              isRtfPreviewMime(file.mime_type, file.name) &&
+              onPreviewRtf !== undefined &&
+              !processing;
             const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
             const canPreview =
               canPreviewVideo ||
@@ -329,6 +335,7 @@ export function FileListView({
               canPreviewEpub ||
               canPreviewSpreadsheet ||
               canPreviewText ||
+              canPreviewRtf ||
               canPreviewAudio;
 
             return (
@@ -370,6 +377,7 @@ export function FileListView({
                       else if (canPreviewPdf) onPreviewPdf!(file);
                       else if (canPreviewEpub) onPreviewEpub!(file);
                       else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
+                      else if (canPreviewRtf) onPreviewRtf!(file);
                       else if (canPreviewText) onPreviewText!(file);
                       else if (canPreviewAudio) onPreviewAudio!(file);
                     }}

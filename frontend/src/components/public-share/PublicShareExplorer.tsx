@@ -28,6 +28,7 @@ import {
   isImageMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
   sortFilesByName,
@@ -58,6 +59,7 @@ type PublicShareExplorerProps = {
   onPreviewPdf: (file: FileItem) => void;
   onPreviewEpub: (file: FileItem) => void;
   onPreviewText: (file: FileItem) => void;
+  onPreviewRtf: (file: FileItem) => void;
   onPreviewSpreadsheet: (file: FileItem) => void;
   onPreviewAudio: (file: FileItem) => void;
   allowDownload?: boolean;
@@ -116,7 +118,14 @@ function resolvePreviewHandler(
   file: FileItem,
   handlers: Pick<
     PublicShareExplorerProps,
-    "onPreviewVideo" | "onPreviewImage" | "onPreviewPdf" | "onPreviewEpub" | "onPreviewText" | "onPreviewSpreadsheet" | "onPreviewAudio"
+    | "onPreviewVideo"
+    | "onPreviewImage"
+    | "onPreviewPdf"
+    | "onPreviewEpub"
+    | "onPreviewText"
+    | "onPreviewRtf"
+    | "onPreviewSpreadsheet"
+    | "onPreviewAudio"
   >,
 ): (() => void) | undefined {
   if (isFileProcessing(file)) return undefined;
@@ -126,6 +135,7 @@ function resolvePreviewHandler(
   if (isPdfMime(file.mime_type)) return () => handlers.onPreviewPdf(file);
   if (isEpubMime(file.mime_type, file.name)) return () => handlers.onPreviewEpub(file);
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewSpreadsheet(file);
+  if (isRtfPreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewRtf(file);
   if (isTextCodePreviewMime(file.mime_type, file.name)) return () => handlers.onPreviewText(file);
   if (isAudioMime(file.mime_type)) return () => handlers.onPreviewAudio(file);
   return undefined;
@@ -165,6 +175,7 @@ export function PublicShareExplorer({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   allowDownload = true,
@@ -218,6 +229,7 @@ export function PublicShareExplorer({
     onPreviewPdf,
     onPreviewEpub,
     onPreviewText,
+    onPreviewRtf,
     onPreviewSpreadsheet,
     onPreviewAudio,
   };

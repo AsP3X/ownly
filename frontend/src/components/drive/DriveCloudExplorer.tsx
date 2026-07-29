@@ -104,6 +104,7 @@ type DriveCloudExplorerProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   /** Human: Opens the mobile action sheet when the row ⋯ control is used. */
@@ -352,6 +353,7 @@ export function DriveCloudExplorer({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   onOpenActions,
@@ -1016,6 +1018,7 @@ export function DriveCloudExplorer({
                       onPreviewPdf={onPreviewPdf}
                       onPreviewEpub={onPreviewEpub}
                       onPreviewText={onPreviewText}
+                      onPreviewRtf={onPreviewRtf}
                       onPreviewSpreadsheet={onPreviewSpreadsheet}
                       onPreviewAudio={onPreviewAudio}
                       onOpenActions={onOpenActions}

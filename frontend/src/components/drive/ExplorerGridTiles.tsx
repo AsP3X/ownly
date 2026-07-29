@@ -34,6 +34,7 @@ import {
   isImageMime,
   isEpubMime,
   isPdfMime,
+  isRtfPreviewMime,
   isSpreadsheetPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
@@ -281,6 +282,7 @@ export type ExplorerFileGridTileProps = {
   onPreviewPdf?: (file: FileItem) => void;
   onPreviewEpub?: (file: FileItem) => void;
   onPreviewText?: (file: FileItem) => void;
+  onPreviewRtf?: (file: FileItem) => void;
   onPreviewSpreadsheet?: (file: FileItem) => void;
   onPreviewAudio?: (file: FileItem) => void;
   onOpenActions?: (target: MobileActionTarget) => void;
@@ -336,6 +338,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   onPreviewPdf,
   onPreviewEpub,
   onPreviewText,
+  onPreviewRtf,
   onPreviewSpreadsheet,
   onPreviewAudio,
   onOpenActions,
@@ -358,6 +361,10 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     isTextCodePreviewMime(file.mime_type, file.name) &&
     onPreviewText !== undefined &&
     !processing;
+  const canPreviewRtf =
+    isRtfPreviewMime(file.mime_type, file.name) &&
+    onPreviewRtf !== undefined &&
+    !processing;
   const canPreviewAudio = isAudio && onPreviewAudio !== undefined && !processing;
   const canPreview =
     canPreviewVideo ||
@@ -366,6 +373,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
     canPreviewEpub ||
     canPreviewSpreadsheet ||
     canPreviewText ||
+    canPreviewRtf ||
     canPreviewAudio;
   const showImagePreview = isImage && !processing;
   const showVideoPreview = isVideo && file.video_thumbnail_ready;
@@ -540,6 +548,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           else if (canPreviewPdf) onPreviewPdf!(file);
           else if (canPreviewEpub) onPreviewEpub!(file);
           else if (canPreviewSpreadsheet) onPreviewSpreadsheet!(file);
+          else if (canPreviewRtf) onPreviewRtf!(file);
           else if (canPreviewText) onPreviewText!(file);
           else if (canPreviewAudio) onPreviewAudio!(file);
         }}

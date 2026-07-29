@@ -43,6 +43,7 @@ import {
   isEpubMime,
   isPdfMime,
   isSpreadsheetPreviewMime,
+  isRtfPreviewMime,
   isTextCodePreviewMime,
 } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ function resolveFileTypeIcon(file: FileItem) {
   }
   if (
     isTextCodePreviewMime(file.mime_type, file.name) ||
+    isRtfPreviewMime(file.mime_type, file.name) ||
     isPdfMime(file.mime_type) ||
     isEpubMime(file.mime_type, file.name)
   ) {
@@ -143,6 +145,7 @@ function fileKindLabel(file: FileItem): string {
   if (isPdfMime(file.mime_type)) return "PDF";
   if (isEpubMime(file.mime_type, file.name)) return "EPUB";
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) return "Spreadsheet";
+  if (isRtfPreviewMime(file.mime_type, file.name)) return "Rich text";
   if (isTextCodePreviewMime(file.mime_type, file.name)) return "Text";
   return file.mime_type?.split("/")[0] ?? "File";
 }
