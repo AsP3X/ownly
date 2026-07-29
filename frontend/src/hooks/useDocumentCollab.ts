@@ -20,15 +20,17 @@ import {
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
-const PUBLISH_DEBOUNCE_MS = 200;
-const HEARTBEAT_MIN_INTERVAL_MS = 600;
-/** Human: Ops gap-fill when WebSocket is healthy (rare catch-up only). */
-const OPS_POLL_WS_MS = 8_000;
+/** Human: Coalesce typing into doc_html publishes — keep low for live feel. */
+const PUBLISH_DEBOUNCE_MS = 90;
+/** Human: Min gap between presence heartbeats (selection/cursor/lock). */
+const HEARTBEAT_MIN_INTERVAL_MS = 100;
+/** Human: Ops gap-fill when WebSocket is healthy. */
+const OPS_POLL_WS_MS = 2_000;
 /** Human: Ops gap-fill when falling back to HTTP-only transport. */
-const OPS_POLL_HTTP_MS = 1_500;
-/** Human: Presence/lock snapshot poll — less often than ops (locks change slowly). */
-const SESSION_POLL_WS_MS = 20_000;
-const SESSION_POLL_HTTP_MS = 4_000;
+const OPS_POLL_HTTP_MS = 700;
+/** Human: Presence/lock snapshot poll. */
+const SESSION_POLL_WS_MS = 1_500;
+const SESSION_POLL_HTTP_MS = 800;
 
 type PublicShareCollab = {
   token: string;
@@ -402,8 +404,17 @@ export function useDocumentCollab({
         ...body,
       };
 
+      // Human: Lock changes should reach peers ASAP; selection can wait the min interval.
+      const urgent =
+        body.lock_start != null ||
+        body.lock_end != null ||
+        body.clear_lock === true;
+
       const elapsed = Date.now() - lastHeartbeatAtRef.current;
-      if (elapsed >= HEARTBEAT_MIN_INTERVAL_MS && !heartbeatInFlightRef.current) {
+      if (
+        (urgent || elapsed >= HEARTBEAT_MIN_INTERVAL_MS) &&
+        !heartbeatInFlightRef.current
+      ) {
         await flushHeartbeat();
         return;
       }
@@ -411,7 +422,9 @@ export function useDocumentCollab({
       if (heartbeatTimerRef.current !== null) {
         window.clearTimeout(heartbeatTimerRef.current);
       }
-      const wait = Math.max(0, HEARTBEAT_MIN_INTERVAL_MS - elapsed);
+      const wait = urgent
+        ? 0
+        : Math.max(0, HEARTBEAT_MIN_INTERVAL_MS - elapsed);
       heartbeatTimerRef.current = window.setTimeout(() => {
         heartbeatTimerRef.current = null;
         void flushHeartbeat();

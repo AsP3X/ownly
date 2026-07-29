@@ -199,9 +199,27 @@ export type LockBubbleRect = {
   borderColor: string;
 };
 
-// Human: Measure Docs-style bubble rects for foreign locks (overlay fallback).
-// Agent: rangeFromPlainOffsets + getClientRects; coords relative to positioning container
-// (must be the same relative ancestor as the overlay — not a scrolled viewport).
+export type CaretMarker = {
+  key: string;
+  top: number;
+  left: number;
+  height: number;
+  color: string;
+  label: string;
+};
+
+export type CollabPresenceDecoration = {
+  userId: string;
+  displayName: string;
+  color: string;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  lockStart: number | null;
+  lockEnd: number | null;
+};
+
+// Human: Measure Docs-style bubble rects for foreign locks.
+// Agent: rangeFromPlainOffsets + getClientRects; coords relative to positioning container.
 export function measureLockBubbleRects(
   root: HTMLElement,
   container: HTMLElement,
@@ -217,13 +235,12 @@ export function measureLockBubbleRects(
     const styles = colorParts(lock.color);
     let index = 0;
     for (const rect of Array.from(range.getClientRects())) {
-      if (rect.width < 1 || rect.height < 1) continue;
-      // Human: Overlay lives inside scrolled content — do not add scrollTop (double-count).
+      if (rect.width < 0.5 || rect.height < 1) continue;
       next.push({
         key: `${lock.userId}-${lock.start}-${lock.end}-${index}`,
         top: rect.top - containerRect.top - 2,
         left: rect.left - containerRect.left - 3,
-        width: rect.width + 6,
+        width: Math.max(rect.width + 6, 4),
         height: rect.height + 4,
         color: styles.solid,
         label: lock.displayName,
@@ -235,6 +252,91 @@ export function measureLockBubbleRects(
     }
   }
   return next;
+}
+
+// Human: Measure a remote caret (and optional selection band) at plain-text offsets.
+// Agent: collapsed Range → getBoundingClientRect; FALLBACK expand one char when zero-size.
+export function measureCaretMarker(
+  root: HTMLElement,
+  container: HTMLElement,
+  offset: number,
+  userId: string,
+  label: string,
+  color: string,
+): CaretMarker | null {
+  const point = rangeFromPlainOffsets(root, offset, offset + 1);
+  const containerRect = container.getBoundingClientRect();
+  let rect: DOMRect | null = null;
+
+  if (point) {
+    const clientRects = point.getClientRects();
+    if (clientRects.length > 0) {
+      rect = clientRects[0] ?? null;
+    }
+    if (!rect || rect.height < 1) {
+      const br = point.getBoundingClientRect();
+      if (br.height >= 1) rect = br;
+    }
+  }
+
+  if (!rect || rect.height < 1) {
+    // Collapsed caret at EOF / empty block — try exact collapse
+    const collapsed = document.createRange();
+    const endPoint = rangeFromPlainOffsets(
+      root,
+      Math.max(0, offset),
+      Math.max(0, offset),
+    );
+    // rangeFromPlainOffsets rejects end<=start — use pointAt via one-char then collapse
+    const probe = rangeFromPlainOffsets(root, Math.max(0, offset - 1), Math.max(1, offset));
+    if (probe) {
+      probe.collapse(false);
+      const br = probe.getBoundingClientRect();
+      if (br.height >= 1) rect = br;
+    }
+    void collapsed;
+    void endPoint;
+  }
+
+  if (!rect || rect.height < 1) return null;
+  const styles = colorParts(color);
+  return {
+    key: `caret-${userId}`,
+    top: rect.top - containerRect.top,
+    left: rect.left - containerRect.left,
+    height: Math.max(rect.height, 14),
+    color: styles.solid,
+    label,
+  };
+}
+
+// Human: Selection highlight rects for remote non-collapsed selections.
+// Agent: SAME as lock bubbles but softer fill; USED when selection spans multiple chars.
+export function measureSelectionRects(
+  root: HTMLElement,
+  container: HTMLElement,
+  start: number,
+  end: number,
+  userId: string,
+  label: string,
+  color: string,
+): LockBubbleRect[] {
+  if (end <= start) return [];
+  return measureLockBubbleRects(root, container, [
+    {
+      userId: `${userId}-sel`,
+      displayName: label,
+      color,
+      start,
+      end,
+    },
+  ]).map((r) => ({
+    ...r,
+    key: `sel-${userId}-${r.key}`,
+    backgroundColor: colorParts(color).backgroundColor.replace("0.38", "0.22"),
+    borderColor: "transparent",
+    isFirst: false,
+  }));
 }
 
 // Human: Prefer CSS Custom Highlight API (non-mutating, Docs-like text background).

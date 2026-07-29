@@ -42,6 +42,8 @@ export function RtfCollabPresence({
             person.lock_start != null &&
             person.lock_end != null &&
             person.lock_end > person.lock_start;
+          const hasCaret =
+            person.selection_start != null || person.selection_end != null;
           return (
             <div
               key={person.user_id}
@@ -49,8 +51,9 @@ export function RtfCollabPresence({
               title={[
                 person.display_name,
                 locked
-                  ? `Editing sentence ${person.lock_start}–${person.lock_end}`
+                  ? `Locked chars ${person.lock_start}–${person.lock_end}`
                   : null,
+                hasCaret ? `Caret at ${person.selection_start}` : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -63,7 +66,7 @@ export function RtfCollabPresence({
               </span>
               <span className="max-w-[9rem] truncate text-[10px] text-[#334155]">
                 {isYou ? "You" : person.display_name}
-                {locked ? " · locked" : ""}
+                {locked ? " · locked" : hasCaret ? " · active" : ""}
               </span>
             </div>
           );
