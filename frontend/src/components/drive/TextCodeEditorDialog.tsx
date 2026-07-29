@@ -1,5 +1,5 @@
-// Human: In-browser text/code editor dialog — Pencil Code Editor Dialog with tabs, search, and save.
-// Agent: FETCHES fetchFileBlobForPreview; EDITS local buffer; SAVE replaceTextFileContent when allowed.
+// Human: Full-viewport text/code editor dialog — Monaco editor, multi-tab, save, PDF-matched shell size.
+// Agent: FETCHES file blobs; EDITS buffers; SAVE replaceTextFileContent; EXPOSES Monaco modern editing features.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -12,8 +12,11 @@ import {
 } from "@/api/client";
 import { CodeEditorHeader } from "@/components/drive/text-code-editor/CodeEditorHeader";
 import { CodeEditorStatusBar } from "@/components/drive/text-code-editor/CodeEditorStatusBar";
-import { CodeEditorSurface } from "@/components/drive/text-code-editor/CodeEditorSurface";
-import { EditorSearchPanel } from "@/components/drive/text-code-editor/EditorSearchPanel";
+import {
+  CodeEditorSurface,
+  type CodeEditorCursorState,
+  type CodeEditorSurfaceHandle,
+} from "@/components/drive/text-code-editor/CodeEditorSurface";
 import { EditorSettingsPanel } from "@/components/drive/text-code-editor/EditorSettingsPanel";
 import { EditorThemeProvider } from "@/components/drive/text-code-editor/EditorThemeProvider";
 import {
@@ -24,6 +27,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
+import { configureLocalMonaco } from "@/lib/text-code-editor/monaco-setup";
+import {
+  readEditorPreferences,
+  writeEditorPreferences,
+  type EditorPreferences,
+} from "@/lib/text-code-editor/preferences";
 import {
   getEditorTheme,
   readEditorThemePreference,
@@ -32,11 +41,9 @@ import {
   type EditorThemePreference,
 } from "@/lib/text-code-editor/theme";
 import { cn } from "@/lib/utils";
-import {
-  applyTextReplacement,
-  caretPositionFromIndex,
-  findTextMatches,
-} from "@/lib/text-code-editor/search";
+
+// Human: Ensure Monaco workers and API resolve from the local package inside this code-split chunk.
+configureLocalMonaco();
 
 export type TextCodeEditorDialogProps = {
   tabs: FileItem[];
@@ -63,11 +70,10 @@ function emptyBuffer(): EditorBuffer {
   return { value: "", savedValue: "", loading: false, error: "" };
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  return target.isContentEditable;
+function detectEol(text: string): "LF" | "CRLF" | "CR" {
+  if (text.includes("\r\n")) return "CRLF";
+  if (text.includes("\r")) return "CR";
+  return "LF";
 }
 
 export function TextCodeEditorDialog({
@@ -84,23 +90,21 @@ export function TextCodeEditorDialog({
   const readOnly = Boolean(shareToken);
   const [openTabs, setOpenTabs] = useState<FileItem[]>(tabs);
   const [buffers, setBuffers] = useState<Record<string, EditorBuffer>>({});
-  const [wordWrap, setWordWrap] = useState(false);
-  const [tabSize, setTabSize] = useState(2);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [preferences, setPreferences] = useState<EditorPreferences>(() => readEditorPreferences());
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [replaceExpanded, setReplaceExpanded] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [replaceValue, setReplaceValue] = useState("");
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(0);
-  const [selectionStart, setSelectionStart] = useState(0);
+  const [cursor, setCursor] = useState<CodeEditorCursorState>({
+    lineNumber: 1,
+    column: 1,
+    selectedChars: 0,
+    selectedLines: 0,
+  });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [themePreference, setThemePreference] = useState<EditorThemePreference>(() =>
     readEditorThemePreference(),
   );
   const activeFileIdRef = useRef<string | null>(null);
-  const findInputRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<CodeEditorSurfaceHandle>(null);
   const resolvedThemeId = resolveEditorThemeId(themePreference);
   const resolvedTheme = getEditorTheme(resolvedThemeId);
 
@@ -110,32 +114,54 @@ export function TextCodeEditorDialog({
   }, [open, tabs]);
 
   const activeFile = file;
-  const activeBuffer = activeFile ? buffers[activeFile.id] ?? emptyBuffer() : emptyBuffer();
+  const activeBuffer = activeFile ? (buffers[activeFile.id] ?? emptyBuffer()) : emptyBuffer();
   const activeLanguage = activeFile
     ? detectEditorLanguage(activeFile.name, activeFile.mime_type)
     : detectEditorLanguage("untitled.txt", "text/plain");
 
-  const searchMatches = useMemo(
-    () => findTextMatches(activeBuffer.value, searchQuery, caseSensitive),
-    [activeBuffer.value, searchQuery, caseSensitive],
-  );
-
   const dirty = activeBuffer.value !== activeBuffer.savedValue;
+  const dirtyTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, buffer] of Object.entries(buffers)) {
+      if (buffer.value !== buffer.savedValue) ids.add(id);
+    }
+    return ids;
+  }, [buffers]);
 
   const syncLabel = saveError
     ? saveError
     : saving
       ? "Saving to cloud…"
+      : readOnly
+        ? "Read-only share"
+        : dirty
+          ? "Unsaved changes"
+          : "Saved to cloud";
+
+  const syncTone = saveError
+    ? "error"
+    : saving
+      ? "saving"
       : dirty
-        ? "Unsaved changes"
-        : "Auto-saved to cloud";
+        ? "dirty"
+        : "saved";
 
-  const syncTone = saveError ? "error" : saving ? "saving" : dirty ? "dirty" : "saved";
+  const cursorLabel = `Ln ${cursor.lineNumber}, Col ${cursor.column}`;
+  const selectionLabel =
+    cursor.selectedChars > 0
+      ? cursor.selectedLines > 1
+        ? `${cursor.selectedChars} chars, ${cursor.selectedLines} lines`
+        : `${cursor.selectedChars} selected`
+      : null;
+  const indentLabel = preferences.insertSpaces
+    ? `Spaces: ${preferences.tabSize}`
+    : `Tabs: ${preferences.tabSize}`;
+  const eolLabel = detectEol(activeBuffer.value);
 
-  const cursorLabel = useMemo(() => {
-    const { line, column } = caretPositionFromIndex(activeBuffer.value, selectionStart);
-    return `Ln ${line}, Col ${column}`;
-  }, [activeBuffer.value, selectionStart]);
+  const updatePreferences = useCallback((next: EditorPreferences) => {
+    setPreferences(next);
+    writeEditorPreferences(next);
+  }, []);
 
   const loadFileContent = useCallback(
     async (target: FileItem) => {
@@ -179,27 +205,19 @@ export function TextCodeEditorDialog({
     [sharePassword, shareToken],
   );
 
+  // Human: Fetch each tab's bytes once when first activated — empty files are valid and must not re-fetch forever.
+  // Agent: SKIPS when buffers already has an entry (loading, loaded, or error); CALLS loadFileContent otherwise.
   useEffect(() => {
     if (!open || !activeFile) return;
-    const cached = buffers[activeFile.id];
-    if (cached && (cached.loading || cached.savedValue !== "" || cached.error)) return;
+    if (buffers[activeFile.id]) return;
     void loadFileContent(activeFile);
   }, [activeFile, buffers, loadFileContent, open]);
 
   useEffect(() => {
     if (!open) return;
-    setSearchOpen(false);
     setSettingsOpen(false);
     setSaveError("");
   }, [activeFile?.id, open]);
-
-  useEffect(() => {
-    if (searchMatches.length === 0) {
-      setActiveSearchMatchIndex(0);
-      return;
-    }
-    setActiveSearchMatchIndex((current) => Math.min(current, searchMatches.length - 1));
-  }, [searchMatches.length, searchQuery, caseSensitive]);
 
   const handleCloseRequest = useCallback(
     (nextOpen: boolean) => {
@@ -207,13 +225,15 @@ export function TextCodeEditorDialog({
         onOpenChange(true);
         return;
       }
-      if (dirty && !readOnly) {
+      const anyDirty = Object.values(buffers).some((buffer) => buffer.value !== buffer.savedValue);
+      if (anyDirty && !readOnly) {
         const confirmed = window.confirm("Discard unsaved changes?");
         if (!confirmed) return;
       }
+      setBuffers({});
       onOpenChange(false);
     },
-    [dirty, onOpenChange, readOnly],
+    [buffers, onOpenChange, readOnly],
   );
 
   const handleSelectTab = useCallback(
@@ -243,7 +263,7 @@ export function TextCodeEditorDialog({
 
       if (closing.id === activeFile?.id) {
         if (remaining.length > 0) {
-          onFileChange(remaining[0]);
+          onFileChange(remaining[0]!);
         } else {
           onOpenChange(false);
         }
@@ -252,17 +272,20 @@ export function TextCodeEditorDialog({
     [activeFile?.id, buffers, onFileChange, onOpenChange, openTabs, readOnly],
   );
 
-  const handleValueChange = useCallback((nextValue: string) => {
-    if (!activeFile || readOnly) return;
-    setSaveError("");
-    setBuffers((current) => ({
-      ...current,
-      [activeFile.id]: {
-        ...(current[activeFile.id] ?? emptyBuffer()),
-        value: nextValue,
-      },
-    }));
-  }, [activeFile, readOnly]);
+  const handleValueChange = useCallback(
+    (nextValue: string) => {
+      if (!activeFile || readOnly) return;
+      setSaveError("");
+      setBuffers((current) => ({
+        ...current,
+        [activeFile.id]: {
+          ...(current[activeFile.id] ?? emptyBuffer()),
+          value: nextValue,
+        },
+      }));
+    },
+    [activeFile, readOnly],
+  );
 
   const handleSave = useCallback(async () => {
     if (!activeFile || readOnly || saving || !dirty) return;
@@ -293,220 +316,166 @@ export function TextCodeEditorDialog({
     }
   }, [activeBuffer.value, activeFile, dirty, onFileChange, onFileSaved, readOnly, saving]);
 
-  const handleReplaceOne = useCallback(() => {
-    if (!activeFile || readOnly || searchMatches.length === 0) return;
-    const result = applyTextReplacement(
-      activeBuffer.value,
-      searchQuery,
-      replaceValue,
-      caseSensitive,
-      activeSearchMatchIndex,
-      false,
-    );
-    handleValueChange(result.nextValue);
-  }, [
-    activeBuffer.value,
-    activeFile,
-    activeSearchMatchIndex,
-    caseSensitive,
-    handleValueChange,
-    readOnly,
-    replaceValue,
-    searchMatches.length,
-    searchQuery,
-  ]);
-
-  const handleReplaceAll = useCallback(() => {
-    if (!activeFile || readOnly || searchMatches.length === 0) return;
-    const result = applyTextReplacement(
-      activeBuffer.value,
-      searchQuery,
-      replaceValue,
-      caseSensitive,
-      activeSearchMatchIndex,
-      true,
-    );
-    handleValueChange(result.nextValue);
-    setActiveSearchMatchIndex(0);
-  }, [
-    activeBuffer.value,
-    activeFile,
-    activeSearchMatchIndex,
-    caseSensitive,
-    handleValueChange,
-    readOnly,
-    replaceValue,
-    searchMatches.length,
-    searchQuery,
-  ]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target) && !(event.metaKey || event.ctrlKey)) {
-        if (event.key === "Escape" && searchOpen) {
-          event.preventDefault();
-          setSearchOpen(false);
-        }
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        setSearchOpen(true);
-        setSettingsOpen(false);
-        window.requestAnimationFrame(() => {
-          findInputRef.current?.focus();
-          findInputRef.current?.select();
-        });
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void handleSave();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleSave, open, searchOpen]);
+  const handleDownload = useCallback(() => {
+    if (!activeFile) return;
+    const blob = new Blob([activeBuffer.value], {
+      type: activeFile.mime_type || "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = activeFile.name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [activeBuffer.value, activeFile]);
 
   const handleThemePreferenceChange = useCallback((preference: EditorThemePreference) => {
     setThemePreference(preference);
     writeEditorThemePreference(preference);
   }, []);
 
+  // Human: Global shortcuts that should work even when Monaco focus is elsewhere in the dialog.
+  // Agent: LISTENS keydown while open; ROUTES save/settings; Monaco owns find/replace/goto.
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const mod = event.metaKey || event.ctrlKey;
+
+      if (mod && key === "s") {
+        event.preventDefault();
+        void handleSave();
+        return;
+      }
+
+      if (mod && key === "," && !event.shiftKey) {
+        event.preventDefault();
+        setSettingsOpen((current) => !current);
+        return;
+      }
+
+      if (event.key === "Escape" && settingsOpen) {
+        event.preventDefault();
+        setSettingsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [handleSave, open, settingsOpen]);
+
   return (
     <Dialog open={open} onOpenChange={handleCloseRequest}>
       <DialogContent
-        className="flex w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-visible border-0 bg-transparent p-4 shadow-none ring-0 sm:max-w-[75rem]"
+        // Human: Match PDF viewer shell — full viewport dialog with Safari-safe height tokens.
+        // Agent: max-h/h use min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem)); NEVER bare commas inside arbitrary values.
+        className="flex h-[min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem))] max-h-[min(1275px,_calc(100svh-2rem),_calc(100dvh-2rem))] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-0 bg-transparent p-2 shadow-none ring-0 sm:max-w-[min(112.5rem,_calc(100%-2rem))] sm:p-4"
         overlayClassName={resolvedTheme.overlay}
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{activeFile?.name ?? "Text editor"}</DialogTitle>
           <DialogDescription>
-            View and edit text files with syntax highlighting, search, and cloud save.
+            Edit text and source files with a full code editor: syntax highlighting, search,
+            multi-cursor, minimap, and cloud save.
           </DialogDescription>
         </DialogHeader>
 
         <EditorThemeProvider preference={themePreference}>
           <div
             className={cn(
-              "relative flex h-[min(913px,90dvh)] w-full flex-col overflow-hidden",
+              "relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden",
               resolvedTheme.shell,
             )}
           >
-          <CodeEditorHeader
-            tabs={openTabs}
-            activeFileId={activeFile?.id ?? null}
-            wordWrap={wordWrap}
-            searchOpen={searchOpen}
-            settingsOpen={settingsOpen}
-            onSelectTab={handleSelectTab}
-            onCloseTab={handleCloseTab}
-            onToggleWordWrap={() => setWordWrap((current) => !current)}
-            onToggleSearch={() => {
-              setSearchOpen((current) => !current);
-              setSettingsOpen(false);
-            }}
-            onToggleSettings={() => {
-              setSettingsOpen((current) => !current);
-              setSearchOpen(false);
-            }}
-          />
+            <CodeEditorHeader
+              tabs={openTabs}
+              activeFileId={activeFile?.id ?? null}
+              dirtyTabIds={dirtyTabIds}
+              wordWrap={preferences.wordWrap}
+              minimap={preferences.minimap}
+              settingsOpen={settingsOpen}
+              readOnly={readOnly}
+              onSelectTab={handleSelectTab}
+              onCloseTab={handleCloseTab}
+              onToggleWordWrap={() =>
+                updatePreferences({ ...preferences, wordWrap: !preferences.wordWrap })
+              }
+              onToggleMinimap={() =>
+                updatePreferences({ ...preferences, minimap: !preferences.minimap })
+              }
+              onToggleSettings={() => setSettingsOpen((current) => !current)}
+              onFind={() => surfaceRef.current?.triggerFind()}
+              onReplace={() => surfaceRef.current?.triggerReplace()}
+              onGoToLine={() => surfaceRef.current?.triggerGoToLine()}
+              onFormat={() => void surfaceRef.current?.triggerFormatDocument()}
+              onCommandPalette={() => surfaceRef.current?.triggerCommandPalette()}
+            />
 
-          <EditorSettingsPanel
-            open={settingsOpen}
-            tabSize={tabSize}
-            wordWrap={wordWrap}
-            themePreference={themePreference}
-            onTabSizeChange={setTabSize}
-            onWordWrapChange={setWordWrap}
-            onThemePreferenceChange={handleThemePreferenceChange}
-          />
+            <EditorSettingsPanel
+              open={settingsOpen}
+              preferences={preferences}
+              themePreference={themePreference}
+              onPreferencesChange={updatePreferences}
+              onThemePreferenceChange={handleThemePreferenceChange}
+            />
 
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {activeBuffer.loading ? (
-              <div
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-2 text-sm",
-                  resolvedTheme.loadingText,
-                )}
-              >
-                <Loader2 className="size-5 animate-spin" aria-hidden />
-                Loading file…
-              </div>
-            ) : null}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {activeBuffer.loading ? (
+                <div
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-2 text-sm",
+                    resolvedTheme.loadingText,
+                  )}
+                >
+                  <Loader2 className="size-5 animate-spin" aria-hidden />
+                  Loading file…
+                </div>
+              ) : null}
 
-            {activeBuffer.error ? (
-              <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]" role="alert">
-                {activeBuffer.error}
-              </p>
-            ) : null}
+              {activeBuffer.error ? (
+                <p
+                  className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#EF4444]"
+                  role="alert"
+                >
+                  {activeBuffer.error}
+                </p>
+              ) : null}
 
-            {!activeBuffer.loading && !activeBuffer.error && activeFile ? (
-              <>
-                <EditorSearchPanel
-                  open={searchOpen}
-                  findInputRef={findInputRef}
-                  query={searchQuery}
-                  replaceValue={replaceValue}
-                  caseSensitive={caseSensitive}
-                  matchCount={searchMatches.length}
-                  activeMatchIndex={activeSearchMatchIndex}
-                  replaceExpanded={replaceExpanded}
-                  onQueryChange={setSearchQuery}
-                  onReplaceChange={setReplaceValue}
-                  onToggleCaseSensitive={() => setCaseSensitive((current) => !current)}
-                  onToggleReplaceExpanded={() => setReplaceExpanded((current) => !current)}
-                  onPreviousMatch={() =>
-                    setActiveSearchMatchIndex((current) =>
-                      searchMatches.length === 0
-                        ? 0
-                        : (current - 1 + searchMatches.length) % searchMatches.length,
-                    )
-                  }
-                  onNextMatch={() =>
-                    setActiveSearchMatchIndex((current) =>
-                      searchMatches.length === 0 ? 0 : (current + 1) % searchMatches.length,
-                    )
-                  }
-                  onClose={() => setSearchOpen(false)}
-                  onReplaceOne={handleReplaceOne}
-                  onReplaceAll={handleReplaceAll}
-                />
-
+              {!activeBuffer.loading && !activeBuffer.error && activeFile ? (
                 <CodeEditorSurface
+                  key={activeFile.id}
+                  ref={surfaceRef}
                   filename={activeFile.name}
                   mimeType={activeFile.mime_type}
                   value={activeBuffer.value}
                   readOnly={readOnly}
-                  wordWrap={wordWrap}
-                  tabSize={tabSize}
-                  searchMatches={searchOpen ? searchMatches : []}
-                  activeSearchMatchIndex={searchOpen ? activeSearchMatchIndex : 0}
+                  preferences={preferences}
                   onChange={handleValueChange}
-                  onSelectionChange={(start) => setSelectionStart(start)}
+                  onCursorChange={setCursor}
+                  onSaveRequest={() => void handleSave()}
                 />
-              </>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
 
-          <CodeEditorStatusBar
-            branchLabel={branchLabel}
-            syncLabel={syncLabel}
-            syncTone={syncTone}
-            cursorLabel={cursorLabel}
-            languageLabel={activeLanguage.label}
-            tabSizeLabel={`Spaces: ${tabSize}`}
-            readOnly={readOnly}
-            saving={saving}
-            canSave={dirty && !activeBuffer.loading && !activeBuffer.error}
-            onClose={() => handleCloseRequest(false)}
-            onSave={() => void handleSave()}
-          />
+            <CodeEditorStatusBar
+              branchLabel={branchLabel}
+              syncLabel={syncLabel}
+              syncTone={syncTone}
+              cursorLabel={cursorLabel}
+              selectionLabel={selectionLabel}
+              languageLabel={activeLanguage.label}
+              indentLabel={indentLabel}
+              encodingLabel="UTF-8"
+              eolLabel={eolLabel}
+              readOnly={readOnly}
+              saving={saving}
+              canSave={dirty && !activeBuffer.loading && !activeBuffer.error}
+              onClose={() => handleCloseRequest(false)}
+              onSave={() => void handleSave()}
+              onDownload={activeFile ? handleDownload : undefined}
+            />
           </div>
         </EditorThemeProvider>
       </DialogContent>

@@ -1,7 +1,7 @@
-// Human: Bottom status and action bar — Pencil Status and Action Bar (48px) with save/close controls.
-// Agent: SHOWS sync state, cursor position, language; EMITS close/save when editable.
+// Human: Bottom status and action bar — cursor, selection, indent, language, save/close.
+// Agent: SHOWS sync state and editor metrics; EMITS close/save/download when available.
 
-import { CloudLightning, GitBranch, Loader2 } from "lucide-react";
+import { CloudLightning, Download, GitBranch, Loader2, ShieldCheck } from "lucide-react";
 import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { cn } from "@/lib/utils";
 
@@ -10,13 +10,17 @@ export type CodeEditorStatusBarProps = {
   syncLabel: string;
   syncTone: "saved" | "dirty" | "saving" | "error";
   cursorLabel: string;
+  selectionLabel?: string | null;
   languageLabel: string;
-  tabSizeLabel: string;
+  indentLabel: string;
+  encodingLabel?: string;
+  eolLabel?: string;
   readOnly?: boolean;
   saving?: boolean;
   canSave?: boolean;
   onClose: () => void;
   onSave?: () => void;
+  onDownload?: () => void;
 };
 
 export function CodeEditorStatusBar({
@@ -24,21 +28,32 @@ export function CodeEditorStatusBar({
   syncLabel,
   syncTone,
   cursorLabel,
+  selectionLabel,
   languageLabel,
-  tabSizeLabel,
+  indentLabel,
+  encodingLabel = "UTF-8",
+  eolLabel = "LF",
   readOnly = false,
   saving = false,
   canSave = false,
   onClose,
   onSave,
+  onDownload,
 }: CodeEditorStatusBarProps) {
   const { theme } = useCodeEditorTheme();
 
   return (
-    <footer className={cn("flex h-12 shrink-0 items-center justify-between px-4", theme.statusBar)}>
-      <div className="flex min-w-0 items-center gap-3">
+    <footer
+      className={cn(
+        "flex h-12 shrink-0 items-center justify-between gap-3 border-t px-3 sm:px-4",
+        theme.statusBar,
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <GitBranch className={cn("size-3 shrink-0", theme.statusText)} aria-hidden />
-        <span className={cn("truncate text-xs", theme.statusText)}>{branchLabel}</span>
+        <span className={cn("hidden max-w-[8rem] truncate text-xs sm:inline", theme.statusText)}>
+          {branchLabel}
+        </span>
         <CloudLightning
           className={cn(
             "size-3 shrink-0",
@@ -60,12 +75,43 @@ export function CodeEditorStatusBar({
         >
           {syncLabel}
         </span>
+        {readOnly ? (
+          <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 sm:inline-flex dark:border-emerald-400/20 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <ShieldCheck className="size-3" aria-hidden />
+            Read-only
+          </span>
+        ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-4">
-        <span className={cn("hidden text-xs sm:inline", theme.statusText)}>{cursorLabel}</span>
-        <span className={cn("hidden text-xs md:inline", theme.statusText)}>{tabSizeLabel}</span>
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <span className={cn("hidden text-xs tabular-nums md:inline", theme.statusText)}>
+          {cursorLabel}
+        </span>
+        {selectionLabel ? (
+          <span className={cn("hidden text-xs tabular-nums lg:inline", theme.statusText)}>
+            {selectionLabel}
+          </span>
+        ) : null}
+        <span className={cn("hidden text-xs sm:inline", theme.statusText)}>{indentLabel}</span>
+        <span className={cn("hidden text-xs lg:inline", theme.statusText)}>{eolLabel}</span>
+        <span className={cn("hidden text-xs xl:inline", theme.statusText)}>{encodingLabel}</span>
         <span className={cn("text-xs", theme.statusText)}>{languageLabel}</span>
+
+        {onDownload ? (
+          <button
+            type="button"
+            onClick={onDownload}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+              theme.closeButton,
+            )}
+            aria-label="Download file"
+            title="Download"
+          >
+            <Download className="size-3.5" aria-hidden />
+            <span className="hidden sm:inline">Download</span>
+          </button>
+        ) : null}
 
         <button type="button" onClick={onClose} className={theme.closeButton}>
           Close
@@ -79,7 +125,7 @@ export function CodeEditorStatusBar({
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
-            Save Changes
+            Save
           </button>
         ) : null}
       </div>

@@ -1,9 +1,21 @@
 // Human: Lightweight syntax tokens for the in-browser code editor overlay (light + dark).
 // Agent: READS source + highlight mode + theme; RETURNS React spans with palette token colors.
 
+// Human: Legacy lightweight highlighter kept for theme.syntax token types — Monaco handles live editing now.
+// Agent: STILL exports SyntaxTokenStyle for theme.ts; NOT used by CodeEditorSurface after Monaco migration.
+
 import type { ReactNode } from "react";
-import type { EditorHighlightMode } from "@/lib/text-code-editor/language";
 import { getEditorTheme, type EditorThemeId } from "@/lib/text-code-editor/theme";
+
+/** @deprecated Monaco owns syntax highlighting; retained for offline token experiments. */
+type EditorHighlightMode =
+  | "javascript"
+  | "typescript"
+  | "css"
+  | "json"
+  | "html"
+  | "markdown"
+  | "plain";
 
 export type SyntaxTokenStyle =
   | "keyword"

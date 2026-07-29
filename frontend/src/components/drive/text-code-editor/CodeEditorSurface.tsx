@@ -1,192 +1,291 @@
-// Human: Editable code surface with line numbers and syntax overlay — light or dark per theme.
-// Agent: SYNC scroll/caret between textarea and highlight layer; EMITS value + selection changes.
+// Human: Monaco-powered code surface — full language services, multi-cursor, find, fold, minimap.
+// Agent: MOUNTS @monaco-editor/react; SYNCS value; EXPOSES editor actions via imperative handle.
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import "@fontsource/inconsolata/400.css";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
+import type * as MonacoNamespace from "monaco-editor";
+import { Loader2 } from "lucide-react";
 import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
-import { buildHighlightedLines, renderHighlightedSegments } from "@/lib/text-code-editor/highlight";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
-import type { TextSearchMatch } from "@/lib/text-code-editor/search";
+import type { EditorPreferences } from "@/lib/text-code-editor/preferences";
 import { cn } from "@/lib/utils";
+
+export type CodeEditorCursorState = {
+  lineNumber: number;
+  column: number;
+  selectedChars: number;
+  selectedLines: number;
+};
+
+export type CodeEditorSurfaceHandle = {
+  focus: () => void;
+  revealLine: (lineNumber: number) => void;
+  triggerFind: () => void;
+  triggerReplace: () => void;
+  triggerGoToLine: () => void;
+  triggerCommandPalette: () => void;
+  triggerFormatDocument: () => Promise<void>;
+  triggerFoldAll: () => void;
+  triggerUnfoldAll: () => void;
+  getValue: () => string;
+};
 
 export type CodeEditorSurfaceProps = {
   filename: string;
   mimeType: string | null;
   value: string;
   readOnly?: boolean;
-  wordWrap: boolean;
-  tabSize: number;
-  searchMatches: TextSearchMatch[];
-  activeSearchMatchIndex: number;
+  preferences: EditorPreferences;
   onChange: (value: string) => void;
-  onSelectionChange: (selectionStart: number, selectionEnd: number) => void;
+  onCursorChange: (state: CodeEditorCursorState) => void;
+  onSaveRequest?: () => void;
+  className?: string;
 };
 
-// Human: Fixed metrics shared by gutter, highlight, and textarea — must match exactly or lines drift.
-// Agent: 13px Inconsolata + 20px line box mirrors Pencil Code Editor Panel row height.
-const EDITOR_FONT_SIZE_PX = 13;
-const EDITOR_LINE_HEIGHT_PX = 20;
+type EditorSelectionLike = {
+  selectionStartLineNumber: number;
+  selectionStartColumn: number;
+  positionLineNumber: number;
+  positionColumn: number;
+};
 
-export function CodeEditorSurface({
-  filename,
-  mimeType,
-  value,
-  readOnly = false,
-  wordWrap,
-  tabSize,
-  searchMatches,
-  activeSearchMatchIndex,
-  onChange,
-  onSelectionChange,
-}: CodeEditorSurfaceProps) {
-  const { theme } = useCodeEditorTheme();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const language = useMemo(() => detectEditorLanguage(filename, mimeType), [filename, mimeType]);
-
-  const highlightedLines = useMemo(
-    () =>
-      buildHighlightedLines(
-        value,
-        language.id,
-        searchMatches,
-        activeSearchMatchIndex,
-        theme.id,
-      ),
-    [value, language.id, searchMatches, activeSearchMatchIndex, theme.id],
-  );
-
-  const lineNumbers = useMemo(() => {
-    const count = Math.max(value.split("\n").length, 1);
-    return Array.from({ length: count }, (_, index) => index + 1);
-  }, [value]);
-
-  const editorHeightPx = lineNumbers.length * EDITOR_LINE_HEIGHT_PX;
-
-  const typographyStyle = useMemo(
-    () => ({
-      fontSize: EDITOR_FONT_SIZE_PX,
-      lineHeight: `${EDITOR_LINE_HEIGHT_PX}px`,
-      tabSize,
-    }),
-    [tabSize],
-  );
-
-  const emitSelection = useCallback(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    onSelectionChange(node.selectionStart, node.selectionEnd);
-  }, [onSelectionChange]);
-
-  useEffect(() => {
-    emitSelection();
-  }, [value, emitSelection]);
-
-  // Human: Keep caret visible when typing near the bottom — scroll the shared container, not the textarea.
-  // Agent: READS textarea selection + scrollRef; ADJUSTS scrollTop when caret moves outside viewport.
-  const keepCaretVisible = useCallback(() => {
-    const textarea = textareaRef.current;
-    const scrollContainer = scrollRef.current;
-    if (!textarea || !scrollContainer) return;
-
-    const style = window.getComputedStyle(textarea);
-    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
-    const lineIndex = value.slice(0, textarea.selectionStart).split("\n").length - 1;
-    const caretTop = paddingTop + lineIndex * EDITOR_LINE_HEIGHT_PX;
-    const caretBottom = caretTop + EDITOR_LINE_HEIGHT_PX;
-    const viewTop = scrollContainer.scrollTop;
-    const viewBottom = viewTop + scrollContainer.clientHeight;
-
-    if (caretTop < viewTop) {
-      scrollContainer.scrollTop = caretTop;
-    } else if (caretBottom > viewBottom) {
-      scrollContainer.scrollTop = caretBottom - scrollContainer.clientHeight;
-    }
-  }, [value]);
-
-  return (
-    <div className={cn("relative min-h-0 flex-1 overflow-hidden", theme.surface)}>
-      {/* Human: One scroll container for gutter + code so line numbers stay locked to rows. */}
-      {/* Agent: overflow-auto on parent; textarea has overflow-hidden and grows with line count. */}
-      <div ref={scrollRef} className="absolute inset-0 overflow-auto p-6">
-        <div
-          className={cn("flex gap-4", wordWrap ? "min-w-0 w-full" : "min-w-max w-max min-w-full")}
-          style={{ minHeight: editorHeightPx }}
-        >
-          <div
-            aria-hidden
-            className={cn("w-6 shrink-0 select-none text-right font-[Inconsolata]", theme.lineNumber)}
-            style={typographyStyle}
-          >
-            {lineNumbers.map((lineNumber) => (
-              <div
-                key={`line-${lineNumber}`}
-                style={{ height: EDITOR_LINE_HEIGHT_PX, lineHeight: `${EDITOR_LINE_HEIGHT_PX}px` }}
-              >
-                {lineNumber}
-              </div>
-            ))}
-          </div>
-
-          <div
-            className="relative min-w-0 flex-1"
-            style={{ height: editorHeightPx, minWidth: wordWrap ? undefined : "max-content" }}
-          >
-            <pre
-              aria-hidden
-              className={cn(
-                "pointer-events-none m-0 font-[Inconsolata]",
-                theme.plainText,
-                wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
-              )}
-              style={typographyStyle}
-            >
-              {highlightedLines.map((segments, lineIndex) => (
-                <div
-                  key={`code-line-${lineIndex}`}
-                  style={{ height: EDITOR_LINE_HEIGHT_PX, lineHeight: `${EDITOR_LINE_HEIGHT_PX}px` }}
-                >
-                  {renderHighlightedSegments(segments)}
-                </div>
-              ))}
-            </pre>
-
-            <textarea
-              ref={textareaRef}
-              value={value}
-              readOnly={readOnly}
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              wrap={wordWrap ? "soft" : "off"}
-              onChange={(event) => onChange(event.target.value)}
-              onSelect={() => {
-                emitSelection();
-                keepCaretVisible();
-              }}
-              onKeyUp={() => {
-                emitSelection();
-                keepCaretVisible();
-              }}
-              onClick={() => {
-                emitSelection();
-                keepCaretVisible();
-              }}
-              aria-label={`Edit ${filename}`}
-              className={cn(
-                "absolute inset-0 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 font-[Inconsolata] text-transparent outline-none",
-                theme.caret,
-                wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
-              )}
-              style={{
-                ...typographyStyle,
-                height: editorHeightPx,
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function selectionStats(
+  model: MonacoEditor.ITextModel,
+  selection: EditorSelectionLike,
+): Pick<CodeEditorCursorState, "selectedChars" | "selectedLines"> {
+  const start = model.getOffsetAt({
+    lineNumber: selection.selectionStartLineNumber,
+    column: selection.selectionStartColumn,
+  });
+  const end = model.getOffsetAt({
+    lineNumber: selection.positionLineNumber,
+    column: selection.positionColumn,
+  });
+  const selectedChars = Math.abs(end - start);
+  const selectedLines =
+    selectedChars === 0
+      ? 0
+      : Math.abs(selection.positionLineNumber - selection.selectionStartLineNumber) + 1;
+  return { selectedChars, selectedLines };
 }
+
+export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorSurfaceProps>(
+  function CodeEditorSurface(
+    {
+      filename,
+      mimeType,
+      value,
+      readOnly = false,
+      preferences,
+      onChange,
+      onCursorChange,
+      onSaveRequest,
+      className,
+    },
+    ref,
+  ) {
+    const { theme } = useCodeEditorTheme();
+    const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+    const monacoRef = useRef<typeof MonacoNamespace | null>(null);
+    const monacoTheme = theme.id === "dark" ? "vs-dark" : "vs";
+    const language = useMemo(
+      () => detectEditorLanguage(filename, mimeType),
+      [filename, mimeType],
+    );
+
+    const editorOptions = useMemo<MonacoEditor.IStandaloneEditorConstructionOptions>(
+      () => ({
+        readOnly,
+        fontSize: preferences.fontSize,
+        fontFamily:
+          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+        fontLigatures: true,
+        lineNumbers: preferences.lineNumbers ? "on" : "off",
+        lineNumbersMinChars: 3,
+        glyphMargin: true,
+        folding: true,
+        foldingHighlight: true,
+        showFoldingControls: "mouseover",
+        wordWrap: preferences.wordWrap ? "on" : "off",
+        wrappingIndent: "same",
+        minimap: {
+          enabled: preferences.minimap,
+          showSlider: "mouseover",
+          renderCharacters: false,
+          maxColumn: 120,
+        },
+        scrollBeyondLastLine: false,
+        smoothScrolling: preferences.smoothScrolling,
+        cursorBlinking: preferences.cursorBlinking,
+        cursorSmoothCaretAnimation: "on",
+        renderWhitespace: preferences.renderWhitespace,
+        renderLineHighlight: "all",
+        renderLineHighlightOnlyWhenFocus: false,
+        bracketPairColorization: { enabled: preferences.bracketPairColorization },
+        guides: {
+          bracketPairs: preferences.bracketPairColorization,
+          indentation: true,
+          highlightActiveIndentation: true,
+        },
+        stickyScroll: { enabled: preferences.stickyScroll },
+        automaticLayout: true,
+        tabSize: preferences.tabSize,
+        insertSpaces: preferences.insertSpaces,
+        detectIndentation: false,
+        formatOnPaste: preferences.formatOnPaste && !readOnly,
+        formatOnType: preferences.formatOnType && !readOnly,
+        autoClosingBrackets: "languageDefined",
+        autoClosingQuotes: "languageDefined",
+        autoIndent: "full",
+        matchBrackets: "always",
+        links: true,
+        multiCursorModifier: "alt",
+        accessibilitySupport: "auto",
+        padding: { top: 12, bottom: 12 },
+        scrollbar: {
+          verticalScrollbarSize: 10,
+          horizontalScrollbarSize: 10,
+          useShadows: false,
+        },
+        find: {
+          addExtraSpaceOnTop: false,
+          autoFindInSelection: "multiline",
+          seedSearchStringFromSelection: "selection",
+        },
+        quickSuggestions: !readOnly,
+        suggestOnTriggerCharacters: !readOnly,
+        acceptSuggestionOnEnter: "on",
+        tabCompletion: "on",
+        wordBasedSuggestions: readOnly ? "off" : "matchingDocuments",
+        contextmenu: true,
+        mouseWheelZoom: true,
+        dragAndDrop: !readOnly,
+        emptySelectionClipboard: true,
+        copyWithSyntaxHighlighting: true,
+        unicodeHighlight: {
+          ambiguousCharacters: true,
+          invisibleCharacters: true,
+        },
+      }),
+      [preferences, readOnly],
+    );
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => editorRef.current?.focus(),
+        revealLine: (lineNumber: number) => {
+          const editor = editorRef.current;
+          if (!editor) return;
+          editor.revealLineInCenter(lineNumber);
+          editor.setPosition({ lineNumber, column: 1 });
+          editor.focus();
+        },
+        triggerFind: () => {
+          editorRef.current?.getAction("actions.find")?.run();
+        },
+        triggerReplace: () => {
+          editorRef.current?.getAction("editor.action.startFindReplaceAction")?.run();
+        },
+        triggerGoToLine: () => {
+          editorRef.current?.getAction("editor.action.gotoLine")?.run();
+        },
+        triggerCommandPalette: () => {
+          editorRef.current?.getAction("editor.action.quickCommand")?.run();
+        },
+        triggerFormatDocument: async () => {
+          await editorRef.current?.getAction("editor.action.formatDocument")?.run();
+        },
+        triggerFoldAll: () => {
+          editorRef.current?.getAction("editor.foldAll")?.run();
+        },
+        triggerUnfoldAll: () => {
+          editorRef.current?.getAction("editor.unfoldAll")?.run();
+        },
+        getValue: () => editorRef.current?.getValue() ?? value,
+      }),
+      [value],
+    );
+
+    // Human: Apply live preference changes without remounting the Monaco instance.
+    // Agent: CALLS editor.updateOptions when preferences or readOnly change.
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.updateOptions(editorOptions);
+      const model = editor.getModel();
+      if (model) {
+        model.updateOptions({
+          tabSize: preferences.tabSize,
+          insertSpaces: preferences.insertSpaces,
+        });
+      }
+    }, [editorOptions, preferences.insertSpaces, preferences.tabSize]);
+
+    // Human: Switch Monaco color theme when the Ownly light/dark preference changes.
+    // Agent: CALLS monaco.editor.setTheme from the mounted monaco instance.
+    useEffect(() => {
+      monacoRef.current?.editor.setTheme(monacoTheme);
+    }, [monacoTheme]);
+
+    const handleMount: OnMount = (editor, monaco) => {
+      editorRef.current = editor;
+      monacoRef.current = monaco;
+      monaco.editor.setTheme(monacoTheme);
+
+      // Human: Ctrl/Cmd+S saves to cloud — Monaco must not swallow it without a handler.
+      // Agent: ADD command that CALLS onSaveRequest; KEEP find/replace as Monaco defaults.
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        onSaveRequest?.();
+      });
+
+      const emitCursor = () => {
+        const model = editor.getModel();
+        const position = editor.getPosition();
+        const selection = editor.getSelection();
+        if (!model || !position || !selection) return;
+        const stats = selectionStats(model, selection);
+        onCursorChange({
+          lineNumber: position.lineNumber,
+          column: position.column,
+          ...stats,
+        });
+      };
+
+      editor.onDidChangeCursorPosition(emitCursor);
+      editor.onDidChangeCursorSelection(emitCursor);
+      emitCursor();
+      editor.focus();
+    };
+
+    return (
+      <div className={cn("relative min-h-0 flex-1 overflow-hidden", theme.surface, className)}>
+        <Editor
+          height="100%"
+          language={language.id}
+          theme={monacoTheme}
+          value={value}
+          path={`inmemory://ownly/${encodeURIComponent(filename)}`}
+          options={editorOptions}
+          onMount={handleMount}
+          onChange={(next) => {
+            if (readOnly) return;
+            onChange(next ?? "");
+          }}
+          loading={
+            <div
+              className={cn(
+                "flex h-full items-center justify-center gap-2 text-sm",
+                theme.loadingText,
+              )}
+            >
+              <Loader2 className="size-5 animate-spin" aria-hidden />
+              Loading editor…
+            </div>
+          }
+        />
+      </div>
+    );
+  },
+);

@@ -1,7 +1,17 @@
-// Human: Tab bar and toolbar for the Ownly code editor — matches Pencil Editor Header (44px).
-// Agent: RENDERS file tabs + word-wrap/search/settings controls; EMITS tab close and toolbar actions.
+// Human: Tab bar + modern editor toolbar — find, replace, go-to-line, format, wrap, minimap, settings.
+// Agent: RENDERS file tabs and tool buttons; EMITS tab and toolbar actions to the dialog controller.
 
-import { Code2, FileCode, Search, Settings, X } from "lucide-react";
+import {
+  AlignLeft,
+  Command,
+  FileCode,
+  Map as MapIcon,
+  Search,
+  Settings,
+  TextCursorInput,
+  WrapText,
+  X,
+} from "lucide-react";
 import type { FileItem } from "@/api/client";
 import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { editorTabIconClass } from "@/lib/text-code-editor/language";
@@ -10,47 +20,96 @@ import { cn } from "@/lib/utils";
 export type CodeEditorHeaderProps = {
   tabs: FileItem[];
   activeFileId: string | null;
+  dirtyTabIds: Set<string>;
   wordWrap: boolean;
-  searchOpen: boolean;
+  minimap: boolean;
   settingsOpen: boolean;
+  readOnly?: boolean;
   onSelectTab: (file: FileItem) => void;
   onCloseTab: (file: FileItem) => void;
   onToggleWordWrap: () => void;
-  onToggleSearch: () => void;
+  onToggleMinimap: () => void;
   onToggleSettings: () => void;
+  onFind: () => void;
+  onReplace: () => void;
+  onGoToLine: () => void;
+  onFormat: () => void;
+  onCommandPalette: () => void;
 };
+
+function ToolbarButton({
+  label,
+  pressed,
+  onClick,
+  children,
+  disabled,
+}: {
+  label: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  const { theme } = useCodeEditorTheme();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      className={cn(
+        "flex size-8 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-40",
+        theme.toolbarIcon,
+        pressed && theme.toolbarIconActive,
+        "hover:bg-black/5 dark:hover:bg-white/5",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function CodeEditorHeader({
   tabs,
   activeFileId,
+  dirtyTabIds,
   wordWrap,
-  searchOpen,
+  minimap,
   settingsOpen,
+  readOnly = false,
   onSelectTab,
   onCloseTab,
   onToggleWordWrap,
-  onToggleSearch,
+  onToggleMinimap,
   onToggleSettings,
+  onFind,
+  onReplace,
+  onGoToLine,
+  onFormat,
+  onCommandPalette,
 }: CodeEditorHeaderProps) {
   const { theme } = useCodeEditorTheme();
 
   return (
-    <header className={cn("flex h-11 shrink-0 items-center justify-between", theme.header)}>
-      <div className="flex h-full min-w-0 items-center gap-px overflow-x-auto">
+    <header className={cn("flex h-12 shrink-0 items-center justify-between border-b", theme.header)}>
+      <div className="flex h-full min-w-0 flex-1 items-center gap-px overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeFileId;
+          const dirty = dirtyTabIds.has(tab.id);
           return (
             <div
               key={tab.id}
               className={cn(
-                "flex h-full shrink-0 items-center gap-2 px-4",
+                "group flex h-full shrink-0 items-center gap-2 border-r px-3",
                 active ? theme.tabActive : theme.tabInactive,
               )}
             >
               <button
                 type="button"
                 onClick={() => onSelectTab(tab)}
-                className="flex min-w-0 items-center gap-2"
+                className="flex min-w-0 max-w-[12rem] items-center gap-2"
               >
                 <FileCode
                   className={cn(
@@ -67,64 +126,69 @@ export function CodeEditorHeader({
                 >
                   {tab.name}
                 </span>
+                {dirty ? (
+                  <span
+                    className="size-1.5 shrink-0 rounded-full bg-[#F59E0B]"
+                    title="Unsaved changes"
+                    aria-label="Unsaved changes"
+                  />
+                ) : null}
               </button>
               <button
                 type="button"
                 onClick={() => onCloseTab(tab)}
                 aria-label={`Close ${tab.name}`}
                 className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded-sm transition-colors",
+                  "flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors",
                   theme.tabCloseHover,
                   active ? theme.tabCloseActive : theme.tabCloseInactive,
                 )}
               >
-                <X className="size-3" aria-hidden />
+                <X className="size-3.5" aria-hidden />
               </button>
             </div>
           );
         })}
       </div>
 
-      <div className="flex h-full shrink-0 items-center gap-4 px-4">
-        <button
-          type="button"
-          onClick={onToggleWordWrap}
-          aria-label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-          aria-pressed={wordWrap}
-          className={cn(
-            "flex size-4 items-center justify-center",
-            theme.toolbarIcon,
-            wordWrap && theme.toolbarIconActive,
-          )}
-        >
-          <Code2 className="size-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={onToggleSearch}
-          aria-label={searchOpen ? "Close search" : "Open search"}
-          aria-pressed={searchOpen}
-          className={cn(
-            "flex size-4 items-center justify-center",
-            theme.toolbarIcon,
-            searchOpen && theme.toolbarIconActive,
-          )}
-        >
+      <div className="flex h-full shrink-0 items-center gap-0.5 border-l px-2 sm:gap-1 sm:px-3">
+        <ToolbarButton label="Find (⌘F)" onClick={onFind}>
           <Search className="size-4" aria-hidden />
-        </button>
-        <button
-          type="button"
+        </ToolbarButton>
+        <ToolbarButton label="Replace (⌘⌥F)" onClick={onReplace} disabled={readOnly}>
+          <TextCursorInput className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton label="Go to line (⌘G)" onClick={onGoToLine}>
+          <AlignLeft className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton label="Format document (⇧⌥F)" onClick={onFormat} disabled={readOnly}>
+          <span className="text-[11px] font-bold leading-none">Fmt</span>
+        </ToolbarButton>
+        <span className={cn("mx-1 hidden h-4 w-px sm:block", theme.id === "dark" ? "bg-[#313244]" : "bg-[#E5E7EB]")} />
+        <ToolbarButton
+          label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+          pressed={wordWrap}
+          onClick={onToggleWordWrap}
+        >
+          <WrapText className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton
+          label={minimap ? "Hide minimap" : "Show minimap"}
+          pressed={minimap}
+          onClick={onToggleMinimap}
+        >
+          <MapIcon className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton label="Command palette (F1)" onClick={onCommandPalette}>
+          <Command className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton
+          label={settingsOpen ? "Close settings" : "Editor settings"}
+          pressed={settingsOpen}
           onClick={onToggleSettings}
-          aria-label={settingsOpen ? "Close editor settings" : "Open editor settings"}
-          aria-pressed={settingsOpen}
-          className={cn(
-            "flex size-4 items-center justify-center",
-            theme.toolbarIcon,
-            settingsOpen && theme.toolbarIconActive,
-          )}
         >
           <Settings className="size-4" aria-hidden />
-        </button>
+        </ToolbarButton>
       </div>
     </header>
   );
