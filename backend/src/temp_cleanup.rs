@@ -401,6 +401,8 @@ async fn sweep_expired_upload_sessions(state: &crate::AppState) -> u32 {
         if is_video {
             let work_dir = crate::files::upload_spool::upload_work_dir(&session.file_id);
             if is_deletable_temp_path(&work_dir) {
+                // Human: Spool may never exist (no parts written) or was wiped with container /tmp on restart.
+                // Agent: NotFound is success; only real IO failures WARN.
                 match tokio::fs::remove_dir_all(&work_dir).await {
                     Ok(()) => {
                         cleaned += 1;
@@ -410,9 +412,19 @@ async fn sweep_expired_upload_sessions(state: &crate::AppState) -> u32 {
                             "removed expired upload session spool"
                         );
                     }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        cleaned += 1;
+                        debug!(
+                            file_id = %session.file_id,
+                            session_id = %session.session_id,
+                            "expired upload spool already absent"
+                        );
+                    }
                     Err(error) => {
                         warn!(
                             file_id = %session.file_id,
+                            session_id = %session.session_id,
+                            path = %work_dir.display(),
                             %error,
                             "failed to remove expired upload spool"
                         );
