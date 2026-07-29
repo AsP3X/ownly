@@ -92,6 +92,50 @@ export function useDocumentCollab({
     if (ops.length === 0) return;
     latestSeqRef.current = Math.max(latestSeqRef.current, ...ops.map((entry) => entry.seq));
     for (const op of ops) {
+      // Human: Poll fallback does not receive presence frames — apply lock ops to local participants.
+      if (op.op_type === "lock") {
+        const start =
+          typeof op.payload.start === "number"
+            ? op.payload.start
+            : Number(op.payload.start);
+        const end =
+          typeof op.payload.end === "number" ? op.payload.end : Number(op.payload.end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+          setParticipants((current) => {
+            const next = current.map((person) =>
+              person.user_id === op.user_id
+                ? { ...person, lock_start: start, lock_end: end }
+                : person,
+            );
+            // If the user is not in the list yet, still surface a placeholder for marks.
+            if (!next.some((person) => person.user_id === op.user_id)) {
+              next.push({
+                user_id: op.user_id,
+                display_name: "Collaborator",
+                color: "#2563EB",
+                last_seen: Date.now(),
+                selection_start: null,
+                selection_end: null,
+                lock_start: start,
+                lock_end: end,
+              });
+            }
+            onPresenceRef.current?.(next);
+            return next;
+          });
+        }
+      } else if (op.op_type === "unlock") {
+        setParticipants((current) => {
+          const next = current.map((person) =>
+            person.user_id === op.user_id
+              ? { ...person, lock_start: null, lock_end: null }
+              : person,
+          );
+          onPresenceRef.current?.(next);
+          return next;
+        });
+      }
+
       if (localUserIdRef.current && op.user_id === localUserIdRef.current) continue;
       if (op.op_type === "doc_html") {
         const html = typeof op.payload.html === "string" ? op.payload.html : "";

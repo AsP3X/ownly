@@ -35,6 +35,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useDocumentCollab } from "@/hooks/useDocumentCollab";
 import { getSelectionPlainOffsets, isTextMutatingKey } from "@/lib/rtf/dom-text-offset";
+import { rootPlainText } from "@/lib/rtf/plain-offset-range";
 import { htmlToRtf } from "@/lib/rtf/html-to-rtf";
 import { rtfToHtml } from "@/lib/rtf/rtf-to-html";
 import { htmlToPlainText } from "@/lib/rtf/sentence-range";
@@ -90,6 +91,8 @@ export function RtfEditorDialog({
   const [draftHtml, setDraftHtml] = useState("<p><br></p>");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  /** Human: Bumps after remote HTML apply so lock marks re-wrap onto the new DOM. */
+  const [collabLayoutTick, setCollabLayoutTick] = useState(0);
 
   draftHtmlRef.current = draftHtml;
   const dirty = draftHtml !== savedHtml;
@@ -138,6 +141,7 @@ export function RtfEditorDialog({
         surfaceRef.current?.setHtml(html);
         setDraftHtml(html);
         draftHtmlRef.current = html;
+        setCollabLayoutTick((tick) => tick + 1);
       } finally {
         applyingRemoteRef.current = false;
       }
@@ -250,6 +254,14 @@ export function RtfEditorDialog({
       if (!isTextMutatingKey(event)) return;
       const root = surfaceRef.current?.getEditorElement();
       if (!root) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("[data-rtf-collab-lock]")) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSaveError("That section is locked by another collaborator.");
+        window.setTimeout(() => setSaveError(""), 2500);
+        return;
+      }
       const offsets = getSelectionPlainOffsets(root);
       if (!offsets) return;
       const probeEnd = Math.max(offsets.end, offsets.start + 1);
@@ -268,7 +280,8 @@ export function RtfEditorDialog({
       if (!offsets) return;
       if (lockTimer !== null) window.clearTimeout(lockTimer);
       lockTimer = window.setTimeout(() => {
-        const text = htmlToPlainText(surfaceRef.current?.getHtml() ?? draftHtmlRef.current);
+        // Human: Use the same plain-text model as lock highlights (Range.toString), not innerText.
+        const text = rootPlainText(root);
         void collab.acquireSentenceLock(text, offsets.start, offsets.end);
       }, 120);
     };
@@ -458,7 +471,16 @@ export function RtfEditorDialog({
                 className="min-h-0 flex-1"
                 collabParticipants={collabEnabled ? collab.participants : undefined}
                 collabCurrentUserId={localCollabUserId}
-                collabLayoutKey={collabEnabled ? draftHtml : undefined}
+                collabLayoutKey={
+                  collabEnabled
+                    ? `${collabLayoutTick}:${collab.participants
+                        .map(
+                          (p) =>
+                            `${p.user_id}:${p.lock_start ?? ""}:${p.lock_end ?? ""}`,
+                        )
+                        .join("|")}`
+                    : undefined
+                }
               />
             ) : null}
           </div>

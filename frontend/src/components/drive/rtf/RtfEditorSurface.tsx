@@ -1,10 +1,14 @@
 // Human: Contenteditable RTF surface — fills the dialog body width and height.
-// Agent: EXPOSES imperative getHtml/setHtml/exec; EMITS onChange for dirty tracking only.
-// Agent: RENDERS foreign collab lock bubbles inside the scrollport (not for self locks).
+// Agent: EXPOSES imperative getHtml/setHtml/exec; STRIPS collab lock marks from serialized HTML.
+// Agent: RENDERS foreign collab lock marks (Docs/Word-style) via RtfCollabLockBubbles.
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import type { DocumentCollabParticipant } from "@/api/client";
 import { RtfCollabLockBubbles } from "@/components/drive/rtf/RtfCollabLockBubbles";
+import {
+  getHtmlWithoutCollabMarks,
+  stripCollabLockMarks,
+} from "@/lib/rtf/plain-offset-range";
 import { cn } from "@/lib/utils";
 
 export type RtfEditorSurfaceHandle = {
@@ -59,7 +63,6 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
     ref,
   ) {
     const editorRef = useRef<HTMLDivElement>(null);
-    const scrollRef = useRef<HTMLDivElement>(null);
     const appliedKeyRef = useRef<string | null>(null);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
@@ -68,11 +71,11 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
       ref,
       () => ({
         focus: () => editorRef.current?.focus(),
+        // Human: Never serialize ephemeral collab lock marks into saved/collab HTML.
         getHtml: () => {
           const el = editorRef.current;
           if (!el) return "<p><br></p>";
-          const html = el.innerHTML;
-          return html.trim() ? html : "<p><br></p>";
+          return getHtmlWithoutCollabMarks(el);
         },
         setHtml: (next) => {
           const el = editorRef.current;
@@ -84,13 +87,15 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
           const el = editorRef.current;
           if (!el || readOnly || disabled) return;
           el.focus();
+          // Strip marks before formatting so execCommand doesn't nest weirdly
+          stripCollabLockMarks(el);
           if (command === "hiliteColor") {
             const ok = document.execCommand("hiliteColor", false, value);
             if (!ok) document.execCommand("backColor", false, value);
           } else {
             document.execCommand(command, false, value);
           }
-          onChangeRef.current(el.innerHTML);
+          onChangeRef.current(getHtmlWithoutCollabMarks(el));
         },
       }),
       [disabled, readOnly],
@@ -107,7 +112,12 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
     }, [documentKey, initialHtml]);
 
     const getEditorElement = useCallback(() => editorRef.current, []);
-    const getScrollContainer = useCallback(() => scrollRef.current, []);
+
+    const emitChange = useCallback(() => {
+      const el = editorRef.current;
+      if (!el || readOnly) return;
+      onChangeRef.current(getHtmlWithoutCollabMarks(el));
+    }, [readOnly]);
 
     return (
       <div
@@ -117,45 +127,37 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
         )}
       >
         {/* Human: Full-bleed scrollport — editing surface uses all remaining dialog width/height. */}
-        <div ref={scrollRef} className="absolute inset-0 overflow-auto">
-          <div className="relative min-h-full w-full">
-            <div
-              ref={editorRef}
-              role="textbox"
-              aria-multiline="true"
-              aria-label="Rich text document"
-              aria-readonly={readOnly || undefined}
-              contentEditable={!readOnly && !disabled}
-              suppressContentEditableWarning
-              spellCheck
-              className={cn(
-                "box-border min-h-full w-full px-5 py-4 text-[15px] leading-relaxed text-[#1A1A1A] outline-none sm:px-6 sm:py-5",
-                "[&_p]:mb-3 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6",
-                "[&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-xl [&_h3]:font-semibold",
-                (readOnly || disabled) && "cursor-default opacity-95",
-              )}
-              onInput={() => {
-                const el = editorRef.current;
-                if (!el || readOnly) return;
-                onChangeRef.current(el.innerHTML);
-              }}
-              onBlur={() => {
-                const el = editorRef.current;
-                if (!el || readOnly) return;
-                onChangeRef.current(el.innerHTML);
-              }}
-            />
-            {collabParticipants && collabParticipants.length > 0 ? (
-              <RtfCollabLockBubbles
-                getEditorElement={getEditorElement}
-                getScrollContainer={getScrollContainer}
-                participants={collabParticipants}
-                currentUserId={collabCurrentUserId}
-                layoutKey={collabLayoutKey}
-              />
-            ) : null}
-          </div>
+        <div className="absolute inset-0 overflow-auto">
+          <div
+            ref={editorRef}
+            role="textbox"
+            aria-multiline="true"
+            aria-label="Rich text document"
+            aria-readonly={readOnly || undefined}
+            contentEditable={!readOnly && !disabled}
+            suppressContentEditableWarning
+            spellCheck
+            className={cn(
+              "box-border min-h-full w-full px-5 py-4 text-[15px] leading-relaxed text-[#1A1A1A] outline-none sm:px-6 sm:py-5",
+              "[&_p]:mb-3 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6",
+              "[&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-xl [&_h3]:font-semibold",
+              // Docs/Word-style multi-line lock bubbles (ephemeral marks)
+              "[&_[data-rtf-collab-lock]]:rounded-[0.35em] [&_[data-rtf-collab-lock]]:[box-decoration-break:clone] [&_[data-rtf-collab-lock]]:[-webkit-box-decoration-break:clone]",
+              (readOnly || disabled) && "cursor-default opacity-95",
+            )}
+            onInput={emitChange}
+            onBlur={emitChange}
+          />
         </div>
+
+        {collabParticipants && collabParticipants.length > 0 ? (
+          <RtfCollabLockBubbles
+            getEditorElement={getEditorElement}
+            participants={collabParticipants}
+            currentUserId={collabCurrentUserId}
+            layoutKey={collabLayoutKey}
+          />
+        ) : null}
       </div>
     );
   },
