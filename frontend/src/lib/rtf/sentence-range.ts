@@ -20,8 +20,11 @@ export function htmlToPlainText(html: string): string {
     .replace(/&quot;/g, '"');
 }
 
+/** Human: Max exclusive lock span — prevents one user locking an entire unpunctuated doc. */
+const MAX_LOCK_CHARS = 160;
+
 // Human: Expand a caret (or selection) to the enclosing sentence [start, end).
-// Agent: SCANS for .!? or newlines as boundaries; CLAMPS to text length.
+// Agent: SCANS for .!? or newlines as boundaries; CAPS huge ranges so peers can still edit.
 export function sentenceRangeAround(
   text: string,
   caretStart: number,
@@ -32,7 +35,8 @@ export function sentenceRangeAround(
   let start = Math.max(0, Math.min(caretStart, len));
   let end = Math.max(start, Math.min(caretEnd, len));
 
-  const isBoundary = (ch: string) => ch === "." || ch === "!" || ch === "?" || ch === "\n";
+  const isBoundary = (ch: string) =>
+    ch === "." || ch === "!" || ch === "?" || ch === "\n" || ch === "\r";
 
   while (start > 0 && !isBoundary(text[start - 1]!)) {
     start -= 1;
@@ -54,6 +58,18 @@ export function sentenceRangeAround(
     // Fallback: word or single char
     end = Math.min(len, start + 1);
   }
+
+  // Human: Unpunctuated / single-block docs used to lock the entire document for one user.
+  if (end - start > MAX_LOCK_CHARS) {
+    const center = Math.max(0, Math.min(caretStart, len));
+    const half = Math.floor(MAX_LOCK_CHARS / 2);
+    start = Math.max(0, center - half);
+    end = Math.min(len, start + MAX_LOCK_CHARS);
+    if (end - start < MAX_LOCK_CHARS) {
+      start = Math.max(0, end - MAX_LOCK_CHARS);
+    }
+  }
+
   return { start, end };
 }
 

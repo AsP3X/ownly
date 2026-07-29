@@ -19,6 +19,10 @@ import {
   type DocumentCollabSession,
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
+import {
+  transformOffsetThroughReplace,
+  type TextReplaceOp,
+} from "@/lib/rtf/text-ops";
 
 /** Human: Coalesce typing into doc_html — fire next animation frame. */
 const PUBLISH_DEBOUNCE_MS = 0;
@@ -143,8 +147,16 @@ export function useDocumentCollab({
 
   const ingestOps = useCallback((ops: DocumentCollabOp[]) => {
     if (ops.length === 0) return;
-    latestSeqRef.current = Math.max(latestSeqRef.current, ...ops.map((entry) => entry.seq));
-    for (const op of ops) {
+    // Human: Dedupe WS + HTTP poll — re-applying text_insert doubles characters and breaks sync.
+    // Agent: ONLY process seq > latestSeqRef; apply in order.
+    const fresh = ops
+      .filter((op) => typeof op.seq === "number" && op.seq > latestSeqRef.current)
+      .sort((a, b) => a.seq - b.seq);
+    if (fresh.length === 0) return;
+
+    for (const op of fresh) {
+      latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
+
       if (op.op_type === "lock") {
         const start =
           typeof op.payload.start === "number"
@@ -210,6 +222,12 @@ export function useDocumentCollab({
         const text =
           typeof op.payload.text === "string" ? op.payload.text : String(op.payload.text ?? "");
         if (Number.isFinite(index) && text) {
+          const replace: TextReplaceOp = {
+            index,
+            deleteCount: 0,
+            insertText: text,
+          };
+          shiftParticipantsThroughReplace(replace);
           onRemoteTextOpRef.current?.({
             opType: "text_insert",
             index,
@@ -227,6 +245,12 @@ export function useDocumentCollab({
             ? op.payload.length
             : Number(op.payload.length);
         if (Number.isFinite(index) && Number.isFinite(length) && length > 0) {
+          const replace: TextReplaceOp = {
+            index,
+            deleteCount: length,
+            insertText: "",
+          };
+          shiftParticipantsThroughReplace(replace);
           onRemoteTextOpRef.current?.({
             opType: "text_delete",
             index,
@@ -242,6 +266,38 @@ export function useDocumentCollab({
           onRemoteDocumentRef.current?.(html, text, op.user_id);
         }
       }
+    }
+
+    function shiftParticipantsThroughReplace(replace: TextReplaceOp) {
+      setParticipants((current) => {
+        const next = current.map((person) => {
+          const shift = (value: number | null | undefined) =>
+            value == null
+              ? null
+              : transformOffsetThroughReplace(Number(value), replace);
+          const selection_start = shift(person.selection_start);
+          const selection_end = shift(person.selection_end);
+          let lock_start = shift(person.lock_start);
+          let lock_end = shift(person.lock_end);
+          if (
+            lock_start != null &&
+            lock_end != null &&
+            lock_end <= lock_start
+          ) {
+            lock_start = null;
+            lock_end = null;
+          }
+          return {
+            ...person,
+            selection_start,
+            selection_end,
+            lock_start,
+            lock_end,
+          };
+        });
+        onPresenceRef.current?.(next);
+        return next;
+      });
     }
   }, []);
 

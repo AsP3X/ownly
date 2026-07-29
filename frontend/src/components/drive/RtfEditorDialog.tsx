@@ -145,18 +145,17 @@ export function RtfEditorDialog({
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
       if (html === draftHtmlRef.current) return;
-      // Human: Full HTML snapshot (formatting / catch-up) — preserves local lock content when possible.
+      // Human: While typing, live text ops carry content — full HTML would clobber concurrent edits.
+      if (Date.now() - lastLocalEditAtRef.current < 1500) {
+        return;
+      }
+      // Human: Full HTML snapshot (formatting / idle catch-up) — preserves local lock content when possible.
       applyingRemoteRef.current = true;
       try {
         const root = surfaceRef.current?.getEditorElement();
         const lock = localLockRef.current;
         let preserved: { start: number; end: number; plain: string } | null = null;
-        if (
-          root &&
-          lock &&
-          lock.end > lock.start &&
-          Date.now() - lastLocalEditAtRef.current < 2000
-        ) {
+        if (root && lock && lock.end > lock.start) {
           const localPlain = rootPlainText(root);
           preserved = {
             start: lock.start,
@@ -181,7 +180,7 @@ export function RtfEditorDialog({
         setDraftHtml(nextHtml);
         draftHtmlRef.current = nextHtml;
         const el = surfaceRef.current?.getEditorElement();
-        lastPlainRef.current = text || (el ? rootPlainText(el) : htmlToPlainText(nextHtml));
+        lastPlainRef.current = el ? rootPlainText(el) : text || htmlToPlainText(nextHtml);
         setCollabLayoutTick((tick) => tick + 1);
       } finally {
         applyingRemoteRef.current = false;
@@ -385,14 +384,14 @@ export function RtfEditorDialog({
         }
       }
 
-      // Human: Periodic full HTML snapshot keeps formatting in sync without thrashing.
+      // Human: Idle full HTML snapshot for formatting — long enough to avoid clobbering peers mid-type.
       if (fullSyncTimerRef.current !== null) {
         window.clearTimeout(fullSyncTimerRef.current);
       }
       fullSyncTimerRef.current = window.setTimeout(() => {
         fullSyncTimerRef.current = null;
         collab.publishDocument(draftHtmlRef.current, lastPlainRef.current);
-      }, 800);
+      }, 2000);
     },
     [collab],
   );
@@ -407,14 +406,6 @@ export function RtfEditorDialog({
       if (!isTextMutatingKey(event)) return;
       const root = surfaceRef.current?.getEditorElement();
       if (!root) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("[data-rtf-collab-lock]")) {
-        event.preventDefault();
-        event.stopPropagation();
-        setSaveError("That section is locked by another collaborator.");
-        window.setTimeout(() => setSaveError(""), 2500);
-        return;
-      }
       const offsets = getSelectionPlainOffsets(root);
       if (!offsets) return;
       const probeEnd = Math.max(offsets.end, offsets.start + 1);

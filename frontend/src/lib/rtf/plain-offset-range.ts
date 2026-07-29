@@ -11,6 +11,8 @@ function isCollabChromeText(node: Text): boolean {
   return false;
 }
 
+// Human: Plain text in the same coordinate system as locks/carets/text ops.
+// Agent: Concatenates text nodes only (no virtual newlines — offsets must match DOM points).
 export function rootPlainText(root: HTMLElement): string {
   const parts: string[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -284,7 +286,8 @@ function wrapPlainOffsetRange(
     mark.setAttribute(COLLAB_LOCK_MARK_ATTR, "1");
     mark.setAttribute("data-collab-user", lock.userId);
     mark.setAttribute("data-collab-name", lock.displayName);
-    mark.setAttribute("contenteditable", "false");
+    // Human: Do not set contenteditable=false — it blocks remote text-op DOM applies and caret moves.
+    // Agent: UI keydown still rejects typing in foreign locks; marks are visual only.
     if (isFirst) {
       mark.setAttribute("data-collab-first", "1");
       isFirst = false;

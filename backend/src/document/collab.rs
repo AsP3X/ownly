@@ -531,30 +531,78 @@ impl DocCollabStore {
         op_type: &str,
         payload: &serde_json::Value,
     ) -> Result<(), AppendOpError> {
-        let (start, end) = match op_type {
+        match op_type {
+            // Human: Text ops + full HTML are advisory on the server — UI blocks foreign locks.
+            // Agent: NEVER reject text_*/doc_html for locks (silent drop froze concurrent sync).
+            "text_insert" | "text_delete" | "doc_html" | "unlock" => Ok(()),
+            "lock" => {
+                let start = payload.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let end = payload.get("end").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                if end > start && Self::range_blocked_by_others(session, user_id, start, end) {
+                    return Err(AppendOpError::Locked);
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    // Human: Keep peer lock/caret offsets valid after plain-text insert/delete.
+    // Agent: SHIFTS every participant selection + lock through the op (basic OT).
+    fn transform_presence_through_text_op(
+        session: &mut DocCollabSession,
+        op_type: &str,
+        payload: &serde_json::Value,
+    ) {
+        let (index, delete_count, insert_len) = match op_type {
             "text_insert" => {
-                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                (index, index)
+                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+                let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+                (index, 0_i64, text.chars().count() as i64)
             }
             "text_delete" => {
-                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let length = payload.get("length").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                (index, index.saturating_add(length))
+                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+                let length = payload.get("length").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+                (index, length, 0_i64)
             }
-            "doc_html" => {
-                // Human: Full-document sync is last-write-wins; sentence locks are advisory (UI blocks typing).
-                // Agent: ALWAYS allow doc_html — rejecting it freezes live collab as soon as any peer locks.
-                return Ok(());
-            }
-            "lock" | "unlock" => return Ok(()),
-            _ => return Ok(()),
+            _ => return,
         };
 
-        let edit_end = if end == start { start.saturating_add(1) } else { end };
-        if Self::range_blocked_by_others(session, user_id, start, edit_end) {
-            return Err(AppendOpError::Locked);
+        let shift = |offset: Option<u32>| -> Option<u32> {
+            let Some(raw) = offset else { return None };
+            let mut o = raw as i64;
+            if o <= index {
+                return Some(raw);
+            }
+            if o >= index + delete_count {
+                o = o - delete_count + insert_len;
+            } else {
+                // Inside deleted span → land at index (+ insert for insert ops)
+                o = index + insert_len;
+            }
+            Some(o.max(0) as u32)
+        };
+
+        for participant in session.participants.values_mut() {
+            participant.selection_start = shift(participant.selection_start);
+            participant.selection_end = shift(participant.selection_end);
+            let ls = shift(participant.lock_start);
+            let le = shift(participant.lock_end);
+            match (ls, le) {
+                (Some(a), Some(b)) if b > a => {
+                    participant.lock_start = Some(a);
+                    participant.lock_end = Some(b);
+                }
+                (Some(a), Some(b)) if b <= a => {
+                    participant.lock_start = None;
+                    participant.lock_end = None;
+                }
+                _ => {
+                    participant.lock_start = ls;
+                    participant.lock_end = le;
+                }
+            }
         }
-        Ok(())
     }
 
     fn append_op_memory(
@@ -594,6 +642,7 @@ impl DocCollabStore {
         }
 
         Self::apply_op_to_document(session, op_type, &payload);
+        Self::transform_presence_through_text_op(session, op_type, &payload);
 
         let seq = session.next_seq;
         session.next_seq += 1;
@@ -648,6 +697,7 @@ impl DocCollabStore {
         }
 
         Self::apply_op_to_document(&mut session, op_type, &payload);
+        Self::transform_presence_through_text_op(&mut session, op_type, &payload);
 
         let seq = session.next_seq;
         session.next_seq += 1;
