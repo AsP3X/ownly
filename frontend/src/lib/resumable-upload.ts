@@ -208,8 +208,32 @@ async function uploadPartViaApi(
   return "proxy";
 }
 
+// Human: True when a storage PUT response looks like a real object write (not SPA HTML / wrong hop).
+// Agent: REQUIRES 200|201|204; REJECTS text/html Content-Type (common when /media/ is not proxied).
+function isSuccessfulStoragePut(res: Response): boolean {
+  if (!(res.status === 200 || res.status === 201 || res.status === 204)) {
+    return false;
+  }
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("text/html")) {
+    return false;
+  }
+  return true;
+}
+
+// Human: Prefer same-origin direct PUTs so CSP/connect-src and nginx /media/ apply.
+// Agent: CROSS-ORIGIN signed URLs skip direct path (browser often cannot reach Nebular:9000).
+function isBrowserReachableUploadUrl(uploadUrl: string): boolean {
+  try {
+    const target = new URL(uploadUrl, window.location.href);
+    return target.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 // Human: Mint signed URL, PUT bytes straight to Nebular (same-origin /media/), then confirm with Ownly.
-// Agent: POST signed-url; fetch PUT; POST confirm with confirm_token; FALLBACK uploadPartViaApi.
+// Agent: POST signed-url; fetch PUT; POST confirm; FALLBACK uploadPartViaApi on any direct-path failure.
 async function uploadPartDirect(
   sessionId: string,
   partNumber: number,
@@ -236,7 +260,10 @@ async function uploadPartDirect(
     );
   }
 
-  let putOk = false;
+  if (!signed.upload_url || !isBrowserReachableUploadUrl(signed.upload_url)) {
+    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
+  }
+
   const started = performance.now();
   try {
     const putRes = await fetch(signed.upload_url, {
@@ -248,19 +275,15 @@ async function uploadPartDirect(
       signal,
       credentials: "omit",
     });
-    putOk = putRes.ok;
-    if (!putOk) {
-      const text = await putRes.text().catch(() => "");
+    if (!isSuccessfulStoragePut(putRes)) {
+      await putRes.text().catch(() => "");
       recordUploadPartSample({
         ok: false,
         durationMs: performance.now() - started,
         bytes: chunk.size,
       });
-      throw new ApiError(
-        text || `Direct storage PUT failed for part ${partNumber}`,
-        "direct_put_failed",
-        putRes.status,
-      );
+      // Human: Direct path dead (proxy/WAF/SPA) — stream the part through Ownly instead.
+      return uploadPartViaApi(sessionId, partNumber, chunk, signal);
     }
   } catch (error) {
     if (error instanceof ApiError && error.code === "upload_cancelled") {
@@ -269,10 +292,6 @@ async function uploadPartDirect(
     if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
       throw new ApiError("Upload cancelled", "upload_cancelled", 0);
     }
-    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
-  }
-
-  if (!putOk) {
     return uploadPartViaApi(sessionId, partNumber, chunk, signal);
   }
 
@@ -291,7 +310,9 @@ async function uploadPartDirect(
       durationMs: performance.now() - started,
       bytes: chunk.size,
     });
-    throw await parseApiError(confirmRes, `Confirm part ${partNumber} failed`);
+    // Human: PUT appeared OK but staged object missing (common when edge proxy swallows PUT).
+    // Agent: FALLBACK proxy part PUT; confirm_token is left intact until a successful confirm.
+    return uploadPartViaApi(sessionId, partNumber, chunk, signal);
   }
   recordUploadPartSample({
     ok: true,

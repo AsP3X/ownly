@@ -39,8 +39,9 @@ use super::assemble::{append_part_to_source, resolve_session_source};
 use super::store::{
     consume_part_signed_token, count_active_sessions_for_user, expected_part_size, insert_session,
     list_received_parts, load_session_for_user, mark_aborted, mark_complete, mark_completing,
-    record_part_with_checksum, set_part_signed_token, total_parts, UploadSessionRow,
-    DEFAULT_CHUNK_SIZE, MAX_ACTIVE_SESSIONS_PER_USER, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+    part_signed_token_matches, record_part_with_checksum, set_part_signed_token, total_parts,
+    UploadSessionRow, DEFAULT_CHUNK_SIZE, MAX_ACTIVE_SESSIONS_PER_USER, MAX_CHUNK_SIZE,
+    MIN_CHUNK_SIZE,
 };
 
 #[derive(Debug, Deserialize)]
@@ -458,7 +459,9 @@ pub async fn confirm_part(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AppError::BadRequest("confirm_token is required".into()))?;
 
-    if !consume_part_signed_token(&state.pool, &session_id, part_number, confirm_token).await? {
+    // Human: Validate token without consuming first so a missing staged object can be retried (proxy fallback).
+    // Agent: MATCHES signed_token; HEAD object_size; THEN consume + record so false confirms do not burn the token.
+    if !part_signed_token_matches(&state.pool, &session_id, part_number, confirm_token).await? {
         return Err(AppError::Conflict(
             "invalid or already used confirm_token".into(),
         ));
@@ -498,6 +501,22 @@ pub async fn confirm_part(
                 "staged part {part_number} checksum mismatch"
             )));
         }
+    }
+
+    if !consume_part_signed_token(&state.pool, &session_id, part_number, confirm_token).await? {
+        // Human: Concurrent confirm won the race — succeed if the part is already recorded.
+        let received = list_received_parts(&state.pool, &session_id).await?;
+        if received.contains(&part_number) {
+            let fresh = load_session_for_user(&state.pool, &session_id, &claims.sub).await?;
+            return Ok(Json(UploadPartResponse {
+                part_number,
+                bytes_received: fresh.bytes_received,
+                total_size: fresh.total_size,
+            }));
+        }
+        return Err(AppError::Conflict(
+            "invalid or already used confirm_token".into(),
+        ));
     }
 
     let bytes_received = record_part_with_checksum(

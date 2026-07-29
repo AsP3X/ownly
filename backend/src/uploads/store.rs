@@ -288,8 +288,28 @@ pub async fn set_part_signed_token(
     Ok(())
 }
 
+// Human: True when the part row still holds this unused confirm token (does not clear it).
+// Agent: USED by confirm_part before HEAD so a missing staged object can still retry with the same token.
+pub async fn part_signed_token_matches(
+    pool: &PgPool,
+    session_id: &str,
+    part_number: i32,
+    token: &str,
+) -> Result<bool, AppError> {
+    let row: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM upload_session_parts \
+         WHERE session_id = $1 AND part_number = $2 AND signed_token = $3",
+    )
+    .bind(session_id)
+    .bind(part_number)
+    .bind(token)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.is_some())
+}
+
 // Human: Consume a single-use signed token — returns true when token matched and was cleared.
-// Agent: UPDATE signed_token = NULL WHERE token matches; USED by confirm_part.
+// Agent: UPDATE signed_token = NULL WHERE token matches; USED by confirm_part after size verify.
 pub async fn consume_part_signed_token(
     pool: &PgPool,
     session_id: &str,
