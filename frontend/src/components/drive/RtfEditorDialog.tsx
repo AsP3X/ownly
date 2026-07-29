@@ -279,7 +279,8 @@ export function RtfEditorDialog({
             onCommand={(command, value) => surfaceRef.current?.exec(command, value)}
           />
 
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          {/* Human: Flex child consumes all remaining height under header/toolbar/footer. */}
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {loading ? (
               <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[#666]">
                 <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -303,6 +304,7 @@ export function RtfEditorDialog({
                 initialHtml={seedHtml}
                 readOnly={readOnly}
                 onChange={setDraftHtml}
+                className="min-h-0 flex-1"
               />
             ) : null}
           </div>
