@@ -16,7 +16,11 @@ import {
   getErrorMessage,
   replaceTextFileContent,
 } from "@/api/client";
-import { RtfEditorSurface, type RtfEditorSurfaceHandle } from "@/components/drive/rtf/RtfEditorSurface";
+import {
+  isEffectivelyEmptyHtml,
+  RtfEditorSurface,
+  type RtfEditorSurfaceHandle,
+} from "@/components/drive/rtf/RtfEditorSurface";
 import { RtfEditorToolbar } from "@/components/drive/rtf/RtfEditorToolbar";
 import {
   Dialog,
@@ -49,6 +53,8 @@ export function RtfEditorDialog({
   const readOnly = Boolean(shareToken);
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
   const activeFileIdRef = useRef<string | null>(null);
+  /** Human: After a successful save we already hold the HTML — skip the refetch that remounts empty. */
+  const skipReloadForFileIdRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -106,6 +112,15 @@ export function RtfEditorDialog({
 
   useEffect(() => {
     if (!open || !file) return;
+
+    // Human: Save creates a new file id — keep local HTML instead of blanking the surface during reload.
+    // Agent: SKIPS loadFile when skipReloadForFileIdRef matches the new file id.
+    if (skipReloadForFileIdRef.current === file.id) {
+      skipReloadForFileIdRef.current = null;
+      activeFileIdRef.current = file.id;
+      return;
+    }
+
     void loadFile(file);
   }, [file, loadFile, open]);
 
@@ -116,6 +131,7 @@ export function RtfEditorDialog({
       setError("");
       setSaveError("");
       setLoading(false);
+      skipReloadForFileIdRef.current = null;
     }
   }, [open]);
 
@@ -140,17 +156,34 @@ export function RtfEditorDialog({
     setSaveError("");
     try {
       const currentHtml = surfaceRef.current?.getHtml() ?? html;
+
+      // Human: Never replace the stored file with a blank document from an empty editor surface.
+      // Agent: ABORTS save when HTML has no visible text — protects against wipe-on-empty-DOM bugs.
+      if (isEffectivelyEmptyHtml(currentHtml) && !isEffectivelyEmptyHtml(savedHtml)) {
+        setSaveError(
+          "Save blocked: the editor looks empty. Reload the file or re-type your text before saving.",
+        );
+        return;
+      }
+
       const rtf = htmlToRtf(currentHtml);
+      if (!rtf.includes("\\rtf") || rtf.length < 20) {
+        setSaveError("Could not build a valid RTF document from the editor content.");
+        return;
+      }
+
       const { file: savedFile } = await replaceTextFileContent(file, rtf);
       setHtml(currentHtml);
       setSavedHtml(currentHtml);
+      // Human: Parent swaps file id after delete+reupload — skip the automatic refetch for this id.
+      skipReloadForFileIdRef.current = savedFile.id;
       onFileSaved?.(file.id, savedFile);
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [dirty, file, html, onFileSaved, readOnly, saving]);
+  }, [dirty, file, html, onFileSaved, readOnly, savedHtml, saving]);
 
   useEffect(() => {
     if (!open) return;

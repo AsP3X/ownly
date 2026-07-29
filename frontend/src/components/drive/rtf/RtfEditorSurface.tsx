@@ -19,10 +19,25 @@ export type RtfEditorSurfaceProps = {
   className?: string;
 };
 
+// Human: True when the editor DOM has no visible text (empty save would wipe the file).
+// Agent: STRIPS tags/whitespace; RETURNS true for blank / <br>-only documents.
+export function isEffectivelyEmptyHtml(html: string): boolean {
+  const text = html
+    .replace(/<br\s*\/?>/gi, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\u200B/g, "")
+    .trim();
+  return text.length === 0;
+}
+
 export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurfaceProps>(
   function RtfEditorSurface({ html, readOnly = false, disabled = false, onChange, className }, ref) {
     const editorRef = useRef<HTMLDivElement>(null);
-    const lastHtmlRef = useRef(html);
+    /** Human: Last HTML we either wrote to the DOM or emitted via onChange. */
+    const lastHtmlRef = useRef<string>("");
+    /** Human: Ignore prop echoes while the user is actively typing. */
+    const typingRef = useRef(false);
 
     useImperativeHandle(
       ref,
@@ -32,7 +47,8 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
         setHtml: (next) => {
           const el = editorRef.current;
           if (!el) return;
-          el.innerHTML = next || "<p><br></p>";
+          const value = next || "<p><br></p>";
+          el.innerHTML = value;
           lastHtmlRef.current = el.innerHTML;
         },
         exec: (command, value) => {
@@ -48,20 +64,38 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
           }
           const next = el.innerHTML;
           lastHtmlRef.current = next;
+          typingRef.current = true;
           onChange(next);
         },
       }),
       [disabled, onChange, readOnly],
     );
 
-    // Human: Sync external HTML when a new file loads — avoid clobbering while typing.
-    // Agent: WRITES innerHTML only when prop html differs from last emitted value.
+    // Human: Always push prop HTML into the contenteditable — including the first mount after load.
+    // Agent: WRITES innerHTML when prop differs from last known; SKIPS while focused+typing to avoid caret jumps.
     useEffect(() => {
       const el = editorRef.current;
       if (!el) return;
-      if (html === lastHtmlRef.current) return;
-      el.innerHTML = html || "<p><br></p>";
-      lastHtmlRef.current = el.innerHTML;
+
+      if (typingRef.current && html === lastHtmlRef.current) {
+        typingRef.current = false;
+        return;
+      }
+
+      // Human: External load/save path — replace DOM when the document HTML changed.
+      if (html !== lastHtmlRef.current || el.innerHTML !== html) {
+        // Don't clobber mid-edit when parent re-renders with the same logical value.
+        if (
+          document.activeElement === el &&
+          html === lastHtmlRef.current &&
+          el.innerHTML.length > 0
+        ) {
+          return;
+        }
+        el.innerHTML = html || "<p><br></p>";
+        lastHtmlRef.current = el.innerHTML;
+      }
+      typingRef.current = false;
     }, [html]);
 
     return (
@@ -87,6 +121,7 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
               if (!el || readOnly) return;
               const next = el.innerHTML;
               lastHtmlRef.current = next;
+              typingRef.current = true;
               onChange(next);
             }}
             onBlur={() => {
@@ -94,6 +129,7 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
               if (!el || readOnly) return;
               const next = el.innerHTML;
               lastHtmlRef.current = next;
+              typingRef.current = false;
               onChange(next);
             }}
           />
