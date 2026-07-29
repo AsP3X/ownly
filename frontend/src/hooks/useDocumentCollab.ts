@@ -1,5 +1,5 @@
-// Human: Live RTF/document collab — WS push + poll, exclusive sentence locks, doc_html ops.
-// Agent: USED by RtfEditorDialog; SUPPORTS auth path + public share allow_edit guest path.
+// Human: Live RTF/document collab — WS push + sparse poll, exclusive sentence locks, doc_html ops.
+// Agent: USED by RtfEditorDialog; THROTTLES HTTP so nginx/API are not flooded by keystrokes.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,6 +17,15 @@ import {
   type DocumentCollabSession,
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
+
+/** Human: Coalesce full-document publish while typing (ms). */
+const PUBLISH_DEBOUNCE_MS = 280;
+/** Human: Min gap between presence/lock heartbeats (ms). */
+const HEARTBEAT_MIN_INTERVAL_MS = 800;
+/** Human: Poll gap-fill when WebSocket is healthy. */
+const POLL_WS_MS = 12_000;
+/** Human: Poll when falling back to HTTP-only transport. */
+const POLL_HTTP_MS = 3_000;
 
 type PublicShareCollab = {
   token: string;
@@ -76,6 +85,18 @@ export function useDocumentCollab({
   const onPresenceRef = useRef(onPresence);
   const getSeedRef = useRef(getSeed);
   const publishTimerRef = useRef<number | null>(null);
+  const lastPublishedHtmlRef = useRef<string | null>(null);
+  const lastLockRef = useRef<{ start: number; end: number } | null>(null);
+  const lastHeartbeatAtRef = useRef(0);
+  const heartbeatInFlightRef = useRef(false);
+  const pendingHeartbeatRef = useRef<{
+    selection_start?: number;
+    selection_end?: number;
+    lock_start?: number;
+    lock_end?: number;
+    clear_lock?: boolean;
+  } | null>(null);
+  const heartbeatTimerRef = useRef<number | null>(null);
   localUserIdRef.current = localUserId;
   publicShareRef.current = publicShare;
   onRemoteDocumentRef.current = onRemoteDocument;
@@ -107,7 +128,6 @@ export function useDocumentCollab({
                 ? { ...person, lock_start: start, lock_end: end }
                 : person,
             );
-            // If the user is not in the list yet, still surface a placeholder for marks.
             if (!next.some((person) => person.user_id === op.user_id)) {
               next.push({
                 user_id: op.user_id,
@@ -151,6 +171,8 @@ export function useDocumentCollab({
       setParticipants([]);
       sessionIdRef.current = null;
       latestSeqRef.current = 0;
+      lastPublishedHtmlRef.current = null;
+      lastLockRef.current = null;
       return;
     }
 
@@ -184,6 +206,7 @@ export function useDocumentCollab({
         applySession(joined);
         sessionIdRef.current = joined.id;
         latestSeqRef.current = joined.latest_seq;
+        lastPublishedHtmlRef.current = joined.document_html || seed?.html || null;
         setError(null);
         if (joined.document_html) {
           onRemoteDocumentRef.current?.(joined.document_html, joined.document_text, "session");
@@ -204,61 +227,71 @@ export function useDocumentCollab({
     const sessionId = session.id;
     let socket: WebSocket | null = null;
     let closed = false;
+    let reconnectTimer: number | null = null;
 
-    try {
-      socket = new WebSocket(collabWsUrl(sessionId, publicShareRef.current));
-    } catch {
-      setTransport("poll");
-      return;
-    }
-
-    socket.onopen = () => {
-      if (!closed) setTransport("ws");
-    };
-    socket.onerror = () => {
-      if (!closed) setTransport("poll");
-    };
-    socket.onclose = () => {
-      if (!closed) setTransport("poll");
-    };
-    socket.onmessage = (event) => {
+    const connect = () => {
+      if (closed) return;
       try {
-        const data = JSON.parse(String(event.data)) as {
-          type?: string;
-          op?: DocumentCollabOp;
-          session?: DocumentCollabSession;
-          document_html?: string;
-          document_text?: string;
-        };
-        if (data.type === "op" && data.op) {
-          ingestOps([data.op]);
-          if (data.session) applySession(data.session);
-          else if (
-            data.document_html &&
-            data.op.user_id !== localUserIdRef.current
-          ) {
-            onRemoteDocumentRef.current?.(
-              data.document_html,
-              data.document_text ?? "",
-              data.op.user_id,
-            );
-          }
-        }
-        if (data.type === "presence" && data.session) {
-          applySession(data.session);
-        }
+        socket = new WebSocket(collabWsUrl(sessionId, publicShareRef.current));
       } catch {
-        /* ignore */
+        setTransport("poll");
+        return;
       }
+
+      socket.onopen = () => {
+        if (!closed) setTransport("ws");
+      };
+      socket.onerror = () => {
+        // Human: onclose handles fallback; avoid double setTransport chatter.
+      };
+      socket.onclose = () => {
+        if (closed) return;
+        setTransport("poll");
+        // Human: Gentle reconnect so a brief proxy blip does not stick us on HTTP poll forever.
+        reconnectTimer = window.setTimeout(connect, 4_000);
+      };
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(String(event.data)) as {
+            type?: string;
+            op?: DocumentCollabOp;
+            session?: DocumentCollabSession;
+            document_html?: string;
+            document_text?: string;
+          };
+          if (data.type === "op" && data.op) {
+            ingestOps([data.op]);
+            if (data.session) applySession(data.session);
+            else if (
+              data.document_html &&
+              data.op.user_id !== localUserIdRef.current
+            ) {
+              onRemoteDocumentRef.current?.(
+                data.document_html,
+                data.document_text ?? "",
+                data.op.user_id,
+              );
+            }
+          }
+          if (data.type === "presence" && data.session) {
+            applySession(data.session);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
     };
+
+    connect();
 
     return () => {
       closed = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
   }, [applySession, enabled, ingestOps, session?.id]);
 
-  // Heartbeat + poll gap-fill
+  // Sparse poll gap-fill (WS is primary; HTTP poll is backup only)
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
@@ -280,11 +313,48 @@ export function useDocumentCollab({
       void listPromise.then((ops) => ingestOps(ops)).catch(() => undefined);
     };
 
-    tick();
-    const intervalMs = transport === "ws" ? 6000 : 1500;
+    // Human: Skip immediate tick on mount when WS will deliver ops — reduces join storm.
+    const intervalMs = transport === "ws" ? POLL_WS_MS : POLL_HTTP_MS;
     const id = window.setInterval(tick, intervalMs);
+    if (transport === "poll") {
+      tick();
+    }
     return () => window.clearInterval(id);
   }, [enabled, ingestOps, session?.id, transport]);
+
+  // Human: Coalesce presence heartbeats so selection churn does not open a request per caret move.
+  // Agent: QUEUES latest body; FLUSHES at most once per HEARTBEAT_MIN_INTERVAL_MS.
+  const flushHeartbeat = useCallback(async () => {
+    const sessionId = sessionIdRef.current;
+    const body = pendingHeartbeatRef.current;
+    if (!sessionId || !enabled || !body || heartbeatInFlightRef.current) return;
+
+    pendingHeartbeatRef.current = null;
+    heartbeatInFlightRef.current = true;
+    lastHeartbeatAtRef.current = Date.now();
+    try {
+      const share = publicShareRef.current;
+      const next = share
+        ? await heartbeatPublicDocumentCollabSession(
+            {
+              token: share.token,
+              sharePassword: share.sharePassword,
+              guestId: share.guestId,
+            },
+            sessionId,
+            body,
+          )
+        : await heartbeatDocumentCollabSession(sessionId, body);
+      applySession(next);
+    } catch {
+      /* best-effort */
+    } finally {
+      heartbeatInFlightRef.current = false;
+      if (pendingHeartbeatRef.current) {
+        void flushHeartbeat();
+      }
+    }
+  }, [applySession, enabled]);
 
   const updatePresence = useCallback(
     async (body: {
@@ -296,38 +366,45 @@ export function useDocumentCollab({
     }) => {
       const sessionId = sessionIdRef.current;
       if (!sessionId || !enabled) return;
-      try {
-        const share = publicShareRef.current;
-        const next = share
-          ? await heartbeatPublicDocumentCollabSession(
-              {
-                token: share.token,
-                sharePassword: share.sharePassword,
-                guestId: share.guestId,
-              },
-              sessionId,
-              body,
-            )
-          : await heartbeatDocumentCollabSession(sessionId, body);
-        applySession(next);
-      } catch {
-        /* best-effort */
+
+      pendingHeartbeatRef.current = {
+        ...pendingHeartbeatRef.current,
+        ...body,
+      };
+
+      const elapsed = Date.now() - lastHeartbeatAtRef.current;
+      if (elapsed >= HEARTBEAT_MIN_INTERVAL_MS && !heartbeatInFlightRef.current) {
+        await flushHeartbeat();
+        return;
       }
+
+      if (heartbeatTimerRef.current !== null) {
+        window.clearTimeout(heartbeatTimerRef.current);
+      }
+      const wait = Math.max(0, HEARTBEAT_MIN_INTERVAL_MS - elapsed);
+      heartbeatTimerRef.current = window.setTimeout(() => {
+        heartbeatTimerRef.current = null;
+        void flushHeartbeat();
+      }, wait);
     },
-    [applySession, enabled],
+    [enabled, flushHeartbeat],
   );
 
-  // Human: Debounced full-document publish for high-throughput live sync with formatting.
-  // Agent: SCHEDULES postDocumentCollabOp doc_html; 40ms coalesce under typing.
+  // Human: Debounced full-document publish — skip no-op posts when HTML is unchanged.
+  // Agent: SCHEDULES postDocumentCollabOp doc_html; PUBLISH_DEBOUNCE_MS coalesce under typing.
   const publishDocument = useCallback(
     (html: string, text: string) => {
       const sessionId = sessionIdRef.current;
       if (!sessionId || !enabled) return;
+      if (html === lastPublishedHtmlRef.current) return;
+
       if (publishTimerRef.current !== null) {
         window.clearTimeout(publishTimerRef.current);
       }
       publishTimerRef.current = window.setTimeout(() => {
         publishTimerRef.current = null;
+        if (html === lastPublishedHtmlRef.current) return;
+        lastPublishedHtmlRef.current = html;
         const share = publicShareRef.current;
         const postPromise = share
           ? postPublicDocumentCollabOp(
@@ -351,71 +428,40 @@ export function useDocumentCollab({
             latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
           })
           .catch(() => undefined);
-      }, 40);
+      }, PUBLISH_DEBOUNCE_MS);
     },
     [enabled],
   );
 
+  // Human: Sentence lock via heartbeat only — no separate lock op (was doubling HTTP traffic).
+  // Agent: SKIPS when sentence range unchanged; THROTTLED by updatePresence.
   const acquireSentenceLock = useCallback(
     async (text: string, caretStart: number, caretEnd: number) => {
       const range = sentenceRangeAround(text, caretStart, caretEnd);
+      const prev = lastLockRef.current;
+      if (prev && prev.start === range.start && prev.end === range.end) {
+        // Same sentence — only refresh selection caret occasionally via presence.
+        await updatePresence({
+          selection_start: caretStart,
+          selection_end: caretEnd,
+        });
+        return range;
+      }
+      lastLockRef.current = { start: range.start, end: range.end };
       await updatePresence({
         selection_start: caretStart,
         selection_end: caretEnd,
         lock_start: range.start,
         lock_end: range.end,
       });
-      const sessionId = sessionIdRef.current;
-      if (sessionId) {
-        const share = publicShareRef.current;
-        const postPromise = share
-          ? postPublicDocumentCollabOp(
-              {
-                token: share.token,
-                sharePassword: share.sharePassword,
-                guestId: share.guestId,
-              },
-              sessionId,
-              {
-                op_type: "lock",
-                payload: { start: range.start, end: range.end },
-              },
-            )
-          : postDocumentCollabOp(sessionId, {
-              op_type: "lock",
-              payload: { start: range.start, end: range.end },
-            });
-        void postPromise.catch(() => undefined);
-      }
       return range;
     },
     [updatePresence],
   );
 
   const releaseLock = useCallback(async () => {
+    lastLockRef.current = null;
     await updatePresence({ clear_lock: true });
-    const sessionId = sessionIdRef.current;
-    if (sessionId) {
-      const share = publicShareRef.current;
-      const postPromise = share
-        ? postPublicDocumentCollabOp(
-            {
-              token: share.token,
-              sharePassword: share.sharePassword,
-              guestId: share.guestId,
-            },
-            sessionId,
-            {
-              op_type: "unlock",
-              payload: {},
-            },
-          )
-        : postDocumentCollabOp(sessionId, {
-            op_type: "unlock",
-            payload: {},
-          });
-      void postPromise.catch(() => undefined);
-    }
   }, [updatePresence]);
 
   // Human: True when a plain-text range is exclusively locked by someone else.
@@ -433,6 +479,13 @@ export function useDocumentCollab({
     },
     [localUserId, participants],
   );
+
+  useEffect(() => {
+    return () => {
+      if (publishTimerRef.current !== null) window.clearTimeout(publishTimerRef.current);
+      if (heartbeatTimerRef.current !== null) window.clearTimeout(heartbeatTimerRef.current);
+    };
+  }, []);
 
   return {
     session,

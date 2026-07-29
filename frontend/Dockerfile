@@ -17,4 +17,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Human: Template is rendered at startup so upload limits stay aligned with MAX_UPLOAD_BYTES.
 # Agent: nginx entrypoint envsubst writes /etc/nginx/conf.d/default.conf from this template.
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# Human: WebSocket + access-log maps must live in http{} (conf.d is included there).
+# Agent: NOT run through envsubst; static map file.
+COPY nginx-http-map.conf /etc/nginx/conf.d/00-http-map.conf
 EXPOSE 80

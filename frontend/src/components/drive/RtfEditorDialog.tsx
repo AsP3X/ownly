@@ -279,11 +279,12 @@ export function RtfEditorDialog({
       const offsets = getSelectionPlainOffsets(root);
       if (!offsets) return;
       if (lockTimer !== null) window.clearTimeout(lockTimer);
+      // Human: 350ms debounce — selectionchange fires very often; avoid heartbeat storms.
       lockTimer = window.setTimeout(() => {
         // Human: Use the same plain-text model as lock highlights (Range.toString), not innerText.
         const text = rootPlainText(root);
         void collab.acquireSentenceLock(text, offsets.start, offsets.end);
-      }, 120);
+      }, 350);
     };
 
     document.addEventListener("selectionchange", onSelectionChange);
