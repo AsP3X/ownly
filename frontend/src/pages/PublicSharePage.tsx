@@ -830,6 +830,8 @@ export default function PublicSharePage() {
             },
             shareToken: token,
             sharePassword: sharePassword,
+            // Human: Anonymous public links are view-only; user-share edit opens via Drive with canEdit.
+            canEdit: false,
           }}
         />
       ) : null}

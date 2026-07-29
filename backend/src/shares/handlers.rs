@@ -1891,11 +1891,23 @@ pub async fn list_shared_with_me(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<SharedWithMeResponse>, AppError> {
+    // Human: Map atomic grants to UI edit/view — content.write+ means Can Edit, else Can View.
+    // Agent: LEFT JOIN permission_grants for highest write-class grant; RETURNS 'edit' | 'view'.
     let items: Vec<SharedWithMeItemDto> = sqlx::query_as(
         "SELECT rus.id, rus.resource_type, rus.resource_id, rus.created_at AS shared_at, \
          owner.email AS owner_email, \
          COALESCE(f.name, fo.name) AS name, f.mime_type, f.size_bytes, \
-         'view' AS permission \
+         CASE \
+           WHEN EXISTS ( \
+             SELECT 1 FROM permission_grants pg \
+             WHERE pg.subject_type = 'user' AND pg.subject_id = rus.grantee_user_id \
+               AND pg.resource_type::text = rus.resource_type \
+               AND pg.resource_id = rus.resource_id \
+               AND pg.effect = 'allow' \
+               AND pg.permission IN ('content.write', 'content.delete', 'content.manage_acl', 'content.share') \
+           ) THEN 'edit' \
+           ELSE 'view' \
+         END AS permission \
          FROM resource_user_shares rus \
          INNER JOIN users owner ON owner.id = rus.owner_user_id \
          LEFT JOIN files f ON rus.resource_type = 'file' AND f.id = rus.resource_id AND f.deleted_at IS NULL \

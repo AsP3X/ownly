@@ -259,6 +259,8 @@ export default function DrivePage() {
   const [previewEpub, setPreviewEpub] = useState<FileItem | null>(null);
   const [previewText, setPreviewText] = useState<FileItem | null>(null);
   const [previewRtf, setPreviewRtf] = useState<FileItem | null>(null);
+  /** Human: Shared-with-me edit grants open collab; view grants stay read-only. */
+  const [previewRtfCanEdit, setPreviewRtfCanEdit] = useState(true);
   const [previewSpreadsheet, setPreviewSpreadsheet] = useState<FileItem | null>(null);
   const [previewAudio, setPreviewAudio] = useState<FileItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
@@ -1233,11 +1235,62 @@ export default function DrivePage() {
 
   // Human: Open the RTF rich-text editor — WYSIWYG formatting, not raw RTF source.
   // Agent: SETS previewRtf; RtfEditorDialog CONVERTS rtf↔html and SAVES via replaceTextFileContent.
-  function handlePreviewRtf(file: FileItem) {
+  function handlePreviewRtf(file: FileItem, options?: { canEdit?: boolean }) {
     if (isFileProcessing(file)) return;
     if (!isRtfPreviewMime(file.mime_type, file.name)) return;
     recordFileAccess(file.id);
+    setPreviewRtfCanEdit(options?.canEdit !== false);
     setPreviewRtf(file);
+  }
+
+  // Human: Open a Shared with me file with the correct view/edit capability for collab.
+  // Agent: MAPS SharedWithMeItem → FileItem; ROUTES RTF/text/media previews with canEdit flag.
+  function handlePreviewGrantedFile(item: SharedWithMeItem) {
+    if (item.resource_type !== "file") return;
+    const file: FileItem = {
+      id: item.resource_id,
+      name: item.name,
+      mime_type: item.mime_type,
+      size_bytes: item.size_bytes ?? 0,
+      folder_id: null,
+      created_at: item.shared_at,
+      updated_at: item.shared_at,
+      hls_ready: false,
+      hls_encode_status: null,
+      conversion_progress: 0,
+    };
+    const canEdit = item.permission === "edit";
+    if (isRtfPreviewMime(file.mime_type, file.name)) {
+      handlePreviewRtf(file, { canEdit });
+      return;
+    }
+    if (isTextCodePreviewMime(file.mime_type, file.name)) {
+      handlePreviewText(file);
+      return;
+    }
+    if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+      handlePreviewSpreadsheet(file);
+      return;
+    }
+    if (isPdfMime(file.mime_type)) {
+      handlePreviewPdf(file);
+      return;
+    }
+    if (isEpubMime(file.mime_type, file.name)) {
+      handlePreviewEpub(file);
+      return;
+    }
+    if (isImageMime(file.mime_type)) {
+      handlePreviewImage(file);
+      return;
+    }
+    if (isAudioMime(file.mime_type)) {
+      handlePreviewAudio(file);
+      return;
+    }
+    if (file.mime_type?.startsWith("video/")) {
+      handlePreviewVideo(file);
+    }
   }
 
   // Human: Open the Excel-style spreadsheet dialog for .xlsx/.xls/.ods workbooks.
@@ -1996,8 +2049,12 @@ export default function DrivePage() {
             previewProps={{
               file: previewRtf,
               open: true,
+              canEdit: previewRtfCanEdit,
               onOpenChange: (open) => {
-                if (!open) setPreviewRtf(null);
+                if (!open) {
+                  setPreviewRtf(null);
+                  setPreviewRtfCanEdit(true);
+                }
               },
               onFileSaved: handleRtfFileSaved,
             }}
@@ -2372,6 +2429,7 @@ export default function DrivePage() {
                   setShareDialogOpen(true);
                 }}
                 onRefreshWithMe={() => void refreshSharedFiles()}
+                onPreviewGrantedFile={handlePreviewGrantedFile}
               />
             ) : activeNav === "home" ? (
               <DriveOverviewPanel

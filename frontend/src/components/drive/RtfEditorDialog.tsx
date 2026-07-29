@@ -45,6 +45,11 @@ export type RtfEditorDialogProps = {
   onFileSaved?: (previousId: string, file: FileItem) => void;
   shareToken?: string;
   sharePassword?: string | null;
+  /**
+   * Human: When false, force view-only (e.g. public link or shared-with-me view grant).
+   * Agent: DEFAULT true for owned Drive opens; false for anonymous public share tokens.
+   */
+  canEdit?: boolean;
 };
 
 export function RtfEditorDialog({
@@ -54,8 +59,11 @@ export function RtfEditorDialog({
   onFileSaved,
   shareToken,
   sharePassword,
+  canEdit,
 }: RtfEditorDialogProps) {
-  const readOnly = Boolean(shareToken);
+  // Human: Public share tokens are view-only unless canEdit is explicitly true (user share with write).
+  // Agent: readOnly when canEdit===false OR (shareToken without canEdit); collab requires !readOnly.
+  const readOnly = canEdit === false || (Boolean(shareToken) && canEdit !== true);
   const { user } = useAuth();
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
   const activeFileIdRef = useRef<string | null>(null);

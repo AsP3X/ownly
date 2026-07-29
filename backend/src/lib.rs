@@ -604,6 +604,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/files/{id}", get(files::handlers::get_file))
         .route(
+            "/api/v1/files/{id}/content",
+            put(files::content_replace::put_file_content).layer(DefaultBodyLimit::max(max_upload)),
+        )
+        .route(
             "/api/v1/files/{id}/deletion-preview",
             get(files::delete_job::file_deletion_preview),
         )

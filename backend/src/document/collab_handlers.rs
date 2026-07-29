@@ -234,6 +234,28 @@ pub async fn post_op(
     if op_type.is_empty() {
         return Err(AppError::BadRequest("op_type is required".into()));
     }
+
+    // Human: Mutating collab ops require content.write (shared edit grants); join/read can use content.read.
+    // Agent: LOAD session file_id; ensure_file_access ContentWrite for doc_html/text_*/lock.
+    let mutating = matches!(
+        op_type,
+        "doc_html" | "text_insert" | "text_delete" | "lock" | "unlock"
+    );
+    if mutating {
+        let session = state
+            .document_collab
+            .get(&session_id)
+            .await
+            .ok_or(AppError::NotFound)?;
+        crate::files::access::ensure_file_access(
+            &state.pool,
+            &claims.sub,
+            &session.file_id,
+            crate::authz::Permission::ContentWrite,
+        )
+        .await?;
+    }
+
     let op = state
         .document_collab
         .append_op(&session_id, &claims.sub, op_type, body.payload)

@@ -4,6 +4,7 @@
 pub mod access;
 pub mod bulk_download;
 pub mod content_hash;
+pub mod content_replace;
 pub mod delete_config;
 pub mod delete_job;
 pub mod file_copy;

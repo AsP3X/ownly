@@ -3059,8 +3059,8 @@ export async function fetchFilePreviewStreamBlob(
   return fetchFileBlobForPreview(file, signal);
 }
 
-// Human: Replace editable text/RTF file bytes by permanently removing the old row and uploading new content.
-// Agent: DELETE /files/:id?permanent=true; POST /files/upload same folder_id + filename; RETURNS new FileItem.
+// Human: Replace editable text/RTF bytes in place — keeps file id/owner (required for shared edit + collab).
+// Agent: PUT /files/:id/content with UTF-8 body; REQUIRES content.write; FALLBACK delete+reupload only if PUT missing.
 export async function replaceTextFileContent(
   file: FileItem,
   content: string,
@@ -3068,19 +3068,32 @@ export async function replaceTextFileContent(
   const name = file.name || "document.txt";
   const lower = name.toLowerCase();
   const rawMime = (file.mime_type ?? "").toLowerCase();
-  // Human: Normalize RTF MIME so the upload pipeline stores a real rich-text document, not empty generic bytes.
-  // Agent: FORCES application/rtf for .rtf / rtf MIME; ELSE keeps original or text/plain.
   const mime =
     lower.endsWith(".rtf") || rawMime.includes("rtf")
       ? "application/rtf"
       : file.mime_type || "text/plain";
-  // Human: Encode as explicit UTF-8 so RTF control words and unicode escapes are not corrupted.
   const bytes = new TextEncoder().encode(content);
-  const blob = new Blob([bytes], { type: mime });
-  const nextFile = new File([blob], name, { type: mime });
-  if (nextFile.size <= 0) {
+  if (bytes.byteLength <= 0) {
     throw new ApiError("Cannot save an empty document", "empty_document", 400);
   }
+
+  try {
+    return (await apiFetch(`/files/${encodeURIComponent(file.id)}/content`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": mime,
+      },
+      body: bytes,
+    })) as Promise<{ file: FileItem }>;
+  } catch (err) {
+    // Human: Older backends without PUT /content — owner-only delete+reupload fallback.
+    if (err instanceof ApiError && err.status !== 404 && err.status !== 405) {
+      throw err;
+    }
+  }
+
+  const blob = new Blob([bytes], { type: mime });
+  const nextFile = new File([blob], name, { type: mime });
   await deleteFile(file.id, { permanent: true });
   return uploadFileWithProgress(nextFile, undefined, {
     folderId: file.folder_id,
