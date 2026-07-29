@@ -16,7 +16,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -167,7 +167,7 @@ async fn handle_socket(
                         handle_client_message(&state_recv, &session_id_recv, &user_id_recv, &text)
                             .await
                     {
-                        debug!(%err, "document collab ws client message failed");
+                        warn!(%err, %session_id_recv, %user_id_recv, "document collab ws client message failed");
                     }
                 }
                 Message::Ping(_) | Message::Pong(_) => {}

@@ -134,9 +134,9 @@ export function RtfEditorDialog({
     onRemoteDocument: (html, _text, fromUserId) => {
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
-      // Human: Don't clobber in-flight local keystrokes (publish debounce + typing lag).
-      if (Date.now() - lastLocalEditAtRef.current < 280) return;
       if (html === draftHtmlRef.current) return;
+      // Human: Full-document collab is last-write-wins — always apply peer snapshots for live feel.
+      // Agent: NO typing-window skip (that made concurrent edits look offline).
       applyingRemoteRef.current = true;
       try {
         surfaceRef.current?.setHtml(html);
@@ -280,11 +280,11 @@ export function RtfEditorDialog({
       const offsets = getSelectionPlainOffsets(root);
       if (!offsets) return;
       if (lockTimer !== null) window.clearTimeout(lockTimer);
-      // Human: Near-immediate caret broadcast (WS path); 16ms coalesce under rapid selectionchange.
+      // Human: Broadcast caret on the next frame for live peer carets.
       lockTimer = window.setTimeout(() => {
         const text = rootPlainText(root);
         void collab.acquireSentenceLock(text, offsets.start, offsets.end);
-      }, 16);
+      }, 0);
     };
 
     document.addEventListener("selectionchange", onSelectionChange);

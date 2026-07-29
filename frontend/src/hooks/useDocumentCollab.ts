@@ -20,17 +20,17 @@ import {
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
-/** Human: Coalesce typing into doc_html — one frame when possible. */
-const PUBLISH_DEBOUNCE_MS = 16;
-/** Human: Coalesce caret presence when WS is up. */
-const PRESENCE_DEBOUNCE_MS = 16;
+/** Human: Coalesce typing into doc_html — fire next animation frame. */
+const PUBLISH_DEBOUNCE_MS = 0;
+/** Human: Coalesce caret presence when falling back to HTTP. */
+const PRESENCE_DEBOUNCE_MS = 0;
 /** Human: Ops gap-fill when WebSocket is healthy (backup only). */
-const OPS_POLL_WS_MS = 5_000;
+const OPS_POLL_WS_MS = 1_500;
 /** Human: Ops gap-fill when falling back to HTTP-only transport. */
-const OPS_POLL_HTTP_MS = 500;
+const OPS_POLL_HTTP_MS = 300;
 /** Human: Presence snapshot poll (backup). */
-const SESSION_POLL_WS_MS = 4_000;
-const SESSION_POLL_HTTP_MS = 500;
+const SESSION_POLL_WS_MS = 1_000;
+const SESSION_POLL_HTTP_MS = 300;
 
 type PublicShareCollab = {
   token: string;
@@ -539,13 +539,24 @@ export function useDocumentCollab({
       if (html === lastPublishedHtmlRef.current && !pendingPublishRef.current) return;
 
       pendingPublishRef.current = { html, text };
+
+      // Human: WS path sends immediately; HTTP path still micro-batches on rAF.
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        if (publishTimerRef.current !== null) {
+          window.clearTimeout(publishTimerRef.current);
+          publishTimerRef.current = null;
+        }
+        void flushPublish();
+        return;
+      }
+
       if (publishTimerRef.current !== null) {
         window.clearTimeout(publishTimerRef.current);
       }
       publishTimerRef.current = window.setTimeout(() => {
         publishTimerRef.current = null;
         void flushPublish();
-      }, PUBLISH_DEBOUNCE_MS);
+      }, Math.max(PUBLISH_DEBOUNCE_MS, 32));
     },
     [enabled, flushPublish],
   );
