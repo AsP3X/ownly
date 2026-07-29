@@ -128,6 +128,12 @@ pub struct AppState {
     /// Human: Live WebSocket fan-out for collab ops/presence per session.
     /// Agent: PUBLISH after op/heartbeat; SUBSCRIBE from WS upgrade handler.
     pub spreadsheet_collab_hub: spreadsheet::hub::SharedCollabHub,
+    /// Human: Live rich-text / RTF co-editing sessions with exclusive range locks.
+    /// Agent: READ/WRITE by document collab handlers; Redis optional via REDIS_URL.
+    pub document_collab: document::collab::SharedDocCollabStore,
+    /// Human: Live WebSocket fan-out for document collab ops/presence/locks.
+    /// Agent: PUBLISH after op/heartbeat; SUBSCRIBE from document collab WS.
+    pub document_collab_hub: spreadsheet::hub::SharedCollabHub,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -301,6 +307,8 @@ async fn build_app_state(
             admin::storage_migration_run::StorageMigrationCoordinator::new(),
         spreadsheet_collab: spreadsheet::collab::CollabStore::from_redis_url(&config.redis_url).await,
         spreadsheet_collab_hub: spreadsheet::hub::new_shared_hub(),
+        document_collab: document::collab::DocCollabStore::from_redis_url(&config.redis_url).await,
+        document_collab_hub: spreadsheet::hub::new_shared_hub(),
     }))
 }
 
@@ -522,6 +530,26 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/spreadsheet/sessions/{session_id}/ws",
             get(spreadsheet::ws::session_ws),
+        )
+        .route(
+            "/api/v1/document/sessions",
+            post(document::collab_handlers::join_session),
+        )
+        .route(
+            "/api/v1/document/sessions/{session_id}",
+            get(document::collab_handlers::get_session),
+        )
+        .route(
+            "/api/v1/document/sessions/{session_id}/heartbeat",
+            post(document::collab_handlers::session_heartbeat),
+        )
+        .route(
+            "/api/v1/document/sessions/{session_id}/ops",
+            get(document::collab_handlers::list_ops).post(document::collab_handlers::post_op),
+        )
+        .route(
+            "/api/v1/document/sessions/{session_id}/ws",
+            get(document::collab_ws::session_ws),
         )
         .route("/api/v1/me", get(auth::handlers::me))
         .route(

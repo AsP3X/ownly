@@ -1,6 +1,9 @@
-// Human: Document grid preview sidecars — PDF first-page, spreadsheet mini-grid, and EPUB cover JPEGs.
-// Agent: EXPORTS thumbnail job + mime helpers; ENQUEUED after qualifying document upload completes.
+// Human: Document grid preview sidecars + live rich-text co-editing sessions.
+// Agent: EXPORTS thumbnail job + mime helpers + collab store/handlers/WS.
 
+pub mod collab;
+pub mod collab_handlers;
+pub mod collab_ws;
 pub mod epub_cover;
 pub mod mime;
 pub mod spreadsheet_preview;

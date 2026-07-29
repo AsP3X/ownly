@@ -1,5 +1,5 @@
-// Human: Full-viewport RTF rich-text editor — WYSIWYG formatting, not raw RTF source.
-// Agent: FETCHES blob; CONVERTS rtf↔html; SAVE replaceTextFileContent with serialized RTF.
+// Human: Full-viewport RTF rich-text editor — WYSIWYG + live multi-user collab with sentence locks.
+// Agent: FETCHES blob; CONVERTS rtf↔html; LIVE ops via useDocumentCollab; SAVE replaceTextFileContent.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -21,6 +21,7 @@ import {
   RtfEditorSurface,
   type RtfEditorSurfaceHandle,
 } from "@/components/drive/rtf/RtfEditorSurface";
+import { RtfCollabPresence } from "@/components/drive/rtf/RtfCollabPresence";
 import { RtfEditorToolbar } from "@/components/drive/rtf/RtfEditorToolbar";
 import {
   Dialog,
@@ -29,8 +30,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { useDocumentCollab } from "@/hooks/useDocumentCollab";
+import { getSelectionPlainOffsets, isTextMutatingKey } from "@/lib/rtf/dom-text-offset";
 import { htmlToRtf } from "@/lib/rtf/html-to-rtf";
 import { rtfToHtml } from "@/lib/rtf/rtf-to-html";
+import { htmlToPlainText } from "@/lib/rtf/sentence-range";
 import { cn } from "@/lib/utils";
 
 export type RtfEditorDialogProps = {
@@ -51,11 +56,15 @@ export function RtfEditorDialog({
   sharePassword,
 }: RtfEditorDialogProps) {
   const readOnly = Boolean(shareToken);
+  const { user } = useAuth();
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
   const activeFileIdRef = useRef<string | null>(null);
   /** Human: After save, parent swaps file id — do not refetch and remount the document. */
   const suppressLoadForFileIdsRef = useRef<Set<string>>(new Set());
   const loadedFileIdRef = useRef<string | null>(null);
+  const applyingRemoteRef = useRef(false);
+  const lastLocalEditAtRef = useRef(0);
+  const draftHtmlRef = useRef("<p><br></p>");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -67,7 +76,34 @@ export function RtfEditorDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  draftHtmlRef.current = draftHtml;
   const dirty = draftHtml !== savedHtml;
+
+  const collabEnabled = open && !readOnly && Boolean(file?.id) && !loading && Boolean(documentKey);
+
+  const collab = useDocumentCollab({
+    fileId: file?.id,
+    enabled: collabEnabled,
+    displayName: user?.email ?? user?.id ?? "User",
+    localUserId: user?.id ?? null,
+    getSeed: () => ({
+      html: draftHtmlRef.current,
+      text: htmlToPlainText(draftHtmlRef.current),
+    }),
+    onRemoteDocument: (html, _text, fromUserId) => {
+      if (fromUserId === user?.id) return;
+      // Human: Don't clobber in-flight local keystrokes (40ms publish window + typing lag).
+      if (Date.now() - lastLocalEditAtRef.current < 120) return;
+      applyingRemoteRef.current = true;
+      try {
+        surfaceRef.current?.setHtml(html);
+        setDraftHtml(html);
+        draftHtmlRef.current = html;
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+    },
+  });
 
   const syncLabel = saveError
     ? saveError
@@ -93,6 +129,7 @@ export function RtfEditorDialog({
     setSeedHtml(html);
     setSavedHtml(html);
     setDraftHtml(html);
+    draftHtmlRef.current = html;
     setDocumentKey(`${fileId}:${Date.now()}`);
   }, []);
 
@@ -123,8 +160,6 @@ export function RtfEditorDialog({
   useEffect(() => {
     if (!open || !file) return;
 
-    // Human: Save replaces the file id — keep the in-memory document instead of refetching.
-    // Agent: SKIPS load when this id was just produced by a successful save.
     if (suppressLoadForFileIdsRef.current.has(file.id)) {
       suppressLoadForFileIdsRef.current.delete(file.id);
       activeFileIdRef.current = file.id;
@@ -132,8 +167,6 @@ export function RtfEditorDialog({
       return;
     }
 
-    // Human: Parent re-renders with a new FileItem object for the same id — do not re-seed the editor.
-    // Agent: SKIPS when file.id already loaded for this dialog session.
     if (loadedFileIdRef.current === file.id) {
       activeFileIdRef.current = file.id;
       return;
@@ -147,6 +180,7 @@ export function RtfEditorDialog({
       setSeedHtml("<p><br></p>");
       setSavedHtml("<p><br></p>");
       setDraftHtml("<p><br></p>");
+      draftHtmlRef.current = "<p><br></p>";
       setDocumentKey("");
       setError("");
       setSaveError("");
@@ -155,6 +189,60 @@ export function RtfEditorDialog({
       suppressLoadForFileIdsRef.current.clear();
     }
   }, [open]);
+
+  const handleLocalChange = useCallback(
+    (html: string) => {
+      if (applyingRemoteRef.current) return;
+      lastLocalEditAtRef.current = Date.now();
+      setDraftHtml(html);
+      draftHtmlRef.current = html;
+      collab.publishDocument(html, htmlToPlainText(html));
+    },
+    [collab],
+  );
+
+  // Human: Protect foreign locked sentences — block typing/deletes inside another user's lock.
+  // Agent: CAPTURE keydown; debounced selection → sentence lock; READS isRangeLockedByOther.
+  useEffect(() => {
+    if (!collabEnabled) return;
+    let lockTimer: number | null = null;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isTextMutatingKey(event)) return;
+      const root = surfaceRef.current?.getEditorElement();
+      if (!root) return;
+      const offsets = getSelectionPlainOffsets(root);
+      if (!offsets) return;
+      const probeEnd = Math.max(offsets.end, offsets.start + 1);
+      if (collab.isRangeLockedByOther(offsets.start, probeEnd)) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSaveError("That sentence is locked by another collaborator.");
+        window.setTimeout(() => setSaveError(""), 2500);
+      }
+    };
+
+    const onSelectionChange = () => {
+      const root = surfaceRef.current?.getEditorElement();
+      if (!root) return;
+      const offsets = getSelectionPlainOffsets(root);
+      if (!offsets) return;
+      if (lockTimer !== null) window.clearTimeout(lockTimer);
+      lockTimer = window.setTimeout(() => {
+        const text = htmlToPlainText(surfaceRef.current?.getHtml() ?? draftHtmlRef.current);
+        void collab.acquireSentenceLock(text, offsets.start, offsets.end);
+      }, 120);
+    };
+
+    document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      if (lockTimer !== null) window.clearTimeout(lockTimer);
+      document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("keydown", onKeyDown, true);
+      void collab.releaseLock();
+    };
+  }, [collab, collabEnabled]);
 
   const handleCloseRequest = useCallback(
     (nextOpen: boolean) => {
@@ -166,9 +254,10 @@ export function RtfEditorDialog({
         const confirmed = window.confirm("Discard unsaved changes?");
         if (!confirmed) return;
       }
+      void collab.releaseLock();
       onOpenChange(false);
     },
-    [dirty, onOpenChange, readOnly],
+    [collab, dirty, onOpenChange, readOnly],
   );
 
   const handleSave = useCallback(async () => {
@@ -176,7 +265,6 @@ export function RtfEditorDialog({
     setSaving(true);
     setSaveError("");
     try {
-      // Human: Always read live DOM — draft state can lag a keystroke behind the surface.
       const currentHtml = surfaceRef.current?.getHtml() ?? draftHtml;
 
       if (isEffectivelyEmptyHtml(currentHtml) && !isEffectivelyEmptyHtml(savedHtml)) {
@@ -192,8 +280,6 @@ export function RtfEditorDialog({
         return;
       }
 
-      // Human: Sanity-check round-trip before deleting the server file.
-      // Agent: PARSES generated RTF back to HTML; ABORTS when body text would be lost.
       const roundTripHtml = rtfToHtml(rtf);
       if (
         !isEffectivelyEmptyHtml(currentHtml) &&
@@ -207,18 +293,20 @@ export function RtfEditorDialog({
 
       const { file: savedFile } = await replaceTextFileContent(file, rtf);
 
-      // Human: Keep the editor content in place — do not remount or reseed after save.
       setDraftHtml(currentHtml);
       setSavedHtml(currentHtml);
+      draftHtmlRef.current = currentHtml;
       loadedFileIdRef.current = savedFile.id;
       suppressLoadForFileIdsRef.current.add(savedFile.id);
       onFileSaved?.(file.id, savedFile);
+      // Keep collab session peers in sync with the durable save snapshot
+      collab.publishDocument(currentHtml, htmlToPlainText(currentHtml));
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [dirty, draftHtml, file, onFileSaved, readOnly, savedHtml, saving]);
+  }, [collab, dirty, draftHtml, file, onFileSaved, readOnly, savedHtml, saving]);
 
   useEffect(() => {
     if (!open) return;
@@ -243,7 +331,7 @@ export function RtfEditorDialog({
         <DialogHeader className="sr-only">
           <DialogTitle>{file?.name ?? "Rich text editor"}</DialogTitle>
           <DialogDescription>
-            Edit rich text documents with formatting. Changes save as RTF.
+            Edit rich text documents with live collaboration. Changes save as RTF.
           </DialogDescription>
         </DialogHeader>
 
@@ -255,7 +343,10 @@ export function RtfEditorDialog({
                 <p className="truncate text-sm font-bold text-[#1A1A1A]">
                   {file?.name ?? "Rich text"}
                 </p>
-                <p className="text-[11px] text-[#888888]">Rich Text Document · RTF</p>
+                <p className="text-[11px] text-[#888888]">
+                  Rich Text Document · RTF
+                  {collabEnabled ? " · Live co-edit" : ""}
+                </p>
               </div>
               {readOnly ? (
                 <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex">
@@ -279,7 +370,15 @@ export function RtfEditorDialog({
             onCommand={(command, value) => surfaceRef.current?.exec(command, value)}
           />
 
-          {/* Human: Flex child consumes all remaining height under header/toolbar/footer. */}
+          {collabEnabled ? (
+            <RtfCollabPresence
+              participants={collab.participants}
+              currentUserId={user?.id}
+              error={collab.error}
+              transport={collab.transport}
+            />
+          ) : null}
+
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {loading ? (
               <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[#666]">
@@ -303,9 +402,32 @@ export function RtfEditorDialog({
                 documentKey={documentKey}
                 initialHtml={seedHtml}
                 readOnly={readOnly}
-                onChange={setDraftHtml}
+                onChange={handleLocalChange}
                 className="min-h-0 flex-1"
               />
+            ) : null}
+
+            {/* Human: Colored lock markers for remote protected sentences. */}
+            {collabEnabled && collab.participants.some((p) => p.lock_start != null) ? (
+              <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex max-w-xs flex-col gap-1">
+                {collab.participants
+                  .filter(
+                    (p) =>
+                      p.user_id !== user?.id &&
+                      p.lock_start != null &&
+                      p.lock_end != null &&
+                      (p.lock_end ?? 0) > (p.lock_start ?? 0),
+                  )
+                  .map((p) => (
+                    <span
+                      key={p.user_id}
+                      className="rounded-md px-2 py-1 text-[10px] font-semibold text-white shadow"
+                      style={{ backgroundColor: p.color }}
+                    >
+                      {p.display_name} editing chars {p.lock_start}–{p.lock_end}
+                    </span>
+                  ))}
+              </div>
             ) : null}
           </div>
 

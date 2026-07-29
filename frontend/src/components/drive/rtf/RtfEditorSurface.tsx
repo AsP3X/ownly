@@ -8,6 +8,7 @@ export type RtfEditorSurfaceHandle = {
   focus: () => void;
   getHtml: () => string;
   setHtml: (html: string) => void;
+  getEditorElement: () => HTMLDivElement | null;
   exec: (command: string, value?: string) => void;
 };
 
@@ -59,6 +60,7 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
           if (!el) return;
           el.innerHTML = next?.trim() ? next : "<p><br></p>";
         },
+        getEditorElement: () => editorRef.current,
         exec: (command, value) => {
           const el = editorRef.current;
           if (!el || readOnly || disabled) return;

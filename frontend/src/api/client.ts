@@ -139,6 +139,87 @@ export async function listSpreadsheetCollabOps(
   ) as Promise<SpreadsheetCollabOp[]>;
 }
 
+// ── Document (RTF) live collab ──────────────────────────────────────────────
+
+export type DocumentCollabParticipant = {
+  user_id: string;
+  display_name: string;
+  color: string;
+  last_seen: number;
+  selection_start?: number | null;
+  selection_end?: number | null;
+  lock_start?: number | null;
+  lock_end?: number | null;
+};
+
+export type DocumentCollabSession = {
+  id: string;
+  file_id: string;
+  participants: DocumentCollabParticipant[];
+  latest_seq: number;
+  document_html: string;
+  document_text: string;
+};
+
+export type DocumentCollabOp = {
+  id: string;
+  seq: number;
+  user_id: string;
+  ts: number;
+  op_type: string;
+  payload: Record<string, unknown>;
+};
+
+// Human: Join or create a live co-editing session for a rich-text/RTF file.
+// Agent: POST /document/sessions; REQUIRES ContentRead; SEEDS html/text when first joiner.
+export async function joinDocumentCollabSession(body: {
+  file_id: string;
+  display_name?: string;
+  initial_html?: string;
+  initial_text?: string;
+}): Promise<DocumentCollabSession> {
+  return apiFetch("/document/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<DocumentCollabSession>;
+}
+
+export async function heartbeatDocumentCollabSession(
+  sessionId: string,
+  body: {
+    selection_start?: number;
+    selection_end?: number;
+    lock_start?: number;
+    lock_end?: number;
+    clear_lock?: boolean;
+  },
+): Promise<DocumentCollabSession> {
+  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<DocumentCollabSession>;
+}
+
+export async function postDocumentCollabOp(
+  sessionId: string,
+  body: { op_type: string; payload: Record<string, unknown> },
+): Promise<DocumentCollabOp> {
+  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}/ops`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as Promise<DocumentCollabOp>;
+}
+
+export async function listDocumentCollabOps(
+  sessionId: string,
+  afterSeq = 0,
+): Promise<DocumentCollabOp[]> {
+  return apiFetch(
+    `/document/sessions/${encodeURIComponent(sessionId)}/ops?after_seq=${afterSeq}`,
+    { cache: "no-store" },
+  ) as Promise<DocumentCollabOp[]>;
+}
+
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }
