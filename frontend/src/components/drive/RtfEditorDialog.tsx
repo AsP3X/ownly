@@ -36,6 +36,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useDocumentCollab } from "@/hooks/useDocumentCollab";
 import { getSelectionPlainOffsets, isTextMutatingKey } from "@/lib/rtf/dom-text-offset";
 import { rootPlainText } from "@/lib/rtf/plain-offset-range";
+import {
+  applyPlainReplaceToEditor,
+  diffPlainText,
+  transformRangeThroughReplace,
+} from "@/lib/rtf/text-ops";
 import { htmlToRtf } from "@/lib/rtf/html-to-rtf";
 import { rtfToHtml } from "@/lib/rtf/rtf-to-html";
 import { htmlToPlainText } from "@/lib/rtf/sentence-range";
@@ -76,6 +81,9 @@ export function RtfEditorDialog({
   const applyingRemoteRef = useRef(false);
   const lastLocalEditAtRef = useRef(0);
   const draftHtmlRef = useRef("<p><br></p>");
+  /** Human: Last plain text snapshot for concurrent text-op diffs. */
+  const lastPlainRef = useRef("");
+  const fullSyncTimerRef = useRef<number | null>(null);
   /** Human: Stable guest id for public-share collab participant key (guest:uuid). */
   const publicGuestIdRef = useRef<string | null>(null);
   if (shareToken && !publicGuestIdRef.current) {
@@ -121,6 +129,8 @@ export function RtfEditorDialog({
       : "Guest"
     : (user?.email ?? user?.id ?? "User");
 
+  const localLockRef = useRef<{ start: number; end: number } | null>(null);
+
   const collab = useDocumentCollab({
     fileId: file?.id,
     enabled: collabEnabled,
@@ -129,25 +139,104 @@ export function RtfEditorDialog({
     publicShare: publicShareCollab,
     getSeed: () => ({
       html: draftHtmlRef.current,
-      text: htmlToPlainText(draftHtmlRef.current),
+      text: lastPlainRef.current || htmlToPlainText(draftHtmlRef.current),
     }),
-    onRemoteDocument: (html, _text, fromUserId) => {
+    onRemoteDocument: (html, text, fromUserId) => {
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
       if (html === draftHtmlRef.current) return;
-      // Human: Full-document collab is last-write-wins — always apply peer snapshots for live feel.
-      // Agent: NO typing-window skip (that made concurrent edits look offline).
+      // Human: Full HTML snapshot (formatting / catch-up) — preserves local lock content when possible.
       applyingRemoteRef.current = true;
       try {
+        const root = surfaceRef.current?.getEditorElement();
+        const lock = localLockRef.current;
+        let preserved: { start: number; end: number; plain: string } | null = null;
+        if (
+          root &&
+          lock &&
+          lock.end > lock.start &&
+          Date.now() - lastLocalEditAtRef.current < 2000
+        ) {
+          const localPlain = rootPlainText(root);
+          preserved = {
+            start: lock.start,
+            end: lock.end,
+            plain: localPlain.slice(lock.start, lock.end),
+          };
+        }
+
         surfaceRef.current?.setHtml(html);
-        setDraftHtml(html);
-        draftHtmlRef.current = html;
+        let nextHtml = html;
+        if (preserved && surfaceRef.current) {
+          const el = surfaceRef.current.getEditorElement();
+          if (el) {
+            applyPlainReplaceToEditor(el, {
+              index: preserved.start,
+              deleteCount: Math.max(0, preserved.end - preserved.start),
+              insertText: preserved.plain,
+            });
+            nextHtml = surfaceRef.current.getHtml();
+          }
+        }
+        setDraftHtml(nextHtml);
+        draftHtmlRef.current = nextHtml;
+        const el = surfaceRef.current?.getEditorElement();
+        lastPlainRef.current = text || (el ? rootPlainText(el) : htmlToPlainText(nextHtml));
+        setCollabLayoutTick((tick) => tick + 1);
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+    },
+    onRemoteTextOp: (op) => {
+      if (localCollabUserId && op.fromUserId === localCollabUserId) return;
+      if (user?.id && op.fromUserId === user.id) return;
+      const root = surfaceRef.current?.getEditorElement();
+      if (!root) return;
+      applyingRemoteRef.current = true;
+      try {
+        const replace =
+          op.opType === "text_insert"
+            ? {
+                index: op.index,
+                deleteCount: 0,
+                insertText: op.text ?? "",
+              }
+            : {
+                index: op.index,
+                deleteCount: op.length ?? 0,
+                insertText: "",
+              };
+        const nextPlain = applyPlainReplaceToEditor(root, replace);
+        lastPlainRef.current = nextPlain;
+        if (localLockRef.current) {
+          const shifted = transformRangeThroughReplace(
+            localLockRef.current.start,
+            localLockRef.current.end,
+            replace,
+          );
+          localLockRef.current = shifted;
+        }
+        const nextHtml = surfaceRef.current?.getHtml() ?? draftHtmlRef.current;
+        setDraftHtml(nextHtml);
+        draftHtmlRef.current = nextHtml;
         setCollabLayoutTick((tick) => tick + 1);
       } finally {
         applyingRemoteRef.current = false;
       }
     },
   });
+
+  // Keep local lock range for merge-on-full-sync
+  useEffect(() => {
+    const me = collab.participants.find((p) => p.user_id === localCollabUserId);
+    if (
+      me?.lock_start != null &&
+      me.lock_end != null &&
+      me.lock_end > me.lock_start
+    ) {
+      localLockRef.current = { start: me.lock_start, end: me.lock_end };
+    }
+  }, [collab.participants, localCollabUserId]);
 
   const syncLabel = saveError
     ? saveError
@@ -174,6 +263,9 @@ export function RtfEditorDialog({
     setSavedHtml(html);
     setDraftHtml(html);
     draftHtmlRef.current = html;
+    // Human: Seed plain baseline so the first keystroke does not republish the whole document.
+    lastPlainRef.current = htmlToPlainText(html);
+    localLockRef.current = null;
     setDocumentKey(`${fileId}:${Date.now()}`);
   }, []);
 
@@ -225,6 +317,12 @@ export function RtfEditorDialog({
       setSavedHtml("<p><br></p>");
       setDraftHtml("<p><br></p>");
       draftHtmlRef.current = "<p><br></p>";
+      lastPlainRef.current = "";
+      localLockRef.current = null;
+      if (fullSyncTimerRef.current !== null) {
+        window.clearTimeout(fullSyncTimerRef.current);
+        fullSyncTimerRef.current = null;
+      }
       setDocumentKey("");
       setError("");
       setSaveError("");
@@ -234,13 +332,67 @@ export function RtfEditorDialog({
     }
   }, [open]);
 
+  // Human: After the surface mounts the seed HTML, re-baseline plain text from the live DOM
+  // (rootPlainText coordinate system used by locks + concurrent ops).
+  useEffect(() => {
+    if (!open || !documentKey || loading) return;
+    const frame = window.requestAnimationFrame(() => {
+      const root = surfaceRef.current?.getEditorElement();
+      if (!root) return;
+      lastPlainRef.current = rootPlainText(root);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [documentKey, loading, open]);
+
+  // Human: Never leave a pending full-doc publish timer after unmount.
+  useEffect(() => {
+    return () => {
+      if (fullSyncTimerRef.current !== null) {
+        window.clearTimeout(fullSyncTimerRef.current);
+        fullSyncTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleLocalChange = useCallback(
     (html: string) => {
       if (applyingRemoteRef.current) return;
       lastLocalEditAtRef.current = Date.now();
       setDraftHtml(html);
       draftHtmlRef.current = html;
-      collab.publishDocument(html, htmlToPlainText(html));
+
+      const root = surfaceRef.current?.getEditorElement();
+      const nextPlain = root ? rootPlainText(root) : htmlToPlainText(html);
+      const prevPlain = lastPlainRef.current;
+      const diff = diffPlainText(prevPlain, nextPlain);
+      lastPlainRef.current = nextPlain;
+
+      // Human: Concurrent live path — character ops so peers keep editing their own locks.
+      if (diff) {
+        if (diff.deleteCount > 0) {
+          collab.publishTextOp({
+            opType: "text_delete",
+            index: diff.index,
+            length: diff.deleteCount,
+          });
+        }
+        if (diff.insertText) {
+          collab.publishTextOp({
+            opType: "text_insert",
+            index: diff.index,
+            text: diff.insertText,
+          });
+        }
+      }
+
+      // Human: Periodic full HTML snapshot keeps formatting in sync without thrashing.
+      if (fullSyncTimerRef.current !== null) {
+        window.clearTimeout(fullSyncTimerRef.current);
+      }
+      fullSyncTimerRef.current = window.setTimeout(() => {
+        fullSyncTimerRef.current = null;
+        collab.publishDocument(draftHtmlRef.current, lastPlainRef.current);
+      }, 800);
     },
     [collab],
   );
@@ -351,11 +503,14 @@ export function RtfEditorDialog({
       setDraftHtml(currentHtml);
       setSavedHtml(currentHtml);
       draftHtmlRef.current = currentHtml;
+      const root = surfaceRef.current?.getEditorElement();
+      const plain = root ? rootPlainText(root) : htmlToPlainText(currentHtml);
+      lastPlainRef.current = plain;
       loadedFileIdRef.current = savedFile.id;
       suppressLoadForFileIdsRef.current.add(savedFile.id);
       onFileSaved?.(file.id, savedFile);
       // Keep collab session peers in sync with the durable save snapshot
-      collab.publishDocument(currentHtml, htmlToPlainText(currentHtml));
+      collab.publishDocument(currentHtml, plain);
     } catch (err) {
       setSaveError(getErrorMessage(err));
     } finally {

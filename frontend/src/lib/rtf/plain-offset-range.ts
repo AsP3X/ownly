@@ -1,10 +1,8 @@
-// Human: Map plain-text offsets ↔ DOM ranges using the same model as selection offsets.
-// Agent: WALKS text nodes (skips collab decoration chrome); USED by locks + highlights.
+// Human: Map plain-text offsets ↔ DOM ranges; lock mark helpers for collab highlights.
+// Agent: WALKS text nodes (skips collab chrome); USED by locks, carets, text ops.
 
 export const COLLAB_LOCK_MARK_ATTR = "data-rtf-collab-lock";
 
-// Human: True when a text node is ephemeral collab chrome (name chips), not document text.
-// Agent: SKIP in offset walks so lock highlights do not shift plain offsets.
 function isCollabChromeText(node: Text): boolean {
   const el = node.parentElement;
   if (!el) return false;
@@ -13,8 +11,6 @@ function isCollabChromeText(node: Text): boolean {
   return false;
 }
 
-// Human: Plain text under root matching selection offset walks (excludes collab chrome).
-// Agent: Concatenate non-chrome text nodes; USED for sentence locks.
 export function rootPlainText(root: HTMLElement): string {
   const parts: string[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -28,8 +24,6 @@ export function rootPlainText(root: HTMLElement): string {
   return parts.join("");
 }
 
-// Human: Offset of a caret point inside root (skips collab chrome text).
-// Agent: WALKS text nodes until node; ADDS offset within node.
 export function plainOffsetAt(root: HTMLElement, node: Node, offset: number): number {
   try {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -50,30 +44,49 @@ export function plainOffsetAt(root: HTMLElement, node: Node, offset: number): nu
       }
       return total;
     }
-    // Element caret: measure via range but subtract chrome if needed
     const pre = document.createRange();
     pre.selectNodeContents(root);
     pre.setEnd(node, offset);
-    // Fallback for non-text anchors
     return pre.toString().length;
   } catch {
     return 0;
   }
 }
 
-// Human: Build a Range covering [start, end) plain-text offsets under root.
-// Agent: pointAtPlainOffset for both ends; RETURNS null when empty.
 export function rangeFromPlainOffsets(
   root: HTMLElement,
   start: number,
   end: number,
 ): Range | null {
-  if (!root || end <= start) return null;
+  if (!root || end < start) return null;
+  if (end === start) {
+    // Collapsed: use a one-char range when possible
+    const probe = rangeFromPlainOffsets(root, start, start + 1);
+    if (probe) {
+      probe.collapse(true);
+      return probe;
+    }
+    if (start > 0) {
+      const prev = rangeFromPlainOffsetsNonCollapsed(root, start - 1, start);
+      if (prev) {
+        prev.collapse(false);
+        return prev;
+      }
+    }
+    return null;
+  }
+  return rangeFromPlainOffsetsNonCollapsed(root, start, end);
+}
 
+function rangeFromPlainOffsetsNonCollapsed(
+  root: HTMLElement,
+  start: number,
+  end: number,
+): Range | null {
+  if (!root || end <= start) return null;
   const startPoint = pointAtPlainOffset(root, start);
   const endPoint = pointAtPlainOffset(root, end);
   if (!startPoint || !endPoint) return null;
-
   try {
     const range = document.createRange();
     range.setStart(startPoint.node, startPoint.offset);
@@ -87,8 +100,6 @@ export function rangeFromPlainOffsets(
 
 type TextPoint = { node: Text; offset: number };
 
-// Human: Locate the text-node caret for a plain offset (skips collab chrome).
-// Agent: WALKS text nodes; cumulative lengths; CLAMPS to document end.
 function pointAtPlainOffset(root: HTMLElement, target: number): TextPoint | null {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, target);
@@ -108,17 +119,13 @@ function pointAtPlainOffset(root: HTMLElement, target: number): TextPoint | null
     remaining -= len;
     node = walker.nextNode() as Text | null;
   }
-
   return last;
 }
 
-// Human: Remove legacy DOM lock marks if any remain (older clients / failed paints).
-// Agent: UNWRAP [data-rtf-collab-lock]; USED before CSS-highlight paint and on unmount.
 export function stripCollabLockMarks(root: HTMLElement): void {
   root.querySelectorAll(`[${COLLAB_LOCK_MARK_ATTR}="label"]`).forEach((chip) => {
     chip.remove();
   });
-
   const marks = root.querySelectorAll(`[${COLLAB_LOCK_MARK_ATTR}="1"]`);
   marks.forEach((mark) => {
     const parent = mark.parentNode;
@@ -127,14 +134,10 @@ export function stripCollabLockMarks(root: HTMLElement): void {
       parent.insertBefore(mark.firstChild, mark);
     }
     parent.removeChild(mark);
-    if (parent instanceof HTMLElement) {
-      parent.normalize();
-    }
+    if (parent instanceof HTMLElement) parent.normalize();
   });
 }
 
-// Human: Serialize editor HTML without ephemeral collab decorations.
-// Agent: CLONE root; strip marks; RETURN innerHTML.
 export function getHtmlWithoutCollabMarks(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
   stripCollabLockMarks(clone);
@@ -154,9 +157,6 @@ function colorParts(color: string): {
   backgroundColor: string;
   borderColor: string;
   solid: string;
-  r: number;
-  g: number;
-  b: number;
 } {
   const hex = color.trim();
   let r = 37;
@@ -177,12 +177,9 @@ function colorParts(color: string): {
     }
   }
   return {
-    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.38)`,
-    borderColor: `rgba(${r}, ${g}, ${b}, 0.85)`,
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.35)`,
+    borderColor: `rgba(${r}, ${g}, ${b}, 0.9)`,
     solid: `rgb(${r}, ${g}, ${b})`,
-    r,
-    g,
-    b,
   };
 }
 
@@ -208,18 +205,138 @@ export type CaretMarker = {
   label: string;
 };
 
-export type CollabPresenceDecoration = {
-  userId: string;
-  displayName: string;
-  color: string;
-  selectionStart: number | null;
-  selectionEnd: number | null;
-  lockStart: number | null;
-  lockEnd: number | null;
-};
+// Human: Paint lock ranges as real DOM marks (visible background) — labels via CSS attr only.
+// Agent: STRIP prior marks; WRAP text slices; data-collab-name for ::before chip.
+export function applyCollabLockMarks(
+  root: HTMLElement,
+  locks: CollabLockDecoration[],
+): void {
+  ensureLockMarkStyles();
+  stripCollabLockMarks(root);
 
-// Human: Measure Docs-style bubble rects for foreign locks.
-// Agent: rangeFromPlainOffsets + getClientRects; coords relative to positioning container.
+  const ordered = [...locks]
+    .filter((lock) => lock.end > lock.start)
+    .sort((a, b) => b.start - a.start);
+
+  for (const lock of ordered) {
+    wrapPlainOffsetRange(root, lock.start, lock.end, lock);
+  }
+}
+
+function ensureLockMarkStyles(): void {
+  if (typeof document === "undefined") return;
+  const id = "ownly-rtf-collab-lock-styles";
+  if (document.getElementById(id)) return;
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = `
+    [${COLLAB_LOCK_MARK_ATTR}="1"] {
+      border-radius: 0.35em;
+      padding: 0.05em 0.12em;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+      position: relative;
+    }
+    [${COLLAB_LOCK_MARK_ATTR}="1"][data-collab-first="1"]::before {
+      content: attr(data-collab-name) " · locked";
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 2px);
+      max-width: 12rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #fff;
+      background: var(--collab-lock-color, #2563eb);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+      pointer-events: none;
+      z-index: 3;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function wrapPlainOffsetRange(
+  root: HTMLElement,
+  start: number,
+  end: number,
+  lock: CollabLockDecoration,
+): void {
+  const slices = collectTextSlices(root, start, end);
+  let isFirst = true;
+  for (const slice of slices) {
+    if (!slice.node.parentNode || slice.end <= slice.start) continue;
+    let textNode = slice.node;
+    if (slice.end < textNode.data.length) {
+      textNode.splitText(slice.end);
+    }
+    if (slice.start > 0) {
+      textNode = textNode.splitText(slice.start);
+    }
+    if (!textNode.data) continue;
+
+    const mark = document.createElement("span");
+    mark.setAttribute(COLLAB_LOCK_MARK_ATTR, "1");
+    mark.setAttribute("data-collab-user", lock.userId);
+    mark.setAttribute("data-collab-name", lock.displayName);
+    mark.setAttribute("contenteditable", "false");
+    if (isFirst) {
+      mark.setAttribute("data-collab-first", "1");
+      isFirst = false;
+    }
+    const styles = colorParts(lock.color);
+    mark.style.backgroundColor = styles.backgroundColor;
+    mark.style.boxShadow = `inset 0 0 0 1.5px ${styles.borderColor}`;
+    mark.style.setProperty("--collab-lock-color", styles.solid);
+    mark.title = `${lock.displayName} is editing this section`;
+
+    const parent = textNode.parentNode;
+    if (!parent) continue;
+    parent.insertBefore(mark, textNode);
+    mark.appendChild(textNode);
+  }
+}
+
+type TextSlice = { node: Text; start: number; end: number };
+
+function collectTextSlices(
+  root: HTMLElement,
+  start: number,
+  end: number,
+): TextSlice[] {
+  const slices: TextSlice[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let cursor = 0;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (isCollabChromeText(node)) {
+      node = walker.nextNode() as Text | null;
+      continue;
+    }
+    const len = node.data.length;
+    const nodeStart = cursor;
+    const nodeEnd = cursor + len;
+    const overlapStart = Math.max(start, nodeStart);
+    const overlapEnd = Math.min(end, nodeEnd);
+    if (overlapEnd > overlapStart && !node.parentElement?.hasAttribute(COLLAB_LOCK_MARK_ATTR)) {
+      slices.push({
+        node,
+        start: overlapStart - nodeStart,
+        end: overlapEnd - nodeStart,
+      });
+    }
+    cursor = nodeEnd;
+    if (cursor >= end) break;
+    node = walker.nextNode() as Text | null;
+  }
+  return slices;
+}
+
 export function measureLockBubbleRects(
   root: HTMLElement,
   container: HTMLElement,
@@ -227,10 +344,9 @@ export function measureLockBubbleRects(
 ): LockBubbleRect[] {
   const containerRect = container.getBoundingClientRect();
   const next: LockBubbleRect[] = [];
-
   for (const lock of locks) {
     if (lock.end <= lock.start) continue;
-    const range = rangeFromPlainOffsets(root, lock.start, lock.end);
+    const range = rangeFromPlainOffsetsNonCollapsed(root, lock.start, lock.end);
     if (!range) continue;
     const styles = colorParts(lock.color);
     let index = 0;
@@ -254,8 +370,6 @@ export function measureLockBubbleRects(
   return next;
 }
 
-// Human: Measure a remote caret at a plain-text offset (Docs-style colored bar).
-// Agent: Prefer next-char rect left edge; else previous-char right edge; else root fallback.
 export function measureCaretMarker(
   root: HTMLElement,
   container: HTMLElement,
@@ -268,11 +382,9 @@ export function measureCaretMarker(
   const styles = colorParts(color);
   const start = Math.max(0, Math.floor(offset));
 
-  // Next character (caret sits at its left edge)
-  const nextRange = rangeFromPlainOffsets(root, start, start + 1);
+  const nextRange = rangeFromPlainOffsetsNonCollapsed(root, start, start + 1);
   if (nextRange) {
-    const rects = nextRange.getClientRects();
-    const rect = rects[0] ?? nextRange.getBoundingClientRect();
+    const rect = nextRange.getClientRects()[0] ?? nextRange.getBoundingClientRect();
     if (rect && rect.height >= 1) {
       return {
         key: `caret-${userId}`,
@@ -285,9 +397,8 @@ export function measureCaretMarker(
     }
   }
 
-  // Previous character (caret sits at its right edge) — EOF / end of line
   if (start > 0) {
-    const prevRange = rangeFromPlainOffsets(root, start - 1, start);
+    const prevRange = rangeFromPlainOffsetsNonCollapsed(root, start - 1, start);
     if (prevRange) {
       const rects = prevRange.getClientRects();
       const rect = rects[rects.length - 1] ?? prevRange.getBoundingClientRect();
@@ -304,7 +415,6 @@ export function measureCaretMarker(
     }
   }
 
-  // Empty document fallback — top of editor content box
   const rootRect = root.getBoundingClientRect();
   const style = window.getComputedStyle(root);
   const padTop = Number.parseFloat(style.paddingTop || "0") || 0;
@@ -319,8 +429,6 @@ export function measureCaretMarker(
   };
 }
 
-// Human: Selection highlight rects for remote non-collapsed selections.
-// Agent: SAME as lock bubbles but softer fill; USED when selection spans multiple chars.
 export function measureSelectionRects(
   root: HTMLElement,
   container: HTMLElement,
@@ -342,127 +450,8 @@ export function measureSelectionRects(
   ]).map((r) => ({
     ...r,
     key: `sel-${userId}-${r.key}`,
-    backgroundColor: colorParts(color).backgroundColor.replace("0.38", "0.22"),
+    backgroundColor: colorParts(color).backgroundColor.replace("0.35", "0.2"),
     borderColor: "transparent",
     isFirst: false,
   }));
-}
-
-// Human: Prefer CSS Custom Highlight API (non-mutating, Docs-like text background).
-// Agent: REGISTERS Highlight per user; INJECTS ::highlight rules; RETURNS false when unsupported.
-export function applyCssLockHighlights(
-  root: HTMLElement,
-  locks: CollabLockDecoration[],
-): boolean {
-  const cssHighlights = (
-    globalThis as unknown as {
-      CSS?: { highlights?: Map<string, unknown> & { set: Function; delete: Function } };
-      Highlight?: new (...ranges: Range[]) => unknown;
-    }
-  ).CSS?.highlights;
-  const HighlightCtor = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
-    .Highlight;
-
-  if (!cssHighlights || !HighlightCtor) {
-    return false;
-  }
-
-  ensureHighlightStyles(locks);
-
-  const activeNames = new Set<string>();
-  for (const lock of locks) {
-    if (lock.end <= lock.start) continue;
-    const range = rangeFromPlainOffsets(root, lock.start, lock.end);
-    if (!range) continue;
-    const name = highlightName(lock.userId);
-    try {
-      const highlight = new HighlightCtor(range);
-      cssHighlights.set(name, highlight);
-      activeNames.add(name);
-    } catch {
-      /* ignore single lock failure */
-    }
-  }
-
-  pruneHighlightStyles(activeNames);
-  void root;
-  return activeNames.size > 0 || locks.length === 0;
-}
-
-export function clearCssLockHighlights(userIds?: string[]): void {
-  const cssHighlights = (
-    globalThis as unknown as {
-      CSS?: { highlights?: { delete: (name: string) => void } };
-    }
-  ).CSS?.highlights;
-  if (!cssHighlights) return;
-  if (userIds) {
-    for (const id of userIds) {
-      try {
-        cssHighlights.delete(highlightName(id));
-      } catch {
-        /* ignore */
-      }
-    }
-    return;
-  }
-}
-
-function highlightName(userId: string): string {
-  // CSS highlight names must be valid <custom-ident>-ish; sanitize.
-  return `ownly-collab-lock-${userId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
-
-const STYLE_TAG_ID = "ownly-collab-lock-highlight-styles";
-
-function ensureHighlightStyles(locks: CollabLockDecoration[]): void {
-  if (typeof document === "undefined") return;
-  let style = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = STYLE_TAG_ID;
-    document.head.appendChild(style);
-  }
-
-  const rules: string[] = [];
-  for (const lock of locks) {
-    const name = highlightName(lock.userId);
-    const { r, g, b } = colorParts(lock.color);
-    rules.push(
-      `::highlight(${name}) { background-color: rgba(${r}, ${g}, ${b}, 0.4); color: inherit; }`,
-    );
-  }
-  // Merge with existing rules for other users still present
-  const existing = style.textContent ?? "";
-  const kept = existing
-    .split("\n")
-    .filter((line) => {
-      if (!line.includes("::highlight(ownly-collab-lock-")) return false;
-      const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
-      if (!match) return false;
-      const name = match[1]!;
-      return locks.some((l) => highlightName(l.userId) === name);
-    });
-  const byName = new Map<string, string>();
-  for (const line of kept) {
-    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
-    if (match) byName.set(match[1]!, line);
-  }
-  for (const rule of rules) {
-    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(rule);
-    if (match) byName.set(match[1]!, rule);
-  }
-  style.textContent = [...byName.values()].join("\n");
-}
-
-function pruneHighlightStyles(activeNames: Set<string>): void {
-  if (typeof document === "undefined") return;
-  const style = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
-  if (!style?.textContent) return;
-  const kept = style.textContent.split("\n").filter((line) => {
-    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
-    if (!match) return false;
-    return activeNames.has(match[1]!);
-  });
-  style.textContent = kept.join("\n");
 }

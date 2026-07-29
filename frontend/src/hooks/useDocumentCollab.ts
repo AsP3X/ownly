@@ -38,6 +38,14 @@ type PublicShareCollab = {
   guestId: string;
 };
 
+export type RemoteTextOp = {
+  opType: "text_insert" | "text_delete";
+  index: number;
+  text?: string;
+  length?: number;
+  fromUserId: string;
+};
+
 type UseDocumentCollabOptions = {
   fileId: string | null | undefined;
   enabled: boolean;
@@ -46,6 +54,8 @@ type UseDocumentCollabOptions = {
   publicShare?: PublicShareCollab | null;
   getSeed?: () => { html: string; text: string };
   onRemoteDocument?: (html: string, text: string, fromUserId: string) => void;
+  /** Human: Live concurrent typing — apply insert/delete without full HTML replace. */
+  onRemoteTextOp?: (op: RemoteTextOp) => void;
   onPresence?: (participants: DocumentCollabParticipant[]) => void;
 };
 
@@ -81,6 +91,7 @@ export function useDocumentCollab({
   publicShare,
   getSeed,
   onRemoteDocument,
+  onRemoteTextOp,
   onPresence,
 }: UseDocumentCollabOptions) {
   const [session, setSession] = useState<DocumentCollabSession | null>(null);
@@ -92,6 +103,7 @@ export function useDocumentCollab({
   const localUserIdRef = useRef(localUserId);
   const publicShareRef = useRef(publicShare);
   const onRemoteDocumentRef = useRef(onRemoteDocument);
+  const onRemoteTextOpRef = useRef(onRemoteTextOp);
   const onPresenceRef = useRef(onPresence);
   const getSeedRef = useRef(getSeed);
   const publishTimerRef = useRef<number | null>(null);
@@ -107,6 +119,7 @@ export function useDocumentCollab({
   localUserIdRef.current = localUserId;
   publicShareRef.current = publicShare;
   onRemoteDocumentRef.current = onRemoteDocument;
+  onRemoteTextOpRef.current = onRemoteTextOp;
   onPresenceRef.current = onPresence;
   getSeedRef.current = getSeed;
   transportRef.current = transport;
@@ -181,8 +194,47 @@ export function useDocumentCollab({
         });
       }
 
-      if (localUserIdRef.current && op.user_id === localUserIdRef.current) continue;
-      if (op.op_type === "doc_html") {
+      if (localUserIdRef.current && op.user_id === localUserIdRef.current) {
+        if (op.op_type === "doc_html") {
+          const html = typeof op.payload.html === "string" ? op.payload.html : "";
+          if (html) lastPublishedHtmlRef.current = html;
+        }
+        continue;
+      }
+
+      if (op.op_type === "text_insert") {
+        const index =
+          typeof op.payload.index === "number"
+            ? op.payload.index
+            : Number(op.payload.index);
+        const text =
+          typeof op.payload.text === "string" ? op.payload.text : String(op.payload.text ?? "");
+        if (Number.isFinite(index) && text) {
+          onRemoteTextOpRef.current?.({
+            opType: "text_insert",
+            index,
+            text,
+            fromUserId: op.user_id,
+          });
+        }
+      } else if (op.op_type === "text_delete") {
+        const index =
+          typeof op.payload.index === "number"
+            ? op.payload.index
+            : Number(op.payload.index);
+        const length =
+          typeof op.payload.length === "number"
+            ? op.payload.length
+            : Number(op.payload.length);
+        if (Number.isFinite(index) && Number.isFinite(length) && length > 0) {
+          onRemoteTextOpRef.current?.({
+            opType: "text_delete",
+            index,
+            length,
+            fromUserId: op.user_id,
+          });
+        }
+      } else if (op.op_type === "doc_html") {
         const html = typeof op.payload.html === "string" ? op.payload.html : "";
         const text = typeof op.payload.text === "string" ? op.payload.text : "";
         if (html) {
@@ -561,6 +613,54 @@ export function useDocumentCollab({
     [enabled, flushPublish],
   );
 
+  // Human: Live concurrent typing — text_insert / text_delete (does not clobber peer locks).
+  // Agent: WS-first op; HTTP fallback postDocumentCollabOp.
+  const publishTextOp = useCallback(
+    (op: {
+      opType: "text_insert" | "text_delete";
+      index: number;
+      text?: string;
+      length?: number;
+    }) => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId || !enabled) return;
+
+      const payload =
+        op.opType === "text_insert"
+          ? { index: op.index, text: op.text ?? "" }
+          : { index: op.index, length: op.length ?? 0 };
+
+      if (
+        wsSend({
+          type: "op",
+          op_type: op.opType,
+          payload,
+        })
+      ) {
+        return;
+      }
+
+      const share = publicShareRef.current;
+      void (share
+        ? postPublicDocumentCollabOp(
+            {
+              token: share.token,
+              sharePassword: share.sharePassword,
+              guestId: share.guestId,
+            },
+            sessionId,
+            { op_type: op.opType, payload },
+          )
+        : postDocumentCollabOp(sessionId, { op_type: op.opType, payload })
+      )
+        .then((result) => {
+          latestSeqRef.current = Math.max(latestSeqRef.current, result.seq);
+        })
+        .catch(() => undefined);
+    },
+    [enabled, wsSend],
+  );
+
   const acquireSentenceLock = useCallback(
     async (text: string, caretStart: number, caretEnd: number) => {
       const range = sentenceRangeAround(text, caretStart, caretEnd);
@@ -672,6 +772,7 @@ export function useDocumentCollab({
     error,
     transport,
     publishDocument,
+    publishTextOp,
     updatePresence,
     acquireSentenceLock,
     releaseLock,
