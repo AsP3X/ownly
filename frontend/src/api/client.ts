@@ -200,6 +200,16 @@ export async function heartbeatDocumentCollabSession(
   }) as Promise<DocumentCollabSession>;
 }
 
+// Human: Fetch current collab session snapshot (participants + locks) without mutating presence.
+// Agent: GET /document/sessions/:id; USED as sparse poll when WS presence is missed.
+export async function getDocumentCollabSession(
+  sessionId: string,
+): Promise<DocumentCollabSession> {
+  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}`, {
+    cache: "no-store",
+  }) as Promise<DocumentCollabSession>;
+}
+
 export async function postDocumentCollabOp(
   sessionId: string,
   body: { op_type: string; payload: Record<string, unknown> },
@@ -292,6 +302,22 @@ export async function heartbeatPublicDocumentCollabSession(
         ...body,
         guest_id: auth.guestId,
       }),
+    },
+  ) as Promise<DocumentCollabSession>;
+}
+
+// Human: Public session snapshot for presence/lock gap-fill without a JWT.
+// Agent: GET /public/shares/:token/document/sessions/:id?guest_id=
+export async function getPublicDocumentCollabSession(
+  auth: PublicCollabAuth,
+  sessionId: string,
+): Promise<DocumentCollabSession> {
+  const params = new URLSearchParams({ guest_id: auth.guestId });
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: publicCollabHeaders(auth.sharePassword),
     },
   ) as Promise<DocumentCollabSession>;
 }

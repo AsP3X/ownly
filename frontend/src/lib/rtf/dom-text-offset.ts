@@ -1,8 +1,10 @@
 // Human: Map contenteditable caret ↔ plain-text offsets for collab locks.
-// Agent: WALKS text nodes under root; USED by RtfEditorDialog selection handlers.
+// Agent: USES plainOffsetAt (skips collab chrome); USED by RtfEditorDialog selection handlers.
+
+import { plainOffsetAt } from "@/lib/rtf/plain-offset-range";
 
 // Human: Plain-text offset of the current selection anchor within the editor root.
-// Agent: USES Range + TreeWalker; RETURNS 0 when selection is outside root.
+// Agent: plainOffsetAt for start/end; RETURNS null when selection is outside root.
 export function getSelectionPlainOffsets(root: HTMLElement): {
   start: number;
   end: number;
@@ -14,15 +16,8 @@ export function getSelectionPlainOffsets(root: HTMLElement): {
     return null;
   }
 
-  const offsetInRoot = (node: Node, offset: number): number => {
-    const pre = document.createRange();
-    pre.selectNodeContents(root);
-    pre.setEnd(node, offset);
-    return pre.toString().length;
-  };
-
-  const start = offsetInRoot(range.startContainer, range.startOffset);
-  const end = offsetInRoot(range.endContainer, range.endOffset);
+  const start = plainOffsetAt(root, range.startContainer, range.startOffset);
+  const end = plainOffsetAt(root, range.endContainer, range.endOffset);
   return {
     start: Math.min(start, end),
     end: Math.max(start, end),

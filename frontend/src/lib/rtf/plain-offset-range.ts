@@ -1,23 +1,60 @@
 // Human: Map plain-text offsets ↔ DOM ranges using the same model as selection offsets.
-// Agent: Range.toString() lengths; USED by collab locks + Docs-style lock mark wrapping.
+// Agent: WALKS text nodes (skips collab decoration chrome); USED by locks + highlights.
 
 export const COLLAB_LOCK_MARK_ATTR = "data-rtf-collab-lock";
 
-// Human: Plain text length/model matching getSelectionPlainOffsets (Range.toString).
-// Agent: selectNodeContents(root).toString(); USED for sentence locks.
-export function rootPlainText(root: HTMLElement): string {
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  return range.toString();
+// Human: True when a text node is ephemeral collab chrome (name chips), not document text.
+// Agent: SKIP in offset walks so lock highlights do not shift plain offsets.
+function isCollabChromeText(node: Text): boolean {
+  const el = node.parentElement;
+  if (!el) return false;
+  if (el.getAttribute(COLLAB_LOCK_MARK_ATTR) === "label") return true;
+  if (el.closest?.(`[${COLLAB_LOCK_MARK_ATTR}="label"]`)) return true;
+  return false;
 }
 
-// Human: Offset of a caret point inside root using Range.toString (matches selection API).
-// Agent: setEnd(node, offset); RETURNS length of prefix string.
+// Human: Plain text under root matching selection offset walks (excludes collab chrome).
+// Agent: Concatenate non-chrome text nodes; USED for sentence locks.
+export function rootPlainText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (!isCollabChromeText(node)) {
+      parts.push(node.data);
+    }
+    node = walker.nextNode() as Text | null;
+  }
+  return parts.join("");
+}
+
+// Human: Offset of a caret point inside root (skips collab chrome text).
+// Agent: WALKS text nodes until node; ADDS offset within node.
 export function plainOffsetAt(root: HTMLElement, node: Node, offset: number): number {
   try {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let total = 0;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let current = walker.nextNode() as Text | null;
+      while (current) {
+        if (current === node) {
+          if (!isCollabChromeText(current)) {
+            total += Math.min(offset, current.data.length);
+          }
+          return total;
+        }
+        if (!isCollabChromeText(current)) {
+          total += current.data.length;
+        }
+        current = walker.nextNode() as Text | null;
+      }
+      return total;
+    }
+    // Element caret: measure via range but subtract chrome if needed
     const pre = document.createRange();
     pre.selectNodeContents(root);
     pre.setEnd(node, offset);
+    // Fallback for non-text anchors
     return pre.toString().length;
   } catch {
     return 0;
@@ -25,7 +62,7 @@ export function plainOffsetAt(root: HTMLElement, node: Node, offset: number): nu
 }
 
 // Human: Build a Range covering [start, end) plain-text offsets under root.
-// Agent: WALKS text nodes with cumulative Range.toString offsets; RETURNS null when empty.
+// Agent: pointAtPlainOffset for both ends; RETURNS null when empty.
 export function rangeFromPlainOffsets(
   root: HTMLElement,
   start: number,
@@ -50,24 +87,19 @@ export function rangeFromPlainOffsets(
 
 type TextPoint = { node: Text; offset: number };
 
-// Human: Locate the text-node caret for a plain offset (clamps to end of document).
-// Agent: WALKS text nodes; USES cumulative data lengths (aligned with Range.toString for text).
+// Human: Locate the text-node caret for a plain offset (skips collab chrome).
+// Agent: WALKS text nodes; cumulative lengths; CLAMPS to document end.
 function pointAtPlainOffset(root: HTMLElement, target: number): TextPoint | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      // Human: Skip ephemeral collab decoration wrappers' structure by still counting their text.
-      // Agent: ACCEPT all text nodes under root (marks contain the same text).
-      return node.nodeType === Node.TEXT_NODE
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT;
-    },
-  });
-
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, target);
   let last: TextPoint | null = null;
   let node = walker.nextNode() as Text | null;
 
   while (node) {
+    if (isCollabChromeText(node)) {
+      node = walker.nextNode() as Text | null;
+      continue;
+    }
     const len = node.data.length;
     last = { node, offset: len };
     if (remaining <= len) {
@@ -80,10 +112,9 @@ function pointAtPlainOffset(root: HTMLElement, target: number): TextPoint | null
   return last;
 }
 
-// Human: Remove all collab lock decoration marks, preserving text content.
-// Agent: UNWRAP [data-rtf-collab-lock]; normalize parents; USED before save/collab publish.
+// Human: Remove legacy DOM lock marks if any remain (older clients / failed paints).
+// Agent: UNWRAP [data-rtf-collab-lock]; USED before CSS-highlight paint and on unmount.
 export function stripCollabLockMarks(root: HTMLElement): void {
-  // Human: Remove name chips first (they are not real document text).
   root.querySelectorAll(`[${COLLAB_LOCK_MARK_ATTR}="label"]`).forEach((chip) => {
     chip.remove();
   });
@@ -102,7 +133,7 @@ export function stripCollabLockMarks(root: HTMLElement): void {
   });
 }
 
-// Human: Serialize editor HTML without ephemeral collab lock decorations.
+// Human: Serialize editor HTML without ephemeral collab decorations.
 // Agent: CLONE root; strip marks; RETURN innerHTML.
 export function getHtmlWithoutCollabMarks(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
@@ -119,187 +150,13 @@ export type CollabLockDecoration = {
   end: number;
 };
 
-// Human: Paint Docs/Word-style highlight marks for foreign locked ranges (ephemeral DOM only).
-// Agent: STRIP previous marks; WRAP text slices in span[data-rtf-collab-lock]; box-decoration-break.
-export function applyCollabLockMarks(
-  root: HTMLElement,
-  locks: CollabLockDecoration[],
-): void {
-  // Preserve selection if possible
-  const selection = window.getSelection();
-  const hadFocus = root.contains(document.activeElement);
-  let saved: { start: number; end: number } | null = null;
-  if (selection && selection.rangeCount > 0 && root.contains(selection.anchorNode)) {
-    try {
-      const start = plainOffsetAt(
-        root,
-        selection.anchorNode!,
-        selection.anchorOffset,
-      );
-      const end = plainOffsetAt(root, selection.focusNode!, selection.focusOffset);
-      saved = { start: Math.min(start, end), end: Math.max(start, end) };
-    } catch {
-      saved = null;
-    }
-  }
-
-  stripCollabLockMarks(root);
-
-  // Apply from end → start so earlier offsets stay valid while wrapping later ranges.
-  const ordered = [...locks]
-    .filter((lock) => lock.end > lock.start)
-    .sort((a, b) => b.start - a.start);
-
-  for (const lock of ordered) {
-    wrapPlainOffsetRange(root, lock.start, lock.end, lock);
-  }
-
-  if (saved && hadFocus) {
-    const range = rangeFromPlainOffsets(root, saved.start, saved.end);
-    if (range && selection) {
-      try {
-        selection.removeAllRanges();
-        selection.addRange(range);
-      } catch {
-        /* ignore restore failures */
-      }
-    }
-  }
-}
-
-// Human: Wrap every text slice in [start,end) with a colored collab mark span.
-// Agent: SPLIT text nodes at boundaries; WRAP middle; styles inline for user color.
-function wrapPlainOffsetRange(
-  root: HTMLElement,
-  start: number,
-  end: number,
-  lock: CollabLockDecoration,
-): void {
-  if (end <= start) return;
-
-  const slices = collectTextSlices(root, start, end);
-  let isFirstSlice = true;
-  for (const slice of slices) {
-    if (!slice.node.parentNode) continue;
-    if (slice.end <= slice.start) continue;
-
-    let textNode = slice.node;
-    // Split end first so start indices stay valid on this node.
-    if (slice.end < textNode.data.length) {
-      textNode.splitText(slice.end);
-    }
-    if (slice.start > 0) {
-      textNode = textNode.splitText(slice.start);
-    }
-
-    if (!textNode.data) continue;
-
-    const mark = document.createElement("span");
-    mark.setAttribute(COLLAB_LOCK_MARK_ATTR, "1");
-    mark.setAttribute("data-collab-user", lock.userId);
-    mark.setAttribute("data-collab-name", lock.displayName);
-    mark.setAttribute("title", `${lock.displayName} is editing this section`);
-    // Human: Keep text selectable but block typing via key handlers + contenteditable=false.
-    mark.setAttribute("contenteditable", "false");
-    if (isFirstSlice) {
-      mark.setAttribute("data-collab-first", "1");
-      isFirstSlice = false;
-    }
-
-    const { backgroundColor, borderColor, color } = colorParts(lock.color);
-    mark.style.backgroundColor = backgroundColor;
-    mark.style.boxShadow = `inset 0 0 0 1.5px ${borderColor}`;
-    mark.style.borderRadius = "0.35em";
-    mark.style.padding = "0.1em 0.22em";
-    mark.style.margin = "0 -0.04em";
-    mark.style.boxDecorationBreak = "clone";
-    (mark.style as CSSStyleDeclaration & { webkitBoxDecorationBreak?: string }).webkitBoxDecorationBreak =
-      "clone";
-    mark.style.color = "inherit";
-    mark.style.position = "relative";
-    mark.dataset.collabColor = color;
-
-    if (mark.getAttribute("data-collab-first") === "1") {
-      // Human: Name chip above the first line of a foreign lock (Docs-style authorship cue).
-      const chip = document.createElement("span");
-      chip.setAttribute(COLLAB_LOCK_MARK_ATTR, "label");
-      chip.setAttribute("contenteditable", "false");
-      chip.textContent = lock.displayName;
-      chip.style.cssText = [
-        "position:absolute",
-        "left:0",
-        "bottom:100%",
-        "margin-bottom:2px",
-        "max-width:12rem",
-        "overflow:hidden",
-        "text-overflow:ellipsis",
-        "white-space:nowrap",
-        "border-radius:999px",
-        "padding:2px 7px",
-        "font-size:9px",
-        "font-weight:700",
-        "line-height:1.2",
-        "color:#fff",
-        `background:${color}`,
-        "box-shadow:0 1px 3px rgba(0,0,0,0.18)",
-        "pointer-events:none",
-        "z-index:2",
-      ].join(";");
-      mark.appendChild(chip);
-    }
-
-    const parent = textNode.parentNode;
-    if (!parent) continue;
-    parent.insertBefore(mark, textNode);
-    mark.appendChild(textNode);
-  }
-}
-
-type TextSlice = { node: Text; start: number; end: number };
-
-// Human: List text-node slices overlapping [start, end) in plain-offset space.
-// Agent: WALKS text nodes; cumulative lengths; RETURNS local start/end within each node.
-function collectTextSlices(
-  root: HTMLElement,
-  start: number,
-  end: number,
-): TextSlice[] {
-  const slices: TextSlice[] = [];
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let cursor = 0;
-  let node = walker.nextNode() as Text | null;
-
-  while (node) {
-    const len = node.data.length;
-    const nodeStart = cursor;
-    const nodeEnd = cursor + len;
-
-    const overlapStart = Math.max(start, nodeStart);
-    const overlapEnd = Math.min(end, nodeEnd);
-    if (overlapEnd > overlapStart) {
-      // Skip text already inside a mark from a previous lock application this pass
-      // (we strip first, so shouldn't happen) — still skip nested re-wrap.
-      if (!node.parentElement?.hasAttribute(COLLAB_LOCK_MARK_ATTR)) {
-        slices.push({
-          node,
-          start: overlapStart - nodeStart,
-          end: overlapEnd - nodeStart,
-        });
-      }
-    }
-
-    cursor = nodeEnd;
-    if (cursor >= end) break;
-    node = walker.nextNode() as Text | null;
-  }
-
-  return slices;
-}
-
 function colorParts(color: string): {
   backgroundColor: string;
   borderColor: string;
-  color: string;
+  solid: string;
+  r: number;
+  g: number;
+  b: number;
 } {
   const hex = color.trim();
   let r = 37;
@@ -320,9 +177,181 @@ function colorParts(color: string): {
     }
   }
   return {
-    // Stronger fill so the lock reads like Docs/Word selection highlights
-    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.32)`,
-    borderColor: `rgba(${r}, ${g}, ${b}, 0.75)`,
-    color: `rgb(${r}, ${g}, ${b})`,
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.38)`,
+    borderColor: `rgba(${r}, ${g}, ${b}, 0.85)`,
+    solid: `rgb(${r}, ${g}, ${b})`,
+    r,
+    g,
+    b,
   };
+}
+
+export type LockBubbleRect = {
+  key: string;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  color: string;
+  label: string;
+  isFirst: boolean;
+  backgroundColor: string;
+  borderColor: string;
+};
+
+// Human: Measure Docs-style bubble rects for foreign locks (overlay fallback).
+// Agent: rangeFromPlainOffsets + getClientRects; coords relative to positioning container
+// (must be the same relative ancestor as the overlay — not a scrolled viewport).
+export function measureLockBubbleRects(
+  root: HTMLElement,
+  container: HTMLElement,
+  locks: CollabLockDecoration[],
+): LockBubbleRect[] {
+  const containerRect = container.getBoundingClientRect();
+  const next: LockBubbleRect[] = [];
+
+  for (const lock of locks) {
+    if (lock.end <= lock.start) continue;
+    const range = rangeFromPlainOffsets(root, lock.start, lock.end);
+    if (!range) continue;
+    const styles = colorParts(lock.color);
+    let index = 0;
+    for (const rect of Array.from(range.getClientRects())) {
+      if (rect.width < 1 || rect.height < 1) continue;
+      // Human: Overlay lives inside scrolled content — do not add scrollTop (double-count).
+      next.push({
+        key: `${lock.userId}-${lock.start}-${lock.end}-${index}`,
+        top: rect.top - containerRect.top - 2,
+        left: rect.left - containerRect.left - 3,
+        width: rect.width + 6,
+        height: rect.height + 4,
+        color: styles.solid,
+        label: lock.displayName,
+        isFirst: index === 0,
+        backgroundColor: styles.backgroundColor,
+        borderColor: styles.borderColor,
+      });
+      index += 1;
+    }
+  }
+  return next;
+}
+
+// Human: Prefer CSS Custom Highlight API (non-mutating, Docs-like text background).
+// Agent: REGISTERS Highlight per user; INJECTS ::highlight rules; RETURNS false when unsupported.
+export function applyCssLockHighlights(
+  root: HTMLElement,
+  locks: CollabLockDecoration[],
+): boolean {
+  const cssHighlights = (
+    globalThis as unknown as {
+      CSS?: { highlights?: Map<string, unknown> & { set: Function; delete: Function } };
+      Highlight?: new (...ranges: Range[]) => unknown;
+    }
+  ).CSS?.highlights;
+  const HighlightCtor = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
+    .Highlight;
+
+  if (!cssHighlights || !HighlightCtor) {
+    return false;
+  }
+
+  ensureHighlightStyles(locks);
+
+  const activeNames = new Set<string>();
+  for (const lock of locks) {
+    if (lock.end <= lock.start) continue;
+    const range = rangeFromPlainOffsets(root, lock.start, lock.end);
+    if (!range) continue;
+    const name = highlightName(lock.userId);
+    try {
+      const highlight = new HighlightCtor(range);
+      cssHighlights.set(name, highlight);
+      activeNames.add(name);
+    } catch {
+      /* ignore single lock failure */
+    }
+  }
+
+  pruneHighlightStyles(activeNames);
+  void root;
+  return activeNames.size > 0 || locks.length === 0;
+}
+
+export function clearCssLockHighlights(userIds?: string[]): void {
+  const cssHighlights = (
+    globalThis as unknown as {
+      CSS?: { highlights?: { delete: (name: string) => void } };
+    }
+  ).CSS?.highlights;
+  if (!cssHighlights) return;
+  if (userIds) {
+    for (const id of userIds) {
+      try {
+        cssHighlights.delete(highlightName(id));
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+}
+
+function highlightName(userId: string): string {
+  // CSS highlight names must be valid <custom-ident>-ish; sanitize.
+  return `ownly-collab-lock-${userId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+const STYLE_TAG_ID = "ownly-collab-lock-highlight-styles";
+
+function ensureHighlightStyles(locks: CollabLockDecoration[]): void {
+  if (typeof document === "undefined") return;
+  let style = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.id = STYLE_TAG_ID;
+    document.head.appendChild(style);
+  }
+
+  const rules: string[] = [];
+  for (const lock of locks) {
+    const name = highlightName(lock.userId);
+    const { r, g, b } = colorParts(lock.color);
+    rules.push(
+      `::highlight(${name}) { background-color: rgba(${r}, ${g}, ${b}, 0.4); color: inherit; }`,
+    );
+  }
+  // Merge with existing rules for other users still present
+  const existing = style.textContent ?? "";
+  const kept = existing
+    .split("\n")
+    .filter((line) => {
+      if (!line.includes("::highlight(ownly-collab-lock-")) return false;
+      const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
+      if (!match) return false;
+      const name = match[1]!;
+      return locks.some((l) => highlightName(l.userId) === name);
+    });
+  const byName = new Map<string, string>();
+  for (const line of kept) {
+    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
+    if (match) byName.set(match[1]!, line);
+  }
+  for (const rule of rules) {
+    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(rule);
+    if (match) byName.set(match[1]!, rule);
+  }
+  style.textContent = [...byName.values()].join("\n");
+}
+
+function pruneHighlightStyles(activeNames: Set<string>): void {
+  if (typeof document === "undefined") return;
+  const style = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
+  if (!style?.textContent) return;
+  const kept = style.textContent.split("\n").filter((line) => {
+    const match = /::highlight\((ownly-collab-lock-[^)]+)\)/.exec(line);
+    if (!match) return false;
+    return activeNames.has(match[1]!);
+  });
+  style.textContent = kept.join("\n");
 }

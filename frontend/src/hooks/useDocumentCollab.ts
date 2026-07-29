@@ -4,6 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   API_BASE,
+  getDocumentCollabSession,
+  getPublicDocumentCollabSession,
   heartbeatDocumentCollabSession,
   heartbeatPublicDocumentCollabSession,
   joinDocumentCollabSession,
@@ -291,7 +293,7 @@ export function useDocumentCollab({
     };
   }, [applySession, enabled, ingestOps, session?.id]);
 
-  // Sparse poll gap-fill (WS is primary; HTTP poll is backup only)
+  // Sparse poll gap-fill: ops + full session (locks/presence) so highlights work without WS.
   useEffect(() => {
     if (!enabled || !session?.id) return;
     const sessionId = session.id;
@@ -299,28 +301,35 @@ export function useDocumentCollab({
 
     const tick = () => {
       const share = publicShareRef.current;
-      const listPromise = share
-        ? listPublicDocumentCollabOps(
-            {
-              token: share.token,
-              sharePassword: share.sharePassword,
-              guestId: share.guestId,
-            },
-            sessionId,
-            latestSeqRef.current,
-          )
+      const auth = share
+        ? {
+            token: share.token,
+            sharePassword: share.sharePassword,
+            guestId: share.guestId,
+          }
+        : null;
+
+      const listPromise = auth
+        ? listPublicDocumentCollabOps(auth, sessionId, latestSeqRef.current)
         : listDocumentCollabOps(sessionId, latestSeqRef.current);
       void listPromise.then((ops) => ingestOps(ops)).catch(() => undefined);
+
+      // Human: Presence/locks may only arrive via heartbeat publish — poll session as backup.
+      const sessionPromise = auth
+        ? getPublicDocumentCollabSession(auth, sessionId)
+        : getDocumentCollabSession(sessionId);
+      void sessionPromise.then((snap) => applySession(snap)).catch(() => undefined);
     };
 
-    // Human: Skip immediate tick on mount when WS will deliver ops — reduces join storm.
     const intervalMs = transport === "ws" ? POLL_WS_MS : POLL_HTTP_MS;
     const id = window.setInterval(tick, intervalMs);
-    if (transport === "poll") {
-      tick();
-    }
-    return () => window.clearInterval(id);
-  }, [enabled, ingestOps, session?.id, transport]);
+    // Always one tick soon after join so remote locks appear without waiting a full interval.
+    const warm = window.setTimeout(tick, transport === "ws" ? 800 : 200);
+    return () => {
+      window.clearInterval(id);
+      window.clearTimeout(warm);
+    };
+  }, [applySession, enabled, ingestOps, session?.id, transport]);
 
   // Human: Coalesce presence heartbeats so selection churn does not open a request per caret move.
   // Agent: QUEUES latest body; FLUSHES at most once per HEARTBEAT_MIN_INTERVAL_MS.
@@ -433,14 +442,13 @@ export function useDocumentCollab({
     [enabled],
   );
 
-  // Human: Sentence lock via heartbeat only — no separate lock op (was doubling HTTP traffic).
-  // Agent: SKIPS when sentence range unchanged; THROTTLED by updatePresence.
+  // Human: Sentence lock via heartbeat + one lock op when the range changes (for poll/WS peers).
+  // Agent: SKIPS when sentence unchanged; THROTTLED by updatePresence; lock op only on change.
   const acquireSentenceLock = useCallback(
     async (text: string, caretStart: number, caretEnd: number) => {
       const range = sentenceRangeAround(text, caretStart, caretEnd);
       const prev = lastLockRef.current;
       if (prev && prev.start === range.start && prev.end === range.end) {
-        // Same sentence — only refresh selection caret occasionally via presence.
         await updatePresence({
           selection_start: caretStart,
           selection_end: caretEnd,
@@ -454,6 +462,34 @@ export function useDocumentCollab({
         lock_start: range.start,
         lock_end: range.end,
       });
+
+      // Human: Lock op keeps poll clients in sync even when presence WS is down.
+      const sessionId = sessionIdRef.current;
+      if (sessionId) {
+        const share = publicShareRef.current;
+        const postPromise = share
+          ? postPublicDocumentCollabOp(
+              {
+                token: share.token,
+                sharePassword: share.sharePassword,
+                guestId: share.guestId,
+              },
+              sessionId,
+              {
+                op_type: "lock",
+                payload: { start: range.start, end: range.end },
+              },
+            )
+          : postDocumentCollabOp(sessionId, {
+              op_type: "lock",
+              payload: { start: range.start, end: range.end },
+            });
+        void postPromise
+          .then((op) => {
+            latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
+          })
+          .catch(() => undefined);
+      }
       return range;
     },
     [updatePresence],
@@ -462,6 +498,22 @@ export function useDocumentCollab({
   const releaseLock = useCallback(async () => {
     lastLockRef.current = null;
     await updatePresence({ clear_lock: true });
+    const sessionId = sessionIdRef.current;
+    if (sessionId) {
+      const share = publicShareRef.current;
+      const postPromise = share
+        ? postPublicDocumentCollabOp(
+            {
+              token: share.token,
+              sharePassword: share.sharePassword,
+              guestId: share.guestId,
+            },
+            sessionId,
+            { op_type: "unlock", payload: {} },
+          )
+        : postDocumentCollabOp(sessionId, { op_type: "unlock", payload: {} });
+      void postPromise.catch(() => undefined);
+    }
   }, [updatePresence]);
 
   // Human: True when a plain-text range is exclusively locked by someone else.
