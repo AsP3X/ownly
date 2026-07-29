@@ -4,6 +4,7 @@
 pub mod collab;
 pub mod collab_handlers;
 pub mod collab_ws;
+pub mod public_collab_handlers;
 pub mod epub_cover;
 pub mod mime;
 pub mod spreadsheet_preview;

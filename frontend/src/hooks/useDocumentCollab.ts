@@ -1,36 +1,56 @@
 // Human: Live RTF/document collab — WS push + poll, exclusive sentence locks, doc_html ops.
-// Agent: USED by RtfEditorDialog; SEQUENTIAL server OT; PROTECTS locked ranges of other users.
+// Agent: USED by RtfEditorDialog; SUPPORTS auth path + public share allow_edit guest path.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   API_BASE,
   heartbeatDocumentCollabSession,
+  heartbeatPublicDocumentCollabSession,
   joinDocumentCollabSession,
+  joinPublicDocumentCollabSession,
   listDocumentCollabOps,
+  listPublicDocumentCollabOps,
   postDocumentCollabOp,
+  postPublicDocumentCollabOp,
   type DocumentCollabOp,
   type DocumentCollabParticipant,
   type DocumentCollabSession,
 } from "@/api/client";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
+type PublicShareCollab = {
+  token: string;
+  sharePassword?: string | null;
+  guestId: string;
+};
+
 type UseDocumentCollabOptions = {
   fileId: string | null | undefined;
   enabled: boolean;
   displayName?: string;
   localUserId?: string | null;
+  /** Human: When set, use anonymous public-share collab APIs instead of JWT sessions. */
+  publicShare?: PublicShareCollab | null;
   /** Human: Seed shared document when this client creates the session. */
   getSeed?: () => { html: string; text: string };
   onRemoteDocument?: (html: string, text: string, fromUserId: string) => void;
   onPresence?: (participants: DocumentCollabParticipant[]) => void;
 };
 
-function collabWsUrl(sessionId: string): string {
+function collabWsUrl(sessionId: string, publicShare?: PublicShareCollab | null): string {
   const base =
     typeof window !== "undefined" && API_BASE.startsWith("http")
       ? API_BASE
       : `${window.location.origin}${API_BASE.startsWith("/") ? API_BASE : `/${API_BASE}`}`;
   const wsBase = base.replace(/^http/, "ws");
+  if (publicShare?.token) {
+    const params = new URLSearchParams({ guest_id: publicShare.guestId });
+    // Human: Browser WebSocket cannot set X-Share-Password — pass password as query for protected links.
+    if (publicShare.sharePassword) {
+      params.set("password", publicShare.sharePassword);
+    }
+    return `${wsBase}/public/shares/${encodeURIComponent(publicShare.token)}/document/sessions/${encodeURIComponent(sessionId)}/ws?${params.toString()}`;
+  }
   return `${wsBase}/document/sessions/${encodeURIComponent(sessionId)}/ws`;
 }
 
@@ -39,6 +59,7 @@ export function useDocumentCollab({
   enabled,
   displayName,
   localUserId,
+  publicShare,
   getSeed,
   onRemoteDocument,
   onPresence,
@@ -50,11 +71,13 @@ export function useDocumentCollab({
   const latestSeqRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const localUserIdRef = useRef(localUserId);
+  const publicShareRef = useRef(publicShare);
   const onRemoteDocumentRef = useRef(onRemoteDocument);
   const onPresenceRef = useRef(onPresence);
   const getSeedRef = useRef(getSeed);
   const publishTimerRef = useRef<number | null>(null);
   localUserIdRef.current = localUserId;
+  publicShareRef.current = publicShare;
   onRemoteDocumentRef.current = onRemoteDocument;
   onPresenceRef.current = onPresence;
   getSeedRef.current = getSeed;
@@ -89,12 +112,29 @@ export function useDocumentCollab({
 
     let cancelled = false;
     const seed = getSeedRef.current?.();
-    void joinDocumentCollabSession({
-      file_id: fileId,
-      display_name: displayName,
-      initial_html: seed?.html,
-      initial_text: seed?.text,
-    })
+    const share = publicShareRef.current;
+    const joinPromise = share
+      ? joinPublicDocumentCollabSession(
+          {
+            token: share.token,
+            sharePassword: share.sharePassword,
+            guestId: share.guestId,
+          },
+          {
+            file_id: fileId,
+            display_name: displayName,
+            initial_html: seed?.html,
+            initial_text: seed?.text,
+          },
+        )
+      : joinDocumentCollabSession({
+          file_id: fileId,
+          display_name: displayName,
+          initial_html: seed?.html,
+          initial_text: seed?.text,
+        });
+
+    void joinPromise
       .then((joined) => {
         if (cancelled) return;
         applySession(joined);
@@ -112,7 +152,7 @@ export function useDocumentCollab({
     return () => {
       cancelled = true;
     };
-  }, [applySession, displayName, enabled, fileId]);
+  }, [applySession, displayName, enabled, fileId, publicShare?.token, publicShare?.guestId]);
 
   // WebSocket live channel
   useEffect(() => {
@@ -122,7 +162,7 @@ export function useDocumentCollab({
     let closed = false;
 
     try {
-      socket = new WebSocket(collabWsUrl(sessionId));
+      socket = new WebSocket(collabWsUrl(sessionId, publicShareRef.current));
     } catch {
       setTransport("poll");
       return;
@@ -181,9 +221,19 @@ export function useDocumentCollab({
     sessionIdRef.current = sessionId;
 
     const tick = () => {
-      void listDocumentCollabOps(sessionId, latestSeqRef.current)
-        .then((ops) => ingestOps(ops))
-        .catch(() => undefined);
+      const share = publicShareRef.current;
+      const listPromise = share
+        ? listPublicDocumentCollabOps(
+            {
+              token: share.token,
+              sharePassword: share.sharePassword,
+              guestId: share.guestId,
+            },
+            sessionId,
+            latestSeqRef.current,
+          )
+        : listDocumentCollabOps(sessionId, latestSeqRef.current);
+      void listPromise.then((ops) => ingestOps(ops)).catch(() => undefined);
     };
 
     tick();
@@ -203,7 +253,18 @@ export function useDocumentCollab({
       const sessionId = sessionIdRef.current;
       if (!sessionId || !enabled) return;
       try {
-        const next = await heartbeatDocumentCollabSession(sessionId, body);
+        const share = publicShareRef.current;
+        const next = share
+          ? await heartbeatPublicDocumentCollabSession(
+              {
+                token: share.token,
+                sharePassword: share.sharePassword,
+                guestId: share.guestId,
+              },
+              sessionId,
+              body,
+            )
+          : await heartbeatDocumentCollabSession(sessionId, body);
         applySession(next);
       } catch {
         /* best-effort */
@@ -223,10 +284,25 @@ export function useDocumentCollab({
       }
       publishTimerRef.current = window.setTimeout(() => {
         publishTimerRef.current = null;
-        void postDocumentCollabOp(sessionId, {
-          op_type: "doc_html",
-          payload: { html, text },
-        })
+        const share = publicShareRef.current;
+        const postPromise = share
+          ? postPublicDocumentCollabOp(
+              {
+                token: share.token,
+                sharePassword: share.sharePassword,
+                guestId: share.guestId,
+              },
+              sessionId,
+              {
+                op_type: "doc_html",
+                payload: { html, text },
+              },
+            )
+          : postDocumentCollabOp(sessionId, {
+              op_type: "doc_html",
+              payload: { html, text },
+            });
+        void postPromise
           .then((op) => {
             latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
           })
@@ -247,10 +323,25 @@ export function useDocumentCollab({
       });
       const sessionId = sessionIdRef.current;
       if (sessionId) {
-        void postDocumentCollabOp(sessionId, {
-          op_type: "lock",
-          payload: { start: range.start, end: range.end },
-        }).catch(() => undefined);
+        const share = publicShareRef.current;
+        const postPromise = share
+          ? postPublicDocumentCollabOp(
+              {
+                token: share.token,
+                sharePassword: share.sharePassword,
+                guestId: share.guestId,
+              },
+              sessionId,
+              {
+                op_type: "lock",
+                payload: { start: range.start, end: range.end },
+              },
+            )
+          : postDocumentCollabOp(sessionId, {
+              op_type: "lock",
+              payload: { start: range.start, end: range.end },
+            });
+        void postPromise.catch(() => undefined);
       }
       return range;
     },
@@ -261,10 +352,25 @@ export function useDocumentCollab({
     await updatePresence({ clear_lock: true });
     const sessionId = sessionIdRef.current;
     if (sessionId) {
-      void postDocumentCollabOp(sessionId, {
-        op_type: "unlock",
-        payload: {},
-      }).catch(() => undefined);
+      const share = publicShareRef.current;
+      const postPromise = share
+        ? postPublicDocumentCollabOp(
+            {
+              token: share.token,
+              sharePassword: share.sharePassword,
+              guestId: share.guestId,
+            },
+            sessionId,
+            {
+              op_type: "unlock",
+              payload: {},
+            },
+          )
+        : postDocumentCollabOp(sessionId, {
+            op_type: "unlock",
+            payload: {},
+          });
+      void postPromise.catch(() => undefined);
     }
   }, [updatePresence]);
 

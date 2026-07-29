@@ -207,7 +207,8 @@ fn is_incorrect_share_password(err: &AppError) -> bool {
 
 // Human: Resolve a token and enforce password protection before serving share content.
 // Agent: CALLS resolve_active_share + verify_share_password; RATE-LIMITS wrong guesses (SEC-009).
-async fn resolve_public_share(
+// Agent: pub(crate) so document public collab handlers can reuse the same gate.
+pub(crate) async fn resolve_public_share(
     state: &AppState,
     token: &str,
     headers: &HeaderMap,

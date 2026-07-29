@@ -471,6 +471,27 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(max_upload)),
         )
         .route(
+            "/api/v1/public/shares/{token}/document/sessions",
+            post(document::public_collab_handlers::public_join_session),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/document/sessions/{session_id}",
+            get(document::public_collab_handlers::public_get_session),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/document/sessions/{session_id}/heartbeat",
+            post(document::public_collab_handlers::public_session_heartbeat),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/document/sessions/{session_id}/ops",
+            get(document::public_collab_handlers::public_list_ops)
+                .post(document::public_collab_handlers::public_post_op),
+        )
+        .route(
+            "/api/v1/public/shares/{token}/document/sessions/{session_id}/ws",
+            get(document::collab_ws::public_session_ws),
+        )
+        .route(
             "/api/v1/public/shares/{token}/files/{file_id}/stream-url",
             get(shares::handlers::public_share_stream_url),
         )

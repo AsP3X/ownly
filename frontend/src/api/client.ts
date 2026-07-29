@@ -220,6 +220,118 @@ export async function listDocumentCollabOps(
   ) as Promise<DocumentCollabOp[]>;
 }
 
+// Human: Stable guest identity for anonymous public-share collab (survives reconnects in the tab).
+// Agent: sessionStorage key; UUID preferred; FALLBACK random hex when crypto.randomUUID missing.
+export function getOrCreatePublicCollabGuestId(): string {
+  const key = "ownly_public_collab_guest_id";
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing && existing.length >= 8) return existing;
+    const next =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(key, next);
+    return next;
+  } catch {
+    return `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+type PublicCollabAuth = {
+  token: string;
+  sharePassword?: string | null;
+  guestId: string;
+};
+
+function publicCollabHeaders(sharePassword?: string | null): Record<string, string> {
+  return sharePassword ? { "X-Share-Password": sharePassword } : {};
+}
+
+// Human: Join live collab on a public share link with allow_edit.
+// Agent: POST /public/shares/:token/document/sessions; SENDS guest_id + optional password header.
+export async function joinPublicDocumentCollabSession(
+  auth: PublicCollabAuth,
+  body: {
+    file_id: string;
+    display_name?: string;
+    initial_html?: string;
+    initial_text?: string;
+  },
+): Promise<DocumentCollabSession> {
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions`,
+    {
+      method: "POST",
+      headers: publicCollabHeaders(auth.sharePassword),
+      body: JSON.stringify({
+        ...body,
+        guest_id: auth.guestId,
+      }),
+    },
+  ) as Promise<DocumentCollabSession>;
+}
+
+export async function heartbeatPublicDocumentCollabSession(
+  auth: PublicCollabAuth,
+  sessionId: string,
+  body: {
+    selection_start?: number;
+    selection_end?: number;
+    lock_start?: number;
+    lock_end?: number;
+    clear_lock?: boolean;
+  },
+): Promise<DocumentCollabSession> {
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+    {
+      method: "POST",
+      headers: publicCollabHeaders(auth.sharePassword),
+      body: JSON.stringify({
+        ...body,
+        guest_id: auth.guestId,
+      }),
+    },
+  ) as Promise<DocumentCollabSession>;
+}
+
+export async function postPublicDocumentCollabOp(
+  auth: PublicCollabAuth,
+  sessionId: string,
+  body: { op_type: string; payload: Record<string, unknown> },
+): Promise<DocumentCollabOp> {
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/ops`,
+    {
+      method: "POST",
+      headers: publicCollabHeaders(auth.sharePassword),
+      body: JSON.stringify({
+        ...body,
+        guest_id: auth.guestId,
+      }),
+    },
+  ) as Promise<DocumentCollabOp>;
+}
+
+export async function listPublicDocumentCollabOps(
+  auth: PublicCollabAuth,
+  sessionId: string,
+  afterSeq = 0,
+): Promise<DocumentCollabOp[]> {
+  const params = new URLSearchParams({
+    after_seq: String(afterSeq),
+    guest_id: auth.guestId,
+  });
+  return apiFetch(
+    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/ops?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: publicCollabHeaders(auth.sharePassword),
+    },
+  ) as Promise<DocumentCollabOp[]>;
+}
+
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;
 }

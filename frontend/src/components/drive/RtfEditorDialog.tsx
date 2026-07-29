@@ -14,6 +14,7 @@ import {
   fetchFileBlobForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
+  getOrCreatePublicCollabGuestId,
   replacePublicShareFileContent,
   replaceTextFileContent,
 } from "@/api/client";
@@ -63,7 +64,7 @@ export function RtfEditorDialog({
   canEdit,
 }: RtfEditorDialogProps) {
   // Human: Public share tokens are view-only unless canEdit is explicitly true (allow_edit or user share write).
-  // Agent: readOnly when canEdit===false OR (shareToken without canEdit); collab requires auth (no public guest WS).
+  // Agent: readOnly when canEdit===false OR (shareToken without canEdit).
   const readOnly = canEdit === false || (Boolean(shareToken) && canEdit !== true);
   const { user } = useAuth();
   const surfaceRef = useRef<RtfEditorSurfaceHandle>(null);
@@ -74,6 +75,11 @@ export function RtfEditorDialog({
   const applyingRemoteRef = useRef(false);
   const lastLocalEditAtRef = useRef(0);
   const draftHtmlRef = useRef("<p><br></p>");
+  /** Human: Stable guest id for public-share collab participant key (guest:uuid). */
+  const publicGuestIdRef = useRef<string | null>(null);
+  if (shareToken && !publicGuestIdRef.current) {
+    publicGuestIdRef.current = getOrCreatePublicCollabGuestId();
+  }
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -88,22 +94,43 @@ export function RtfEditorDialog({
   draftHtmlRef.current = draftHtml;
   const dirty = draftHtml !== savedHtml;
 
-  // Human: Live collab uses authenticated document sessions — public-link editors save without multi-user WS.
-  // Agent: DISABLE collab when shareToken is set; user-share edit opens from Drive without shareToken.
+  // Human: Live collab for owned/user-share (JWT) and public allow_edit links (guest API).
+  // Agent: ENABLE when editable; publicShare routes join/ops/heartbeat/WS via share token.
   const collabEnabled =
-    open && !readOnly && !shareToken && Boolean(file?.id) && !loading && Boolean(documentKey);
+    open && !readOnly && Boolean(file?.id) && !loading && Boolean(documentKey);
+
+  const publicGuestId = publicGuestIdRef.current;
+  const publicShareCollab =
+    shareToken && publicGuestId
+      ? {
+          token: shareToken,
+          sharePassword: sharePassword ?? null,
+          guestId: publicGuestId,
+        }
+      : null;
+
+  const localCollabUserId = publicShareCollab
+    ? `guest:${publicShareCollab.guestId}`
+    : (user?.id ?? null);
+  const collabDisplayName = publicShareCollab
+    ? user?.email
+      ? `${user.email} (link)`
+      : "Guest"
+    : (user?.email ?? user?.id ?? "User");
 
   const collab = useDocumentCollab({
     fileId: file?.id,
     enabled: collabEnabled,
-    displayName: user?.email ?? user?.id ?? "User",
-    localUserId: user?.id ?? null,
+    displayName: collabDisplayName,
+    localUserId: localCollabUserId,
+    publicShare: publicShareCollab,
     getSeed: () => ({
       html: draftHtmlRef.current,
       text: htmlToPlainText(draftHtmlRef.current),
     }),
     onRemoteDocument: (html, _text, fromUserId) => {
-      if (fromUserId === user?.id) return;
+      if (localCollabUserId && fromUserId === localCollabUserId) return;
+      if (user?.id && fromUserId === user.id) return;
       // Human: Don't clobber in-flight local keystrokes (40ms publish window + typing lag).
       if (Date.now() - lastLocalEditAtRef.current < 120) return;
       applyingRemoteRef.current = true;
@@ -398,7 +425,7 @@ export function RtfEditorDialog({
           {collabEnabled ? (
             <RtfCollabPresence
               participants={collab.participants}
-              currentUserId={user?.id}
+              currentUserId={localCollabUserId}
               error={collab.error}
               transport={collab.transport}
             />

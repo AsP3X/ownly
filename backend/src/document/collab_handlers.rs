@@ -46,6 +46,8 @@ pub struct PostOpRequest {
     pub payload: serde_json::Value,
 }
 
+// Types above are reused by public_collab_handlers for shared request shapes.
+
 #[derive(Debug, Serialize)]
 pub struct ParticipantView {
     pub user_id: String,
@@ -68,7 +70,7 @@ pub struct SessionView {
     pub document_text: String,
 }
 
-fn participant_view(p: &DocCollabParticipant) -> ParticipantView {
+pub(crate) fn participant_view(p: &DocCollabParticipant) -> ParticipantView {
     ParticipantView {
         user_id: p.user_id.clone(),
         display_name: p.display_name.clone(),
@@ -81,7 +83,7 @@ fn participant_view(p: &DocCollabParticipant) -> ParticipantView {
     }
 }
 
-fn session_view(session: &DocCollabSession) -> SessionView {
+pub(crate) fn session_view(session: &DocCollabSession) -> SessionView {
     let mut participants: Vec<_> = session.participants.values().map(participant_view).collect();
     participants.sort_by(|a, b| a.display_name.cmp(&b.display_name));
     SessionView {
@@ -91,6 +93,17 @@ fn session_view(session: &DocCollabSession) -> SessionView {
         latest_seq: session.next_seq.saturating_sub(1),
         document_html: session.document_html.clone(),
         document_text: session.document_text.clone(),
+    }
+}
+
+// Human: Normalize clear-lock 0,0 sentinel so clients see unlocked participants.
+// Agent: MUTATES SessionView locks in place after heartbeat with clear_lock.
+pub(crate) fn normalize_session_locks(view: &mut SessionView) {
+    for p in &mut view.participants {
+        if p.lock_start == Some(0) && p.lock_end == Some(0) {
+            p.lock_start = None;
+            p.lock_end = None;
+        }
     }
 }
 
@@ -192,12 +205,7 @@ pub async fn session_heartbeat(
 
     // Normalize 0,0 locks as none for clients after heartbeat clear
     let mut view = session_view(&session);
-    for p in &mut view.participants {
-        if p.lock_start == Some(0) && p.lock_end == Some(0) {
-            p.lock_start = None;
-            p.lock_end = None;
-        }
-    }
+    normalize_session_locks(&mut view);
 
     state.document_collab_hub.publish(
         &session_id,
