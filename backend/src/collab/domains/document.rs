@@ -27,15 +27,6 @@ impl DocumentDomain {
             .to_string()
     }
 
-    fn html_of(snapshot: &DomainSnapshot) -> String {
-        snapshot
-            .data
-            .get("html")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
-    }
-
     fn parse_replace(payload: &Value) -> Result<TextReplace, CollabError> {
         let index = payload
             .get("index")
@@ -447,6 +438,9 @@ mod tests {
         d.validate_and_transform(&snap, &[], &mut op, "u1", &HashMap::new())
             .unwrap();
         d.apply(&mut snap, &op).unwrap();
-        assert_eq!(DocumentDomain::html_of(&snap), "<p><b>abc</b></p>");
+        assert_eq!(
+            snap.data.get("html").and_then(|v| v.as_str()),
+            Some("<p><b>abc</b></p>")
+        );
     }
 }
