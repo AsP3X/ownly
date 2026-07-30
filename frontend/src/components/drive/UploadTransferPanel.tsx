@@ -74,8 +74,15 @@ function UploadHeaderStatusLine({
       : "text-ink-muted";
 
   // Human: Do not remount/animate on every ETA or remaining-bytes tick — only color transitions.
+  // Agent: truncate keeps this one line; growing ETA + remaining-bytes copy used to wrap and
+  //        push the whole bottom-anchored tray up by a line.
   return (
-    <p className={cn("text-xs font-medium tabular-nums transition-colors duration-300", tone)}>
+    <p
+      className={cn(
+        "truncate text-xs font-medium tabular-nums transition-colors duration-300",
+        tone,
+      )}
+    >
       {text}
     </p>
   );

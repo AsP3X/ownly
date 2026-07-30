@@ -339,7 +339,8 @@
     animation: none !important;
   }
 
-  .transfer-progress-fill {
+  .transfer-progress-fill,
+  .transfer-list-settle {
     transition: none !important;
   }
 }
@@ -383,6 +384,11 @@
 .transfer-panel-body-closed {
   grid-template-rows: 0fr;
   opacity: 0;
+}
+
+/* Human: Upload file list — resizes over a few frames so the bottom-anchored tray never snaps. */
+.transfer-list-settle {
+  transition: height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .transfer-panel-body > .transfer-panel-body-inner {

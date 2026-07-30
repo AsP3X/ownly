@@ -1,0 +1,262 @@
+/* Human: Entrance + micro-interaction motion for the login and register views. */
+/* Agent: USED by components/auth/*; every rule here degrades to "no motion" under prefers-reduced-motion. */
+
+/*
+ * Human: One shared easing/duration vocabulary so the whole auth flow feels like a single system.
+ * Agent: DEFINED on the shell root; every auth component below reads these vars.
+ */
+.auth-motion {
+  --auth-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --auth-ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --auth-fast: 160ms;
+  --auth-base: 260ms;
+  --auth-enter: 420ms;
+  /* Stagger step — small enough that the whole card lands in well under half a second. */
+  --auth-step: 55ms;
+}
+
+/* ---- Entrance ---- */
+
+/* Rise + settle for form rows, headings, footer copy. */
+.auth-enter {
+  animation: auth-rise-in var(--auth-enter, 420ms) var(--auth-ease, ease-out) both;
+  animation-delay: calc(var(--auth-i, 0) * var(--auth-step, 55ms));
+}
+
+/* Card itself — a touch longer with a blur-off so it reads as "focusing in". */
+.auth-card-enter {
+  animation: auth-card-in 520ms var(--auth-ease-soft, ease-out) both;
+}
+
+/* Brand panel columns slide in from the outside edge. */
+.auth-panel-enter {
+  animation: auth-panel-in 560ms var(--auth-ease-soft, ease-out) both;
+  animation-delay: calc(var(--auth-i, 0) * var(--auth-step, 55ms));
+}
+
+/* Alerts drop in fast — they interrupt, so they must not feel leisurely. */
+.auth-alert-enter {
+  animation: auth-alert-in 240ms var(--auth-ease, ease-out) both;
+}
+
+/* Error alerts additionally shake once so a repeated failure is still noticed. */
+.auth-shake {
+  animation:
+    auth-alert-in 240ms var(--auth-ease, ease-out) both,
+    auth-shake 420ms var(--auth-ease, ease-out) 60ms;
+}
+
+/* Small badges/icons that appear on state change (caps lock, match tick). */
+.auth-pop {
+  animation: auth-pop-in 260ms var(--auth-ease, ease-out) both;
+}
+
+/* ---- Ongoing motion ---- */
+
+/* Brand mark halo — slow breathing glow behind the logo. */
+.auth-logo-halo {
+  animation: auth-halo-pulse 5.5s ease-in-out infinite;
+}
+
+.auth-logo-float {
+  animation: auth-logo-float 6s ease-in-out infinite;
+}
+
+/* Button spinner. */
+.auth-spinner {
+  animation: auth-spin 620ms linear infinite;
+}
+
+/* Light sweep across the primary CTA — replays on every hover, skipped while disabled. */
+.auth-cta__sheen {
+  transform: translate3d(-140%, 0, 0) skewX(-18deg);
+}
+
+.auth-cta:hover:not(:disabled) .auth-cta__sheen {
+  animation: auth-sheen 780ms var(--auth-ease-soft, ease-out);
+}
+
+/* ---- Transitions ---- */
+
+/* Strength meter segments fill left-to-right and recolor together. */
+.auth-strength-seg {
+  transition:
+    transform var(--auth-base, 260ms) var(--auth-ease, ease-out),
+    background-color var(--auth-base, 260ms) ease,
+    opacity var(--auth-base, 260ms) ease;
+  transform-origin: left center;
+}
+
+/* Requirement checklist rows fade/slide as they flip to satisfied. */
+.auth-req {
+  transition:
+    color var(--auth-fast, 160ms) ease,
+    opacity var(--auth-fast, 160ms) ease,
+    transform var(--auth-fast, 160ms) var(--auth-ease, ease-out);
+}
+
+/* Collapsible helper regions (caps lock hint, strength block) without height jumps. */
+.auth-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--auth-base, 260ms) var(--auth-ease, ease-out),
+    opacity var(--auth-fast, 160ms) ease;
+}
+
+.auth-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.auth-collapse-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* ---- Keyframes ---- */
+
+@keyframes auth-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes auth-card-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.97);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+@keyframes auth-panel-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-22px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes auth-alert-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes auth-shake {
+  20% {
+    transform: translate3d(-5px, 0, 0);
+  }
+  40% {
+    transform: translate3d(4px, 0, 0);
+  }
+  60% {
+    transform: translate3d(-3px, 0, 0);
+  }
+  80% {
+    transform: translate3d(2px, 0, 0);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes auth-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes auth-sheen {
+  from {
+    transform: translate3d(-140%, 0, 0) skewX(-18deg);
+  }
+  to {
+    transform: translate3d(240%, 0, 0) skewX(-18deg);
+  }
+}
+
+@keyframes auth-halo-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes auth-logo-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -3px, 0);
+  }
+}
+
+/*
+ * Human: Motion is decoration here — never required to understand the page.
+ * Agent: Reduced motion keeps the final (visible) state and drops every animation.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .auth-enter,
+  .auth-card-enter,
+  .auth-panel-enter,
+  .auth-alert-enter,
+  .auth-shake,
+  .auth-pop,
+  .auth-logo-halo,
+  .auth-logo-float,
+  .auth-cta:hover:not(:disabled) .auth-cta__sheen {
+    animation: none !important;
+  }
+
+  .auth-spinner {
+    animation-duration: 1.4s !important;
+  }
+
+  .auth-strength-seg,
+  .auth-req,
+  .auth-collapse {
+    transition-duration: 1ms !important;
+  }
+}

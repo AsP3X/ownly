@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { Info, ShieldAlert } from "lucide-react";
+import "./auth-motion.css";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,22 +43,22 @@ export function AccountNotActivatedDialog({
       <DialogContent
         showCloseButton={false}
         overlayClassName="bg-black/40 supports-backdrop-filter:backdrop-blur-sm"
-        className="gap-0 overflow-hidden border-[#E5E7EB] p-0 sm:max-w-md"
+        className="gap-0 overflow-hidden rounded-2xl border-edge bg-panel p-0 sm:max-w-md"
       >
         <DialogHeader className="items-center gap-4 px-8 pt-8 text-center">
-          <div className="flex size-14 items-center justify-center rounded-full bg-[#FFFBEB]">
-            <ShieldAlert className="size-7 text-[#D97706]" aria-hidden />
+          <div className="auth-pop flex size-14 items-center justify-center rounded-full bg-warn-weak ring-8 ring-warn/10">
+            <ShieldAlert className="size-7 text-warn" aria-hidden />
           </div>
           <div className="flex flex-col gap-2">
-            <DialogTitle className="text-2xl font-bold text-[#1A1A1A]">
+            <DialogTitle className="text-2xl font-bold text-ink">
               Account not activated
             </DialogTitle>
-            <DialogDescription className="text-sm leading-relaxed text-[#666666]">
+            <DialogDescription className="text-sm leading-relaxed text-ink-muted">
               Contact an administrator to activate your account before signing in.
             </DialogDescription>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#2563EB] hover:underline"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand transition-colors duration-150 hover:text-brand-hover hover:underline"
               aria-expanded={showExplanation}
               aria-controls="account-activation-explanation"
               onClick={() => setShowExplanation((current) => !current)}
@@ -71,16 +72,16 @@ export function AccountNotActivatedDialog({
         {showExplanation ? (
           <div
             id="account-activation-explanation"
-            className="mx-8 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 text-left text-sm leading-relaxed text-[#666666]"
+            className="auth-alert-enter mx-8 rounded-xl border border-edge bg-sunken/70 px-4 py-3 text-left text-sm leading-relaxed text-ink-muted"
           >
             {ACCOUNT_ACTIVATION_EXPLANATION}
           </div>
         ) : null}
 
-        <DialogFooter className="mt-6 border-t border-[#E5E7EB] bg-[#F9FAFB] px-8 py-5">
+        <DialogFooter className="mt-6 border-t border-hairline bg-sunken/60 px-8 py-5">
           <Button
             type="button"
-            className="w-full bg-[#2563EB] text-white hover:bg-[#1D4ED8] sm:w-auto"
+            className="w-full bg-brand text-brand-on transition-transform duration-150 hover:bg-brand-hover active:scale-[0.98] sm:w-auto"
             onClick={() => {
               setShowExplanation(false);
               onDismiss();

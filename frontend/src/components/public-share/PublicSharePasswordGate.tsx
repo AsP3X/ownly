@@ -2,11 +2,11 @@
 // Agent: CALLS onSubmit from parent; RENDERS AuthFormCard + AuthPasswordField; NO token storage here.
 
 import type { FormEvent } from "react";
+import { AuthAlert } from "@/components/auth/AuthAlert";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { AuthPasswordField } from "@/components/auth/AuthPasswordField";
 import { AuthSubmitButton } from "@/components/auth/AuthSubmitButton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 type PublicSharePasswordGateProps = {
   resourceType: "file" | "folder";
@@ -44,11 +44,7 @@ export function PublicSharePasswordGate({
             aria-invalid={Boolean(error)}
           />
 
-          {error ? (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
+          {error ? <AuthAlert key={error}>{error}</AuthAlert> : null}
 
           <AuthSubmitButton loading={loading} loadingLabel="Unlocking…">
             {resourceType === "folder" ? "Unlock folder" : "Unlock file"}

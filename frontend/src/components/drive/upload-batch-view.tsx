@@ -1,7 +1,7 @@
 // Human: Shared upload batch progress UI — consistent status copy, bars, and row chrome.
 // Agent: READS UploadItemSnapshot[]; RENDERED by UploadTransferPanel when expanded.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { AlertCircle, Check, ChevronDown, Clock, Loader2, X } from "lucide-react";
 import { ExplorerFileGlyph } from "@/components/drive/ExplorerFileGlyph";
 import {
@@ -25,6 +25,15 @@ import { Button } from "@/components/ui/button";
  * Agent: APPLIED as max-height; the list has no min-height so short batches render compactly.
  */
 export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "19rem";
+
+/**
+ * Human: How long the list waits before handing space back. A file leaves the in-flight set the
+ * moment its bytes land and the next file claims the free slot milliseconds later, so a list that
+ * shrank on sight dropped and re-added a full row several times per batch — and because the tray is
+ * anchored bottom-right, every one of those moved its top edge.
+ * Agent: Only applies once nothing is queued; see useSettledListHeight.
+ */
+const UPLOAD_PANEL_LIST_SETTLE_MS = 700;
 
 /** Human: Reserved height for pinned queue/done summary slots. */
 export const UPLOAD_PANEL_TOP_SUMMARY_SLOT_HEIGHT = "1.375rem";
@@ -706,6 +715,75 @@ function UploadQueueDisclosure({
   );
 }
 
+/**
+ * Human: Height for the file list that follows content growth but resists content loss. Rows are
+ * reserved while files are still queued, because a row that just left is about to be replaced.
+ * Agent: RETURNS null until the first measurement so a fresh tray renders at its natural height.
+ */
+function useSettledListHeight(
+  contentRef: RefObject<HTMLDivElement | null>,
+  holdHeight: boolean,
+): number | null {
+  const [height, setHeight] = useState<number | null>(null);
+  const appliedRef = useRef<number | null>(null);
+  const holdRef = useRef(holdHeight);
+  const settleTimerRef = useRef<number | null>(null);
+  const syncRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) return;
+
+    const clearSettleTimer = () => {
+      if (settleTimerRef.current === null) return;
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    };
+
+    const apply = () => {
+      const next = Math.ceil(node.getBoundingClientRect().height);
+      appliedRef.current = next;
+      setHeight(next);
+    };
+
+    const sync = () => {
+      const next = Math.ceil(node.getBoundingClientRect().height);
+      const applied = appliedRef.current;
+      if (applied === null || next >= applied) {
+        clearSettleTimer();
+        appliedRef.current = next;
+        setHeight(next);
+        return;
+      }
+      if (holdRef.current || settleTimerRef.current !== null) return;
+      settleTimerRef.current = window.setTimeout(() => {
+        settleTimerRef.current = null;
+        if (holdRef.current) return;
+        apply();
+      }, UPLOAD_PANEL_LIST_SETTLE_MS);
+    };
+
+    syncRef.current = sync;
+    sync();
+
+    if (typeof ResizeObserver === "undefined") return clearSettleTimer;
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      clearSettleTimer();
+    };
+  }, [contentRef]);
+
+  // Human: Releasing the hold re-checks the list so the tail of a batch still collapses.
+  useEffect(() => {
+    holdRef.current = holdHeight;
+    if (!holdHeight) syncRef.current();
+  }, [holdHeight]);
+
+  return height;
+}
+
 // Human: Upload batch body — overall summary, divider, and unified scrollable file list.
 export function UploadBatchProgressView({
   items,
@@ -737,6 +815,9 @@ export function UploadBatchProgressView({
   const showIndividualDoneRows =
     !isBulkBatch && doneItems.length <= UPLOAD_PANEL_MAX_INDIVIDUAL_BACKLOG_ROWS;
   const listIsEmpty = activeItems.length === 0 && failedItems.length === 0;
+  // Human: Queued files are guaranteed row space soon, so the list keeps whatever it already had.
+  const listContentRef = useRef<HTMLDivElement | null>(null);
+  const listHeight = useSettledListHeight(listContentRef, waitingItems.length > 0);
 
   return (
     <>
@@ -769,53 +850,58 @@ export function UploadBatchProgressView({
         </div>
       ) : null}
 
-      {/* Human: List sizes to content up to a ceiling — no reserved void when few files are live. */}
-      {/* Agent: max-height only; overscroll-contain stops the drive scrolling behind the tray. */}
+      {/* Human: List follows its content up to a ceiling — no reserved void when few files are live. */}
+      {/* Agent: height from useSettledListHeight; overscroll-contain stops the drive scrolling behind. */}
       <div
-        className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
-        style={{ maxHeight: UPLOAD_PANEL_LIST_MAX_HEIGHT }}
+        className="transfer-list-settle min-h-0 overflow-y-auto overscroll-contain"
+        style={{
+          maxHeight: UPLOAD_PANEL_LIST_MAX_HEIGHT,
+          height: listHeight ?? undefined,
+        }}
       >
-        {listIsEmpty && waitingItems.length === 0 ? (
-          <p className="flex min-h-[2.5rem] items-center justify-center text-center text-[12px] text-ink-faint">
-            Preparing next files…
-          </p>
-        ) : null}
+        <div ref={listContentRef} className="flex flex-col gap-0.5">
+          {listIsEmpty && waitingItems.length === 0 ? (
+            <p className="flex min-h-[2.5rem] items-center justify-center text-center text-[12px] text-ink-faint">
+              Preparing next files…
+            </p>
+          ) : null}
 
-        {activeItems.map((item) => (
-          <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
-        ))}
+          {activeItems.map((item) => (
+            <ActiveUploadRow key={item.id} item={item} onCancel={onCancelItem} />
+          ))}
 
-        {failedItems.length > 0 ? (
-          <div className="flex flex-col gap-0.5 pt-1">
-            {failedItems.map((item) => (
-              <FailedUploadRow
-                key={item.id}
-                item={item}
-                onRemove={onRemoveItem}
-                onReattachFile={onReattachFile}
-                onRetry={onRetryItem}
-              />
-            ))}
-          </div>
-        ) : null}
+          {failedItems.length > 0 ? (
+            <div className="flex flex-col gap-0.5 pt-1">
+              {failedItems.map((item) => (
+                <FailedUploadRow
+                  key={item.id}
+                  item={item}
+                  onRemove={onRemoveItem}
+                  onReattachFile={onReattachFile}
+                  onRetry={onRetryItem}
+                />
+              ))}
+            </div>
+          ) : null}
 
-        {/* Human: Queued files are now reachable instead of collapsing to a dead count line. */}
-        {/* Agent: Collapsed by default for bulk batches; every row keeps its pause/cancel controls. */}
-        {waitingItems.length > 0 ? (
-          <UploadQueueDisclosure
-            items={waitingItems}
-            defaultOpen={!isBulkBatch}
-            onCancelItem={onCancelItem}
-            onTogglePauseItem={onTogglePauseItem}
-          />
-        ) : null}
+          {/* Human: Queued files are now reachable instead of collapsing to a dead count line. */}
+          {/* Agent: Collapsed by default for bulk batches; every row keeps its pause/cancel controls. */}
+          {waitingItems.length > 0 ? (
+            <UploadQueueDisclosure
+              items={waitingItems}
+              defaultOpen={!isBulkBatch}
+              onCancelItem={onCancelItem}
+              onTogglePauseItem={onTogglePauseItem}
+            />
+          ) : null}
 
-        {/* Human: Finished rows stay listed for small batches; bulk batches keep the count line. */}
-        {showIndividualDoneRows ? (
-          doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
-        ) : doneItems.length > 0 ? (
-          <UploadDoneBacklogSummary count={doneItems.length} />
-        ) : null}
+          {/* Human: Finished rows stay listed for small batches; bulk batches keep the count line. */}
+          {showIndividualDoneRows ? (
+            doneItems.map((item) => <CompletedUploadRow key={item.id} item={item} />)
+          ) : doneItems.length > 0 ? (
+            <UploadDoneBacklogSummary count={doneItems.length} />
+          ) : null}
+        </div>
       </div>
     </>
   );

@@ -1,7 +1,7 @@
 // Human: Sign-in page for returning users after setup is complete — Ownly wireframe layout.
 // Agent: CALLS login API; setAuth; navigate "/"; shows AccountNotActivatedDialog for inactive accounts.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { getErrorMessage, login, registrationSetting } from "@/api/client";
@@ -9,13 +9,14 @@ import { AccountNotActivatedDialog } from "@/components/auth/AccountNotActivated
 import { useAuth } from "@/hooks/useAuth";
 import { isAccountActivationBlockedMessage } from "@/lib/account-activation";
 import { getJwtExp } from "@/lib/jwt";
+import { AuthAlert } from "@/components/auth/AuthAlert";
+import { AuthCheckbox } from "@/components/auth/AuthCheckbox";
 import { AuthFooterLink } from "@/components/auth/AuthFooterLink";
 import { AuthFormCard } from "@/components/auth/AuthFormCard";
 import { AuthIconField } from "@/components/auth/AuthIconField";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { AuthPasswordField } from "@/components/auth/AuthPasswordField";
 import { AuthSubmitButton } from "@/components/auth/AuthSubmitButton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const REMEMBER_EMAIL_KEY = "ownly.auth.rememberEmail";
 
@@ -70,6 +71,12 @@ export default function LoginPage() {
   );
   const [loading, setLoading] = useState(false);
   const [allowRegister, setAllowRegister] = useState(false);
+  // Human: Only complain about the email format once the field has been left, never mid-typing.
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailError =
+    emailTouched && email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+      ? "Enter a valid email address."
+      : null;
 
   useEffect(() => {
     if (token) navigate(redirectTo, { replace: true });
@@ -126,10 +133,10 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthPageShell>
+    <AuthPageShell mode="login">
       <AuthFormCard
         title="Welcome back"
-        subtitle="Enter your details to access your secure files"
+        subtitle="Sign in to reach your files, wherever you left them."
         footer={
           allowRegister ? (
             <AuthFooterLink prefix="Don't have an account?" linkLabel="Sign up" to="/register" />
@@ -137,44 +144,51 @@ export default function LoginPage() {
         }
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          {/* Human: Rows carry a stagger index so the card assembles top-down on entry. */}
           <div className="flex flex-col gap-4">
-            <AuthIconField
-              id="email"
-              label="Email Address"
-              icon={Mail}
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              required
-            />
-            <AuthPasswordField
-              id="password"
-              label="Password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="current-password"
-              required
-            />
+            <div className="auth-enter" style={{ "--auth-i": 2 } as CSSProperties}>
+              <AuthIconField
+                id="email"
+                label="Email Address"
+                icon={Mail}
+                type="email"
+                inputMode="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
+                error={emailError}
+                autoComplete="email"
+                autoFocus={!prefilledEmail}
+                required
+              />
+            </div>
+            <div className="auth-enter" style={{ "--auth-i": 3 } as CSSProperties}>
+              <AuthPasswordField
+                id="password"
+                label="Password"
+                placeholder="••••••••"
+                value={password}
+                onChange={setPassword}
+                autoComplete="current-password"
+                autoFocus={Boolean(prefilledEmail)}
+                required
+              />
+            </div>
           </div>
 
-          {/* Human: Remember + forgot row from Pencil Remember Forgot Row */}
-          <div className="flex items-center justify-between gap-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#666666]">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="size-4 rounded border border-[#E5E7EB] accent-[#2563EB]"
-              />
+          {/* Human: Remember + forgot row */}
+          <div
+            className="auth-enter flex items-center justify-between gap-4"
+            style={{ "--auth-i": 4 } as CSSProperties}
+          >
+            <AuthCheckbox checked={rememberMe} onChange={setRememberMe}>
               Remember me
-            </label>
+            </AuthCheckbox>
             <button
               type="button"
-              className="text-sm font-semibold text-[#2563EB] hover:underline"
+              className="rounded-md text-sm font-semibold text-brand transition-colors duration-150 hover:text-brand-hover hover:underline focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none"
               onClick={() => {
-                setInfo("");
                 setError("");
                 setInfo("Contact your administrator to reset your password.");
               }}
@@ -183,20 +197,18 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {error ? (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
+          {error ? <AuthAlert key={error}>{error}</AuthAlert> : null}
           {info ? (
-            <Alert>
-              <AlertDescription>{info}</AlertDescription>
-            </Alert>
+            <AuthAlert key={info} tone="info">
+              {info}
+            </AuthAlert>
           ) : null}
 
-          <AuthSubmitButton loading={loading} loadingLabel="Signing in…">
-            Sign In
-          </AuthSubmitButton>
+          <div className="auth-enter" style={{ "--auth-i": 5 } as CSSProperties}>
+            <AuthSubmitButton loading={loading} loadingLabel="Signing in…">
+              Sign In
+            </AuthSubmitButton>
+          </div>
         </form>
       </AuthFormCard>
 

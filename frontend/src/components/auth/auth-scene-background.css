@@ -1,5 +1,5 @@
-/* Human: Fluid morphing auth backdrop — mesh washes, organic blobs, drifting particles (Fable-style motion). */
-/* Agent: USED by AuthSceneBackground; RESPECTS prefers-reduced-motion by freezing all motion. */
+/* Human: Auth backdrop shell — gradient base, the canvas scene, and the scrim that keeps copy readable. */
+/* Agent: The canvas paints the data-lifecycle scene (AuthSceneBackground); everything here is static and cheap. */
 
 .auth-scene {
   position: absolute;
@@ -7,446 +7,82 @@
   overflow: hidden;
   pointer-events: none;
   isolation: isolate;
+
+  /* Light theme values; the .dark block below re-tunes every one of them. */
+  --auth-scene-from: #eef3fd;
+  --auth-scene-via: #f5f7fe;
+  --auth-scene-to: #e9eefb;
+  --auth-scene-glow: rgba(37, 99, 235, 0.16);
+  --auth-scene-glow-warm: rgba(124, 58, 237, 0.1);
+  --auth-scene-scrim: rgba(246, 249, 254, 0.82);
+  --auth-scene-edge: rgba(15, 23, 42, 0.1);
 }
 
-/* Slow mesh pan on the base wash so the entire field feels alive. */
-.auth-scene__base {
-  position: absolute;
-  inset: -12%;
-  background:
-    radial-gradient(90% 70% at 18% 12%, var(--auth-scene-accent, transparent), transparent 58%),
-    radial-gradient(70% 60% at 82% 78%, var(--auth-scene-accent, transparent), transparent 55%),
-    linear-gradient(
-      145deg,
-      var(--auth-scene-from),
-      var(--auth-scene-via) 48%,
-      var(--auth-scene-to)
-    );
-  background-size: 120% 120%;
-  animation: auth-scene-mesh-pan 28s ease-in-out infinite alternate;
-  will-change: transform, background-position;
-}
-
-/* Large soft mesh washes — layer 0 under blobs. */
-.auth-scene__wash {
-  position: absolute;
-  border-radius: 50%;
-  will-change: transform, border-radius, filter;
-  transform: translate3d(0, 0, 0);
-  mix-blend-mode: soft-light;
-  animation-name: auth-scene-wash-flow;
-  animation-timing-function: cubic-bezier(0.45, 0.05, 0.55, 0.95);
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-}
-
-/* Organic morphing fluid bodies. */
-.auth-scene__blob {
-  position: absolute;
-  border-radius: 42% 58% 62% 38% / 48% 42% 58% 52%;
-  will-change: transform, border-radius, filter;
-  transform: translate3d(0, 0, 0) scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1));
-  mix-blend-mode: multiply;
-  animation-timing-function: cubic-bezier(0.42, 0.02, 0.52, 0.98);
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-  animation-name: auth-scene-blob-morph-a;
-}
-
-.auth-scene__blob[data-morph="a"] {
-  animation-name: auth-scene-blob-morph-a;
-}
-
-.auth-scene__blob[data-morph="b"] {
-  animation-name: auth-scene-blob-morph-b;
-}
-
-.auth-scene__blob[data-morph="c"] {
-  animation-name: auth-scene-blob-morph-c;
-}
-
-.auth-scene__blob[data-morph="d"] {
-  animation-name: auth-scene-blob-morph-d;
-}
-
-/* Specular sheen that slides across the scene for depth. */
-.auth-scene__sheen {
-  position: absolute;
-  inset: -20%;
-  background:
-    conic-gradient(
-      from var(--auth-sheen-angle, 210deg) at 50% 50%,
-      transparent 0deg,
-      rgba(255, 255, 255, 0.22) 48deg,
-      transparent 110deg,
-      rgba(255, 255, 255, 0.1) 190deg,
-      transparent 280deg,
-      rgba(255, 255, 255, 0.16) 330deg,
-      transparent 360deg
-    );
-  mix-blend-mode: soft-light;
-  opacity: 0.65;
-  animation: auth-scene-sheen-spin 36s linear infinite;
-  will-change: transform;
-}
-
-.auth-scene__particle {
-  position: absolute;
-  border-radius: 9999px;
-  will-change: transform, opacity;
-  animation-name: auth-scene-particle-drift;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-  box-shadow: 0 0 12px currentColor;
-}
-
-.auth-scene__veil {
+/*
+ * Human: Painted before any JavaScript runs, so the page never flashes white while the
+ * canvas boots — and it is the fallback if canvas 2D is unavailable.
+ */
+.auth-scene__backdrop {
   position: absolute;
   inset: 0;
-  background: var(--auth-scene-veil-color);
-  backdrop-filter: blur(var(--auth-scene-veil-blur));
-  -webkit-backdrop-filter: blur(var(--auth-scene-veil-blur));
+  background:
+    radial-gradient(90% 70% at 15% 8%, var(--auth-scene-glow), transparent 60%),
+    radial-gradient(70% 60% at 88% 82%, var(--auth-scene-glow-warm), transparent 58%),
+    linear-gradient(158deg, var(--auth-scene-from), var(--auth-scene-via) 46%, var(--auth-scene-to));
 }
 
-/* Soft center pocket for the card — lighter so motion stays visible around edges. */
+.auth-scene__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Human: A soft wash of the backdrop colour sitting exactly where the brand copy is, so the
+ * scene can run at full contrast without the headline having to fight it.
+ * Agent: Two ellipses — one over the brand column (left), one over the sign-in card (right).
+ * Below lg the brand column is hidden and the card is centred, so the layout collapses to one.
+ */
+.auth-scene__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 34% 46% at 22% 50%, var(--auth-scene-scrim) 0%, transparent 78%),
+    radial-gradient(ellipse 30% 44% at 74% 50%, var(--auth-scene-scrim) 0%, transparent 78%);
+}
+
+@media (max-width: 1023px) {
+  .auth-scene__scrim {
+    background: radial-gradient(
+      ellipse 46% 48% at 50% 50%,
+      var(--auth-scene-scrim) 0%,
+      transparent 78%
+    );
+  }
+}
+
+/*
+ * Human: Darkens the far corners so the scene feels like it continues past the viewport
+ * instead of stopping at the edge of the canvas.
+ */
 .auth-scene__vignette {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 62% 54% at 50% 48%, rgba(255, 255, 255, 0.42) 0%, transparent 72%),
-    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 42%, rgba(255, 255, 255, 0.28) 100%);
+  background: radial-gradient(
+    ellipse 110% 110% at 50% 50%,
+    transparent 45%,
+    var(--auth-scene-edge) 100%
+  );
 }
 
-/* ---- Keyframes ---- */
-
-@keyframes auth-scene-mesh-pan {
-  0% {
-    transform: translate3d(-2%, -1%, 0) scale(1.02) rotate(0deg);
-    background-position: 0% 20%;
-  }
-  50% {
-    transform: translate3d(2%, 1.5%, 0) scale(1.06) rotate(1.5deg);
-    background-position: 60% 50%;
-  }
-  100% {
-    transform: translate3d(-1%, 2%, 0) scale(1.03) rotate(-1deg);
-    background-position: 30% 80%;
-  }
-}
-
-@keyframes auth-scene-wash-flow {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
-    border-radius: 48% 52% 60% 40% / 45% 55% 48% 52%;
-    filter: blur(var(--auth-wash-blur, 40px)) saturate(1.05);
-  }
-  33% {
-    transform: translate3d(
-        calc(var(--auth-wash-dx) * 0.55),
-        calc(var(--auth-wash-dy) * 0.35),
-        0
-      )
-      scale(calc(var(--auth-wash-pulse, 1.15) * 0.96))
-      rotate(calc(var(--auth-wash-rotate, 20deg) * 0.4));
-    border-radius: 62% 38% 45% 55% / 58% 42% 60% 40%;
-    filter: blur(calc(var(--auth-wash-blur, 40px) * 0.9)) saturate(1.15);
-  }
-  66% {
-    transform: translate3d(var(--auth-wash-dx), var(--auth-wash-dy), 0)
-      scale(var(--auth-wash-pulse, 1.15))
-      rotate(var(--auth-wash-rotate, 20deg));
-    border-radius: 40% 60% 55% 45% / 50% 48% 52% 50%;
-    filter: blur(calc(var(--auth-wash-blur, 40px) * 1.1)) saturate(1.2);
-  }
-  100% {
-    transform: translate3d(
-        calc(var(--auth-wash-dx) * -0.4),
-        calc(var(--auth-wash-dy) * 0.6),
-        0
-      )
-      scale(1.05)
-      rotate(calc(var(--auth-wash-rotate, 20deg) * -0.35));
-    border-radius: 55% 45% 38% 62% / 42% 58% 45% 55%;
-    filter: blur(var(--auth-wash-blur, 40px)) saturate(1.08);
-  }
-}
-
-/* Morph path A — figure-ish drift with heavy radius morph. */
-@keyframes auth-scene-blob-morph-a {
-  0% {
-    border-radius: 42% 58% 62% 38% / 48% 42% 58% 52%;
-    transform: translate3d(0, 0, 0) scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(0deg);
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1);
-  }
-  25% {
-    border-radius: 60% 40% 45% 55% / 55% 60% 40% 45%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.45),
-        calc(var(--auth-blob-dy) * 0.25),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * var(--auth-blob-pulse, 1.15) * 0.92),
-        calc(var(--auth-blob-sy, 1) * 1.08)
-      )
-      rotate(calc(var(--auth-blob-rotate, 30deg) * 0.35));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 0.85)) saturate(1.15);
-  }
-  50% {
-    border-radius: 38% 62% 55% 45% / 60% 38% 62% 40%;
-    transform: translate3d(var(--auth-blob-dx), var(--auth-blob-dy), 0)
-      scale(
-        calc(var(--auth-blob-sx, 1) * var(--auth-blob-pulse, 1.15)),
-        calc(var(--auth-blob-sy, 1) * var(--auth-blob-pulse, 1.15) * 0.95)
-      )
-      rotate(var(--auth-blob-rotate, 30deg));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 1.05)) saturate(1.2);
-  }
-  75% {
-    border-radius: 55% 45% 40% 60% / 42% 58% 48% 52%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.3),
-        calc(var(--auth-blob-dy) * 0.85),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * 1.08),
-        calc(var(--auth-blob-sy, 1) * var(--auth-blob-pulse, 1.15) * 0.9)
-      )
-      rotate(calc(var(--auth-blob-rotate, 30deg) * 0.55));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 0.95)) saturate(1.1);
-  }
-  100% {
-    border-radius: 48% 52% 58% 42% / 52% 48% 55% 45%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * -0.35),
-        calc(var(--auth-blob-dy) * 0.4),
-        0
-      )
-      scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(calc(var(--auth-blob-rotate, 30deg) * -0.2));
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1.05);
-  }
-}
-
-/* Morph path B — opposite rotation bias, different radius sequence. */
-@keyframes auth-scene-blob-morph-b {
-  0% {
-    border-radius: 58% 42% 40% 60% / 55% 48% 52% 45%;
-    transform: translate3d(0, 0, 0) scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(0deg);
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1);
-  }
-  30% {
-    border-radius: 40% 60% 58% 42% / 48% 55% 45% 52%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.6),
-        calc(var(--auth-blob-dy) * 0.4),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * 1.1),
-        calc(var(--auth-blob-sy, 1) * var(--auth-blob-pulse, 1.15) * 0.92)
-      )
-      rotate(calc(var(--auth-blob-rotate, -30deg) * 0.45));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 0.9)) saturate(1.18);
-  }
-  60% {
-    border-radius: 62% 38% 48% 52% / 40% 60% 55% 45%;
-    transform: translate3d(var(--auth-blob-dx), var(--auth-blob-dy), 0)
-      scale(
-        calc(var(--auth-blob-sx, 1) * var(--auth-blob-pulse, 1.15) * 0.95),
-        calc(var(--auth-blob-sy, 1) * var(--auth-blob-pulse, 1.15))
-      )
-      rotate(var(--auth-blob-rotate, -30deg));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 1.1)) saturate(1.22);
-  }
-  100% {
-    border-radius: 45% 55% 60% 40% / 58% 42% 48% 52%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * -0.25),
-        calc(var(--auth-blob-dy) * 0.55),
-        0
-      )
-      scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(calc(var(--auth-blob-rotate, -30deg) * 0.15));
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1.05);
-  }
-}
-
-/* Morph path C — ribbon stretch emphasis. */
-@keyframes auth-scene-blob-morph-c {
-  0% {
-    border-radius: 50% 50% 45% 55% / 55% 45% 55% 45%;
-    transform: translate3d(0, 0, 0)
-      scale(var(--auth-blob-sx, 1.3), var(--auth-blob-sy, 0.8))
-      rotate(0deg);
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1);
-  }
-  25% {
-    border-radius: 65% 35% 55% 45% / 40% 60% 40% 60%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.4),
-        calc(var(--auth-blob-dy) * 0.55),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1.3) * 1.12),
-        calc(var(--auth-blob-sy, 0.8) * 0.9)
-      )
-      rotate(calc(var(--auth-blob-rotate, 40deg) * 0.4));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 0.88)) saturate(1.12);
-  }
-  50% {
-    border-radius: 35% 65% 40% 60% / 60% 40% 60% 40%;
-    transform: translate3d(var(--auth-blob-dx), var(--auth-blob-dy), 0)
-      scale(
-        calc(var(--auth-blob-sx, 1.3) * var(--auth-blob-pulse, 1.2) * 0.92),
-        calc(var(--auth-blob-sy, 0.8) * var(--auth-blob-pulse, 1.2))
-      )
-      rotate(var(--auth-blob-rotate, 40deg));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 1.08)) saturate(1.2);
-  }
-  75% {
-    border-radius: 55% 45% 60% 40% / 48% 52% 45% 55%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.55),
-        calc(var(--auth-blob-dy) * -0.2),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1.3) * 0.95),
-        calc(var(--auth-blob-sy, 0.8) * 1.15)
-      )
-      rotate(calc(var(--auth-blob-rotate, 40deg) * 0.65));
-    filter: blur(calc(var(--auth-blob-blur, 36px) * 0.95)) saturate(1.1);
-  }
-  100% {
-    border-radius: 48% 52% 50% 50% / 52% 48% 52% 48%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * -0.3),
-        calc(var(--auth-blob-dy) * 0.35),
-        0
-      )
-      scale(var(--auth-blob-sx, 1.3), var(--auth-blob-sy, 0.8))
-      rotate(calc(var(--auth-blob-rotate, 40deg) * -0.15));
-    filter: blur(var(--auth-blob-blur, 36px)) saturate(1.05);
-  }
-}
-
-/* Morph path D — tighter, faster-feeling wiggle. */
-@keyframes auth-scene-blob-morph-d {
-  0% {
-    border-radius: 45% 55% 52% 48% / 50% 45% 55% 50%;
-    transform: translate3d(0, 0, 0) scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(0deg);
-    filter: blur(var(--auth-blob-blur, 32px)) saturate(1);
-  }
-  20% {
-    border-radius: 60% 40% 48% 52% / 42% 58% 45% 55%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.7),
-        calc(var(--auth-blob-dy) * 0.2),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * 1.12),
-        calc(var(--auth-blob-sy, 1) * 0.9)
-      )
-      rotate(calc(var(--auth-blob-rotate, -24deg) * 0.5));
-    filter: blur(calc(var(--auth-blob-blur, 32px) * 0.85)) saturate(1.2);
-  }
-  45% {
-    border-radius: 38% 62% 55% 45% / 58% 42% 60% 40%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.35),
-        calc(var(--auth-blob-dy) * 0.9),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * var(--auth-blob-pulse, 1.18) * 0.9),
-        calc(var(--auth-blob-sy, 1) * var(--auth-blob-pulse, 1.18))
-      )
-      rotate(var(--auth-blob-rotate, -24deg));
-    filter: blur(calc(var(--auth-blob-blur, 32px) * 1.12)) saturate(1.15);
-  }
-  70% {
-    border-radius: 52% 48% 40% 60% / 45% 55% 48% 52%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * -0.15),
-        calc(var(--auth-blob-dy) * 0.5),
-        0
-      )
-      scale(
-        calc(var(--auth-blob-sx, 1) * 1.05),
-        calc(var(--auth-blob-sy, 1) * 1.08)
-      )
-      rotate(calc(var(--auth-blob-rotate, -24deg) * 0.3));
-    filter: blur(calc(var(--auth-blob-blur, 32px) * 0.95)) saturate(1.1);
-  }
-  100% {
-    border-radius: 50% 50% 55% 45% / 52% 48% 50% 50%;
-    transform: translate3d(
-        calc(var(--auth-blob-dx) * 0.25),
-        calc(var(--auth-blob-dy) * -0.2),
-        0
-      )
-      scale(var(--auth-blob-sx, 1), var(--auth-blob-sy, 1))
-      rotate(calc(var(--auth-blob-rotate, -24deg) * -0.25));
-    filter: blur(var(--auth-blob-blur, 32px)) saturate(1.05);
-  }
-}
-
-@keyframes auth-scene-particle-drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(0.85);
-    opacity: 0.2;
-  }
-  35% {
-    transform: translate3d(
-        calc(var(--auth-particle-dx, 8px) * 0.4),
-        calc(var(--auth-particle-dy, -16px) * 0.5),
-        0
-      )
-      scale(1.15);
-    opacity: 0.85;
-  }
-  70% {
-    transform: translate3d(var(--auth-particle-dx, 8px), var(--auth-particle-dy, -16px), 0)
-      scale(0.95);
-    opacity: 0.55;
-  }
-  100% {
-    transform: translate3d(
-        calc(var(--auth-particle-dx, 8px) * -0.3),
-        calc(var(--auth-particle-dy, -16px) * 0.2),
-        0
-      )
-      scale(1.05);
-    opacity: 0.3;
-  }
-}
-
-@keyframes auth-scene-sheen-spin {
-  0% {
-    transform: rotate(0deg) scale(1.05);
-  }
-  50% {
-    transform: rotate(180deg) scale(1.12);
-  }
-  100% {
-    transform: rotate(360deg) scale(1.05);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-scene__base,
-  .auth-scene__wash,
-  .auth-scene__blob,
-  .auth-scene__particle,
-  .auth-scene__sheen {
-    animation: none !important;
-  }
+.dark .auth-scene {
+  --auth-scene-from: #070b14;
+  --auth-scene-via: #0b1120;
+  --auth-scene-to: #05080f;
+  --auth-scene-glow: rgba(76, 141, 255, 0.18);
+  --auth-scene-glow-warm: rgba(125, 211, 252, 0.08);
+  --auth-scene-scrim: rgba(7, 11, 20, 0.82);
+  --auth-scene-edge: rgba(2, 4, 8, 0.72);
 }
