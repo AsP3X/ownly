@@ -284,16 +284,8 @@ async fn handle_client_message(
                 )
                 .await
             {
-                Ok((op, _session)) => {
-                    // Fan-out already done in engine; also send personal ack.
-                    let ack = json!({
-                        "type": "ack",
-                        "client_op_id": op.client_op_id,
-                        "seq": op.seq,
-                        "op": op,
-                    })
-                    .to_string();
-                    state.collab.hub().publish(session_id, ack).await;
+                Ok((_op, _session)) => {
+                    // Human: Engine already fans out type=op with client_op_id — clients use that as ack.
                     Ok(())
                 }
                 Err(CollabError::Locked) => {

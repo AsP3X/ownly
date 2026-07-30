@@ -504,4 +504,71 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, CollabError::Locked));
     }
+
+    #[tokio::test]
+    async fn interleaved_typing_stress_converges() {
+        let eng = engine();
+        let s = eng
+            .join(
+                RoomKind::Document,
+                "file-stress",
+                "u1",
+                "Alice",
+                Some(json!({ "text": "", "html": "" })),
+            )
+            .await
+            .unwrap();
+        eng.join(RoomKind::Document, "file-stress", "u2", "Bob", None)
+            .await
+            .unwrap();
+
+        // Alternate single-character inserts at end from two users (each tracks own base).
+        let mut base_a = 0u64;
+        let mut base_b = 0u64;
+        for i in 0..40 {
+            let (user, base) = if i % 2 == 0 {
+                ("u1", base_a)
+            } else {
+                ("u2", base_b)
+            };
+            let ch = if i % 2 == 0 { "a" } else { "b" };
+            // Always append relative to author base; server transforms.
+            let (op, session) = eng
+                .submit_op(
+                    &s.id,
+                    user,
+                    base,
+                    "replace",
+                    json!({ "index": 10_000, "delete": 0, "insert": ch }), // clamp to end
+                    Some(format!("c{i}")),
+                )
+                .await
+                .unwrap();
+            if user == "u1" {
+                base_a = op.seq;
+            } else {
+                base_b = op.seq;
+            }
+            // Keep other base behind occasionally to force OT
+            if i % 5 == 0 {
+                // leave lag
+            } else if user == "u1" {
+                base_b = session.latest_seq();
+            } else {
+                base_a = session.latest_seq();
+            }
+        }
+
+        let final_session = eng.get(&s.id).await.unwrap();
+        let text = final_session
+            .snapshot
+            .data
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert_eq!(text.chars().count(), 40);
+        assert_eq!(text.chars().filter(|c| *c == 'a').count(), 20);
+        assert_eq!(text.chars().filter(|c| *c == 'b').count(), 20);
+        assert_eq!(final_session.latest_seq(), 40);
+    }
 }
