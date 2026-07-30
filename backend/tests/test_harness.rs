@@ -54,6 +54,7 @@ pub fn test_config(database_url: &str) -> Config {
         object_storage_request_timeout_secs: 900,
         trust_proxy_headers: false,
         share_password_rpm: 8,
+        redis_url: String::new(),
     }
 }
 

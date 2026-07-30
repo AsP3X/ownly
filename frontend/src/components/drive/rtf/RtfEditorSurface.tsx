@@ -3,7 +3,7 @@
 // Agent: HOSTS RtfCollabLockBubbles overlay inside the scrollport for foreign locks.
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
-import type { DocumentCollabParticipant } from "@/api/client";
+import type { CollabParticipant } from "@/api/client";
 import { RtfCollabLockBubbles } from "@/components/drive/rtf/RtfCollabLockBubbles";
 import {
   getHtmlWithoutCollabMarks,
@@ -29,7 +29,7 @@ export type RtfEditorSurfaceProps = {
   onChange: (html: string) => void;
   className?: string;
   /** Human: Live collab participants — foreign lock ranges draw colored bubbles. */
-  collabParticipants?: DocumentCollabParticipant[];
+  collabParticipants?: CollabParticipant[];
   collabCurrentUserId?: string | null;
   /** Human: Bump when document HTML changes so lock geometry remeasures. */
   collabLayoutKey?: string;

@@ -35,6 +35,7 @@ function op(
     seq: partial.seq,
     user_id: partial.user_id,
     ts: partial.ts ?? 1,
+    base_seq: partial.base_seq ?? Math.max(0, partial.seq - 1),
     op_type: partial.op_type ?? "cell_edit",
     payload: partial.payload,
   };

@@ -211,6 +211,7 @@ mod tests {
             object_storage_request_timeout_secs: 900,
             trust_proxy_headers: false,
             share_password_rpm: 8,
+            redis_url: String::new(),
         };
         assert!(validate_startup_secrets(&config).is_err());
         config.jwt_secret = "operator-generated-jwt-secret-with-32-chars-min!!".into();
@@ -263,6 +264,7 @@ mod tests {
             object_storage_request_timeout_secs: 900,
             trust_proxy_headers: false,
             share_password_rpm: 8,
+            redis_url: String::new(),
         };
         assert!(validate_startup_secrets(&config).is_err());
         config.cors_allowed_origins = "https://app.example.com".into();

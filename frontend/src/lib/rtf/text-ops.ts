@@ -1,7 +1,13 @@
-// Human: Plain-text insert/delete ops for concurrent RTF collab (avoids full-doc clobber).
-// Agent: PURE diff + DOM apply at plain offsets; USED by RtfEditorDialog + useDocumentCollab.
+// Human: DOM apply helpers for collab replace ops (OT lives in lib/collab/ot).
+// Agent: USED by RtfEditorDialog; bridges collab TextReplace ↔ contenteditable.
 
 import { rangeFromPlainOffsets, rootPlainText } from "@/lib/rtf/plain-offset-range";
+import {
+  diffPlainText as collabDiffPlainText,
+  transformOffset,
+  transformRange,
+  type TextReplace,
+} from "@/lib/collab/ot/text";
 
 export type TextReplaceOp = {
   index: number;
@@ -9,29 +15,18 @@ export type TextReplaceOp = {
   insertText: string;
 };
 
-// Human: Diff two plain strings into a single replace op (common for typing bursts).
-// Agent: Common prefix/suffix; RETURNS null when identical.
+function toCollab(op: TextReplaceOp): TextReplace {
+  return { index: op.index, delete: op.deleteCount, insert: op.insertText };
+}
+
+// Human: Diff two plain strings into a single replace op (unicode-scalar safe via collab OT).
 export function diffPlainText(before: string, after: string): TextReplaceOp | null {
-  if (before === after) return null;
-  let start = 0;
-  const minLen = Math.min(before.length, after.length);
-  while (start < minLen && before[start] === after[start]) {
-    start += 1;
-  }
-  let endBefore = before.length;
-  let endAfter = after.length;
-  while (
-    endBefore > start &&
-    endAfter > start &&
-    before[endBefore - 1] === after[endAfter - 1]
-  ) {
-    endBefore -= 1;
-    endAfter -= 1;
-  }
+  const diff = collabDiffPlainText(before, after);
+  if (!diff) return null;
   return {
-    index: start,
-    deleteCount: endBefore - start,
-    insertText: after.slice(start, endAfter),
+    index: diff.index,
+    deleteCount: diff.delete,
+    insertText: diff.insert,
   };
 }
 
@@ -79,20 +74,12 @@ function insertPlainTextAt(root: HTMLElement, index: number, text: string): void
   range.insertNode(document.createTextNode(text));
 }
 
-// Human: Shift a caret/lock offset through a remote replace op (basic OT).
-// Agent: BEFORE op → unchanged; AFTER deleted span → shift by insert-delete; INSIDE → clamp to index.
+// Human: Shift a caret/lock offset through a remote replace op (shared OT).
 export function transformOffsetThroughReplace(
   offset: number,
   op: TextReplaceOp,
 ): number {
-  const { index, deleteCount, insertText } = op;
-  const insertLen = insertText.length;
-  if (offset <= index) return offset;
-  if (offset >= index + deleteCount) {
-    return offset - deleteCount + insertLen;
-  }
-  // Inside deleted region → land at insert point
-  return index + insertLen;
+  return transformOffset(offset, toCollab(op));
 }
 
 export function transformRangeThroughReplace(
@@ -100,7 +87,7 @@ export function transformRangeThroughReplace(
   end: number,
   op: TextReplaceOp,
 ): { start: number; end: number } {
-  const s = transformOffsetThroughReplace(start, op);
-  const e = transformOffsetThroughReplace(end, op);
-  return { start: Math.min(s, e), end: Math.max(s, e) };
+  const next = transformRange(start, end, toCollab(op));
+  if (!next) return { start, end: start };
+  return next;
 }

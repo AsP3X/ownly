@@ -145,42 +145,14 @@ export function RtfEditorDialog({
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
       if (html === draftHtmlRef.current) return;
-      // Human: While typing, live text ops carry content — full HTML would clobber concurrent edits.
-      if (Date.now() - lastLocalEditAtRef.current < 1500) {
-        return;
-      }
-      // Human: Full HTML snapshot (formatting / idle catch-up) — preserves local lock content when possible.
+      // Human: format_commit only lands when server text matches — safe to apply HTML.
       applyingRemoteRef.current = true;
       try {
-        const root = surfaceRef.current?.getEditorElement();
-        const lock = localLockRef.current;
-        let preserved: { start: number; end: number; plain: string } | null = null;
-        if (root && lock && lock.end > lock.start) {
-          const localPlain = rootPlainText(root);
-          preserved = {
-            start: lock.start,
-            end: lock.end,
-            plain: localPlain.slice(lock.start, lock.end),
-          };
-        }
-
         surfaceRef.current?.setHtml(html);
-        let nextHtml = html;
-        if (preserved && surfaceRef.current) {
-          const el = surfaceRef.current.getEditorElement();
-          if (el) {
-            applyPlainReplaceToEditor(el, {
-              index: preserved.start,
-              deleteCount: Math.max(0, preserved.end - preserved.start),
-              insertText: preserved.plain,
-            });
-            nextHtml = surfaceRef.current.getHtml();
-          }
-        }
-        setDraftHtml(nextHtml);
-        draftHtmlRef.current = nextHtml;
+        setDraftHtml(html);
+        draftHtmlRef.current = html;
         const el = surfaceRef.current?.getEditorElement();
-        lastPlainRef.current = el ? rootPlainText(el) : text || htmlToPlainText(nextHtml);
+        lastPlainRef.current = el ? rootPlainText(el) : text || htmlToPlainText(html);
         setCollabLayoutTick((tick) => tick + 1);
       } finally {
         applyingRemoteRef.current = false;
@@ -193,18 +165,11 @@ export function RtfEditorDialog({
       if (!root) return;
       applyingRemoteRef.current = true;
       try {
-        const replace =
-          op.opType === "text_insert"
-            ? {
-                index: op.index,
-                deleteCount: 0,
-                insertText: op.text ?? "",
-              }
-            : {
-                index: op.index,
-                deleteCount: op.length ?? 0,
-                insertText: "",
-              };
+        const replace = {
+          index: op.index,
+          deleteCount: op.delete,
+          insertText: op.insert,
+        };
         const nextPlain = applyPlainReplaceToEditor(root, replace);
         lastPlainRef.current = nextPlain;
         if (localLockRef.current) {
@@ -366,32 +331,24 @@ export function RtfEditorDialog({
       const diff = diffPlainText(prevPlain, nextPlain);
       lastPlainRef.current = nextPlain;
 
-      // Human: Concurrent live path — character ops so peers keep editing their own locks.
+      // Human: Single OT replace op (server-authoritative) — no dual insert/delete channel.
       if (diff) {
-        if (diff.deleteCount > 0) {
-          collab.publishTextOp({
-            opType: "text_delete",
-            index: diff.index,
-            length: diff.deleteCount,
-          });
-        }
-        if (diff.insertText) {
-          collab.publishTextOp({
-            opType: "text_insert",
-            index: diff.index,
-            text: diff.insertText,
-          });
-        }
+        collab.publishTextOp({
+          opType: "replace",
+          index: diff.index,
+          delete: diff.deleteCount,
+          insert: diff.insertText,
+        });
       }
 
-      // Human: Idle full HTML snapshot for formatting — long enough to avoid clobbering peers mid-type.
+      // Human: format_commit only when plain text is stable (server rejects text_mismatch).
       if (fullSyncTimerRef.current !== null) {
         window.clearTimeout(fullSyncTimerRef.current);
       }
       fullSyncTimerRef.current = window.setTimeout(() => {
         fullSyncTimerRef.current = null;
         collab.publishDocument(draftHtmlRef.current, lastPlainRef.current);
-      }, 2000);
+      }, 600);
     },
     [collab],
   );

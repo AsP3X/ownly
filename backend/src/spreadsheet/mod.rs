@@ -1,7 +1,4 @@
-// Human: Spreadsheet editor API — Copilot + co-editing session foundation.
-// Agent: EXPORTED handlers + collab store; MOUNTED under /api/v1/spreadsheet/*.
+// Human: Spreadsheet editor API — Copilot only (live collab lives in crate::collab).
+// Agent: EXPORTED handlers; MOUNTED under /api/v1/spreadsheet/copilot.
 
-pub mod collab;
 pub mod handlers;
-pub mod hub;
-pub mod ws;

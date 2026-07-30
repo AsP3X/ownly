@@ -1,19 +1,21 @@
-// Human: Spreadsheet co-editing — join, WS push + poll fallback, apply multi-type remote ops.
-// Agent: USED by ExcelSpreadsheetDialog; CENTRALIZED SEQ ORDER = sequential OT total order.
+// Human: Spreadsheet collab — thin adapter over shared CollabClient (server total-order ops).
+// Agent: USED by ExcelSpreadsheetDialog; WS-first publish + presence.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  API_BASE,
-  heartbeatSpreadsheetCollabSession,
-  joinSpreadsheetCollabSession,
-  listSpreadsheetCollabOps,
-  postSpreadsheetCollabOp,
-  type SpreadsheetCollabOp,
-  type SpreadsheetCollabParticipant,
-  type SpreadsheetCollabSession,
-} from "@/api/client";
+import { CollabClient } from "@/lib/collab/client";
+import type {
+  CollabOp,
+  CollabParticipant,
+  CollabSession,
+  CollabTransportMode,
+} from "@/lib/collab/types";
 import { cellAddressLabel } from "@/lib/spreadsheet/cells";
 import type { CellAddress } from "@/lib/spreadsheet/types";
+
+/** Wire-compatible op shape for existing applyCollabOpToWorkbook. */
+export type SpreadsheetCollabOp = CollabOp;
+export type SpreadsheetCollabParticipant = CollabParticipant;
+export type SpreadsheetCollabSession = CollabSession;
 
 type UseSpreadsheetCollabOptions = {
   fileId: string | null | undefined;
@@ -26,15 +28,6 @@ type UseSpreadsheetCollabOptions = {
   onPresence?: (participants: SpreadsheetCollabParticipant[]) => void;
 };
 
-function collabWsUrl(sessionId: string): string {
-  const base =
-    typeof window !== "undefined" && API_BASE.startsWith("http")
-      ? API_BASE
-      : `${window.location.origin}${API_BASE.startsWith("/") ? API_BASE : `/${API_BASE}`}`;
-  const wsBase = base.replace(/^http/, "ws");
-  return `${wsBase}/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ws`;
-}
-
 export function useSpreadsheetCollab({
   fileId,
   enabled,
@@ -45,13 +38,13 @@ export function useSpreadsheetCollab({
   onApplyRemoteOps,
   onPresence,
 }: UseSpreadsheetCollabOptions) {
-  const [session, setSession] = useState<SpreadsheetCollabSession | null>(null);
-  const [participants, setParticipants] = useState<SpreadsheetCollabParticipant[]>([]);
-  const [recentOps, setRecentOps] = useState<SpreadsheetCollabOp[]>([]);
+  const [session, setSession] = useState<CollabSession | null>(null);
+  const [participants, setParticipants] = useState<CollabParticipant[]>([]);
+  const [recentOps, setRecentOps] = useState<CollabOp[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [transport, setTransport] = useState<"ws" | "poll">("poll");
-  const latestSeqRef = useRef(0);
-  const sessionIdRef = useRef<string | null>(null);
+  const [transport, setTransport] = useState<CollabTransportMode>("poll");
+
+  const clientRef = useRef<CollabClient | null>(null);
   const localUserIdRef = useRef(localUserId);
   const onApplyRemoteOpsRef = useRef(onApplyRemoteOps);
   const onPresenceRef = useRef(onPresence);
@@ -59,136 +52,57 @@ export function useSpreadsheetCollab({
   onApplyRemoteOpsRef.current = onApplyRemoteOps;
   onPresenceRef.current = onPresence;
 
-  const ingestOps = useCallback((ops: SpreadsheetCollabOp[]) => {
-    if (ops.length === 0) return;
-    latestSeqRef.current = Math.max(latestSeqRef.current, ...ops.map((entry) => entry.seq));
-    setRecentOps((prev) => [...prev, ...ops].slice(-80));
-    const remote = ops.filter(
-      (entry) => !localUserIdRef.current || entry.user_id !== localUserIdRef.current,
-    );
-    if (remote.length > 0) onApplyRemoteOpsRef.current?.(remote);
-  }, []);
-
   useEffect(() => {
     if (!enabled || !fileId) {
+      clientRef.current?.stop();
+      clientRef.current = null;
       setSession(null);
       setParticipants([]);
-      sessionIdRef.current = null;
-      latestSeqRef.current = 0;
+      setError(null);
       return;
     }
 
-    let cancelled = false;
-    void joinSpreadsheetCollabSession({
-      file_id: fileId,
-      display_name: displayName,
-    })
-      .then((joined) => {
-        if (cancelled) return;
-        setSession(joined);
-        setParticipants(joined.participants);
-        sessionIdRef.current = joined.id;
-        latestSeqRef.current = joined.latest_seq;
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Co-editing session unavailable");
-      });
+    const client = new CollabClient({
+      roomKind: "spreadsheet",
+      fileId,
+      displayName,
+      localUserId,
+      onSession: setSession,
+      onParticipants: (next) => {
+        setParticipants(next);
+        onPresenceRef.current?.(next);
+      },
+      onTransport: setTransport,
+      onError: setError,
+      onOp: (op, { isLocalEcho }) => {
+        setRecentOps((prev) => [...prev, op].slice(-80));
+        if (!isLocalEcho) {
+          onApplyRemoteOpsRef.current?.([op]);
+        }
+      },
+    });
+    clientRef.current = client;
+    void client.start();
 
     return () => {
-      cancelled = true;
+      client.stop();
+      if (clientRef.current === client) clientRef.current = null;
     };
-  }, [displayName, enabled, fileId]);
+  }, [displayName, enabled, fileId, localUserId]);
 
-  // WebSocket live channel
+  // Presence: active cell / sheet over WS heartbeat (throttled by client)
   useEffect(() => {
-    if (!enabled || !session?.id) return;
-    const sessionId = session.id;
-    let socket: WebSocket | null = null;
-    let closed = false;
-
-    try {
-      socket = new WebSocket(collabWsUrl(sessionId));
-    } catch {
-      setTransport("poll");
-      return;
-    }
-
-    socket.onopen = () => {
-      if (!closed) setTransport("ws");
-    };
-    socket.onerror = () => {
-      if (!closed) setTransport("poll");
-    };
-    socket.onclose = () => {
-      if (!closed) setTransport("poll");
-    };
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(String(event.data)) as {
-          type?: string;
-          op?: SpreadsheetCollabOp;
-          session?: SpreadsheetCollabSession;
-        };
-        if (data.type === "op" && data.op) {
-          ingestOps([data.op]);
-        }
-        if (data.type === "presence" && data.session) {
-          setSession(data.session);
-          setParticipants(data.session.participants);
-          onPresenceRef.current?.(data.session.participants);
-        }
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-
-    return () => {
-      closed = true;
-      socket?.close();
-    };
-  }, [enabled, ingestOps, session?.id]);
-
-  // Heartbeat + poll fallback (also fills gaps if WS drops messages)
-  useEffect(() => {
-    if (!enabled || !session?.id) return;
-    const sessionId = session.id;
-    sessionIdRef.current = sessionId;
-
-    const tick = () => {
-      void heartbeatSpreadsheetCollabSession(sessionId, {
-        active_cell: activeCell ? cellAddressLabel(activeCell) : undefined,
-        sheet_name: sheetName ?? undefined,
-      })
-        .then((next) => {
-          setSession(next);
-          setParticipants(next.participants);
-          onPresenceRef.current?.(next.participants);
-        })
-        .catch(() => undefined);
-
-      void listSpreadsheetCollabOps(sessionId, latestSeqRef.current)
-        .then((ops) => ingestOps(ops))
-        .catch(() => undefined);
-    };
-
-    tick();
-    const intervalMs = transport === "ws" ? 8000 : 2000;
-    const id = window.setInterval(tick, intervalMs);
-    return () => window.clearInterval(id);
-  }, [activeCell, enabled, ingestOps, session?.id, sheetName, transport]);
+    if (!enabled || !clientRef.current) return;
+    clientRef.current.updatePresence({
+      active_cell: activeCell ? cellAddressLabel(activeCell) : null,
+      sheet_name: sheetName ?? null,
+    });
+  }, [activeCell, enabled, sheetName]);
 
   const publishOp = useCallback(
     async (opType: string, payload: Record<string, unknown>) => {
-      const sessionId = sessionIdRef.current;
-      if (!sessionId || !enabled) return;
-      try {
-        const op = await postSpreadsheetCollabOp(sessionId, { op_type: opType, payload });
-        latestSeqRef.current = Math.max(latestSeqRef.current, op.seq);
-        setRecentOps((prev) => [...prev, op].slice(-80));
-      } catch {
-        /* best-effort */
-      }
+      if (!enabled || !clientRef.current) return;
+      clientRef.current.submitOp(opType, payload);
     },
     [enabled],
   );

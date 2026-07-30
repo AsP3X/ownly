@@ -64,299 +64,35 @@ export async function postSpreadsheetCopilot(body: {
   }) as Promise<{ reply: string; source: string }>;
 }
 
-export type SpreadsheetCollabParticipant = {
-  user_id: string;
-  display_name: string;
-  color: string;
-  last_seen: number;
-  active_cell?: string | null;
-  sheet_name?: string | null;
-};
+// ── Shared collab engine (document + spreadsheet) — re-exported for convenience ──
+export {
+  getOrCreatePublicCollabGuestId,
+  joinCollabSession,
+  getCollabSession,
+  heartbeatCollabSession,
+  listCollabOps,
+  postCollabOp,
+  joinPublicCollabSession,
+  getPublicCollabSession,
+  heartbeatPublicCollabSession,
+  listPublicCollabOps,
+  postPublicCollabOp,
+} from "@/lib/collab/api";
+export type {
+  CollabOp,
+  CollabParticipant,
+  CollabSession,
+  DomainSnapshot,
+  PublicShareAuth,
+  RoomKind,
+} from "@/lib/collab/types";
 
-export type SpreadsheetCollabSession = {
-  id: string;
-  file_id: string;
-  participants: SpreadsheetCollabParticipant[];
-  latest_seq: number;
-};
-
-export type SpreadsheetCollabOp = {
-  id: string;
-  seq: number;
-  user_id: string;
-  ts: number;
-  op_type: string;
-  payload: Record<string, unknown>;
-};
-
-// Human: Join or create an in-memory co-editing session for a workbook file.
-// Agent: POST /spreadsheet/sessions; REQUIRES ContentRead on file_id.
-export async function joinSpreadsheetCollabSession(body: {
-  file_id: string;
-  display_name?: string;
-}): Promise<SpreadsheetCollabSession> {
-  return apiFetch("/spreadsheet/sessions", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<SpreadsheetCollabSession>;
-}
-
-export async function fetchSpreadsheetCollabSession(
-  sessionId: string,
-): Promise<SpreadsheetCollabSession> {
-  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}`, {
-    cache: "no-store",
-  }) as Promise<SpreadsheetCollabSession>;
-}
-
-export async function heartbeatSpreadsheetCollabSession(
-  sessionId: string,
-  body: { active_cell?: string; sheet_name?: string },
-): Promise<SpreadsheetCollabSession> {
-  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<SpreadsheetCollabSession>;
-}
-
-export async function postSpreadsheetCollabOp(
-  sessionId: string,
-  body: { op_type: string; payload: Record<string, unknown> },
-): Promise<SpreadsheetCollabOp> {
-  return apiFetch(`/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ops`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<SpreadsheetCollabOp>;
-}
-
-export async function listSpreadsheetCollabOps(
-  sessionId: string,
-  afterSeq = 0,
-): Promise<SpreadsheetCollabOp[]> {
-  return apiFetch(
-    `/spreadsheet/sessions/${encodeURIComponent(sessionId)}/ops?after_seq=${afterSeq}`,
-    { cache: "no-store" },
-  ) as Promise<SpreadsheetCollabOp[]>;
-}
-
-// ── Document (RTF) live collab ──────────────────────────────────────────────
-
-export type DocumentCollabParticipant = {
-  user_id: string;
-  display_name: string;
-  color: string;
-  last_seen: number;
-  selection_start?: number | null;
-  selection_end?: number | null;
-  lock_start?: number | null;
-  lock_end?: number | null;
-};
-
-export type DocumentCollabSession = {
-  id: string;
-  file_id: string;
-  participants: DocumentCollabParticipant[];
-  latest_seq: number;
-  document_html: string;
-  document_text: string;
-};
-
-export type DocumentCollabOp = {
-  id: string;
-  seq: number;
-  user_id: string;
-  ts: number;
-  op_type: string;
-  payload: Record<string, unknown>;
-};
-
-// Human: Join or create a live co-editing session for a rich-text/RTF file.
-// Agent: POST /document/sessions; REQUIRES ContentRead; SEEDS html/text when first joiner.
-export async function joinDocumentCollabSession(body: {
-  file_id: string;
-  display_name?: string;
-  initial_html?: string;
-  initial_text?: string;
-}): Promise<DocumentCollabSession> {
-  return apiFetch("/document/sessions", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<DocumentCollabSession>;
-}
-
-export async function heartbeatDocumentCollabSession(
-  sessionId: string,
-  body: {
-    selection_start?: number;
-    selection_end?: number;
-    lock_start?: number;
-    lock_end?: number;
-    clear_lock?: boolean;
-  },
-): Promise<DocumentCollabSession> {
-  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<DocumentCollabSession>;
-}
-
-// Human: Fetch current collab session snapshot (participants + locks) without mutating presence.
-// Agent: GET /document/sessions/:id; USED as sparse poll when WS presence is missed.
-export async function getDocumentCollabSession(
-  sessionId: string,
-): Promise<DocumentCollabSession> {
-  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}`, {
-    cache: "no-store",
-  }) as Promise<DocumentCollabSession>;
-}
-
-export async function postDocumentCollabOp(
-  sessionId: string,
-  body: { op_type: string; payload: Record<string, unknown> },
-): Promise<DocumentCollabOp> {
-  return apiFetch(`/document/sessions/${encodeURIComponent(sessionId)}/ops`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  }) as Promise<DocumentCollabOp>;
-}
-
-export async function listDocumentCollabOps(
-  sessionId: string,
-  afterSeq = 0,
-): Promise<DocumentCollabOp[]> {
-  return apiFetch(
-    `/document/sessions/${encodeURIComponent(sessionId)}/ops?after_seq=${afterSeq}`,
-    { cache: "no-store" },
-  ) as Promise<DocumentCollabOp[]>;
-}
-
-// Human: Stable guest identity for anonymous public-share collab (survives reconnects in the tab).
-// Agent: sessionStorage key; UUID preferred; FALLBACK random hex when crypto.randomUUID missing.
-export function getOrCreatePublicCollabGuestId(): string {
-  const key = "ownly_public_collab_guest_id";
-  try {
-    const existing = sessionStorage.getItem(key);
-    if (existing && existing.length >= 8) return existing;
-    const next =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-    sessionStorage.setItem(key, next);
-    return next;
-  } catch {
-    return `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  }
-}
-
-type PublicCollabAuth = {
-  token: string;
-  sharePassword?: string | null;
-  guestId: string;
-};
-
-function publicCollabHeaders(sharePassword?: string | null): Record<string, string> {
-  return sharePassword ? { "X-Share-Password": sharePassword } : {};
-}
-
-// Human: Join live collab on a public share link with allow_edit.
-// Agent: POST /public/shares/:token/document/sessions; SENDS guest_id + optional password header.
-export async function joinPublicDocumentCollabSession(
-  auth: PublicCollabAuth,
-  body: {
-    file_id: string;
-    display_name?: string;
-    initial_html?: string;
-    initial_text?: string;
-  },
-): Promise<DocumentCollabSession> {
-  return apiFetch(
-    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions`,
-    {
-      method: "POST",
-      headers: publicCollabHeaders(auth.sharePassword),
-      body: JSON.stringify({
-        ...body,
-        guest_id: auth.guestId,
-      }),
-    },
-  ) as Promise<DocumentCollabSession>;
-}
-
-export async function heartbeatPublicDocumentCollabSession(
-  auth: PublicCollabAuth,
-  sessionId: string,
-  body: {
-    selection_start?: number;
-    selection_end?: number;
-    lock_start?: number;
-    lock_end?: number;
-    clear_lock?: boolean;
-  },
-): Promise<DocumentCollabSession> {
-  return apiFetch(
-    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
-    {
-      method: "POST",
-      headers: publicCollabHeaders(auth.sharePassword),
-      body: JSON.stringify({
-        ...body,
-        guest_id: auth.guestId,
-      }),
-    },
-  ) as Promise<DocumentCollabSession>;
-}
-
-// Human: Public session snapshot for presence/lock gap-fill without a JWT.
-// Agent: GET /public/shares/:token/document/sessions/:id?guest_id=
-export async function getPublicDocumentCollabSession(
-  auth: PublicCollabAuth,
-  sessionId: string,
-): Promise<DocumentCollabSession> {
-  const params = new URLSearchParams({ guest_id: auth.guestId });
-  return apiFetch(
-    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}?${params.toString()}`,
-    {
-      cache: "no-store",
-      headers: publicCollabHeaders(auth.sharePassword),
-    },
-  ) as Promise<DocumentCollabSession>;
-}
-
-export async function postPublicDocumentCollabOp(
-  auth: PublicCollabAuth,
-  sessionId: string,
-  body: { op_type: string; payload: Record<string, unknown> },
-): Promise<DocumentCollabOp> {
-  return apiFetch(
-    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/ops`,
-    {
-      method: "POST",
-      headers: publicCollabHeaders(auth.sharePassword),
-      body: JSON.stringify({
-        ...body,
-        guest_id: auth.guestId,
-      }),
-    },
-  ) as Promise<DocumentCollabOp>;
-}
-
-export async function listPublicDocumentCollabOps(
-  auth: PublicCollabAuth,
-  sessionId: string,
-  afterSeq = 0,
-): Promise<DocumentCollabOp[]> {
-  const params = new URLSearchParams({
-    after_seq: String(afterSeq),
-    guest_id: auth.guestId,
-  });
-  return apiFetch(
-    `/public/shares/${encodeURIComponent(auth.token)}/document/sessions/${encodeURIComponent(sessionId)}/ops?${params.toString()}`,
-    {
-      cache: "no-store",
-      headers: publicCollabHeaders(auth.sharePassword),
-    },
-  ) as Promise<DocumentCollabOp[]>;
-}
+/** @deprecated Use CollabParticipant — kept for spreadsheet call sites during cutover. */
+export type SpreadsheetCollabParticipant = import("@/lib/collab/types").CollabParticipant;
+/** @deprecated Use CollabSession */
+export type SpreadsheetCollabSession = import("@/lib/collab/types").CollabSession;
+/** @deprecated Use CollabOp */
+export type SpreadsheetCollabOp = import("@/lib/collab/types").CollabOp;
 
 export async function setupStatus() {
   return apiFetch("/setup/status", { cache: "no-store" }) as Promise<{ setup_complete: boolean }>;

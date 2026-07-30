@@ -1,10 +1,10 @@
 // Human: Live co-editing presence strip for the RTF editor — collaborators, locks, transport.
-// Agent: READS DocumentCollabParticipant[]; RENDERS under RTF toolbar when session is active.
+// Agent: READS CollabParticipant[]; RENDERS under RTF toolbar when session is active.
 
-import type { DocumentCollabParticipant } from "@/api/client";
+import type { CollabParticipant } from "@/api/client";
 
 type RtfCollabPresenceProps = {
-  participants: DocumentCollabParticipant[];
+  participants: CollabParticipant[];
   currentUserId?: string | null;
   error?: string | null;
   transport?: "ws" | "poll";

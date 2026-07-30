@@ -2,7 +2,7 @@
 // Agent: applyCollabLockMarks only when lock ranges change; caret/selection absolute overlays.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DocumentCollabParticipant } from "@/api/client";
+import type { CollabParticipant } from "@/api/client";
 import {
   applyCollabLockMarks,
   measureCaretMarker,
@@ -16,7 +16,7 @@ import {
 export type RtfCollabLockBubblesProps = {
   getEditorElement: () => HTMLElement | null;
   getScrollContainer?: () => HTMLElement | null;
-  participants: DocumentCollabParticipant[];
+  participants: CollabParticipant[];
   currentUserId?: string | null;
   layoutKey?: string;
 };

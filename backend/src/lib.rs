@@ -23,6 +23,7 @@ pub mod audit;
 pub mod auth;
 pub mod authz;
 pub mod browser_guard;
+pub mod collab;
 pub mod config;
 pub mod crypto;
 pub mod csrf;
@@ -122,18 +123,9 @@ pub struct AppState {
     /// Human: Cooperative cancel flag for the active server-side storage migration worker.
     /// Agent: READ/WRITE by storage_migration_run cancel endpoint and background loop.
     pub storage_migration_coordinator: admin::storage_migration_run::StorageMigrationCoordinator,
-    /// Human: In-memory spreadsheet co-editing sessions (presence + op log foundation).
-    /// Agent: READ/WRITE by spreadsheet collab handlers; NOT durable across restarts.
-    pub spreadsheet_collab: spreadsheet::collab::SharedCollabStore,
-    /// Human: Live WebSocket fan-out for collab ops/presence per session.
-    /// Agent: PUBLISH after op/heartbeat; SUBSCRIBE from WS upgrade handler.
-    pub spreadsheet_collab_hub: spreadsheet::hub::SharedCollabHub,
-    /// Human: Live rich-text / RTF co-editing sessions with exclusive range locks.
-    /// Agent: READ/WRITE by document collab handlers; Redis optional via REDIS_URL.
-    pub document_collab: document::collab::SharedDocCollabStore,
-    /// Human: Live WebSocket fan-out for document collab ops/presence/locks.
-    /// Agent: PUBLISH after op/heartbeat; SUBSCRIBE from document collab WS.
-    pub document_collab_hub: spreadsheet::hub::SharedCollabHub,
+    /// Human: Shared live collab engine (document + spreadsheet + future editors).
+    /// Agent: READ/WRITE by collab HTTP/WS; Redis optional via REDIS_URL.
+    pub collab: collab::SharedCollabEngine,
 }
 
 // Human: Restrict browser origins in production while staying permissive when unset for local dev.
@@ -305,10 +297,21 @@ async fn build_app_state(
         ),
         storage_migration_coordinator:
             admin::storage_migration_run::StorageMigrationCoordinator::new(),
-        spreadsheet_collab: spreadsheet::collab::CollabStore::from_redis_url(&config.redis_url).await,
-        spreadsheet_collab_hub: spreadsheet::hub::new_shared_hub(),
-        document_collab: document::collab::DocCollabStore::from_redis_url(&config.redis_url).await,
-        document_collab_hub: spreadsheet::hub::new_shared_hub(),
+        collab: {
+            let store =
+                collab::store::CollabStore::from_redis_url(&config.redis_url).await;
+            let redis = store.redis_manager();
+            let redis_url = {
+                let trimmed = config.redis_url.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            };
+            let hub = collab::hub::new_shared_hub(redis, redis_url);
+            collab::CollabEngine::new(store, hub)
+        },
     }))
 }
 
@@ -471,25 +474,24 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(max_upload)),
         )
         .route(
-            "/api/v1/public/shares/{token}/document/sessions",
-            post(document::public_collab_handlers::public_join_session),
+            "/api/v1/public/shares/{token}/collab/sessions",
+            post(collab::http::public_join_session),
         )
         .route(
-            "/api/v1/public/shares/{token}/document/sessions/{session_id}",
-            get(document::public_collab_handlers::public_get_session),
+            "/api/v1/public/shares/{token}/collab/sessions/{session_id}",
+            get(collab::http::public_get_session),
         )
         .route(
-            "/api/v1/public/shares/{token}/document/sessions/{session_id}/heartbeat",
-            post(document::public_collab_handlers::public_session_heartbeat),
+            "/api/v1/public/shares/{token}/collab/sessions/{session_id}/heartbeat",
+            post(collab::http::public_session_heartbeat),
         )
         .route(
-            "/api/v1/public/shares/{token}/document/sessions/{session_id}/ops",
-            get(document::public_collab_handlers::public_list_ops)
-                .post(document::public_collab_handlers::public_post_op),
+            "/api/v1/public/shares/{token}/collab/sessions/{session_id}/ops",
+            get(collab::http::public_list_ops).post(collab::http::public_post_op),
         )
         .route(
-            "/api/v1/public/shares/{token}/document/sessions/{session_id}/ws",
-            get(document::collab_ws::public_session_ws),
+            "/api/v1/public/shares/{token}/collab/sessions/{session_id}/ws",
+            get(collab::ws::public_session_ws),
         )
         .route(
             "/api/v1/public/shares/{token}/files/{file_id}/stream-url",
@@ -538,44 +540,24 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(spreadsheet::handlers::copilot),
         )
         .route(
-            "/api/v1/spreadsheet/sessions",
-            post(spreadsheet::handlers::join_session),
+            "/api/v1/collab/sessions",
+            post(collab::http::join_session),
         )
         .route(
-            "/api/v1/spreadsheet/sessions/{session_id}",
-            get(spreadsheet::handlers::get_session),
+            "/api/v1/collab/sessions/{session_id}",
+            get(collab::http::get_session),
         )
         .route(
-            "/api/v1/spreadsheet/sessions/{session_id}/heartbeat",
-            post(spreadsheet::handlers::session_heartbeat),
+            "/api/v1/collab/sessions/{session_id}/heartbeat",
+            post(collab::http::session_heartbeat),
         )
         .route(
-            "/api/v1/spreadsheet/sessions/{session_id}/ops",
-            get(spreadsheet::handlers::list_ops).post(spreadsheet::handlers::post_op),
+            "/api/v1/collab/sessions/{session_id}/ops",
+            get(collab::http::list_ops).post(collab::http::post_op),
         )
         .route(
-            "/api/v1/spreadsheet/sessions/{session_id}/ws",
-            get(spreadsheet::ws::session_ws),
-        )
-        .route(
-            "/api/v1/document/sessions",
-            post(document::collab_handlers::join_session),
-        )
-        .route(
-            "/api/v1/document/sessions/{session_id}",
-            get(document::collab_handlers::get_session),
-        )
-        .route(
-            "/api/v1/document/sessions/{session_id}/heartbeat",
-            post(document::collab_handlers::session_heartbeat),
-        )
-        .route(
-            "/api/v1/document/sessions/{session_id}/ops",
-            get(document::collab_handlers::list_ops).post(document::collab_handlers::post_op),
-        )
-        .route(
-            "/api/v1/document/sessions/{session_id}/ws",
-            get(document::collab_ws::session_ws),
+            "/api/v1/collab/sessions/{session_id}/ws",
+            get(collab::ws::session_ws),
         )
         .route("/api/v1/me", get(auth::handlers::me))
         .route(
