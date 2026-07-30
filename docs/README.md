@@ -14,6 +14,7 @@ The [root README](../README.md) is the project overview and quick entry point.
 | [Getting started](./getting-started.md) | Clone, Docker Compose up, first-run wizard, submodules |
 | [Configuration](./configuration.md) | Environment variables, secrets, local vs production config |
 | [Architecture](./architecture.md) | Stack overview, data stores, request paths |
+| [Collab engine](./collab-engine.md) | Shared live co-editing (document + spreadsheet OT) |
 | [Local development](./local-development.md) | Backend, frontend, tests, verification commands |
 | [Compose profiles](./compose-profiles.md) | Production, multi-node, and GPU overlays |
 | [Backup and restore](./backup-restore.md) | Full Postgres + Nebular disaster recovery |

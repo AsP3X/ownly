@@ -657,6 +657,87 @@ async fn collab_public_document_guest_join_and_op() {
     cleanup_user(&state, &user.user_id).await;
 }
 
+// Human: WebSocket hello + op fan-out for an authenticated document session.
+// Agent: JOIN HTTP; connect WS with Bearer; send replace; EXPECT type=op frame with seq 1.
+#[tokio::test]
+async fn collab_document_ws_hello_and_op_fanout() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let Some(state) =
+        test_harness::TestHarness::state("collab_document_ws_hello_and_op_fanout").await
+    else {
+        return;
+    };
+    let user = seed_user_with_file(&state, "collab-ws").await;
+    let app = create_router(state.clone());
+
+    let session = join_document(app.clone(), &user.token, &user.file_id, "WS", "hi").await;
+    let session_id = session["id"].as_str().unwrap().to_string();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let mut req = format!("ws://{addr}/api/v1/collab/sessions/{session_id}/ws")
+        .into_client_request()
+        .expect("ws request");
+    req.headers_mut().insert(
+        "authorization",
+        format!("Bearer {}", user.token).parse().unwrap(),
+    );
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(req)
+        .await
+        .expect("ws connect");
+
+    let hello = ws.next().await.expect("hello frame").expect("ok");
+    let hello_text = hello.to_text().expect("text");
+    let hello_json: Value = serde_json::from_str(hello_text).expect("hello json");
+    assert_eq!(hello_json["type"], "hello");
+    assert_eq!(hello_json["session_id"], session_id);
+    assert_eq!(hello_json["protocol"], 1);
+
+    let op_msg = json!({
+        "type": "op",
+        "base_seq": 0,
+        "op_type": "replace",
+        "payload": { "index": 0, "delete": 0, "insert": "!" },
+        "client_op_id": "ws-op-1",
+    });
+    ws.send(Message::Text(op_msg.to_string().into()))
+        .await
+        .expect("send op");
+
+    let mut saw_op = false;
+    for _ in 0..10 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next())
+            .await
+            .expect("timeout waiting for op")
+            .expect("stream end")
+            .expect("ws err");
+        if let Message::Text(text) = frame {
+            let v: Value = serde_json::from_str(&text).unwrap_or(json!({}));
+            if v["type"] == "op" {
+                assert_eq!(v["op"]["seq"], 1);
+                assert_eq!(v["op"]["op_type"], "replace");
+                saw_op = true;
+                break;
+            }
+        }
+    }
+    assert!(saw_op, "expected op fan-out on websocket");
+
+    let _ = ws.close(None).await;
+    server.abort();
+    cleanup_user(&state, &user.user_id).await;
+}
+
 // Human: Heartbeat updates presence fields on document sessions.
 // Agent: POST heartbeat with selection; GET session EXPECT selection on participant.
 #[tokio::test]

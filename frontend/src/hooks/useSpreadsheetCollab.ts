@@ -1,5 +1,5 @@
-// Human: Spreadsheet collab — thin adapter over shared CollabClient (server total-order ops).
-// Agent: USED by ExcelSpreadsheetDialog; WS-first publish + presence.
+// Human: Spreadsheet collab — CollabClient adapter with idle state_commit for late joiners.
+// Agent: USED by ExcelSpreadsheetDialog; WS-first ops + presence + workbook snapshot.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CollabClient } from "@/lib/collab/client";
@@ -10,12 +10,13 @@ import type {
   CollabTransportMode,
 } from "@/lib/collab/types";
 import { cellAddressLabel } from "@/lib/spreadsheet/cells";
-import type { CellAddress } from "@/lib/spreadsheet/types";
+import type { CellAddress, SpreadsheetWorkbook } from "@/lib/spreadsheet/types";
 
-/** Wire-compatible op shape for existing applyCollabOpToWorkbook. */
 export type SpreadsheetCollabOp = CollabOp;
 export type SpreadsheetCollabParticipant = CollabParticipant;
 export type SpreadsheetCollabSession = CollabSession;
+
+const STATE_COMMIT_IDLE_MS = 1500;
 
 type UseSpreadsheetCollabOptions = {
   fileId: string | null | undefined;
@@ -24,8 +25,11 @@ type UseSpreadsheetCollabOptions = {
   sheetName: string | null;
   displayName?: string;
   localUserId?: string | null;
+  /** Human: Snapshot for late joiners after op log prune. */
+  getWorkbook?: () => SpreadsheetWorkbook | null;
   onApplyRemoteOps?: (ops: SpreadsheetCollabOp[]) => void;
   onPresence?: (participants: SpreadsheetCollabParticipant[]) => void;
+  onRemoteWorkbook?: (workbook: SpreadsheetWorkbook) => void;
 };
 
 export function useSpreadsheetCollab({
@@ -35,8 +39,10 @@ export function useSpreadsheetCollab({
   sheetName,
   displayName,
   localUserId,
+  getWorkbook,
   onApplyRemoteOps,
   onPresence,
+  onRemoteWorkbook,
 }: UseSpreadsheetCollabOptions) {
   const [session, setSession] = useState<CollabSession | null>(null);
   const [participants, setParticipants] = useState<CollabParticipant[]>([]);
@@ -48,9 +54,15 @@ export function useSpreadsheetCollab({
   const localUserIdRef = useRef(localUserId);
   const onApplyRemoteOpsRef = useRef(onApplyRemoteOps);
   const onPresenceRef = useRef(onPresence);
+  const onRemoteWorkbookRef = useRef(onRemoteWorkbook);
+  const getWorkbookRef = useRef(getWorkbook);
+  const stateCommitTimerRef = useRef<number | null>(null);
+
   localUserIdRef.current = localUserId;
   onApplyRemoteOpsRef.current = onApplyRemoteOps;
   onPresenceRef.current = onPresence;
+  onRemoteWorkbookRef.current = onRemoteWorkbook;
+  getWorkbookRef.current = getWorkbook;
 
   useEffect(() => {
     if (!enabled || !fileId) {
@@ -67,7 +79,13 @@ export function useSpreadsheetCollab({
       fileId,
       displayName,
       localUserId,
-      onSession: setSession,
+      onSession: (next) => {
+        setSession(next);
+        const wb = next.snapshot?.data?.workbook;
+        if (wb && typeof wb === "object" && wb !== null) {
+          onRemoteWorkbookRef.current?.(wb as SpreadsheetWorkbook);
+        }
+      },
       onParticipants: (next) => {
         setParticipants(next);
         onPresenceRef.current?.(next);
@@ -76,8 +94,21 @@ export function useSpreadsheetCollab({
       onError: setError,
       onOp: (op, { isLocalEcho }) => {
         setRecentOps((prev) => [...prev, op].slice(-80));
+        if (op.op_type === "state_commit" && !isLocalEcho) {
+          const wb = op.payload?.workbook;
+          if (wb && typeof wb === "object") {
+            onRemoteWorkbookRef.current?.(wb as SpreadsheetWorkbook);
+          }
+          return;
+        }
         if (!isLocalEcho) {
           onApplyRemoteOpsRef.current?.([op]);
+        }
+      },
+      onSnapshot: (snap) => {
+        const wb = snap.data?.workbook;
+        if (wb && typeof wb === "object" && wb !== null) {
+          onRemoteWorkbookRef.current?.(wb as SpreadsheetWorkbook);
         }
       },
     });
@@ -85,12 +116,15 @@ export function useSpreadsheetCollab({
     void client.start();
 
     return () => {
+      if (stateCommitTimerRef.current != null) {
+        window.clearTimeout(stateCommitTimerRef.current);
+        stateCommitTimerRef.current = null;
+      }
       client.stop();
       if (clientRef.current === client) clientRef.current = null;
     };
   }, [displayName, enabled, fileId, localUserId]);
 
-  // Presence: active cell / sheet over WS heartbeat (throttled by client)
   useEffect(() => {
     if (!enabled || !clientRef.current) return;
     clientRef.current.updatePresence({
@@ -99,13 +133,35 @@ export function useSpreadsheetCollab({
     });
   }, [activeCell, enabled, sheetName]);
 
+  const scheduleStateCommit = useCallback(() => {
+    if (!enabled || !clientRef.current) return;
+    if (stateCommitTimerRef.current != null) {
+      window.clearTimeout(stateCommitTimerRef.current);
+    }
+    stateCommitTimerRef.current = window.setTimeout(() => {
+      stateCommitTimerRef.current = null;
+      const workbook = getWorkbookRef.current?.();
+      if (!workbook || !clientRef.current) return;
+      clientRef.current.submitOp("state_commit", { workbook });
+    }, STATE_COMMIT_IDLE_MS);
+  }, [enabled]);
+
   const publishOp = useCallback(
     async (opType: string, payload: Record<string, unknown>) => {
       if (!enabled || !clientRef.current) return;
       clientRef.current.submitOp(opType, payload);
+      if (opType !== "state_commit") {
+        scheduleStateCommit();
+      }
     },
-    [enabled],
+    [enabled, scheduleStateCommit],
   );
+
+  const publishStateCommit = useCallback(() => {
+    const workbook = getWorkbookRef.current?.();
+    if (!workbook || !clientRef.current) return;
+    clientRef.current.submitOp("state_commit", { workbook });
+  }, []);
 
   return {
     session,
@@ -114,5 +170,6 @@ export function useSpreadsheetCollab({
     error,
     transport,
     publishOp,
+    publishStateCommit,
   };
 }

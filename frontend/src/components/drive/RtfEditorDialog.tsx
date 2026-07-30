@@ -331,10 +331,9 @@ export function RtfEditorDialog({
       const diff = diffPlainText(prevPlain, nextPlain);
       lastPlainRef.current = nextPlain;
 
-      // Human: Single OT replace op (server-authoritative) — no dual insert/delete channel.
+      // Human: Single OT replace op (server-authoritative).
       if (diff) {
         collab.publishTextOp({
-          opType: "replace",
           index: diff.index,
           delete: diff.deleteCount,
           insert: diff.insertText,

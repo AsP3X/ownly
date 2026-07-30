@@ -1,4 +1,4 @@
-// Human: Framework-agnostic collab client — WS-first, base_seq OT, presence, reconnect sync.
+// Human: Framework-agnostic collab client — WS-first, base_seq OT, pending rebase, presence.
 // Agent: USED by useDocumentCollab / useSpreadsheetCollab; domain-agnostic op fan-in/out.
 
 import {
@@ -14,6 +14,7 @@ import {
   postCollabOp,
   postPublicCollabOp,
 } from "./api";
+import { transformReplace, type TextReplace } from "./ot/text";
 import type {
   CollabOp,
   CollabParticipant,
@@ -36,7 +37,9 @@ export type CollabClientOptions = {
   onOp?: (op: CollabOp, meta: { isLocalEcho: boolean }) => void;
   onSnapshot?: (snapshot: DomainSnapshot) => void;
   onTransport?: (mode: CollabTransportMode) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, code?: string) => void;
+  /** Human: Used to auto-retry format_commit after text_mismatch once sync catches up. */
+  getFormatCommitPayload?: () => { html: string; text: string } | null;
 };
 
 type PendingOp = {
@@ -44,6 +47,8 @@ type PendingOp = {
   baseSeq: number;
   opType: string;
   payload: Record<string, unknown>;
+  /** Human: True after HTTP post started or WS send accepted. */
+  inFlight: boolean;
 };
 
 function newClientOpId(): string {
@@ -51,6 +56,19 @@ function newClientOpId(): string {
     return crypto.randomUUID();
   }
   return `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseReplacePayload(payload: Record<string, unknown>): TextReplace | null {
+  const index = Number(payload.index);
+  const del = Number(payload.delete ?? 0);
+  const insert = typeof payload.insert === "string" ? payload.insert : "";
+  if (!Number.isFinite(index) || !Number.isFinite(del)) return null;
+  if (del === 0 && !insert) return null;
+  return { index, delete: del, insert };
+}
+
+function replaceToPayload(op: TextReplace): Record<string, unknown> {
+  return { index: op.index, delete: op.delete, insert: op.insert };
 }
 
 export class CollabClient {
@@ -67,9 +85,16 @@ export class CollabClient {
   private pendingPresence: Record<string, unknown> | null = null;
   private pendingOps: PendingOp[] = [];
   private snapshot: DomainSnapshot | null = null;
+  private formatRetryTimer: number | null = null;
+  private formatRetryArmed = false;
 
   constructor(opts: CollabClientOptions) {
     this.opts = opts;
+  }
+
+  /** Human: Update options that change over the session (callbacks, seed getters). */
+  updateOptions(partial: Partial<CollabClientOptions>): void {
+    this.opts = { ...this.opts, ...partial };
   }
 
   getSessionId(): string | null {
@@ -86,6 +111,11 @@ export class CollabClient {
 
   getSnapshot(): DomainSnapshot | null {
     return this.snapshot;
+  }
+
+  /** Exposed for tests — pending replace ops after remote rebase. */
+  getPendingOpsForTests(): ReadonlyArray<PendingOp> {
+    return this.pendingOps;
   }
 
   async start(): Promise<CollabSession | null> {
@@ -128,20 +158,41 @@ export class CollabClient {
       window.clearTimeout(this.presenceTimer);
       this.presenceTimer = null;
     }
+    if (this.formatRetryTimer != null) {
+      window.clearTimeout(this.formatRetryTimer);
+      this.formatRetryTimer = null;
+    }
     this.socket?.close();
     this.socket = null;
+    this.pendingOps = [];
   }
 
   submitOp(opType: string, payload: Record<string, unknown>): string {
     const clientOpId = newClientOpId();
     const baseSeq = this.latestSeq;
-    const pending: PendingOp = { clientOpId, baseSeq, opType, payload };
+    const pending: PendingOp = {
+      clientOpId,
+      baseSeq,
+      opType,
+      payload: { ...payload },
+      inFlight: false,
+    };
     this.pendingOps.push(pending);
 
-    if (this.wsSend({ type: "op", base_seq: baseSeq, op_type: opType, payload, client_op_id: clientOpId })) {
+    if (
+      this.wsSend({
+        type: "op",
+        base_seq: baseSeq,
+        op_type: opType,
+        payload: pending.payload,
+        client_op_id: clientOpId,
+      })
+    ) {
+      pending.inFlight = true;
       return clientOpId;
     }
 
+    pending.inFlight = true;
     void this.postOpHttp(pending);
     return clientOpId;
   }
@@ -166,7 +217,7 @@ export class CollabClient {
 
   private applySession(session: CollabSession): void {
     this.sessionId = session.id;
-    this.latestSeq = session.latest_seq ?? 0;
+    this.latestSeq = Math.max(this.latestSeq, session.latest_seq ?? 0);
     this.snapshot = session.snapshot ?? this.snapshot;
     this.opts.onSession?.(session);
     this.opts.onParticipants?.(session.participants ?? []);
@@ -198,6 +249,22 @@ export class CollabClient {
       this.setTransport("ws");
       this.wsSend({ type: "sync", after_seq: this.latestSeq });
       this.wsSend({ type: "ping" });
+      // Resubmit any pending that never went in-flight after reconnect
+      for (const pending of this.pendingOps) {
+        if (pending.inFlight) continue;
+        pending.baseSeq = this.latestSeq;
+        if (
+          this.wsSend({
+            type: "op",
+            base_seq: pending.baseSeq,
+            op_type: pending.opType,
+            payload: pending.payload,
+            client_op_id: pending.clientOpId,
+          })
+        ) {
+          pending.inFlight = true;
+        }
+      }
     };
 
     socket.onclose = () => {
@@ -222,7 +289,8 @@ export class CollabClient {
     };
   }
 
-  private handleServerMessage(data: {
+  /** Package-private for unit tests. */
+  handleServerMessage(data: {
     type?: string;
     op?: CollabOp;
     ops?: CollabOp[];
@@ -244,7 +312,6 @@ export class CollabClient {
       if (data.client_op_id) {
         this.pendingOps = this.pendingOps.filter((p) => p.clientOpId !== data.client_op_id);
       }
-      // Human: Ack frames are broadcast — only treat as local echo when we authored the op.
       if (data.op) {
         this.ingestOp(data.op, wasMine);
       }
@@ -281,27 +348,89 @@ export class CollabClient {
       if (data.client_op_id) {
         this.pendingOps = this.pendingOps.filter((p) => p.clientOpId !== data.client_op_id);
       }
-      if (data.code === "text_mismatch" || data.code === "locked") {
+      if (data.code === "text_mismatch") {
+        this.requestSync();
+        this.scheduleFormatCommitRetry();
+      } else if (data.code === "locked") {
         this.requestSync();
       }
-      if (data.message) this.opts.onError?.(data.message);
+      if (data.message) this.opts.onError?.(data.message, data.code);
     }
   }
 
   private ingestOp(op: CollabOp, fromAck: boolean): void {
     if (typeof op.seq !== "number") return;
     if (op.seq <= this.latestSeq && !fromAck) return;
-    this.latestSeq = Math.max(this.latestSeq, op.seq);
 
     const isLocal =
       Boolean(this.opts.localUserId && op.user_id === this.opts.localUserId) ||
       Boolean(op.client_op_id && this.pendingOps.some((p) => p.clientOpId === op.client_op_id));
 
+    // Clear matching pending before rebase so we don't transform against our own op.
     if (op.client_op_id) {
       this.pendingOps = this.pendingOps.filter((p) => p.clientOpId !== op.client_op_id);
     }
 
-    this.opts.onOp?.(op, { isLocalEcho: isLocal || fromAck });
+    let delivery = op;
+    if (!isLocal && !fromAck) {
+      delivery = this.rebaseRemoteAgainstPending(op);
+      this.rebasePendingThroughRemote(op);
+    }
+
+    this.latestSeq = Math.max(this.latestSeq, op.seq);
+    this.opts.onOp?.(delivery, { isLocalEcho: isLocal || fromAck });
+  }
+
+  /**
+   * Human: DOM already has optimistic pending replaces — transform remote so it applies after them.
+   */
+  private rebaseRemoteAgainstPending(op: CollabOp): CollabOp {
+    if (op.op_type !== "replace") return op;
+    let remote = parseReplacePayload(op.payload as Record<string, unknown>);
+    if (!remote) return op;
+    for (const pending of this.pendingOps) {
+      if (pending.opType !== "replace") continue;
+      const local = parseReplacePayload(pending.payload);
+      if (!local) continue;
+      remote = transformReplace(remote, local);
+    }
+    return {
+      ...op,
+      payload: replaceToPayload(remote),
+    };
+  }
+
+  /**
+   * Human: Keep unacked local payloads aligned with server-applied remote ops (re-send safety).
+   */
+  private rebasePendingThroughRemote(remoteOp: CollabOp): void {
+    if (remoteOp.op_type !== "replace") return;
+    const remote = parseReplacePayload(remoteOp.payload as Record<string, unknown>);
+    if (!remote) return;
+    for (const pending of this.pendingOps) {
+      if (pending.opType !== "replace") continue;
+      const local = parseReplacePayload(pending.payload);
+      if (!local) continue;
+      pending.payload = replaceToPayload(transformReplace(local, remote));
+      // Not yet in-flight: raise base to remote seq so next send is correct.
+      if (!pending.inFlight) {
+        pending.baseSeq = Math.max(pending.baseSeq, remoteOp.seq);
+      }
+    }
+  }
+
+  private scheduleFormatCommitRetry(): void {
+    if (this.formatRetryArmed || this.closed) return;
+    this.formatRetryArmed = true;
+    if (this.formatRetryTimer != null) window.clearTimeout(this.formatRetryTimer);
+    this.formatRetryTimer = window.setTimeout(() => {
+      this.formatRetryTimer = null;
+      this.formatRetryArmed = false;
+      if (this.closed) return;
+      const payload = this.opts.getFormatCommitPayload?.();
+      if (!payload) return;
+      this.submitOp("format_commit", { html: payload.html, text: payload.text });
+    }, 120);
   }
 
   private wsSend(payload: Record<string, unknown>): boolean {
@@ -319,22 +448,24 @@ export class CollabClient {
     if (!this.sessionId) return;
     try {
       const share = this.opts.publicShare;
+      const body = {
+        base_seq: pending.baseSeq,
+        op_type: pending.opType,
+        payload: pending.payload,
+        client_op_id: pending.clientOpId,
+      };
       const op = share
-        ? await postPublicCollabOp(share, this.sessionId, {
-            base_seq: pending.baseSeq,
-            op_type: pending.opType,
-            payload: pending.payload,
-            client_op_id: pending.clientOpId,
-          })
-        : await postCollabOp(this.sessionId, {
-            base_seq: pending.baseSeq,
-            op_type: pending.opType,
-            payload: pending.payload,
-            client_op_id: pending.clientOpId,
-          });
+        ? await postPublicCollabOp(share, this.sessionId, body)
+        : await postCollabOp(this.sessionId, body);
       this.ingestOp(op, true);
-    } catch {
-      // Keep pending for retry via poll/reconnect
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/text diverged|text_mismatch|conflict/i.test(message) && pending.opType === "format_commit") {
+        this.requestSync();
+        this.scheduleFormatCommitRetry();
+      }
+      // Keep pending for reconnect resubmit when not inFlight recovery — mark for retry
+      pending.inFlight = false;
     }
   }
 

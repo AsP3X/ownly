@@ -1,0 +1,33 @@
+{
+  "description": "Shared OT fixtures — mirrored in backend/src/collab/ot/fixtures.json",
+  "cases": [
+    {
+      "name": "concurrent_ends_converge",
+      "base": "hello world",
+      "a": { "index": 0, "delete": 0, "insert": "X" },
+      "b": { "index": 11, "delete": 0, "insert": "Y" },
+      "result_ab": "Xhello worldY",
+      "result_ba": "Xhello worldY"
+    },
+    {
+      "name": "same_index_inserts_server_first_b",
+      "base": "abcd",
+      "a": { "index": 2, "delete": 0, "insert": "A" },
+      "b": { "index": 2, "delete": 0, "insert": "B" },
+      "apply_b_first": true,
+      "result": "abBAcd"
+    },
+    {
+      "name": "unicode_replace",
+      "base": "a😀b",
+      "op": { "index": 1, "delete": 1, "insert": "X" },
+      "result": "aXb"
+    },
+    {
+      "name": "delete_against_prior_insert",
+      "a": { "index": 5, "delete": 2, "insert": "" },
+      "b": { "index": 0, "delete": 0, "insert": "ZZ" },
+      "a_after_b": { "index": 7, "delete": 2, "insert": "" }
+    }
+  ]
+}

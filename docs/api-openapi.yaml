@@ -138,6 +138,135 @@ paths:
       responses:
         "200":
           description: Other sessions revoked
+  /collab/sessions:
+    post:
+      summary: Join or create a live collab session (document or spreadsheet)
+      security: [{ bearerAuth: [] }]
+      description: |
+        Shared collab engine. Requires content.read on the file.
+        See docs/collab-engine.md for OT protocol, locks, and WebSocket frames.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [room_kind, file_id]
+              properties:
+                room_kind:
+                  type: string
+                  enum: [document, spreadsheet]
+                file_id: { type: string }
+                display_name: { type: string }
+                seed: { type: object }
+                initial_html: { type: string }
+                initial_text: { type: string }
+      responses:
+        "200":
+          description: Session snapshot with participants and latest_seq
+        "401":
+          description: Unauthorized
+  /collab/sessions/{session_id}:
+    get:
+      summary: Collab session snapshot
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Participants, latest_seq, domain snapshot
+  /collab/sessions/{session_id}/heartbeat:
+    post:
+      summary: Update presence (selection/locks or active_cell)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated session view
+  /collab/sessions/{session_id}/ops:
+    get:
+      summary: List ops after a sequence number
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: after_seq
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Ordered op list
+    post:
+      summary: Submit a collab op (base_seq OT)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [base_seq, op_type, payload]
+              properties:
+                base_seq: { type: integer }
+                op_type: { type: string }
+                payload: { type: object }
+                client_op_id: { type: string }
+      responses:
+        "200":
+          description: Stored op with assigned seq
+        "409":
+          description: Lock conflict or format_commit text_mismatch
+  /collab/sessions/{session_id}/ws:
+    get:
+      summary: Bidirectional collab WebSocket
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      responses:
+        "101":
+          description: WebSocket upgrade
+  /public/shares/{token}/collab/sessions:
+    post:
+      summary: Join document collab on an allow_edit public share
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_id, guest_id]
+              properties:
+                file_id: { type: string }
+                guest_id: { type: string }
+                display_name: { type: string }
+                room_kind: { type: string, enum: [document] }
+                initial_html: { type: string }
+                initial_text: { type: string }
+      responses:
+        "200":
+          description: Guest session view
 components:
   securitySchemes:
     bearerAuth:

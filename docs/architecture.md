@@ -45,6 +45,7 @@ A complete backup needs **both** Postgres and Nebular volumes: [Backup and resto
 | **Download** | Stream via API or short-lived presigned Nebular URL |
 | **Video** | HLS encode job → encrypted segments in storage; playlist/key endpoints on the API |
 | **Shares** | Public token links and user-to-user grants ([atomic permissions](./superpowers/specs/2026-05-25-atomic-permissions-design.md)) |
+| **Live collab** | Shared server-authoritative OT engine for RTF + spreadsheets — [Collab engine](./collab-engine.md) |
 | **Admin** | Users, storage nodes, migration, upload health, system settings |
 
 ## Multi-node storage
@@ -69,5 +70,6 @@ Optional extra Nebular nodes (`docker-compose.rep.yml`) register in Admin. Ownly
 
 - [Getting started](./getting-started.md)
 - [Nebular integration](./nebular-integration.md)
+- [Collab engine](./collab-engine.md)
 - [API](./api.md)
 - [Improvement roadmap](./improvement-roadmap.md)

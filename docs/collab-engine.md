@@ -53,6 +53,11 @@ Healthy clients use **WS only** for live traffic; HTTP poll is reconnect/degrade
 
 ## Tests
 
-- Unit: `cargo test --lib collab`
-- HTTP integration: `cargo test --test collab_http` (requires `DATABASE_URL`)
+- Unit: `cargo test --lib collab` (includes shared `ot/fixtures.json` parity)
+- HTTP + WebSocket integration: `cargo test --test collab_http` (requires `DATABASE_URL`)
 - Frontend OT/client: `npm test -- --run src/lib/collab`
+
+OT transform cases are shared between Rust and TypeScript via:
+
+- `backend/src/collab/ot/fixtures.json`
+- `frontend/src/lib/collab/ot/fixtures.json`

@@ -299,7 +299,7 @@ The in-browser Excel editor is substantial (ribbon, formulas including dynamic a
 | **Formulas** | LAMBDA, fuller statistical/financial library | Extend `formula-extended.ts`; catalog in `formula-catalog.ts` |
 | **Save fidelity** | Full OOXML style/chart round-trip | `xlsx-charts-ooxml.ts`, `cell-styles.ts` numFmt edge cases |
 | **Copilot** | Local heuristics only | Wave 5 — `POST /api/v1/spreadsheet/copilot` + audit |
-| **Collaboration** | Real-time co-editing | Requires backend sync session token; explicitly deferred |
+| **Collaboration** | Shared OT engine shipped for document + spreadsheet | Harden pending-op UX, spreadsheet state_commit coverage, optional Playwright dual-client e2e |
 | **Track changes** | Not implemented | Wave 3 workbook ops |
 | **Mobile edit** | Read-only preview on small viewports | Wave 4 — optional read-only polish only |
 

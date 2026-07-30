@@ -341,4 +341,56 @@ mod tests {
         assert!(text.contains('X'));
         assert_eq!(text.chars().count(), base.chars().count() + 1 + 1 + 1);
     }
+
+    #[test]
+    fn shared_fixtures_json_parity() {
+        let raw = include_str!("fixtures.json");
+        let root: serde_json::Value = serde_json::from_str(raw).expect("fixtures json");
+        let cases = root["cases"].as_array().expect("cases");
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            if let Some(base) = case["base"].as_str() {
+                if let (Some(a), Some(b)) = (case.get("a"), case.get("b")) {
+                    let a = parse_fix(a);
+                    let b = parse_fix(b);
+                    if case["apply_b_first"].as_bool() == Some(true) {
+                        let after_b = apply_replace(base, &b);
+                        let a2 = transform_replace(&a, &b);
+                        let result = apply_replace(&after_b, &a2);
+                        assert_eq!(result, case["result"].as_str().unwrap(), "{name}");
+                    } else {
+                        let s1 = apply_replace(base, &a);
+                        let b2 = transform_replace(&b, &a);
+                        let ab = apply_replace(&s1, &b2);
+                        let s2 = apply_replace(base, &b);
+                        let a2 = transform_replace(&a, &b);
+                        let ba = apply_replace(&s2, &a2);
+                        if let Some(exp) = case["result_ab"].as_str() {
+                            assert_eq!(ab, exp, "{name} ab");
+                        }
+                        if let Some(exp) = case["result_ba"].as_str() {
+                            assert_eq!(ba, exp, "{name} ba");
+                        }
+                    }
+                } else if let Some(op) = case.get("op") {
+                    let result = apply_replace(base, &parse_fix(op));
+                    assert_eq!(result, case["result"].as_str().unwrap(), "{name}");
+                }
+            } else if let (Some(a), Some(b), Some(a_after)) =
+                (case.get("a"), case.get("b"), case.get("a_after_b"))
+            {
+                let got = transform_replace(&parse_fix(a), &parse_fix(b));
+                let exp = parse_fix(a_after);
+                assert_eq!(got, exp, "{name}");
+            }
+        }
+    }
+
+    fn parse_fix(v: &serde_json::Value) -> TextReplace {
+        TextReplace {
+            index: v["index"].as_u64().unwrap() as usize,
+            delete: v["delete"].as_u64().unwrap_or(0) as usize,
+            insert: v["insert"].as_str().unwrap_or("").to_string(),
+        }
+    }
 }

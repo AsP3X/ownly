@@ -1,11 +1,11 @@
-// Human: Remote collab overlays — DOM lock marks + carets + selection bands for other users.
-// Agent: applyCollabLockMarks only when lock ranges change; caret/selection absolute overlays.
+// Human: Remote collab overlays — lock bands + carets + selection (no contenteditable marks).
+// Agent: measureLockBubbleRects / measureSelectionRects / measureCaretMarker only; offsets stay pure.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CollabParticipant } from "@/api/client";
 import {
-  applyCollabLockMarks,
   measureCaretMarker,
+  measureLockBubbleRects,
   measureSelectionRects,
   stripCollabLockMarks,
   type CaretMarker,
@@ -29,6 +29,7 @@ export function RtfCollabLockBubbles({
   layoutKey,
 }: RtfCollabLockBubblesProps) {
   const [selectionBubbles, setSelectionBubbles] = useState<LockBubbleRect[]>([]);
+  const [lockBubbles, setLockBubbles] = useState<LockBubbleRect[]>([]);
   const [carets, setCarets] = useState<CaretMarker[]>([]);
 
   const others = useMemo(
@@ -59,29 +60,17 @@ export function RtfCollabLockBubbles({
     return next;
   }, [others]);
 
-  // Human: Re-wrap lock marks only when ranges change or the document DOM was replaced.
+  // Human: Strip any legacy in-DOM lock marks once — overlays are the only decoration path.
   useEffect(() => {
     const editor = getEditorElement();
-    if (!editor) return;
-    if (lockDecorations.length === 0) {
-      stripCollabLockMarks(editor);
-      return;
-    }
-    applyCollabLockMarks(editor, lockDecorations);
-  }, [getEditorElement, layoutKey, lockDecorations]);
+    if (editor) stripCollabLockMarks(editor);
+  }, [getEditorElement, layoutKey]);
 
-  // Human: Strip marks only when the overlay unmounts (not on every presence tick).
-  useEffect(() => {
-    return () => {
-      const editor = getEditorElement();
-      if (editor) stripCollabLockMarks(editor);
-    };
-  }, [getEditorElement]);
-
-  const paintCarets = useCallback(() => {
+  const paintOverlays = useCallback(() => {
     const editor = getEditorElement();
     if (!editor) {
       setSelectionBubbles([]);
+      setLockBubbles([]);
       setCarets([]);
       return;
     }
@@ -135,22 +124,27 @@ export function RtfCollabLockBubbles({
     }
 
     setSelectionBubbles(nextSelections);
+    setLockBubbles(
+      lockDecorations.length > 0
+        ? measureLockBubbleRects(editor, positionRoot, lockDecorations)
+        : [],
+    );
     setCarets(nextCarets);
-  }, [getEditorElement, others]);
+  }, [getEditorElement, lockDecorations, others]);
 
   useEffect(() => {
     let frame: number | null = window.requestAnimationFrame(() => {
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        paintCarets();
+        paintOverlays();
       });
     });
 
     const container = getScrollContainer?.() ?? null;
-    const onScrollOrResize = () => paintCarets();
+    const onScrollOrResize = () => paintOverlays();
     container?.addEventListener("scroll", onScrollOrResize, { passive: true });
     window.addEventListener("resize", onScrollOrResize);
-    const interval = window.setInterval(paintCarets, 150);
+    const interval = window.setInterval(paintOverlays, 150);
 
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
@@ -158,9 +152,13 @@ export function RtfCollabLockBubbles({
       window.removeEventListener("resize", onScrollOrResize);
       window.clearInterval(interval);
     };
-  }, [getScrollContainer, paintCarets]);
+  }, [getScrollContainer, paintOverlays, layoutKey]);
 
-  if (selectionBubbles.length === 0 && carets.length === 0 && lockDecorations.length === 0) {
+  if (
+    selectionBubbles.length === 0 &&
+    lockBubbles.length === 0 &&
+    carets.length === 0
+  ) {
     return null;
   }
 
@@ -169,6 +167,32 @@ export function RtfCollabLockBubbles({
       className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
       aria-hidden
     >
+      {lockBubbles.map((bubble) => (
+        <div
+          key={`lock-${bubble.key}`}
+          className="absolute rounded-sm"
+          style={{
+            top: bubble.top,
+            left: bubble.left,
+            width: bubble.width,
+            height: bubble.height,
+            backgroundColor: bubble.backgroundColor,
+            boxShadow: `inset 0 0 0 1px ${bubble.borderColor}`,
+            zIndex: 2,
+          }}
+          title={`${bubble.label} · locked`}
+        >
+          {bubble.isFirst ? (
+            <span
+              className="absolute -top-4 left-0 max-w-[10rem] truncate rounded-sm px-1 py-px text-[9px] font-bold leading-none text-white whitespace-nowrap"
+              style={{ backgroundColor: bubble.color }}
+            >
+              {bubble.label} · locked
+            </span>
+          ) : null}
+        </div>
+      ))}
+
       {selectionBubbles.map((bubble) => (
         <div
           key={bubble.key}
@@ -179,6 +203,7 @@ export function RtfCollabLockBubbles({
             width: bubble.width,
             height: bubble.height,
             backgroundColor: bubble.backgroundColor,
+            zIndex: 3,
           }}
         />
       ))}

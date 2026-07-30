@@ -1,5 +1,5 @@
-// Human: Document collab hook — thin adapter over shared CollabClient + document domain ops.
-// Agent: USED by RtfEditorDialog; WS-first replace/format_commit/lock with server-authoritative OT.
+// Human: Document collab hook — thin adapter over CollabClient (replace + format_commit + locks).
+// Agent: USED by RtfEditorDialog; server-authoritative OT with pending rebase.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CollabClient } from "@/lib/collab/client";
@@ -87,9 +87,11 @@ export function useDocumentCollab({
       displayName,
       localUserId,
       publicShare,
-      seed: seed
-        ? { html: seed.html, text: seed.text }
-        : undefined,
+      seed: seed ? { html: seed.html, text: seed.text } : undefined,
+      getFormatCommitPayload: () => ({
+        html: lastHtmlRef.current,
+        text: lastPlainRef.current,
+      }),
       onSession: (next) => {
         setSession(next);
         if (next.document_text != null) lastPlainRef.current = next.document_text;
@@ -100,7 +102,7 @@ export function useDocumentCollab({
         onPresenceRef.current?.(next);
       },
       onTransport: setTransport,
-      onError: setError,
+      onError: (message) => setError(message),
       onOp: (op, { isLocalEcho }) => {
         handleRemoteOp(op, isLocalEcho);
       },
@@ -118,7 +120,6 @@ export function useDocumentCollab({
     clientRef.current = client;
     void client.start().then((joined) => {
       if (!joined) return;
-      // Late-join HTML when peers already edited
       if (
         joined.document_html &&
         seed?.html &&
@@ -140,14 +141,19 @@ export function useDocumentCollab({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restart on identity/file only
   }, [enabled, fileId, displayName, localUserId, publicShare?.token, publicShare?.guestId]);
 
+  // Keep format-commit retry payload getters fresh without restarting the session.
+  useEffect(() => {
+    clientRef.current?.updateOptions({
+      getFormatCommitPayload: () => ({
+        html: lastHtmlRef.current,
+        text: lastPlainRef.current,
+      }),
+      localUserId: localUserId ?? null,
+    });
+  }, [localUserId]);
+
   function handleRemoteOp(op: CollabOp, isLocalEcho: boolean): void {
-    if (isLocalEcho) {
-      if (op.op_type === "replace") {
-        // Local already applied in editor
-        return;
-      }
-      return;
-    }
+    if (isLocalEcho) return;
 
     if (op.op_type === "replace") {
       const index = Number(op.payload.index ?? 0);
@@ -155,7 +161,6 @@ export function useDocumentCollab({
       const insert = typeof op.payload.insert === "string" ? op.payload.insert : "";
       if (!Number.isFinite(index)) return;
       const replace: TextReplace = { index, delete: del, insert };
-      // Shift local lock tracking
       if (lastLockRef.current) {
         const shifted = transformRange(
           lastLockRef.current.start,
@@ -182,43 +187,20 @@ export function useDocumentCollab({
         lastPlainRef.current = text;
         onRemoteDocumentRef.current?.(html, text, op.user_id);
       }
-      return;
-    }
-
-    if (op.op_type === "lock" || op.op_type === "unlock") {
-      // Presence fan-out updates locks; no content apply.
-      clientRef.current?.requestSync();
     }
   }
 
   const publishTextOp = useCallback(
-    (op: { opType: "text_insert" | "text_delete" | "replace"; index: number; text?: string; length?: number; delete?: number; insert?: string }) => {
-      const client = clientRef.current;
-      if (!client) return;
-
-      let replace: TextReplace;
-      if (op.opType === "replace") {
-        replace = {
-          index: op.index,
-          delete: op.delete ?? 0,
-          insert: op.insert ?? op.text ?? "",
-        };
-      } else if (op.opType === "text_insert") {
-        replace = { index: op.index, delete: 0, insert: op.text ?? "" };
-      } else {
-        replace = { index: op.index, delete: op.length ?? 0, insert: "" };
-      }
-
-      client.submitOp("replace", {
-        index: replace.index,
-        delete: replace.delete,
-        insert: replace.insert,
+    (op: { index: number; delete: number; insert: string }) => {
+      clientRef.current?.submitOp("replace", {
+        index: op.index,
+        delete: op.delete,
+        insert: op.insert,
       });
     },
     [],
   );
 
-  /** Human: Publish local plain-text change as OT replace (from before→after). */
   const publishPlainChange = useCallback((before: string, after: string) => {
     const diff = diffPlainText(before, after);
     if (!diff) return;

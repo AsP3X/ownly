@@ -6,6 +6,7 @@ import {
   transformReplace,
   type TextReplace,
 } from "./text";
+import fixtures from "./fixtures.json";
 
 describe("collab OT text (parity with Rust)", () => {
   it("applies insert/delete/replace", () => {
@@ -20,34 +21,37 @@ describe("collab OT text (parity with Rust)", () => {
     ).toBe("hio");
   });
 
-  it("converges concurrent end edits", () => {
-    const base = "hello world";
-    const a: TextReplace = { index: 0, delete: 0, insert: "X" };
-    const b: TextReplace = { index: 11, delete: 0, insert: "Y" };
-
-    const s1 = applyReplace(base, a);
-    const sAb = applyReplace(s1, transformReplace(b, a));
-
-    const s2 = applyReplace(base, b);
-    const sBa = applyReplace(s2, transformReplace(a, b));
-
-    expect(sAb).toBe("Xhello worldY");
-    expect(sBa).toBe("Xhello worldY");
-  });
-
-  it("keeps both inserts at same index (server-first)", () => {
-    const base = "abcd";
-    const a: TextReplace = { index: 2, delete: 0, insert: "A" };
-    const b: TextReplace = { index: 2, delete: 0, insert: "B" };
-    const afterB = applyReplace(base, b);
-    const finalText = applyReplace(afterB, transformReplace(a, b));
-    expect(finalText).toBe("abBAcd");
-  });
-
-  it("handles unicode scalar indices", () => {
-    expect(
-      applyReplace("a😀b", { index: 1, delete: 1, insert: "X" }),
-    ).toBe("aXb");
+  it("runs shared fixtures.json", () => {
+    for (const c of fixtures.cases) {
+      const caseRec = c as Record<string, unknown>;
+      const name = String(caseRec.name ?? "?");
+      if (typeof caseRec.base === "string" && caseRec.a && caseRec.b) {
+        const base = caseRec.base as string;
+        const a = caseRec.a as TextReplace;
+        const b = caseRec.b as TextReplace;
+        if (caseRec.apply_b_first) {
+          const afterB = applyReplace(base, b);
+          expect(applyReplace(afterB, transformReplace(a, b)), name).toBe(
+            caseRec.result,
+          );
+        } else {
+          const ab = applyReplace(applyReplace(base, a), transformReplace(b, a));
+          const ba = applyReplace(applyReplace(base, b), transformReplace(a, b));
+          if (caseRec.result_ab) expect(ab, `${name} ab`).toBe(caseRec.result_ab);
+          if (caseRec.result_ba) expect(ba, `${name} ba`).toBe(caseRec.result_ba);
+        }
+      } else if (typeof caseRec.base === "string" && caseRec.op) {
+        expect(
+          applyReplace(caseRec.base as string, caseRec.op as TextReplace),
+          name,
+        ).toBe(caseRec.result);
+      } else if (caseRec.a && caseRec.b && caseRec.a_after_b) {
+        expect(
+          transformReplace(caseRec.a as TextReplace, caseRec.b as TextReplace),
+          name,
+        ).toEqual(caseRec.a_after_b);
+      }
+    }
   });
 
   it("transforms offsets through replace", () => {

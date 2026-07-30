@@ -181,6 +181,7 @@ export function ExcelSpreadsheetDialog({
     enabled: open && !readOnly && Boolean(file?.id) && isDesktopViewport,
     activeCell: editor.activeCellAddress,
     sheetName: editor.activeSheet?.name ?? null,
+    getWorkbook: () => workbookRef.current,
     onApplyRemoteOps: (ops) => {
       const current = workbookRef.current;
       if (!current || applyingRemoteOpsRef.current) return;
@@ -188,6 +189,15 @@ export function ExcelSpreadsheetDialog({
       try {
         const next = applyCollabOpsToWorkbook(current, ops);
         setWorkbookRef.current(next, { recordUndo: false });
+      } finally {
+        applyingRemoteOpsRef.current = false;
+      }
+    },
+    onRemoteWorkbook: (workbook) => {
+      if (applyingRemoteOpsRef.current) return;
+      applyingRemoteOpsRef.current = true;
+      try {
+        setWorkbookRef.current(workbook, { recordUndo: false });
       } finally {
         applyingRemoteOpsRef.current = false;
       }
@@ -446,13 +456,15 @@ export function ExcelSpreadsheetDialog({
         });
         skipReloadAfterSaveRef.current = true;
         onFileSaved?.(file.id, result.file);
+        // Human: Seed collab late-joiners with durable workbook after save.
+        collab.publishStateCommit();
       } catch (error) {
         setSaveError(getErrorMessage(error));
       } finally {
         if (!silent) setSaving(false);
       }
     },
-    [editor, file, onFileSaved, readOnly],
+    [collab, editor, file, onFileSaved, readOnly],
   );
 
   // Human: When AutoSave is on, debounce cloud save after dirty edits (title bar toggle).
