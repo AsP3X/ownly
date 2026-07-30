@@ -1,5 +1,5 @@
-// Human: Full-viewport text/code editor dialog — Monaco editor, multi-tab, save, PDF-matched shell size.
-// Agent: FETCHES file blobs; EDITS buffers; SAVE replaceTextFileContent; EXPOSES Monaco modern editing features.
+// Human: Full-viewport text/code editor — Monaco multi-tab + live multi-user collab (document OT).
+// Agent: FETCHES blobs; EDITS buffers; LIVE ops via useDocumentCollab; SAVE replaceTextFileContent.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -8,9 +8,11 @@ import {
   fetchFileBlobForPreview,
   fetchPublicShareBlobForPreview,
   getErrorMessage,
+  getOrCreatePublicCollabGuestId,
   replacePublicShareFileContent,
   replaceTextFileContent,
 } from "@/api/client";
+import { RtfCollabPresence } from "@/components/drive/rtf/RtfCollabPresence";
 import { CodeEditorHeader } from "@/components/drive/text-code-editor/CodeEditorHeader";
 import { CodeEditorStatusBar } from "@/components/drive/text-code-editor/CodeEditorStatusBar";
 import {
@@ -27,6 +29,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { useDocumentCollab } from "@/hooks/useDocumentCollab";
+import { applyTextReplace } from "@/lib/text-code-editor/collab-monaco";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
 import { configureLocalMonaco } from "@/lib/text-code-editor/monaco-setup";
 import {
@@ -97,6 +102,7 @@ export function TextCodeEditorDialog({
   // Human: Public share tokens are view-only unless canEdit is explicitly true (allow_edit).
   // Agent: readOnly when canEdit===false OR (shareToken without canEdit).
   const readOnly = canEdit === false || (Boolean(shareToken) && canEdit !== true);
+  const { user } = useAuth();
   const [openTabs, setOpenTabs] = useState<FileItem[]>(tabs);
   const [buffers, setBuffers] = useState<Record<string, EditorBuffer>>({});
   const [preferences, setPreferences] = useState<EditorPreferences>(() => readEditorPreferences());
@@ -114,6 +120,12 @@ export function TextCodeEditorDialog({
   );
   const activeFileIdRef = useRef<string | null>(null);
   const surfaceRef = useRef<CodeEditorSurfaceHandle>(null);
+  const applyingRemoteRef = useRef(false);
+  const activeValueRef = useRef("");
+  const publicGuestIdRef = useRef<string | null>(null);
+  if (shareToken && !publicGuestIdRef.current) {
+    publicGuestIdRef.current = getOrCreatePublicCollabGuestId();
+  }
   const resolvedThemeId = resolveEditorThemeId(themePreference);
   const resolvedTheme = getEditorTheme(resolvedThemeId);
 
@@ -124,9 +136,123 @@ export function TextCodeEditorDialog({
 
   const activeFile = file;
   const activeBuffer = activeFile ? (buffers[activeFile.id] ?? emptyBuffer()) : emptyBuffer();
+  activeValueRef.current = activeBuffer.value;
   const activeLanguage = activeFile
     ? detectEditorLanguage(activeFile.name, activeFile.mime_type)
     : detectEditorLanguage("untitled.txt", "text/plain");
+
+  const bufferReady =
+    Boolean(activeFile?.id) &&
+    Boolean(buffers[activeFile!.id]) &&
+    !activeBuffer.loading &&
+    !activeBuffer.error;
+
+  // Human: Live collab for owned/user-share (JWT) and public allow_edit links (guest API).
+  // Agent: ENABLE when editable + active tab buffer ready; active tab only.
+  const collabEnabled = open && !readOnly && bufferReady;
+
+  const publicGuestId = publicGuestIdRef.current;
+  const publicShareCollab =
+    shareToken && publicGuestId
+      ? {
+          token: shareToken,
+          sharePassword: sharePassword ?? null,
+          guestId: publicGuestId,
+        }
+      : null;
+
+  const localCollabUserId = publicShareCollab
+    ? `guest:${publicShareCollab.guestId}`
+    : (user?.id ?? null);
+  const collabDisplayName = publicShareCollab
+    ? user?.email
+      ? `${user.email} (link)`
+      : "Guest"
+    : (user?.email ?? user?.id ?? "User");
+
+  const collab = useDocumentCollab({
+    fileId: activeFile?.id,
+    enabled: collabEnabled,
+    displayName: collabDisplayName,
+    localUserId: localCollabUserId,
+    publicShare: publicShareCollab,
+    getSeed: () => ({
+      html: "",
+      text: activeValueRef.current,
+    }),
+    onRemoteText: (text, fromUserId) => {
+      if (localCollabUserId && fromUserId === localCollabUserId) return;
+      if (user?.id && fromUserId === user.id) return;
+      if (!activeFile) return;
+      if (text === activeValueRef.current) return;
+      applyingRemoteRef.current = true;
+      try {
+        surfaceRef.current?.setValueFromRemote(text);
+        activeValueRef.current = text;
+        setBuffers((current) => ({
+          ...current,
+          [activeFile.id]: {
+            ...(current[activeFile.id] ?? emptyBuffer()),
+            value: text,
+          },
+        }));
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+    },
+    onRemoteTextOp: (op) => {
+      if (localCollabUserId && op.fromUserId === localCollabUserId) return;
+      if (user?.id && op.fromUserId === user.id) return;
+      if (!activeFile) return;
+      applyingRemoteRef.current = true;
+      try {
+        const next =
+          surfaceRef.current?.applyRemoteReplace({
+            index: op.index,
+            delete: op.delete,
+            insert: op.insert,
+          }) ??
+          applyTextReplace(activeValueRef.current, {
+            index: op.index,
+            delete: op.delete,
+            insert: op.insert,
+          });
+        if (next == null) return;
+        activeValueRef.current = next;
+        setBuffers((current) => ({
+          ...current,
+          [activeFile.id]: {
+            ...(current[activeFile.id] ?? emptyBuffer()),
+            value: next,
+          },
+        }));
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+    },
+  });
+
+  // Human: Paint remote carets/selections from presence (Google Docs–style).
+  useEffect(() => {
+    if (!collabEnabled) {
+      surfaceRef.current?.setRemotePresence([]);
+      return;
+    }
+    const ranges = collab.participants
+      .filter((p) => p.user_id !== localCollabUserId)
+      .map((p) => {
+        const start = p.selection_start ?? 0;
+        const end = p.selection_end ?? start;
+        return {
+          userId: p.user_id,
+          color: p.color || "#2563EB",
+          start,
+          end,
+          label: p.display_name,
+        };
+      });
+    surfaceRef.current?.setRemotePresence(ranges);
+  }, [collab.participants, collabEnabled, localCollabUserId]);
 
   const dirty = activeBuffer.value !== activeBuffer.savedValue;
   const dirtyTabIds = useMemo(() => {
@@ -284,6 +410,8 @@ export function TextCodeEditorDialog({
   const handleValueChange = useCallback(
     (nextValue: string) => {
       if (!activeFile || readOnly) return;
+      const before = activeValueRef.current;
+      activeValueRef.current = nextValue;
       setSaveError("");
       setBuffers((current) => ({
         ...current,
@@ -292,8 +420,22 @@ export function TextCodeEditorDialog({
           value: nextValue,
         },
       }));
+      if (!applyingRemoteRef.current && before !== nextValue) {
+        collab.publishPlainChange(before, nextValue);
+      }
     },
-    [activeFile, readOnly],
+    [activeFile, collab, readOnly],
+  );
+
+  const handleCollabSelectionChange = useCallback(
+    (start: number, end: number) => {
+      if (!collabEnabled) return;
+      void collab.updatePresence({
+        selection_start: start,
+        selection_end: end,
+      });
+    },
+    [collab, collabEnabled],
   );
 
   const handleSave = useCallback(async () => {
@@ -447,6 +589,16 @@ export function TextCodeEditorDialog({
               onThemePreferenceChange={handleThemePreferenceChange}
             />
 
+            {collabEnabled ? (
+              <RtfCollabPresence
+                participants={collab.participants}
+                currentUserId={localCollabUserId}
+                error={collab.error}
+                transport={collab.transport}
+                statusHint="Live co-editing"
+              />
+            ) : null}
+
             <div className="relative flex min-h-0 flex-1 flex-col">
               {activeBuffer.loading ? (
                 <div
@@ -480,6 +632,7 @@ export function TextCodeEditorDialog({
                   preferences={preferences}
                   onChange={handleValueChange}
                   onCursorChange={setCursor}
+                  onCollabSelectionChange={handleCollabSelectionChange}
                   onSaveRequest={() => void handleSave()}
                 />
               ) : null}

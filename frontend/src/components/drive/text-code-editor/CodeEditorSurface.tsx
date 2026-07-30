@@ -1,5 +1,5 @@
 // Human: Monaco-powered code surface — full language services, multi-cursor, find, fold, minimap.
-// Agent: MOUNTS @monaco-editor/react; SYNCS value; EXPOSES editor actions via imperative handle.
+// Agent: MOUNTS @monaco-editor/react; SYNCS value; EXPOSES editor actions + collab remote apply/presence.
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
@@ -9,6 +9,12 @@ import { Loader2 } from "lucide-react";
 import { useCodeEditorTheme } from "@/components/drive/text-code-editor/useCodeEditorTheme";
 import { detectEditorLanguage } from "@/lib/text-code-editor/language";
 import type { EditorPreferences } from "@/lib/text-code-editor/preferences";
+import {
+  scalarToUtf16Index,
+  utf16ToScalarIndex,
+  type RemotePresenceRange,
+} from "@/lib/text-code-editor/collab-monaco";
+import type { TextReplace } from "@/lib/collab/ot/text";
 import { cn } from "@/lib/utils";
 
 export type CodeEditorCursorState = {
@@ -29,6 +35,12 @@ export type CodeEditorSurfaceHandle = {
   triggerFoldAll: () => void;
   triggerUnfoldAll: () => void;
   getValue: () => string;
+  /** Human: Apply a collab OT replace without re-publishing (sets applying-remote guard). */
+  applyRemoteReplace: (op: TextReplace) => string | null;
+  /** Human: Set remote caret/selection decorations from collaborators. */
+  setRemotePresence: (ranges: RemotePresenceRange[]) => void;
+  /** Human: Replace full document text without re-publishing (late join). */
+  setValueFromRemote: (next: string) => void;
 };
 
 export type CodeEditorSurfaceProps = {
@@ -39,6 +51,8 @@ export type CodeEditorSurfaceProps = {
   preferences: EditorPreferences;
   onChange: (value: string) => void;
   onCursorChange: (state: CodeEditorCursorState) => void;
+  /** Human: Selection as unicode scalar offsets for collab presence. */
+  onCollabSelectionChange?: (start: number, end: number) => void;
   onSaveRequest?: () => void;
   className?: string;
 };
@@ -70,6 +84,41 @@ function selectionStats(
   return { selectedChars, selectedLines };
 }
 
+function ensurePresenceStyle(userId: string, color: string): string {
+  const safeId = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const className = `ownly-collab-sel-${safeId}`;
+  const styleId = `ownly-collab-style-${safeId}`;
+  if (typeof document !== "undefined" && !document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      .${className} {
+        background-color: ${color}33;
+      }
+      .${className}-cursor {
+        border-left: 2px solid ${color};
+        margin-left: -1px;
+        pointer-events: none;
+      }
+      .${className}-label {
+        background-color: ${color};
+        color: #fff;
+        font-size: 10px;
+        line-height: 1;
+        padding: 1px 4px;
+        border-radius: 2px;
+        white-space: nowrap;
+        pointer-events: none;
+        position: relative;
+        top: -1.1em;
+        margin-left: -2px;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  return className;
+}
+
 export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorSurfaceProps>(
   function CodeEditorSurface(
     {
@@ -80,6 +129,7 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
       preferences,
       onChange,
       onCursorChange,
+      onCollabSelectionChange,
       onSaveRequest,
       className,
     },
@@ -88,6 +138,17 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
     const { theme } = useCodeEditorTheme();
     const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<typeof MonacoNamespace | null>(null);
+    const applyingRemoteRef = useRef(false);
+    const decorationsRef = useRef<string[]>([]);
+    const onChangeRef = useRef(onChange);
+    const onCursorChangeRef = useRef(onCursorChange);
+    const onCollabSelectionChangeRef = useRef(onCollabSelectionChange);
+    const onSaveRequestRef = useRef(onSaveRequest);
+    onChangeRef.current = onChange;
+    onCursorChangeRef.current = onCursorChange;
+    onCollabSelectionChangeRef.current = onCollabSelectionChange;
+    onSaveRequestRef.current = onSaveRequest;
+
     const monacoTheme = theme.id === "dark" ? "vs-dark" : "vs";
     const language = useMemo(
       () => detectEditorLanguage(filename, mimeType),
@@ -204,6 +265,104 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
           editorRef.current?.getAction("editor.unfoldAll")?.run();
         },
         getValue: () => editorRef.current?.getValue() ?? value,
+        applyRemoteReplace: (op) => {
+          const editor = editorRef.current;
+          const model = editor?.getModel();
+          const monaco = monacoRef.current;
+          if (!editor || !model || !monaco) return null;
+          const text = model.getValue();
+          const startUtf16 = scalarToUtf16Index(text, op.index);
+          const endUtf16 = scalarToUtf16Index(text, op.index + op.delete);
+          const start = model.getPositionAt(startUtf16);
+          const end = model.getPositionAt(endUtf16);
+          applyingRemoteRef.current = true;
+          try {
+            editor.executeEdits("ownly-collab-remote", [
+              {
+                range: new monaco.Range(
+                  start.lineNumber,
+                  start.column,
+                  end.lineNumber,
+                  end.column,
+                ),
+                text: op.insert,
+                forceMoveMarkers: true,
+              },
+            ]);
+            return model.getValue();
+          } finally {
+            applyingRemoteRef.current = false;
+          }
+        },
+        setValueFromRemote: (next) => {
+          const editor = editorRef.current;
+          const model = editor?.getModel();
+          if (!editor || !model) return;
+          if (model.getValue() === next) return;
+          applyingRemoteRef.current = true;
+          try {
+            const full = model.getFullModelRange();
+            editor.executeEdits("ownly-collab-remote-full", [
+              { range: full, text: next, forceMoveMarkers: true },
+            ]);
+          } finally {
+            applyingRemoteRef.current = false;
+          }
+        },
+        setRemotePresence: (ranges) => {
+          const editor = editorRef.current;
+          const model = editor?.getModel();
+          const monaco = monacoRef.current;
+          if (!editor || !model || !monaco) return;
+          const text = model.getValue();
+          const next: MonacoEditor.IModelDeltaDecoration[] = [];
+          for (const person of ranges) {
+            const classBase = ensurePresenceStyle(person.userId, person.color);
+            const startUtf16 = scalarToUtf16Index(text, Math.min(person.start, person.end));
+            const endUtf16 = scalarToUtf16Index(text, Math.max(person.start, person.end));
+            const start = model.getPositionAt(Math.min(startUtf16, text.length));
+            const end = model.getPositionAt(Math.min(endUtf16, text.length));
+            const collapsed = startUtf16 === endUtf16;
+            next.push({
+              range: new monaco.Range(
+                start.lineNumber,
+                start.column,
+                end.lineNumber,
+                end.column,
+              ),
+              options: {
+                className: collapsed ? undefined : classBase,
+                stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                beforeContentClassName: collapsed ? `${classBase}-cursor` : undefined,
+                afterContentClassName: undefined,
+                hoverMessage: person.label
+                  ? { value: person.label }
+                  : undefined,
+                overviewRuler: {
+                  color: person.color,
+                  position: monaco.editor.OverviewRulerLane.Right,
+                },
+                minimap: {
+                  color: person.color,
+                  position: monaco.editor.MinimapPosition.Inline,
+                },
+              },
+            });
+            if (person.label) {
+              next.push({
+                range: new monaco.Range(start.lineNumber, start.column, start.lineNumber, start.column),
+                options: {
+                  stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                  after: {
+                    content: ` ${person.label} `,
+                    inlineClassName: `${classBase}-label`,
+                  },
+                },
+              });
+            }
+          }
+          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, next);
+        },
       }),
       [value],
     );
@@ -237,7 +396,7 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
       // Human: Ctrl/Cmd+S saves to cloud — Monaco must not swallow it without a handler.
       // Agent: ADD command that CALLS onSaveRequest; KEEP find/replace as Monaco defaults.
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        onSaveRequest?.();
+        onSaveRequestRef.current?.();
       });
 
       const emitCursor = () => {
@@ -246,11 +405,23 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
         const selection = editor.getSelection();
         if (!model || !position || !selection) return;
         const stats = selectionStats(model, selection);
-        onCursorChange({
+        onCursorChangeRef.current({
           lineNumber: position.lineNumber,
           column: position.column,
           ...stats,
         });
+        const text = model.getValue();
+        const a = model.getOffsetAt({
+          lineNumber: selection.selectionStartLineNumber,
+          column: selection.selectionStartColumn,
+        });
+        const b = model.getOffsetAt({
+          lineNumber: selection.positionLineNumber,
+          column: selection.positionColumn,
+        });
+        const start = utf16ToScalarIndex(text, Math.min(a, b));
+        const end = utf16ToScalarIndex(text, Math.max(a, b));
+        onCollabSelectionChangeRef.current?.(start, end);
       };
 
       editor.onDidChangeCursorPosition(emitCursor);
@@ -271,7 +442,12 @@ export const CodeEditorSurface = forwardRef<CodeEditorSurfaceHandle, CodeEditorS
           onMount={handleMount}
           onChange={(next) => {
             if (readOnly) return;
-            onChange(next ?? "");
+            if (applyingRemoteRef.current) {
+              // Still sync buffer so parent matches model, but parent skips publish.
+              onChangeRef.current(next ?? "");
+              return;
+            }
+            onChangeRef.current(next ?? "");
           }}
           loading={
             <div

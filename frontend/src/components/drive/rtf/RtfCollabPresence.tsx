@@ -1,5 +1,5 @@
-// Human: Live co-editing presence strip for the RTF editor — collaborators, locks, transport.
-// Agent: READS CollabParticipant[]; RENDERS under RTF toolbar when session is active.
+// Human: Live co-editing presence strip — collaborators, locks (RTF), transport.
+// Agent: READS CollabParticipant[]; USED by RtfEditorDialog + TextCodeEditorDialog.
 
 import type { CollabParticipant } from "@/api/client";
 
@@ -8,6 +8,8 @@ type RtfCollabPresenceProps = {
   currentUserId?: string | null;
   error?: string | null;
   transport?: "ws" | "poll";
+  /** Human: Optional right-side hint; null hides it. Default is RTF lock copy. */
+  statusHint?: string | null;
 };
 
 export function RtfCollabPresence({
@@ -15,6 +17,7 @@ export function RtfCollabPresence({
   currentUserId,
   error,
   transport,
+  statusHint = "Active sentences are protected",
 }: RtfCollabPresenceProps) {
   if (error) {
     const offline =
@@ -74,9 +77,9 @@ export function RtfCollabPresence({
           );
         })}
       </div>
-      <span className="hidden text-[10px] text-[#94A3B8] sm:inline">
-        Active sentences are protected
-      </span>
+      {statusHint ? (
+        <span className="hidden text-[10px] text-[#94A3B8] sm:inline">{statusHint}</span>
+      ) : null}
     </div>
   );
 }

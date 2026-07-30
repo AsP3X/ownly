@@ -1,5 +1,5 @@
 // Human: Document collab hook — thin adapter over CollabClient (replace + format_commit + locks).
-// Agent: USED by RtfEditorDialog; server-authoritative OT with pending rebase.
+// Agent: USED by RtfEditorDialog + TextCodeEditorDialog; server-authoritative OT with pending rebase.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CollabClient } from "@/lib/collab/client";
@@ -10,7 +10,12 @@ import type {
   CollabTransportMode,
   PublicShareAuth,
 } from "@/lib/collab/types";
-import { diffPlainText, transformRange, type TextReplace } from "@/lib/collab/ot/text";
+import {
+  applyReplace,
+  diffPlainText,
+  transformRange,
+  type TextReplace,
+} from "@/lib/collab/ot/text";
 import { rangesOverlap, sentenceRangeAround } from "@/lib/rtf/sentence-range";
 
 export type RemoteTextOp = {
@@ -29,6 +34,8 @@ type UseDocumentCollabOptions = {
   publicShare?: PublicShareAuth | null;
   getSeed?: () => { html: string; text: string };
   onRemoteDocument?: (html: string, text: string, fromUserId: string) => void;
+  /** Human: Plain-text late join / snapshot when html is empty (Monaco path). */
+  onRemoteText?: (text: string, fromUserId: string) => void;
   onRemoteTextOp?: (op: RemoteTextOp) => void;
   onPresence?: (participants: CollabParticipant[]) => void;
 };
@@ -41,6 +48,7 @@ export function useDocumentCollab({
   publicShare,
   getSeed,
   onRemoteDocument,
+  onRemoteText,
   onRemoteTextOp,
   onPresence,
 }: UseDocumentCollabOptions) {
@@ -52,6 +60,7 @@ export function useDocumentCollab({
   const clientRef = useRef<CollabClient | null>(null);
   const localUserIdRef = useRef(localUserId);
   const onRemoteDocumentRef = useRef(onRemoteDocument);
+  const onRemoteTextRef = useRef(onRemoteText);
   const onRemoteTextOpRef = useRef(onRemoteTextOp);
   const onPresenceRef = useRef(onPresence);
   const getSeedRef = useRef(getSeed);
@@ -61,6 +70,7 @@ export function useDocumentCollab({
 
   localUserIdRef.current = localUserId;
   onRemoteDocumentRef.current = onRemoteDocument;
+  onRemoteTextRef.current = onRemoteText;
   onRemoteTextOpRef.current = onRemoteTextOp;
   onPresenceRef.current = onPresence;
   getSeedRef.current = getSeed;
@@ -124,6 +134,10 @@ export function useDocumentCollab({
           lastHtmlRef.current = html;
           lastPlainRef.current = text;
           onRemoteDocumentRef.current?.(html, text, "snapshot");
+        } else if (!html && text !== lastPlainRef.current) {
+          // Human: Plain-text (Monaco) rooms seed html:"" — still adopt server text.
+          lastPlainRef.current = text;
+          onRemoteTextRef.current?.(text, "snapshot");
         }
       },
     });
@@ -131,17 +145,27 @@ export function useDocumentCollab({
     clientRef.current = client;
     void client.start().then((joined) => {
       if (!joined) return;
+      const othersPresent = (joined.participants?.length ?? 0) > 1;
       if (
         joined.document_html &&
         seed?.html &&
         joined.document_html !== seed.html &&
-        (joined.participants?.length ?? 0) > 1
+        othersPresent
       ) {
         onRemoteDocumentRef.current?.(
           joined.document_html,
           joined.document_text ?? "",
           "session",
         );
+      } else if (
+        othersPresent &&
+        joined.document_text != null &&
+        seed?.text != null &&
+        joined.document_text !== seed.text &&
+        !joined.document_html
+      ) {
+        lastPlainRef.current = joined.document_text;
+        onRemoteTextRef.current?.(joined.document_text, "session");
       }
     });
 
@@ -180,6 +204,7 @@ export function useDocumentCollab({
         );
         lastLockRef.current = shifted;
       }
+      lastPlainRef.current = applyReplace(lastPlainRef.current, replace);
       onRemoteTextOpRef.current?.({
         opType: "replace",
         index,
