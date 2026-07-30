@@ -20,6 +20,14 @@ import {
   STORE_SLOTS,
   storeFacePoint,
   uploadPointAt,
+  INTERIOR_LANES,
+  INTERIOR_MANIFEST_ROWS,
+  INTERIOR_STAGE_X,
+  interiorLaneX,
+  interiorManifestSpan,
+  interiorPanelRect,
+  interiorRowHalfHeight,
+  interiorRowY,
 } from "@/lib/auth-scene-pipeline";
 
 describe("routes", () => {
@@ -181,8 +189,94 @@ describe("palettes", () => {
       for (const kind of FILE_KINDS) {
         expect(palette.kinds[kind]).toMatch(/^#[0-9a-f]{6}$/i);
       }
+      // Human: The interior's three role colours must all resolve, or a beat renders invisible.
+      expect(palette.verified).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(palette.slot).toMatch(/^#[0-9a-f]{6}$/i);
       expect(palette.opacity).toBeGreaterThan(0);
       expect(palette.opacity).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+
+describe("server interior panel", () => {
+  /*
+   * Human: The interior is a flat schematic now, so what matters is that the layout stays on its
+   * grid: stages in order left to right, rows evenly spaced, nothing escaping the panel.
+   */
+  it("orders the pipeline stages left to right without overlapping", () => {
+    const order = [
+      INTERIOR_STAGE_X.intake,
+      INTERIOR_STAGE_X.intakeEnd,
+      INTERIOR_STAGE_X.gate,
+      INTERIOR_STAGE_X.gateEnd,
+      INTERIOR_STAGE_X.laneStart,
+      INTERIOR_STAGE_X.laneEnd,
+      INTERIOR_STAGE_X.drive,
+      INTERIOR_STAGE_X.driveEnd,
+      INTERIOR_STAGE_X.manifest,
+      INTERIOR_STAGE_X.manifestEnd,
+    ];
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index]).toBeGreaterThan(order[index - 1]);
+    }
+    expect(order[0]).toBeGreaterThan(0);
+    expect(order[order.length - 1]).toBeLessThanOrEqual(1);
+  });
+
+  it("spaces the lane rows evenly and keeps them inside the panel", () => {
+    const half = interiorRowHalfHeight();
+    let previous = -1;
+    let firstGap = -1;
+    for (let row = 0; row < INTERIOR_LANES; row += 1) {
+      const center = interiorRowY(row);
+      expect(center - half).toBeGreaterThan(0);
+      expect(center + half).toBeLessThan(1);
+      if (previous >= 0) {
+        const gap = center - previous;
+        if (firstGap < 0) firstGap = gap;
+        // Human: Even spacing is what makes the panel read as a grid rather than a pile.
+        expect(gap).toBeCloseTo(firstGap);
+      }
+      previous = center;
+    }
+  });
+
+  it("never lets neighbouring rows touch", () => {
+    const half = interiorRowHalfHeight();
+    for (let row = 1; row < INTERIOR_LANES; row += 1) {
+      expect(interiorRowY(row) - half).toBeGreaterThan(interiorRowY(row - 1) + half);
+    }
+  });
+
+  it("runs a shard from the lane start to the lane end and clamps beyond", () => {
+    expect(interiorLaneX(0)).toBeCloseTo(INTERIOR_STAGE_X.laneStart);
+    expect(interiorLaneX(1)).toBeCloseTo(INTERIOR_STAGE_X.laneEnd);
+    expect(interiorLaneX(0.5)).toBeGreaterThan(interiorLaneX(0.25));
+    expect(interiorLaneX(-3)).toBeCloseTo(INTERIOR_STAGE_X.laneStart);
+    expect(interiorLaneX(9)).toBeCloseTo(INTERIOR_STAGE_X.laneEnd);
+  });
+
+  it("aligns manifest rows to the same grid as the lanes", () => {
+    for (let row = 0; row < INTERIOR_MANIFEST_ROWS; row += 1) {
+      const span = interiorManifestSpan(row);
+      expect(span.top).toBeLessThan(span.bottom);
+      expect((span.top + span.bottom) / 2).toBeCloseTo(interiorRowY(row));
+    }
+  });
+
+  it("keeps the panel clear of the sign-in card and inside the viewport", () => {
+    for (const [width, height] of [
+      [1280, 800],
+      [1440, 900],
+      [1920, 1080],
+    ]) {
+      const rect = interiorPanelRect(width, height);
+      expect(rect.x).toBeGreaterThan(0);
+      expect(rect.y).toBeGreaterThan(0);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(height);
+      // Human: The card column starts around 57% of the viewport on this layout.
+      expect(rect.x + rect.width).toBeLessThan(width * 0.56);
     }
   });
 });

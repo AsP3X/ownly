@@ -19,18 +19,30 @@ import {
  * Human: The five acts, in order.
  * `capture`  — close on the laptop: a file is picked and lifts off the screen.
  * `transit`  — pull back: the file splits into chunks and crosses to the server.
- * `store`    — push in on the server: chunks land in a bay and are processed.
+ * `dock`     — push in on the server and cross into it: chunks queue at the bay mouth.
+ * `ingest`   — inside the enclosure: chunks are encrypted, sharded across drive lanes,
+ *              verified, and written to the manifest.
+ * `seal`     — the manifest locks and the camera pulls back out to the bay wall.
  * `retrieve` — the file is requested: chunks leave the bay and head home.
  * `display`  — back on the laptop: the file lands and appears on screen. Then it loops.
  */
-export type StoryAct = "capture" | "transit" | "store" | "retrieve" | "display";
+export type StoryAct =
+  | "capture"
+  | "transit"
+  | "dock"
+  | "ingest"
+  | "seal"
+  | "retrieve"
+  | "display";
 
 export type ActSpec = { id: StoryAct; duration: number };
 
 export const STORY_ACTS: ActSpec[] = [
   { id: "capture", duration: 6 },
   { id: "transit", duration: 7.5 },
-  { id: "store", duration: 6.5 },
+  { id: "dock", duration: 3 },
+  { id: "ingest", duration: 7 },
+  { id: "seal", duration: 3.5 },
   { id: "retrieve", duration: 7 },
   { id: "display", duration: 5 },
 ];
@@ -61,7 +73,10 @@ export type CameraKey = {
 };
 
 /** Human: The three shots the story cuts between. */
-export const CAMERA_SHOTS: Record<"client" | "wide" | "store", CameraKey> = {
+export const CAMERA_SHOTS: Record<
+  "client" | "wide" | "store" | "interior",
+  CameraKey
+> = {
   client: {
     target: { ...CLIENT_CENTER },
     distance: 2.35,
@@ -87,13 +102,30 @@ export const CAMERA_SHOTS: Record<"client" | "wide" | "store", CameraKey> = {
     pitch: 0.02,
     frame: { x: 0.30, y: 0.79 },
   },
+  /*
+   * Human: Inside the enclosure. The target sits past the gate so the lanes run away from the
+   * camera and the drive faces are readable at the end of them.
+   */
+  interior: {
+    target: {
+      x: STORE_CENTER.x,
+      y: STORE_CENTER.y,
+      z: STORE_CENTER.z + 0.10,
+    },
+    distance: 1.72,
+    yaw: -0.12,
+    pitch: 0.05,
+    frame: { x: 0.29, y: 0.74 },
+  },
 };
 
 /** Human: Which shot each act travels from and to — consecutive acts share a shot, so it never cuts. */
 const ACT_SHOTS: Record<StoryAct, [keyof typeof CAMERA_SHOTS, keyof typeof CAMERA_SHOTS]> = {
   capture: ["client", "client"],
   transit: ["client", "wide"],
-  store: ["wide", "store"],
+  dock: ["wide", "interior"],
+  ingest: ["interior", "interior"],
+  seal: ["interior", "store"],
   retrieve: ["store", "wide"],
   display: ["wide", "client"],
 };
@@ -215,12 +247,27 @@ export function heroStateAt(frame: StoryFrame): HeroState {
         scale: 1,
       };
     }
-    case "store": {
-      // Human: The chunks are in the bay for the whole act — this is the processing beat.
+    case "dock": {
+      /*
+       * Human: The chunk train slides out of the bay and into the gate mouth as the camera
+       * crosses the shell. It fades as the interior takes over drawing the same payload.
+       */
       return {
         position: slotPoint(slot),
         wholeness: 0,
-        opacity: 1 - smoothstep(0.1, 0.3, t),
+        opacity: 1 - smoothstep(0.3, 0.75, t),
+        routeT: 1,
+        route: "upload",
+        scale: 1,
+      };
+    }
+    case "ingest":
+    case "seal": {
+      // Human: Inside, the shards are drawn by the interior itself — the hero card stays hidden.
+      return {
+        position: slotPoint(slot),
+        wholeness: 0,
+        opacity: 0,
         routeT: 1,
         route: "upload",
         scale: 1,
@@ -264,7 +311,9 @@ export function clientEnergyAt(frame: StoryFrame): number {
       return smoothstep(0.1, 0.5, frame.t);
     case "transit":
       return 1 - smoothstep(0.5, 1, frame.t) * 0.65;
-    case "store":
+    case "dock":
+    case "ingest":
+    case "seal":
       return 0.35;
     case "retrieve":
       return 0.35 + smoothstep(0.6, 1, frame.t) * 0.4;
@@ -289,7 +338,9 @@ export function storeEnergyAt(frame: StoryFrame): number {
   switch (frame.act) {
     case "transit":
       return smoothstep(0.75, 1, frame.t) * 0.6;
-    case "store":
+    case "dock":
+    case "ingest":
+    case "seal":
       return 0.6 + smoothstep(0, 0.2, frame.t) * 0.4;
     case "retrieve":
       return 1 - smoothstep(0.15, 0.6, frame.t) * 0.7;
@@ -299,15 +350,141 @@ export function storeEnergyAt(frame: StoryFrame): number {
 }
 
 /**
- * Human: The processing sweep across the server during the `store` act — a scan line running
- * down the bays while the file is indexed, thumbnailed and checksummed.
+ * Human: The scan line running down the outside of the bays. It plays while the camera is still
+ * outside during `dock`; once inside, the interior draws its own verify sweep instead.
  * Agent: RETURNS -1 when no sweep should be drawn.
  */
 export function processSweepAt(frame: StoryFrame): number {
-  if (frame.act !== "store") return -1;
-  const window = smoothstep(0.15, 0.85, frame.t);
+  if (frame.act !== "dock") return -1;
+  const window = smoothstep(0.05, 0.7, frame.t);
   if (window <= 0 || window >= 1) return -1;
   return window;
+}
+
+/*
+ * Human: The camera crosses the chassis wall during `dock` and comes back out during `seal`.
+ * Rather than clip the shell open, the outside and the interior cross-fade: whichever side of
+ * the wall the camera is on is the one that gets drawn. That keeps both objects whole and means
+ * neither has to agree with the other about depth.
+ * Agent: The two are complements by construction — shell + interior is always ~1.
+ */
+export function storeShellOpacityAt(frame: StoryFrame): number {
+  if (frame.act === "dock") return 1 - smoothstep(0.35, 0.85, frame.t);
+  if (frame.act === "ingest") return 0;
+  if (frame.act === "seal") return smoothstep(0.55, 1, frame.t);
+  return 1;
+}
+
+/** Human: How present the interior room is — the complement of the shell. */
+export function interiorOpacityAt(frame: StoryFrame): number {
+  return 1 - storeShellOpacityAt(frame);
+}
+
+/**
+ * Human: The five interior beats, each 0 → 1. They overlap slightly so the sequence flows
+ * rather than stepping: a shard is still settling as the checksum starts.
+ * Agent: `sealed` runs through the `seal` act and holds at 1; everything else lives in `ingest`.
+ */
+export type InteriorStage = {
+  /** Chunks coming through the bay mouth toward the gate. */
+  arrive: number;
+  /** The encryption gate lighting as they pass through it. */
+  encrypt: number;
+  /** Shards travelling down their lanes to the drives. */
+  shard: number;
+  /** The checksum pass across the drive faces. */
+  verify: number;
+  /** Manifest rows being written on the back board. */
+  index: number;
+  /** Everything locked; the room goes quiet before the camera leaves. */
+  sealed: number;
+};
+
+export function interiorStageAt(frame: StoryFrame): InteriorStage {
+  if (frame.act === "ingest") {
+    /*
+     * Human: The beats barely overlap. When they ran together the room just shimmered — several
+     * half-finished things at once reads as noise, not as a process. One thing at a time.
+     */
+    const t = frame.t;
+    return {
+      arrive: smoothstep(0, 0.1, t),
+      encrypt: smoothstep(0.08, 0.32, t),
+      shard: smoothstep(0.34, 0.62, t),
+      verify: smoothstep(0.64, 0.83, t),
+      index: smoothstep(0.85, 1, t),
+      sealed: 0,
+    };
+  }
+  if (frame.act === "seal") {
+    return {
+      arrive: 1,
+      encrypt: 1,
+      shard: 1,
+      verify: 1,
+      index: 1,
+      sealed: smoothstep(0, 0.6, frame.t),
+    };
+  }
+  if (frame.act === "dock") {
+    // Human: Chunks are already on their way in while the camera is still crossing.
+    return {
+      arrive: smoothstep(0.6, 1, frame.t),
+      encrypt: 0,
+      shard: 0,
+      verify: 0,
+      index: 0,
+      sealed: 0,
+    };
+  }
+  return { arrive: 0, encrypt: 0, shard: 0, verify: 0, index: 0, sealed: 0 };
+}
+
+/*
+ * Human: A caption naming what the server is doing right now. The outside of the scene already
+ * names its two ends ("YOUR DEVICE", "YOUR SERVER"); without the same treatment inside, the
+ * interior is just moving shapes. This is what turns motion into a process you can follow.
+ * Agent: Windows are act-relative and contiguous; alpha fades at both ends of each window.
+ */
+const INTERIOR_CAPTIONS: { from: number; to: number; text: string }[] = [
+  { from: 0, to: 0.33, text: "ENCRYPTING" },
+  { from: 0.33, to: 0.63, text: "WRITING SHARDS" },
+  { from: 0.63, to: 0.84, text: "VERIFYING" },
+  { from: 0.84, to: 1, text: "INDEXING" },
+];
+
+export type InteriorCaption = { text: string; alpha: number };
+
+export function interiorCaptionAt(frame: StoryFrame): InteriorCaption | null {
+  if (frame.act === "dock") {
+    const alpha = smoothstep(0.55, 0.95, frame.t);
+    return alpha <= 0.02 ? null : { text: "CHUNKS ARRIVE", alpha };
+  }
+  if (frame.act === "seal") {
+    return { text: "STORED", alpha: 1 - smoothstep(0.62, 0.95, frame.t) };
+  }
+  if (frame.act !== "ingest") return null;
+
+  for (const caption of INTERIOR_CAPTIONS) {
+    if (frame.t < caption.from || frame.t >= caption.to) continue;
+    const span = caption.to - caption.from;
+    const local = (frame.t - caption.from) / span;
+    // Human: Fade in over the first slice of the window and out over the last.
+    const alpha = Math.min(smoothstep(0, 0.16, local), 1 - smoothstep(0.84, 1, local));
+    return { text: caption.text, alpha };
+  }
+  return null;
+}
+
+/**
+ * Human: How far along its lane one shard has travelled, 0 at the gate and 1 at the drive.
+ * Agent: Lanes are staggered so the four shards arrive in sequence rather than as a block.
+ */
+export function interiorShardProgress(stage: InteriorStage, lane: number, lanes: number): number {
+  const stagger = lanes <= 1 ? 0 : (lane / (lanes - 1)) * 0.28;
+  const span = 1 - 0.28;
+  const local = (stage.shard - stagger) / span;
+  return local < 0 ? 0 : local > 1 ? 1 : local;
 }
 
 /** Human: Which bays hold older files, so the server never looks empty. */
@@ -411,7 +588,7 @@ export function burstAt(frame: StoryFrame): number {
  */
 export function blobSpreadAt(frame: StoryFrame): number {
   if (frame.act === "transit") return smoothstep(SPLIT_START, SPLIT_END + 0.08, frame.t);
-  if (frame.act === "store") return 1;
+  if (frame.act === "dock" || frame.act === "ingest" || frame.act === "seal") return 1;
   if (frame.act === "retrieve") return 1 - smoothstep(MERGE_START - 0.1, MERGE_END, frame.t);
   return 0;
 }

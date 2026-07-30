@@ -36,6 +36,14 @@ import {
   PATH_UPLOAD_CONTROL,
   SLOT_HALF_WIDTH,
   SLOT_PITCH,
+  INTERIOR_LANES,
+  INTERIOR_MANIFEST_ROWS,
+  INTERIOR_STAGE_X,
+  interiorLaneX,
+  interiorManifestSpan,
+  interiorPanelRect,
+  interiorRowHalfHeight,
+  interiorRowY,
   slotFaceSpan,
   STORE_CENTER,
   STORE_DEPTH,
@@ -54,7 +62,12 @@ import {
   heroStateAt,
   heroTileOnScreen,
   heroTileSelected,
+  interiorCaptionAt,
+  interiorOpacityAt,
+  interiorShardProgress,
+  interiorStageAt,
   processSweepAt,
+  storeShellOpacityAt,
   storeEnergyAt,
   storyAt,
   transferProgressAt,
@@ -77,10 +90,10 @@ const MAX_DPR = 2;
  */
 const SCENE_MIN_WIDTH = "(min-width: 768px)";
 /*
- * Human: The moment the still frame shows under reduced motion — mid-transfer, where the
- * laptop, the route and the server are all in the shot at once.
+ * Human: The moment the still frame shows under reduced motion — mid-ingest, inside the server,
+ * which is the single most informative frame in the loop.
  */
-const STORY_STILL_TIME = 9.5;
+const STORY_STILL_TIME = 20;
 
 /** Human: World size of a file card (a landscape tile, like a thumbnail in the drive). */
 const CARD_WIDTH = 0.2;
@@ -872,7 +885,13 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
       const halfWidth = SLOT_HALF_WIDTH + 0.045;
       const halfHeight = (STORE_SLOTS * SLOT_PITCH) / 2 + 0.04;
       const energy = storeEnergyAt(story);
-      const bodyAlpha = Math.min(0.95, palette.opacity * 1.5);
+      /*
+       * Human: The shell cross-fades out as the camera crosses into the enclosure, and back in as
+       * it leaves. drawStoreInterior takes over across the same window.
+       */
+      const shell = storeShellOpacityAt(story);
+      if (shell <= 0.01) return;
+      const bodyAlpha = Math.min(0.95, palette.opacity * 1.5) * shell;
 
       // Light pool — the server is the one thing in the scene lit from within.
       const poolRadius = halfWidth * 5 * pixelsPerUnit;
@@ -966,7 +985,9 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
 
       const occupied = new Set(ambientSlots(story.loop));
       const heroStored =
-        story.act === "store" ||
+        story.act === "dock" ||
+        story.act === "ingest" ||
+        story.act === "seal" ||
         (story.act === "transit" && story.t > 0.92) ||
         (story.act === "retrieve" && story.t < 0.12);
       if (heroStored) occupied.add(story.slot);
@@ -1119,6 +1140,265 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
     }
 
     /*
+     * Human: What the server is doing, drawn as a flat schematic panel rather than a fake 3D room.
+     * Chunks arrive on the left, are sealed at the gate, ride their lane to a drive, get checked,
+     * then land in the manifest. Plain 2D means every edge is crisp and every row sits on one
+     * shared grid — a perspective interior could never be either, and it fought the camera.
+     * Agent: NO projection here. Coordinates come from the pure layout in auth-scene-pipeline and
+     *        are mapped onto the pixel rect returned by interiorPanelRect().
+     */
+    function drawStoreInterior(
+      viewport: SceneViewport,
+      palette: ScenePalette,
+      story: StoryFrame,
+    ) {
+      const presence = interiorOpacityAt(story);
+      if (presence <= 0.01) return;
+
+      const stage = interiorStageAt(story);
+      const accent = palette.kinds[story.kind];
+      const sealedColor = palette.slot;
+      const verifiedColor = palette.verified;
+      const alpha = Math.min(0.95, palette.opacity * 1.4) * presence;
+
+      const panel = interiorPanelRect(viewport.width, viewport.height);
+      // Human: Panel-space helpers — u and v run 0 to 1 inside the panel.
+      const px = (u: number) => panel.x + panel.width * u;
+      const py = (v: number) => panel.y + panel.height * v;
+      const pw = (u: number) => panel.width * u;
+      const ph = (v: number) => panel.height * v;
+
+      const fill = (
+        u0: number,
+        v0: number,
+        u1: number,
+        v1: number,
+        color: string,
+        a: number,
+        radius = 0.18,
+      ) => {
+        if (a <= 0.004) return;
+        const w = pw(u1 - u0);
+        const h = ph(v1 - v0);
+        if (w <= 0.2 || h <= 0.2) return;
+        context!.globalAlpha = a;
+        context!.fillStyle = color;
+        roundRect(context!, px(u0), py(v0), w, h, Math.min(w, h) * radius);
+        context!.fill();
+      };
+
+      const rowHalf = interiorRowHalfHeight();
+      const stackTop = interiorRowY(0) - rowHalf * 1.5;
+      const stackBottom = interiorRowY(INTERIOR_LANES - 1) + rowHalf * 1.5;
+
+      /* Panel shell */
+      context!.globalAlpha = alpha * 0.92;
+      context!.fillStyle = palette.card;
+      roundRect(context!, panel.x, panel.y, panel.width, panel.height, panel.height * 0.07);
+      context!.fill();
+      context!.globalAlpha = alpha * 0.5;
+      context!.strokeStyle = palette.cardEdge;
+      context!.lineWidth = 1;
+      context!.stroke();
+
+      /* Heading */
+      const headingSize = Math.max(8, Math.min(11, panel.height * 0.062));
+      context!.save();
+      context!.globalAlpha = alpha * 0.75;
+      context!.fillStyle = palette.label;
+      context!.textAlign = "left";
+      context!.textBaseline = "middle";
+      context!.letterSpacing = `${(headingSize * 0.16).toFixed(2)}px`;
+      context!.font = `600 ${headingSize}px "Geist Variable", ui-sans-serif, system-ui, sans-serif`;
+      context!.fillText("INSIDE YOUR SERVER", px(INTERIOR_STAGE_X.intake), py(0.155));
+
+      /*
+       * Human: The beat caption sits on the same line, right-aligned — it names what is happening
+       * right now, which is what turns four moving bars into a process you can follow.
+       * Agent: Fades per beat via interiorCaptionAt; drawn inside the panel so it can never clip.
+       */
+      const caption = interiorCaptionAt(story);
+      if (caption && caption.alpha > 0.02) {
+        context!.globalAlpha = alpha * caption.alpha;
+        context!.fillStyle = accent;
+        context!.textAlign = "right";
+        context!.fillText(caption.text, px(INTERIOR_STAGE_X.manifestEnd), py(0.155));
+      }
+      context!.restore();
+
+      /* Lane rails */
+      for (let lane = 0; lane < INTERIOR_LANES; lane += 1) {
+        const v = interiorRowY(lane);
+        fill(
+          INTERIOR_STAGE_X.laneStart,
+          v - rowHalf * 0.1,
+          INTERIOR_STAGE_X.laneEnd,
+          v + rowHalf * 0.1,
+          palette.cardInk,
+          alpha * 0.38,
+          0.5,
+        );
+      }
+
+      /* Intake — chunks waiting in the file's own colour */
+      const waiting = stage.arrive * (1 - stage.encrypt);
+      for (let lane = 0; lane < INTERIOR_LANES; lane += 1) {
+        const v = interiorRowY(lane);
+        fill(
+          INTERIOR_STAGE_X.intake,
+          v - rowHalf,
+          INTERIOR_STAGE_X.intakeEnd,
+          v + rowHalf,
+          accent,
+          alpha * (0.16 + waiting * 0.66),
+        );
+      }
+
+      /* Gate — a shutter closing across every lane as the chunks are sealed */
+      const gateGlow = stage.encrypt * (1 - stage.sealed * 0.4);
+      fill(
+        INTERIOR_STAGE_X.gate,
+        stackTop,
+        INTERIOR_STAGE_X.gateEnd,
+        stackBottom,
+        palette.cardInk,
+        alpha * 0.3,
+        0.1,
+      );
+      if (gateGlow > 0.01) {
+        const edge = stackTop + (stackBottom - stackTop) * gateGlow;
+        fill(
+          INTERIOR_STAGE_X.gate,
+          stackTop,
+          INTERIOR_STAGE_X.gateEnd,
+          edge,
+          sealedColor,
+          alpha * 0.45,
+          0.1,
+        );
+        context!.save();
+        context!.shadowColor = withAlpha(sealedColor, 0.9);
+        context!.shadowBlur = panel.height * 0.05;
+        fill(
+          INTERIOR_STAGE_X.gate,
+          edge - 0.011,
+          INTERIOR_STAGE_X.gateEnd,
+          edge + 0.011,
+          sealedColor,
+          alpha,
+          0.5,
+        );
+        context!.restore();
+      }
+
+      /* Shards riding their lanes, sealed blue */
+      for (let lane = 0; lane < INTERIOR_LANES; lane += 1) {
+        const travel = interiorShardProgress(stage, lane, INTERIOR_LANES);
+        if (stage.encrypt <= 0.05 || travel >= 0.999) continue;
+        const v = interiorRowY(lane);
+        const centerU = interiorLaneX(travel);
+        const half = rowHalf * 0.84;
+        context!.save();
+        context!.shadowColor = withAlpha(sealedColor, 0.85);
+        context!.shadowBlur = panel.height * 0.04;
+        fill(
+          centerU - half * 0.6,
+          v - half,
+          centerU + half * 0.6,
+          v + half,
+          sealedColor,
+          alpha * Math.min(1, stage.encrypt * 1.6),
+        );
+        context!.restore();
+      }
+
+      /* Drives — dark, then sealed blue as written, then green once verified */
+      for (let lane = 0; lane < INTERIOR_LANES; lane += 1) {
+        const v = interiorRowY(lane);
+        const landed = interiorShardProgress(stage, lane, INTERIOR_LANES);
+        const written = landed >= 0.99 ? 1 : 0;
+        const verified = written * stage.verify;
+        const face = verified > 0.5 ? verifiedColor : written ? sealedColor : palette.cardInk;
+        const driveSpan = INTERIOR_STAGE_X.driveEnd - INTERIOR_STAGE_X.drive;
+
+        fill(
+          INTERIOR_STAGE_X.drive,
+          v - rowHalf,
+          INTERIOR_STAGE_X.driveEnd,
+          v + rowHalf,
+          palette.cardInk,
+          alpha * 0.26,
+        );
+        fill(
+          INTERIOR_STAGE_X.drive,
+          v - rowHalf,
+          INTERIOR_STAGE_X.drive + driveSpan * (0.18 + written * 0.82),
+          v + rowHalf,
+          face,
+          alpha * (written ? 0.55 + verified * 0.4 : 0.28),
+        );
+        fill(
+          INTERIOR_STAGE_X.driveEnd - 0.02,
+          v - rowHalf * 0.36,
+          INTERIOR_STAGE_X.driveEnd - 0.006,
+          v + rowHalf * 0.36,
+          face,
+          alpha * (written ? 1 : 0.3),
+          0.5,
+        );
+      }
+
+      /* Verify — a bright bar sweeping across the drive column */
+      if (stage.verify > 0.001 && stage.verify < 0.999) {
+        const driveSpan = INTERIOR_STAGE_X.driveEnd - INTERIOR_STAGE_X.drive;
+        const u = INTERIOR_STAGE_X.drive + driveSpan * stage.verify;
+        context!.save();
+        context!.shadowColor = withAlpha(verifiedColor, 0.95);
+        context!.shadowBlur = panel.height * 0.06;
+        fill(u - 0.005, stackTop, u + 0.005, stackBottom, verifiedColor, alpha * 0.95, 0.5);
+        context!.restore();
+      }
+
+      /* Manifest — older rows already there, the hero file's row writes last */
+      fill(
+        INTERIOR_STAGE_X.manifest,
+        stackTop,
+        INTERIOR_STAGE_X.manifestEnd,
+        stackBottom,
+        palette.cardInk,
+        alpha * 0.14,
+        0.08,
+      );
+      const rowLeft = INTERIOR_STAGE_X.manifest + 0.018;
+      const rowRight = INTERIOR_STAGE_X.manifestEnd - 0.018;
+      for (let row = 0; row < INTERIOR_MANIFEST_ROWS; row += 1) {
+        const span = interiorManifestSpan(row);
+        const isHeroRow = row === INTERIOR_MANIFEST_ROWS - 1;
+        const written = isHeroRow ? stage.index : 1;
+        if (written <= 0.01) continue;
+        fill(
+          rowLeft,
+          span.top + 0.014,
+          rowLeft + 0.013,
+          span.bottom - 0.014,
+          isHeroRow ? accent : palette.cardInk,
+          alpha * (isHeroRow ? 0.95 : 0.42),
+          0.5,
+        );
+        fill(
+          rowLeft + 0.024,
+          span.top + 0.024,
+          rowLeft + 0.024 + (rowRight - rowLeft - 0.024) * written,
+          span.bottom - 0.024,
+          isHeroRow ? accent : palette.cardInk,
+          alpha * (isHeroRow ? 0.75 : 0.3),
+          0.5,
+        );
+      }
+    }
+
+
+    /*
      * Human: The hero file — a whole card, or the blobs it breaks into. The blobs start bunched
      * at the card's own position and pull apart along the route, so you see it come apart rather
      * than one thing swapping for another.
@@ -1224,8 +1504,10 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
       const houseAlpha =
         story.act === "transit"
           ? smoothstep(0.35, 0.8, story.t) * 0.75
-          : story.act === "store"
+          : story.act === "dock"
             ? 0.75 - smoothstep(0.3, 0.8, story.t) * 0.35
+            : story.act === "ingest" || story.act === "seal"
+              ? 0
             : story.act === "retrieve"
               ? 0.4 - smoothstep(0.5, 1, story.t) * 0.4
               : 0;
@@ -1251,6 +1533,9 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
         drawable.draw();
       }
 
+      // Human: The interior panel is flat 2D, so it is an overlay rather than a sorted 3D object.
+      drawStoreInterior(viewport, palette, story);
+
       drawCursor(viewport, palette, story);
 
       // Human: Captions last, so nothing is drawn over them.
@@ -1258,7 +1543,13 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
       const storeAnchor = project(STORE_CENTER, viewport);
       const clientLabelAlpha =
         story.act === "capture" || story.act === "display" ? 0.85 : houseAlpha > 0 ? 0.5 : 0.3;
-      const storeLabelAlpha = story.act === "capture" ? 0.25 : 0.8;
+      /*
+       * Human: While the camera is inside, the outside captions would be naming something the
+       * viewer cannot see — the interior names itself instead.
+       */
+      const interiorPresence = interiorOpacityAt(story);
+      const storeLabelAlpha =
+        (story.act === "capture" ? 0.25 : 0.8) * (1 - interiorPresence);
       drawLabel(
         ["YOUR DEVICE"],
         clientAnchor,

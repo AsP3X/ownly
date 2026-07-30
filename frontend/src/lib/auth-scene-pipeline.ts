@@ -207,6 +207,82 @@ export function accessPointAt(t: number, lane: number, slot: number): ScenePoint
   };
 }
 
+/* ---- Server interior (2D) ------------------------------------------------ */
+/*
+ * Human: What happens inside the server is drawn as a flat schematic panel, not as a fake 3D room.
+ * A perspective interior fought the camera the whole time and never read cleanly; a 2D diagram can
+ * be pixel-aligned, evenly spaced and legible at any size. The panel cross-fades in as the 3D
+ * shell fades out, so the scene still "goes inside" — it just stops pretending to be a room.
+ * Agent: PURE layout. All coordinates are normalised 0→1 inside the panel; the draw pass maps them
+ *        onto a pixel rect from interiorPanelRect().
+ */
+
+/** Human: One lane per chunk, so the split from `transit` maps onto the lanes one-to-one. */
+export const INTERIOR_LANES = 4;
+export const INTERIOR_MANIFEST_ROWS = 4;
+
+export type InteriorRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Human: Where the panel sits on the canvas. It lives in the clear band below the marketing copy
+ * and left of the sign-in card, so it never fights the page for the same pixels.
+ * Agent: RETURNS pixels. Width is capped so the diagram keeps its proportions on ultrawide screens.
+ */
+export function interiorPanelRect(width: number, height: number): InteriorRect {
+  const panelWidth = Math.min(width * 0.38, 540);
+  // Human: Short enough to sit entirely below the marketing copy and still clear the viewport floor.
+  const panelHeight = Math.min(height * 0.2, 190);
+  return {
+    x: width * 0.075,
+    y: height * 0.775,
+    width: panelWidth,
+    height: panelHeight,
+  };
+}
+
+/**
+ * Human: The horizontal stages of the pipeline, as fractions of the panel width. Chunks come in on
+ * the left, pass the gate, travel their lane, land on a drive, and end up in the manifest.
+ */
+export const INTERIOR_STAGE_X = {
+  intake: 0.035,
+  intakeEnd: 0.115,
+  gate: 0.17,
+  gateEnd: 0.215,
+  laneStart: 0.245,
+  laneEnd: 0.6,
+  drive: 0.62,
+  driveEnd: 0.755,
+  manifest: 0.805,
+  manifestEnd: 0.985,
+} as const;
+
+/** Human: Vertical centre of one lane row, as a fraction of the panel height. */
+export function interiorRowY(row: number): number {
+  const top = 0.34;
+  const step = (0.92 - top) / INTERIOR_LANES;
+  return top + step * (row + 0.5);
+}
+
+/** Human: Half-height of a lane row, leaving a consistent gutter between rows. */
+export function interiorRowHalfHeight(): number {
+  const step = (0.92 - 0.34) / INTERIOR_LANES;
+  return step * 0.32;
+}
+
+/** Human: Vertical band of one manifest row, matching the lane rows so the panel stays on a grid. */
+export function interiorManifestSpan(row: number): { top: number; bottom: number } {
+  const half = interiorRowHalfHeight();
+  const center = interiorRowY(row);
+  return { top: center - half, bottom: center + half };
+}
+
+/** Human: Where a shard sits along its lane, 0 at the gate exit and 1 at the drive. */
+export function interiorLaneX(t: number): number {
+  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+  return INTERIOR_STAGE_X.laneStart + (INTERIOR_STAGE_X.laneEnd - INTERIOR_STAGE_X.laneStart) * clamped;
+}
+
 /* ---- Palette ------------------------------------------------------------ */
 
 export type ScenePalette = {
@@ -229,6 +305,12 @@ export type ScenePalette = {
   slot: string;
   /** The faint rail the transfers follow. */
   rail: string;
+  /**
+   * Human: "Checksum passed" inside the server. It has its own name rather than borrowing a file
+   * kind's accent, so changing a kind colour can never silently change what verified looks like.
+   * Agent: Shares a hue with the image kind; the two never appear at the same beat.
+   */
+  verified: string;
   /** Captions naming the two ends of the scene. */
   label: string;
   /** The mouse pointer that picks the file. */
@@ -256,6 +338,7 @@ export const AUTH_SCENE_PALETTES: Record<"light" | "dark", ScenePalette> = {
     storeEdge: "#7690c2",
     slot: "#2563eb",
     rail: "#7d95c4",
+    verified: "#0e9f6e",
     label: "#7c8fb5",
     cursor: "#ffffff",
     cursorEdge: "#41527a",
@@ -282,6 +365,7 @@ export const AUTH_SCENE_PALETTES: Record<"light" | "dark", ScenePalette> = {
     storeEdge: "#31456d",
     slot: "#4c8dff",
     rail: "#31456d",
+    verified: "#34d399",
     label: "#5a6c91",
     cursor: "#e8eefc",
     cursorEdge: "#0b1120",

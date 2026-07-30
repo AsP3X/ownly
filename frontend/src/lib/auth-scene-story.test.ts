@@ -9,7 +9,11 @@ import {
   heroTileOnScreen,
   heroTileSelected,
   heroStateAt,
+  interiorOpacityAt,
+  interiorShardProgress,
+  interiorStageAt,
   processSweepAt,
+  storeShellOpacityAt,
   storeEnergyAt,
   storyAt,
   STORY_ACTS,
@@ -35,9 +39,17 @@ function midAct(act: StoryAct): number {
 }
 
 describe("storyAt", () => {
-  it("plays the five acts in order across one loop", () => {
+  it("plays every act in order across one loop", () => {
     const seen = STORY_ACTS.map((spec) => storyAt(midAct(spec.id)).act);
-    expect(seen).toEqual(["capture", "transit", "store", "retrieve", "display"]);
+    expect(seen).toEqual([
+      "capture",
+      "transit",
+      "dock",
+      "ingest",
+      "seal",
+      "retrieve",
+      "display",
+    ]);
   });
 
   it("loops — the same moment in the next cycle replays the same act", () => {
@@ -85,8 +97,8 @@ describe("camera", () => {
     expect(capture.target.x).toBeCloseTo(CLIENT_CENTER.x);
     expect(capture.distance).toBeCloseTo(CAMERA_SHOTS.client.distance);
 
-    const store = storyAt(actStart("store") + STORY_ACTS[2].duration - 0.01).camera;
-    expect(store.distance).toBeLessThan(CAMERA_SHOTS.wide.distance);
+    const docked = storyAt(actStart("dock") + STORY_ACTS[2].duration - 0.01).camera;
+    expect(docked.distance).toBeLessThan(CAMERA_SHOTS.wide.distance);
   });
 
   it("pulls back to the wide shot as the transfer starts", () => {
@@ -127,20 +139,23 @@ describe("hero file", () => {
     expect(heroStateAt(storyAt(actStart("display") + 0.1)).wholeness).toBeGreaterThan(0.9);
   });
 
-  it("rests in its own bay while stored", () => {
-    const frame = storyAt(midAct("store"));
+  it("rests in its own bay while it is being ingested", () => {
+    const frame = storyAt(midAct("ingest"));
     expect(heroStateAt(frame).position).toEqual(slotPoint(frame.slot));
   });
 
   it("stays visible whenever it is outside the server", () => {
     /*
      * Human: The file is only allowed to disappear while it is inside the server — it fades out
-     * as the bay closes over it during `store`, and fades back in as it emerges during `retrieve`.
+     * as it crosses into the enclosure, stays hidden while the interior draws the shards, and
+     * fades back in as it emerges during `retrieve`.
      * Everywhere else it must be on screen, or the story skips a beat.
      */
     const fading: Partial<Record<StoryAct, (t: number) => boolean>> = {
       capture: (t) => t < 0.45,
-      store: () => true,
+      dock: () => true,
+      ingest: () => true,
+      seal: () => true,
       retrieve: (t) => t < 0.15,
       display: (t) => t > 0.7,
     };
@@ -188,7 +203,7 @@ describe("hero file", () => {
   it("hands off between acts without the file blinking out mid-flight", () => {
     // Human: The handoff that matters most is transit → store: the file must still be whole
     // and visible right up to the moment its chunks reach the bay.
-    const lastTransit = storyAt(actStart("store") - 0.05);
+    const lastTransit = storyAt(actStart("dock") - 0.05);
     expect(heroStateAt(lastTransit).opacity).toBeGreaterThan(0.5);
     expect(heroStateAt(lastTransit).position).not.toEqual(CLIENT_CENTER);
   });
@@ -210,7 +225,7 @@ describe("the click", () => {
   it("shows a pointer only while the file is being picked", () => {
     expect(cursorStateAt(storyAt(midAct("capture"))).opacity).toBeGreaterThan(0.1);
     expect(cursorStateAt(storyAt(midAct("transit"))).opacity).toBe(0);
-    expect(cursorStateAt(storyAt(midAct("store"))).opacity).toBe(0);
+    expect(cursorStateAt(storyAt(midAct("ingest"))).opacity).toBe(0);
   });
 
   it("moves the pointer onto the file, then presses it", () => {
@@ -256,17 +271,17 @@ describe("act cues", () => {
     const mid = transferProgressAt(storyAt(midAct("transit")));
     expect(mid).toBeGreaterThan(0);
     expect(mid).toBeLessThan(1);
-    expect(transferProgressAt(storyAt(midAct("store")))).toBe(1);
+    expect(transferProgressAt(storyAt(midAct("ingest")))).toBe(1);
   });
 
   it("runs the processing sweep only while the file is being stored", () => {
-    expect(processSweepAt(storyAt(midAct("store")))).toBeGreaterThan(0);
+    expect(processSweepAt(storyAt(midAct("dock")))).toBeGreaterThan(0);
     expect(processSweepAt(storyAt(midAct("transit")))).toBe(-1);
     expect(processSweepAt(storyAt(midAct("display")))).toBe(-1);
   });
 
   it("lights the server most while it is holding the file", () => {
-    expect(storeEnergyAt(storyAt(midAct("store")))).toBeGreaterThan(
+    expect(storeEnergyAt(storyAt(midAct("ingest")))).toBeGreaterThan(
       storeEnergyAt(storyAt(midAct("capture"))),
     );
   });
@@ -293,6 +308,79 @@ describe("ambientSlots", () => {
         expect(slot).toBeGreaterThanOrEqual(0);
         expect(slot).toBeLessThan(STORE_SLOTS);
       }
+    }
+  });
+});
+
+describe("server interior sequence", () => {
+  it("hands the frame from the shell to the interior and back, never showing both", () => {
+    for (let time = 0; time < STORY_DURATION; time += 0.1) {
+      const frame = storyAt(time);
+      const shell = storeShellOpacityAt(frame);
+      const interior = interiorOpacityAt(frame);
+      expect(shell).toBeGreaterThanOrEqual(0);
+      expect(shell).toBeLessThanOrEqual(1);
+      // Human: They are complements — whichever side of the wall the camera is on gets drawn.
+      expect(shell + interior).toBeCloseTo(1);
+    }
+  });
+
+  it("keeps the shell solid outside the interior acts and gone during ingest", () => {
+    expect(storeShellOpacityAt(storyAt(midAct("capture")))).toBe(1);
+    expect(storeShellOpacityAt(storyAt(midAct("transit")))).toBe(1);
+    expect(storeShellOpacityAt(storyAt(midAct("ingest")))).toBe(0);
+    expect(storeShellOpacityAt(storyAt(midAct("retrieve")))).toBe(1);
+    expect(storeShellOpacityAt(storyAt(midAct("display")))).toBe(1);
+  });
+
+  it("crosses in during dock and back out during seal", () => {
+    expect(storeShellOpacityAt(storyAt(actStart("dock") + 0.05))).toBeGreaterThan(0.9);
+    expect(storeShellOpacityAt(storyAt(actStart("ingest") - 0.05))).toBeLessThan(0.1);
+    expect(storeShellOpacityAt(storyAt(actStart("seal") + 0.05))).toBeLessThan(0.1);
+    expect(storeShellOpacityAt(storyAt(actStart("retrieve") - 0.05))).toBeGreaterThan(0.9);
+  });
+
+  it("runs the interior beats in order across ingest", () => {
+    const early = interiorStageAt(storyAt(actStart("ingest") + 0.7));
+    const middle = interiorStageAt(storyAt(midAct("ingest")));
+    const late = interiorStageAt(storyAt(actStart("ingest") + 6.8));
+
+    expect(early.arrive).toBeGreaterThan(early.shard);
+    expect(middle.shard).toBeGreaterThan(middle.index);
+    expect(late.index).toBeGreaterThan(late.shard * 0 + 0.5);
+    // Human: Each beat only ever moves forward through the act.
+    expect(middle.encrypt).toBeGreaterThanOrEqual(early.encrypt);
+    expect(late.verify).toBeGreaterThanOrEqual(middle.verify);
+  });
+
+  it("holds every beat complete through seal", () => {
+    const stage = interiorStageAt(storyAt(midAct("seal")));
+    expect(stage.arrive).toBe(1);
+    expect(stage.encrypt).toBe(1);
+    expect(stage.shard).toBe(1);
+    expect(stage.verify).toBe(1);
+    expect(stage.index).toBe(1);
+    expect(stage.sealed).toBeGreaterThan(0);
+  });
+
+  it("shows nothing inside while the camera is outside", () => {
+    const stage = interiorStageAt(storyAt(midAct("transit")));
+    expect(stage.arrive).toBe(0);
+    expect(stage.shard).toBe(0);
+    expect(stage.index).toBe(0);
+  });
+
+  it("staggers the shards so they arrive one after another", () => {
+    const partway = interiorStageAt(storyAt(actStart("ingest") + 3.6));
+    const first = interiorShardProgress(partway, 0, 4);
+    const last = interiorShardProgress(partway, 3, 4);
+    expect(first).toBeGreaterThan(last);
+  });
+
+  it("lands every shard by the time the shard beat completes", () => {
+    const done = interiorStageAt(storyAt(midAct("seal")));
+    for (let lane = 0; lane < 4; lane += 1) {
+      expect(interiorShardProgress(done, lane, 4)).toBe(1);
     }
   });
 });
