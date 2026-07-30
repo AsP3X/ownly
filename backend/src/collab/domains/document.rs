@@ -208,8 +208,12 @@ impl CollabDomain for DocumentDomain {
                     .and_then(|v| v.as_u64())
                     .ok_or_else(|| CollabError::InvalidOp("lock.end required".into()))?
                     as u32;
+                // Human: Empty range (empty doc / collapsed caret) → treat as unlock, not error.
+                // Agent: REWRITES op to unlock so apply_lock_presence clears the actor lock.
                 if end <= start {
-                    return Err(CollabError::InvalidOp("lock range must be non-empty".into()));
+                    op.op_type = "unlock".into();
+                    op.payload = json!({});
+                    return Ok(());
                 }
                 if Self::range_blocked_by_others(participants, actor, start, end) {
                     return Err(CollabError::Locked);
@@ -442,5 +446,24 @@ mod tests {
             snap.data.get("html").and_then(|v| v.as_str()),
             Some("<p><b>abc</b></p>")
         );
+    }
+
+    #[test]
+    fn empty_lock_rewrites_to_unlock() {
+        let d = domain();
+        let snap = d.empty_snapshot();
+        let mut op = OpEnvelope {
+            id: "l".into(),
+            seq: 0,
+            user_id: "u1".into(),
+            ts: 1,
+            base_seq: 0,
+            op_type: "lock".into(),
+            payload: json!({ "start": 0, "end": 0 }),
+            client_op_id: None,
+        };
+        d.validate_and_transform(&snap, &[], &mut op, "u1", &HashMap::new())
+            .unwrap();
+        assert_eq!(op.op_type, "unlock");
     }
 }

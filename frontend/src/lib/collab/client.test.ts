@@ -118,6 +118,29 @@ describe("CollabClient", () => {
     client.stop();
   });
 
+  it("ignores invalid_op errors so the strip stays online", async () => {
+    joinMock.mockResolvedValue(emptySession());
+    const onError = vi.fn();
+    const client = new CollabClient({
+      roomKind: "document",
+      fileId: "f1",
+      onError,
+    });
+    await client.start();
+    client.handleServerMessage({
+      type: "error",
+      code: "invalid_op",
+      message: "invalid op: lock range must be non-empty",
+    });
+    client.handleServerMessage({
+      type: "error",
+      code: "client_message",
+      message: "invalid op: lock range must be non-empty",
+    });
+    expect(onError).not.toHaveBeenCalled();
+    client.stop();
+  });
+
   it("schedules format_commit retry on text_mismatch", async () => {
     vi.useFakeTimers();
     joinMock.mockResolvedValue(emptySession());

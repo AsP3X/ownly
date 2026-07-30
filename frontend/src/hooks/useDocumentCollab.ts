@@ -102,7 +102,18 @@ export function useDocumentCollab({
         onPresenceRef.current?.(next);
       },
       onTransport: setTransport,
-      onError: (message) => setError(message),
+      onError: (message, code) => {
+        // Human: Soft op errors must not paint the strip as offline.
+        if (
+          code === "locked" ||
+          code === "invalid_op" ||
+          code === "text_mismatch" ||
+          code === "client_message"
+        ) {
+          return;
+        }
+        setError(message);
+      },
       onOp: (op, { isLocalEcho }) => {
         handleRemoteOp(op, isLocalEcho);
       },
@@ -241,17 +252,40 @@ export function useDocumentCollab({
   const acquireSentenceLock = useCallback(
     async (text: string, caretStart: number, caretEnd: number) => {
       const range = sentenceRangeAround(text, caretStart, caretEnd);
+      // Human: Empty docs / collapsed caret yield end<=start — never send lock (server rejects).
+      const hasRange = range.end > range.start;
       const prev = lastLockRef.current;
-      const lockChanged = !(prev && prev.start === range.start && prev.end === range.end);
-      if (lockChanged) {
-        lastLockRef.current = { start: range.start, end: range.end };
-        clientRef.current?.submitOp("lock", { start: range.start, end: range.end });
+      const lockChanged = hasRange
+        ? !(prev && prev.start === range.start && prev.end === range.end)
+        : prev != null;
+
+      if (hasRange) {
+        if (lockChanged) {
+          lastLockRef.current = { start: range.start, end: range.end };
+          clientRef.current?.submitOp("lock", {
+            start: range.start,
+            end: range.end,
+          });
+        }
+        await updatePresence({
+          selection_start: caretStart,
+          selection_end: caretEnd,
+          ...(lockChanged
+            ? { lock_start: range.start, lock_end: range.end }
+            : {}),
+        });
+      } else {
+        // Empty document: presence only; drop any prior exclusive lock.
+        if (prev != null) {
+          lastLockRef.current = null;
+          clientRef.current?.submitOp("unlock", {});
+        }
+        await updatePresence({
+          selection_start: caretStart,
+          selection_end: caretEnd,
+          ...(prev != null ? { clear_lock: true } : {}),
+        });
       }
-      await updatePresence({
-        selection_start: caretStart,
-        selection_end: caretEnd,
-        ...(lockChanged ? { lock_start: range.start, lock_end: range.end } : {}),
-      });
       return range;
     },
     [updatePresence],

@@ -17,9 +17,11 @@ export function RtfCollabPresence({
   transport,
 }: RtfCollabPresenceProps) {
   if (error) {
+    const offline =
+      /unavailable|offline|network|failed to fetch|websocket/i.test(error);
     return (
       <div className="flex h-8 shrink-0 items-center border-b border-[#FDE68A] bg-[#FFFBEB] px-3 text-[11px] text-[#92400E]">
-        Co-editing offline — {error}
+        {offline ? `Co-editing offline — ${error}` : error}
       </div>
     );
   }

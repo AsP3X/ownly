@@ -351,8 +351,21 @@ export class CollabClient {
       if (data.code === "text_mismatch") {
         this.requestSync();
         this.scheduleFormatCommitRetry();
-      } else if (data.code === "locked") {
+        return;
+      }
+      if (data.code === "locked") {
         this.requestSync();
+        // Soft signal — do not flip the presence strip to "offline".
+        this.opts.onError?.(data.message ?? "Range locked", data.code);
+        return;
+      }
+      // Human: Invalid ops (e.g. empty lock) must not look like co-editing went offline.
+      if (
+        data.code === "invalid_op" ||
+        data.code === "client_message" ||
+        /invalid op|lock range/i.test(data.message ?? "")
+      ) {
+        return;
       }
       if (data.message) this.opts.onError?.(data.message, data.code);
     }

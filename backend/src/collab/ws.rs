@@ -310,6 +310,18 @@ async fn handle_client_message(
                     state.collab.hub().publish(session_id, err).await;
                     Ok(())
                 }
+                Err(CollabError::InvalidOp(message)) => {
+                    // Human: Soft-fail invalid ops (empty lock, bad payload) — stay online.
+                    let err = json!({
+                        "type": "error",
+                        "code": "invalid_op",
+                        "message": message,
+                        "client_op_id": msg.client_op_id,
+                    })
+                    .to_string();
+                    state.collab.hub().publish(session_id, err).await;
+                    Ok(())
+                }
                 Err(e) => Err(e.to_string()),
             }
         }
