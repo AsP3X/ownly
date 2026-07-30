@@ -18,22 +18,29 @@ import {
   accessPointAt,
   CLIENT_CENTER,
   CLIENT_LIFT,
+  CLIENT_DECK_THICKNESS,
+  CLIENT_GRID_BOTTOM,
+  CLIENT_GRID_LEFT,
+  CLIENT_GRID_RIGHT,
+  CLIENT_GRID_TOP,
   CLIENT_SCREEN_HEIGHT,
   CLIENT_SCREEN_WIDTH,
+  CLIENT_SURFACE_LIFT,
   CLIENT_TILE_COLUMNS,
   CLIENT_TILE_COUNT,
   CLIENT_TILE_ROWS,
-  clientTilePoint,
+  clientDeckPoint,
+  clientScreenPoint,
   FILE_KINDS,
   PATH_ACCESS_CONTROL,
   PATH_UPLOAD_CONTROL,
   SLOT_HALF_WIDTH,
-  SLOT_HEIGHT,
   SLOT_PITCH,
-  slotPoint,
+  slotFaceSpan,
   STORE_CENTER,
   STORE_DEPTH,
   STORE_SLOTS,
+  storeFacePoint,
   uploadPointAt,
   type FileKind,
   type ScenePalette,
@@ -469,11 +476,65 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
 
       const pixelsPerUnit = center.scale * unit;
       const screenWidth = CLIENT_SCREEN_WIDTH * pixelsPerUnit;
-      const screenHeight = CLIENT_SCREEN_HEIGHT * pixelsPerUnit;
-      const x = center.sx - screenWidth / 2;
-      const y = center.sy - screenHeight / 2;
       const energy = clientEnergyAt(story);
       const bodyAlpha = Math.min(0.95, palette.opacity * 1.5);
+      const hairline = Math.max(0.5, pixelsPerUnit * 0.004);
+
+      /*
+       * Human: Every part of the laptop is placed on one of its two real surfaces, so the whole
+       * machine shares a single perspective. Drawing any of it as a screen-space rectangle is what
+       * used to make the contents slide off the bezel whenever the camera yawed.
+       */
+      const screenPt = (u: number, v: number, lift = CLIENT_SURFACE_LIFT) =>
+        project(clientScreenPoint(u, v, lift), viewport);
+      const deckPt = (u: number, w: number, drop = 0) =>
+        project(clientDeckPoint(u, w, drop), viewport);
+
+      const fillPoly = (points: ProjectedPoint[], fill: string, alpha: number) => {
+        context!.globalAlpha = alpha;
+        context!.fillStyle = fill;
+        context!.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) context!.moveTo(point.sx, point.sy);
+          else context!.lineTo(point.sx, point.sy);
+        });
+        context!.closePath();
+        context!.fill();
+      };
+
+      const strokePoly = (
+        points: ProjectedPoint[],
+        stroke: string,
+        alpha: number,
+        width: number,
+      ) => {
+        context!.globalAlpha = alpha;
+        context!.strokeStyle = stroke;
+        context!.lineWidth = width;
+        context!.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) context!.moveTo(point.sx, point.sy);
+          else context!.lineTo(point.sx, point.sy);
+        });
+        context!.closePath();
+        context!.stroke();
+      };
+
+      /** Human: A rectangle in screen-face UV — u left→right, v hinge→top. */
+      const screenQuad = (u0: number, v0: number, u1: number, v1: number, lift?: number) => [
+        screenPt(u0, v1, lift),
+        screenPt(u1, v1, lift),
+        screenPt(u1, v0, lift),
+        screenPt(u0, v0, lift),
+      ];
+
+      /** Human: A rectangle on the keyboard deck — u left→right, w hinge→front lip. */
+      const deckQuad = (u0: number, w0: number, u1: number, w1: number, drop = 0) => [
+        deckPt(u0, w0, drop),
+        deckPt(u1, w0, drop),
+        deckPt(u1, w1, drop),
+        deckPt(u0, w1, drop),
+      ];
 
       // Glow while the device is sending or receiving.
       if (energy > 0.02) {
@@ -495,189 +556,262 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
         context!.fill();
       }
 
-      // Bezel.
-      context!.globalAlpha = bodyAlpha;
-      roundRect(context!, x, y, screenWidth, screenHeight, screenWidth * 0.04);
-      context!.fillStyle = palette.device;
-      context!.fill();
-      context!.strokeStyle = withAlpha(palette.deviceEdge, 0.9);
-      context!.lineWidth = Math.max(0.6, pixelsPerUnit * 0.005);
-      context!.stroke();
-
-      // Screen.
-      const inset = screenWidth * 0.03;
-      roundRect(
-        context!,
-        x + inset,
-        y + inset,
-        screenWidth - inset * 2,
-        screenHeight - inset * 2,
-        screenWidth * 0.025,
+      /*
+       * Human: Lid back — a sliver of the panel's reverse side behind the bezel. Without it the
+       * screen reads as a floating pane rather than a lid attached to the deck.
+       */
+      fillPoly(
+        screenQuad(-0.02, -0.015, 1.02, 1.015, -CLIENT_SURFACE_LIFT * 2),
+        palette.deviceEdge,
+        bodyAlpha * 0.55,
       );
-      context!.fillStyle = palette.deviceScreen;
-      context!.fill();
+
+      // Bezel.
+      const bezel = screenQuad(0, 0, 1, 1, 0);
+      fillPoly(bezel, palette.device, bodyAlpha);
+      strokePoly(bezel, withAlpha(palette.deviceEdge, 0.9), bodyAlpha, hairline * 1.2);
+
+      // Screen glass.
+      const glassU0 = 0.035;
+      const glassU1 = 0.965;
+      const glassV0 = 0.06;
+      const glassV1 = 0.94;
+      fillPoly(
+        screenQuad(glassU0, glassV0, glassU1, glassV1),
+        palette.deviceScreen,
+        bodyAlpha,
+      );
 
       /*
        * Human: A believable app window rather than a bare grid — chrome dots, a sidebar and a
        * toolbar, so the close-up reads as "someone is using their drive" at a glance.
+       * Agent: All of it is placed in screen UV, so it stays welded to the glass at any yaw.
        */
-      const screenLeft = x + inset;
-      const screenTop = y + inset;
-      const screenInnerWidth = screenWidth - inset * 2;
-      const screenInnerHeight = screenHeight - inset * 2;
-      const chromeHeight = screenInnerHeight * 0.13;
-      const sidebarWidth = screenInnerWidth * 0.2;
+      const chromeV = glassV1 - (glassV1 - glassV0) * 0.13;
+      const sidebarU = glassU0 + (glassU1 - glassU0) * 0.2;
 
       // Title bar with traffic-light dots.
-      context!.globalAlpha = bodyAlpha * 0.9;
-      context!.fillStyle = withAlpha(palette.device, 0.85);
-      context!.fillRect(screenLeft, screenTop, screenInnerWidth, chromeHeight);
-      const dotRadius = Math.max(0.6, chromeHeight * 0.17);
+      fillPoly(
+        screenQuad(glassU0, chromeV, glassU1, glassV1),
+        withAlpha(palette.device, 0.85),
+        bodyAlpha * 0.9,
+      );
       for (let dot = 0; dot < 3; dot += 1) {
-        context!.globalAlpha = bodyAlpha * 0.55;
-        context!.fillStyle = palette.deviceEdge;
-        context!.beginPath();
-        context!.arc(
-          screenLeft + chromeHeight * (0.5 + dot * 0.55),
-          screenTop + chromeHeight / 2,
-          dotRadius,
-          0,
-          Math.PI * 2,
+        const dotU = glassU0 + (glassU1 - glassU0) * (0.035 + dot * 0.042);
+        const dotV = (chromeV + glassV1) / 2;
+        const half = (glassU1 - glassU0) * 0.013;
+        fillPoly(
+          screenQuad(dotU - half, dotV - half * 1.5, dotU + half, dotV + half * 1.5),
+          palette.deviceEdge,
+          bodyAlpha * 0.55,
         );
-        context!.fill();
       }
 
       // Sidebar with a few nav rows.
-      context!.globalAlpha = bodyAlpha * 0.55;
-      context!.fillStyle = withAlpha(palette.device, 0.6);
-      context!.fillRect(
-        screenLeft,
-        screenTop + chromeHeight,
-        sidebarWidth,
-        screenInnerHeight - chromeHeight,
+      fillPoly(
+        screenQuad(glassU0, glassV0, sidebarU, chromeV),
+        withAlpha(palette.device, 0.6),
+        bodyAlpha * 0.55,
       );
       for (let row = 0; row < 4; row += 1) {
-        const rowY = screenTop + chromeHeight + screenInnerHeight * (0.12 + row * 0.16);
-        context!.globalAlpha = bodyAlpha * (row === 1 ? 0.8 : 0.35);
-        context!.fillStyle = row === 1 ? palette.slot : palette.deviceEdge;
-        roundRect(
-          context!,
-          screenLeft + sidebarWidth * 0.16,
-          rowY,
-          sidebarWidth * (row === 3 ? 0.5 : 0.68),
-          Math.max(0.8, screenInnerHeight * 0.045),
-          screenInnerHeight * 0.03,
+        const rowV = chromeV - (chromeV - glassV0) * (0.13 + row * 0.17);
+        const rowHeight = (chromeV - glassV0) * 0.06;
+        const rowWidth = (sidebarU - glassU0) * (row === 3 ? 0.5 : 0.68);
+        fillPoly(
+          screenQuad(
+            glassU0 + (sidebarU - glassU0) * 0.16,
+            rowV - rowHeight,
+            glassU0 + (sidebarU - glassU0) * 0.16 + rowWidth,
+            rowV + rowHeight,
+          ),
+          row === 1 ? palette.slot : palette.deviceEdge,
+          bodyAlpha * (row === 1 ? 0.8 : 0.35),
         );
-        context!.fill();
       }
 
-      // Human: The file grid — the drive, as the user sees it.
-      const tileWorldWidth = ((CLIENT_SCREEN_WIDTH * 0.76) / CLIENT_TILE_COLUMNS) * 0.8;
-      const tileWorldHeight = ((CLIENT_SCREEN_HEIGHT * 0.7) / CLIENT_TILE_ROWS) * 0.76;
+      // Human: The file grid — the drive, as the user sees it. Laid out in screen UV like the chrome.
       const onScreen = heroTileOnScreen(story);
       const selection = heroTileSelected(story);
+      const stepU = (CLIENT_GRID_RIGHT - CLIENT_GRID_LEFT) / CLIENT_TILE_COLUMNS;
+      const stepV = (CLIENT_GRID_TOP - CLIENT_GRID_BOTTOM) / CLIENT_TILE_ROWS;
+      const tileHalfU = stepU * 0.4;
+      const tileHalfV = stepV * 0.38;
 
       for (let index = 0; index < CLIENT_TILE_COUNT; index += 1) {
-        const tile = project(clientTilePoint(index), viewport);
-        const tileWidth = tileWorldWidth * tile.scale * unit;
-        const tileHeight = tileWorldHeight * tile.scale * unit;
-        const tileX = tile.sx - tileWidth / 2;
-        const tileY = tile.sy - tileHeight / 2;
+        const column = index % CLIENT_TILE_COLUMNS;
+        const row = Math.floor(index / CLIENT_TILE_COLUMNS);
+        const centerU = CLIENT_GRID_LEFT + stepU * (column + 0.5);
+        const centerV = CLIENT_GRID_TOP - stepV * (row + 0.5);
         const isHeroTile = index === story.tile % CLIENT_TILE_COUNT;
         const kind = isHeroTile ? story.kind : FILE_KINDS[index % FILE_KINDS.length];
         const accent = palette.kinds[kind];
+        const lift = CLIENT_SURFACE_LIFT * 2;
 
         if (isHeroTile && !onScreen) {
           // Human: The file is away — its place in the grid waits for it, outlined.
-          roundRect(context!, tileX, tileY, tileWidth, tileHeight, tileWidth * 0.16);
-          context!.globalAlpha = bodyAlpha * 0.5;
-          context!.strokeStyle = withAlpha(accent, 0.55);
-          context!.setLineDash([tileWidth * 0.14, tileWidth * 0.12]);
-          context!.lineWidth = Math.max(0.6, tileWidth * 0.05);
-          context!.stroke();
+          const slotQuad = screenQuad(
+            centerU - tileHalfU,
+            centerV - tileHalfV,
+            centerU + tileHalfU,
+            centerV + tileHalfV,
+            lift,
+          );
+          context!.setLineDash([screenWidth * 0.02, screenWidth * 0.016]);
+          strokePoly(
+            slotQuad,
+            withAlpha(accent, 0.55),
+            bodyAlpha * 0.5,
+            Math.max(0.6, screenWidth * 0.006),
+          );
           context!.setLineDash([]);
           continue;
         }
 
-        // Thumbnail block.
-        context!.globalAlpha = bodyAlpha * (isHeroTile ? 0.95 : 0.7);
-        roundRect(context!, tileX, tileY, tileWidth, tileHeight * 0.72, tileWidth * 0.14);
-        context!.fillStyle = withAlpha(accent, isHeroTile ? 0.75 : 0.4);
-        context!.fill();
-        drawKindGlyph(
-          context!,
-          kind,
-          tileX + tileWidth * 0.3,
-          tileY + tileHeight * 0.14,
-          tileWidth * 0.4,
-          palette.deviceScreen,
+        // Thumbnail block — the coloured part of the tile.
+        fillPoly(
+          screenQuad(
+            centerU - tileHalfU,
+            centerV - tileHalfV * 0.42,
+            centerU + tileHalfU,
+            centerV + tileHalfV,
+            lift,
+          ),
+          withAlpha(accent, isHeroTile ? 0.75 : 0.4),
+          bodyAlpha * (isHeroTile ? 0.95 : 0.7),
         );
 
+        // Human: Glyph is a small raster mark — centred on the projected tile, sized from its span.
+        const glyphCenter = screenPt(centerU, centerV + tileHalfV * 0.28, lift);
+        const glyphEdge = screenPt(centerU + tileHalfU, centerV + tileHalfV * 0.28, lift);
+        const glyphSize = Math.abs(glyphEdge.sx - glyphCenter.sx) * 0.8;
+        if (glyphSize > 1.2) {
+          drawKindGlyph(
+            context!,
+            kind,
+            glyphCenter.sx - glyphSize / 2,
+            glyphCenter.sy - glyphSize / 2,
+            glyphSize,
+            palette.deviceScreen,
+          );
+        }
+
         // Filename line under it.
-        context!.globalAlpha = bodyAlpha * 0.45;
-        context!.fillStyle = palette.deviceEdge;
-        roundRect(
-          context!,
-          tileX + tileWidth * 0.1,
-          tileY + tileHeight * 0.82,
-          tileWidth * 0.8,
-          Math.max(0.7, tileHeight * 0.1),
-          tileHeight * 0.05,
+        fillPoly(
+          screenQuad(
+            centerU - tileHalfU * 0.8,
+            centerV - tileHalfV * 0.86,
+            centerU + tileHalfU * 0.8,
+            centerV - tileHalfV * 0.64,
+            lift,
+          ),
+          palette.deviceEdge,
+          bodyAlpha * 0.45,
         );
-        context!.fill();
 
         // Human: Selection ring — the pointer has this file under it.
         if (isHeroTile && selection > 0.01) {
-          const grow = tileWidth * 0.12 * selection;
-          roundRect(
-            context!,
-            tileX - grow,
-            tileY - grow,
-            tileWidth + grow * 2,
-            tileHeight + grow * 2,
-            tileWidth * 0.2,
+          const growU = tileHalfU * 0.18 * selection;
+          const growV = tileHalfV * 0.18 * selection;
+          strokePoly(
+            screenQuad(
+              centerU - tileHalfU - growU,
+              centerV - tileHalfV - growV,
+              centerU + tileHalfU + growU,
+              centerV + tileHalfV + growV,
+              lift * 1.5,
+            ),
+            palette.slot,
+            bodyAlpha * selection,
+            Math.max(0.8, screenWidth * 0.008),
           );
-          context!.globalAlpha = bodyAlpha * selection;
-          context!.strokeStyle = palette.slot;
-          context!.lineWidth = Math.max(0.8, tileWidth * 0.06);
-          context!.stroke();
         }
       }
 
       // Human: Transfer bar along the bottom of the screen while the upload is in flight.
       const progress = transferProgressAt(story);
       if (progress > 0.001 && progress < 0.999) {
-        const barWidth = screenInnerWidth * 0.66;
-        const barHeight = Math.max(1.2, screenHeight * 0.035);
-        const barX = screenLeft + sidebarWidth + (screenInnerWidth - sidebarWidth - barWidth) / 2;
-        const barY = screenTop + screenInnerHeight - barHeight * 2.4;
-        context!.globalAlpha = bodyAlpha * 0.6;
-        roundRect(context!, barX, barY, barWidth, barHeight, barHeight / 2);
-        context!.fillStyle = withAlpha(palette.deviceEdge, 0.5);
-        context!.fill();
-        context!.globalAlpha = bodyAlpha;
-        roundRect(context!, barX, barY, barWidth * progress, barHeight, barHeight / 2);
-        context!.fillStyle = palette.kinds[story.kind];
-        context!.fill();
+        const barLeft = sidebarU + (glassU1 - sidebarU) * 0.15;
+        const barRight = glassU1 - (glassU1 - sidebarU) * 0.15;
+        const barV = glassV0 + (chromeV - glassV0) * 0.07;
+        const barHalfV = (chromeV - glassV0) * 0.022;
+        fillPoly(
+          screenQuad(barLeft, barV - barHalfV, barRight, barV + barHalfV, CLIENT_SURFACE_LIFT * 2),
+          withAlpha(palette.deviceEdge, 0.5),
+          bodyAlpha * 0.6,
+        );
+        fillPoly(
+          screenQuad(
+            barLeft,
+            barV - barHalfV,
+            barLeft + (barRight - barLeft) * progress,
+            barV + barHalfV,
+            CLIENT_SURFACE_LIFT * 2.5,
+          ),
+          palette.kinds[story.kind],
+          bodyAlpha,
+        );
       }
 
-      // Base.
-      context!.globalAlpha = bodyAlpha;
-      const baseWidth = screenWidth * 1.14;
-      const baseHeight = screenHeight * 0.07;
-      roundRect(
-        context!,
-        center.sx - baseWidth / 2,
-        y + screenHeight + baseHeight * 0.3,
-        baseWidth,
-        baseHeight,
-        baseHeight * 0.45,
+      /*
+       * Human: The deck — a real keyboard base receding toward the viewer, with keys, a trackpad
+       * and a front lip. This is what makes the object read as a laptop rather than a framed panel.
+       */
+      const deckTop = deckQuad(0, 0, 1, 1);
+      fillPoly(deckTop, palette.device, bodyAlpha);
+      strokePoly(deckTop, withAlpha(palette.deviceEdge, 0.7), bodyAlpha, hairline);
+
+      // Hinge bar across the back of the deck.
+      fillPoly(deckQuad(0.06, 0.0, 0.94, 0.07), withAlpha(palette.deviceEdge, 0.55), bodyAlpha * 0.8);
+
+      // Keyboard — a proper key grid, inset from the deck edges.
+      const keyRows = 4;
+      const keyColumns = 12;
+      const keyTop = 0.16;
+      const keyBottom = 0.62;
+      const keyLeft = 0.08;
+      const keyRight = 0.92;
+      const keyStepU = (keyRight - keyLeft) / keyColumns;
+      const keyStepW = (keyBottom - keyTop) / keyRows;
+      for (let row = 0; row < keyRows; row += 1) {
+        for (let column = 0; column < keyColumns; column += 1) {
+          const u0 = keyLeft + keyStepU * (column + 0.12);
+          const u1 = keyLeft + keyStepU * (column + 0.88);
+          const w0 = keyTop + keyStepW * (row + 0.16);
+          const w1 = keyTop + keyStepW * (row + 0.84);
+          fillPoly(
+            deckQuad(u0, w0, u1, w1),
+            palette.deviceScreen,
+            bodyAlpha * 0.42,
+          );
+        }
+      }
+      // Space bar.
+      fillPoly(
+        deckQuad(0.34, keyBottom + keyStepW * 0.12, 0.66, keyBottom + keyStepW * 0.72),
+        palette.deviceScreen,
+        bodyAlpha * 0.42,
       );
-      context!.fillStyle = palette.device;
-      context!.fill();
-      context!.strokeStyle = withAlpha(palette.deviceEdge, 0.75);
-      context!.lineWidth = Math.max(0.5, pixelsPerUnit * 0.004);
-      context!.stroke();
+
+      // Trackpad.
+      const trackpad = deckQuad(0.37, 0.74, 0.63, 0.95);
+      fillPoly(trackpad, palette.deviceScreen, bodyAlpha * 0.3);
+      strokePoly(trackpad, withAlpha(palette.deviceEdge, 0.6), bodyAlpha * 0.7, hairline);
+
+      /*
+       * Human: Front lip — the deck's thickness, seen edge-on. Also the nearest surface, so it is
+       * painted last.
+       * Agent: Quad between the deck's front edge and the same edge dropped by the deck thickness.
+       */
+      fillPoly(
+        [
+          deckPt(0, 1, 0),
+          deckPt(1, 1, 0),
+          deckPt(1, 1, CLIENT_DECK_THICKNESS),
+          deckPt(0, 1, CLIENT_DECK_THICKNESS),
+        ],
+        palette.deviceEdge,
+        bodyAlpha * 0.9,
+      );
     }
 
     /*
@@ -837,76 +971,122 @@ export function AuthSceneBackground({ className }: AuthSceneBackgroundProps) {
         (story.act === "retrieve" && story.t < 0.12);
       if (heroStored) occupied.add(story.slot);
 
+      /*
+       * Human: Bays live on the chassis front face, placed the same way its corners are. They used
+       * to be axis-aligned screen rectangles, which slid off the enclosure as the camera yawed.
+       * Agent: facePoly takes face-UV corners; lift keeps a decal in front of the panel behind it.
+       */
+      const facePt = (u: number, v: number, lift = 0.004) =>
+        project(storeFacePoint(u, v, lift), viewport);
+      const faceQuad = (u0: number, v0: number, u1: number, v1: number, lift?: number) => [
+        facePt(u0, v0, lift),
+        facePt(u1, v0, lift),
+        facePt(u1, v1, lift),
+        facePt(u0, v1, lift),
+      ];
+      const facePoly = (points: ProjectedPoint[], fill: string, alpha: number) => {
+        context!.globalAlpha = alpha;
+        context!.fillStyle = fill;
+        context!.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) context!.moveTo(point.sx, point.sy);
+          else context!.lineTo(point.sx, point.sy);
+        });
+        context!.closePath();
+        context!.fill();
+      };
+
+      // Human: Ventilation grille down each side of the bay stack — reads as real hardware.
+      for (let vent = 0; vent < 16; vent += 1) {
+        const v0 = 0.06 + vent * 0.056;
+        const v1 = v0 + 0.028;
+        if (v1 > 0.96) break;
+        facePoly(faceQuad(0.022, v0, 0.055, v1), palette.storeSide, bodyAlpha * 0.5);
+        facePoly(faceQuad(0.945, v0, 0.978, v1), palette.storeSide, bodyAlpha * 0.5);
+      }
+
+      const bayLeft = 0.085;
+      const bayRight = 0.915;
+
       for (let slot = 0; slot < STORE_SLOTS; slot += 1) {
-        const point = project(slotPoint(slot), viewport);
-        const slotWidth = SLOT_HALF_WIDTH * 2 * point.scale * unit;
-        const slotHeight = SLOT_HEIGHT * point.scale * unit;
-        const x = point.sx - slotWidth / 2;
-        const y = point.sy - slotHeight / 2;
+        const span = slotFaceSpan(slot);
+        const bayHeight = span.bottom - span.top;
         const isHero = slot === story.slot;
         const filled = occupied.has(slot);
         const accent = isHero
           ? palette.kinds[story.kind]
           : palette.kinds[FILE_KINDS[slot % FILE_KINDS.length]];
         const slotEnergy = isHero && heroStored ? energy : filled ? 0.2 : 0;
+        const bayPixelHeight = Math.abs(
+          facePt(bayLeft, span.bottom).sy - facePt(bayLeft, span.top).sy,
+        );
 
         // Bay body — a recessed caddy slot, dark whether or not anything lives in it.
+        const bay = faceQuad(bayLeft, span.top, bayRight, span.bottom);
+        facePoly(bay, palette.storeSide, bodyAlpha);
         context!.globalAlpha = bodyAlpha;
-        roundRect(context!, x, y, slotWidth, slotHeight, slotHeight * 0.28);
-        context!.fillStyle = palette.storeSide;
-        context!.fill();
         context!.strokeStyle = withAlpha(palette.storeEdge, 0.55);
-        context!.lineWidth = Math.max(0.4, slotHeight * 0.05);
+        context!.lineWidth = Math.max(0.4, bayPixelHeight * 0.05);
+        context!.beginPath();
+        bay.forEach((point, index) => {
+          if (index === 0) context!.moveTo(point.sx, point.sy);
+          else context!.lineTo(point.sx, point.sy);
+        });
+        context!.closePath();
         context!.stroke();
 
         if (filled) {
-          // Label plate in the colour of the file that lives there.
-          context!.globalAlpha = bodyAlpha;
-          roundRect(
-            context!,
-            x + slotWidth * 0.04,
-            y + slotHeight * 0.22,
-            slotWidth * 0.045,
-            slotHeight * 0.56,
-            slotHeight * 0.1,
+          // Caddy handle rail down the left of the bay, in the colour of what lives there.
+          facePoly(
+            faceQuad(
+              bayLeft + 0.018,
+              span.top + bayHeight * 0.2,
+              bayLeft + 0.05,
+              span.bottom - bayHeight * 0.2,
+              0.008,
+            ),
+            withAlpha(accent, 0.55 + slotEnergy * 0.45),
+            bodyAlpha,
           );
-          context!.fillStyle = withAlpha(accent, 0.55 + slotEnergy * 0.45);
-          context!.fill();
 
-          roundRect(
-            context!,
-            x + slotWidth * 0.14,
-            y + slotHeight * 0.26,
-            slotWidth * 0.5,
-            slotHeight * 0.48,
-            slotHeight * 0.14,
+          // Drive face plate.
+          facePoly(
+            faceQuad(
+              bayLeft + 0.075,
+              span.top + bayHeight * 0.24,
+              bayLeft + 0.5,
+              span.bottom - bayHeight * 0.24,
+              0.006,
+            ),
+            withAlpha(accent, 0.14 + slotEnergy * 0.3),
+            bodyAlpha,
           );
-          context!.fillStyle = withAlpha(accent, 0.14 + slotEnergy * 0.3);
-          context!.fill();
         }
 
         if (slotEnergy > 0.24) {
           // The hero bay lights up as its file lands and while it is being processed.
           const pulse = (slotEnergy - 0.24) / 0.76;
-          context!.globalAlpha = bodyAlpha * pulse;
+          context!.save();
           context!.shadowColor = withAlpha(accent, 0.9);
-          context!.shadowBlur = slotHeight * 2.4;
-          roundRect(context!, x, y, slotWidth, slotHeight, slotHeight * 0.28);
-          context!.fillStyle = withAlpha(accent, 0.5);
-          context!.fill();
-          context!.shadowBlur = 0;
-          context!.shadowColor = "transparent";
+          context!.shadowBlur = bayPixelHeight * 2.4;
+          facePoly(
+            faceQuad(bayLeft, span.top, bayRight, span.bottom, 0.01),
+            withAlpha(accent, 0.5),
+            bodyAlpha * pulse,
+          );
+          context!.restore();
         }
 
-        // Drive activity LED.
+        // Drive activity LED, sitting on the right of the bay face.
         const blink = 0.35 + 0.65 * Math.abs(Math.sin(story.loop + slot * 1.7 + story.t * 9));
+        const ledCenter = facePt(bayRight - 0.035, (span.top + span.bottom) / 2, 0.01);
         context!.globalAlpha = bodyAlpha * (filled ? blink : 0.14);
         context!.fillStyle = filled ? accent : palette.storeEdge;
         context!.beginPath();
         context!.arc(
-          x + slotWidth - slotHeight * 0.5,
-          point.sy,
-          Math.max(0.5, slotHeight * 0.15),
+          ledCenter.sx,
+          ledCenter.sy,
+          Math.max(0.5, bayPixelHeight * 0.15),
           0,
           Math.PI * 2,
         );

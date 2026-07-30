@@ -64,10 +64,10 @@ export type CameraKey = {
 export const CAMERA_SHOTS: Record<"client" | "wide" | "store", CameraKey> = {
   client: {
     target: { ...CLIENT_CENTER },
-    distance: 2.1,
+    distance: 2.35,
     yaw: 0.2,
     pitch: 0.07,
-    frame: { x: 0.26, y: 0.62 },
+    frame: { x: 0.22, y: 0.79 },
   },
   wide: {
     target: {
@@ -75,17 +75,17 @@ export const CAMERA_SHOTS: Record<"client" | "wide" | "store", CameraKey> = {
       y: (CLIENT_CENTER.y + STORE_CENTER.y) / 2 + 0.04,
       z: (CLIENT_CENTER.z + STORE_CENTER.z) / 2,
     },
-    distance: 4.15,
+    distance: 4.3,
     yaw: 0.1,
     pitch: 0.03,
-    frame: { x: 0.29, y: 0.56 },
+    frame: { x: 0.24, y: 0.78 },
   },
   store: {
     target: { ...STORE_CENTER },
-    distance: 2.5,
+    distance: 2.7,
     yaw: -0.16,
     pitch: 0.02,
-    frame: { x: 0.36, y: 0.6 },
+    frame: { x: 0.30, y: 0.79 },
   },
 };
 

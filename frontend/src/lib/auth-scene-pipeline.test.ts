@@ -3,15 +3,22 @@ import {
   accessPointAt,
   AUTH_SCENE_PALETTES,
   CLIENT_CENTER,
+  CLIENT_HINGE,
   CLIENT_LIFT,
   CLIENT_SCREEN_HEIGHT,
+  CLIENT_SCREEN_NORMAL,
+  CLIENT_SCREEN_UP,
   CLIENT_SCREEN_WIDTH,
   CLIENT_TILE_COUNT,
+  clientDeckPoint,
+  clientScreenPoint,
   clientTilePoint,
   FILE_KINDS,
+  slotFaceSpan,
   slotPoint,
   STORE_CENTER,
   STORE_SLOTS,
+  storeFacePoint,
   uploadPointAt,
 } from "@/lib/auth-scene-pipeline";
 
@@ -53,6 +60,51 @@ describe("routes", () => {
   });
 });
 
+describe("chassis front face", () => {
+  it("puts the face in front of the chassis centre, so decals sit on the lit side", () => {
+    expect(storeFacePoint(0.5, 0.5).z).toBeLessThan(STORE_CENTER.z);
+  });
+
+  it("runs u left to right and v top to bottom", () => {
+    expect(storeFacePoint(1, 0.5).x).toBeGreaterThan(storeFacePoint(0, 0.5).x);
+    expect(storeFacePoint(0.5, 1).y).toBeGreaterThan(storeFacePoint(0.5, 0).y);
+  });
+
+  it("centres the face on the chassis", () => {
+    expect(storeFacePoint(0.5, 0.5).x).toBeCloseTo(STORE_CENTER.x);
+    expect(storeFacePoint(0.5, 0.5).y).toBeCloseTo(STORE_CENTER.y);
+  });
+
+  it("lifts a decal toward the viewer", () => {
+    expect(storeFacePoint(0.5, 0.5, 0.02).z).toBeLessThan(storeFacePoint(0.5, 0.5, 0).z);
+  });
+
+  /*
+   * Human: The bays are drawn from these spans while the enclosure is drawn from its corners.
+   * If a span escaped 0..1 a bay would hang off the chassis — which is exactly the class of
+   * misalignment this geometry replaced.
+   */
+  it("keeps every bay inside the face and in top-to-bottom order", () => {
+    let previousBottom = 0;
+    for (let slot = 0; slot < STORE_SLOTS; slot += 1) {
+      const span = slotFaceSpan(slot);
+      expect(span.top).toBeGreaterThan(0);
+      expect(span.bottom).toBeLessThan(1);
+      expect(span.top).toBeLessThan(span.bottom);
+      expect(span.top).toBeGreaterThanOrEqual(previousBottom);
+      previousBottom = span.bottom;
+    }
+  });
+
+  it("agrees with slotPoint about where a bay sits vertically", () => {
+    for (let slot = 0; slot < STORE_SLOTS; slot += 1) {
+      const span = slotFaceSpan(slot);
+      const faceMiddle = storeFacePoint(0.5, (span.top + span.bottom) / 2);
+      expect(faceMiddle.y).toBeCloseTo(slotPoint(slot).y);
+    }
+  });
+});
+
 describe("storage bays", () => {
   it("stacks slots around the store centre", () => {
     const top = slotPoint(0);
@@ -64,14 +116,52 @@ describe("storage bays", () => {
 });
 
 describe("clientTilePoint", () => {
-  it("keeps every tile inside the screen", () => {
+  /*
+   * Human: The screen is a tilted plane now, so "inside the screen" is measured along the panel's
+   * own axes rather than against world y/z. A tile near the top genuinely sits further away than
+   * the panel centre — that is the tilt, not a bug.
+   * Agent: Decomposes a tile into (across, up, out) relative to the hinge.
+   */
+  const decompose = (point: ReturnType<typeof clientTilePoint>) => {
+    const dx = point.x - CLIENT_HINGE.x;
+    const dy = point.y - CLIENT_HINGE.y;
+    const dz = point.z - CLIENT_HINGE.z;
+    return {
+      across: dx,
+      up: dy * CLIENT_SCREEN_UP.y + dz * CLIENT_SCREEN_UP.z,
+      out: dy * CLIENT_SCREEN_NORMAL.y + dz * CLIENT_SCREEN_NORMAL.z,
+    };
+  };
+
+  it("keeps every tile inside the screen face", () => {
     for (let tile = 0; tile < CLIENT_TILE_COUNT; tile += 1) {
-      const point = clientTilePoint(tile);
-      expect(Math.abs(point.x - CLIENT_CENTER.x)).toBeLessThan(CLIENT_SCREEN_WIDTH / 2);
-      expect(Math.abs(point.y - CLIENT_CENTER.y)).toBeLessThan(CLIENT_SCREEN_HEIGHT / 2);
-      // Human: Tiles sit just in front of the screen so they never z-fight with the bezel.
-      expect(point.z).toBeLessThan(CLIENT_CENTER.z);
+      const local = decompose(clientTilePoint(tile));
+      expect(Math.abs(local.across)).toBeLessThan(CLIENT_SCREEN_WIDTH / 2);
+      expect(local.up).toBeGreaterThan(0);
+      expect(local.up).toBeLessThan(CLIENT_SCREEN_HEIGHT);
     }
+  });
+
+  it("lifts every tile just clear of the screen so it never z-fights the bezel", () => {
+    for (let tile = 0; tile < CLIENT_TILE_COUNT; tile += 1) {
+      const local = decompose(clientTilePoint(tile));
+      expect(local.out).toBeGreaterThan(0);
+      expect(local.out).toBeLessThan(CLIENT_SCREEN_HEIGHT * 0.1);
+    }
+  });
+
+  it("tilts the screen back, so the top of the panel sits further from the viewer", () => {
+    const bottom = clientScreenPoint(0.5, 0);
+    const top = clientScreenPoint(0.5, 1);
+    expect(top.z).toBeGreaterThan(bottom.z);
+    expect(top.y).toBeLessThan(bottom.y);
+  });
+
+  it("runs the deck from the hinge toward the viewer", () => {
+    const back = clientDeckPoint(0.5, 0);
+    const front = clientDeckPoint(0.5, 1);
+    expect(front.z).toBeLessThan(back.z);
+    expect(back.z).toBeCloseTo(CLIENT_HINGE.z);
   });
 
   it("lays tiles out left to right, top to bottom", () => {

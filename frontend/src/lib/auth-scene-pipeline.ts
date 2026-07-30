@@ -37,31 +37,101 @@ export const CLIENT_LIFT: ScenePoint = {
   z: CLIENT_CENTER.z - 0.08,
 };
 
-/** Human: Size of the client device — screen box plus the base it sits on. */
+/** Human: Size of the client device — screen panel plus the deck it is hinged to. */
 export const CLIENT_SCREEN_WIDTH = 0.52;
 export const CLIENT_SCREEN_HEIGHT = 0.34;
+/** Human: How far the screen leans back from vertical, in radians. */
+export const CLIENT_SCREEN_TILT = 0.24;
+/** Human: How far the keyboard deck reaches toward the viewer from the hinge. */
+export const CLIENT_DECK_DEPTH = 0.30;
+/** Human: Deck thickness — gives the base a visible front lip rather than a bare plane. */
+export const CLIENT_DECK_THICKNESS = 0.022;
+/** Human: Default nudge along a surface normal so decals never z-fight with the panel. */
+export const CLIENT_SURFACE_LIFT = 0.004;
 
+/*
+ * Human: The screen is a tilted plane, not a screen-space rectangle. Everything drawn on it —
+ * bezel, app chrome, file tiles, progress bar — is placed through clientScreenPoint so it shares
+ * one perspective with the panel. Drawing any of it as an axis-aligned rect made the contents
+ * drift off the bezel as soon as the camera yawed, which it does on every shot change.
+ * Agent: SCREEN_UP runs hinge → top edge; CLIENT_SCREEN_NORMAL points out of the screen face.
+ */
+export const CLIENT_SCREEN_UP: ScenePoint = {
+  x: 0,
+  y: -Math.cos(CLIENT_SCREEN_TILT),
+  z: Math.sin(CLIENT_SCREEN_TILT),
+};
+const SCREEN_UP = CLIENT_SCREEN_UP;
+
+export const CLIENT_SCREEN_NORMAL: ScenePoint = {
+  x: 0,
+  y: -Math.sin(CLIENT_SCREEN_TILT),
+  z: -Math.cos(CLIENT_SCREEN_TILT),
+};
+
+/** Human: The hinge line — where the screen meets the deck. CLIENT_CENTER is the screen's middle. */
+export const CLIENT_HINGE: ScenePoint = {
+  x: CLIENT_CENTER.x,
+  y: CLIENT_CENTER.y + (CLIENT_SCREEN_HEIGHT / 2) * Math.cos(CLIENT_SCREEN_TILT),
+  z: CLIENT_CENTER.z - (CLIENT_SCREEN_HEIGHT / 2) * Math.sin(CLIENT_SCREEN_TILT),
+};
+
+/**
+ * Human: A point on the screen face. u runs 0→1 left→right, v runs 0→1 hinge→top edge.
+ * Agent: lift pushes the point out along the screen normal (toward the viewer).
+ */
+export function clientScreenPoint(u: number, v: number, lift = 0): ScenePoint {
+  return {
+    x: CLIENT_HINGE.x + (u - 0.5) * CLIENT_SCREEN_WIDTH + CLIENT_SCREEN_NORMAL.x * lift,
+    y:
+      CLIENT_HINGE.y +
+      v * CLIENT_SCREEN_HEIGHT * SCREEN_UP.y +
+      CLIENT_SCREEN_NORMAL.y * lift,
+    z:
+      CLIENT_HINGE.z +
+      v * CLIENT_SCREEN_HEIGHT * SCREEN_UP.z +
+      CLIENT_SCREEN_NORMAL.z * lift,
+  };
+}
+
+/**
+ * Human: A point on the keyboard deck. u runs 0→1 left→right, w runs 0 at the hinge to 1 at the
+ * front lip nearest the viewer.
+ * Agent: drop lowers the point (deck underside) so the base can be given real thickness.
+ */
+export function clientDeckPoint(u: number, w: number, drop = 0): ScenePoint {
+  return {
+    x: CLIENT_HINGE.x + (u - 0.5) * CLIENT_SCREEN_WIDTH,
+    y: CLIENT_HINGE.y + drop,
+    z: CLIENT_HINGE.z - w * CLIENT_DECK_DEPTH,
+  };
+}
 
 /** Human: How the laptop screen is tiled — a small file grid, like the drive itself. */
 export const CLIENT_TILE_COLUMNS = 4;
 export const CLIENT_TILE_ROWS = 3;
 export const CLIENT_TILE_COUNT = CLIENT_TILE_COLUMNS * CLIENT_TILE_ROWS;
 
-// Human: World position of one tile on the laptop screen — where a file departs from and lands back on.
-// Agent: Sits a hair in front of the screen plane so it never z-fights with the bezel.
+/** Human: The area of the screen the file grid occupies, below the title bar and right of the sidebar. */
+export const CLIENT_GRID_LEFT = 0.26;
+export const CLIENT_GRID_RIGHT = 0.95;
+export const CLIENT_GRID_TOP = 0.78;
+export const CLIENT_GRID_BOTTOM = 0.16;
+
+// Human: Where one file tile sits on the screen — the point a file departs from and lands back on.
+// Agent: Placed through clientScreenPoint so tiles track the panel exactly under any camera angle.
 export function clientTilePoint(tile: number): ScenePoint {
   const index = ((tile % CLIENT_TILE_COUNT) + CLIENT_TILE_COUNT) % CLIENT_TILE_COUNT;
   const column = index % CLIENT_TILE_COLUMNS;
   const row = Math.floor(index / CLIENT_TILE_COLUMNS);
-  const usableWidth = CLIENT_SCREEN_WIDTH * 0.76;
-  const usableHeight = CLIENT_SCREEN_HEIGHT * 0.7;
-  const stepX = usableWidth / CLIENT_TILE_COLUMNS;
-  const stepY = usableHeight / CLIENT_TILE_ROWS;
-  return {
-    x: CLIENT_CENTER.x - usableWidth / 2 + stepX * (column + 0.5),
-    y: CLIENT_CENTER.y - usableHeight / 2 + stepY * (row + 0.5),
-    z: CLIENT_CENTER.z - 0.03,
-  };
+  const stepU = (CLIENT_GRID_RIGHT - CLIENT_GRID_LEFT) / CLIENT_TILE_COLUMNS;
+  const stepV = (CLIENT_GRID_TOP - CLIENT_GRID_BOTTOM) / CLIENT_TILE_ROWS;
+  return clientScreenPoint(
+    CLIENT_GRID_LEFT + stepU * (column + 0.5),
+    // Human: Row 0 is the top row, so walk down from CLIENT_GRID_TOP.
+    CLIENT_GRID_TOP - stepV * (row + 0.5),
+    CLIENT_SURFACE_LIFT * 2,
+  );
 }
 
 /** Human: Vertical pitch between storage slots, in world units. */
@@ -69,6 +139,32 @@ export const SLOT_PITCH = 0.108;
 /** Human: Half-width of a slot bay. */
 export const SLOT_HALF_WIDTH = 0.23;
 export const SLOT_HEIGHT = 0.05;
+
+/** Human: Outer half-extents of the chassis — the bays sit inside this with a margin. */
+export const STORE_HALF_WIDTH = SLOT_HALF_WIDTH + 0.045;
+export const STORE_HALF_HEIGHT = (STORE_SLOTS * SLOT_PITCH) / 2 + 0.04;
+
+/*
+ * Human: The chassis front face as a plane, so bays, LEDs and vents are placed the same way the
+ * enclosure corners are. They were previously axis-aligned screen rectangles, which slid off the
+ * chassis whenever the camera yawed toward or away from the unit.
+ * Agent: u 0→1 left→right, v 0→1 top→bottom; lift pushes out of the face toward the viewer (−z).
+ */
+export function storeFacePoint(u: number, v: number, lift = 0): ScenePoint {
+  return {
+    x: STORE_CENTER.x + (u - 0.5) * 2 * STORE_HALF_WIDTH,
+    y: STORE_CENTER.y + (v - 0.5) * 2 * STORE_HALF_HEIGHT,
+    z: STORE_CENTER.z - STORE_DEPTH / 2 - lift,
+  };
+}
+
+/** Human: Vertical span of one bay on the front face, as v coordinates. */
+export function slotFaceSpan(slot: number): { top: number; bottom: number } {
+  const centerY = (slot - (STORE_SLOTS - 1) / 2) * SLOT_PITCH;
+  const half = SLOT_HEIGHT / 2;
+  const toV = (worldOffset: number) => 0.5 + worldOffset / (2 * STORE_HALF_HEIGHT);
+  return { top: toV(centerY - half), bottom: toV(centerY + half) };
+}
 
 /*
  * Human: Lane spread — widest mid-flight, exactly zero at both ends.
