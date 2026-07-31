@@ -2,6 +2,7 @@
 // Agent: CALLS fetchAdminStorage; RENDERS table (md+) and card list (mobile); OPENS detail/edit dialogs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAdminQuery } from "@/hooks/useAdminQuery";
 import {
   Loader2,
@@ -240,7 +241,15 @@ function StorageCapacityCell({
   );
 }
 
-/** Human: Overflow menu — view details and edit; replaces dead power icon. */
+/** Human: Estimated menu height, used only to decide whether it opens upward near the viewport floor. */
+const NODE_ACTIONS_MENU_HEIGHT = 88;
+
+/**
+ * Human: Overflow menu — view details and edit; replaces dead power icon.
+ * Agent: The row lives inside the table's `overflow-x-auto` wrapper, which makes overflow-y
+ *        compute to `auto` as well and clips an absolutely positioned popup on BOTH axes. The
+ *        menu is therefore portalled to <body> and positioned `fixed` against the trigger rect.
+ */
 function NodeActionsMenu({
   onView,
   onEdit,
@@ -249,26 +258,61 @@ function NodeActionsMenu({
   onEdit: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ right: number; top?: number; bottom?: number } | null>(
+    null,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Human: Anchor the popup to the trigger in viewport coordinates, flipping up near the floor.
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const openUpward = window.innerHeight - rect.bottom < NODE_ACTIONS_MENU_HEIGHT + 8;
+    setPosition(
+      openUpward
+        ? { right, bottom: window.innerHeight - rect.top + 4 }
+        : { right, top: rect.bottom + 4 },
+    );
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      const target = event.target as Node;
+      // Human: The menu is portalled, so it is NOT inside rootRef — check it separately or the
+      // pointerdown would close the menu before the click ever reached a menu item.
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function dismiss() {
+      setOpen(false);
     }
     document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    window.addEventListener("resize", dismiss);
+    // Human: Capture phase so the table's own horizontal scroll dismisses it too.
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+    };
   }, [open]);
 
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((value) => !value);
+          setOpen((value) => {
+            if (!value) place();
+            return !value;
+          });
         }}
         className="flex size-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface hover:text-ink"
         aria-label="Node actions"
@@ -278,10 +322,13 @@ function NodeActionsMenu({
       >
         <MoreHorizontal className="size-4" aria-hidden />
       </button>
-      {open ? (
+      {open && position
+        ? createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className="absolute right-0 z-20 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-edge bg-raised py-1 shadow-lg"
+          style={position}
+          className="fixed z-50 min-w-[168px] overflow-hidden rounded-lg border border-edge bg-raised py-1 shadow-lg"
         >
           <button
             type="button"
@@ -309,8 +356,10 @@ function NodeActionsMenu({
             <Settings className="size-4 text-ink-muted" aria-hidden />
             Edit settings
           </button>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
