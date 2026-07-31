@@ -102,7 +102,8 @@ pub(crate) fn remaining_bytes(node: &NodeSnapshot) -> i64 {
 }
 
 // Human: Sum free space across capped storage nodes — matches upload striping preflight.
-// Agent: RETURNS None when every node is uncapped (unlimited network for UI); Some(sum) when any cap set.
+// Agent: RETURNS None when empty, every node uncapped, OR any uncapped node exists (placement can use it);
+//        Some(sum of capped free) only when every reachable node has a positive target capacity.
 pub fn aggregate_network_remaining_bytes(nodes: &[NodeSnapshot]) -> Option<i64> {
     if nodes.is_empty() {
         return None;
@@ -110,14 +111,17 @@ pub fn aggregate_network_remaining_bytes(nodes: &[NodeSnapshot]) -> Option<i64> 
     let mut total: i64 = 0;
     let mut any_capped = false;
     for node in nodes {
-        if let Some(cap) = node.target_capacity_bytes {
-            if cap > 0 {
+        match node.target_capacity_bytes {
+            Some(cap) if cap > 0 => {
                 any_capped = true;
                 let free = remaining_bytes(node);
                 if free < i64::MAX {
                     total = total.saturating_add(free);
                 }
             }
+            // Human: Uncapped nodes accept any size — preflight must not under-report free space as only the capped remainder.
+            // Agent: plan_upload treats remaining_bytes as i64::MAX here; mirror that with unlimited network.
+            _ => return None,
         }
     }
     if any_capped {
@@ -125,6 +129,14 @@ pub fn aggregate_network_remaining_bytes(nodes: &[NodeSnapshot]) -> Option<i64> 
     } else {
         None
     }
+}
+
+// Human: Drop the placement snapshot cache after registry capacity/endpoint changes.
+// Agent: WRITES NODE_SNAPSHOT_CACHE to None so the next load re-probes with fresh target_capacity_bytes.
+pub async fn invalidate_node_snapshot_cache() {
+    let cache = NODE_SNAPSHOT_CACHE.get_or_init(|| RwLock::new(None));
+    let mut guard = cache.write().await;
+    *guard = None;
 }
 
 // Human: Bytes the user can still store — minimum of library quota and network aggregate.
@@ -524,6 +536,25 @@ mod tests {
             },
         ];
         assert_eq!(aggregate_network_remaining_bytes(&nodes), Some(70));
+    }
+
+    #[test]
+    fn aggregate_network_remaining_unlimited_when_any_node_uncapped() {
+        let nodes = vec![
+            NodeSnapshot {
+                id: "a".into(),
+                base_url: "http://a".into(),
+                target_capacity_bytes: Some(100),
+                used_bytes: 99,
+            },
+            NodeSnapshot {
+                id: "b".into(),
+                base_url: "http://b".into(),
+                target_capacity_bytes: None,
+                used_bytes: 0,
+            },
+        ];
+        assert_eq!(aggregate_network_remaining_bytes(&nodes), None);
     }
 
     #[test]

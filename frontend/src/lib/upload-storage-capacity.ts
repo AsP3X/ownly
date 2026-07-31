@@ -11,6 +11,9 @@ export type UploadStorageSnapshot = {
   effective_remaining_bytes?: number | null;
 };
 
+/** Human: Which ceiling is currently binding upload headroom. */
+export type StorageLimitKind = "quota" | "network" | "none";
+
 // Human: Remaining bytes the user can still upload (from GET /dashboard).
 // Agent: PREFERS effective_remaining_bytes; FALLBACK to quota-only when network uncapped.
 export function effectiveRemainingFromDashboard(snapshot: UploadStorageSnapshot): number {
@@ -32,18 +35,43 @@ export function remainingQuotaBytes(usedBytes: number, quotaBytes: number): numb
   return Math.max(0, quotaBytes - used);
 }
 
+// Human: Decide whether the account quota or the storage-node network is the tighter limit.
+// Agent: COMPARES user remaining vs network_remaining_bytes; USED for warning copy after a quota raise.
+export function limitingStorageKind(snapshot: UploadStorageSnapshot): StorageLimitKind {
+  const userRemaining = remainingQuotaBytes(snapshot.used_bytes, snapshot.quota_bytes);
+  const network =
+    snapshot.network_remaining_bytes != null && Number.isFinite(snapshot.network_remaining_bytes)
+      ? Math.max(0, snapshot.network_remaining_bytes)
+      : Number.POSITIVE_INFINITY;
+  if (userRemaining === Number.POSITIVE_INFINITY && network === Number.POSITIVE_INFINITY) {
+    return "none";
+  }
+  // Human: When equal, prefer naming the network — raising account quota alone will not free space.
+  if (network <= userRemaining) {
+    return "network";
+  }
+  return "quota";
+}
+
 /** Human: Warning copy when a file cannot fit in remaining storage. */
-export function storageWarningForFile(fileSize: number, remainingBytes: number): string | null {
+export function storageWarningForFile(
+  fileSize: number,
+  remainingBytes: number,
+  limitKind: StorageLimitKind = "quota",
+): string | null {
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
     return null;
   }
   if (!Number.isFinite(remainingBytes) || remainingBytes === Number.POSITIVE_INFINITY) {
     return null;
   }
-  if (fileSize > remainingBytes) {
-    return `This file (${formatBytes(fileSize)}) is larger than your remaining storage (${formatBytes(remainingBytes)}) and cannot be stored.`;
+  if (fileSize <= remainingBytes) {
+    return null;
   }
-  return null;
+  if (limitKind === "network") {
+    return `This file (${formatBytes(fileSize)}) is larger than free space on the storage network (${formatBytes(remainingBytes)}) and cannot be stored. Ask an administrator to free disk space or raise the storage node capacity — increasing your account quota alone is not enough when the network is full.`;
+  }
+  return `This file (${formatBytes(fileSize)}) is larger than your remaining library storage (${formatBytes(remainingBytes)}) and cannot be stored. Delete files or ask an administrator for a higher account quota.`;
 }
 
 /** Human: Outcome of the capacity check run on the files that survived duplicate detection. */
@@ -62,6 +90,7 @@ export function splitUploadsByCapacity<T>(
   rows: T[],
   effectiveRemainingBytes: number,
   sizeOf: (row: T) => number,
+  limitKind: StorageLimitKind = "quota",
 ): UploadCapacitySplit<T> {
   const fitting: T[] = [];
   const blocked: (T & { storageWarning: string })[] = [];
@@ -71,7 +100,7 @@ export function splitUploadsByCapacity<T>(
   for (const row of rows) {
     const fileSize = sizeOf(row);
     requiredBytes += Number.isFinite(fileSize) ? Math.max(0, fileSize) : 0;
-    const warning = storageWarningForFile(fileSize, remaining);
+    const warning = storageWarningForFile(fileSize, remaining, limitKind);
     if (warning) {
       blocked.push({ ...row, storageWarning: warning });
       continue;
@@ -91,9 +120,13 @@ export function storageOverflowNotice(
   blockedCount: number,
   requiredBytes: number,
   remainingBytes: number,
+  limitKind: StorageLimitKind = "quota",
 ): string {
   const scale = Number.isFinite(remainingBytes)
     ? ` The files left after duplicate checks need ${formatBytes(requiredBytes)} but only ${formatBytes(remainingBytes)} is left.`
     : "";
-  return `${blockedCount} file${blockedCount === 1 ? "" : "s"} do${blockedCount === 1 ? "es" : ""} not fit in your remaining storage.${scale} Press Upload again to send the rest, or remove files and free space first.`;
+  if (limitKind === "network") {
+    return `${blockedCount} file${blockedCount === 1 ? "" : "s"} do${blockedCount === 1 ? "es" : ""} not fit on the storage network.${scale} Free disk space or raise storage node capacity, then press Upload again for the rest.`;
+  }
+  return `${blockedCount} file${blockedCount === 1 ? "" : "s"} do${blockedCount === 1 ? "es" : ""} not fit in your remaining library storage.${scale} Press Upload again to send the rest, or remove files and free space first.`;
 }

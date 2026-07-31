@@ -757,6 +757,10 @@ pub async fn create_storage_node(
     .execute(&state.pool)
     .await?;
 
+    // Human: Newly registered capacity must be visible to placement/preflight without waiting for cache TTL.
+    // Agent: CALLS invalidate_node_snapshot_cache after INSERT.
+    crate::storage::placement::invalidate_node_snapshot_cache().await;
+
     audit::write_audit_logged(
         &state.pool,
         Some(&claims.sub),
@@ -868,6 +872,10 @@ pub async fn update_storage_node(
     .bind(&id)
     .execute(&state.pool)
     .await?;
+
+    // Human: Capacity/endpoint edits must affect the next upload preflight immediately, not after the 10s TTL.
+    // Agent: CALLS invalidate_node_snapshot_cache so load_node_snapshots_cached re-reads target_capacity_bytes.
+    crate::storage::placement::invalidate_node_snapshot_cache().await;
 
     audit::write_audit_logged(
         &state.pool,

@@ -63,7 +63,11 @@ import {
 } from "@/components/drive/ResourceDetailsDialog";
 import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadRtfEditorDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { UploadDialog } from "@/components/drive/UploadDialog";
-import { effectiveRemainingFromDashboard } from "@/lib/upload-storage-capacity";
+import {
+  effectiveRemainingFromDashboard,
+  limitingStorageKind,
+  type StorageLimitKind,
+} from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
 import {
   subscribeUploadFileComplete,
@@ -222,6 +226,7 @@ export default function DrivePage() {
   const [effectiveRemainingBytes, setEffectiveRemainingBytes] = useState(
     Number.POSITIVE_INFINITY,
   );
+  const [storageLimitKind, setStorageLimitKind] = useState<StorageLimitKind>("quota");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -394,22 +399,28 @@ export default function DrivePage() {
     setUsedBytes(dashboard.used_bytes);
     setQuotaBytes(dashboard.quota_bytes || 1);
     setEffectiveRemainingBytes(effectiveRemainingFromDashboard(dashboard));
+    setStorageLimitKind(limitingStorageKind(dashboard));
     dashboardLoadedRef.current = true;
   }, [dashboard]);
 
   // Human: Storage summary for the sidebar and upload preflight — includes network node headroom.
   // Agent: CALLS shared refreshDashboard; WRITES local quota state from returned payload.
-  const refreshDashboard = useCallback(async (): Promise<number> => {
+  const refreshDashboard = useCallback(async (): Promise<{
+    remainingBytes: number;
+    limitKind: StorageLimitKind;
+  }> => {
     const nextDashboard = await refreshDashboardShared();
     if (!nextDashboard) {
-      return Number.POSITIVE_INFINITY;
+      return { remainingBytes: Number.POSITIVE_INFINITY, limitKind: "none" };
     }
     setUsedBytes(nextDashboard.used_bytes);
     setQuotaBytes(nextDashboard.quota_bytes || 1);
     const effective = effectiveRemainingFromDashboard(nextDashboard);
+    const limitKind = limitingStorageKind(nextDashboard);
     setEffectiveRemainingBytes(effective);
+    setStorageLimitKind(limitKind);
     dashboardLoadedRef.current = true;
-    return effective;
+    return { remainingBytes: effective, limitKind };
   }, [refreshDashboardShared]);
 
   // Human: Refresh paperclip indicators after share dialog changes (list rows may be stale).
@@ -1981,6 +1992,7 @@ export default function DrivePage() {
           }}
           folderId={activeNav === "my-files" ? currentFolderId : null}
           effectiveRemainingBytes={effectiveRemainingBytes}
+          storageLimitKind={storageLimitKind}
           onRefreshStorageLimits={refreshDashboard}
           initialFiles={uploadDropFiles}
           onLibraryChanged={() =>

@@ -6,8 +6,10 @@ import {
 } from "@/lib/upload-conflicts";
 import {
   effectiveRemainingFromDashboard,
+  limitingStorageKind,
   splitUploadsByCapacity,
   storageOverflowNotice,
+  storageWarningForFile,
 } from "@/lib/upload-storage-capacity";
 
 type Row = { id: string; size: number };
@@ -35,8 +37,15 @@ describe("splitUploadsByCapacity", () => {
     const split = splitUploadsByCapacity(rows, 100, sizeOf);
     expect(split.fitting.map((row) => row.id)).toEqual(["a", "c"]);
     expect(split.blocked.map((row) => row.id)).toEqual(["b"]);
-    expect(split.blocked[0]?.storageWarning).toContain("remaining storage");
+    expect(split.blocked[0]?.storageWarning).toContain("remaining library storage");
     expect(split.requiredBytes).toBe(150);
+  });
+
+  it("names the storage network when that ceiling is tighter than the account quota", () => {
+    const split = splitUploadsByCapacity([{ id: "a", size: 1_400_000_000 }], 945_000_000, sizeOf, "network");
+    expect(split.fitting).toEqual([]);
+    expect(split.blocked[0]?.storageWarning).toContain("storage network");
+    expect(split.blocked[0]?.storageWarning).toContain("account quota alone is not enough");
   });
 
   it("blocks everything when nothing fits", () => {
@@ -93,6 +102,42 @@ describe("storageOverflowNotice", () => {
 
   it("uses singular wording for one blocked file", () => {
     expect(storageOverflowNotice(1, 300, 100)).toContain("1 file does not fit");
+  });
+
+  it("points admins at node capacity when the network is the limit", () => {
+    const notice = storageOverflowNotice(1, 1_400_000_000, 945_000_000, "network");
+    expect(notice).toContain("storage network");
+    expect(notice).toContain("storage node capacity");
+  });
+});
+
+describe("limitingStorageKind", () => {
+  it("reports network when free node space is tighter than the account quota", () => {
+    expect(
+      limitingStorageKind({
+        used_bytes: 49 * 1024 ** 3,
+        quota_bytes: 100 * 1024 ** 3,
+        network_remaining_bytes: 945 * 1024 ** 2,
+      }),
+    ).toBe("network");
+  });
+
+  it("reports quota when library headroom is the tighter ceiling", () => {
+    expect(
+      limitingStorageKind({
+        used_bytes: 49 * 1024 ** 3,
+        quota_bytes: 50 * 1024 ** 3,
+        network_remaining_bytes: 20 * 1024 ** 3,
+      }),
+    ).toBe("quota");
+  });
+});
+
+describe("storageWarningForFile", () => {
+  it("explains that raising only the account quota cannot open network space", () => {
+    const warning = storageWarningForFile(1.4 * 1024 ** 3, 945 * 1024 ** 2, "network");
+    expect(warning).toContain("storage network");
+    expect(warning).toContain("account quota alone is not enough");
   });
 });
 

@@ -1266,10 +1266,11 @@ pub async fn dashboard_summary(
             .fetch_optional(&state.pool)
             .await?;
 
-    // Human: SUM(bigint) returns NUMERIC in Postgres — cast to BIGINT so sqlx can decode into i64.
-    // Agent: READS files for user; RETURNS (file_count, used_bytes) as i64 pair for dashboard JSON.
+    // Human: Active library only — recycle-bin rows must not shrink upload headroom (matches SEC-014 quota).
+    // Agent: READS files WHERE deleted_at IS NULL; SUM size_bytes + COUNT for dashboard JSON.
     let stats: (i64, i64) = sqlx::query_as(
-        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE user_id = $1",
+        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
+         WHERE user_id = $1 AND deleted_at IS NULL",
     )
     .bind(&claims.sub)
     .fetch_one(&state.pool)
@@ -1277,6 +1278,10 @@ pub async fn dashboard_summary(
 
     let quota_bytes =
         crate::quota::resolve_user_quota_bytes(&state.pool, &claims.sub).await?;
+    // Human: In-flight resumable sessions already reserved against the cap — subtract from remaining.
+    // Agent: READS upload_sessions.quota_reserved_bytes for active/completing; ADDS into used for effective remaining.
+    let reserved_bytes =
+        crate::quota::load_user_reserved_bytes(&state.pool, &claims.sub).await?;
 
     // Human: Network-wide free space for upload preflight — same probe as RouterStorage placement.
     // Agent: READS storage_nodes + Nebular metrics; SUM remaining; MIN with user quota for effective_remaining_bytes.
@@ -1284,7 +1289,7 @@ pub async fn dashboard_summary(
     let network_remaining_bytes =
         crate::storage::placement::aggregate_network_remaining_bytes(&nodes);
     let effective_remaining_bytes = crate::storage::placement::effective_remaining_bytes(
-        stats.1,
+        stats.1.saturating_add(reserved_bytes),
         quota_bytes,
         network_remaining_bytes,
     );

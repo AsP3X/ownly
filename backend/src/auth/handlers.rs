@@ -652,8 +652,11 @@ pub async fn profile(
             .fetch_optional(&state.pool)
             .await?;
 
+    // Human: Profile storage summary matches library quota — exclude soft-deleted recycle-bin rows.
+    // Agent: READS files WHERE deleted_at IS NULL; SUM size_bytes + COUNT for profile JSON.
     let stats: (i64, i64) = sqlx::query_as(
-        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE user_id = $1",
+        "SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
+         WHERE user_id = $1 AND deleted_at IS NULL",
     )
     .bind(&claims.sub)
     .fetch_one(&state.pool)

@@ -30,6 +30,7 @@ import { startUploadBatch, subscribeUploadBatch, type UploadBatchEntry } from "@
 import {
   splitUploadsByCapacity,
   storageOverflowNotice,
+  type StorageLimitKind,
 } from "@/lib/upload-storage-capacity";
 import { createClientId, formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
@@ -58,14 +59,22 @@ type DeferredUploadPlan = {
   restoreFileIds: string[];
 };
 
+/** Human: Live capacity numbers returned by the dashboard refresh used for preflight. */
+export type UploadStorageLimits = {
+  remainingBytes: number;
+  limitKind: StorageLimitKind;
+};
+
 type UploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   folderId?: string | null;
   /** Human: Remaining upload bytes from GET /dashboard (quota ∩ network). */
   effectiveRemainingBytes?: number;
+  /** Human: Whether quota or the storage network is the tighter ceiling for warnings. */
+  storageLimitKind?: StorageLimitKind;
   /** Human: Refresh storage snapshot when the dialog opens or Upload is pressed. */
-  onRefreshStorageLimits?: () => Promise<number>;
+  onRefreshStorageLimits?: () => Promise<UploadStorageLimits>;
   /** Human: Refresh drive listings after recycle-bin restores from the upload preflight. */
   onLibraryChanged?: () => void;
   /** Human: Files from explorer drag-drop — same conflict flow as the picker. */
@@ -133,6 +142,7 @@ export function UploadDialog({
   onOpenChange,
   folderId = null,
   effectiveRemainingBytes = Number.POSITIVE_INFINITY,
+  storageLimitKind = "quota",
   onRefreshStorageLimits,
   onLibraryChanged,
   initialFiles,
@@ -353,11 +363,17 @@ export function UploadDialog({
   // Human: Last preflight step — measure the duplicate-free set against live remaining storage, then upload.
   // Agent: CALLS onRefreshStorageLimits + splitUploadsByCapacity; HOLDS the trimmed plan when rows do not fit.
   async function finalizeUpload(plan: DeferredUploadPlan) {
-    const remaining = (await onRefreshStorageLimits?.()) ?? effectiveRemainingBytes;
+    const limits = (await onRefreshStorageLimits?.()) ?? {
+      remainingBytes: effectiveRemainingBytes,
+      limitKind: storageLimitKind,
+    };
+    const remaining = limits.remainingBytes;
+    const limitKind = limits.limitKind;
     const { fitting, blocked, requiredBytes } = splitUploadsByCapacity(
       plan.rows,
       remaining,
       (row) => row.file.size,
+      limitKind,
     );
 
     if (blocked.length > 0) {
@@ -371,14 +387,18 @@ export function UploadDialog({
         setDeferredPlan(null);
         setStorageSkipNotice("");
         setConflictCheckError(
-          "None of the remaining files fit in your storage. Remove files or free space, then try again.",
+          limitKind === "network"
+            ? "None of the remaining files fit on the storage network. Free disk space or raise storage node capacity, then try again."
+            : "None of the remaining files fit in your library storage. Remove files or ask for a higher account quota, then try again.",
         );
         return;
       }
 
       setDeferredPlan({ rows: fitting, restoreFileIds: plan.restoreFileIds });
       setConflictCheckError("");
-      setStorageSkipNotice(storageOverflowNotice(blocked.length, requiredBytes, remaining));
+      setStorageSkipNotice(
+        storageOverflowNotice(blocked.length, requiredBytes, remaining, limitKind),
+      );
       return;
     }
 
