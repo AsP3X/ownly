@@ -90,6 +90,29 @@
   --color-proc-on: var(--dr-proc-on);
 
   --color-focus: var(--dr-focus);
+
+  /*
+   * Human: File-family glyph tints — their own axis so a file type never borrows a status colour
+   * (a PDF is not "danger") and never borrows the accent (blue means selected, not "image").
+   * Agent: CONSUMED by ExplorerFileGlyph; light/dark values live in :root and .dark.
+   */
+  --color-file-image: var(--dr-file-image);
+  --color-file-video: var(--dr-file-video);
+  --color-file-audio: var(--dr-file-audio);
+  --color-file-sheet: var(--dr-file-sheet);
+  --color-file-slides: var(--dr-file-slides);
+  --color-file-archive: var(--dr-file-archive);
+  --color-file-doc: var(--dr-file-doc);
+
+  /*
+   * Human: Overlay chrome — surfaces that stay dark in BOTH themes (mobile bulk dock, video
+   * player controls, thumbnail progress scrims) so they read as floating above the page.
+   * Agent: NOT overridden under .dark on purpose; tuned for legibility on a near-black base.
+   */
+  --color-overlay: var(--dr-overlay);
+  --color-overlay-accent: var(--dr-overlay-accent);
+  --color-overlay-ok: var(--dr-overlay-ok);
+  --color-overlay-proc: var(--dr-overlay-proc);
 }
 
 :root {
@@ -164,6 +187,24 @@
   --dr-proc-on: #ffffff;
 
   --dr-focus: #2563eb;
+
+  /* Human: File-family tints (light). Image is cyan, not brand — brand stays "selected". */
+  --dr-file-image: #0891b2;
+  --dr-file-video: #7c3aed;
+  --dr-file-audio: #0d9488;
+  --dr-file-sheet: #0e9f6e;
+  --dr-file-slides: #ea580c;
+  --dr-file-archive: #d97706;
+  --dr-file-doc: #dc2626;
+
+  /*
+   * Human: Overlay chrome — constant in both themes, so it is declared here and NOT under .dark.
+   * Agent: --dr-overlay is the dock/scrim base; the others are tuned to stay legible on it.
+   */
+  --dr-overlay: #0b1220;
+  --dr-overlay-accent: #6ba1ff;
+  --dr-overlay-ok: #34d399;
+  --dr-overlay-proc: #c4b5fd;
 }
 
 .dark {
@@ -236,6 +277,15 @@
   --dr-proc-on: #0b0f16;
 
   --dr-focus: #4c8dff;
+
+  /* Human: File-family tints (dark) — same hues lifted for contrast on the dark surfaces. */
+  --dr-file-image: #22d3ee;
+  --dr-file-video: #a78bfa;
+  --dr-file-audio: #2dd4bf;
+  --dr-file-sheet: #34d399;
+  --dr-file-slides: #fb923c;
+  --dr-file-archive: #fbbf24;
+  --dr-file-doc: #fb7185;
 }
 
 /*
@@ -280,6 +330,15 @@
   --dr-proc-on: #ffffff;
 
   --dr-focus: #2563eb;
+
+  /* Human: File-family tints follow the canvas back to their light values. */
+  --dr-file-image: #0891b2;
+  --dr-file-video: #7c3aed;
+  --dr-file-audio: #0d9488;
+  --dr-file-sheet: #0e9f6e;
+  --dr-file-slides: #ea580c;
+  --dr-file-archive: #d97706;
+  --dr-file-doc: #dc2626;
 }
 
 @layer base {

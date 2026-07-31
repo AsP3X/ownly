@@ -25,6 +25,7 @@ import {
   ExplorerListHeader,
 } from "@/components/drive/FileListView";
 import { ExplorerScrollProvider } from "@/components/drive/ExplorerScrollProvider";
+import { ExplorerFirstRunEmptyState } from "@/components/drive/ExplorerFirstRunEmptyState";
 import { ExplorerGridSkeleton } from "@/components/drive/ExplorerGridSkeleton";
 import { ExplorerListSkeleton } from "@/components/drive/ExplorerListSkeleton";
 import { ExplorerStatusBar } from "@/components/drive/ExplorerStatusBar";
@@ -90,6 +91,8 @@ type DriveCloudExplorerProps = {
   onViewModeChange: (mode: ExplorerViewMode) => void;
   /** Human: True while filtering by name across the library — hides the Folders section. */
   isSearching?: boolean;
+  /** Human: Empty library at the drive root — swaps the empty state for onboarding hints. */
+  firstRun?: boolean;
   /** Human: True while the explorer listing is being fetched — shows a loading indicator without unmounting search. */
   loading?: boolean;
   dragEnabled?: boolean;
@@ -181,6 +184,7 @@ export function DriveCloudExplorer({
   viewMode,
   onViewModeChange,
   isSearching = false,
+  firstRun = false,
   loading = false,
   dragEnabled = false,
   selectable = false,
@@ -751,6 +755,9 @@ export function DriveCloudExplorer({
           ) : (
             <ExplorerGridSkeleton count={8} />
           )
+        ) : showEmptyState && firstRun && !isSearching ? (
+          // Human: Brand-new library — onboarding hints instead of the terse "nothing here" copy.
+          <ExplorerFirstRunEmptyState onUpload={onUpload} onCreateFolder={onCreateFolder} />
         ) : showEmptyState ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
             <span

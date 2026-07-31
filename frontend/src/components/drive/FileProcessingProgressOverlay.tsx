@@ -29,7 +29,8 @@ export function FileProcessingProgressOverlay({
   const label = fileProcessingLabel(file);
   const determinate = percent > 0;
   const storing = isFileMovingToStorage(file);
-  const ringColor = storing ? "stroke-emerald-400" : "stroke-violet-300";
+  // Human: Ring sits on a black scrim in both themes, so it uses the overlay tokens, not ok/proc.
+  const ringColor = storing ? "stroke-overlay-ok" : "stroke-overlay-proc";
   const dashOffset = RING_CIRCUMFERENCE * (1 - Math.min(100, percent) / 100);
 
   return (

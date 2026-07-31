@@ -16,7 +16,9 @@ import { cn } from "@/lib/utils";
 /**
  * Human: Per-family icon plus a restrained tint. Tints identify a file type at a glance;
  * they are deliberately desaturated so the brand accent still reads as "selected".
- * Agent: RETURNS a lucide component and its colour class for a given mime type.
+ * Agent: RETURNS a lucide component and its file-family token class for a given mime type.
+ * Tones use the --color-file-* family, never brand (= selection) or status (ok/warn/danger)
+ * tokens — both already flip per theme, so no dark: override belongs here.
  */
 function resolveGlyph(mimeType: string | null | undefined): {
   Icon: typeof FileIcon;
@@ -24,17 +26,17 @@ function resolveGlyph(mimeType: string | null | undefined): {
 } {
   const mime = (mimeType ?? "").toLowerCase();
 
-  if (mime.startsWith("image/")) return { Icon: ImageIcon, tone: "text-brand dark:text-brand" };
-  if (mime.startsWith("video/")) return { Icon: Film, tone: "text-proc dark:text-violet-400" };
-  if (mime.startsWith("audio/")) return { Icon: Music, tone: "text-teal-600 dark:text-teal-400" };
+  if (mime.startsWith("image/")) return { Icon: ImageIcon, tone: "text-file-image" };
+  if (mime.startsWith("video/")) return { Icon: Film, tone: "text-file-video" };
+  if (mime.startsWith("audio/")) return { Icon: Music, tone: "text-file-audio" };
   if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return { Icon: FileSpreadsheet, tone: "text-ok dark:text-emerald-400" };
+    return { Icon: FileSpreadsheet, tone: "text-file-sheet" };
   }
   if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    return { Icon: Presentation, tone: "text-orange-600 dark:text-orange-400" };
+    return { Icon: Presentation, tone: "text-file-slides" };
   }
   if (mime.includes("zip") || mime.includes("tar") || mime.includes("compressed")) {
-    return { Icon: FileArchive, tone: "text-warn dark:text-warn" };
+    return { Icon: FileArchive, tone: "text-file-archive" };
   }
   if (
     mime.startsWith("text/") ||
@@ -44,7 +46,7 @@ function resolveGlyph(mimeType: string | null | undefined): {
     mime.includes("epub") ||
     mime.includes("rtf")
   ) {
-    return { Icon: FileText, tone: "text-danger dark:text-rose-400" };
+    return { Icon: FileText, tone: "text-file-doc" };
   }
   return { Icon: FileIcon, tone: "text-ink-faint" };
 }

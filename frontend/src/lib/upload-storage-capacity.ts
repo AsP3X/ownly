@@ -1,4 +1,4 @@
-// Human: Client-side storage checks for the upload picker — warn without blocking selection.
+// Human: Client-side storage checks for the upload picker — run after duplicate detection, never at selection time.
 // Agent: READS dashboard effective_remaining_bytes (user quota ∩ network capacity); WRITES per-file warnings.
 
 import { formatBytes } from "@/lib/utils-app";
@@ -46,18 +46,54 @@ export function storageWarningForFile(fileSize: number, remainingBytes: number):
   return null;
 }
 
-// Human: Assign storage warnings in list order — earlier rows consume remaining for later rows.
-// Agent: SIMULATES cumulative pending sizes; WRITES storageWarning per row.
-export function applyStorageWarningsInOrder<T extends { fileSize: number }>(
+/** Human: Outcome of the capacity check run on the files that survived duplicate detection. */
+export type UploadCapacitySplit<T> = {
+  /** Rows that fit in the remaining storage, in selection order. */
+  fitting: T[];
+  /** Rows that do not fit, each carrying the warning shown on its picker row. */
+  blocked: (T & { storageWarning: string })[];
+  /** Total bytes the surviving (non-duplicate) selection would consume. */
+  requiredBytes: number;
+};
+
+// Human: Split the post-duplicate upload set into what fits in remaining storage and what does not.
+// Agent: WALKS rows in order consuming remaining; RUN only after hashing + duplicate detection, never at selection time.
+export function splitUploadsByCapacity<T>(
   rows: T[],
   effectiveRemainingBytes: number,
-): (T & { storageWarning: string | null })[] {
+  sizeOf: (row: T) => number,
+): UploadCapacitySplit<T> {
+  const fitting: T[] = [];
+  const blocked: (T & { storageWarning: string })[] = [];
   let remaining = effectiveRemainingBytes;
-  return rows.map((row) => {
-    const warning = storageWarningForFile(row.fileSize, remaining);
-    if (!warning && Number.isFinite(remaining)) {
-      remaining = Math.max(0, remaining - row.fileSize);
+  let requiredBytes = 0;
+
+  for (const row of rows) {
+    const fileSize = sizeOf(row);
+    requiredBytes += Number.isFinite(fileSize) ? Math.max(0, fileSize) : 0;
+    const warning = storageWarningForFile(fileSize, remaining);
+    if (warning) {
+      blocked.push({ ...row, storageWarning: warning });
+      continue;
     }
-    return { ...row, storageWarning: warning };
-  });
+    if (Number.isFinite(remaining)) {
+      remaining = Math.max(0, remaining - fileSize);
+    }
+    fitting.push(row);
+  }
+
+  return { fitting, blocked, requiredBytes };
+}
+
+// Human: Notice copy when duplicate-free files still overflow the remaining storage.
+// Agent: READS blocked/required/remaining byte counts; USED by the upload picker banner.
+export function storageOverflowNotice(
+  blockedCount: number,
+  requiredBytes: number,
+  remainingBytes: number,
+): string {
+  const scale = Number.isFinite(remainingBytes)
+    ? ` The files left after duplicate checks need ${formatBytes(requiredBytes)} but only ${formatBytes(remainingBytes)} is left.`
+    : "";
+  return `${blockedCount} file${blockedCount === 1 ? "" : "s"} do${blockedCount === 1 ? "es" : ""} not fit in your remaining storage.${scale} Press Upload again to send the rest, or remove files and free space first.`;
 }

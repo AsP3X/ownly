@@ -76,7 +76,7 @@ export function CodeEditorStatusBar({
           {syncLabel}
         </span>
         {readOnly ? (
-          <span className="hidden items-center gap-1 rounded-md border border-ok/30 bg-ok-weak px-1.5 py-0.5 text-[10px] font-bold text-ok sm:inline-flex dark:border-emerald-400/20 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <span className="hidden items-center gap-1 rounded-md border border-ok/30 bg-ok-weak px-1.5 py-0.5 text-[10px] font-bold text-ok sm:inline-flex">
             <ShieldCheck className="size-3" aria-hidden />
             Read-only
           </span>

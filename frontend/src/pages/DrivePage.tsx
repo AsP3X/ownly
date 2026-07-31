@@ -315,6 +315,14 @@ export default function DrivePage() {
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const isSearchingMyFiles = activeNav === "my-files" && committedQuery.length > 0;
+  // Human: A library that has never stored a byte, viewed at its root — show onboarding, not "nothing here".
+  // Agent: READS dashboard usedBytes; false as soon as anything is uploaded or the user browses deeper.
+  const isFirstRunLibrary =
+    activeNav === "my-files" &&
+    currentFolderId === null &&
+    usedBytes === 0 &&
+    committedQuery.length === 0 &&
+    typeFilter === "all";
   const serverTypeFilter = typeFilter !== "all" ? typeFilter : undefined;
   const serverFileSort = explorerFileSortToApiParam(fileSort);
   const dashboardLoadedRef = useRef(false);
@@ -2426,6 +2434,7 @@ export default function DrivePage() {
                   onDeleteFile={requestDeleteFile}
                   onDeleteFolder={requestDeleteFolder}
                   isSearching={isSearchingMyFiles}
+                  firstRun={isFirstRunLibrary}
                   loading={loading}
                   dragEnabled={!isSearchingMyFiles}
                   selectable

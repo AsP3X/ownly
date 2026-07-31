@@ -390,7 +390,7 @@ export function ResourceDetailsDialog({
                             className={cn(
                               "size-3.5",
                               isFavourited
-                                ? "fill-amber-400 text-warn"
+                                ? "fill-warn text-warn"
                                 : "text-ink-muted",
                             )}
                             aria-hidden

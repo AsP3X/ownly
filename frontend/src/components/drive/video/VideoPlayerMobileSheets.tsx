@@ -160,7 +160,7 @@ function ChoiceChips({
               className={cn(
                 "rounded-full border px-2.5 py-1 text-xs font-medium transition",
                 selected
-                  ? "border-sky-400/60 bg-sky-400/15 text-sky-200"
+                  ? "border-overlay-accent/60 bg-overlay-accent/15 text-overlay-accent"
                   : "border-white/15 bg-white/5 text-white/80 hover:bg-white/10",
               )}
             >

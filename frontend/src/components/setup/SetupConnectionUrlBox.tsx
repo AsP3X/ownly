@@ -1,5 +1,5 @@
-// Human: Read-only connection URL preview box on the database setup step.
-// Agent: DISPLAYS assembled postgres URL; parent owns string value.
+// Human: Read-only connection URL preview on the database setup step.
+// Agent: DISPLAYS assembled postgres URL (already redacted by the caller); parent owns the string.
 
 type SetupConnectionUrlBoxProps = {
   url: string;
@@ -8,10 +8,10 @@ type SetupConnectionUrlBoxProps = {
 export function SetupConnectionUrlBox({ url }: SetupConnectionUrlBoxProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[13px] font-semibold text-ink">Connection URL</span>
-      <div className="rounded-lg border border-edge bg-surface px-3 py-2.5">
-        <p className="break-all font-sans text-[11px] text-ink-muted">{url}</p>
-      </div>
+      <span className="text-[13px] font-medium text-ink">Connection URL</span>
+      <p className="rounded-md border border-edge bg-sunken px-3 py-2 font-mono text-xs leading-relaxed break-all text-ink-muted">
+        {url}
+      </p>
     </div>
   );
 }

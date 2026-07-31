@@ -15,7 +15,10 @@ import {
   buildSmartContinueLabel,
   buildUploadConflictPlan,
 } from "@/lib/upload-conflicts";
-import { buildUploadCheckCandidates } from "@/lib/file-content-hash";
+import {
+  buildUploadCheckCandidates,
+  type UploadCheckCandidate,
+} from "@/lib/file-content-hash";
 import {
   ensureFolderUploadStructure,
   folderUploadDisplayPath,
@@ -24,7 +27,10 @@ import {
   parseFolderUploadSelection,
 } from "@/lib/upload-folder-structure";
 import { startUploadBatch, subscribeUploadBatch, type UploadBatchEntry } from "@/lib/upload-manager";
-import { applyStorageWarningsInOrder } from "@/lib/upload-storage-capacity";
+import {
+  splitUploadsByCapacity,
+  storageOverflowNotice,
+} from "@/lib/upload-storage-capacity";
 import { createClientId, formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 import {
@@ -39,8 +45,17 @@ type PendingFile = {
   file: File;
   /** Human: SHA-256 digest computed before duplicate preflight. */
   contentHash?: string;
-  /** Human: Set when the file exceeds remaining library quota — row stays selectable with a warning. */
+  /** Human: Set only after duplicate detection, when the surviving file no longer fits the quota. */
   storageWarning?: string | null;
+};
+
+/**
+ * Human: Upload set held back after the capacity check trimmed it — one more Upload press sends it.
+ * Agent: CARRIES resolved rows + recycle restores so the second press skips hashing and the conflict dialog.
+ */
+type DeferredUploadPlan = {
+  rows: PendingFile[];
+  restoreFileIds: string[];
 };
 
 type UploadDialogProps = {
@@ -138,19 +153,21 @@ export function UploadDialog({
     null,
   );
   const [isDragOver, setIsDragOver] = useState(false);
+  const [deferredPlan, setDeferredPlan] = useState<DeferredUploadPlan | null>(null);
   const hashAbortRef = useRef<AbortController | null>(null);
 
-  const uploadablePendingCount = pendingFiles.filter((item) => !item.storageWarning).length;
-  const oversizedPendingCount = pendingFiles.length - uploadablePendingCount;
+  // Human: How many files the Upload button would actually send on the next press.
+  const uploadableCount = deferredPlan
+    ? deferredPlan.rows.length
+    : pendingFiles.filter((item) => !item.storageWarning).length;
 
-  const continueLabel = useMemo(() => {
-    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
-    return buildSmartContinueLabel(uploadablePending, duplicateMatches, recycleMatches);
-  }, [pendingFiles, duplicateMatches, recycleMatches]);
+  const continueLabel = useMemo(
+    () => buildSmartContinueLabel(pendingFiles, duplicateMatches, recycleMatches),
+    [pendingFiles, duplicateMatches, recycleMatches],
+  );
 
   const continueDisabled = useMemo(() => {
-    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
-    const plan = buildUploadConflictPlan(uploadablePending, duplicateMatches, recycleMatches, {
+    const plan = buildUploadConflictPlan(pendingFiles, duplicateMatches, recycleMatches, {
       skipDuplicates: true,
       restoreRecycle: true,
     });
@@ -169,37 +186,31 @@ export function UploadDialog({
     });
   }, [open]);
 
-  // Human: Recompute quota warnings for every pending row when usage or the file list changes.
-  // Agent: CALLS applyStorageWarningsInOrder; PRESERVES ids and File references.
-  const withStorageWarnings = useCallback(
-    (rows: PendingFile[], remainingBytes: number): PendingFile[] =>
-      applyStorageWarningsInOrder(
-        rows.map((row) => ({ ...row, fileSize: row.file.size })),
-        remainingBytes,
-      ),
-    [],
-  );
-
-  // Human: Refresh warnings when remaining storage changes while the picker stays open.
-  useEffect(() => {
-    if (!open) return;
+  // Human: Any change to the selection invalidates the last capacity verdict and held-back plan.
+  // Agent: CLEARS storageWarning/skip notice/deferred plan so the next Upload press re-runs the full preflight.
+  const clearCapacityVerdict = useCallback(() => {
+    setStorageSkipNotice("");
+    setDeferredPlan(null);
     setPendingFiles((prev) =>
-      prev.length === 0 ? prev : withStorageWarnings(prev, effectiveRemainingBytes),
+      prev.some((row) => row.storageWarning)
+        ? prev.map((row) => ({ ...row, storageWarning: null }))
+        : prev,
     );
-  }, [open, effectiveRemainingBytes, withStorageWarnings]);
+  }, []);
 
   // Human: Seed pending files from explorer drag-drop so conflict checks match the picker path.
   useEffect(() => {
     if (!open || !initialFiles?.length) return;
-    const incoming = initialFiles.map((file) => ({
-      id: createClientId(),
-      file,
-      fileSize: file.size,
-    }));
-    setPendingFiles(withStorageWarnings(incoming, effectiveRemainingBytes));
+    setPendingFiles(
+      initialFiles.map((file) => ({
+        id: createClientId(),
+        file,
+      })),
+    );
     setFolderUploadRootName(null);
     setStorageSkipNotice("");
-  }, [open, initialFiles, effectiveRemainingBytes, withStorageWarnings]);
+    setDeferredPlan(null);
+  }, [open, initialFiles]);
 
   // Human: Load latest network + quota headroom when the upload dialog opens.
   useEffect(() => {
@@ -207,10 +218,12 @@ export function UploadDialog({
     void onRefreshStorageLimits();
   }, [open, onRefreshStorageLimits]);
 
+  // Human: Add picked files — selection never checks storage, that happens after duplicate detection.
+  // Agent: WRITES pendingFiles only; CALLS clearCapacityVerdict so a stale verdict cannot gate new rows.
   const addPendingFiles = useCallback(
     (selected: FileList | null, fromFolderPicker = false) => {
       if (!selected?.length) return;
-      setStorageSkipNotice("");
+      clearCapacityVerdict();
 
       if (fromFolderPicker) {
         const parsed = parseFolderUploadSelection(Array.from(selected));
@@ -226,31 +239,28 @@ export function UploadDialog({
             id: createClientId(),
             file,
           }));
-          return withStorageWarnings([...withoutFolderRows, ...incoming], effectiveRemainingBytes);
+          return [...withoutFolderRows, ...incoming];
         });
         if (folderInputRef.current) folderInputRef.current.value = "";
         return;
       }
 
-      setPendingFiles((prev) => {
-        const incoming = Array.from(selected).map((file) => ({
+      setPendingFiles((prev) => [
+        ...prev,
+        ...Array.from(selected).map((file) => ({
           id: createClientId(),
           file,
-        }));
-        return withStorageWarnings([...prev, ...incoming], effectiveRemainingBytes);
-      });
+        })),
+      ]);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [withStorageWarnings, effectiveRemainingBytes],
+    [clearCapacityVerdict],
   );
 
   function removePendingFile(id: string) {
-    setStorageSkipNotice("");
+    clearCapacityVerdict();
     setPendingFiles((prev) => {
-      const next = withStorageWarnings(
-        prev.filter((item) => item.id !== id),
-        effectiveRemainingBytes,
-      );
+      const next = prev.filter((item) => item.id !== id);
       if (!next.some((item) => getFileRelativePath(item.file))) {
         setFolderUploadRootName(null);
       }
@@ -272,6 +282,7 @@ export function UploadDialog({
     setDuplicateMatches([]);
     setRecycleMatches([]);
     setConflictDialogOpen(false);
+    setDeferredPlan(null);
   }
 
   function handleOpenChange(next: boolean) {
@@ -339,36 +350,69 @@ export function UploadDialog({
     startUploadBatch(entries, folderId);
   }
 
-  // Human: Restore recycle-bin rows and upload the remaining pending files per user choice.
-  // Agent: POST restoreRecycleBinItems; CALLS beginUpload; WRITES onLibraryChanged after restore.
+  // Human: Last preflight step — measure the duplicate-free set against live remaining storage, then upload.
+  // Agent: CALLS onRefreshStorageLimits + splitUploadsByCapacity; HOLDS the trimmed plan when rows do not fit.
+  async function finalizeUpload(plan: DeferredUploadPlan) {
+    const remaining = (await onRefreshStorageLimits?.()) ?? effectiveRemainingBytes;
+    const { fitting, blocked, requiredBytes } = splitUploadsByCapacity(
+      plan.rows,
+      remaining,
+      (row) => row.file.size,
+    );
+
+    if (blocked.length > 0) {
+      const warningById = new Map(blocked.map((row) => [row.id, row.storageWarning]));
+      setPendingFiles((prev) =>
+        prev.map((item) => ({ ...item, storageWarning: warningById.get(item.id) ?? null })),
+      );
+      setConflictDialogOpen(false);
+
+      if (fitting.length === 0 && plan.restoreFileIds.length === 0) {
+        setDeferredPlan(null);
+        setStorageSkipNotice("");
+        setConflictCheckError(
+          "None of the remaining files fit in your storage. Remove files or free space, then try again.",
+        );
+        return;
+      }
+
+      setDeferredPlan({ rows: fitting, restoreFileIds: plan.restoreFileIds });
+      setConflictCheckError("");
+      setStorageSkipNotice(storageOverflowNotice(blocked.length, requiredBytes, remaining));
+      return;
+    }
+
+    if (plan.restoreFileIds.length > 0) {
+      await restoreRecycleBinItems({
+        file_ids: plan.restoreFileIds,
+        folder_ids: [],
+      });
+      onLibraryChanged?.();
+    }
+
+    await beginUpload(
+      fitting.map((item) => ({
+        file: item.file,
+        contentHash: item.contentHash,
+      })),
+    );
+  }
+
+  // Human: Turn the user's conflict choice into a plan, then hand it to the capacity check.
+  // Agent: CALLS buildUploadConflictPlan then finalizeUpload; NO restore happens until capacity passes.
   async function executeUploadPlan(options: {
     skipDuplicates: boolean;
     restoreRecycle: boolean;
   }) {
-    const uploadablePending = pendingFiles.filter((item) => !item.storageWarning);
-    const plan = buildUploadConflictPlan(
-      uploadablePending,
-      duplicateMatches,
-      recycleMatches,
-      options,
-    );
+    const plan = buildUploadConflictPlan(pendingFiles, duplicateMatches, recycleMatches, options);
 
     setResolvingConflicts(true);
     setConflictCheckError("");
     try {
-      if (options.restoreRecycle && plan.restoreFileIds.length > 0) {
-        await restoreRecycleBinItems({
-          file_ids: plan.restoreFileIds,
-          folder_ids: [],
-        });
-        onLibraryChanged?.();
-      }
-      await beginUpload(
-        plan.uploadFiles.map((item) => ({
-          file: item.file,
-          contentHash: item.contentHash,
-        })),
-      );
+      await finalizeUpload({
+        rows: plan.uploadFiles,
+        restoreFileIds: plan.restoreFileIds,
+      });
     } catch (error) {
       setConflictCheckError(getErrorMessage(error));
       setConflictDialogOpen(false);
@@ -377,62 +421,53 @@ export function UploadDialog({
     }
   }
 
-  // Human: Run library-wide duplicate and recycle-bin checks before queueing uploads.
-  // Agent: HASHES pending files with progress; POST checkUploadNameDuplicates; PASSES contentHash to batch.
+  // Human: Preflight order — hash the selection, resolve duplicates, then size what is left against storage.
+  // Agent: HASHES pending files with progress; POST checkUploadNameDuplicates; ENDS in finalizeUpload (capacity).
   async function handleStartUpload() {
     if (checkingConflicts) return;
 
     setConflictCheckError("");
-    setStorageSkipNotice("");
     setCheckingConflicts(true);
     setHashProgress(null);
     hashAbortRef.current?.abort();
     const abort = new AbortController();
     hashAbortRef.current = abort;
     try {
-      // Human: Re-check against live network node capacity before starting uploads.
-      // Agent: CALLS onRefreshStorageLimits; RE-RUNS applyStorageWarningsInOrder on pending rows.
-      const remaining =
-        (await onRefreshStorageLimits?.()) ?? effectiveRemainingBytes;
-      const reassessed = withStorageWarnings(pendingFiles, remaining);
-      setPendingFiles(reassessed);
-
-      const uploadable = reassessed.filter((item) => !item.storageWarning);
-      const blockedCount = reassessed.length - uploadable.length;
-
-      if (uploadable.length === 0) {
-        setConflictCheckError(
-          blockedCount > 0
-            ? "None of the selected files fit in the remaining storage. Remove files or free space, then try again."
-            : "Add at least one file to upload.",
-        );
+      // Human: Second press after a capacity trim — plan is already resolved, just send it.
+      if (deferredPlan) {
+        await finalizeUpload(deferredPlan);
         return;
       }
 
-      if (blockedCount > 0) {
-        setStorageSkipNotice(
-          `${blockedCount} file${blockedCount === 1 ? "" : "s"} will not be uploaded — not enough storage.`,
-        );
+      setStorageSkipNotice("");
+      if (pendingFiles.length === 0) {
+        setConflictCheckError("Add at least one file to upload.");
+        return;
       }
 
-      const candidates = await buildUploadCheckCandidates(
-        uploadable.map((item) => item.file),
+      // Human: Hash only rows without a digest so a repeat press never re-reads gigabytes.
+      const unhashed = pendingFiles.filter((item) => !item.contentHash);
+      const freshCandidates = await buildUploadCheckCandidates(
+        unhashed.map((item) => item.file),
         {
           signal: abort.signal,
           onProgress: ({ completed, total }) => setHashProgress({ completed, total }),
         },
       );
-      const hashedUploadable = uploadable.map((item, index) => ({
-        ...item,
-        contentHash: candidates[index]?.content_hash ?? "",
-      }));
-
-      setPendingFiles((prev) =>
-        prev.map((item) => {
-          const match = hashedUploadable.find((candidate) => candidate.id === item.id);
-          return match ? { ...item, contentHash: match.contentHash } : item;
-        }),
+      const freshHashById = new Map(
+        unhashed.map((item, index) => [item.id, freshCandidates[index]?.content_hash ?? ""]),
       );
+      const hashedRows = pendingFiles.map((item) => ({
+        ...item,
+        contentHash: item.contentHash || freshHashById.get(item.id) || "",
+      }));
+      setPendingFiles(hashedRows);
+
+      const candidates: UploadCheckCandidate[] = hashedRows.map((item) => ({
+        name: item.file.name,
+        size_bytes: Math.max(0, Math.floor(Number(item.file.size) || 0)),
+        content_hash: item.contentHash,
+      }));
 
       const { duplicates, recycle_matches } = await checkUploadNameDuplicates(candidates);
       if (duplicates.length > 0 || recycle_matches.length > 0) {
@@ -441,12 +476,8 @@ export function UploadDialog({
         setConflictDialogOpen(true);
         return;
       }
-      await beginUpload(
-        hashedUploadable.map((item) => ({
-          file: item.file,
-          contentHash: item.contentHash,
-        })),
-      );
+
+      await finalizeUpload({ rows: hashedRows, restoreFileIds: [] });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
@@ -499,13 +530,13 @@ export function UploadDialog({
       ? hashProgress
         ? `Preparing ${hashProgress.completed}/${hashProgress.total}…`
         : "Checking…"
-      : uploadablePendingCount > 0
-        ? oversizedPendingCount > 0
-          ? `Upload (${uploadablePendingCount})`
-          : `Upload (${uploadablePendingCount})`
-        : pendingFiles.length > 0
-          ? "No room to upload"
-          : "Upload";
+      : uploadableCount > 0
+        ? `Upload (${uploadableCount})`
+        : deferredPlan
+          ? `Restore (${deferredPlan.restoreFileIds.length})`
+          : pendingFiles.length > 0
+            ? "No room to upload"
+            : "Upload";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -555,16 +586,11 @@ export function UploadDialog({
           ) : null}
 
           {storageSkipNotice ? (
-            <p className="shrink-0 rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-sm text-warn">
+            <p
+              className="shrink-0 rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-sm text-warn"
+              role="status"
+            >
               {storageSkipNotice}
-            </p>
-          ) : null}
-
-          {oversizedPendingCount > 0 ? (
-            <p className="shrink-0 rounded-lg border border-warn/40 bg-warn-weak/60 px-3 py-2 text-sm text-warn">
-              {oversizedPendingCount} selected file{oversizedPendingCount === 1 ? "" : "s"} exceed
-              your remaining storage and will not upload. You can still add them here to review;
-              remove them or free space before uploading.
             </p>
           ) : null}
 

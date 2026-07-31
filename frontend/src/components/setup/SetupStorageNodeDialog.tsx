@@ -2,7 +2,7 @@
 // Agent: CONTROLLED draft; CALLS testSetupStorage; RETURNS saved node fields to SetupPage on confirm.
 
 import { useEffect, useState } from "react";
-import { Loader2, Server, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { getErrorMessage, testSetupStorage, type StorageCapacityUnit } from "@/api/client";
 import { SetupDbStatusBanner } from "@/components/setup/SetupDbStatusBanner";
 import { SetupField } from "@/components/setup/SetupField";
@@ -117,7 +117,8 @@ export function SetupStorageNodeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-full max-w-[560px] flex-col gap-5 overflow-y-auto rounded-2xl border border-edge bg-panel p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[560px]"
+        // Human: Inset from the screen edges on phones; max-h-[85svh] leaves room when the keyboard opens.
+        className="flex max-h-[85svh] w-[calc(100vw-1.5rem)] max-w-[540px] flex-col gap-4 overflow-y-auto overscroll-contain rounded-lg border border-edge bg-panel p-4 sm:w-full sm:max-w-[540px] sm:p-5"
         overlayClassName="bg-black/30"
       >
         <DialogTitle className="sr-only">Configure storage node</DialogTitle>
@@ -126,12 +127,9 @@ export function SetupStorageNodeDialog({
         </DialogDescription>
 
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-brand-weak">
-              <Server className="size-4 text-brand" aria-hidden />
-            </div>
-            <h2 className="text-lg font-bold text-ink">Configure storage node</h2>
-          </div>
+          <h2 className="text-[15px] font-semibold tracking-tight text-ink">
+            Configure storage node
+          </h2>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
@@ -182,11 +180,14 @@ export function SetupStorageNodeDialog({
             onChange={(e) => updateDraft({ capacityValue: e.target.value })}
           />
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-ink-muted">Unit</label>
+            <label htmlFor="setup-node-unit" className="text-[13px] font-medium text-ink">
+              Unit
+            </label>
             <select
+              id="setup-node-unit"
               value={draft.capacityUnit}
               onChange={(e) => updateDraft({ capacityUnit: e.target.value as StorageCapacityUnit })}
-              className="h-10 rounded-lg border border-edge bg-panel px-3 text-sm text-ink"
+              className="h-10 rounded-md border border-edge bg-panel px-3 text-sm text-ink focus:border-brand focus:ring-2 focus:ring-focus/20 focus:outline-none"
             >
               {CAPACITY_UNITS.map((unit) => (
                 <option key={unit} value={unit}>
@@ -209,23 +210,26 @@ export function SetupStorageNodeDialog({
         </SetupOutlineButton>
 
         {error ? (
-          <p className="rounded-lg border border-danger/40 bg-danger-weak px-3 py-2 text-sm text-danger" role="alert">
+          <p
+            className="rounded-md border border-danger/40 bg-danger-weak px-3 py-2 text-[13px] text-danger"
+            role="alert"
+          >
             {error}
           </p>
         ) : null}
 
-        <div className="flex items-center justify-end gap-3 border-t border-edge pt-4">
+        <div className="flex items-center gap-2 border-t border-edge pt-4 sm:justify-end">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface"
+            className="h-11 shrink-0 rounded-md border border-edge bg-panel px-5 text-sm font-medium text-ink transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus/30 focus-visible:outline-none sm:h-9 sm:px-4"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="rounded-lg bg-ink px-4 py-2.5 text-[13px] font-semibold text-panel transition-colors hover:bg-ink-muted"
+            className="h-11 flex-1 rounded-md bg-brand px-5 text-sm font-semibold text-brand-on transition-colors hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none sm:h-9 sm:flex-initial sm:px-4"
           >
             Save node
           </button>

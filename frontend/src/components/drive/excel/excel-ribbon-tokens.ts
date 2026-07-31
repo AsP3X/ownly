@@ -37,6 +37,29 @@ export const EXCEL_RIBBON_GROUP_LABEL = "#605E5C";
 /** Human: Selected tab green underline. */
 export const EXCEL_RIBBON_TAB_INDICATOR = "#107C41";
 
+/*
+ * Human: Insert/Chart gallery icon tints — a fixed Office-like palette. The ribbon is document
+ * chrome that stays light in both themes (see the filebrowser rework spec, non-goals), so these
+ * are constants here rather than --dr-* CSS variables.
+ * Agent: CONSUMED by ExcelSpreadsheetRibbon icon props; never use app tokens on this surface.
+ */
+export const EXCEL_ICON_TABLE = EXCEL_RIBBON_FILE_TAB;
+export const EXCEL_ICON_ACCENT = EXCEL_RIBBON_ACCENT;
+export const EXCEL_ICON_SPARKLE = "#0EA5E9";
+export const EXCEL_ICON_3D = "#7C3AED";
+export const EXCEL_ICON_MAP = "#0D9488";
+export const EXCEL_ICON_NEUTRAL = "#64748B";
+export const EXCEL_ICON_NEUTRAL_STRONG = "#475569";
+
+/*
+ * Human: Defaults the ribbon pickers fall back to when a cell carries no explicit colour.
+ * Agent: READ by border/fill/font colour pickers and the draw-tool stroke.
+ */
+export const EXCEL_DEFAULT_BORDER_COLOR = EXCEL_RIBBON_OWNLY_TEXT;
+export const EXCEL_DEFAULT_FILL_COLOR = "#FFD700";
+export const EXCEL_DEFAULT_FONT_COLOR = "#E81123";
+export const EXCEL_DEFAULT_DRAW_COLOR = EXCEL_RIBBON_ACCENT;
+
 /** Human: Segoe UI stack matching desktop Excel. */
 export const EXCEL_RIBBON_FONT = "\"Segoe UI\", Inter, Calibri, Arial, sans-serif";
 

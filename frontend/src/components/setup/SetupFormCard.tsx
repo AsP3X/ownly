@@ -1,43 +1,74 @@
-// Human: Bordered setup form card — optional step title block for storage/database steps in Pencil.
-// Agent: RENDERS layout slots only; all styling via Tailwind tokens from login-signup.pencil variables.
+// Human: Form panel for one wizard step — heading, mobile step line, fields, and the actions row.
+// Agent: WRAPS children in a <form> when onSubmit is given so Enter advances the wizard.
 
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { SetupStepProgress } from "@/components/setup/SetupStepProgress";
+import { setupStepMeta } from "@/components/setup/setup-steps";
 
 type SetupFormCardProps = {
   children: ReactNode;
-  stepTitle?: string;
-  stepSubtitle?: string;
-  /** Human: Success/error banners sit under the subtitle on the database step. */
+  currentStep: number;
+  /** Human: Connection test results for the storage and database steps. */
   statusBanner?: ReactNode;
-  gap?: "md" | "lg";
+  /** Human: The back/continue row — pinned to the bottom of the viewport on phones. */
+  actions?: ReactNode;
+  onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 };
 
 export function SetupFormCard({
   children,
-  stepTitle,
-  stepSubtitle,
+  currentStep,
   statusBanner,
-  gap = "md",
+  actions,
+  onSubmit,
 }: SetupFormCardProps) {
-  return (
-    <div
-      className={`flex w-full flex-col rounded-2xl border border-edge bg-panel p-8 ${
-        gap === "lg" ? "gap-6" : "gap-5"
-      }`}
-    >
-      {stepTitle ? (
-        <div className="flex flex-col gap-1.5">
-          <h2 className="text-lg font-bold text-ink">{stepTitle}</h2>
-          {stepSubtitle || statusBanner ? (
-            <div className="flex flex-col gap-3">
-              {stepSubtitle ? <p className="text-sm text-ink-muted">{stepSubtitle}</p> : null}
-              {statusBanner}
-            </div>
-          ) : null}
+  const meta = setupStepMeta(currentStep);
+
+  const body = (
+    <>
+      {/* Agent: overflow-hidden lives here, NOT on an ancestor of the sticky actions bar. */}
+      <div className="overflow-hidden border-y border-edge bg-panel sm:rounded-lg sm:border">
+        <div className="flex flex-col gap-3 border-b border-edge px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-[15px] font-semibold tracking-tight text-ink">{meta.title}</h1>
+            <p className="text-[13px] leading-relaxed text-ink-muted">{meta.blurb}</p>
+          </div>
+          {statusBanner}
+        </div>
+
+        <div className="flex flex-col gap-4 px-4 py-5 sm:px-5">{children}</div>
+      </div>
+
+      {actions ? (
+        // Human: Every step's primary action stays in reach on a phone instead of below a long form.
+        // Agent: sticky + safe-area inset under sm; a plain row inside the panel from sm up.
+        <div
+          className={[
+            "sticky bottom-0 z-10 -mx-4 border-t border-edge bg-panel px-4 py-3",
+            "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            "sm:static sm:mx-0 sm:-mt-px sm:rounded-b-lg sm:border sm:border-edge sm:bg-surface sm:px-5 sm:py-3.5 sm:pb-3.5",
+          ].join(" ")}
+        >
+          {actions}
         </div>
       ) : null}
+    </>
+  );
 
-      {children}
+  return (
+    // Human: -mx-4 lets the panel meet the screen edges on phones, buying back gutter width for inputs.
+    <div className="-mx-4 flex flex-col gap-4 sm:mx-0 sm:gap-5">
+      <div className="px-4 sm:px-0">
+        <SetupStepProgress currentStep={currentStep} />
+      </div>
+
+      {onSubmit ? (
+        <form onSubmit={onSubmit} noValidate>
+          {body}
+        </form>
+      ) : (
+        body
+      )}
     </div>
   );
 }

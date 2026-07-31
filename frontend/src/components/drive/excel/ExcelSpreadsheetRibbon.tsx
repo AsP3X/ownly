@@ -98,7 +98,20 @@ import {
   RibbonTabStrip,
   RibbonToggleButton,
 } from "@/components/drive/excel/excel-ribbon-primitives";
-import { EXCEL_RIBBON_FONT } from "@/components/drive/excel/excel-ribbon-tokens";
+import {
+  EXCEL_DEFAULT_BORDER_COLOR,
+  EXCEL_DEFAULT_DRAW_COLOR,
+  EXCEL_DEFAULT_FILL_COLOR,
+  EXCEL_DEFAULT_FONT_COLOR,
+  EXCEL_ICON_3D,
+  EXCEL_ICON_ACCENT,
+  EXCEL_ICON_MAP,
+  EXCEL_ICON_NEUTRAL,
+  EXCEL_ICON_NEUTRAL_STRONG,
+  EXCEL_ICON_SPARKLE,
+  EXCEL_ICON_TABLE,
+  EXCEL_RIBBON_FONT,
+} from "@/components/drive/excel/excel-ribbon-tokens";
 import { scaledPx } from "@/components/drive/excel/excel-dialog-scale";
 
 export type RibbonTabId =
@@ -224,7 +237,7 @@ type ExcelSpreadsheetRibbonProps = {
 
 // Human: Map border preset names to CellStyle patches for the Borders gallery.
 function borderPatchForPreset(preset: BorderPreset, current: CellStyle): Partial<CellStyle> {
-  const color = current.borderColor ?? "#1A1A1A";
+  const color = current.borderColor ?? EXCEL_DEFAULT_BORDER_COLOR;
   switch (preset) {
     case "all":
     case "outline":
@@ -437,14 +450,14 @@ function HomeTabPanel({
               ariaLabel="Fill color"
               disabled={readOnly}
               variant="fill"
-              value={cellStyle.backgroundColor ?? "#FFD700"}
+              value={cellStyle.backgroundColor ?? EXCEL_DEFAULT_FILL_COLOR}
               onChange={(color) => onStyleChange({ backgroundColor: color })}
             />
             <RibbonColorButton
               ariaLabel="Font color"
               disabled={readOnly}
               variant="font"
-              value={cellStyle.textColor ?? "#E81123"}
+              value={cellStyle.textColor ?? EXCEL_DEFAULT_FONT_COLOR}
               onChange={(color) => onStyleChange({ textColor: color })}
             />
           </div>
@@ -742,14 +755,14 @@ function InsertTabPanel({
       <RibbonGroup label="Tables" showLabel>
         <RibbonLargeButton
           label={"PivotTable"}
-          icon={<TableProperties style={{ width: lg, height: lg, color: "#107C41" }} aria-hidden />}
+          icon={<TableProperties style={{ width: lg, height: lg, color: EXCEL_ICON_TABLE }} aria-hidden />}
           disabled={readOnly}
           onClick={onInsertPivot}
           showChevron
         />
         <RibbonLargeButton
           label={"Recommended\nPivotTables"}
-          icon={<LayoutGrid style={{ width: lg, height: lg, color: "#107C41" }} aria-hidden />}
+          icon={<LayoutGrid style={{ width: lg, height: lg, color: EXCEL_ICON_TABLE }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron={false}
@@ -757,14 +770,14 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label="Table"
-          icon={<Table2 style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          icon={<Table2 style={{ width: sz, height: sz, color: EXCEL_ICON_TABLE }} aria-hidden />}
           disabled={readOnly}
           onClick={onInsertTable}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="Forms"
-          icon={<FormInput style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<FormInput style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -776,7 +789,7 @@ function InsertTabPanel({
       <RibbonGroup label="Illustrations" showLabel>
         <RibbonIconButton
           label="Pictures"
-          icon={<Image style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Image style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -784,7 +797,7 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label="Shapes"
-          icon={<Shapes style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Shapes style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -792,14 +805,14 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label="Icons"
-          icon={<Sparkles style={{ width: sz, height: sz, color: "#0EA5E9" }} aria-hidden />}
+          icon={<Sparkles style={{ width: sz, height: sz, color: EXCEL_ICON_SPARKLE }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="SmartArt"
-          icon={<Box style={{ width: sz, height: sz, color: "#7C3AED" }} aria-hidden />}
+          icon={<Box style={{ width: sz, height: sz, color: EXCEL_ICON_3D }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -807,7 +820,7 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label={"3D\nModels"}
-          icon={<Cuboid style={{ width: sz, height: sz, color: "#64748B" }} aria-hidden />}
+          icon={<Cuboid style={{ width: sz, height: sz, color: EXCEL_ICON_NEUTRAL }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -815,7 +828,7 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label="Screenshot"
-          icon={<Camera style={{ width: sz, height: sz, color: "#475569" }} aria-hidden />}
+          icon={<Camera style={{ width: sz, height: sz, color: EXCEL_ICON_NEUTRAL_STRONG }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -828,7 +841,7 @@ function InsertTabPanel({
       <RibbonGroup label="Controls" showLabel>
         <RibbonIconButton
           label="Checkbox"
-          icon={<CheckSquare style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          icon={<CheckSquare style={{ width: sz, height: sz, color: EXCEL_ICON_TABLE }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -840,7 +853,7 @@ function InsertTabPanel({
       <RibbonGroup label="Charts" showLabel>
         <RibbonLargeButton
           label={"Recommended\nCharts"}
-          icon={<BarChart3 style={{ width: lg, height: lg, color: "#2563EB" }} aria-hidden />}
+          icon={<BarChart3 style={{ width: lg, height: lg, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           onClick={onInsertChart}
           showChevron={false}
           wide
@@ -851,7 +864,7 @@ function InsertTabPanel({
               label="Column"
               showLabel={false}
               title="Insert Column Chart"
-              icon={<ChartColumn style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<ChartColumn style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -859,7 +872,7 @@ function InsertTabPanel({
               label="Bar"
               showLabel={false}
               title="Insert Bar Chart"
-              icon={<BarChartHorizontal style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<BarChartHorizontal style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -867,7 +880,7 @@ function InsertTabPanel({
               label="Pie"
               showLabel={false}
               title="Insert Pie Chart"
-              icon={<PieChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<PieChart style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -877,7 +890,7 @@ function InsertTabPanel({
               label="Line"
               showLabel={false}
               title="Insert Line Chart"
-              icon={<ChartLine style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<ChartLine style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -885,7 +898,7 @@ function InsertTabPanel({
               label="Area"
               showLabel={false}
               title="Insert Area Chart"
-              icon={<AreaChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<AreaChart style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -893,7 +906,7 @@ function InsertTabPanel({
               label="Scatter"
               showLabel={false}
               title="Insert Scatter Chart"
-              icon={<ScatterChart style={{ width: chartIcon, height: chartIcon, color: "#2563EB" }} aria-hidden />}
+              icon={<ScatterChart style={{ width: chartIcon, height: chartIcon, color: EXCEL_ICON_ACCENT }} aria-hidden />}
               onClick={onInsertChart}
               iconSizePx={18}
             />
@@ -901,14 +914,14 @@ function InsertTabPanel({
         </div>
         <RibbonIconButton
           label="Maps"
-          icon={<Map style={{ width: sz, height: sz, color: "#0D9488" }} aria-hidden />}
+          icon={<Map style={{ width: sz, height: sz, color: EXCEL_ICON_MAP }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="PivotChart"
-          icon={<BarChart3 style={{ width: sz, height: sz, color: "#107C41" }} aria-hidden />}
+          icon={<BarChart3 style={{ width: sz, height: sz, color: EXCEL_ICON_TABLE }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -920,21 +933,21 @@ function InsertTabPanel({
       <RibbonGroup label="Sparklines" showLabel>
         <RibbonIconButton
           label="Line"
-          icon={<LineChart style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<LineChart style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="Column"
-          icon={<ChartColumn style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<ChartColumn style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label={"Win/\nLoss"}
-          icon={<BarChart3 style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<BarChart3 style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -946,14 +959,14 @@ function InsertTabPanel({
       <RibbonGroup label="Filters" showLabel>
         <RibbonIconButton
           label="Slicer"
-          icon={<Filter style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Filter style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="Timeline"
-          icon={<PanelTop style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<PanelTop style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -965,7 +978,7 @@ function InsertTabPanel({
       <RibbonGroup label="Links" showLabel>
         <RibbonIconButton
           label="Link"
-          icon={<Link2 style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Link2 style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled={readOnly}
           onClick={onInsertLink}
           showChevron
@@ -978,7 +991,7 @@ function InsertTabPanel({
       <RibbonGroup label="Comments" showLabel>
         <RibbonIconButton
           label="Comment"
-          icon={<MessageSquare style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<MessageSquare style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled={readOnly}
           onClick={onEditComment}
           iconSizePx={16}
@@ -990,21 +1003,21 @@ function InsertTabPanel({
       <RibbonGroup label="Text" showLabel>
         <RibbonIconButton
           label={"Text\nBox"}
-          icon={<TextCursorInput style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<TextCursorInput style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label={"Header\n& Footer"}
-          icon={<Heading style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Heading style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="WordArt"
-          icon={<Type style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Type style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -1012,7 +1025,7 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label={"Signature\nLine"}
-          icon={<PenLine style={{ width: sz, height: sz, color: "#475569" }} aria-hidden />}
+          icon={<PenLine style={{ width: sz, height: sz, color: EXCEL_ICON_NEUTRAL_STRONG }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -1020,7 +1033,7 @@ function InsertTabPanel({
         />
         <RibbonIconButton
           label="Object"
-          icon={<FileSignature style={{ width: sz, height: sz, color: "#64748B" }} aria-hidden />}
+          icon={<FileSignature style={{ width: sz, height: sz, color: EXCEL_ICON_NEUTRAL }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           showChevron
@@ -1033,14 +1046,14 @@ function InsertTabPanel({
       <RibbonGroup label="Symbols" showLabel>
         <RibbonIconButton
           label="Equation"
-          icon={<Pi style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Pi style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
         />
         <RibbonIconButton
           label="Symbol"
-          icon={<Omega style={{ width: sz, height: sz, color: "#2563EB" }} aria-hidden />}
+          icon={<Omega style={{ width: sz, height: sz, color: EXCEL_ICON_ACCENT }} aria-hidden />}
           disabled
           title={INSERT_UNSUPPORTED}
           iconSizePx={16}
@@ -1290,7 +1303,7 @@ export function ExcelSpreadsheetRibbon(props: ExcelSpreadsheetRibbonProps) {
       panel = (
         <ExcelDrawPanel
           drawMode={props.drawMode ?? null}
-          strokeColor={props.drawColor ?? "#2563EB"}
+          strokeColor={props.drawColor ?? EXCEL_DEFAULT_DRAW_COLOR}
           onDrawModeChange={props.onDrawModeChange ?? (() => undefined)}
           onStrokeColorChange={props.onDrawColorChange ?? (() => undefined)}
           onClearDrawings={props.onClearDrawings ?? (() => undefined)}

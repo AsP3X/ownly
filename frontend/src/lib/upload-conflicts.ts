@@ -8,10 +8,10 @@ export type PendingUploadFile = {
   contentHash?: string;
 };
 
-export type UploadConflictPlan = {
+export type UploadConflictPlan<T extends PendingUploadFile = PendingUploadFile> = {
   restoreFileIds: string[];
   /** Files still queued for upload after skip/restore decisions (with optional content hash). */
-  uploadFiles: PendingUploadFile[];
+  uploadFiles: T[];
   restoreCount: number;
   uploadCount: number;
   skipDuplicateCount: number;
@@ -54,12 +54,12 @@ export function buildSmartContinueLabel(
 
 // Human: Split a pending batch into recycle restores, skipped duplicates, and uploads.
 // Agent: DEDUPES restore ids; SKIPS rows whose content hash already exists when enabled.
-export function buildUploadConflictPlan(
-  pendingFiles: PendingUploadFile[],
+export function buildUploadConflictPlan<T extends PendingUploadFile>(
+  pendingFiles: T[],
   duplicates: UploadNameDuplicate[],
   recycleMatches: UploadRecycleMatch[],
   options: { skipDuplicates: boolean; restoreRecycle: boolean },
-): UploadConflictPlan {
+): UploadConflictPlan<T> {
   const duplicateHashes = options.skipDuplicates
     ? new Set(duplicates.map((entry) => entry.upload_content_hash))
     : new Set<string>();

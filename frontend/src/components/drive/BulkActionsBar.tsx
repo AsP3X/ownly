@@ -137,11 +137,11 @@ export function BulkActionsBar({
         "flex items-center gap-3",
         // Human: Mobile — floating dark glass dock above the bottom nav.
         // Agent: fixed bottom + blur + deep shadow; safe-area offset matches MobileBottomNav height.
-        // NOTE: #0B1220 is a deliberate token exception — this dock stays dark in BOTH themes so it
-        // reads as an overlay above the content rather than as another page surface.
+        // The dock uses the overlay token family, which stays dark in BOTH themes so it reads as
+        // an overlay above the content rather than as another page surface.
         "max-lg:fixed max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] max-lg:left-3 max-lg:right-3 max-lg:z-30",
         "max-lg:rounded-2xl max-lg:border max-lg:border-white/10",
-        "max-lg:bg-[#0B1220]/92 max-lg:px-3 max-lg:py-2.5 max-lg:text-white",
+        "max-lg:bg-overlay/92 max-lg:px-3 max-lg:py-2.5 max-lg:text-white",
         "max-lg:shadow-[0_16px_40px_rgba(15,23,42,0.35)] max-lg:backdrop-blur-xl",
         // Human: Desktop — white selection card matching explorer surfaces.
         // Agent: static inside sticky host on DrivePage; ring + soft shadow for elevation.
@@ -156,7 +156,7 @@ export function BulkActionsBar({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-lg",
-            "bg-brand text-brand-on shadow-sm shadow-blue-600/25",
+            "bg-brand text-brand-on shadow-sm shadow-brand/25",
             "ring-2 ring-brand/15 lg:ring-4 lg:ring-brand/10",
           )}
           aria-hidden
@@ -172,7 +172,7 @@ export function BulkActionsBar({
               type="button"
               className={cn(
                 "mt-0.5 text-left text-xs font-semibold underline-offset-2 transition-colors",
-                "text-blue-200/95 hover:text-white hover:underline",
+                "text-overlay-accent hover:text-white hover:underline",
                 "lg:text-brand lg:hover:text-brand-hover",
               )}
               onClick={onSelectAll}

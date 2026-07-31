@@ -200,7 +200,7 @@ function MenuItem({
       onClick={onSelect}
       className={cn(
         "flex w-full items-center px-3 py-1.5 text-left text-sm text-white/90 transition hover:bg-white/10",
-        selected && "bg-white/10 font-semibold text-sky-300",
+        selected && "bg-white/10 font-semibold text-overlay-accent",
       )}
     >
       {label}

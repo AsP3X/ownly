@@ -1,8 +1,7 @@
 // Human: First-run wizard — admin, instance, storage + first node dialog, database (4 steps).
 // Agent: MULTI-STEP state; CALLS setup; storage node fields edited in SetupStorageNodeDialog.
 
-import { useEffect, useState } from "react";
-import { Server } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   setup,
@@ -23,15 +22,18 @@ import { SetupDbStatusBanner } from "@/components/setup/SetupDbStatusBanner";
 import { SetupErrorBanner } from "@/components/setup/SetupErrorBanner";
 import { SetupField } from "@/components/setup/SetupField";
 import { SetupFormCard } from "@/components/setup/SetupFormCard";
-import { SetupHeader } from "@/components/setup/SetupHeader";
 import { SetupOutlineButton } from "@/components/setup/SetupOutlineButton";
 import { SetupPageShell } from "@/components/setup/SetupPageShell";
+import { SetupPasswordField } from "@/components/setup/SetupPasswordField";
+import { SetupReviewSummary } from "@/components/setup/SetupReviewSummary";
+import { SetupStepList } from "@/components/setup/SetupStepList";
 import {
   SetupStorageNodeDialog,
   validateSetupStorageNodeDraft,
   type SetupStorageNodeDraft,
 } from "@/components/setup/SetupStorageNodeDialog";
 import { SetupToggleRow } from "@/components/setup/SetupToggleRow";
+import type { SetupStepNumber } from "@/components/setup/setup-steps";
 import {
   buildPostgresUrl,
   DEFAULT_POSTGRES_URL,
@@ -41,7 +43,7 @@ import {
   type PostgresConnectionFields,
 } from "@/lib/utils-app";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = SetupStepNumber;
 
 type ConnectionTestResult = {
   ok: boolean;
@@ -236,6 +238,18 @@ export default function SetupPage() {
     }
   }
 
+  // Human: One submit path for the whole wizard — Enter in any field advances or finishes.
+  // Agent: PREVENTS native submit; step 4 runs handleSubmit, earlier steps validate and move on.
+  function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (loading) return;
+    if (step === 4) {
+      void handleSubmit();
+      return;
+    }
+    next();
+  }
+
   function handlePostgresFieldChange(field: keyof PostgresConnectionFields, value: string) {
     const next = { ...postgresFields, [field]: value };
     setPostgresFields(next);
@@ -250,204 +264,244 @@ export default function SetupPage() {
   }
 
   const nodeSummary = `${storageNode.capacityValue} ${storageNode.capacityUnit}`;
-  const useCompactHeader = step >= 3;
+
+  // Human: Flag a mismatch while typing so step 1 never fails on something the admin could not see.
+  const confirmMismatch =
+    confirmPassword.length > 0 && password !== confirmPassword ? "Passwords do not match." : null;
 
   return (
-    <SetupPageShell>
-      <div className="flex w-full max-w-[520px] flex-col gap-8">
-        <SetupHeader currentStep={step} compact={useCompactHeader} />
+    <SetupPageShell steps={<SetupStepList currentStep={step} />}>
+      <SetupFormCard
+        currentStep={step}
+        onSubmit={handleFormSubmit}
+        statusBanner={
+          step === 3 && storageTestResult ? (
+            <SetupDbStatusBanner
+              variant={storageTestResult.ok ? "success" : "error"}
+              message={storageTestResult.message}
+            />
+          ) : step === 4 && dbTestResult ? (
+            <SetupDbStatusBanner
+              variant={dbTestResult.ok ? "success" : "error"}
+              message={dbTestResult.message}
+            />
+          ) : undefined
+        }
+        actions={
+          <SetupActionsRow
+            onBack={() => {
+              setError("");
+              setStep((s) => Math.max(1, s - 1) as Step);
+            }}
+            primaryLabel={step === 4 ? "Complete setup" : "Continue"}
+            loading={loading}
+            loadingLabel={step === 4 ? "Setting up…" : undefined}
+            backDisabled={step === 1}
+          />
+        }
+      >
+        {step === 1 && (
+          <>
+            <SetupField
+              label="Setup token"
+              type="password"
+              value={setupToken}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSetupTokenValue(value);
+                setSetupToken(value);
+              }}
+              hint="SETUP_TOKEN from the server environment, printed to the API log on first boot. Entering it loads the database and storage defaults below."
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <SetupField
+              label="Full name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              autoComplete="name"
+            />
+            <SetupField
+              label="Email address"
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              hint="Used to sign in. There is no password reset by email yet."
+            />
+            <SetupPasswordField
+              id="setup-password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="new-password"
+              showRequirements
+            />
+            <SetupPasswordField
+              id="setup-confirm-password"
+              label="Confirm password"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              autoComplete="new-password"
+              error={confirmMismatch}
+            />
+          </>
+        )}
 
-        <SetupFormCard
-          gap={step >= 3 ? "lg" : "md"}
-          stepTitle={step === 3 ? "Storage" : step === 4 ? "Database" : undefined}
-          stepSubtitle={
-            step === 3
-              ? "Configure object storage for documents, images, video, and audio."
-              : step === 4
-                ? "Verify PostgreSQL connectivity before finishing."
-                : undefined
-          }
-          statusBanner={
-            step === 3 && storageTestResult ? (
-              <SetupDbStatusBanner
-                variant={storageTestResult.ok ? "success" : "error"}
-                message={storageTestResult.message}
-              />
-            ) : step === 4 && dbTestResult ? (
-              <SetupDbStatusBanner
-                variant={dbTestResult.ok ? "success" : "error"}
-                message={dbTestResult.message}
-              />
-            ) : undefined
-          }
-        >
-          {step === 1 && (
-            <>
-              <SetupField
-                label="Setup Token"
-                type="password"
-                placeholder="Paste the SETUP_TOKEN from your server environment"
-                value={setupToken}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setSetupTokenValue(value);
-                  setSetupToken(value);
-                }}
-                autoComplete="off"
-              />
-              <SetupField
-                label="Full Name"
-                placeholder="e.g., Alex Johnson"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                autoComplete="name"
-              />
-              <SetupField
-                label="Email Address"
-                type="email"
-                placeholder="e.g., alex@ownly.sh"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-              <SetupField
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              <SetupField
-                label="Confirm Password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </>
-          )}
+        {step === 2 && (
+          <>
+            <SetupField
+              label="Instance name"
+              placeholder={DEFAULT_INSTANCE_NAME}
+              value={instanceName}
+              onChange={(e) => handleInstanceNameChange(e.target.value)}
+              hint="Shown in the sidebar and on public share pages."
+            />
 
-          {step === 2 && (
-            <>
-              <SetupField
-                label="Instance Name"
-                placeholder={DEFAULT_INSTANCE_NAME}
-                value={instanceName}
-                onChange={(e) => handleInstanceNameChange(e.target.value)}
-              />
+            <div className="flex flex-col gap-3.5 rounded-md border border-edge px-3.5 py-3.5">
               <SetupToggleRow
-                title="Enable Public Registration"
-                description="Allow guests to request user accounts"
+                title="Public registration"
+                description="Anyone who can reach this instance may create an account"
                 checked={allowPublicRegistration}
                 onCheckedChange={(checked) => {
                   setAllowPublicRegistration(checked);
                   if (!checked) setRequireAccountActivation(false);
                 }}
               />
+              <div className="h-px w-full bg-hairline" aria-hidden />
               <SetupToggleRow
                 title="Require admin approval"
-                description="New accounts stay inactive until approved"
+                description="New accounts stay inactive until an admin activates them"
                 checked={requireAccountActivation}
                 disabled={!allowPublicRegistration}
                 onCheckedChange={setRequireAccountActivation}
               />
-            </>
-          )}
+            </div>
+          </>
+        )}
 
-          {step === 3 && (
-            <>
-              <SetupField
-                label="Storage bucket"
-                value={storageBucket}
-                onChange={(e) => setStorageBucket(e.target.value)}
-              />
-              <SetupField
-                label="Default quota per user (GB)"
-                type="number"
-                min={1}
-                value={quotaGb}
-                onChange={(e) => setQuotaGb(e.target.value)}
-              />
+        {step === 3 && (
+          <>
+            <SetupField
+              label="Storage bucket"
+              value={storageBucket}
+              onChange={(e) => setStorageBucket(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              hint="Created on the node if it does not exist."
+            />
+            <SetupField
+              label="Default quota per user (GB)"
+              type="number"
+              min={1}
+              value={quotaGb}
+              onChange={(e) => setQuotaGb(e.target.value)}
+              hint="Applies to new accounts. Editable per user in the admin console."
+            />
 
-              <div className="h-px w-full bg-edge" aria-hidden />
+            <div className="h-px w-full bg-hairline" aria-hidden />
 
-              {/* Human: Compact node summary + dialog trigger per setup storage step design. */}
-              <div className="flex flex-col gap-3">
-                <p className="text-[13px] font-semibold text-ink">First storage node</p>
-                {storageNodeSaved ? (
-                  <div className="rounded-lg border border-edge bg-surface px-4 py-3 text-sm">
-                    <p className="font-semibold text-ink">
-                      {storageNode.nodeId}{" "}
-                      <span className="font-normal text-ink-muted">· {storageNode.regionLabel}</span>
-                    </p>
-                    <p className="mt-1 truncate text-ink-muted">{storageNode.baseUrl}</p>
-                    <p className="mt-1 text-xs text-ink-faint">{nodeSummary}</p>
+            {/* Human: Compact node summary + dialog trigger — the node itself is edited in a modal. */}
+            <div className="flex flex-col gap-2.5">
+              <span className="text-[13px] font-medium text-ink">First storage node</span>
+              {storageNodeSaved ? (
+                <dl className="divide-y divide-hairline rounded-md border border-edge">
+                  <div className="flex items-baseline justify-between gap-4 px-3 py-1.5 text-[13px]">
+                    <dt className="shrink-0 text-ink-muted">Node</dt>
+                    <dd className="min-w-0 truncate text-right font-medium text-ink">
+                      {storageNode.nodeId} · {storageNode.regionLabel}
+                    </dd>
                   </div>
-                ) : (
-                  <p className="text-sm text-ink-muted">
-                    Register your Nebular OS endpoint before continuing setup.
-                  </p>
-                )}
-                <SetupOutlineButton onClick={() => setStorageNodeDialogOpen(true)}>
-                  <Server className="size-4" aria-hidden />
-                  {storageNodeSaved ? "Edit storage node" : "Configure storage node"}
-                </SetupOutlineButton>
-              </div>
-            </>
-          )}
-
-          {step === 4 && (
-            <>
-              <SetupField
-                label="host"
-                value={postgresFields.host}
-                onChange={(e) => handlePostgresFieldChange("host", e.target.value)}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <SetupField
-                  label="port"
-                  value={postgresFields.port}
-                  onChange={(e) => handlePostgresFieldChange("port", e.target.value)}
-                />
-                <SetupField
-                  label="user"
-                  value={postgresFields.user}
-                  onChange={(e) => handlePostgresFieldChange("user", e.target.value)}
-                />
-              </div>
-              <SetupField
-                label="password"
-                type="password"
-                value={postgresFields.password}
-                onChange={(e) => handlePostgresFieldChange("password", e.target.value)}
-              />
-              <SetupField
-                label="database"
-                value={postgresFields.database}
-                onChange={(e) => handlePostgresFieldChange("database", e.target.value)}
-              />
-              <SetupConnectionUrlBox url={redactPostgresUrl(databaseUrl)} />
-              <SetupOutlineButton onClick={() => void handleTestDatabase()} disabled={dbTesting}>
-                {dbTesting ? "Testing…" : "Test connection"}
+                  <div className="flex items-baseline justify-between gap-4 px-3 py-1.5 text-[13px]">
+                    <dt className="shrink-0 text-ink-muted">Endpoint</dt>
+                    <dd className="min-w-0 truncate text-right font-medium text-ink">
+                      {storageNode.baseUrl}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 px-3 py-1.5 text-[13px]">
+                    <dt className="shrink-0 text-ink-muted">Target capacity</dt>
+                    <dd className="min-w-0 truncate text-right font-medium text-ink">
+                      {nodeSummary}
+                    </dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="text-[13px] leading-relaxed text-ink-muted">
+                  Not configured yet. Additional nodes can be registered later in the admin console.
+                </p>
+              )}
+              <SetupOutlineButton onClick={() => setStorageNodeDialogOpen(true)}>
+                {storageNodeSaved ? "Edit storage node" : "Configure storage node"}
               </SetupOutlineButton>
-            </>
-          )}
+            </div>
+          </>
+        )}
 
-          <SetupErrorBanner message={error} />
+        {step === 4 && (
+          <>
+            <SetupField
+              label="Host"
+              value={postgresFields.host}
+              onChange={(e) => handlePostgresFieldChange("host", e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <SetupField
+                label="Port"
+                inputMode="numeric"
+                value={postgresFields.port}
+                onChange={(e) => handlePostgresFieldChange("port", e.target.value)}
+              />
+              <SetupField
+                label="User"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={postgresFields.user}
+                onChange={(e) => handlePostgresFieldChange("user", e.target.value)}
+              />
+            </div>
+            <SetupPasswordField
+              id="setup-db-password"
+              label="Password"
+              value={postgresFields.password}
+              onChange={(value) => handlePostgresFieldChange("password", value)}
+              autoComplete="off"
+            />
+            <SetupField
+              label="Database"
+              value={postgresFields.database}
+              onChange={(e) => handlePostgresFieldChange("database", e.target.value)}
+            />
+            <SetupConnectionUrlBox url={redactPostgresUrl(databaseUrl)} />
+            <SetupOutlineButton onClick={() => void handleTestDatabase()} disabled={dbTesting}>
+              {dbTesting ? "Testing…" : "Test connection"}
+            </SetupOutlineButton>
 
-          <SetupActionsRow
-            onBack={() => {
-              setError("");
-              setStep((s) => Math.max(1, s - 1) as Step);
-            }}
-            onPrimary={step === 4 ? handleSubmit : next}
-            primaryLabel={step === 4 ? "Complete setup" : "Continue"}
-            loading={loading}
-            loadingLabel={step === 4 ? "Setting up…" : undefined}
-            backDisabled={step === 1}
-          />
-        </SetupFormCard>
-      </div>
+            <div className="h-px w-full bg-hairline" aria-hidden />
+
+            <SetupReviewSummary
+              adminEmail={email.trim()}
+              instanceName={instanceName.trim()}
+              publicRegistration={allowPublicRegistration}
+              requireApproval={requireAccountActivation}
+              storageBucket={storageBucket.trim()}
+              quotaGb={quotaGb}
+              nodeId={storageNode.nodeId}
+              nodeEndpoint={storageNode.baseUrl}
+              nodeCapacity={nodeSummary}
+            />
+          </>
+        )}
+
+        <SetupErrorBanner message={error} />
+      </SetupFormCard>
 
       <SetupStorageNodeDialog
         open={storageNodeDialogOpen}
@@ -459,4 +513,3 @@ export default function SetupPage() {
     </SetupPageShell>
   );
 }
-
