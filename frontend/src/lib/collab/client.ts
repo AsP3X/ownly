@@ -135,7 +135,7 @@ export class CollabClient {
             display_name: this.opts.displayName,
             seed: this.opts.seed,
           });
-      this.applySession(session);
+      this.applySession(session, { includeSnapshot: true, advanceSeq: true });
       this.connectWs();
       return session;
     } catch {
@@ -215,13 +215,31 @@ export class CollabClient {
     void this.pollOpsOnce();
   }
 
-  private applySession(session: CollabSession): void {
+  /**
+   * Human: Apply session metadata. Snapshot content is only adopted when explicitly requested
+   * (join / sync), never on every presence or op fan-out — those carry stale document_html
+   * after plain-text replace ops and would clobber concurrent edits.
+   */
+  private applySession(
+    session: CollabSession,
+    options?: { includeSnapshot?: boolean; advanceSeq?: boolean },
+  ): void {
+    const includeSnapshot = options?.includeSnapshot === true;
+    const advanceSeq = options?.advanceSeq !== false;
     this.sessionId = session.id;
-    this.latestSeq = Math.max(this.latestSeq, session.latest_seq ?? 0);
-    this.snapshot = session.snapshot ?? this.snapshot;
+    if (advanceSeq) {
+      this.latestSeq = Math.max(this.latestSeq, session.latest_seq ?? 0);
+    }
+    if (includeSnapshot && session.snapshot) {
+      this.snapshot = session.snapshot;
+    } else if (session.snapshot && !this.snapshot) {
+      this.snapshot = session.snapshot;
+    }
     this.opts.onSession?.(session);
     this.opts.onParticipants?.(session.participants ?? []);
-    if (session.snapshot) this.opts.onSnapshot?.(session.snapshot);
+    if (includeSnapshot && session.snapshot) {
+      this.opts.onSnapshot?.(session.snapshot);
+    }
   }
 
   private setTransport(mode: CollabTransportMode): void {
@@ -320,27 +338,36 @@ export class CollabClient {
 
     if (data.type === "op" && data.op) {
       this.ingestOp(data.op, false);
-      if (data.session) this.applySession(data.session);
-      else if (data.snapshot) {
-        this.snapshot = data.snapshot;
-        this.opts.onSnapshot?.(data.snapshot);
+      // Presence/participants only — never re-apply document snapshot on every op.
+      if (data.session) {
+        this.applySession(data.session, { includeSnapshot: false, advanceSeq: true });
       }
       return;
     }
 
     if (data.type === "ops" && Array.isArray(data.ops)) {
       for (const op of data.ops) this.ingestOp(op, false);
-      if (data.session) this.applySession(data.session);
-      else if (data.snapshot) {
-        this.snapshot = data.snapshot;
-        this.opts.onSnapshot?.(data.snapshot);
+      if (data.session) {
+        this.applySession(data.session, { includeSnapshot: false, advanceSeq: true });
       }
       return;
     }
 
+    if (data.type === "snapshot" && data.snapshot) {
+      this.snapshot = data.snapshot;
+      if (typeof data.seq === "number") {
+        this.latestSeq = Math.max(this.latestSeq, data.seq);
+      }
+      this.opts.onSnapshot?.(data.snapshot);
+      return;
+    }
+
     if (data.type === "presence") {
-      if (data.session) this.applySession(data.session);
-      else if (data.participants) this.opts.onParticipants?.(data.participants);
+      if (data.session) {
+        this.applySession(data.session, { includeSnapshot: false, advanceSeq: false });
+      } else if (data.participants) {
+        this.opts.onParticipants?.(data.participants);
+      }
       return;
     }
 

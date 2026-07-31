@@ -145,7 +145,7 @@ export function RtfEditorDialog({
       if (localCollabUserId && fromUserId === localCollabUserId) return;
       if (user?.id && fromUserId === user.id) return;
       if (html === draftHtmlRef.current) return;
-      // Human: format_commit only lands when server text matches — safe to apply HTML.
+      // Human: format_commit / join snapshot — safe full HTML apply.
       applyingRemoteRef.current = true;
       try {
         surfaceRef.current?.setHtml(html);
@@ -153,6 +153,30 @@ export function RtfEditorDialog({
         draftHtmlRef.current = html;
         const el = surfaceRef.current?.getEditorElement();
         lastPlainRef.current = el ? rootPlainText(el) : text || htmlToPlainText(html);
+        setCollabLayoutTick((tick) => tick + 1);
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+    },
+    // Human: Late join when server plain text advanced without a matching html snapshot.
+    onRemoteText: (text, fromUserId) => {
+      if (localCollabUserId && fromUserId === localCollabUserId) return;
+      if (user?.id && fromUserId === user.id) return;
+      const root = surfaceRef.current?.getEditorElement();
+      if (!root) return;
+      const current = rootPlainText(root);
+      if (current === text) return;
+      applyingRemoteRef.current = true;
+      try {
+        applyPlainReplaceToEditor(root, {
+          index: 0,
+          deleteCount: current.length,
+          insertText: text,
+        });
+        lastPlainRef.current = rootPlainText(root);
+        const nextHtml = surfaceRef.current?.getHtml() ?? draftHtmlRef.current;
+        setDraftHtml(nextHtml);
+        draftHtmlRef.current = nextHtml;
         setCollabLayoutTick((tick) => tick + 1);
       } finally {
         applyingRemoteRef.current = false;

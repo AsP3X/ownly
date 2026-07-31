@@ -79,6 +79,60 @@ describe("CollabClient", () => {
     client.stop();
   });
 
+  it("does not re-apply document snapshot on op/presence fan-out", async () => {
+    joinMock.mockResolvedValue(
+      emptySession({
+        snapshot: { snapshot_seq: 0, data: { text: "hello", html: "<p>hello</p>" } },
+        document_html: "<p>hello</p>",
+        document_text: "hello",
+      }),
+    );
+    const onSnapshot = vi.fn();
+    const onOp = vi.fn();
+    const client = new CollabClient({
+      roomKind: "document",
+      fileId: "f1",
+      localUserId: "u1",
+      onSnapshot,
+      onOp,
+    });
+    await client.start();
+    onSnapshot.mockClear();
+
+    const op: CollabOp = {
+      id: "1",
+      seq: 1,
+      user_id: "u2",
+      ts: 1,
+      base_seq: 0,
+      op_type: "replace",
+      payload: { index: 5, delete: 0, insert: "!" },
+    };
+    client.handleServerMessage({
+      type: "op",
+      op,
+      session: {
+        ...emptySession({ latest_seq: 1 }),
+        snapshot: {
+          snapshot_seq: 0,
+          data: { text: "hello!", html: "<p>hello</p>" }, // stale html intentionally
+        },
+        document_text: "hello!",
+        document_html: "<p>hello</p>",
+      },
+    });
+    expect(onOp).toHaveBeenCalled();
+    // Snapshot must not re-fire (would clobber DOM with stale html)
+    expect(onSnapshot).not.toHaveBeenCalled();
+
+    client.handleServerMessage({
+      type: "presence",
+      session: emptySession({ latest_seq: 1 }),
+    });
+    expect(onSnapshot).not.toHaveBeenCalled();
+    client.stop();
+  });
+
   it("rebases remote replace against optimistic pending for DOM", async () => {
     joinMock.mockResolvedValue(emptySession());
     const delivered: CollabOp[] = [];

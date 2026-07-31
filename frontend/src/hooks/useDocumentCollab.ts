@@ -103,15 +103,18 @@ export function useDocumentCollab({
         text: lastPlainRef.current,
       }),
       onSession: (next) => {
+        // Human: Presence fan-out must not overwrite local plain/html baselines (stale html after replaces).
         setSession(next);
-        if (next.document_text != null) lastPlainRef.current = next.document_text;
-        if (next.document_html != null) lastHtmlRef.current = next.document_html;
+        setError(null);
       },
       onParticipants: (next) => {
         setParticipants(next);
         onPresenceRef.current?.(next);
       },
-      onTransport: setTransport,
+      onTransport: (mode) => {
+        setTransport(mode);
+        if (mode === "ws") setError(null);
+      },
       onError: (message, code) => {
         // Human: Soft op errors must not paint the strip as offline.
         if (
@@ -145,27 +148,24 @@ export function useDocumentCollab({
     clientRef.current = client;
     void client.start().then((joined) => {
       if (!joined) return;
+      const serverText = joined.document_text ?? "";
+      const serverHtml = joined.document_html ?? "";
+      const seedText = seed?.text ?? "";
+      const seedHtml = seed?.html ?? "";
       const othersPresent = (joined.participants?.length ?? 0) > 1;
-      if (
-        joined.document_html &&
-        seed?.html &&
-        joined.document_html !== seed.html &&
-        othersPresent
-      ) {
-        onRemoteDocumentRef.current?.(
-          joined.document_html,
-          joined.document_text ?? "",
-          "session",
-        );
-      } else if (
-        othersPresent &&
-        joined.document_text != null &&
-        seed?.text != null &&
-        joined.document_text !== seed.text &&
-        !joined.document_html
-      ) {
-        lastPlainRef.current = joined.document_text;
-        onRemoteTextRef.current?.(joined.document_text, "session");
+      // Human: Always adopt server authority when text diverges (html lags text after replace ops).
+      if (serverText !== seedText || (serverHtml && serverHtml !== seedHtml)) {
+        lastPlainRef.current = serverText || lastPlainRef.current;
+        if (serverHtml && serverHtml !== seedHtml) {
+          lastHtmlRef.current = serverHtml;
+          onRemoteDocumentRef.current?.(serverHtml, serverText, "session");
+        } else if (serverText !== seedText) {
+          // Stale/missing html snapshot — sync plain text so peers share the same baseline.
+          onRemoteTextRef.current?.(serverText, "session");
+        } else if (othersPresent && serverHtml) {
+          lastHtmlRef.current = serverHtml;
+          onRemoteDocumentRef.current?.(serverHtml, serverText, "session");
+        }
       }
     });
 
@@ -173,10 +173,11 @@ export function useDocumentCollab({
       client.stop();
       if (clientRef.current === client) clientRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- restart on identity/file only
-  }, [enabled, fileId, displayName, localUserId, publicShare?.token, publicShare?.guestId]);
+    // Human: Restart only when file/share/enable changes — not on displayName flicker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, fileId, publicShare?.token, publicShare?.guestId]);
 
-  // Keep format-commit retry payload getters fresh without restarting the session.
+  // Keep format-commit retry payload getters / identity fresh without restarting the session.
   useEffect(() => {
     clientRef.current?.updateOptions({
       getFormatCommitPayload: () => ({
@@ -184,8 +185,9 @@ export function useDocumentCollab({
         text: lastPlainRef.current,
       }),
       localUserId: localUserId ?? null,
+      displayName,
     });
-  }, [localUserId]);
+  }, [localUserId, displayName]);
 
   function handleRemoteOp(op: CollabOp, isLocalEcho: boolean): void {
     if (isLocalEcho) return;
