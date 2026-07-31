@@ -42,7 +42,7 @@ Configure on the **object-storage** container (see `docker-compose.yml` and `.en
 
 **Webhooks:** `NOS_WEBHOOKS_JSON` maps bucket names to URL lists; Nebular POSTs JSON on single-object PUT and DELETE (copy-object PUT and batch/prefix delete are not wired yet upstream).
 
-**Node capacity:** Optional `NOS_MAX_LOGICAL_BYTES` on each Nebular instance should align with Ownly admin `target_capacity_bytes` for that storage node (HTTP 507 when full).
+**Node capacity:** Ownly upload preflight and placement only enforce a **hard** size cap when Nebular reports `max_logical_bytes > 0` (`NOS_MAX_LOGICAL_BYTES`). Admin `target_capacity_bytes` is planning/display for the storage console — it must not alone block uploads while Nebular is uncapped (common Compose default). Set `NOS_MAX_LOGICAL_BYTES` on each Nebular instance when you want HTTP 507 at a real limit, and keep Ownly’s target aligned for the admin capacity bar.
 
 Align `NOS_MAX_BODY_SIZE` / `MAX_UPLOAD_BYTES` with nginx and the Ownly API upload cap.
 

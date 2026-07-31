@@ -16,8 +16,11 @@ use crate::error::AppError;
 pub struct NodeSnapshot {
     pub id: String,
     pub base_url: String,
+    /// Human: Admin planning target for UI — not a hard write gate unless Nebular also enforces a cap.
     pub target_capacity_bytes: Option<i64>,
     pub used_bytes: i64,
+    /// Human: Nebular NOS_MAX_LOGICAL_BYTES; 0 means the object store accepts writes without a size cap.
+    pub max_logical_bytes: i64,
 }
 
 /// Human: One stripe segment destined for a specific node object key.
@@ -94,37 +97,36 @@ pub fn file_id_from_storage_key(key: &str) -> Option<String> {
     }
 }
 
+// Human: Free bytes this node can still accept for placement/preflight.
+// Agent: ENFORCES Nebular max_logical_bytes when > 0; OTHERWISE unlimited (Ownly target_capacity is display-only).
 pub(crate) fn remaining_bytes(node: &NodeSnapshot) -> i64 {
-    match node.target_capacity_bytes {
-        Some(cap) if cap > 0 => (cap - node.used_bytes).max(0),
-        _ => i64::MAX,
+    // Human: Only Nebular's hard cap can reject PUTs with 507 — inventing a gate from admin target
+    // falsely blocks uploads when HLS logical usage approaches the soft target while disk still has room.
+    if node.max_logical_bytes > 0 {
+        return (node.max_logical_bytes - node.used_bytes.max(0)).max(0);
     }
+    i64::MAX
 }
 
-// Human: Sum free space across capped storage nodes — matches upload striping preflight.
-// Agent: RETURNS None when empty, every node uncapped, OR any uncapped node exists (placement can use it);
-//        Some(sum of capped free) only when every reachable node has a positive target capacity.
+// Human: Sum free space across hard-capped storage nodes — matches upload striping preflight.
+// Agent: RETURNS None when empty or any node is Nebular-uncapped (placement can use it);
+//        Some(sum of hard-cap free) only when every reachable node has max_logical_bytes > 0.
 pub fn aggregate_network_remaining_bytes(nodes: &[NodeSnapshot]) -> Option<i64> {
     if nodes.is_empty() {
         return None;
     }
     let mut total: i64 = 0;
-    let mut any_capped = false;
+    let mut any_hard_capped = false;
     for node in nodes {
-        match node.target_capacity_bytes {
-            Some(cap) if cap > 0 => {
-                any_capped = true;
-                let free = remaining_bytes(node);
-                if free < i64::MAX {
-                    total = total.saturating_add(free);
-                }
-            }
-            // Human: Uncapped nodes accept any size — preflight must not under-report free space as only the capped remainder.
-            // Agent: plan_upload treats remaining_bytes as i64::MAX here; mirror that with unlimited network.
-            _ => return None,
+        let free = remaining_bytes(node);
+        if free == i64::MAX {
+            // Human: Uncapped Nebular node can absorb any remaining upload — do not sum soft targets.
+            return None;
         }
+        any_hard_capped = true;
+        total = total.saturating_add(free);
     }
-    if any_capped {
+    if any_hard_capped {
         Some(total)
     } else {
         None
@@ -184,12 +186,13 @@ pub async fn load_node_snapshots(pool: &PgPool) -> Result<Vec<NodeSnapshot>, App
             );
             continue;
         }
-        let used_bytes = storage_nodes::probe_logical_bytes(&record.base_url).await;
+        let metrics = storage_nodes::probe_node_metrics(&record.base_url).await;
         snapshots.push(NodeSnapshot {
             id: record.id,
             base_url: record.base_url,
             target_capacity_bytes: record.target_capacity_bytes,
-            used_bytes,
+            used_bytes: metrics.logical_bytes,
+            max_logical_bytes: metrics.max_logical_bytes,
         });
     }
     Ok(snapshots)
@@ -501,14 +504,24 @@ mod tests {
         );
     }
 
+    fn snap(
+        id: &str,
+        used_bytes: i64,
+        max_logical_bytes: i64,
+        target_capacity_bytes: Option<i64>,
+    ) -> NodeSnapshot {
+        NodeSnapshot {
+            id: id.into(),
+            base_url: format!("http://{id}"),
+            target_capacity_bytes,
+            used_bytes,
+            max_logical_bytes,
+        }
+    }
+
     #[test]
     fn plan_single_node_when_capacity_fits() {
-        let nodes = vec![NodeSnapshot {
-            id: "a".into(),
-            base_url: "http://a".into(),
-            target_capacity_bytes: Some(1000),
-            used_bytes: 100,
-        }];
+        let nodes = vec![snap("a", 100, 1000, Some(1000))];
         let plan = plan_upload(&nodes, "users/u/files/f", 500).unwrap();
         assert!(matches!(
             plan,
@@ -520,70 +533,38 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_network_remaining_sums_capped_nodes() {
-        let nodes = vec![
-            NodeSnapshot {
-                id: "a".into(),
-                base_url: "http://a".into(),
-                target_capacity_bytes: Some(100),
-                used_bytes: 80,
-            },
-            NodeSnapshot {
-                id: "b".into(),
-                base_url: "http://b".into(),
-                target_capacity_bytes: Some(100),
-                used_bytes: 50,
-            },
-        ];
+    fn aggregate_network_remaining_sums_hard_capped_nodes() {
+        let nodes = vec![snap("a", 80, 100, Some(100)), snap("b", 50, 100, Some(100))];
         assert_eq!(aggregate_network_remaining_bytes(&nodes), Some(70));
+    }
+
+    #[test]
+    fn soft_target_alone_does_not_cap_network_when_nebular_unlimited() {
+        // Human: Setup often sets target_capacity to 50–100GB while NOS_MAX_LOGICAL_BYTES stays 0.
+        // Agent: remaining must stay unlimited so HLS-inflated logical usage cannot false-block uploads.
+        let nodes = vec![snap("a", 49 * 1024 * 1024 * 1024, 0, Some(50 * 1024 * 1024 * 1024))];
+        assert_eq!(remaining_bytes(&nodes[0]), i64::MAX);
+        assert_eq!(aggregate_network_remaining_bytes(&nodes), None);
     }
 
     #[test]
     fn aggregate_network_remaining_unlimited_when_any_node_uncapped() {
         let nodes = vec![
-            NodeSnapshot {
-                id: "a".into(),
-                base_url: "http://a".into(),
-                target_capacity_bytes: Some(100),
-                used_bytes: 99,
-            },
-            NodeSnapshot {
-                id: "b".into(),
-                base_url: "http://b".into(),
-                target_capacity_bytes: None,
-                used_bytes: 0,
-            },
+            snap("a", 99, 100, Some(100)),
+            snap("b", 0, 0, None),
         ];
         assert_eq!(aggregate_network_remaining_bytes(&nodes), None);
     }
 
     #[test]
     fn effective_remaining_respects_network_cap() {
-        let network = aggregate_network_remaining_bytes(&[NodeSnapshot {
-            id: "a".into(),
-            base_url: "http://a".into(),
-            target_capacity_bytes: Some(100),
-            used_bytes: 90,
-        }]);
+        let network = aggregate_network_remaining_bytes(&[snap("a", 90, 100, Some(100))]);
         assert_eq!(effective_remaining_bytes(0, 1_000, network), 10);
     }
 
     #[test]
     fn plan_stripes_across_nodes_on_overflow() {
-        let nodes = vec![
-            NodeSnapshot {
-                id: "a".into(),
-                base_url: "http://a".into(),
-                target_capacity_bytes: Some(100),
-                used_bytes: 80,
-            },
-            NodeSnapshot {
-                id: "b".into(),
-                base_url: "http://b".into(),
-                target_capacity_bytes: Some(100),
-                used_bytes: 70,
-            },
-        ];
+        let nodes = vec![snap("a", 80, 100, Some(100)), snap("b", 70, 100, Some(100))];
         let plan = plan_upload(&nodes, "users/u/files/f", 50).unwrap();
         match plan {
             UploadPlacementPlan::Striped { primary_node_id, parts } => {
@@ -594,5 +575,18 @@ mod tests {
             }
             _ => panic!("expected striped plan"),
         }
+    }
+
+    #[test]
+    fn plan_uses_single_node_when_nebular_unlimited_even_if_soft_target_full() {
+        let nodes = vec![snap("a", 99, 0, Some(100))];
+        let plan = plan_upload(&nodes, "users/u/files/f", 50).unwrap();
+        assert!(matches!(
+            plan,
+            UploadPlacementPlan::Single {
+                node_id,
+                ..
+            } if node_id == "a"
+        ));
     }
 }

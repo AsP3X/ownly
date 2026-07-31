@@ -47,6 +47,16 @@ struct NosHealthBody {
 struct NosMetricsBody {
     #[serde(default)]
     logical_bytes: i64,
+    /// Human: Nebular NOS_MAX_LOGICAL_BYTES — 0 means the object store does not enforce a hard size cap.
+    #[serde(default)]
+    max_logical_bytes: i64,
+}
+
+/// Human: Live Nebular /metrics usage + optional hard capacity for placement.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NodeMetrics {
+    pub logical_bytes: i64,
+    pub max_logical_bytes: i64,
 }
 
 #[derive(Debug)]
@@ -171,9 +181,9 @@ pub(crate) async fn probe_reachable(base_url: &str) -> bool {
     }
 }
 
-// Human: Fetch logical_bytes from Nebular /metrics — used for capacity-aware placement.
-// Agent: READS GET /metrics JSON; RETURNS 0 when unreachable.
-pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
+// Human: Fetch logical_bytes + max_logical_bytes from Nebular /metrics for capacity-aware placement.
+// Agent: READS GET /metrics JSON; RETURNS zeros when unreachable so callers treat the node as empty/uncapped.
+pub(crate) async fn probe_node_metrics(base_url: &str) -> NodeMetrics {
     let client = crate::outbound_target::outbound_probe_client();
     let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
     match client
@@ -185,9 +195,18 @@ pub(crate) async fn probe_logical_bytes(base_url: &str) -> i64 {
         Ok(resp) if resp.status().is_success() => resp
             .json::<NosMetricsBody>()
             .await
-            .map(|m| m.logical_bytes.max(0))
-            .unwrap_or(0),
-        _ => 0,
+            .map(|m| NodeMetrics {
+                logical_bytes: m.logical_bytes.max(0),
+                max_logical_bytes: m.max_logical_bytes.max(0),
+            })
+            .unwrap_or(NodeMetrics {
+                logical_bytes: 0,
+                max_logical_bytes: 0,
+            }),
+        _ => NodeMetrics {
+            logical_bytes: 0,
+            max_logical_bytes: 0,
+        },
     }
 }
 
@@ -213,13 +232,13 @@ async fn probe_storage_node(base_url: &str) -> NodeProbe {
         None
     };
 
-    let logical_bytes = probe_logical_bytes(base_url).await;
+    let metrics = probe_node_metrics(base_url).await;
 
     NodeProbe {
         reachable,
         latency_ms: if reachable { Some(latency_ms) } else { None },
         health,
-        logical_bytes,
+        logical_bytes: metrics.logical_bytes,
     }
 }
 
