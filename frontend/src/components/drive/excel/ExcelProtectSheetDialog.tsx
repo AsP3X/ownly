@@ -44,7 +44,7 @@ export function ExcelProtectSheetDialog({
           Password (optional)
           <input
             type="password"
-            className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+            className="rounded-lg border border-edge px-2 py-1.5"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />

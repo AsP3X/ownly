@@ -44,8 +44,8 @@ export function ExplorerDocumentThumbnail({
   const failedIconClass = isSpreadsheet
     ? "text-[#107C41]"
     : isEpub
-      ? "text-[#7C3AED]"
-      : "text-[#2563EB]";
+      ? "text-proc"
+      : "text-brand";
 
   return (
     <div
@@ -54,7 +54,7 @@ export function ExplorerDocumentThumbnail({
         "overflow-hidden contain-[layout_paint]",
         slotFill
           ? "absolute inset-0 size-full rounded-none bg-transparent"
-          : "relative aspect-square w-full rounded-lg bg-[#F3F4F6]",
+          : "relative aspect-square w-full rounded-lg bg-sunken",
         className,
       )}
     >
@@ -72,13 +72,13 @@ export function ExplorerDocumentThumbnail({
             decoding="async"
             draggable={false}
             fetchPriority={fetchPriority}
-            className="size-full object-cover object-left-top bg-white"
+            className="dr-paper size-full object-cover object-left-top bg-white"
             onError={handleImageError}
           />
         ) : (
           // Human: PDF and EPUB covers keep portrait assets visible with centered letterboxing.
           // Agent: object-contain + items-center; EPUB cover JPEGs share the PDF tile framing.
-          <div className="flex size-full items-center justify-center overflow-hidden bg-white">
+          <div className="dr-paper flex size-full items-center justify-center overflow-hidden bg-white">
             <img
               src={displaySrc}
               alt=""

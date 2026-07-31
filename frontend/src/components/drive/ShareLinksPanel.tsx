@@ -117,16 +117,16 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <Globe className="size-4 text-sky-600" />
+          <Globe className="size-4 text-brand" />
           <h3 className="text-sm font-semibold text-ink">Public link</h3>
         </div>
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-ink-muted">
           Anyone with the link can view and download this{" "}
           {target.resource_type === "folder" ? "folder" : "file"} without signing in.
         </p>
 
         {publicShare ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-edge bg-neutral-50/80 p-4">
+          <div className="flex flex-col gap-3 rounded-lg border border-edge bg-surface/80 p-4">
             <div className="flex min-w-0 items-stretch gap-2">
               <div
                 className="min-w-0 flex-1 overflow-hidden rounded-lg border border-input bg-panel px-3 py-2"
@@ -142,7 +142,7 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
                 onClick={() => void handleCopy()}
                 aria-label="Copy public link"
               >
-                {copied ? <Check className="text-emerald-600" /> : <Copy />}
+                {copied ? <Check className="text-ok" /> : <Copy />}
               </Button>
             </div>
             <p className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -174,7 +174,7 @@ export function ShareLinksPanel({ target, onChanged }: ShareLinksPanelProps) {
         )}
       </section>
 
-      <section className="flex flex-col gap-2 border-t border-neutral-100 pt-6">
+      <section className="flex flex-col gap-2 border-t border-hairline pt-6">
         <div className="flex items-center gap-2">
           <Users className="size-4 text-ink-muted" />
           <h3 className="text-sm font-semibold text-ink">Shared with users</h3>

@@ -148,7 +148,7 @@ export function AudioSeekBar({
             {/* Human: Pencil rails — desktop 4px blue; mobile-sheet 4px blue; mobile-card 6px blue on gray track. */}
             <div
               className={cn(
-                "relative w-full rounded-sm bg-[#E5E7EB]",
+                "relative w-full rounded-sm bg-edge",
                 isMobileSheet && "h-1 top-1/2 -translate-y-1/2",
                 isMobileCard && "h-1.5",
                 isMinimal && "h-1.5",
@@ -159,7 +159,7 @@ export function AudioSeekBar({
                 <div
                   key={bar.key}
                   className={cn(
-                    "absolute rounded-sm bg-[#888888]/25",
+                    "absolute rounded-sm bg-ink-faint/25",
                     isMobileSheet && "top-1/2 h-1 -translate-y-1/2",
                     isMobileCard && "top-0 h-1.5",
                     isMinimal && "top-0 h-1.5",
@@ -173,10 +173,10 @@ export function AudioSeekBar({
                 className={cn(
                   "absolute top-0 left-0 rounded-sm z-[1]",
                   animateProgress && "transition-[width] duration-100 ease-linear",
-                  isMobileSheet && "h-1 bg-blue-600",
-                  isMobileCard && "h-1.5 rounded-[3px] bg-blue-600",
-                  isMinimal && "h-1.5 bg-[#1A1A1A]",
-                  !isMobile && !isMinimal && "h-1 bg-blue-600",
+                  isMobileSheet && "h-1 bg-brand",
+                  isMobileCard && "h-1.5 rounded-[3px] bg-brand",
+                  isMinimal && "h-1.5 bg-ink",
+                  !isMobile && !isMinimal && "h-1 bg-brand",
                 )}
                 style={{ width: `${progressPercent}%` }}
               />
@@ -188,10 +188,10 @@ export function AudioSeekBar({
                 "absolute top-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10",
                 animateProgress && "transition-[left] duration-100 ease-linear",
                 isMobileSheet &&
-                  "h-4 w-4 border-[3px] border-blue-600 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.1)]",
-                isMobileCard && "h-3 w-3 bg-blue-600",
-                isMinimal && "h-3 w-3 bg-[#1A1A1A]",
-                !isMobile && !isMinimal && "h-3 w-3 bg-white border-2 border-blue-600 shadow-sm",
+                  "h-4 w-4 border-[3px] border-brand bg-white shadow-[0_2px_4px_rgba(0,0,0,0.1)]",
+                isMobileCard && "h-3 w-3 bg-brand",
+                isMinimal && "h-3 w-3 bg-ink",
+                !isMobile && !isMinimal && "h-3 w-3 bg-white border-2 border-brand shadow-sm",
               )}
               style={{
                 left: isMobileSheet
@@ -230,7 +230,7 @@ export function AudioSeekBar({
                   transform: "translateX(-50%)",
                 }}
               >
-                <span className="rounded-md bg-[#1A1A1A] px-2 py-1 text-[10px] font-bold tabular-nums text-white">
+                <span className="rounded-md bg-ink px-2 py-1 text-[10px] font-bold tabular-nums text-panel">
                   {formatAudioTime(touchPreviewSeconds)}
                 </span>
               </div>
@@ -268,9 +268,9 @@ export function AudioSeekBar({
         <div
           className={cn(
             "flex items-center justify-between font-normal tabular-nums",
-            isMobile && "mt-2 text-[11px] text-[#666666]",
-            isMinimal && !isMobile && "mt-2 text-[11px] text-[#888888]",
-            !isMobile && !isMinimal && "mt-1.5 text-[11px] text-[#666666]",
+            isMobile && "mt-2 text-[11px] text-ink-muted",
+            isMinimal && !isMobile && "mt-2 text-[11px] text-ink-faint",
+            !isMobile && !isMinimal && "mt-1.5 text-[11px] text-ink-muted",
           )}
         >
           <span>{formatAudioTime(progress)}</span>

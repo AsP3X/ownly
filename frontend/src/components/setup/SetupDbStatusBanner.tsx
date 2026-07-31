@@ -17,15 +17,15 @@ export function SetupDbStatusBanner({ variant, message }: SetupDbStatusBannerPro
       className={cn(
         "flex items-center gap-2.5 rounded-lg border px-3 py-3 text-[13px] font-medium",
         isSuccess
-          ? "border-[#86EFAC] bg-[#DCFCE7] text-[#166534]"
-          : "border-[#FCA5A5] bg-[#FEE2E2] text-[#991B1B]"
+          ? "border-ok/40 bg-ok-weak text-ok"
+          : "border-danger/40 bg-danger-weak text-danger"
       )}
       role="status"
     >
       {isSuccess ? (
-        <CheckCircle className="size-4 shrink-0 text-[#15803D]" aria-hidden />
+        <CheckCircle className="size-4 shrink-0 text-ok" aria-hidden />
       ) : (
-        <XCircle className="size-4 shrink-0 text-[#B91C1C]" aria-hidden />
+        <XCircle className="size-4 shrink-0 text-danger" aria-hidden />
       )}
       <span>{message}</span>
     </div>

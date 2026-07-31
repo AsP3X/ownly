@@ -146,8 +146,8 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "inline-flex items-center gap-1 rounded-sm text-[#323130] transition-colors hover:bg-surface disabled:opacity-50",
-          open && "bg-[#E1DFDD]",
+          "inline-flex items-center gap-1 rounded-sm text-ink transition-colors hover:bg-surface disabled:opacity-50",
+          open && "bg-edge",
         )}
         style={{ padding: `${scaledPx(2)}px ${scaledPx(4)}px`, fontSize: scaledPx(8) }}
       >
@@ -173,14 +173,14 @@ export function ExcelConditionalFormatMenu({ disabled = false, onApplyPreset }: 
                 {item.children ? <ChevronDown className="size-3 rotate-[-90deg] text-ink-muted" aria-hidden /> : null}
               </button>
               {item.children && expanded === item.label ? (
-                <div className="border-t border-[#F3F4F6] bg-[#FAFAFA] py-1 pl-2">
+                <div className="border-t border-hairline bg-surface py-1 pl-2">
                   {item.children.map((child) => (
                     <button
                       key={child.label}
                       type="button"
                       role="menuitem"
                       onClick={() => handleItemClick(child)}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-[#444444] hover:bg-panel"
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-muted hover:bg-panel"
                     >
                       {child.label}
                     </button>

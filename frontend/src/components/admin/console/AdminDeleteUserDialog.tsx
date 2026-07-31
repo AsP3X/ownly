@@ -63,19 +63,19 @@ export function AdminDeleteUserDialog({
       }}
     >
       <DialogContent
-        className="max-w-[480px] gap-0 rounded-2xl border border-[#E5E7EB] bg-white p-7 sm:max-w-[480px]"
+        className="max-w-[480px] gap-0 rounded-2xl border border-edge bg-panel p-7 sm:max-w-[480px]"
         overlayClassName="bg-[#0F172A66]"
       >
         <DialogHeader className="gap-1 text-left">
-          <DialogTitle className="text-lg font-semibold text-[#1A1A1A]">Delete user account</DialogTitle>
-          <DialogDescription className="text-[13px] text-[#666666]">
+          <DialogTitle className="text-lg font-semibold text-ink">Delete user account</DialogTitle>
+          <DialogDescription className="text-[13px] text-ink-muted">
             {userDisplayName(user.email)} • {user.email}
           </DialogDescription>
         </DialogHeader>
 
         <div className="mt-5 flex flex-col gap-4">
           <AdminEditUserCleanupRow checked={cleanup} onCheckedChange={setCleanup} />
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
@@ -83,7 +83,7 @@ export function AdminDeleteUserDialog({
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={deleting}
-            className="rounded-lg border border-[#E5E7EB] bg-white px-[18px] py-2.5 text-[13px] font-medium text-[#666666] hover:bg-[#F7F8FA] disabled:opacity-60"
+            className="rounded-lg border border-edge bg-panel px-[18px] py-2.5 text-[13px] font-medium text-ink-muted hover:bg-surface disabled:opacity-60"
           >
             Cancel
           </button>
@@ -91,7 +91,7 @@ export function AdminDeleteUserDialog({
             type="button"
             onClick={() => void handleDelete()}
             disabled={deleting || !cleanup}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#DC2626] px-[18px] py-2.5 text-[13px] font-medium text-white hover:bg-[#B91C1C] disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-danger px-[18px] py-2.5 text-[13px] font-medium text-danger-on hover:bg-danger disabled:opacity-60"
           >
             {deleting ? (
               <>

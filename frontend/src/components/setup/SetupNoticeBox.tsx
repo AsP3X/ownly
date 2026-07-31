@@ -7,7 +7,7 @@ type SetupNoticeBoxProps = {
 
 export function SetupNoticeBox({ children }: SetupNoticeBoxProps) {
   return (
-    <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3 text-[13px] text-[#666666]">
+    <div className="rounded-lg border border-edge bg-surface px-4 py-3 text-[13px] text-ink-muted">
       {children}
     </div>
   );

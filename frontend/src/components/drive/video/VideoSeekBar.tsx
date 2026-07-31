@@ -142,7 +142,7 @@ export function VideoSeekBar({
               <div
                 className={cn(
                   "absolute top-0 left-0 z-[1] rounded-sm transition-[width] duration-150 ease-linear",
-                  isEdge ? "h-[3px] bg-white" : "bg-[#2563EB]",
+                  isEdge ? "h-[3px] bg-white" : "bg-brand",
                   !isEdge && railHeight,
                 )}
                 style={{ width: `${progressPercent}%` }}

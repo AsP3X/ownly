@@ -156,7 +156,7 @@ export function BulkActionsBar({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-lg",
-            "bg-brand text-white shadow-sm shadow-blue-600/25",
+            "bg-brand text-brand-on shadow-sm shadow-blue-600/25",
             "ring-2 ring-brand/15 lg:ring-4 lg:ring-brand/10",
           )}
           aria-hidden

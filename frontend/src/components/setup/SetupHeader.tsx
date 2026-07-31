@@ -18,16 +18,16 @@ export function SetupHeader({ currentStep, compact = false }: SetupHeaderProps) 
       {/* Human: Brand icon — secondary fill, primary glyph */}
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg bg-[#F7F8FA]",
+          "flex items-center justify-center rounded-lg bg-surface",
           compact ? "size-11 rounded-xl" : "size-12 rounded-lg"
         )}
       >
-        <Cloud className={cn("text-[#1A1A1A]", compact ? "size-5" : "size-6")} aria-hidden />
+        <Cloud className={cn("text-ink", compact ? "size-5" : "size-6")} aria-hidden />
       </div>
 
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-[28px] font-bold leading-tight text-[#1A1A1A]">Welcome to Ownly</h1>
-        <p className="text-sm text-[#888888]">Configure your personal cloud storage in a few steps.</p>
+        <h1 className="text-[28px] font-bold leading-tight text-ink">Welcome to Ownly</h1>
+        <p className="text-sm text-ink-faint">Configure your personal cloud storage in a few steps.</p>
       </div>
 
       {/* Human: Step badges — active uses inverse text on primary fill */}
@@ -41,14 +41,14 @@ export function SetupHeader({ currentStep, compact = false }: SetupHeaderProps) 
                 className={cn(
                   "flex size-8 items-center justify-center rounded-full text-sm",
                   isActive
-                    ? "bg-[#1A1A1A] font-bold text-white"
-                    : "bg-[#F7F8FA] font-normal text-[#666666]"
+                    ? "bg-ink font-bold text-panel"
+                    : "bg-surface font-normal text-ink-muted"
                 )}
                 aria-current={isActive ? "step" : undefined}
               >
                 {stepNumber}
               </div>
-              {stepNumber < TOTAL_STEPS ? <div className="h-px w-8 bg-[#E5E7EB]" aria-hidden /> : null}
+              {stepNumber < TOTAL_STEPS ? <div className="h-px w-8 bg-edge" aria-hidden /> : null}
             </div>
           );
         })}

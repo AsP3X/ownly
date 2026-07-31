@@ -21,28 +21,28 @@ export function ExcelStatusBar({
   const statusLabel = undoAvailable ? "Edited" : redoAvailable ? "Redo available" : "Ready";
   return (
     <div
-      className="flex shrink-0 items-center justify-between border-t border-[#E5E7EB] bg-[#F7F8FA]"
+      className="flex shrink-0 items-center justify-between border-t border-edge bg-surface"
       style={{ height: scaledPx(24), paddingInline: scaledPx(16) }}
     >
       <div className="flex items-center" style={{ gap: scaledPx(6) }}>
         <span
-          className="rounded-full bg-[#10B981]"
+          className="rounded-full bg-ok"
           style={{ width: scaledPx(6), height: scaledPx(6) }}
           aria-hidden
         />
-        <span className="text-[#888888]" style={{ fontSize: scaledPx(10) }}>
+        <span className="text-ink-faint" style={{ fontSize: scaledPx(10) }}>
           {statusLabel}
         </span>
       </div>
       <div className="flex items-center gap-3">
         {onZoomChange ? (
           <div className="flex items-center gap-1">
-            <button type="button" className="rounded px-1 hover:bg-[#E5E7EB]" onClick={() => onZoomChange(zoomPercent - 10)} aria-label="Zoom out">−</button>
-            <span className="text-[#666666]" style={{ fontSize: scaledPx(10), minWidth: scaledPx(36), textAlign: "center" }}>{zoomPercent}%</span>
-            <button type="button" className="rounded px-1 hover:bg-[#E5E7EB]" onClick={() => onZoomChange(zoomPercent + 10)} aria-label="Zoom in">+</button>
+            <button type="button" className="rounded px-1 hover:bg-edge" onClick={() => onZoomChange(zoomPercent - 10)} aria-label="Zoom out">−</button>
+            <span className="text-ink-muted" style={{ fontSize: scaledPx(10), minWidth: scaledPx(36), textAlign: "center" }}>{zoomPercent}%</span>
+            <button type="button" className="rounded px-1 hover:bg-edge" onClick={() => onZoomChange(zoomPercent + 10)} aria-label="Zoom in">+</button>
           </div>
         ) : null}
-        <p className="font-medium text-[#666666]" style={{ fontSize: scaledPx(10) }}>
+        <p className="font-medium text-ink-muted" style={{ fontSize: scaledPx(10) }}>
           {metricsLine}
         </p>
       </div>

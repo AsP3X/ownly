@@ -39,7 +39,7 @@ export function AdminKeyManagementPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
@@ -54,7 +54,7 @@ export function AdminKeyManagementPanel() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading security overview…
         </div>
@@ -65,18 +65,18 @@ export function AdminKeyManagementPanel() {
           title="Global Security Policies"
           subtitle="Platform-wide encryption, session, and access defaults"
         >
-          <ul className="flex flex-col gap-3 text-sm text-[#1A1A1A]">
+          <ul className="flex flex-col gap-3 text-sm text-ink">
             {data.policies.map((policy) => (
               <li
                 key={policy.label}
-                className="flex items-center justify-between rounded-lg border border-[#E5E7EB] px-4 py-3"
+                className="flex items-center justify-between rounded-lg border border-edge px-4 py-3"
               >
                 <span>{policy.label}</span>
                 <span
                   className={
                     policy.enabled
-                      ? "text-xs font-semibold text-[#10B981]"
-                      : "text-xs font-semibold text-[#666666]"
+                      ? "text-xs font-semibold text-ok"
+                      : "text-xs font-semibold text-ink-muted"
                   }
                 >
                   {policy.enabled ? "Enabled" : "Disabled"}
@@ -100,8 +100,8 @@ export function AdminKeyManagementPanel() {
                     detail={encryption.quantum_posture}
                     badge={{ label: "AES-256", tone: "success" }}
                     icon={RefreshCw}
-                    iconBg="bg-[#EFF6FF]"
-                    iconColor="text-[#2563EB]"
+                    iconBg="bg-brand-weak"
+                    iconColor="text-brand"
                   />
                   <AdminConsoleMetricCard
                     label="Key exchange"
@@ -109,8 +109,8 @@ export function AdminKeyManagementPanel() {
                     detail={encryption.key_exchange}
                     badge={{ label: "Edge", tone: "info" }}
                     icon={RefreshCw}
-                    iconBg="bg-[#EFF6FF]"
-                    iconColor="text-[#2563EB]"
+                    iconBg="bg-brand-weak"
+                    iconColor="text-brand"
                   />
                   <AdminConsoleMetricCard
                     label="Storage Nodes"
@@ -121,8 +121,8 @@ export function AdminKeyManagementPanel() {
                       tone: "info",
                     }}
                     icon={RefreshCw}
-                    iconBg="bg-[#EFF6FF]"
-                    iconColor="text-[#2563EB]"
+                    iconBg="bg-brand-weak"
+                    iconColor="text-brand"
                   />
                   <AdminConsoleMetricCard
                     label="Audit Trail"
@@ -130,8 +130,8 @@ export function AdminKeyManagementPanel() {
                     detail="Recent admin and setup actions"
                     badge={{ label: "Live", tone: "warning" }}
                     icon={RefreshCw}
-                    iconBg="bg-[#EFF6FF]"
-                    iconColor="text-[#2563EB]"
+                    iconBg="bg-brand-weak"
+                    iconColor="text-brand"
                   />
                 </div>
 
@@ -139,17 +139,17 @@ export function AdminKeyManagementPanel() {
                   title="Instance Security Posture"
                   subtitle="Encryption and storage health for this deployment"
                 >
-                  <div className="flex flex-col gap-3 text-sm text-[#666666]">
+                  <div className="flex flex-col gap-3 text-sm text-ink-muted">
                     <p>
-                      <span className="font-semibold text-[#1A1A1A]">Key wrapping: </span>
+                      <span className="font-semibold text-ink">Key wrapping: </span>
                       {encryption.key_wrapping}
                     </p>
                     <p>
-                      <span className="font-semibold text-[#1A1A1A]">Streaming segments: </span>
+                      <span className="font-semibold text-ink">Streaming segments: </span>
                       {encryption.streaming_segment_cipher}
                     </p>
                     <p>
-                      <span className="font-semibold text-[#1A1A1A]">Passwords: </span>
+                      <span className="font-semibold text-ink">Passwords: </span>
                       {encryption.password_kdf}
                     </p>
                     <p>
@@ -165,18 +165,18 @@ export function AdminKeyManagementPanel() {
 
           <AdminConsolePanel title="Security & Admin Action History">
             {data.rotation_history.length === 0 ? (
-              <p className="text-sm text-[#666666]">No admin security events recorded yet.</p>
+              <p className="text-sm text-ink-muted">No admin security events recorded yet.</p>
             ) : (
               <ul className="flex flex-col gap-4">
                 {data.rotation_history.map((item) => (
                   <li
                     key={`${item.title}-${item.date}`}
-                    className="flex flex-col gap-1 border-b border-[#E5E7EB] pb-4 last:border-0 last:pb-0"
+                    className="flex flex-col gap-1 border-b border-edge pb-4 last:border-0 last:pb-0"
                   >
-                    <p className="font-semibold text-[#1A1A1A]">{item.title}</p>
-                    <p className="text-xs text-[#666666]">{item.initiator}</p>
-                    <p className="text-xs font-medium text-[#10B981]">{item.status}</p>
-                    <p className="text-xs text-[#888888]">{item.date}</p>
+                    <p className="font-semibold text-ink">{item.title}</p>
+                    <p className="text-xs text-ink-muted">{item.initiator}</p>
+                    <p className="text-xs font-medium text-ok">{item.status}</p>
+                    <p className="text-xs text-ink-faint">{item.date}</p>
                   </li>
                 ))}
               </ul>

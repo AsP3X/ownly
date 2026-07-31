@@ -54,14 +54,14 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
 
   return (
     <div
-      className="space-y-3 border-b border-neutral-100 bg-neutral-50/80 px-6 py-4"
+      className="space-y-3 border-b border-hairline bg-surface/80 px-6 py-4"
       role="status"
       aria-live="polite"
       aria-busy={!status.ready}
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-neutral-800">{heading}</p>
-        <p className="shrink-0 text-sm font-semibold tabular-nums text-neutral-700">
+        <p className="text-sm font-medium text-ink">{heading}</p>
+        <p className="shrink-0 text-sm font-semibold tabular-nums text-ink-muted">
           {isStarting && percent === 0 ? "…" : `${percent}%`}
         </p>
       </div>
@@ -98,7 +98,7 @@ export function DeleteJobProgress({ status }: DeleteJobProgressProps) {
 // Agent: RENDERS neutral text; SHOWN before deletion-preview API returns.
 export function DeletePreviewLoading() {
   return (
-    <p className="border-b border-neutral-100 px-6 py-4 text-sm text-ink-muted">
+    <p className="border-b border-hairline px-6 py-4 text-sm text-ink-muted">
       Checking storage objects to remove…
     </p>
   );
@@ -119,7 +119,7 @@ export function DeletePreviewSummary({
   const verb = permanentOnly ? "This will remove" : "Permanently deleting will remove";
 
   return (
-    <p className="border-b border-neutral-100 px-6 py-3 text-sm text-neutral-600">
+    <p className="border-b border-hairline px-6 py-3 text-sm text-ink-muted">
       {verb} {formatStorageObjectCount(storageObjectCount)}
       {fileCount > 1 ? ` across ${fileCount.toLocaleString()} files` : ""}.
     </p>

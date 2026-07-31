@@ -9,7 +9,7 @@ type SetupPageShellProps = {
 
 export function SetupPageShell({ children }: SetupPageShellProps) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white p-10">
+    <div className="flex min-h-screen items-center justify-center bg-panel p-10">
       {children}
     </div>
   );

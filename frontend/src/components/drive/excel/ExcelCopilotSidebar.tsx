@@ -104,7 +104,7 @@ export function ExcelCopilotSidebar({
                 type="button"
                 aria-label="Collapse copilot sidebar"
                 onClick={() => onCollapsedChange(true)}
-                className="flex items-center justify-center rounded border border-edge bg-panel text-ink-muted hover:border-[#BFDBFE] hover:bg-brand-weak hover:text-brand"
+                className="flex items-center justify-center rounded border border-edge bg-panel text-ink-muted hover:border-brand/40 hover:bg-brand-weak hover:text-brand"
                 style={{ width: scaledPx(24), height: scaledPx(24) }}
               >
                 <ChevronRight style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />
@@ -135,9 +135,9 @@ export function ExcelCopilotSidebar({
                     <span
                       className={cn(
                         "shrink-0 rounded-full font-semibold",
-                        analysis.badgeTone === "over-budget" && "bg-[#FEE2E2] text-[#B91C1C]",
+                        analysis.badgeTone === "over-budget" && "bg-danger-weak text-danger",
                         analysis.badgeTone === "under-budget" && "bg-brand-weak text-brand-hover",
-                        analysis.badgeTone === "neutral" && "bg-[#D1FAE5] text-[#047857]",
+                        analysis.badgeTone === "neutral" && "bg-ok-weak text-ok",
                       )}
                       style={{ fontSize: scaledPx(10), padding: `${scaledPx(2)}px ${scaledPx(8)}px` }}
                     >

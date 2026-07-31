@@ -270,15 +270,15 @@ export function AudioPreviewDialog({
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="gap-5 overflow-visible border border-[#E5E7EB] bg-white p-8 pt-10 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:max-w-[640px] rounded-3xl"
+        className="gap-5 overflow-visible border border-edge bg-panel p-8 pt-10 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:max-w-[640px] rounded-3xl"
         overlayClassName="bg-[#0A0A10]/80 backdrop-blur-2xl"
       >
         {/* Human: Dialog header — title + filename subtitle per Pencil Audio Preview Dialog card. */}
         <DialogHeader className="gap-2 text-left">
-          <DialogTitle className="text-xl font-bold leading-tight text-[#1A1A1A]">
+          <DialogTitle className="text-xl font-bold leading-tight text-ink">
             Audio preview
           </DialogTitle>
-          <DialogDescription className="text-sm font-normal text-[#666666]">
+          <DialogDescription className="text-sm font-normal text-ink-muted">
             {subtitleParts.join(" · ")}
           </DialogDescription>
         </DialogHeader>

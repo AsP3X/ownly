@@ -55,8 +55,8 @@ function sessionMetadataLine(session: AdminUserSessionRow): string {
 function SessionDeviceIcon({ deviceType }: { deviceType: ProfileSessionDeviceType }) {
   const Icon = DEVICE_ICONS[deviceType];
   return (
-    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#F7F8FA]">
-      <Icon className="size-5 text-[#1A1A1A]" aria-hidden />
+    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface">
+      <Icon className="size-5 text-ink" aria-hidden />
     </div>
   );
 }
@@ -78,30 +78,30 @@ function SessionRow({
   onRevoke?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-[#E5E7EB] bg-white p-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-edge bg-panel p-3">
       <div className="flex min-w-0 items-center gap-4">
         <SessionDeviceIcon deviceType={deviceType} />
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-[#1A1A1A]">{deviceName}</p>
+            <p className="text-sm font-semibold text-ink">{deviceName}</p>
             {isCurrent ? (
-              <span className="rounded border border-[#DBEAFE] bg-[#EFF6FF] px-1.5 py-0.5 text-[10px] font-semibold text-[#2563EB]">
+              <span className="rounded border border-brand-weak bg-brand-weak px-1.5 py-0.5 text-[10px] font-semibold text-brand">
                 Current Session
               </span>
             ) : null}
           </div>
-          <p className="text-xs text-[#666666]">{metadata}</p>
+          <p className="text-xs text-ink-muted">{metadata}</p>
         </div>
       </div>
 
       {isCurrent ? (
-        <span className="shrink-0 text-[13px] font-medium text-[#888888]">This Device</span>
+        <span className="shrink-0 text-[13px] font-medium text-ink-faint">This Device</span>
       ) : (
         <button
           type="button"
           onClick={onRevoke}
           disabled={revoking || !onRevoke}
-          className="shrink-0 rounded-lg border border-[#FEE2E2] px-3.5 py-2 text-xs font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-60"
+          className="shrink-0 rounded-lg border border-danger-weak px-3.5 py-2 text-xs font-semibold text-danger transition-colors hover:bg-danger-weak disabled:cursor-not-allowed disabled:opacity-60"
         >
           {revoking ? "Revoking…" : "Revoke"}
         </button>
@@ -129,15 +129,15 @@ export function ProfileSessionsCard({
         <ProfileDivider />
 
         {error ? (
-          <p className="text-sm text-[#EF4444]" role="alert">
+          <p className="text-sm text-danger" role="alert">
             {error}
           </p>
         ) : null}
 
-        {loading ? <p className="text-sm text-[#666666]">Loading sessions…</p> : null}
+        {loading ? <p className="text-sm text-ink-muted">Loading sessions…</p> : null}
 
         {!loading && !error && sessions.length === 0 ? (
-          <p className="text-sm text-[#666666]">No active sessions found for this account.</p>
+          <p className="text-sm text-ink-muted">No active sessions found for this account.</p>
         ) : null}
 
         <div className="flex flex-col gap-3">

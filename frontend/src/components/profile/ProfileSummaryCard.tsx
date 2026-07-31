@@ -36,7 +36,7 @@ export function ProfileSummaryCard({
       <div className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-3">
           <div
-            className="flex size-20 items-center justify-center rounded-full bg-[#2563EB] text-[28px] font-bold text-white"
+            className="flex size-20 items-center justify-center rounded-full bg-brand text-[28px] font-bold text-brand-on"
             aria-hidden
           >
             {initials}
@@ -45,7 +45,7 @@ export function ProfileSummaryCard({
             type="button"
             disabled
             title="Avatar uploads are not available yet"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-3 py-1.5 text-xs font-medium text-[#666666]"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted"
           >
             <Camera className="size-3.5" aria-hidden />
             Change Avatar
@@ -53,9 +53,9 @@ export function ProfileSummaryCard({
         </div>
 
         <div className="flex flex-col items-center gap-1 text-center">
-          <p className="text-lg font-bold text-[#1A1A1A]">{displayName}</p>
-          <p className="text-[13px] text-[#666666]">{roleLabel}</p>
-          <div className="flex items-center gap-1 text-xs text-[#888888]">
+          <p className="text-lg font-bold text-ink">{displayName}</p>
+          <p className="text-[13px] text-ink-muted">{roleLabel}</p>
+          <div className="flex items-center gap-1 text-xs text-ink-faint">
             <MapPin className="size-3 shrink-0" aria-hidden />
             <span>{locationLabel}</span>
           </div>
@@ -69,7 +69,7 @@ export function ProfileSummaryCard({
           <ProfileStatRow
             label="Encryption Keys"
             value={encryptionKeysLabel}
-            valueClassName="text-[#10B981]"
+            valueClassName="text-ok"
           />
           <ProfileStatRow
             label="Last Password Reset"

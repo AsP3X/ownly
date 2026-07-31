@@ -109,12 +109,12 @@ export function PdfPreviewDialogDesktop({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
-          <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 sm:px-6">
+        <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-[0_16px_48px_rgba(0,0,0,0.2)]">
+          <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-edge px-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              <FileText className="size-5 shrink-0 text-red-500" aria-hidden />
-              <p className="truncate text-sm font-bold text-[#1A1A1A]">{file?.name ?? "PDF preview"}</p>
-              <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex">
+              <FileText className="size-5 shrink-0 text-danger" aria-hidden />
+              <p className="truncate text-sm font-bold text-ink">{file?.name ?? "PDF preview"}</p>
+              <span className="hidden items-center gap-1 rounded-md border border-ok/30 bg-ok-weak px-2 py-1 text-[11px] font-bold text-ok sm:inline-flex">
                 <ShieldCheck className="size-3" aria-hidden />
                 Decrypted Locally
               </span>
@@ -127,7 +127,7 @@ export function PdfPreviewDialogDesktop({
                   disabled={!canGoPrevious}
                   onClick={goPreviousPage}
                   aria-label="Previous page"
-                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                  className="flex size-7 items-center justify-center rounded-lg border border-edge bg-panel text-ink-muted transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                 >
                   <ChevronLeft className="size-3.5" aria-hidden />
                 </button>
@@ -146,9 +146,9 @@ export function PdfPreviewDialogDesktop({
                         commitPageInput();
                       }
                     }}
-                    className="h-[26px] w-8 rounded border border-[#E5E7EB] bg-white text-center text-xs text-[#1A1A1A] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                    className="h-[26px] w-8 rounded border border-edge bg-panel text-center text-xs text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                   />
-                  <span className="text-xs text-[#666666]">of {numPages || "—"}</span>
+                  <span className="text-xs text-ink-muted">of {numPages || "—"}</span>
                 </div>
 
                 <button
@@ -156,13 +156,13 @@ export function PdfPreviewDialogDesktop({
                   disabled={!canGoNext}
                   onClick={goNextPage}
                   aria-label="Next page"
-                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                  className="flex size-7 items-center justify-center rounded-lg border border-edge bg-panel text-ink transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                 >
                   <ChevronRight className="size-3.5" aria-hidden />
                 </button>
               </div>
 
-              <div className="h-5 w-px bg-[#E5E7EB]" aria-hidden />
+              <div className="h-5 w-px bg-edge" aria-hidden />
 
               <div className="flex items-center gap-2">
                 <button
@@ -170,11 +170,11 @@ export function PdfPreviewDialogDesktop({
                   disabled={zoom <= PDF_MIN_ZOOM}
                   onClick={zoomOut}
                   aria-label="Zoom out"
-                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                  className="flex size-7 items-center justify-center rounded-lg border border-edge bg-panel text-ink-muted transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                 >
                   <Minus className="size-3.5" aria-hidden />
                 </button>
-                <span className="min-w-[2.75rem] text-center text-xs font-bold text-[#1A1A1A]">
+                <span className="min-w-[2.75rem] text-center text-xs font-bold text-ink">
                   {Math.round(zoom * 100)}%
                 </span>
                 <button
@@ -182,7 +182,7 @@ export function PdfPreviewDialogDesktop({
                   disabled={zoom >= PDF_MAX_ZOOM}
                   onClick={zoomIn}
                   aria-label="Zoom in"
-                  className="flex size-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:pointer-events-none disabled:opacity-40"
+                  className="flex size-7 items-center justify-center rounded-lg border border-edge bg-panel text-ink transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                 >
                   <Plus className="size-3.5" aria-hidden />
                 </button>
@@ -191,8 +191,8 @@ export function PdfPreviewDialogDesktop({
 
             <div className="flex shrink-0 items-center gap-2.5">
               {searchOpen ? (
-                <div className="hidden items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-2 py-1 sm:flex">
-                  <Search className="size-3.5 shrink-0 text-[#666666]" aria-hidden />
+                <div className="hidden items-center gap-1.5 rounded-lg border border-edge bg-surface px-2 py-1 sm:flex">
+                  <Search className="size-3.5 shrink-0 text-ink-muted" aria-hidden />
                   <input
                     ref={searchInputRef}
                     type="search"
@@ -210,9 +210,9 @@ export function PdfPreviewDialogDesktop({
                     }}
                     placeholder="Search in document"
                     aria-label="Search in PDF"
-                    className="h-7 w-[min(12rem,28vw)] bg-transparent text-xs text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+                    className="h-7 w-[min(12rem,28vw)] bg-transparent text-xs text-ink outline-none placeholder:text-ink-faint"
                   />
-                  <span className="min-w-[4.5rem] text-center text-[10px] text-[#666666]" aria-live="polite">
+                  <span className="min-w-[4.5rem] text-center text-[10px] text-ink-muted" aria-live="polite">
                     {searchResultLabel}
                   </span>
                   <button
@@ -220,7 +220,7 @@ export function PdfPreviewDialogDesktop({
                     disabled={!canNavigateSearchMatches}
                     onClick={goToPreviousSearchMatch}
                     aria-label="Previous search result"
-                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white disabled:pointer-events-none disabled:opacity-40"
+                    className="flex size-6 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                   >
                     <ChevronUp className="size-3.5" aria-hidden />
                   </button>
@@ -229,7 +229,7 @@ export function PdfPreviewDialogDesktop({
                     disabled={!canNavigateSearchMatches}
                     onClick={goToNextSearchMatch}
                     aria-label="Next search result"
-                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white disabled:pointer-events-none disabled:opacity-40"
+                    className="flex size-6 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
                   >
                     <ChevronDown className="size-3.5" aria-hidden />
                   </button>
@@ -237,7 +237,7 @@ export function PdfPreviewDialogDesktop({
                     type="button"
                     onClick={closeSearch}
                     aria-label="Close search"
-                    className="flex size-6 items-center justify-center rounded-md text-[#666666] transition-colors hover:bg-white"
+                    className="flex size-6 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface"
                   >
                     <X className="size-3.5" aria-hidden />
                   </button>
@@ -248,7 +248,7 @@ export function PdfPreviewDialogDesktop({
                   title="Search in PDF (Ctrl+F)"
                   aria-label="Search in PDF"
                   onClick={() => setSearchOpen(true)}
-                  className="hidden size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#666666] transition-colors hover:bg-[#E5E7EB] hover:text-[#1A1A1A] sm:flex"
+                  className="hidden size-8 items-center justify-center rounded-lg bg-surface text-ink-muted transition-colors hover:bg-edge hover:text-ink sm:flex"
                 >
                   <Search className="size-4" aria-hidden />
                 </button>
@@ -258,7 +258,7 @@ export function PdfPreviewDialogDesktop({
                 <button
                   type="button"
                   onClick={() => onDownload?.(file!)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1d4ed8]"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-xs font-bold text-brand-on transition-colors hover:bg-brand-hover"
                 >
                   <Download className="size-3.5" aria-hidden />
                   <span className="hidden sm:inline">Download</span>
@@ -269,7 +269,7 @@ export function PdfPreviewDialogDesktop({
                 render={
                   <button
                     type="button"
-                    className="flex size-8 items-center justify-center rounded-lg bg-[#F7F8FA] text-[#1A1A1A] transition-colors hover:bg-[#E5E7EB]"
+                    className="flex size-8 items-center justify-center rounded-lg bg-surface text-ink transition-colors hover:bg-edge"
                     aria-label="Close PDF preview"
                   />
                 }
@@ -281,13 +281,13 @@ export function PdfPreviewDialogDesktop({
 
           <div className="flex min-h-0 flex-1">
             {error ? (
-              <p className="flex flex-1 items-center justify-center px-4 text-center text-sm text-red-300" role="alert">
+              <p className="flex flex-1 items-center justify-center px-4 text-center text-sm text-danger" role="alert">
                 {error}
               </p>
             ) : null}
 
             {loading && !pdfObjectUrl ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-[#666666]">
+              <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
                 <Loader2 className="size-6 animate-spin" aria-hidden />
                 <span className="sr-only">Loading PDF…</span>
               </div>
@@ -297,7 +297,7 @@ export function PdfPreviewDialogDesktop({
               <Document
                 file={pdfObjectUrl}
                 loading={
-                  <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+                  <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-ink-muted">
                     <Loader2 className="size-5 animate-spin" aria-hidden />
                     Rendering PDF…
                   </div>
@@ -308,8 +308,8 @@ export function PdfPreviewDialogDesktop({
                 }}
                 className="flex min-h-0 min-w-0 flex-1 flex-row"
               >
-                <aside className="hidden w-[270px] shrink-0 flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] sm:flex">
-                  <p className="px-3 pt-4 text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
+                <aside className="hidden w-[270px] shrink-0 flex-col border-r border-edge bg-surface sm:flex">
+                  <p className="px-3 pt-4 text-[11px] font-bold tracking-wide text-ink-faint">PAGE THUMBNAILS</p>
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
                     {numPages > 0
                       ? Array.from({ length: numPages }, (_, index) => {
@@ -331,10 +331,10 @@ export function PdfPreviewDialogDesktop({
                             >
                               <div
                                 className={cn(
-                                  "flex w-[150px] items-center justify-center rounded border bg-white p-2 transition-colors",
+                                  "dr-paper flex w-[150px] items-center justify-center rounded border bg-white p-2 transition-colors",
                                   isActive
-                                    ? "border-2 border-[#2563EB]"
-                                    : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
+                                    ? "border-2 border-brand"
+                                    : "border border-edge hover:border-brand/50",
                                 )}
                               >
                                 <Page
@@ -344,7 +344,7 @@ export function PdfPreviewDialogDesktop({
                                   renderTextLayer={false}
                                   loading={
                                     <div className="flex h-[165px] w-full items-center justify-center">
-                                      <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
+                                      <Loader2 className="size-4 animate-spin text-ink-faint" aria-hidden />
                                     </div>
                                   }
                                 />
@@ -352,7 +352,7 @@ export function PdfPreviewDialogDesktop({
                               <span
                                 className={cn(
                                   "text-[10px]",
-                                  isActive ? "font-bold text-[#2563EB]" : "text-[#666666]",
+                                  isActive ? "font-bold text-brand" : "text-ink-muted",
                                 )}
                               >
                                 Page {pageNumber}
@@ -386,7 +386,7 @@ export function PdfPreviewDialogDesktop({
                               if (node) pageRefs.current.set(pageNumber, node);
                               else pageRefs.current.delete(pageNumber);
                             }}
-                            className="rounded bg-white shadow-[0_8px_24px_rgba(0,0,0,0.25)]"
+                            className="dr-paper rounded bg-white shadow-[0_8px_24px_rgba(0,0,0,0.25)]"
                           >
                             <Page
                               pageNumber={pageNumber}
@@ -398,7 +398,7 @@ export function PdfPreviewDialogDesktop({
                               }
                               loading={
                                 <div className="flex min-h-[36rem] min-w-[24rem] items-center justify-center">
-                                  <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                                  <Loader2 className="size-6 animate-spin text-ink-faint" aria-hidden />
                                 </div>
                               }
                               className={cn(loading && "opacity-70")}

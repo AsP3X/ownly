@@ -38,32 +38,32 @@ type MobileHomeSectionProps = {
 // Agent: READS mime_type; RETURNS colored icon wrapper for list density.
 function HomeFileIcon({ mimeType }: { mimeType: string | null }) {
   const mime = (mimeType ?? "").toLowerCase();
-  let icon = <FileIcon className="size-5 text-blue-700" aria-hidden />;
-  let tone = "bg-blue-50";
+  let icon = <FileIcon className="size-5 text-brand" aria-hidden />;
+  let tone = "bg-brand-weak";
 
   if (mime.startsWith("image/")) {
-    icon = <ImageIcon className="size-5 text-sky-700" aria-hidden />;
-    tone = "bg-sky-50";
+    icon = <ImageIcon className="size-5 text-brand" aria-hidden />;
+    tone = "bg-brand-weak";
   } else if (mime.startsWith("video/")) {
-    icon = <Film className="size-5 text-violet-700" aria-hidden />;
-    tone = "bg-violet-50";
+    icon = <Film className="size-5 text-proc" aria-hidden />;
+    tone = "bg-proc-weak";
   } else if (mime.startsWith("audio/")) {
-    icon = <Music className="size-5 text-emerald-700" aria-hidden />;
-    tone = "bg-emerald-50";
+    icon = <Music className="size-5 text-ok" aria-hidden />;
+    tone = "bg-ok-weak";
   } else if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    icon = <FileSpreadsheet className="size-5 text-green-700" aria-hidden />;
-    tone = "bg-green-50";
+    icon = <FileSpreadsheet className="size-5 text-ok" aria-hidden />;
+    tone = "bg-ok-weak";
   } else if (mime.includes("presentation") || mime.includes("powerpoint")) {
-    icon = <Presentation className="size-5 text-orange-700" aria-hidden />;
-    tone = "bg-orange-50";
+    icon = <Presentation className="size-5 text-warn" aria-hidden />;
+    tone = "bg-warn-weak";
   } else if (
     mime.startsWith("text/") ||
     mime.includes("pdf") ||
     mime.includes("word") ||
     mime.includes("document")
   ) {
-    icon = <FileText className="size-5 text-blue-700" aria-hidden />;
-    tone = "bg-blue-50";
+    icon = <FileText className="size-5 text-brand" aria-hidden />;
+    tone = "bg-brand-weak";
   }
 
   return (
@@ -92,7 +92,7 @@ export function MobileHomeSection({
     return (
       <section className="lg:hidden">
         <h2 className="mb-2 px-1 text-sm font-semibold text-ink">{title}</h2>
-        <p className="rounded-2xl bg-panel px-4 py-6 text-center text-sm text-ink-muted shadow-sm ring-1 ring-neutral-200/70">
+        <p className="rounded-2xl bg-panel px-4 py-6 text-center text-sm text-ink-muted shadow-sm ring-1 ring-edge/70">
           {emptyMessage}
         </p>
       </section>
@@ -102,7 +102,7 @@ export function MobileHomeSection({
   return (
     <section className="lg:hidden">
       <h2 className="mb-2 px-1 text-sm font-semibold text-ink">{title}</h2>
-      <ul className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-neutral-200/70">
+      <ul className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-edge/70">
         {files.map((file, index) => {
           const isVideo = file.mime_type?.startsWith("video/") ?? false;
           const isImage = isImageMime(file.mime_type);
@@ -121,7 +121,7 @@ export function MobileHomeSection({
           return (
             <li
               key={file.id}
-              className={cn(index > 0 && "border-t border-neutral-100")}
+              className={cn(index > 0 && "border-t border-hairline")}
               data-file-id={file.id}
             >
               <div className="flex items-center gap-1 pr-1">
@@ -135,7 +135,7 @@ export function MobileHomeSection({
                     else if (canPreviewAudio) onPreviewAudio!(file);
                   }}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-neutral-50",
+                    "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-surface",
                     !canPreview && "cursor-default",
                   )}
                 >
@@ -150,7 +150,7 @@ export function MobileHomeSection({
                     </p>
                     {processing ? (
                       <div className="mt-1.5">
-                        <FileProcessingBadge file={file} className="bg-violet-100 text-violet-900" />
+                        <FileProcessingBadge file={file} className="bg-proc-weak text-proc" />
                       </div>
                     ) : null}
                   </div>

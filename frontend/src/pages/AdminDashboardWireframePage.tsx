@@ -21,21 +21,6 @@ import { AdminUsersSecurityPanel } from "@/components/admin/console/AdminUsersSe
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { Button } from "@/components/ui/button";
 
-// Human: Topbar status line per active admin screen (Pencil Topbar Instance descendants).
-// Agent: READS activeNav; RETURNS status string for DriveDesktopTopbar.
-function statusTextForNav(activeNav: AdminNavId): string {
-  switch (activeNav) {
-    case "overview":
-      return "Admin Control Panel • Live instance metrics";
-    case "storage-nodes":
-      return "Secure Server-Side Session Active • Object storage health";
-    case "audit-logs":
-      return "Secure Server-Side Session Active • Audit Logger Active";
-    default:
-      return "Secure Server-Side Session Active";
-  }
-}
-
 /** Human: Full admin console — explorer layout with pen-accurate section panels. */
 export default function AdminDashboardWireframePage() {
   const { user, logout, instancePermissions, isAdmin } = useAuth();
@@ -83,7 +68,7 @@ export default function AdminDashboardWireframePage() {
     ADMIN_NAV.find((item) => item.id === activeNav)?.label ?? "Overview";
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-surface text-ink">
       <AdminMobileSidebarSheet
         open={mobileSidebarOpen}
         onOpenChange={setMobileSidebarOpen}
@@ -98,37 +83,37 @@ export default function AdminDashboardWireframePage() {
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Human: Mobile admin chrome — hamburger opens drawer; title shows active section. */}
           {/* Agent: lg:hidden only; CALLS setMobileSidebarOpen(true) on menu tap. */}
-          <div className="flex items-center gap-2 border-b border-[#E5E7EB] bg-white px-4 py-2 lg:hidden">
+          <div className="flex items-center gap-2 border-b border-edge bg-panel px-4 py-2 lg:hidden">
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="shrink-0 text-[#666666]"
+              className="shrink-0 text-ink-muted"
               aria-label="Open admin menu"
               onClick={() => setMobileSidebarOpen(true)}
             >
               <Menu className="size-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium uppercase tracking-wide text-[#888888]">
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-ink-faint">
                 Admin console
               </p>
-              <h1 className="truncate text-lg font-semibold tracking-tight text-[#1A1A1A]">
+              <h1 className="truncate text-lg font-semibold tracking-tight text-ink">
                 {activeNavLabel}
               </h1>
             </div>
           </div>
 
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Human: Topbar wrapper — Pencil padding [0,40] on dashboard; px-10 ≈ 40px */}
-            <div className="shrink-0 px-4 pt-4 lg:px-10 lg:pt-6">
+            {/* Human: No wrapper padding — the bar is full-bleed and carries its own gutter. */}
+            <div className="shrink-0">
               <DriveDesktopTopbar
                 displayName={displayName}
                 roleLabel={roleLabel}
                 initials={initials}
                 email={user?.email}
                 isAdmin={isAdmin}
-                statusText={statusTextForNav(activeNav)}
+                title={activeNavLabel}
                 onSignOut={logout}
                 className="flex max-lg:flex"
               />

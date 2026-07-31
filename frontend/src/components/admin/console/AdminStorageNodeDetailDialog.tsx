@@ -47,12 +47,12 @@ const CATEGORY_STYLES: Record<
   string,
   { bar: string; icon: typeof File; iconColor: string }
 > = {
-  images: { bar: "bg-[#8B5CF6]", icon: Image, iconColor: "text-[#8B5CF6]" },
-  videos: { bar: "bg-[#2563EB]", icon: Film, iconColor: "text-[#2563EB]" },
-  audio: { bar: "bg-[#10B981]", icon: Music, iconColor: "text-[#10B981]" },
-  documents: { bar: "bg-[#F59E0B]", icon: FileText, iconColor: "text-[#F59E0B]" },
-  archives: { bar: "bg-[#6B7280]", icon: Archive, iconColor: "text-[#6B7280]" },
-  other: { bar: "bg-[#9CA3AF]", icon: File, iconColor: "text-[#9CA3AF]" },
+  images: { bar: "bg-proc", icon: Image, iconColor: "text-proc" },
+  videos: { bar: "bg-brand", icon: Film, iconColor: "text-brand" },
+  audio: { bar: "bg-ok", icon: Music, iconColor: "text-ok" },
+  documents: { bar: "bg-warn", icon: FileText, iconColor: "text-warn" },
+  archives: { bar: "bg-ink-muted", icon: Archive, iconColor: "text-ink-muted" },
+  other: { bar: "bg-ink-faint", icon: File, iconColor: "text-ink-faint" },
 };
 
 /** Human: Key/value row in the overview tab with optional trailing action. */
@@ -67,11 +67,11 @@ function DetailRow({
 }) {
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-      <dt className="shrink-0 text-xs font-semibold uppercase tracking-wide text-[#666666]">
+      <dt className="shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
       <dd className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <span className="break-all text-sm font-medium text-[#1A1A1A]">{value}</span>
+        <span className="break-all text-sm font-medium text-ink">{value}</span>
         {action}
       </dd>
     </div>
@@ -85,18 +85,18 @@ function DetailOverviewSkeleton() {
       <div className="flex flex-col gap-4">
         {Array.from({ length: 7 }).map((_, index) => (
           <div key={index} className="flex justify-between gap-4">
-            <div className="h-3 w-24 rounded bg-[#E5E7EB]" />
-            <div className="h-3 w-40 rounded bg-[#F7F8FA]" />
+            <div className="h-3 w-24 rounded bg-edge" />
+            <div className="h-3 w-40 rounded bg-surface" />
           </div>
         ))}
       </div>
       <div className="flex flex-col gap-3">
-        <div className="h-4 w-40 rounded bg-[#E5E7EB]" />
-        <div className="h-3 w-full max-w-md rounded bg-[#F7F8FA]" />
+        <div className="h-4 w-40 rounded bg-edge" />
+        <div className="h-3 w-full max-w-md rounded bg-surface" />
         {Array.from({ length: 3 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-2">
-            <div className="h-3 w-full rounded bg-[#F7F8FA]" />
-            <div className="h-2 w-full rounded bg-[#E5E7EB]" />
+            <div className="h-3 w-full rounded bg-surface" />
+            <div className="h-2 w-full rounded bg-edge" />
           </div>
         ))}
       </div>
@@ -119,15 +119,15 @@ function MediaCategoryBar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="inline-flex items-center gap-2 font-medium text-[#1A1A1A]">
+        <span className="inline-flex items-center gap-2 font-medium text-ink">
           <Icon className={cn("size-4", style.iconColor)} aria-hidden />
           {row.label}
         </span>
-        <span className="shrink-0 text-[#666666]">
+        <span className="shrink-0 text-ink-muted">
           {row.file_count.toLocaleString()} files · {formatBytes(row.total_bytes)}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-sm bg-[#E5E7EB]">
+      <div className="h-2 w-full overflow-hidden rounded-sm bg-edge">
         <div className={cn("h-full rounded-sm transition-[width]", style.bar)} style={{ width: `${widthPct}%` }} />
       </div>
     </div>
@@ -150,13 +150,13 @@ function BrowseBreadcrumb({
 
   return (
     <nav
-      className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-1 border-b border-[#E5E7EB] bg-white px-1 pb-3 text-sm text-[#666666]"
+      className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-1 border-b border-edge bg-panel px-1 pb-3 text-sm text-ink-muted"
       aria-label="Storage path"
     >
       <button
         type="button"
         onClick={() => onNavigate("")}
-        className="font-medium text-[#2563EB] hover:underline"
+        className="font-medium text-brand hover:underline"
       >
         Root
       </button>
@@ -164,11 +164,11 @@ function BrowseBreadcrumb({
         const path = `${segments.slice(0, index + 1).join("/")}/`;
         return (
           <span key={path} className="inline-flex items-center gap-1">
-            <ChevronRight className="size-3.5 text-[#9CA3AF]" aria-hidden />
+            <ChevronRight className="size-3.5 text-ink-faint" aria-hidden />
             <button
               type="button"
               onClick={() => onNavigate(path)}
-              className="font-medium text-[#2563EB] hover:underline"
+              className="font-medium text-brand hover:underline"
             >
               {segment}
             </button>
@@ -197,16 +197,16 @@ function BrowseEntryRow({
       disabled={!isFolder}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
-        isFolder ? "hover:bg-[#F7F8FA]" : "cursor-default",
+        isFolder ? "hover:bg-surface" : "cursor-default",
       )}
     >
       {isFolder ? (
-        <Folder className="size-4 shrink-0 text-[#F59E0B]" aria-hidden />
+        <Folder className="size-4 shrink-0 text-warn" aria-hidden />
       ) : (
-        <File className="size-4 shrink-0 text-[#666666]" aria-hidden />
+        <File className="size-4 shrink-0 text-ink-muted" aria-hidden />
       )}
-      <span className="min-w-0 flex-1 truncate font-medium text-[#1A1A1A]">{entry.name}</span>
-      <span className="shrink-0 text-xs text-[#666666]">
+      <span className="min-w-0 flex-1 truncate font-medium text-ink">{entry.name}</span>
+      <span className="shrink-0 text-xs text-ink-muted">
         {isFolder
           ? "Folder"
           : entry.size_bytes != null
@@ -285,15 +285,15 @@ function AdminStorageNodeDetailSession({
 
   return (
     <>
-      <div className="flex gap-1 overflow-x-auto border-b border-[#E5E7EB] px-4 pt-1 sm:px-6">
+      <div className="flex gap-1 overflow-x-auto border-b border-edge px-4 pt-1 sm:px-6">
         <button
           type="button"
           onClick={() => setTab("overview")}
           className={cn(
             "inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
             tab === "overview"
-              ? "border-[#2563EB] text-[#2563EB]"
-              : "border-transparent text-[#666666] hover:text-[#1A1A1A]",
+              ? "border-brand text-brand"
+              : "border-transparent text-ink-muted hover:text-ink",
           )}
         >
           <Info className="size-4" aria-hidden />
@@ -305,8 +305,8 @@ function AdminStorageNodeDetailSession({
           className={cn(
             "inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
             tab === "explore"
-              ? "border-[#2563EB] text-[#2563EB]"
-              : "border-transparent text-[#666666] hover:text-[#1A1A1A]",
+              ? "border-brand text-brand"
+              : "border-transparent text-ink-muted hover:text-ink",
           )}
         >
           <HardDrive className="size-4" aria-hidden />
@@ -318,7 +318,7 @@ function AdminStorageNodeDetailSession({
         {loading && !detail ? <DetailOverviewSkeleton /> : null}
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
             {error}
           </p>
         ) : null}
@@ -337,7 +337,7 @@ function AdminStorageNodeDetailSession({
                   <button
                     type="button"
                     onClick={() => setTab("explore")}
-                    className="text-xs font-semibold text-[#2563EB] hover:underline"
+                    className="text-xs font-semibold text-brand hover:underline"
                   >
                     Browse objects
                   </button>
@@ -352,15 +352,15 @@ function AdminStorageNodeDetailSession({
 
             <div className="flex flex-col gap-3">
               <div>
-                <h3 className="text-sm font-bold text-[#1A1A1A]">Indexed media library</h3>
-                <p className="mt-1 text-sm text-[#666666]">
+                <h3 className="text-sm font-bold text-ink">Indexed media library</h3>
+                <p className="mt-1 text-sm text-ink-muted">
                   Instance-wide catalog — breakdown of {detail.indexed_files_total.toLocaleString()}{" "}
                   active files tracked by Ownly across all users. This is not isolated to blobs stored
                   on this endpoint alone.
                 </p>
               </div>
               {detail.media_breakdown.length === 0 ? (
-                <p className="text-sm text-[#666666]">No indexed files yet.</p>
+                <p className="text-sm text-ink-muted">No indexed files yet.</p>
               ) : (
                 <div className="flex flex-col gap-4">
                   {detail.media_breakdown.map((row) => (
@@ -376,21 +376,21 @@ function AdminStorageNodeDetailSession({
           <div className="flex flex-col gap-4">
             <BrowseBreadcrumb prefix={browsePrefix} onNavigate={(next) => navigateBrowse(next)} />
             {detail.browse_unavailable ? (
-              <p className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3 text-sm text-[#666666]">
+              <p className="rounded-lg border border-edge bg-surface px-4 py-3 text-sm text-ink-muted">
                 {detail.browse_unavailable}
               </p>
             ) : null}
             {detail.browse && detail.browse.entries.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">
+              <div className="overflow-hidden rounded-xl border border-edge">
                 {detail.browse.entries.map((entry) => (
-                  <div key={entry.key} className="border-b border-[#E5E7EB] last:border-b-0">
+                  <div key={entry.key} className="border-b border-edge last:border-b-0">
                     <BrowseEntryRow entry={entry} onOpenFolder={navigateBrowse} />
                   </div>
                 ))}
               </div>
             ) : null}
             {detail.browse && detail.browse.entries.length === 0 && !detail.browse_unavailable ? (
-              <p className="text-sm text-[#666666]">This folder is empty.</p>
+              <p className="text-sm text-ink-muted">This folder is empty.</p>
             ) : null}
             {detail.browse?.is_truncated && detail.browse.next_start_after ? (
               <button
@@ -399,7 +399,7 @@ function AdminStorageNodeDetailSession({
                 onClick={() => {
                   void load(browsePrefix, detail.browse?.next_start_after ?? undefined);
                 }}
-                className="inline-flex items-center gap-2 self-start rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold text-[#2563EB] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+                className="inline-flex items-center gap-2 self-start rounded-lg border border-edge bg-panel px-4 py-2 text-sm font-semibold text-brand transition-colors hover:bg-surface disabled:opacity-60"
               >
                 {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
                 {loading ? "Loading…" : "Load more"}
@@ -444,17 +444,17 @@ export function AdminStorageNodeDetailDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-0 shadow-[0_12px_32px_-4px_#00000026] sm:w-full"
+        className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 shadow-[0_12px_32px_-4px_#00000026] sm:w-full"
         overlayClassName="bg-black/30"
       >
-        <div className="flex items-center justify-between border-b border-[#E5E7EB] px-4 py-4 sm:px-6 sm:py-5">
+        <div className="flex items-center justify-between border-b border-edge px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#EFF6FF]">
-              <Server className="size-5 text-[#2563EB]" aria-hidden />
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-weak">
+              <Server className="size-5 text-brand" aria-hidden />
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-lg font-bold text-[#1A1A1A]">{node.id}</h2>
-              <p className="truncate text-sm text-[#666666]">{node.region_label}</p>
+              <h2 className="truncate text-lg font-bold text-ink">{node.id}</h2>
+              <p className="truncate text-sm text-ink-muted">{node.region_label}</p>
             </div>
             <span
               className={cn(
@@ -468,7 +468,7 @@ export function AdminStorageNodeDetailDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="flex size-8 items-center justify-center rounded-full text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface"
             aria-label="Close dialog"
           >
             <X className="size-5" aria-hidden />
@@ -477,11 +477,11 @@ export function AdminStorageNodeDetailDialog({
 
         <AdminStorageNodeDetailSession key={`${node.id}-${initialTab}`} node={node} initialTab={initialTab} />
 
-        <div className="hidden justify-end border-t border-[#E5E7EB] bg-[#F7F8FA]/80 px-6 py-4 sm:flex">
+        <div className="hidden justify-end border-t border-edge bg-surface/80 px-6 py-4 sm:flex">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-lg border border-[#E5E7EB] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="rounded-lg border border-edge bg-panel px-5 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface"
           >
             Close
           </button>

@@ -179,16 +179,16 @@ export function AdminLoggingConfigDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[min(90vh,820px)] max-w-[720px] flex-col gap-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-0 sm:max-w-[720px]"
+        className="flex max-h-[min(90vh,820px)] max-w-[720px] flex-col gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 sm:max-w-[720px]"
         overlayClassName="bg-[#0F172A66]"
       >
-        <div className="border-b border-[#E5E7EB] px-7 py-6">
+        <div className="border-b border-edge px-7 py-6">
           <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="flex items-center gap-2 text-lg font-semibold text-[#1A1A1A]">
-              <ScrollText className="size-5 shrink-0 text-[#666666]" aria-hidden />
+            <DialogTitle className="flex items-center gap-2 text-lg font-semibold text-ink">
+              <ScrollText className="size-5 shrink-0 text-ink-muted" aria-hidden />
               Server logging
             </DialogTitle>
-            <DialogDescription className="text-[13px] text-[#666666]">
+            <DialogDescription className="text-[13px] text-ink-muted">
               Tune what the API writes to its process logs. Changes apply immediately without restart.
               Only affects the Ownly backend — not object storage or other containers.
             </DialogDescription>
@@ -197,26 +197,26 @@ export function AdminLoggingConfigDialog({
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-7 py-5">
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
               {error}
             </p>
           ) : null}
           {savedMessage ? (
-            <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            <p className="rounded-lg border border-ok/40 bg-ok-weak px-4 py-3 text-sm text-ok">
               {savedMessage}
             </p>
           ) : null}
 
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
               <Loader2 className="size-5 animate-spin" aria-hidden />
               Loading logging settings…
             </div>
           ) : (
             <>
               <section>
-                <h3 className="text-sm font-semibold text-[#1A1A1A]">Presets</h3>
-                <p className="mt-1 text-[13px] text-[#666666]">
+                <h3 className="text-sm font-semibold text-ink">Presets</h3>
+                <p className="mt-1 text-[13px] text-ink-muted">
                   Quick bundles — click Apply to save immediately, or pick one then fine-tune categories below.
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -226,7 +226,7 @@ export function AdminLoggingConfigDialog({
                       <div
                         key={option.id}
                         className={`rounded-xl border p-4 ${
-                          selected ? "border-[#2563EB] bg-[#EFF6FF]" : "border-[#E5E7EB] bg-[#FAFAFA]"
+                          selected ? "border-brand bg-brand-weak" : "border-edge bg-surface"
                         }`}
                       >
                         <button
@@ -234,8 +234,8 @@ export function AdminLoggingConfigDialog({
                           className="w-full text-left"
                           onClick={() => handlePresetSelect(option.id)}
                         >
-                          <p className="text-sm font-semibold text-[#1A1A1A]">{option.label}</p>
-                          <p className="mt-1 text-[12px] leading-snug text-[#666666]">{option.description}</p>
+                          <p className="text-sm font-semibold text-ink">{option.label}</p>
+                          <p className="mt-1 text-[12px] leading-snug text-ink-muted">{option.description}</p>
                         </button>
                         <AdminConsoleOutlineButton
                           className="mt-3 w-full justify-center text-xs"
@@ -253,8 +253,8 @@ export function AdminLoggingConfigDialog({
               <section>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-[#1A1A1A]">Categories</h3>
-                    <p className="mt-1 text-[13px] text-[#666666]">
+                    <h3 className="text-sm font-semibold text-ink">Categories</h3>
+                    <p className="mt-1 text-[13px] text-ink-muted">
                       Atomic control per subsystem. Changing any level switches to Custom preset.
                       {categoriesLockedToPreset
                         ? " Apply a preset above to refresh category levels."
@@ -262,26 +262,26 @@ export function AdminLoggingConfigDialog({
                     </p>
                   </div>
                   {preset === "custom" ? (
-                    <span className="shrink-0 rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[11px] font-medium text-[#92400E]">
+                    <span className="shrink-0 rounded-full bg-warn-weak px-2.5 py-1 text-[11px] font-medium text-warn">
                       Custom
                     </span>
                   ) : null}
                 </div>
 
-                <div className="mt-3 divide-y divide-[#E5E7EB] rounded-xl border border-[#E5E7EB]">
+                <div className="mt-3 divide-y divide-edge rounded-xl border border-edge">
                   {categoryCatalog.map((category) => (
                     <div
                       key={category.id}
                       className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0 pr-2">
-                        <p className="text-sm font-medium text-[#1A1A1A]">{category.label}</p>
-                        <p className="text-[12px] text-[#666666]">{category.description}</p>
-                        <p className="mt-0.5 font-mono text-[11px] text-[#9CA3AF]">{category.target}</p>
+                        <p className="text-sm font-medium text-ink">{category.label}</p>
+                        <p className="text-[12px] text-ink-muted">{category.description}</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-ink-faint">{category.target}</p>
                       </div>
                       <select
                         aria-label={`Log level for ${category.label}`}
-                        className="h-9 min-w-[120px] rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm text-[#1A1A1A]"
+                        className="h-9 min-w-[120px] rounded-lg border border-edge bg-panel px-3 text-sm text-ink"
                         value={displayedCategories[category.id] ?? "info"}
                         onChange={(event) =>
                           handleCategoryLevelChange(category.id, event.target.value)
@@ -302,7 +302,7 @@ export function AdminLoggingConfigDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-7 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-edge px-7 py-4">
           <AdminConsoleOutlineButton onClick={() => onOpenChange(false)} disabled={saving}>
             Close
           </AdminConsoleOutlineButton>

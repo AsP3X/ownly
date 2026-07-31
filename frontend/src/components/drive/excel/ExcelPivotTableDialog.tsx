@@ -203,7 +203,7 @@ export function ExcelPivotTableDialog({
                 </tr>
               ) : (
                 preview.rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="odd:bg-panel even:bg-[#FAFAFA]">
+                  <tr key={rowIndex} className="odd:bg-panel even:bg-surface">
                     {row.map((cell, colIndex) => (
                       <td key={colIndex} className="border-b border-edge px-3 py-2">
                         {cell.display}

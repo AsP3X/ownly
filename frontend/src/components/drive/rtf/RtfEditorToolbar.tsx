@@ -71,7 +71,7 @@ function ToolButton({
         event.preventDefault();
       }}
       onClick={onClick}
-      className="inline-flex size-8 items-center justify-center rounded-md text-[#444] transition-colors hover:bg-black/5 disabled:pointer-events-none disabled:opacity-40"
+      className="inline-flex size-8 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface disabled:pointer-events-none disabled:opacity-40"
     >
       {children}
     </button>
@@ -79,14 +79,14 @@ function ToolButton({
 }
 
 function Divider() {
-  return <span className="mx-0.5 hidden h-5 w-px bg-[#E5E7EB] sm:block" aria-hidden />;
+  return <span className="mx-0.5 hidden h-5 w-px bg-edge sm:block" aria-hidden />;
 }
 
 export function RtfEditorToolbar({ disabled, onCommand, className }: RtfEditorToolbarProps) {
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-0.5 border-b border-[#E5E7EB] bg-[#F7F8FA] px-2 py-1.5 sm:px-3",
+        "flex flex-wrap items-center gap-0.5 border-b border-edge bg-surface px-2 py-1.5 sm:px-3",
         className,
       )}
     >
@@ -108,7 +108,7 @@ export function RtfEditorToolbar({ disabled, onCommand, className }: RtfEditorTo
         defaultValue="Helvetica"
         onMouseDown={(event) => event.stopPropagation()}
         onChange={(event) => onCommand("fontName", event.target.value)}
-        className="h-8 max-w-[8.5rem] rounded-md border border-[#E5E7EB] bg-white px-1.5 text-xs text-[#1A1A1A]"
+        className="h-8 max-w-[8.5rem] rounded-md border border-edge bg-panel px-1.5 text-xs text-ink"
       >
         {FONT_FAMILIES.map((font) => (
           <option key={font} value={font} style={{ fontFamily: font }}>
@@ -126,7 +126,7 @@ export function RtfEditorToolbar({ disabled, onCommand, className }: RtfEditorTo
         defaultValue="3"
         onMouseDown={(event) => event.stopPropagation()}
         onChange={(event) => onCommand("fontSize", event.target.value)}
-        className="h-8 rounded-md border border-[#E5E7EB] bg-white px-1.5 text-xs text-[#1A1A1A]"
+        className="h-8 rounded-md border border-edge bg-panel px-1.5 text-xs text-ink"
       >
         {FONT_SIZES.map((size) => (
           <option key={size.value} value={size.value}>
@@ -158,7 +158,7 @@ export function RtfEditorToolbar({ disabled, onCommand, className }: RtfEditorTo
 
       <Divider />
 
-      <label className="inline-flex h-8 items-center gap-1 rounded-md border border-[#E5E7EB] bg-white px-1.5 text-[11px] text-[#666]">
+      <label className="inline-flex h-8 items-center gap-1 rounded-md border border-edge bg-panel px-1.5 text-[11px] text-ink-muted">
         A
         <input
           type="color"
@@ -170,7 +170,7 @@ export function RtfEditorToolbar({ disabled, onCommand, className }: RtfEditorTo
           className="size-5 cursor-pointer border-0 bg-transparent p-0"
         />
       </label>
-      <label className="inline-flex h-8 items-center gap-1 rounded-md border border-[#E5E7EB] bg-white px-1.5 text-[11px] text-[#666]">
+      <label className="inline-flex h-8 items-center gap-1 rounded-md border border-edge bg-panel px-1.5 text-[11px] text-ink-muted">
         <Highlighter className="size-3.5" />
         <input
           type="color"

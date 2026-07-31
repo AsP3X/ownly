@@ -64,6 +64,14 @@ type TypeFilterOption = { id: FileTypeFilter; label: string };
 const EXPLORER_STICKY_BLEED =
   "-mx-4 px-4 md:-mx-6 md:px-6 lg:-mx-12 lg:px-12";
 
+/**
+ * Human: The status strip is a rounded pill below lg, so it keeps an 8px gutter instead of
+ * bleeding to the screen edges; on lg it is a flush footer and takes the full bleed.
+ * Agent: Still wider than the padded content column, so list rows stay covered while scrolling.
+ */
+const EXPLORER_STATUS_BLEED =
+  "-mx-2 px-3 md:-mx-4 md:px-4 lg:-mx-12 lg:px-12";
+
 type DriveCloudExplorerProps = {
   folderStack: ExplorerFolderCrumb[];
   folders: FolderItem[];
@@ -150,6 +158,11 @@ type DriveCloudExplorerProps = {
   onDeleteFolder?: (folderId: string) => void;
   /** Human: BulkActionsBar from DrivePage — stacked inside the sticky toolbar block. */
   bulkActionsSlot?: ReactNode;
+  /**
+   * Human: Topbar node that hosts the folder trail on desktop.
+   * Agent: PASSED THROUGH to ExplorerToolbar; breadcrumb drag state stays in this component.
+   */
+  breadcrumbPortalTarget?: HTMLElement | null;
 };
 
 /** Human: My Cloud browser surface matching Ownly File Explorer Pencil frame. */
@@ -217,6 +230,7 @@ export function DriveCloudExplorer({
   onDeleteFile,
   onDeleteFolder,
   bulkActionsSlot,
+  breadcrumbPortalTarget,
 }: DriveCloudExplorerProps) {
   const [activeDrag, setActiveDrag] = useState<ExplorerDragPayload | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -690,11 +704,16 @@ export function DriveCloudExplorer({
   }
 
   return (
-    <div ref={rootRef} className="flex min-h-full flex-col">
+    // Human: Fills the scroll pane so `mt-auto` on the status strip reaches the floor, and still
+    // grows past it for long listings.
+    // Agent: grow+shrink-0 replaces `min-h-full`, which no-ops under an auto-height parent.
+    <div ref={rootRef} className="flex grow flex-col shrink-0">
       <ExplorerToolbar
         containerRef={toolbarRef}
         // Human: Also pulls up over the pane's top padding so nothing scrolls above the bar.
-        className={cn(EXPLORER_STICKY_BLEED, "-mt-4 pt-4 md:-mt-6 md:pt-6 lg:mt-0 lg:pt-2")}
+        // Agent: lg:pt-3 balances the row against pb-2.5 now that the folder trail has moved
+        //        out of this bar and up into the topbar.
+        className={cn(EXPLORER_STICKY_BLEED, "-mt-4 pt-4 md:-mt-6 md:pt-6 lg:mt-0 lg:pt-3")}
         folderStack={folderStack}
         onNavigateHome={onNavigateHome}
         onNavigateMyCloudRoot={onNavigateMyCloudRoot}
@@ -719,6 +738,7 @@ export function DriveCloudExplorer({
         onCreateFolder={onCreateFolder}
         onUpload={onUpload}
         bulkActionsSlot={bulkActionsSlot}
+        breadcrumbPortalTarget={breadcrumbPortalTarget}
       />
 
       {/* Human: One sequence — folders first, then files, in whichever layout is active. */}
@@ -997,7 +1017,7 @@ export function DriveCloudExplorer({
       {/* Agent: mt-auto keeps it at the floor when content is short; sticky handles long lists. */}
       {/*        pt-4 above it stops the last row sitting flush against the strip. */}
       <ExplorerStatusBar
-        className={cn("mt-auto", EXPLORER_STICKY_BLEED)}
+        className={cn("mt-auto", EXPLORER_STATUS_BLEED)}
         instanceName={instanceName}
         folderCount={totalFolderCount}
         loadedFileCount={files.length}

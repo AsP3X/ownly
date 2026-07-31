@@ -34,7 +34,7 @@ export function PublicShareMobileActionStack({
           type="button"
           onClick={onDownload}
           disabled={downloadDisabled || downloadLoading}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3.5 text-sm font-bold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {downloadLoading ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -49,7 +49,7 @@ export function PublicShareMobileActionStack({
           type="button"
           onClick={onSave}
           disabled={saveDisabled || saveLoading}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-5 py-3.5 text-sm font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-edge bg-panel px-5 py-3.5 text-sm font-semibold text-ink transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saveLoading ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />

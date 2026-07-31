@@ -39,12 +39,12 @@ export function ConfirmCancelRebuildsDialog({
         className="gap-0 overflow-hidden border-edge bg-panel p-0"
         style={confirmDialogWidthStyle(["Cancel unfinished rebuilds?".length])}
       >
-        <DialogHeader className="border-b border-neutral-100 px-6 py-5 pr-12">
+        <DialogHeader className="border-b border-hairline px-6 py-5 pr-12">
           <div className="flex items-start gap-3">
-            <Ban className="mt-0.5 size-5 shrink-0 text-rose-600" aria-hidden />
+            <Ban className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
             <div className="min-w-0 space-y-1">
               <DialogTitle>Cancel unfinished rebuilds?</DialogTitle>
-              <DialogDescription className="text-sm text-neutral-600">
+              <DialogDescription className="text-sm text-ink-muted">
                 Queued and in-progress stream rebuilds will stop. Videos keep their previous
                 playable package when one still exists. Rebuilds that already finished are not
                 undone.
@@ -53,7 +53,7 @@ export function ConfirmCancelRebuildsDialog({
           </div>
         </DialogHeader>
 
-        <DialogFooter className="border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="border-t border-hairline bg-surface/80 px-6 py-4">
           <Button
             type="button"
             variant="outline"

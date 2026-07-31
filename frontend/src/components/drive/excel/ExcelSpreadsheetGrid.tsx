@@ -101,11 +101,11 @@ type ResizeDrag = ColumnResizeDrag | RowResizeDrag;
 function badgeClasses(tone: "on-track" | "over-budget" | "under-budget") {
   switch (tone) {
     case "on-track":
-      return "bg-[#D1FAE5] text-[#047857]";
+      return "bg-ok-weak text-ok";
     case "over-budget":
-      return "bg-[#FEE2E2] text-[#B91C1C]";
+      return "bg-danger-weak text-danger";
     case "under-budget":
-      return "bg-[#DBEAFE] text-[#1D4ED8]";
+      return "bg-brand-weak text-brand-hover";
     default:
       return "";
   }
@@ -267,7 +267,7 @@ function ColumnResizeHandle({
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize column"
-      className="absolute top-0 -right-px bottom-0 z-30 translate-x-1/2 cursor-col-resize touch-none select-none hover:bg-[#2563EB]/20"
+      className="absolute top-0 -right-px bottom-0 z-30 translate-x-1/2 cursor-col-resize touch-none select-none hover:bg-brand/20"
       style={{ width: scaledPx(6) }}
       onMouseDown={onMouseDown}
       onDoubleClick={onDoubleClick}
@@ -290,7 +290,7 @@ function RowResizeHandle({
       role="separator"
       aria-orientation="horizontal"
       aria-label="Resize row"
-      className="absolute right-0 -bottom-px left-0 z-30 translate-y-1/2 cursor-row-resize touch-none select-none hover:bg-[#2563EB]/20"
+      className="absolute right-0 -bottom-px left-0 z-30 translate-y-1/2 cursor-row-resize touch-none select-none hover:bg-brand/20"
       style={{ height: scaledPx(6) }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
@@ -888,7 +888,7 @@ export function ExcelSpreadsheetGrid({
     [],
   );
 
-  const borderClass = showGridlines ? "border-[#E5E7EB]" : "border-transparent";
+  const borderClass = showGridlines ? "border-edge" : "border-transparent";
 
   return (
     <div
@@ -898,7 +898,8 @@ export function ExcelSpreadsheetGrid({
       aria-label="Spreadsheet grid"
       onKeyDown={onGridKeyDown}
       className={cn(
-        "relative min-h-0 flex-1 overflow-auto bg-[#F7F8FA] outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+        // Human: `dr-paper` keeps the sheet light in dark mode — a spreadsheet is paper.
+        "dr-paper relative min-h-0 flex-1 overflow-auto bg-surface outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
         resizeDrag?.axis === "column" && "cursor-col-resize select-none",
         resizeDrag?.axis === "row" && "cursor-row-resize select-none",
         dragSelecting && "select-none",
@@ -914,7 +915,7 @@ export function ExcelSpreadsheetGrid({
       >
         {/* Human: Column header row — corner cell + A…N labels per Pencil AOdk5. */}
         <div
-          className={cn("sticky top-0 z-20 flex border-b bg-[#F3F4F6]", borderClass)}
+          className={cn("sticky top-0 z-20 flex border-b bg-sunken", borderClass)}
           style={{ height: GRID_HEADER_ROW_HEIGHT }}
         >
           <button
@@ -924,16 +925,16 @@ export function ExcelSpreadsheetGrid({
             disabled={!onSelectAll}
             onClick={() => onSelectAll?.()}
             className={cn(
-              "shrink-0 cursor-default border-r bg-[#E5E7EB] hover:bg-[#D1D5DB]",
+              "shrink-0 cursor-default border-r bg-edge hover:bg-edge",
               borderClass,
-              isFullSheetSelected && "ring-2 ring-inset ring-[#2563EB]",
+              isFullSheetSelected && "ring-2 ring-inset ring-brand",
             )}
             style={{ width: GRID_ROW_INDEX_WIDTH, height: GRID_HEADER_ROW_HEIGHT }}
           />
           {Array.from({ length: columnCount }, (_, colIndex) => (
             <div
               key={colIndex}
-              className={cn("relative flex shrink-0 items-center justify-center border-r font-medium text-[#666666]", borderClass)}
+              className={cn("relative flex shrink-0 items-center justify-center border-r font-medium text-ink-muted", borderClass)}
               style={{ width: columnWidths[colIndex], fontSize: scaledPx(12) }}
             >
               {columnIndexToLetters(colIndex)}
@@ -964,7 +965,7 @@ export function ExcelSpreadsheetGrid({
                 <div key={`frozen-${rowIndex}`} className="flex" style={{ height: rowHeight, width: gridWidth }}>
                   <div
                     className={cn(
-                      "relative flex shrink-0 items-center justify-center border-r border-b bg-[#F3F4F6] text-[#666666]",
+                      "relative flex shrink-0 items-center justify-center border-r border-b bg-sunken text-ink-muted",
                       borderClass,
                     )}
                     style={{ width: GRID_ROW_INDEX_WIDTH, height: rowHeight, fontSize: scaledPx(11) }}
@@ -1009,13 +1010,13 @@ export function ExcelSpreadsheetGrid({
                           verticalAlignItemsClass(cell.style),
                           horizontalAlignJustifyClass(cell),
                           colIndex < frozenColCount && "sticky z-20 bg-white",
-                          isHeader && !cellFill && "bg-[#FAFAFA]",
-                          isTotalRow && !cellFill && "bg-[#EFF6FF]",
+                          isHeader && !cellFill && "bg-surface",
+                          isTotalRow && !cellFill && "bg-brand-weak",
                           !isHeader && !isTotalRow && !cellFill && "bg-white",
-                          selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
-                          selected && !cellFill && "bg-[#EFF6FF]",
-                          isPrecedent && "ring-2 ring-amber-400 ring-inset",
-                          isPrintEdge && "ring-2 ring-violet-500 ring-inset",
+                          selected && "z-10 border-2 border-brand ring-1 ring-brand",
+                          selected && !cellFill && "bg-brand-weak",
+                          isPrecedent && "ring-2 ring-warn ring-inset",
+                          isPrintEdge && "ring-2 ring-proc ring-inset",
                         )}
                         style={{
                           width: columnWidths[colIndex],
@@ -1034,7 +1035,7 @@ export function ExcelSpreadsheetGrid({
                             onChange={(event) => onEditDraftChange(event.target.value)}
                             onBlur={() => onCommitEdit()}
                             onKeyDown={(event) => event.stopPropagation()}
-                            className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
+                            className="absolute inset-0 w-full border-0 bg-white px-2 text-ink outline-none"
                             style={{ fontSize: cellFontSizeCss(cell.style) }}
                             aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                           />
@@ -1078,7 +1079,7 @@ export function ExcelSpreadsheetGrid({
                 }}
               >
                 <div
-                  className={cn("relative flex shrink-0 items-center justify-center border-r border-b bg-[#F3F4F6] text-[#666666]", borderClass)}
+                  className={cn("relative flex shrink-0 items-center justify-center border-r border-b bg-sunken text-ink-muted", borderClass)}
                   style={{ width: GRID_ROW_INDEX_WIDTH, height: rowHeight, fontSize: scaledPx(11) }}
                 >
                   {rowIndex + 1}
@@ -1135,13 +1136,13 @@ export function ExcelSpreadsheetGrid({
                         verticalAlignItemsClass(cell.style),
                         horizontalAlignJustifyClass(cell),
                         colIndex < frozenColCount && "sticky z-20 bg-white",
-                        isHeader && !cellFill && "bg-[#FAFAFA]",
-                        isTotalRow && !cellFill && "bg-[#EFF6FF]",
+                        isHeader && !cellFill && "bg-surface",
+                        isTotalRow && !cellFill && "bg-brand-weak",
                         !isHeader && !isTotalRow && !cellFill && "bg-white",
-                        selected && "z-10 border-2 border-[#2563EB] ring-1 ring-[#2563EB]",
-                        selected && !cellFill && "bg-[#EFF6FF]",
-                        isPrecedent && "ring-2 ring-amber-400 ring-inset",
-                        isPrintEdge && "ring-2 ring-violet-500 ring-inset",
+                        selected && "z-10 border-2 border-brand ring-1 ring-brand",
+                        selected && !cellFill && "bg-brand-weak",
+                        isPrecedent && "ring-2 ring-warn ring-inset",
+                        isPrintEdge && "ring-2 ring-proc ring-inset",
                       )}
                       style={{
                         width: columnWidths[colIndex],
@@ -1160,7 +1161,7 @@ export function ExcelSpreadsheetGrid({
                         <div
                           role="separator"
                           aria-label="Fill handle"
-                          className="absolute -bottom-1 -right-1 z-30 size-2 cursor-crosshair border border-[#2563EB] bg-[#2563EB]"
+                          className="absolute -bottom-1 -right-1 z-30 size-2 cursor-crosshair border border-brand bg-brand"
                           onPointerDown={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -1175,7 +1176,7 @@ export function ExcelSpreadsheetGrid({
                           onChange={(event) => onEditDraftChange(event.target.value)}
                           onBlur={() => onCommitEdit()}
                           onKeyDown={(event) => event.stopPropagation()}
-                          className="absolute inset-0 w-full border-0 bg-white px-2 text-[#1A1A1A] outline-none"
+                          className="absolute inset-0 w-full border-0 bg-white px-2 text-ink outline-none"
                           style={{ fontSize: cellFontSizeCss(cell.style) }}
                           aria-label={`Edit cell ${cellAddressLabel({ row: rowIndex, col: colIndex })}`}
                         />

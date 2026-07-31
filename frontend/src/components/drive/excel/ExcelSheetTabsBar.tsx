@@ -126,7 +126,7 @@ export function ExcelSheetTabsBar({
                   ? "border border-b-0 border-edge bg-panel font-semibold text-brand"
                   : "font-normal text-ink-muted hover:text-ink",
                 canReorder && dragIndex === index && "opacity-50",
-                isDropTarget && "ring-2 ring-[#2563EB]",
+                isDropTarget && "ring-2 ring-brand",
               )}
               style={{
                 fontSize: scaledPx(12),

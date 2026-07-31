@@ -517,7 +517,7 @@ export function RtfEditorDialog({
                 </p>
               </div>
               {readOnly ? (
-                <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex">
+                <span className="hidden items-center gap-1 rounded-md border border-ok/30 bg-ok-weak px-2 py-1 text-[11px] font-bold text-ok sm:inline-flex">
                   <ShieldCheck className="size-3" aria-hidden />
                   Read-only
                 </span>
@@ -527,7 +527,7 @@ export function RtfEditorDialog({
               type="button"
               onClick={() => handleCloseRequest(false)}
               aria-label="Close editor"
-              className="inline-flex size-8 items-center justify-center rounded-lg text-[#666] transition-colors hover:bg-black/5"
+              className="inline-flex size-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface"
             >
               <X className="size-4" />
             </button>
@@ -549,7 +549,7 @@ export function RtfEditorDialog({
 
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {loading ? (
-              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[#666]">
+              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-ink-muted">
                 <Loader2 className="size-5 animate-spin" aria-hidden />
                 Loading document…
               </div>
@@ -617,7 +617,7 @@ export function RtfEditorDialog({
               <button
                 type="button"
                 onClick={() => handleCloseRequest(false)}
-                className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-[#666] transition-colors hover:bg-black/5"
+                className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-surface"
               >
                 Close
               </button>
@@ -626,7 +626,7 @@ export function RtfEditorDialog({
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={!dirty || saving || loading || Boolean(error)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
                   Save

@@ -67,11 +67,11 @@ export function ExcelAutoFilterDialog({
             />
           </div>
 
-          <div className="flex items-center justify-between text-xs text-[#666666]">
+          <div className="flex items-center justify-between text-xs text-ink-muted">
             <span>{visibleValues.length} value(s)</span>
             <button
               type="button"
-              className="font-semibold text-[#2563EB] hover:underline"
+              className="font-semibold text-brand hover:underline"
               onClick={() => {
                 setChecked((current) => {
                   const next = new Set(current);
@@ -88,14 +88,14 @@ export function ExcelAutoFilterDialog({
             </button>
           </div>
 
-          <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-[#E5E7EB] p-2">
+          <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-edge p-2">
             {visibleValues.length === 0 ? (
-              <p className="px-2 py-4 text-center text-sm text-[#666666]">No matching values.</p>
+              <p className="px-2 py-4 text-center text-sm text-ink-muted">No matching values.</p>
             ) : (
               visibleValues.map((value) => (
                 <label
                   key={value}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-[#F7F8FA]"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface"
                 >
                   <input
                     type="checkbox"

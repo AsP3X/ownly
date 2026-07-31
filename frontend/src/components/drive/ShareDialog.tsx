@@ -109,7 +109,7 @@ function ShareDialogTabs({
         role="tab"
         aria-selected={activeTab === "invite"}
         className={cn(
-          "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+          "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
           activeTab === "invite"
             ? "font-semibold text-brand"
             : "font-normal text-ink-muted hover:text-ink",
@@ -130,7 +130,7 @@ function ShareDialogTabs({
         role="tab"
         aria-selected={activeTab === "public-link"}
         className={cn(
-          "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+          "flex flex-col gap-2.5 px-1 pb-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
           activeTab === "public-link"
             ? "font-semibold text-brand"
             : "font-normal text-ink-muted hover:text-ink",
@@ -523,7 +523,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
             </DialogTitle>
             <button
               type="button"
-              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-muted transition hover:bg-edge/70 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-muted transition hover:bg-edge/70 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
               aria-label="Close share dialog"
               onClick={() => handleOpenChange(false)}
             >
@@ -543,7 +543,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
 
           {error ? (
             <p
-              className="rounded-lg border border-[#FECACA] bg-danger-weak px-3 py-2 text-sm text-[#991B1B]"
+              className="rounded-lg border border-danger/40 bg-danger-weak px-3 py-2 text-sm text-danger"
               role="alert"
             >
               {error}
@@ -566,7 +566,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                 <select
                   value={invitePermission}
                   onChange={(event) => setInvitePermission(event.target.value)}
-                  className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                   disabled={inviting}
                 >
                   {CONTENT_PERMISSION_OPTIONS.map((option) => (
@@ -592,8 +592,8 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                 <button
                   type="button"
                   className={cn(
-                    "inline-flex shrink-0 items-center rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-white transition",
-                    "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
+                    "inline-flex shrink-0 items-center rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-brand-on transition",
+                    "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
                     "disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                   disabled={inviting || !target}
@@ -633,7 +633,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                         </div>
                         <button
                           type="button"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-edge px-2.5 py-1.5 text-[12px] font-semibold text-ink-muted transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30 disabled:opacity-50"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-edge px-2.5 py-1.5 text-[12px] font-semibold text-ink-muted transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-50"
                           disabled={revokingUserId === row.id}
                           onClick={() => void handleRevokeUser(row.id)}
                         >
@@ -665,7 +665,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                     <select
                       value={selectedGroupId}
                       onChange={(event) => setSelectedGroupId(event.target.value)}
-                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                       disabled={grantingGroup || assignableGroups.length === 0}
                     >
                       {assignableGroups.length === 0 ? (
@@ -684,7 +684,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                     <select
                       value={groupPermission}
                       onChange={(event) => setGroupPermission(event.target.value)}
-                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                      className="rounded-lg border border-edge bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                       disabled={grantingGroup}
                     >
                       {CONTENT_PERMISSION_OPTIONS.map((option) => (
@@ -697,7 +697,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-white transition",
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-4 py-2.5 text-[13px] font-semibold text-brand-on transition",
                       "hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50",
                     )}
                     disabled={grantingGroup || !selectedGroupId || !target}
@@ -754,7 +754,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                 className={cn(
                   "flex items-start gap-3 rounded-xl border px-4 py-4",
                   pageUrl || linkBusy
-                    ? "border-[#BAE6FD] bg-[#E0F2FE]"
+                    ? "border-brand/40 bg-brand-weak"
                     : "border-edge bg-surface",
                 )}
               >
@@ -794,7 +794,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                   type="button"
                   className={cn(
                     "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink transition",
-                    "hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                    "hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
                     "disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                   disabled={!pageUrl || linkBusy}
@@ -835,7 +835,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                         placeholder={
                           share?.requires_password ? "Enter new password to change" : "Share password"
                         }
-                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                         disabled={linkBusy || !share}
                       />
                     </div>
@@ -861,7 +861,7 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
                         onChange={(event) =>
                           setSettings((current) => ({ ...current, expiresAt: event.target.value }))
                         }
-                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                        className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                         disabled={linkBusy || !share}
                       />
                       {expirationHint ? (
@@ -901,8 +901,8 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
               <button
                 type="button"
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border border-[#FCA5A5] px-4 py-2.5 text-[13px] font-semibold text-danger transition",
-                  "hover:bg-danger-weak focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EF4444]/30",
+                  "inline-flex items-center gap-1.5 rounded-lg border border-danger/40 px-4 py-2.5 text-[13px] font-semibold text-danger transition",
+                  "hover:bg-danger-weak focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/30",
                   "disabled:cursor-not-allowed disabled:opacity-50",
                 )}
                 disabled={revoking || linkBusy}
@@ -921,8 +921,8 @@ export function ShareDialog({ open, onOpenChange, target, onShareChanged }: Shar
             <button
               type="button"
               className={cn(
-                "ml-auto inline-flex items-center rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-white transition",
-                "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
+                "ml-auto inline-flex items-center rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-brand-on transition",
+                "hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
                 "disabled:cursor-not-allowed disabled:opacity-50",
               )}
               disabled={saving || (activeTab === "public-link" && linkBusy)}

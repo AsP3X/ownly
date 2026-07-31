@@ -105,31 +105,31 @@ export function FolderPickerDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-lg">
-        <DialogHeader className="border-b border-neutral-100 px-6 py-5">
+        <DialogHeader className="border-b border-hairline px-6 py-5">
           <DialogTitle className="flex items-center gap-2 text-lg text-ink">
-            <FolderInput className="size-5 text-blue-600" aria-hidden />
+            <FolderInput className="size-5 text-brand" aria-hidden />
             {title}
           </DialogTitle>
           <DialogDescription className="text-ink-muted">
             Browse to a folder, then {showCopyAction ? "copy or " : ""}move your selection into{" "}
-            <span className="font-medium text-neutral-700">{destinationLabel}</span>.
+            <span className="font-medium text-ink-muted">{destinationLabel}</span>.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3 px-6 py-4">
           {/* Agent: Breadcrumb mirrors DrivePage folderStack — root is null parent_id. */}
           <nav
-            className="flex flex-wrap items-center gap-1 text-sm text-neutral-600"
+            className="flex flex-wrap items-center gap-1 text-sm text-ink-muted"
             aria-label="Destination folder path"
           >
             <button
               type="button"
               onClick={() => goToFolderIndex(-1)}
               className={cn(
-                "rounded px-1 hover:bg-neutral-100",
+                "rounded px-1 hover:bg-sunken",
                 folderStack.length === 0
                   ? "font-medium text-ink"
-                  : "font-medium text-blue-700 hover:bg-blue-50",
+                  : "font-medium text-brand hover:bg-brand-weak",
               )}
             >
               My files
@@ -141,10 +141,10 @@ export function FolderPickerDialog({
                   type="button"
                   onClick={() => goToFolderIndex(index)}
                   className={cn(
-                    "rounded px-1 hover:bg-neutral-100",
+                    "rounded px-1 hover:bg-sunken",
                     index === folderStack.length - 1
                       ? "font-medium text-ink"
-                      : "text-blue-700 hover:bg-blue-50",
+                      : "text-brand hover:bg-brand-weak",
                   )}
                 >
                   {crumb.name}
@@ -166,16 +166,16 @@ export function FolderPickerDialog({
                   : "This folder has no subfolders."}
               </p>
             ) : (
-              <ul className="divide-y divide-neutral-100">
+              <ul className="divide-y divide-hairline">
                 {visibleFolders.map((folder) => (
                   <li key={folder.id}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-neutral-50"
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-surface"
                       onClick={() => openFolder(folder)}
                       onDoubleClick={() => openFolder(folder)}
                     >
-                      <Folder className="size-4 shrink-0 text-amber-500" aria-hidden />
+                      <Folder className="size-4 shrink-0 text-warn" aria-hidden />
                       <span className="truncate font-medium text-ink">{folder.name}</span>
                     </button>
                   </li>
@@ -195,7 +195,7 @@ export function FolderPickerDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="flex-row justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="flex-row justify-end gap-2 border-t border-hairline bg-surface/80 px-6 py-4">
           <Button
             type="button"
             variant="outline"
@@ -208,7 +208,7 @@ export function FolderPickerDialog({
             <Button
               type="button"
               variant="outline"
-              className="border-blue-200 text-blue-800 hover:bg-blue-50"
+              className="border-brand/40 text-brand-hover hover:bg-brand-weak"
               disabled={submitting !== null}
               onClick={() => void onCopy()}
             >
@@ -227,7 +227,7 @@ export function FolderPickerDialog({
           ) : null}
           <Button
             type="button"
-            className="bg-blue-600 text-white hover:bg-blue-700"
+            className="bg-brand text-brand-on hover:bg-brand-hover"
             disabled={submitting !== null || moveDisabled}
             onClick={() => void onMove()}
           >

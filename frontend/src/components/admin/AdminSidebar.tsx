@@ -36,14 +36,14 @@ function AdminNavRow({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-sm transition-colors",
-        active && "bg-[#F7F8FA] font-semibold text-[#1A1A1A]",
-        !active && "text-[#666666] hover:bg-[#F7F8FA]",
+        active && "bg-surface font-semibold text-ink",
+        !active && "text-ink-muted hover:bg-surface",
       )}
     >
       <span
         className={cn(
           "flex size-[18px] shrink-0 items-center justify-center",
-          active ? "text-[#2563EB]" : "text-[#666666]",
+          active ? "text-brand" : "text-ink-muted",
         )}
         aria-hidden
       >
@@ -96,11 +96,11 @@ function GlobalCapacityWidget({
         : formatBytes(usedBytes);
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-[#F7F8FA] p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Global capacity</p>
-      <p className="text-[15px] font-bold text-[#1A1A1A]">{label}</p>
+    <div className="flex flex-col gap-3 rounded-xl bg-surface p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Global capacity</p>
+      <p className="text-[15px] font-bold text-ink">{label}</p>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
+        className="h-1.5 w-full overflow-hidden rounded-sm bg-edge"
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -108,7 +108,7 @@ function GlobalCapacityWidget({
         aria-label="Global storage capacity"
       >
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
+          className="h-full rounded-sm bg-brand transition-[width] duration-300 ease-out"
           style={{ width: `${fillWidth}%` }}
         />
       </div>
@@ -122,10 +122,10 @@ export function AdminSidebar({ activeNav, onNavChange, navItems }: AdminSidebarP
   const { usedBytes, capacityBytes, loading } = useAdminStorageMetrics();
 
   return (
-    <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-[#E5E7EB] bg-white px-8 py-8 lg:flex">
+    <aside className="hidden h-full w-[260px] shrink-0 flex-col gap-10 overflow-hidden border-r border-edge bg-panel px-8 py-8 lg:flex">
       <Link to="/" className="flex items-center justify-center gap-2 outline-none">
-        <Cloud className="size-7 text-[#2563EB]" aria-hidden />
-        <span className="text-[22px] font-bold text-[#1A1A1A]">{instanceName}</span>
+        <Cloud className="size-7 text-brand" aria-hidden />
+        <span className="text-[22px] font-bold text-ink">{instanceName}</span>
       </Link>
 
       <AdminSidebarNav activeNav={activeNav} onNavChange={onNavChange} navItems={navItems} />

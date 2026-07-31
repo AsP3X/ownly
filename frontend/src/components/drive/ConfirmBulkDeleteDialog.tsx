@@ -302,9 +302,9 @@ export function ConfirmBulkDeleteDialog({
             event.preventDefault();
           }}
         >
-          <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
+          <DialogHeader className="min-w-0 border-b border-hairline px-6 py-5 pr-12">
             <DialogTitle className="flex min-w-0 items-center gap-2 text-lg text-ink">
-              <Trash2 className="size-5 shrink-0 text-red-600" aria-hidden />
+              <Trash2 className="size-5 shrink-0 text-danger" aria-hidden />
               <span className="min-w-0 truncate">{title}</span>
             </DialogTitle>
             <DialogDescription className="break-words text-ink-muted">
@@ -314,7 +314,7 @@ export function ConfirmBulkDeleteDialog({
 
           {previewLoading ? <DeletePreviewLoading /> : null}
           {previewError ? (
-            <div className="border-b border-neutral-100 px-6 py-4">
+            <div className="border-b border-hairline px-6 py-4">
               <Alert variant="destructive">
                 <AlertDescription className="break-words">{previewError}</AlertDescription>
               </Alert>
@@ -329,7 +329,7 @@ export function ConfirmBulkDeleteDialog({
           ) : null}
 
           {!recycleBinEmpty && count > 1 ? (
-            <ul className="max-h-40 min-w-0 overflow-y-auto border-b border-neutral-100 px-6 py-4 text-sm text-neutral-700">
+            <ul className="max-h-40 min-w-0 overflow-y-auto border-b border-hairline px-6 py-4 text-sm text-ink-muted">
               {items.map((item) => (
                 <li
                   key={item.id}
@@ -357,7 +357,7 @@ export function ConfirmBulkDeleteDialog({
             </div>
           ) : null}
 
-          <DialogFooter className="min-w-0 flex-row flex-wrap items-center justify-between gap-2 border-neutral-100 bg-neutral-50/80 px-6 py-5 sm:justify-between">
+          <DialogFooter className="min-w-0 flex-row flex-wrap items-center justify-between gap-2 border-hairline bg-surface/80 px-6 py-5 sm:justify-between">
             <Button
               type="button"
               variant="outline"
@@ -379,7 +379,7 @@ export function ConfirmBulkDeleteDialog({
                 <Button
                   type="button"
                   variant="default"
-                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  className="bg-brand text-brand-on hover:bg-brand-hover"
                   disabled={confirming || count === 0 || previewLoading}
                   onClick={(event) => void handleSubmit(event, false)}
                 >

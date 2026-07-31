@@ -27,18 +27,18 @@ export function PublicShareInfoSheet({ overview, open, onOpenChange }: PublicSha
         side="bottom"
         showCloseButton={false}
         overlayClassName="bg-[#090D1A]/60 backdrop-blur-md"
-        className="gap-5 rounded-t-3xl border-0 bg-white px-5 pt-3 pb-10"
+        className="gap-5 rounded-t-3xl border-0 bg-panel px-5 pt-3 pb-10"
       >
         <div className="flex flex-col items-center pb-1">
-          <div className="h-1 w-10 rounded-sm bg-[#E5E7EB]" aria-hidden />
+          <div className="h-1 w-10 rounded-sm bg-edge" aria-hidden />
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <SheetTitle className="text-lg font-bold text-[#1A1A1A]">{title}</SheetTitle>
+          <SheetTitle className="text-lg font-bold text-ink">{title}</SheetTitle>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F7F8FA] text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF]"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-edge bg-surface text-ink transition-colors hover:bg-brand-weak"
             aria-label="Close information"
           >
             <X className="size-4" aria-hidden />

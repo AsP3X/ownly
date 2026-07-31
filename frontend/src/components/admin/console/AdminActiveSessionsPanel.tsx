@@ -77,17 +77,17 @@ export function AdminActiveSessionsPanel({
     <div className="flex flex-col gap-[22px]">
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-3 pr-2">
-          <h2 className="text-lg font-semibold text-[#1A1A1A]">Active Sessions</h2>
+          <h2 className="text-lg font-semibold text-ink">Active Sessions</h2>
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#666666] transition-colors hover:text-[#1A1A1A]"
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-ink"
             aria-label="Back to edit user"
           >
             <ArrowLeft className="size-[18px]" aria-hidden />
           </button>
         </div>
-        <p className="text-[13px] text-[#666666]">
+        <p className="text-[13px] text-ink-muted">
           Manage active authorization tokens for {userDisplayName(user.email)}
         </p>
       </div>
@@ -95,9 +95,9 @@ export function AdminActiveSessionsPanel({
       <AdminEditUserDivider />
 
       <div className="flex flex-col gap-4">
-        <div className="flex gap-2.5 rounded-lg border border-[#DBEAFE] bg-[#EFF6FF] p-3">
-          <Info className="size-4 shrink-0 text-[#2563EB]" aria-hidden />
-          <p className="text-xs leading-relaxed text-[#2563EB]">
+        <div className="flex gap-2.5 rounded-lg border border-brand-weak bg-brand-weak p-3">
+          <Info className="size-4 shrink-0 text-brand" aria-hidden />
+          <p className="text-xs leading-relaxed text-brand">
             Revoking a session ends API access for that sign-in immediately. The user must log in
             again to get a new token. Sessions created before this update require a fresh login
             before revoke can take effect.
@@ -105,14 +105,14 @@ export function AdminActiveSessionsPanel({
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-[#666666]">
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-ink-muted">
             <Loader2 className="size-5 animate-spin" aria-hidden />
             Loading sessions…
           </div>
         ) : null}
 
         {!loading && sessionRows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-[#666666]">
+          <p className="py-6 text-center text-sm text-ink-muted">
             No sign-in sessions recorded yet. Sessions appear after the user logs in.
           </p>
         ) : null}
@@ -124,22 +124,22 @@ export function AdminActiveSessionsPanel({
               return (
                 <div
                   key={session.id}
-                  className="flex items-center justify-between gap-4 rounded-lg border border-[#E5E7EB] bg-white p-3.5"
+                  className="flex items-center justify-between gap-4 rounded-lg border border-edge bg-panel p-3.5"
                 >
                   <div className="flex min-w-0 flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Icon className="size-4 shrink-0 text-[#1A1A1A]" aria-hidden />
-                      <span className="text-[13px] font-semibold text-[#1A1A1A]">
+                      <Icon className="size-4 shrink-0 text-ink" aria-hidden />
+                      <span className="text-[13px] font-semibold text-ink">
                         {session.device_label}
                       </span>
                       {session.is_current ? (
-                        <span className="rounded-full bg-[#ECFDF5] px-1.5 py-0.5 text-[10px] font-medium text-[#059669]">
+                        <span className="rounded-full bg-ok-weak px-1.5 py-0.5 text-[10px] font-medium text-ok">
                           Current
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-[11px] text-[#666666]">{session.location_label}</p>
-                    <p className="text-[11px] text-[#888888]">
+                    <p className="text-[11px] text-ink-muted">{session.location_label}</p>
+                    <p className="text-[11px] text-ink-faint">
                       {session.created_line} • {session.activity_line}
                     </p>
                   </div>
@@ -147,7 +147,7 @@ export function AdminActiveSessionsPanel({
                     type="button"
                     disabled={busyId !== null}
                     onClick={() => void handleRevoke(session.id)}
-                    className="shrink-0 rounded-lg border border-[#FEE2E2] bg-white px-3.5 py-2 text-xs font-medium text-[#EF4444] transition-colors hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="shrink-0 rounded-lg border border-danger-weak bg-panel px-3.5 py-2 text-xs font-medium text-danger transition-colors hover:bg-danger-weak disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {busyId === session.id ? "Revoking…" : "Revoke"}
                   </button>
@@ -157,7 +157,7 @@ export function AdminActiveSessionsPanel({
           </div>
         ) : null}
 
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="text-sm text-danger">{error}</p> : null}
       </div>
 
       <AdminEditUserDivider />
@@ -167,14 +167,14 @@ export function AdminActiveSessionsPanel({
           type="button"
           onClick={() => void handleRevokeOthers()}
           disabled={revokingOthers || loading || sessionRows.length <= 1}
-          className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-[13px] font-semibold text-[#DC2626] transition-colors hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-2.5 text-[13px] font-semibold text-danger transition-colors hover:bg-danger-weak disabled:cursor-not-allowed disabled:opacity-50"
         >
           {revokingOthers ? "Revoking…" : "Revoke All Other Sessions"}
         </button>
         <button
           type="button"
           onClick={onBack}
-          className="rounded-lg bg-[#2563EB] px-5 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+          className="rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-brand-on transition-colors hover:bg-brand-hover"
         >
           Done
         </button>

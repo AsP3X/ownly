@@ -267,22 +267,22 @@ export function AdminSystemSettingsPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
       {savedMessage ? (
-        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <p className="rounded-lg border border-ok/40 bg-ok-weak px-4 py-3 text-sm text-ok">
           {savedMessage}
         </p>
       ) : null}
       {cleanupMessage ? (
-        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <p className="rounded-lg border border-ok/40 bg-ok-weak px-4 py-3 text-sm text-ok">
           {cleanupMessage}
         </p>
       ) : null}
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading settings…
         </div>
@@ -333,12 +333,12 @@ export function AdminSystemSettingsPanel() {
                   title="System Status"
                   description="Temporarily freeze user client access and sync actions during database migrations."
                 >
-                  <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                  <label className="flex items-center gap-2 text-sm text-ink">
                     <input
                       type="checkbox"
                       checked={form.maintenance_mode}
                       onChange={(e) => patchForm({ maintenance_mode: e.target.checked })}
-                      className="size-4 rounded border-[#E5E7EB]"
+                      className="size-4 rounded border-edge"
                     />
                     Maintenance mode {form.maintenance_mode ? "(active)" : "(inactive — clients online)"}
                   </label>
@@ -353,30 +353,30 @@ export function AdminSystemSettingsPanel() {
                       value={form.default_onboarding_role}
                       onChange={(v) => patchForm({ default_onboarding_role: v })}
                     />
-                    <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                    <label className="flex items-center gap-2 text-sm text-ink">
                       <input
                         type="checkbox"
                         checked={form.enforce_mfa_on_admin_login}
                         onChange={(e) => patchForm({ enforce_mfa_on_admin_login: e.target.checked })}
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Enforce Multi-Factor Authentication (MFA) on first administrator login
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                    <label className="flex items-center gap-2 text-sm text-ink">
                       <input
                         type="checkbox"
                         checked={form.allow_public_registration}
                         onChange={(e) => patchForm({ allow_public_registration: e.target.checked })}
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Allow public self-service registration
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                    <label className="flex items-center gap-2 text-sm text-ink">
                       <input
                         type="checkbox"
                         checked={form.require_account_activation}
                         onChange={(e) => patchForm({ require_account_activation: e.target.checked })}
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Require account activation before first sign-in
                     </label>
@@ -387,18 +387,18 @@ export function AdminSystemSettingsPanel() {
                   description="Manage ffmpeg scratch directories on the API host. Cached MP4 sidecars in object storage are kept until you run manual cleanup below."
                 >
                   <div className="flex flex-col gap-4">
-                    <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
+                    <label className="flex items-center gap-2 text-sm text-ink">
                       <input
                         type="checkbox"
                         checked={form.gif_preview_temp_auto_cleanup}
                         onChange={(e) =>
                           patchForm({ gif_preview_temp_auto_cleanup: e.target.checked })
                         }
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Automatically purge idle GIF preview scratch files after 2 minutes
                     </label>
-                    <p className="text-xs text-[#888888]">
+                    <p className="text-xs text-ink-faint">
                       Only API-host scratch dirs with the{" "}
                       <code className="text-[11px]">ownly_gif_preview_</code> prefix are affected.
                       Object-storage preview MP4s ({" "}
@@ -423,7 +423,7 @@ export function AdminSystemSettingsPanel() {
                   description="Upgrade blobs written before flat encoded paths and NOSI compression. Run in batches until no objects remain to migrate."
                 >
                   <div className="flex flex-col gap-4">
-                    <p className="text-xs text-[#888888]">
+                    <p className="text-xs text-ink-faint">
                       Moves nested on-disk layouts (keys with{" "}
                       <code className="text-[11px]">/</code>) to the current flat filename encoding and
                       upgrades legacy <code className="text-[11px]">NOSB</code> /{" "}
@@ -432,12 +432,12 @@ export function AdminSystemSettingsPanel() {
                       are skipped.
                     </p>
                     {storageNodes.length > 0 ? (
-                      <label className="flex flex-col gap-1 text-sm text-[#1A1A1A]">
+                      <label className="flex flex-col gap-1 text-sm text-ink">
                         <span className="font-medium">Storage node</span>
                         <select
                           value={migrationNodeId}
                           onChange={(e) => setMigrationNodeId(e.target.value)}
-                          className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+                          className="rounded-lg border border-edge bg-panel px-3 py-2 text-sm"
                         >
                           <option value="">
                             {storageNodes.length > 1 ? "All nodes" : "Default node"}
@@ -450,12 +450,12 @@ export function AdminSystemSettingsPanel() {
                         </select>
                       </label>
                     ) : null}
-                    <p className="text-xs text-[#888888]">
+                    <p className="text-xs text-ink-faint">
                       Run preview first to count objects that need migration. Progress appears in the
                       lower-right corner while preview or migration runs.
                     </p>
                     {migrationJob?.status === "running" ? (
-                      <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <p className="rounded-lg border border-warn/30 bg-warn-weak px-3 py-2 text-xs text-warn">
                         {migrationJob.kind === "preview" ? "Preview" : "Migration"} in progress —{" "}
                         {migrationJob.kind === "preview"
                           ? `${migrationJob.migrated} would migrate so far`
@@ -465,7 +465,7 @@ export function AdminSystemSettingsPanel() {
                       </p>
                     ) : null}
                     {migrationScopeReady && migrationPreview ? (
-                      <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                      <p className="rounded-lg border border-brand/30 bg-brand-weak px-3 py-2 text-xs text-brand-hover">
                         Preview ready:{" "}
                         <span className="font-semibold">{migrationPreview.totalWouldMigrate}</span> to
                         migrate, {migrationPreview.totalSkipped} already up to date
@@ -530,7 +530,7 @@ export function AdminSystemSettingsPanel() {
                         }
                       }}
                     />
-                    <p className="text-xs text-[#888888]">
+                    <p className="text-xs text-ink-faint">
                       Applies to new accounts. Existing users keep their current usage until changed per user.
                     </p>
                   </div>
@@ -544,7 +544,7 @@ export function AdminSystemSettingsPanel() {
                   title="Session Timeout"
                   description="Session lifetime is enforced by JWT expiry on the API server (configured via environment)."
                 >
-                  <p className="text-sm text-[#666666]">
+                  <p className="text-sm text-ink-muted">
                     Adjust session duration in server environment variables and restart the API stack.
                   </p>
                 </AdminConsoleSettingsRow>
@@ -563,17 +563,17 @@ export function AdminSystemSettingsPanel() {
                     />
                     <AdminConsoleField label="Password KDF" value={PASSWORD_KDF} />
                     <AdminConsoleField label="Posture summary" value={QUANTUM_POSTURE} />
-                    <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">
+                    <div className="rounded-lg border border-edge bg-surface px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                         Deployment checklist
                       </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-[#666666]">
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-ink-muted">
                         {QUANTUM_READINESS_CHECKLIST.map((item) => (
                           <li key={item}>{item}</li>
                         ))}
                       </ul>
                     </div>
-                    <p className="text-xs text-[#888888]">
+                    <p className="text-xs text-ink-faint">
                       Active standard: {ENCRYPTION_SUMMARY}. HLS streaming segments remain AES-128-CBC
                       for player compatibility; segment keys are wrapped with {SYMMETRIC_CIPHER}.
                     </p>
@@ -583,7 +583,7 @@ export function AdminSystemSettingsPanel() {
                   title="IP Access Restriction"
                   description="Network-level restrictions are enforced outside this application (reverse proxy / firewall)."
                 >
-                  <p className="text-sm text-[#666666]">
+                  <p className="text-sm text-ink-muted">
                     Configure allowed CIDR blocks on your edge proxy or hosting provider.
                   </p>
                 </AdminConsoleSettingsRow>
@@ -644,7 +644,7 @@ export function AdminSystemSettingsPanel() {
                   title="Event Notification Rules"
                   description="Configure real-time server alert conditions that trigger direct email notifications to super administrators."
                 >
-                  <div className="flex flex-col gap-3 text-sm text-[#1A1A1A]">
+                  <div className="flex flex-col gap-3 text-sm text-ink">
                     <label className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -657,7 +657,7 @@ export function AdminSystemSettingsPanel() {
                             },
                           })
                         }
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Notify immediately on storage node critical offline events
                     </label>
@@ -673,7 +673,7 @@ export function AdminSystemSettingsPanel() {
                             },
                           })
                         }
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Send digest report when daily database audits detect policy violations
                     </label>
@@ -689,7 +689,7 @@ export function AdminSystemSettingsPanel() {
                             },
                           })
                         }
-                        className="size-4 rounded border-[#E5E7EB]"
+                        className="size-4 rounded border-edge"
                       />
                       Alert on standard user registration and space expansion limits reached
                     </label>

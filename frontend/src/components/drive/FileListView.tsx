@@ -247,7 +247,9 @@ export const ExplorerFolderListRow = memo(function ExplorerFolderListRow({
       )}
     >
       <div className={cn(LIST_GRID_CLASS, "max-lg:flex max-lg:items-center max-lg:gap-3")}>
-        <div className="flex min-w-0 items-center gap-2 py-2 pl-2">
+        {/* Human: max-lg:flex-1 claims the leftover row width so the ⋯ button lands on the
+            right edge and long names truncate instead of pushing it around. */}
+        <div className="flex min-w-0 items-center gap-2 py-2 pl-2 max-lg:flex-1">
           {selectionEnabled && onToggleSelected ? (
             <ListSelectBox
               checked={isSelected}
@@ -286,7 +288,7 @@ export const ExplorerFolderListRow = memo(function ExplorerFolderListRow({
               touchDragBindings && "touch-pan-y",
             )}
           >
-            <Folder className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <Folder className="size-4 shrink-0 text-warn dark:text-warn" aria-hidden />
             <span className="truncate text-[13px] font-medium text-ink" title={folder.name}>
               {folder.name}
             </span>
@@ -490,7 +492,9 @@ export const ExplorerFileListRow = memo(function ExplorerFileListRow({
       )}
     >
       <div className={cn(LIST_GRID_CLASS, "max-lg:flex max-lg:items-center max-lg:gap-3")}>
-        <div className="flex min-w-0 items-center gap-2 py-2 pl-2">
+        {/* Human: max-lg:flex-1 claims the leftover row width so the ⋯ button lands on the
+            right edge and long names truncate instead of pushing it around. */}
+        <div className="flex min-w-0 items-center gap-2 py-2 pl-2 max-lg:flex-1">
           {selectionEnabled ? (
             <ListSelectBox
               checked={isSelected}

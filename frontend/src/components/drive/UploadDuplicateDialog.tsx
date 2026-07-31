@@ -84,7 +84,7 @@ export function UploadConflictDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full max-w-[min(32rem,calc(100%-2rem))] gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-lg">
-        <DialogHeader className="min-w-0 border-b border-neutral-100 px-5 py-4 pr-12">
+        <DialogHeader className="min-w-0 border-b border-hairline px-5 py-4 pr-12">
           <DialogTitle className="truncate text-base font-semibold text-ink">
             {conflictDialogTitle(duplicateCount, recycleCount)}
           </DialogTitle>
@@ -96,23 +96,23 @@ export function UploadConflictDialog({
         <div className="flex min-w-0 flex-col gap-3 px-5 py-4">
           {recycleCount > 0 ? (
             <>
-              <Alert className="border-blue-200 bg-blue-50 text-blue-950">
-                <RotateCcw className="size-4 text-blue-600" aria-hidden />
-                <AlertDescription className="text-sm text-blue-950">
+              <Alert className="border-brand/40 bg-brand-weak text-brand-hover">
+                <RotateCcw className="size-4 text-brand" aria-hidden />
+                <AlertDescription className="text-sm text-brand-hover">
                   Exact matches (same name and size) in the recycle bin can be restored instead of
                   re-uploaded.
                 </AlertDescription>
               </Alert>
 
-              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-edge">
+              <ul className="max-h-48 divide-y divide-hairline overflow-y-auto rounded-lg border border-edge">
                 {recycleMatches.map((entry) => (
                   <li key={`${entry.upload_name}-${entry.upload_size_bytes}`} className="px-3 py-2.5">
                     <p className="truncate text-sm font-medium text-ink">
                       {entry.upload_name}
                     </p>
-                    <p className="mt-1 text-xs text-neutral-600">
+                    <p className="mt-1 text-xs text-ink-muted">
                       Matches recycle-bin item from{" "}
-                      <span className="font-medium text-neutral-800">
+                      <span className="font-medium text-ink">
                         {existingFileLocation(entry.trashed.folder_name)}
                       </span>
                       <span className="ml-2 tabular-nums text-ink-muted">
@@ -120,11 +120,11 @@ export function UploadConflictDialog({
                       </span>
                     </p>
                     {entry.trashed.can_restore ? (
-                      <p className="mt-1 text-xs text-blue-700">
+                      <p className="mt-1 text-xs text-brand">
                         Will be restored to its original location on Continue.
                       </p>
                     ) : (
-                      <p className="mt-1 text-xs text-amber-800">
+                      <p className="mt-1 text-xs text-warn">
                         Original folder unavailable — will upload instead on Continue.
                       </p>
                     )}
@@ -136,15 +136,15 @@ export function UploadConflictDialog({
 
           {duplicateCount > 0 ? (
             <>
-              <Alert className="border-amber-200 bg-amber-50 text-amber-950">
-                <AlertTriangle className="size-4 text-amber-600" aria-hidden />
-                <AlertDescription className="text-sm text-amber-950">
+              <Alert className="border-warn/40 bg-warn-weak text-warn">
+                <AlertTriangle className="size-4 text-warn" aria-hidden />
+                <AlertDescription className="text-sm text-warn">
                   Active-library duplicate checks compare file content across your entire library,
                   not just the current folder.
                 </AlertDescription>
               </Alert>
 
-              <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-edge">
+              <ul className="max-h-48 divide-y divide-hairline overflow-y-auto rounded-lg border border-edge">
                 {duplicates.map((entry) => (
                   <li key={entry.upload_content_hash} className="px-3 py-2.5">
                     <p className="truncate text-sm font-medium text-ink">
@@ -154,11 +154,11 @@ export function UploadConflictDialog({
                       {entry.existing.map((match) => (
                         <li
                           key={match.id}
-                          className="flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-600"
+                          className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted"
                         >
                           <span>
                             Already in{" "}
-                            <span className="font-medium text-neutral-800">
+                            <span className="font-medium text-ink">
                               {existingFileLocation(match.folder_name)}
                             </span>
                           </span>
@@ -175,14 +175,14 @@ export function UploadConflictDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="min-w-0 w-full shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-5 py-3">
+        <DialogFooter className="min-w-0 w-full shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-hairline bg-surface/80 px-5 py-3">
           <Button type="button" variant="outline" size="sm" onClick={onCancel}>
             Cancel upload
           </Button>
           <Button
             type="button"
             size="sm"
-            className="bg-blue-600 text-white hover:bg-blue-700"
+            className="bg-brand text-brand-on hover:bg-brand-hover"
             disabled={continueDisabled || continuing}
             onClick={onContinue}
           >
@@ -192,7 +192,7 @@ export function UploadConflictDialog({
             type="button"
             variant="outline"
             size="sm"
-            className="border-amber-300 text-amber-900 hover:bg-amber-50"
+            className="border-warn/40 text-warn hover:bg-warn-weak"
             onClick={onUploadAnyway}
             disabled={continuing}
           >

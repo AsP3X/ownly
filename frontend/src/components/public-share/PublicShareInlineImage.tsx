@@ -56,10 +56,10 @@ export function PublicShareInlineImage({
   }, [token, file.id, sharePassword]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_12px_32px_#00000014]">
-      <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] bg-[#111118] px-4 py-3 text-white sm:px-5">
+    <div className="overflow-hidden rounded-2xl border border-edge bg-panel shadow-[0_12px_32px_#00000014]">
+      <div className="flex items-center justify-between gap-3 border-b border-edge bg-[#111118] px-4 py-3 text-white sm:px-5">
         <div className="flex min-w-0 items-center gap-2">
-          <ImageIcon className="size-4 shrink-0 text-[#93C5FD]" aria-hidden />
+          <ImageIcon className="size-4 shrink-0 text-brand" aria-hidden />
           <p className="truncate text-sm font-semibold">{file.name}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -84,7 +84,7 @@ export function PublicShareInlineImage({
               type="button"
               disabled={downloadDisabled}
               onClick={onDownload}
-              className="hidden items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-60 lg:inline-flex"
+              className="hidden items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-on transition-colors hover:bg-brand-hover disabled:opacity-60 lg:inline-flex"
             >
               <Download className="size-3.5" />
               Download
@@ -100,7 +100,7 @@ export function PublicShareInlineImage({
             Loading image…
           </div>
         ) : null}
-        {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        {error ? <p className="text-sm text-danger">{error}</p> : null}
         {displayUrl && !error ? (
           <img
             src={displayUrl}

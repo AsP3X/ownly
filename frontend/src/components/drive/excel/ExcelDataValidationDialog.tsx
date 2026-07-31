@@ -98,7 +98,7 @@ export function ExcelDataValidationDialog({
             <Label htmlFor="excel-validation-scope">Apply to</Label>
             <select
               id="excel-validation-scope"
-              className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-sm"
               value={scope}
               onChange={(event) => setScope(event.target.value as ValidationScope)}
             >
@@ -111,7 +111,7 @@ export function ExcelDataValidationDialog({
             <Label htmlFor="excel-validation-type">Allow</Label>
             <select
               id="excel-validation-type"
-              className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-sm"
               value={type}
               onChange={(event) => setType(event.target.value as DataValidationRule["type"])}
             >

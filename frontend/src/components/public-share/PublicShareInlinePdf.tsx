@@ -83,33 +83,33 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
   }, [viewportNode]);
 
   return (
-    <div className="flex max-h-[min(850px,calc(100vh-12rem))] flex-col overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_12px_32px_#00000014]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
+    <div className="flex max-h-[min(850px,calc(100vh-12rem))] flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-[0_12px_32px_#00000014]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-2">
-          <FileText className="size-4 shrink-0 text-[#EF4444]" aria-hidden />
-          <p className="truncate text-sm font-semibold text-[#1A1A1A]">{file.name}</p>
-          <span className="rounded-md bg-[#F0FDF4] px-2 py-0.5 text-[10px] font-semibold text-[#166534]">
+          <FileText className="size-4 shrink-0 text-danger" aria-hidden />
+          <p className="truncate text-sm font-semibold text-ink">{file.name}</p>
+          <span className="rounded-md bg-ok-weak px-2 py-0.5 text-[10px] font-semibold text-ok">
             Verified
           </span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-[#666666]">
+        <div className="flex items-center gap-2 text-sm text-ink-muted">
           <span>
             {numPages > 0 ? `${currentPage} of ${numPages}` : "—"}
           </span>
           <button
             type="button"
-            className="flex size-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-lg border border-edge bg-panel hover:bg-surface"
             onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
             aria-label="Zoom out"
           >
             <ZoomOut className="size-4" />
           </button>
-          <span className="min-w-[3rem] text-center font-semibold text-[#1A1A1A]">
+          <span className="min-w-[3rem] text-center font-semibold text-ink">
             {Math.round(zoom * 100)}%
           </span>
           <button
             type="button"
-            className="flex size-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-lg border border-edge bg-panel hover:bg-surface"
             onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
             aria-label="Zoom in"
           >
@@ -117,7 +117,7 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1d4ed8]"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-on hover:bg-brand-hover"
             onClick={() => window.print()}
           >
             <Printer className="size-3.5" />
@@ -148,7 +148,7 @@ export function PublicShareInlinePdf({ token, file, sharePassword }: PublicShare
             Loading PDF…
           </div>
         ) : null}
-        {error ? <p className="py-12 text-center text-sm text-red-300">{error}</p> : null}
+        {error ? <p className="py-12 text-center text-sm text-danger">{error}</p> : null}
         {pdfObjectUrl && !error ? (
           <Document
             file={pdfObjectUrl}

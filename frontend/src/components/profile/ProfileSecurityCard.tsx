@@ -60,15 +60,15 @@ export function ProfileSecurityCard({
 
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <p className="text-sm font-semibold text-[#1A1A1A]">Multi-Factor Authentication (MFA)</p>
-              <p className="text-xs text-[#666666]">
+              <p className="text-sm font-semibold text-ink">Multi-Factor Authentication (MFA)</p>
+              <p className="text-xs text-ink-muted">
                 Require a secure TOTP verification code from an authenticator app when logging in.
               </p>
             </div>
             <Switch
               checked={draft.mfaEnabled}
               onCheckedChange={(checked) => update({ mfaEnabled: checked })}
-              className="data-checked:bg-[#10B981] data-unchecked:bg-[#E5E7EB]"
+              className="data-checked:bg-ok data-unchecked:bg-edge"
               aria-label="Toggle multi-factor authentication"
             />
           </div>

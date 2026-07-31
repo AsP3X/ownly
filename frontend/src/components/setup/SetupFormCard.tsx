@@ -21,16 +21,16 @@ export function SetupFormCard({
 }: SetupFormCardProps) {
   return (
     <div
-      className={`flex w-full flex-col rounded-2xl border border-[#E5E7EB] bg-white p-8 ${
+      className={`flex w-full flex-col rounded-2xl border border-edge bg-panel p-8 ${
         gap === "lg" ? "gap-6" : "gap-5"
       }`}
     >
       {stepTitle ? (
         <div className="flex flex-col gap-1.5">
-          <h2 className="text-lg font-bold text-[#1A1A1A]">{stepTitle}</h2>
+          <h2 className="text-lg font-bold text-ink">{stepTitle}</h2>
           {stepSubtitle || statusBanner ? (
             <div className="flex flex-col gap-3">
-              {stepSubtitle ? <p className="text-sm text-[#666666]">{stepSubtitle}</p> : null}
+              {stepSubtitle ? <p className="text-sm text-ink-muted">{stepSubtitle}</p> : null}
               {statusBanner}
             </div>
           ) : null}

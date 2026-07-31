@@ -75,13 +75,13 @@ function PendingFileRow({
       className={cn(
         "flex min-w-0 flex-col gap-1 rounded-lg border px-3 py-2.5",
         storageWarning
-          ? "border-amber-200 bg-amber-50/80"
+          ? "border-warn/40 bg-warn-weak/80"
           : "border-edge bg-surface",
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
         <FileText
-          className={cn("size-3.5 shrink-0", storageWarning ? "text-amber-700" : "text-brand")}
+          className={cn("size-3.5 shrink-0", storageWarning ? "text-warn" : "text-brand")}
           aria-hidden
         />
         <p
@@ -95,7 +95,7 @@ function PendingFileRow({
         </span>
         <button
         type="button"
-        className="shrink-0 rounded-md p-1 text-ink-faint transition hover:bg-edge/60 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+        className="shrink-0 rounded-md p-1 text-ink-faint transition hover:bg-edge/60 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         aria-label={`Remove ${name}`}
         onClick={onRemove}
       >
@@ -103,7 +103,7 @@ function PendingFileRow({
       </button>
       </div>
       {storageWarning ? (
-        <p className="text-[11px] leading-snug text-amber-800" role="status">
+        <p className="text-[11px] leading-snug text-warn" role="status">
           {storageWarning}
         </p>
       ) : null}
@@ -548,20 +548,20 @@ export function UploadDialog({
           />
 
           {activeUploadBatch ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]">
+            <p className="shrink-0 rounded-lg border border-brand/40 bg-brand-weak px-3 py-2 text-sm text-brand-hover">
               Uploads are running in the panel at the bottom-right. Files you add here join the
               same queue.
             </p>
           ) : null}
 
           {storageSkipNotice ? (
-            <p className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="shrink-0 rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-sm text-warn">
               {storageSkipNotice}
             </p>
           ) : null}
 
           {oversizedPendingCount > 0 ? (
-            <p className="shrink-0 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm text-amber-900">
+            <p className="shrink-0 rounded-lg border border-warn/40 bg-warn-weak/60 px-3 py-2 text-sm text-warn">
               {oversizedPendingCount} selected file{oversizedPendingCount === 1 ? "" : "s"} exceed
               your remaining storage and will not upload. You can still add them here to review;
               remove them or free space before uploading.
@@ -569,19 +569,19 @@ export function UploadDialog({
           ) : null}
 
           {conflictCheckError ? (
-            <p className="shrink-0 rounded-lg border border-[#FECACA] bg-danger-weak px-3 py-2 text-sm text-[#991B1B]">
+            <p className="shrink-0 rounded-lg border border-danger/40 bg-danger-weak px-3 py-2 text-sm text-danger">
               {conflictCheckError}
             </p>
           ) : null}
 
           {hashProgress ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]" role="status">
+            <p className="shrink-0 rounded-lg border border-brand/40 bg-brand-weak px-3 py-2 text-sm text-brand-hover" role="status">
               Preparing files… {hashProgress.completed} of {hashProgress.total} hashed
             </p>
           ) : null}
 
           {folderUploadRootName ? (
-            <p className="shrink-0 rounded-lg border border-[#BFDBFE] bg-brand-weak px-3 py-2 text-sm text-[#1E3A8A]">
+            <p className="shrink-0 rounded-lg border border-brand/40 bg-brand-weak px-3 py-2 text-sm text-brand-hover">
               Folder <span className="font-semibold">{folderUploadRootName}</span> will be created
               here with its contents and subfolders preserved.
             </p>
@@ -605,10 +605,10 @@ export function UploadDialog({
                 onClick={openFilePicker}
                 className={cn(
                   "flex w-full flex-col items-center gap-3 rounded-xl border border-edge px-4 py-6 text-center transition",
-                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
                 )}
               >
-                <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
+                <div className="flex size-11 items-center justify-center rounded-full bg-brand-weak">
                   <Upload className="size-5 text-brand" aria-hidden />
                 </div>
                 <span className="text-[15px] font-bold text-ink">Browse files</span>
@@ -621,10 +621,10 @@ export function UploadDialog({
                 onClick={openFolderPicker}
                 className={cn(
                   "flex w-full flex-col items-center gap-3 rounded-xl border border-edge px-4 py-6 text-center transition",
-                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30",
+                  "hover:border-brand/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
                 )}
               >
-                <div className="flex size-11 items-center justify-center rounded-full bg-[#E0F2FE]">
+                <div className="flex size-11 items-center justify-center rounded-full bg-brand-weak">
                   <FolderUp className="size-5 text-brand" aria-hidden />
                 </div>
                 <span className="text-[15px] font-bold text-ink">Browse folder</span>
@@ -640,14 +640,14 @@ export function UploadDialog({
                 <button
                   type="button"
                   onClick={openFilePicker}
-                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                 >
                   Add files
                 </button>
                 <button
                   type="button"
                   onClick={openFolderPicker}
-                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+                  className="shrink-0 font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                 >
                   Add folder
                 </button>
@@ -671,10 +671,10 @@ export function UploadDialog({
           )}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-edge bg-[#FAFAFA] px-6 py-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-edge bg-surface px-6 py-4">
           <button
             type="button"
-            className="shrink-0 rounded-lg border border-edge bg-panel px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/30"
+            className="shrink-0 rounded-lg border border-edge bg-panel px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
             onClick={() => handleOpenChange(false)}
           >
             Cancel
@@ -683,7 +683,7 @@ export function UploadDialog({
             type="button"
             disabled={uploadDisabled}
             className={cn(
-              "shrink-0 rounded-lg px-5 py-2.5 text-sm font-bold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40",
+              "shrink-0 rounded-lg px-5 py-2.5 text-sm font-bold text-brand-on transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
               uploadDisabled
                 ? "cursor-not-allowed bg-brand/40"
                 : "bg-brand hover:bg-brand-hover",

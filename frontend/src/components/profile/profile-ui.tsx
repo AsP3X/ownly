@@ -7,11 +7,11 @@ import { cn } from "@/lib/utils";
 
 /** Human: White bordered card — Pencil radius-xl + border-color on profile panels. */
 export const profileCardClassName =
-  "rounded-xl border border-[#E5E7EB] bg-white";
+  "rounded-xl border border-edge bg-panel";
 
 /** Human: Primary save CTA — Pencil Save Profile Button (accent fill, radius-lg). */
 export const profilePrimaryButtonClassName =
-  "inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60";
 
 export function ProfileCard({
   children,
@@ -39,16 +39,16 @@ export function ProfileCardHeader({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <h2 className="text-base font-bold text-[#1A1A1A]">{title}</h2>
+      <h2 className="text-base font-bold text-ink">{title}</h2>
       {description ? (
-        <p className="text-[13px] leading-relaxed text-[#666666]">{description}</p>
+        <p className="text-[13px] leading-relaxed text-ink-muted">{description}</p>
       ) : null}
     </div>
   );
 }
 
 export function ProfileDivider() {
-  return <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />;
+  return <div className="h-px w-full bg-edge" aria-hidden />;
 }
 
 /** Human: Label above profile form controls — 13px semi-bold per Pencil field labels. */
@@ -60,7 +60,7 @@ export function ProfileFieldLabel({
   children: ReactNode;
 }) {
   return (
-    <label htmlFor={htmlFor} className="text-[13px] font-semibold text-[#1A1A1A]">
+    <label htmlFor={htmlFor} className="text-[13px] font-semibold text-ink">
       {children}
     </label>
   );
@@ -76,9 +76,9 @@ export function ProfileTextInput({
     <input
       className={cn(
         // Human: text-base on mobile prevents iOS Safari focus zoom; md:text-sm for desktop density.
-        "flex h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-base text-[#1A1A1A] outline-none transition-colors md:text-sm",
-        "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
-        readOnly && "cursor-default bg-[#F7F8FA] text-[#666666]",
+        "flex h-11 w-full rounded-lg border border-edge bg-panel px-4 text-base text-ink outline-none transition-colors md:text-sm",
+        "placeholder:text-ink-faint focus:border-brand focus:ring-2 focus:ring-brand/20",
+        readOnly && "cursor-default bg-surface text-ink-muted",
         className,
       )}
       readOnly={readOnly}
@@ -104,7 +104,7 @@ export function ProfilePasswordInput({
   const [visible, setVisible] = useState(false);
 
   return (
-    <div className="relative flex h-11 w-full items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
+    <div className="relative flex h-11 w-full items-center rounded-lg border border-edge bg-panel px-4">
       <input
         id={id}
         type={visible ? "text" : "password"}
@@ -112,11 +112,11 @@ export function ProfilePasswordInput({
         onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
         aria-invalid={ariaInvalid}
-        className="min-w-0 flex-1 bg-transparent text-base text-[#1A1A1A] outline-none placeholder:text-[#888888] md:text-sm"
+        className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-faint md:text-sm"
       />
       <button
         type="button"
-        className="shrink-0 text-[#888888] transition-colors hover:text-[#666666]"
+        className="shrink-0 text-ink-faint transition-colors hover:text-ink-muted"
         onClick={() => setVisible((current) => !current)}
         aria-label={visible ? "Hide password" : "Show password"}
       >
@@ -134,8 +134,8 @@ export function ProfileTextarea({
   return (
     <textarea
       className={cn(
-        "min-h-20 w-full resize-y rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-base text-[#1A1A1A] outline-none transition-colors md:text-sm",
-        "placeholder:text-[#888888] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20",
+        "min-h-20 w-full resize-y rounded-lg border border-edge bg-panel px-4 py-3 text-base text-ink outline-none transition-colors md:text-sm",
+        "placeholder:text-ink-faint focus:border-brand focus:ring-2 focus:ring-brand/20",
         className,
       )}
       {...props}
@@ -155,8 +155,8 @@ export function ProfileStatRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-[13px] text-[#666666]">{label}</span>
-      <span className={cn("text-[13px] font-semibold text-[#1A1A1A]", valueClassName)}>{value}</span>
+      <span className="text-[13px] text-ink-muted">{label}</span>
+      <span className={cn("text-[13px] font-semibold text-ink", valueClassName)}>{value}</span>
     </div>
   );
 }

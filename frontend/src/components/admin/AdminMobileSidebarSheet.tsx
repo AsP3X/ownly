@@ -44,14 +44,14 @@ function AdminDrawerNavRow({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
-        active && "bg-[#F7F8FA] font-semibold text-[#1A1A1A]",
-        !active && "text-[#666666] active:bg-[#F7F8FA]",
+        active && "bg-surface font-semibold text-ink",
+        !active && "text-ink-muted active:bg-surface",
       )}
     >
       <span
         className={cn(
           "flex size-8 shrink-0 items-center justify-center rounded-xl",
-          active ? "bg-blue-100 text-[#2563EB]" : "bg-[#F7F8FA] text-[#666666]",
+          active ? "bg-brand-weak text-brand" : "bg-surface text-ink-muted",
         )}
         aria-hidden
       >
@@ -85,11 +85,11 @@ function GlobalCapacityWidget({
         : formatBytes(usedBytes);
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-[#F7F8FA] p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#666666]">Global capacity</p>
-      <p className="text-[15px] font-bold text-[#1A1A1A]">{label}</p>
+    <div className="flex flex-col gap-3 rounded-2xl bg-surface p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Global capacity</p>
+      <p className="text-[15px] font-bold text-ink">{label}</p>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-sm bg-[#E5E7EB]"
+        className="h-1.5 w-full overflow-hidden rounded-sm bg-edge"
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -97,7 +97,7 @@ function GlobalCapacityWidget({
         aria-label="Global storage capacity"
       >
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
+          className="h-full rounded-sm bg-brand transition-[width] duration-300 ease-out"
           style={{ width: `${fillWidth}%` }}
         />
       </div>
@@ -128,28 +128,28 @@ export function AdminMobileSidebarSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[min(100vw-1rem,22rem)] gap-0 p-0">
-        <SheetHeader className="border-b border-[#E5E7EB] bg-white px-5 py-5 text-left">
+        <SheetHeader className="border-b border-edge bg-panel px-5 py-5 text-left">
           <SheetTitle className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-            <Cloud className="size-6 text-[#2563EB]" aria-hidden />
+            <Cloud className="size-6 text-brand" aria-hidden />
             {instanceName}
           </SheetTitle>
           <SheetDescription>Admin console</SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-white px-4 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-panel px-4 py-4">
           <Link
             to="/"
             onClick={handleDashboardLink}
-            className="flex w-full items-center gap-3 rounded-xl border border-[#E5E7EB] bg-[#F7F8FA] px-3 py-3 text-sm font-semibold text-[#1A1A1A] transition-colors hover:bg-[#EEF2FF] hover:text-[#2563EB]"
+            className="flex w-full items-center gap-3 rounded-xl border border-edge bg-surface px-3 py-3 text-sm font-semibold text-ink transition-colors hover:bg-brand-weak hover:text-brand"
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-white text-[#2563EB]">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand-weak text-brand">
               <ArrowLeft className="size-4" />
             </span>
             Back to dashboard
           </Link>
 
           <nav
-            className="flex flex-col gap-1 rounded-2xl bg-white p-2 ring-1 ring-[#E5E7EB]"
+            className="flex flex-col gap-1 rounded-2xl bg-panel p-2 ring-1 ring-edge"
             aria-label="Admin navigation"
           >
             {(navItems ?? ADMIN_NAV).map((item) => (

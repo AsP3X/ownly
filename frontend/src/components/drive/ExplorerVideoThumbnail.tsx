@@ -45,13 +45,13 @@ export function ExplorerVideoThumbnail({
         "overflow-hidden contain-[layout_paint]",
         slotFill
           ? "absolute inset-0 size-full rounded-none bg-transparent"
-          : "relative aspect-square w-full rounded-lg bg-[#F3F4F6]",
+          : "relative aspect-square w-full rounded-lg bg-sunken",
         className,
       )}
     >
       {showFailed || !file.video_thumbnail_ready ? (
         <div className="flex size-full items-center justify-center">
-          <Film className="size-8 text-[#2563EB]" aria-hidden />
+          <Film className="size-8 text-brand" aria-hidden />
         </div>
       ) : displaySrc ? (
         <img

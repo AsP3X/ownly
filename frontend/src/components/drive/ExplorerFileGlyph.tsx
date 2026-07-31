@@ -24,17 +24,17 @@ function resolveGlyph(mimeType: string | null | undefined): {
 } {
   const mime = (mimeType ?? "").toLowerCase();
 
-  if (mime.startsWith("image/")) return { Icon: ImageIcon, tone: "text-sky-600 dark:text-sky-400" };
-  if (mime.startsWith("video/")) return { Icon: Film, tone: "text-violet-600 dark:text-violet-400" };
+  if (mime.startsWith("image/")) return { Icon: ImageIcon, tone: "text-brand dark:text-brand" };
+  if (mime.startsWith("video/")) return { Icon: Film, tone: "text-proc dark:text-violet-400" };
   if (mime.startsWith("audio/")) return { Icon: Music, tone: "text-teal-600 dark:text-teal-400" };
   if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv")) {
-    return { Icon: FileSpreadsheet, tone: "text-emerald-600 dark:text-emerald-400" };
+    return { Icon: FileSpreadsheet, tone: "text-ok dark:text-emerald-400" };
   }
   if (mime.includes("presentation") || mime.includes("powerpoint")) {
     return { Icon: Presentation, tone: "text-orange-600 dark:text-orange-400" };
   }
   if (mime.includes("zip") || mime.includes("tar") || mime.includes("compressed")) {
-    return { Icon: FileArchive, tone: "text-amber-600 dark:text-amber-400" };
+    return { Icon: FileArchive, tone: "text-warn dark:text-warn" };
   }
   if (
     mime.startsWith("text/") ||
@@ -44,7 +44,7 @@ function resolveGlyph(mimeType: string | null | undefined): {
     mime.includes("epub") ||
     mime.includes("rtf")
   ) {
-    return { Icon: FileText, tone: "text-rose-600 dark:text-rose-400" };
+    return { Icon: FileText, tone: "text-danger dark:text-rose-400" };
   }
   return { Icon: FileIcon, tone: "text-ink-faint" };
 }

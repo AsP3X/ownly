@@ -26,7 +26,7 @@ export function SetupActionsRow({
         type="button"
         disabled={backDisabled || loading}
         onClick={onBack}
-        className="py-2.5 text-sm font-semibold text-[#666666] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50"
+        className="py-2.5 text-sm font-semibold text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
       >
         Back
       </button>
@@ -34,7 +34,7 @@ export function SetupActionsRow({
         type="button"
         disabled={primaryDisabled || loading}
         onClick={onPrimary}
-        className="rounded-lg bg-[#1A1A1A] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#333333] disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-lg bg-ink px-5 py-2.5 text-sm font-semibold text-panel transition-colors hover:bg-ink-muted disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? (loadingLabel ?? primaryLabel) : primaryLabel}
       </button>

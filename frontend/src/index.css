@@ -78,12 +78,16 @@
 
   --color-ok: var(--dr-ok);
   --color-ok-weak: var(--dr-ok-weak);
+  --color-ok-on: var(--dr-ok-on);
   --color-danger: var(--dr-danger);
   --color-danger-weak: var(--dr-danger-weak);
+  --color-danger-on: var(--dr-danger-on);
   --color-warn: var(--dr-warn);
   --color-warn-weak: var(--dr-warn-weak);
+  --color-warn-on: var(--dr-warn-on);
   --color-proc: var(--dr-proc);
   --color-proc-weak: var(--dr-proc-weak);
+  --color-proc-on: var(--dr-proc-on);
 
   --color-focus: var(--dr-focus);
 }
@@ -148,12 +152,16 @@
 
   --dr-ok: #0e9f6e;
   --dr-ok-weak: #e6f6f0;
+  --dr-ok-on: #ffffff;
   --dr-danger: #dc2626;
   --dr-danger-weak: #fdecec;
+  --dr-danger-on: #ffffff;
   --dr-warn: #d97706;
   --dr-warn-weak: #fdf3e3;
+  --dr-warn-on: #ffffff;
   --dr-proc: #7c3aed;
   --dr-proc-weak: #f1ebfe;
+  --dr-proc-on: #ffffff;
 
   --dr-focus: #2563eb;
 }
@@ -216,14 +224,62 @@
 
   --dr-ok: #34d399;
   --dr-ok-weak: #10251e;
+  --dr-ok-on: #0b0f16;
   --dr-danger: #f87171;
   --dr-danger-weak: #2a1416;
+  --dr-danger-on: #0b0f16;
   --dr-warn: #fbbf24;
   --dr-warn-weak: #2a1f0c;
+  --dr-warn-on: #0b0f16;
   --dr-proc: #a78bfa;
   --dr-proc-weak: #1e1733;
+  --dr-proc-on: #0b0f16;
 
   --dr-focus: #4c8dff;
+}
+
+/*
+ * Human: Document canvases are paper — the Excel grid, the RTF page and PDF pages stay light in
+ * both themes (see docs/superpowers/specs/2026-07-29-filebrowser-ui-rework-design.md, non-goals).
+ * Agent: RE-DECLARES the --dr-* tokens at their light values for the subtree, so tokenised
+ * children (text-ink, border-edge, bg-sunken, …) keep light-mode contrast while .dark is active.
+ * APPLY to the canvas element only — never to the surrounding toolbars or dialogs.
+ */
+.dr-paper {
+  color-scheme: light;
+
+  --dr-surface: #f6f7f9;
+  --dr-panel: #ffffff;
+  --dr-raised: #ffffff;
+  --dr-sunken: #eef0f4;
+
+  --dr-ink: #16181d;
+  --dr-ink-muted: #5a6070;
+  --dr-ink-faint: #878d9c;
+
+  --dr-hairline: #edeff3;
+  --dr-edge: #dfe3ea;
+  --dr-edge-strong: #c6ccd8;
+
+  --dr-brand: #2563eb;
+  --dr-brand-hover: #1d4ed8;
+  --dr-brand-weak: #eaf1fe;
+  --dr-brand-on: #ffffff;
+
+  --dr-ok: #0e9f6e;
+  --dr-ok-weak: #e6f6f0;
+  --dr-ok-on: #ffffff;
+  --dr-danger: #dc2626;
+  --dr-danger-weak: #fdecec;
+  --dr-danger-on: #ffffff;
+  --dr-warn: #d97706;
+  --dr-warn-weak: #fdf3e3;
+  --dr-warn-on: #ffffff;
+  --dr-proc: #7c3aed;
+  --dr-proc-weak: #f1ebfe;
+  --dr-proc-on: #ffffff;
+
+  --dr-focus: #2563eb;
 }
 
 @layer base {

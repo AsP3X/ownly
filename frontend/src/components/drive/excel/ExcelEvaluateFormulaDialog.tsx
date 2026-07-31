@@ -38,14 +38,14 @@ export function ExcelEvaluateFormulaDialog({
 
         <div className="space-y-3 text-sm">
           <div className="space-y-1">
-            <p className="font-semibold text-[#666666]">Formula</p>
-            <pre className="overflow-x-auto rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3 font-mono text-xs text-[#1A1A1A]">
+            <p className="font-semibold text-ink-muted">Formula</p>
+            <pre className="overflow-x-auto rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-ink">
               {formula?.trim() || "(no formula — constant value)"}
             </pre>
           </div>
           <div className="space-y-1">
-            <p className="font-semibold text-[#666666]">Result</p>
-            <p className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 font-mono text-[#1A1A1A]">
+            <p className="font-semibold text-ink-muted">Result</p>
+            <p className="rounded-lg border border-edge bg-panel px-3 py-2 font-mono text-ink">
               {resultDisplay || "—"}
             </p>
           </div>

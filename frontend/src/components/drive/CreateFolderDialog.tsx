@@ -70,9 +70,9 @@ export function CreateFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-md">
         <form onSubmit={(event) => void handleSubmit(event)}>
-          <DialogHeader className="border-b border-neutral-100 px-6 py-5">
+          <DialogHeader className="border-b border-hairline px-6 py-5">
             <DialogTitle className="flex items-center gap-2 text-lg text-ink">
-              <FolderPlus className="size-5 text-blue-600" aria-hidden />
+              <FolderPlus className="size-5 text-brand" aria-hidden />
               New folder
             </DialogTitle>
             <DialogDescription className="text-ink-muted">
@@ -96,7 +96,7 @@ export function CreateFolderDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="flex-row justify-end gap-2 border-neutral-100 bg-neutral-50/80">
+          <DialogFooter className="flex-row justify-end gap-2 border-hairline bg-surface/80">
             <Button
               type="button"
               variant="outline"
@@ -107,7 +107,7 @@ export function CreateFolderDialog({
             </Button>
             <Button
               type="submit"
-              className="bg-blue-600 text-white hover:bg-blue-700"
+              className="bg-brand text-brand-on hover:bg-brand-hover"
               disabled={submitting || !name.trim()}
             >
               {submitting ? "Creating…" : "Create folder"}

@@ -136,6 +136,17 @@ import { Separator } from "@/components/ui/separator";
 type NavItemId = DriveNavId;
 type FolderCrumb = { id: string; name: string };
 
+/**
+ * Human: Where-you-are label for the desktop topbar, one per sidebar section.
+ * Agent: `my-files` is absent on purpose — that view shows the breadcrumb trail instead.
+ */
+const DRIVE_NAV_TITLES: Record<NavItemId, string> = {
+  home: "My Cloud",
+  "my-files": "My Cloud",
+  "shared-files": "Shared Files",
+  "recycle-bin": "Recycle bin",
+};
+
 const TYPE_FILTERS: { id: FileTypeFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "documents", label: "Documents" },
@@ -163,7 +174,7 @@ function StorageUsageBar({ usedBytes, quotaBytes }: { usedBytes: number; quotaBy
       aria-label="Storage used"
     >
       <div
-        className="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out"
+        className="h-full rounded-full bg-brand transition-[width] duration-300 ease-out"
         style={{ width: `${fillWidth}%` }}
       />
     </div>
@@ -283,6 +294,9 @@ export default function DrivePage() {
   const [hasMoreFolders, setHasMoreFolders] = useState(false);
   const [foldersLoadingMore, setFoldersLoadingMore] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // Human: Topbar slot the explorer portals its folder trail into on desktop.
+  // Agent: STATE (not a ref) so the explorer re-renders once the node exists.
+  const [topbarBreadcrumbSlot, setTopbarBreadcrumbSlot] = useState<HTMLDivElement | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileActionTarget, setMobileActionTarget] = useState<MobileActionTarget | null>(null);
   const [explorerDragActive, setExplorerDragActive] = useState(false);
@@ -2237,7 +2251,11 @@ export default function DrivePage() {
         onBack={() => goToFolderIndex(folderStack.length - 2)}
       />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
+      {/* Human: One full-height row at every width — the sidebar is display:none below lg, so a
+          leading `auto` row would swallow <main> and size it to its content instead of the
+          viewport, stranding the sticky status strip mid-list.
+          Agent: grid-rows-1 == repeat(1, minmax(0,1fr)); lg adds the 260px sidebar column. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
         <DriveSidebar
           activeNav={activeNav}
           usedBytes={usedBytes}
@@ -2249,31 +2267,46 @@ export default function DrivePage() {
         {/* Agent: flex col on lg; topbar shrink-0; mainScrollRef on inner pane for explorer scroll sync. */}
         {/*        Every nav now shares one base surface, so no per-nav background branch remains. */}
         <main className="relative flex min-h-0 flex-col overflow-hidden bg-surface">
+          {/* Human: No side gutters here — the bar spans the whole column and carries its own
+              padding; this className only sets the gap down to the content below. */}
           <DriveDesktopTopbar
             displayName={profileDisplayName}
             roleLabel={profileRoleLabel}
             initials={initials}
             email={user?.email}
             isAdmin={isAdmin}
+            {...(activeNav === "my-files"
+              ? { leadingSlotRef: setTopbarBreadcrumbSlot }
+              : { title: DRIVE_NAV_TITLES[activeNav] })}
             onSignOut={handleSignOut}
             className={cn(
-              "mx-4 mt-4 max-lg:hidden lg:mx-12 lg:mt-0",
-              activeNav === "home" || activeNav === "my-files" || activeNav === "shared-files" ? "mb-8" : "mb-6",
+              "max-lg:hidden",
+              // Human: My Cloud's sticky toolbar sits directly under the bar so the two read as
+              // one header stack. A margin there would also leave a dead band between them once
+              // the list scrolls, because the toolbar sticks to the pane top, not to the bar.
+              activeNav === "my-files"
+                ? "mb-0"
+                : activeNav === "home" || activeNav === "shared-files"
+                  ? "mb-8"
+                  : "mb-6",
             )}
           />
 
           <div
             ref={mainScrollRef}
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto px-4 pt-4 md:p-6 lg:px-12 lg:pb-12 lg:pt-0",
+              // Human: md only widens the gutters — it must not set padding-bottom, or the
+              // tablet band (768–1023px) loses the clearance for the bottom nav, which stays
+              // visible until lg. Content then scrolls underneath it.
+              "min-h-0 flex-1 overflow-y-auto px-4 pt-4 md:px-6 md:pt-6 lg:px-12 lg:pb-12 lg:pt-0",
               totalSelectedCount > 0
                 ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]"
                 : "pb-[calc(5.25rem+env(safe-area-inset-bottom))]",
               // Human: My Cloud ends in a sticky status strip, which must sit flush with the
               // scrollport floor. Desktop bottom padding would otherwise leave a gap that
               // file rows scroll through underneath the bar.
-              // Agent: Mobile padding stays — it clears the fixed bottom nav, and the status
-              //        strip offsets itself by the same amount there.
+              // Agent: Below lg the padding stays — it clears the fixed bottom nav, and the
+              //        strip pins to the resulting content-box floor.
               activeNav === "my-files" && "lg:pb-0",
               explorerTouchScrollLocked && "touch-none overflow-hidden overscroll-none",
             )}
@@ -2332,11 +2365,15 @@ export default function DrivePage() {
             />
 
             {activeNav === "my-files" ? (
-              <div className="flex min-h-full flex-col">
+              // Human: Grow to the pane floor without shrinking below the file list.
+              // Agent: `min-h-full` cannot chain — a % min-height against an auto-height parent
+              //        resolves to auto, which stranded the explorer's status strip mid-list.
+              <div className="flex grow flex-col shrink-0">
                 {/* Human: Bulk bar renders inside the explorer's sticky toolbar block so the two */}
                 {/* no longer compete for `top: 0`. Mobile is unaffected — BulkActionsBar positions */}
                 {/* itself `fixed` above the bottom nav regardless of its DOM position. */}
                 <DriveCloudExplorer
+                  breadcrumbPortalTarget={topbarBreadcrumbSlot}
                   bulkActionsSlot={
                     totalSelectedCount > 0 ? (
                       <div className="max-lg:contents lg:pt-2.5">

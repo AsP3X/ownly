@@ -487,7 +487,7 @@ export default function PublicSharePage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F7F8FA] text-[#666666]">
+      <div className="flex min-h-screen items-center justify-center bg-surface text-ink-muted">
         Invalid share link.
       </div>
     );
@@ -495,7 +495,7 @@ export default function PublicSharePage() {
 
   if (loading && !overview) {
     return (
-      <div className="flex min-h-screen items-center justify-center gap-2 bg-[#F7F8FA] text-[#666666]">
+      <div className="flex min-h-screen items-center justify-center gap-2 bg-surface text-ink-muted">
         <Loader2 className="size-5 animate-spin" />
         Loading shared content…
       </div>
@@ -504,9 +504,9 @@ export default function PublicSharePage() {
 
   if (error && !overview && !passwordGateOnly) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#F7F8FA] px-4 text-center">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-surface px-4 text-center">
         <p className="text-destructive">{error}</p>
-        <p className="text-sm text-[#666666]">
+        <p className="text-sm text-ink-muted">
           This link may have been revoked or the file no longer exists.
         </p>
       </div>
@@ -558,7 +558,7 @@ export default function PublicSharePage() {
           </p>
         ) : null}
         {saveMessage ? (
-          <p className="mb-4 text-sm text-[#166534]" role="status">
+          <p className="mb-4 text-sm text-ok" role="status">
             {saveMessage}
           </p>
         ) : null}
@@ -607,10 +607,10 @@ export default function PublicSharePage() {
         ) : singleFileItem ? (
           <div className="flex flex-col gap-5 lg:gap-4">
             {singleIsVideo && !overview.hls_ready ? (
-              <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-8 text-center shadow-[0_12px_32px_#00000014]">
-                <Film className="mx-auto size-10 text-violet-600" aria-hidden />
-                <p className="mt-3 font-semibold text-[#1A1A1A]">{overview.name}</p>
-                <p className="mt-2 text-sm text-[#666666]">
+              <div className="rounded-2xl border border-proc/40 bg-proc-weak/50 p-8 text-center shadow-[0_12px_32px_#00000014]">
+                <Film className="mx-auto size-10 text-proc" aria-hidden />
+                <p className="mt-3 font-semibold text-ink">{overview.name}</p>
+                <p className="mt-2 text-sm text-ink-muted">
                   This video is still processing. Refresh the page in a few minutes to watch it here.
                 </p>
               </div>
@@ -618,7 +618,7 @@ export default function PublicSharePage() {
             {singleIsVideo && overview.hls_ready ? (
               <Suspense
                 fallback={
-                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-[#E5E7EB] bg-black py-24 text-sm text-white/80">
+                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-edge bg-black py-24 text-sm text-white/80">
                     <Loader2 className="size-5 animate-spin" />
                     Loading video player…
                   </div>
@@ -648,7 +648,7 @@ export default function PublicSharePage() {
             {singleIsPdf ? (
               <Suspense
                 fallback={
-                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-[#E5E7EB] bg-white py-24 text-sm text-[#666666]">
+                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-edge bg-panel py-24 text-sm text-ink-muted">
                     <Loader2 className="size-5 animate-spin" />
                     Loading PDF viewer…
                   </div>
@@ -679,24 +679,24 @@ export default function PublicSharePage() {
             !previewText &&
             !previewRtf &&
             !previewSpreadsheet ? (
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
-                <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
+              <div className="rounded-2xl border border-edge bg-panel p-8 text-center shadow-[0_12px_32px_#00000014]">
+                <p className="font-semibold text-ink">{overview.name}</p>
                 {overview.size_bytes != null ? (
-                  <p className="mt-1 text-sm text-[#666666]">{formatBytes(overview.size_bytes)}</p>
+                  <p className="mt-1 text-sm text-ink-muted">{formatBytes(overview.size_bytes)}</p>
                 ) : null}
-                <p className="mt-4 flex items-center justify-center gap-2 text-sm text-[#666666]">
+                <p className="mt-4 flex items-center justify-center gap-2 text-sm text-ink-muted">
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                   Loading preview…
                 </p>
               </div>
             ) : null}
             {!singleIsVideo && !singleIsImage && !singleIsPdf && !singleIsEpub && !singleIsAudio && !singleIsText && !singleIsSpreadsheet ? (
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 text-center shadow-[0_12px_32px_#00000014]">
-                <p className="font-semibold text-[#1A1A1A]">{overview.name}</p>
+              <div className="rounded-2xl border border-edge bg-panel p-8 text-center shadow-[0_12px_32px_#00000014]">
+                <p className="font-semibold text-ink">{overview.name}</p>
                 {overview.size_bytes != null ? (
-                  <p className="mt-1 text-sm text-[#666666]">{formatBytes(overview.size_bytes)}</p>
+                  <p className="mt-1 text-sm text-ink-muted">{formatBytes(overview.size_bytes)}</p>
                 ) : null}
-                <p className="mt-4 text-sm text-[#666666]">
+                <p className="mt-4 text-sm text-ink-muted">
                   Preview is not available for this file type. Use the download button below.
                 </p>
               </div>
@@ -720,7 +720,7 @@ export default function PublicSharePage() {
               </>
             ) : null}
             {overview.block_download ? (
-              <p className="text-xs text-[#888888]">Downloads are disabled for this link.</p>
+              <p className="text-xs text-ink-faint">Downloads are disabled for this link.</p>
             ) : null}
           </div>
         ) : null}

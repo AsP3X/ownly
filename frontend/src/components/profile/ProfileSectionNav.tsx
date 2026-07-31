@@ -71,12 +71,12 @@ export function ProfileSectionNav(props: ProfileSectionNavProps) {
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-[13px] transition-colors",
                 active
-                  ? "bg-[#EFF6FF] font-semibold text-[#2563EB]"
-                  : "font-medium text-[#666666] hover:bg-[#F7F8FA]",
+                  ? "bg-brand-weak font-semibold text-brand"
+                  : "font-medium text-ink-muted hover:bg-surface",
               )}
             >
               <Icon
-                className={cn("size-4 shrink-0", active ? "text-[#2563EB]" : "text-[#666666]")}
+                className={cn("size-4 shrink-0", active ? "text-brand" : "text-ink-muted")}
                 aria-hidden
               />
               {item.label}

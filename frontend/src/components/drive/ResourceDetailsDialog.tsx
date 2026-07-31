@@ -106,13 +106,13 @@ function resolveFileTypeIcon(file: FileItem) {
     return { Icon: Film, chip: "bg-brand-weak text-brand" };
   }
   if (file.mime_type?.startsWith("image/")) {
-    return { Icon: ImageIcon, chip: "bg-[#F5F3FF] text-[#7C3AED]" };
+    return { Icon: ImageIcon, chip: "bg-proc-weak text-proc" };
   }
   if (isAudioMime(file.mime_type)) {
-    return { Icon: Music, chip: "bg-ok-weak text-[#059669]" };
+    return { Icon: Music, chip: "bg-ok-weak text-ok" };
   }
   if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
-    return { Icon: FileSpreadsheet, chip: "bg-ok-weak text-[#059669]" };
+    return { Icon: FileSpreadsheet, chip: "bg-ok-weak text-ok" };
   }
   if (
     isTextCodePreviewMime(file.mime_type, file.name) ||
@@ -120,7 +120,7 @@ function resolveFileTypeIcon(file: FileItem) {
     isPdfMime(file.mime_type) ||
     isEpubMime(file.mime_type, file.name)
   ) {
-    return { Icon: FileText, chip: "bg-sunken text-[#4B5563]" };
+    return { Icon: FileText, chip: "bg-sunken text-ink-muted" };
   }
   return { Icon: FileIcon, chip: "bg-brand-weak text-brand" };
 }
@@ -152,7 +152,7 @@ function fileKindLabel(file: FileItem): string {
 
 function PropertyRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-[#F3F4F6] py-3.5 last:border-b-0">
+    <div className="flex items-baseline justify-between gap-4 border-b border-hairline py-3.5 last:border-b-0">
       <dt className="shrink-0 text-xs font-medium text-ink-muted">{label}</dt>
       <dd className="min-w-0 break-all text-right text-[13px] font-medium text-ink">
         {value}
@@ -276,7 +276,7 @@ export function ResourceDetailsDialog({
   const typeIcon =
     target?.kind === "file"
       ? resolveFileTypeIcon(target.file)
-      : { Icon: Folder, chip: "bg-[#FFFBEB] text-[#D97706]" };
+      : { Icon: Folder, chip: "bg-warn-weak text-warn" };
   const TypeIcon = typeIcon.Icon;
 
   const subtitle =
@@ -300,7 +300,7 @@ export function ResourceDetailsDialog({
           className="gap-0 overflow-hidden border border-edge bg-panel p-0 shadow-[0_16px_48px_rgba(0,0,0,0.16)] sm:max-w-[600px] sm:rounded-2xl"
           overlayClassName="bg-[#0A0A10]/50 backdrop-blur-[8px]"
         >
-          <DialogHeader className="min-w-0 space-y-0 border-b border-[#F3F4F6] px-7 py-6 pr-6 text-left">
+          <DialogHeader className="min-w-0 space-y-0 border-b border-hairline px-7 py-6 pr-6 text-left">
             <div className="flex min-w-0 items-center gap-4">
               <div
                 className={cn(
@@ -329,7 +329,7 @@ export function ResourceDetailsDialog({
             </div>
           </DialogHeader>
 
-          <div className="flex gap-1 border-b border-[#F3F4F6] px-5">
+          <div className="flex gap-1 border-b border-hairline px-5">
             <button
               type="button"
               className={cn(
@@ -375,7 +375,7 @@ export function ResourceDetailsDialog({
                       value={formatFileOpened(target.file.created_at)}
                     />
                     {onToggleFavourite ? (
-                      <div className="flex items-center justify-between gap-4 border-b border-[#F3F4F6] py-3.5">
+                      <div className="flex items-center justify-between gap-4 border-b border-hairline py-3.5">
                         <span className="shrink-0 text-xs font-medium text-ink-muted">
                           Favourites
                         </span>
@@ -390,7 +390,7 @@ export function ResourceDetailsDialog({
                             className={cn(
                               "size-3.5",
                               isFavourited
-                                ? "fill-amber-400 text-amber-500"
+                                ? "fill-amber-400 text-warn"
                                 : "text-ink-muted",
                             )}
                             aria-hidden
@@ -400,7 +400,7 @@ export function ResourceDetailsDialog({
                       </div>
                     ) : null}
                     {target.file.mime_type?.startsWith("video/") ? (
-                      <div className="mt-5 flex flex-col gap-3 border-t border-[#F3F4F6] pt-5">
+                      <div className="mt-5 flex flex-col gap-3 border-t border-hairline pt-5">
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                           Stream
                         </span>
@@ -410,8 +410,8 @@ export function ResourceDetailsDialog({
                             className={cn(
                               "w-fit border-0 font-medium",
                               target.file.hls_ready
-                                ? "bg-ok-weak text-[#059669]"
-                                : "bg-sunken text-[#4B5563]",
+                                ? "bg-ok-weak text-ok"
+                                : "bg-sunken text-ink-muted",
                             )}
                           >
                             {streamStatusLabel(target.file)}
@@ -443,7 +443,7 @@ export function ResourceDetailsDialog({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="gap-2 text-[#4B5563]"
+                              className="gap-2 text-ink-muted"
                               disabled={
                                 reprocessingAllHls || reprocessingHls || cancellingRebuilds
                               }
@@ -462,7 +462,7 @@ export function ResourceDetailsDialog({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="gap-2 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                              className="gap-2 text-danger hover:bg-danger-weak hover:text-danger"
                               disabled={
                                 cancellingRebuilds || reprocessingAllHls || reprocessingHls
                               }
@@ -523,7 +523,7 @@ export function ResourceDetailsDialog({
             )}
           </div>
 
-          <div className="flex justify-end border-t border-[#F3F4F6] bg-surface px-7 py-4">
+          <div className="flex justify-end border-t border-hairline bg-surface px-7 py-4">
             <Button
               type="button"
               className="bg-brand px-5 font-semibold hover:bg-brand-hover"

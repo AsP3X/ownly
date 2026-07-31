@@ -97,7 +97,7 @@ export function ImagePreviewSurfaceDesktop({
       <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[#111118] shadow-[0_16px_48px_rgba(0,0,0,0.4)]">
         <div className="relative flex min-h-[min(900px,105dvh)] w-full items-center justify-center">
           {error ? (
-            <p className="px-6 text-center text-sm text-red-400" role="alert">
+            <p className="px-6 text-center text-sm text-danger" role="alert">
               {error}
             </p>
           ) : null}

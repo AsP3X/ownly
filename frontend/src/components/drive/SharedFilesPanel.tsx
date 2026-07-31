@@ -450,7 +450,7 @@ function SharedWithMeTable({
 
         {/* Human: Stacked cards below lg — same data, touch-friendly row actions. */}
         {/* Agent: RENDERS mobile list when desktop table is hidden. */}
-        <div className="divide-y divide-[#E5E7EB] lg:hidden">
+        <div className="divide-y divide-edge lg:hidden">
           {loading ? (
             <p className="px-4 py-10 text-center text-sm text-ink-muted">Loading shared files…</p>
           ) : filtered.length === 0 ? (
@@ -631,7 +631,7 @@ function SharedByMeSection({
             metrics && metrics.active_links > 0 ? `${metrics.active_links} active` : "No links yet"
           }
           icon={<Link2 className="size-4 text-brand" aria-hidden />}
-          iconWrapClass="bg-black"
+          iconWrapClass="bg-brand-weak"
         />
         <SharedByMeMetricCard
           label="External Collaborators"
@@ -642,14 +642,14 @@ function SharedByMeSection({
               : "No collaborators yet"
           }
           icon={<Users className="size-4 text-ok" aria-hidden />}
-          iconWrapClass="bg-[#10B98120]"
+          iconWrapClass="bg-ok-weak"
         />
         <SharedByMeMetricCard
           label="Total Link Views"
           value={`${(metrics?.total_views ?? 0).toLocaleString()} Times`}
           footer="View tracking coming soon"
           icon={<Eye className="size-4 text-warn" aria-hidden />}
-          iconWrapClass="bg-[#F59E0B20]"
+          iconWrapClass="bg-warn-weak"
         />
       </div>
 
@@ -737,7 +737,7 @@ function SharedByMeSection({
           )}
         </div>
 
-        <div className="divide-y divide-[#E5E7EB] lg:hidden">
+        <div className="divide-y divide-edge lg:hidden">
           {loading ? (
             <p className="py-10 text-center text-sm text-ink-muted">Loading your shares…</p>
           ) : items.length === 0 ? (
@@ -821,8 +821,9 @@ export function SharedFilesPanel({
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Human: Title lives in the topbar on desktop; the mobile header carries it below lg. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-[28px] font-bold leading-tight text-ink">Shared Files</h1>
+        <h1 className="text-[28px] font-bold leading-tight text-ink lg:hidden">Shared Files</h1>
         <button
           type="button"
           className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-brand-on transition hover:bg-brand-hover"

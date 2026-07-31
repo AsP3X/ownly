@@ -120,7 +120,8 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
     return (
       <div
         className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white",
+          // Human: `dr-paper` keeps the page light in dark mode — a document is paper.
+          "dr-paper relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white",
           className,
         )}
       >
@@ -136,7 +137,7 @@ export const RtfEditorSurface = forwardRef<RtfEditorSurfaceHandle, RtfEditorSurf
               suppressContentEditableWarning
               spellCheck
               className={cn(
-                "box-border min-h-full w-full px-5 py-4 text-[15px] leading-relaxed text-[#1A1A1A] outline-none sm:px-6 sm:py-5",
+                "box-border min-h-full w-full px-5 py-4 text-[15px] leading-relaxed text-ink outline-none sm:px-6 sm:py-5",
                 "[&_p]:mb-3 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6",
                 "[&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-xl [&_h3]:font-semibold",
                 (readOnly || disabled) && "cursor-default opacity-95",

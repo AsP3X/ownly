@@ -61,16 +61,16 @@ function DrawerNavItem({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
-        active && "bg-blue-50 font-semibold text-blue-800",
-        !active && !disabled && "text-neutral-700 active:bg-neutral-100",
+        active && "bg-brand-weak font-semibold text-brand-hover",
+        !active && !disabled && "text-ink-muted active:bg-sunken",
         disabled && "cursor-not-allowed text-ink-faint",
       )}
     >
       <span
         className={cn(
           "flex size-8 items-center justify-center rounded-xl",
-          active ? "bg-blue-100 text-blue-700" : "bg-neutral-100 text-neutral-600",
-          disabled && "bg-neutral-50 text-neutral-300",
+          active ? "bg-brand-weak text-brand" : "bg-sunken text-ink-muted",
+          disabled && "bg-surface text-ink-faint",
         )}
       >
         {icon}
@@ -114,7 +114,7 @@ export function MobileSidebarSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[min(100vw-1rem,22rem)] gap-0 p-0">
-        <SheetHeader className="border-b border-neutral-100 bg-panel px-5 py-5 text-left">
+        <SheetHeader className="border-b border-hairline bg-panel px-5 py-5 text-left">
           <SheetTitle className="text-xl font-semibold tracking-tight">{instanceName}</SheetTitle>
           <SheetDescription>Your personal file library</SheetDescription>
         </SheetHeader>
@@ -122,7 +122,7 @@ export function MobileSidebarSheet({
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto bg-surface px-4 py-4">
           <div className="grid grid-cols-2 gap-2">
             <Button
-              className="h-auto flex-col gap-2 rounded-2xl bg-blue-600 py-4 text-white hover:bg-blue-700"
+              className="h-auto flex-col gap-2 rounded-2xl bg-brand py-4 text-brand-on hover:bg-brand-hover"
               onClick={handleUpload}
             >
               <Upload className="size-5" />
@@ -130,7 +130,7 @@ export function MobileSidebarSheet({
             </Button>
             <Button
               variant="outline"
-              className="h-auto flex-col gap-2 rounded-2xl border-edge bg-panel py-4 text-neutral-800 hover:bg-neutral-50"
+              className="h-auto flex-col gap-2 rounded-2xl border-edge bg-panel py-4 text-ink hover:bg-surface"
               onClick={handleCreateFolder}
             >
               <FolderPlus className="size-5" />
@@ -138,7 +138,7 @@ export function MobileSidebarSheet({
             </Button>
           </div>
 
-          <nav className="flex flex-col gap-1 rounded-2xl bg-panel p-2 shadow-sm ring-1 ring-neutral-200/70" aria-label="Drive navigation">
+          <nav className="flex flex-col gap-1 rounded-2xl bg-panel p-2 shadow-sm ring-1 ring-edge/70" aria-label="Drive navigation">
             <DrawerNavItem
               label="Home"
               icon={<Home className="size-4" />}
@@ -166,16 +166,16 @@ export function MobileSidebarSheet({
           </nav>
 
           <div className="mt-auto flex flex-col gap-3">
-            <div className="rounded-2xl bg-panel p-4 shadow-sm ring-1 ring-neutral-200/70">
-              <div className="mb-3 flex items-center justify-between text-sm font-medium text-neutral-800">
+            <div className="rounded-2xl bg-panel p-4 shadow-sm ring-1 ring-edge/70">
+              <div className="mb-3 flex items-center justify-between text-sm font-medium text-ink">
                 <span>Storage</span>
-                <span className="tabular-nums text-blue-700">{usagePercent}%</span>
+                <span className="tabular-nums text-brand">{usagePercent}%</span>
               </div>
               {storageBar}
               <p className="mt-2 text-xs text-ink-muted">
                 {formatBytes(usedBytes)} of {formatBytes(quotaBytes)} used
               </p>
-              <Button variant="ghost" size="sm" className="mt-3 w-full text-blue-700">
+              <Button variant="ghost" size="sm" className="mt-3 w-full text-brand">
                 Get more storage
               </Button>
             </div>

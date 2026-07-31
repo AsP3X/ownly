@@ -15,7 +15,7 @@ export function SetupOutlineButton({ onClick, disabled, children }: SetupOutline
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#E5E7EB] bg-white text-sm font-medium text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] disabled:cursor-not-allowed disabled:opacity-60"
+      className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-edge bg-panel text-sm font-medium text-ink transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
     >
       {children}
     </button>

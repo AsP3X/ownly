@@ -43,22 +43,22 @@ function isVideoThumbnailGenerating(file: FileItem): boolean {
 function thumbnailPhaseStyles(phase: UploadPhase) {
   if (phase === "storing") {
     return {
-      icon: "text-emerald-600",
-      percent: "text-emerald-600",
-      meta: "text-emerald-600",
+      icon: "text-ok",
+      percent: "text-ok",
+      meta: "text-ok",
     };
   }
   if (phase === "encrypting") {
     return {
-      icon: "text-amber-600",
-      percent: "text-amber-600",
-      meta: "text-amber-600",
+      icon: "text-warn",
+      percent: "text-warn",
+      meta: "text-warn",
     };
   }
   return {
-    icon: "text-fuchsia-700",
-    percent: "text-fuchsia-700",
-    meta: "text-fuchsia-700",
+    icon: "text-proc",
+    percent: "text-proc",
+    meta: "text-proc",
   };
 }
 
@@ -132,7 +132,7 @@ function ThumbnailGenerationProgress({ file }: { file: FileItem }) {
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Loader2 className={cn("size-3 shrink-0 animate-spin", styles.icon)} aria-hidden />
-          <p className="text-sm font-semibold text-neutral-700">Generating thumbnails</p>
+          <p className="text-sm font-semibold text-ink-muted">Generating thumbnails</p>
         </div>
         <span className={cn("shrink-0 text-[13px] font-semibold tabular-nums", styles.percent)}>
           {percentLabel}
@@ -302,7 +302,7 @@ export function VideoThumbnailPicker({
           </p>
         )}
         {error ? (
-          <p className="text-xs text-red-500" role="alert">
+          <p className="text-xs text-danger" role="alert">
             {error}
           </p>
         ) : null}
@@ -336,7 +336,7 @@ export function VideoThumbnailPicker({
         <p
           className={cn(
             "text-xs font-semibold uppercase tracking-wide",
-            isEditor ? "text-ink-muted" : "text-[#E5E7EB]",
+            isEditor ? "text-ink-muted" : "text-edge",
           )}
         >
           {isEditor ? "Preview" : "Choose thumbnail"}
@@ -350,14 +350,14 @@ export function VideoThumbnailPicker({
       </div>
 
       {error ? (
-        <p className="text-xs text-red-500" role="alert">
+        <p className="text-xs text-danger" role="alert">
           {error}
         </p>
       ) : null}
 
       {/* Human: Large preview of the active poster — primary focus in the editor dialog. */}
       {isEditor ? (
-        <div className="overflow-hidden rounded-xl border border-edge bg-neutral-100">
+        <div className="overflow-hidden rounded-xl border border-edge bg-sunken">
           {selectedPreview ? (
             <img
               src={selectedPreview.url}
@@ -383,7 +383,7 @@ export function VideoThumbnailPicker({
         <div
           className={cn(
             "-mx-1 overflow-x-auto overscroll-x-contain px-1 pb-2 touch-pan-x",
-            isEditor && "rounded-lg border border-neutral-100 bg-neutral-50/80",
+            isEditor && "rounded-lg border border-hairline bg-surface/80",
           )}
           role="listbox"
           aria-label="Thumbnail options"
@@ -406,7 +406,7 @@ export function VideoThumbnailPicker({
                   isSelected
                     ? "border-brand"
                     : isEditor
-                      ? "border-transparent hover:border-neutral-300"
+                      ? "border-transparent hover:border-edge-strong"
                       : "border-transparent hover:border-white/30",
                 )}
               >
@@ -417,7 +417,7 @@ export function VideoThumbnailPicker({
                   draggable={false}
                 />
                 {isSelected ? (
-                  <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-brand text-white">
+                  <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-brand text-brand-on">
                     <Check className="size-3" aria-hidden />
                   </span>
                 ) : null}

@@ -39,12 +39,12 @@ export function ConfirmRebuildAllVideosDialog({
         className="gap-0 overflow-hidden border-edge bg-panel p-0"
         style={confirmDialogWidthStyle(["Rebuild all video streams?".length])}
       >
-        <DialogHeader className="border-b border-neutral-100 px-6 py-5 pr-12">
+        <DialogHeader className="border-b border-hairline px-6 py-5 pr-12">
           <div className="flex items-start gap-3">
-            <RefreshCw className="mt-0.5 size-5 shrink-0 text-sky-600" aria-hidden />
+            <RefreshCw className="mt-0.5 size-5 shrink-0 text-brand" aria-hidden />
             <div className="min-w-0 space-y-1">
               <DialogTitle>Rebuild all video streams?</DialogTitle>
-              <DialogDescription className="text-sm text-neutral-600">
+              <DialogDescription className="text-sm text-ink-muted">
                 Only ready videos that have not already completed a successful rebuild will be
                 re-packaged. Streams already rebuilt (and not broken) are skipped. Videos cannot be
                 played until each rebuild finishes. Jobs run a few at a time — progress appears in
@@ -55,7 +55,7 @@ export function ConfirmRebuildAllVideosDialog({
           </div>
         </DialogHeader>
 
-        <DialogFooter className="border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="border-t border-hairline bg-surface/80 px-6 py-4">
           <Button
             type="button"
             variant="outline"

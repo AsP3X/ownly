@@ -369,22 +369,22 @@ export default function SetupPage() {
                 onChange={(e) => setQuotaGb(e.target.value)}
               />
 
-              <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+              <div className="h-px w-full bg-edge" aria-hidden />
 
               {/* Human: Compact node summary + dialog trigger per setup storage step design. */}
               <div className="flex flex-col gap-3">
-                <p className="text-[13px] font-semibold text-[#1A1A1A]">First storage node</p>
+                <p className="text-[13px] font-semibold text-ink">First storage node</p>
                 {storageNodeSaved ? (
-                  <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] px-4 py-3 text-sm">
-                    <p className="font-semibold text-[#1A1A1A]">
+                  <div className="rounded-lg border border-edge bg-surface px-4 py-3 text-sm">
+                    <p className="font-semibold text-ink">
                       {storageNode.nodeId}{" "}
-                      <span className="font-normal text-[#666666]">· {storageNode.regionLabel}</span>
+                      <span className="font-normal text-ink-muted">· {storageNode.regionLabel}</span>
                     </p>
-                    <p className="mt-1 truncate text-[#666666]">{storageNode.baseUrl}</p>
-                    <p className="mt-1 text-xs text-[#888888]">{nodeSummary}</p>
+                    <p className="mt-1 truncate text-ink-muted">{storageNode.baseUrl}</p>
+                    <p className="mt-1 text-xs text-ink-faint">{nodeSummary}</p>
                   </div>
                 ) : (
-                  <p className="text-sm text-[#666666]">
+                  <p className="text-sm text-ink-muted">
                     Register your Nebular OS endpoint before continuing setup.
                   </p>
                 )}

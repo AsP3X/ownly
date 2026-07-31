@@ -54,7 +54,7 @@ function QuickAccessIconButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex items-center justify-center rounded-sm text-[#323130] transition-colors hover:bg-[#E8E4EC] disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex items-center justify-center rounded-sm text-ink transition-colors hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-40"
       style={{ width: scaledPx(28), height: scaledPx(28) }}
     >
       {children}
@@ -146,7 +146,7 @@ export function ExcelToolbarTitleBar({
         <button
           type="button"
           onClick={() => onSearch?.()}
-          className="flex items-center rounded-full border transition-colors hover:bg-white"
+          className="flex items-center rounded-full border transition-colors hover:bg-panel"
           style={{
             gap: scaledPx(6),
             width: scaledPx(220),
@@ -169,7 +169,7 @@ export function ExcelToolbarTitleBar({
             onClick={onClose}
             aria-label="Close spreadsheet"
             title="Close"
-            className="inline-flex items-center justify-center rounded-sm text-[#323130] transition-colors hover:bg-[#E81123] hover:text-white"
+            className="inline-flex items-center justify-center rounded-sm text-ink transition-colors hover:bg-danger hover:text-danger-on"
             style={{ width: scaledPx(32), height: scaledPx(28) }}
           >
             <X style={{ width: scaledPx(14), height: scaledPx(14) }} aria-hidden />

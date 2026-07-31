@@ -68,12 +68,12 @@ function FolderContentsSummary({
   const isEmpty = file_count === 0 && subfolder_count === 0;
 
   if (isEmpty) {
-    return <p className="text-sm text-neutral-600">This folder is empty.</p>;
+    return <p className="text-sm text-ink-muted">This folder is empty.</p>;
   }
 
   return (
-    <div className="space-y-2 text-sm text-neutral-700">
-      <p className="font-medium text-neutral-800">This folder contains:</p>
+    <div className="space-y-2 text-sm text-ink-muted">
+      <p className="font-medium text-ink">This folder contains:</p>
       <ul className="list-disc space-y-1 pl-5">
         {content_types.map((entry) => (
           <li key={entry.kind}>
@@ -86,7 +86,7 @@ function FolderContentsSummary({
           </li>
         ) : null}
       </ul>
-      <p className="text-neutral-600">
+      <p className="text-ink-muted">
         {permanentOnly
           ? "All of these will be permanently deleted."
           : "All of these will be moved to the recycle bin."}
@@ -340,9 +340,9 @@ export function ConfirmDeleteDialog({
             event.preventDefault();
           }}
         >
-          <DialogHeader className="min-w-0 border-b border-neutral-100 px-6 py-5 pr-12">
+          <DialogHeader className="min-w-0 border-b border-hairline px-6 py-5 pr-12">
             <DialogTitle className="flex min-w-0 items-center gap-2 text-lg text-ink">
-              <Trash2 className="size-5 shrink-0 text-red-600" aria-hidden />
+              <Trash2 className="size-5 shrink-0 text-danger" aria-hidden />
               <span className="min-w-0 truncate">{title}</span>
             </DialogTitle>
             <DialogDescription className="break-words text-ink-muted">
@@ -352,7 +352,7 @@ export function ConfirmDeleteDialog({
 
           {itemKind === "file" && filePreviewLoading ? <DeletePreviewLoading /> : null}
           {itemKind === "file" && filePreviewError ? (
-            <div className="border-b border-neutral-100 px-6 py-4">
+            <div className="border-b border-hairline px-6 py-4">
               <Alert variant="destructive">
                 <AlertDescription className="break-words">{filePreviewError}</AlertDescription>
               </Alert>
@@ -367,7 +367,7 @@ export function ConfirmDeleteDialog({
           ) : null}
 
           {itemKind === "folder" ? (
-            <div className="border-b border-neutral-100 px-6 py-4">
+            <div className="border-b border-hairline px-6 py-4">
               {folderPreviewLoading ? (
                 <p className="text-sm text-ink-muted">Checking folder contents…</p>
               ) : folderPreviewError ? (
@@ -401,7 +401,7 @@ export function ConfirmDeleteDialog({
             </div>
           ) : null}
 
-          <DialogFooter className="min-w-0 flex-row flex-wrap items-center justify-between gap-2 border-neutral-100 bg-neutral-50/80 px-6 py-5 sm:justify-between">
+          <DialogFooter className="min-w-0 flex-row flex-wrap items-center justify-between gap-2 border-hairline bg-surface/80 px-6 py-5 sm:justify-between">
             <Button
               type="button"
               variant="outline"
@@ -423,7 +423,7 @@ export function ConfirmDeleteDialog({
                 <Button
                   type="button"
                   variant="default"
-                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  className="bg-brand text-brand-on hover:bg-brand-hover"
                   disabled={confirming || !target || previewBlocked}
                   onClick={(event) => void handleSubmit(event, false)}
                 >

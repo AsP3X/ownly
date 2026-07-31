@@ -39,48 +39,48 @@ export function PublicShareCreatorInfoCard({ overview, className }: PublicShareC
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-xl border border-[#E5E7EB] bg-white p-4 lg:p-5",
+        "flex flex-col gap-4 rounded-xl border border-edge bg-panel p-4 lg:p-5",
         className,
       )}
     >
-      <p className="text-[11px] font-semibold tracking-wide text-[#888888]">SHARED BY</p>
+      <p className="text-[11px] font-semibold tracking-wide text-ink-faint">SHARED BY</p>
       <div className="flex items-center gap-3">
         <div
-          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#DBEAFE] text-[15px] font-bold text-[#2563EB]"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-weak text-[15px] font-bold text-brand"
           aria-hidden
         >
           {initials}
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="truncate text-[15px] font-bold text-[#1A1A1A]">{displayName}</p>
-          <p className="truncate text-xs text-[#666666]">{overview.shared_by_email} • Ownly</p>
+          <p className="truncate text-[15px] font-bold text-ink">{displayName}</p>
+          <p className="truncate text-xs text-ink-muted">{overview.shared_by_email} • Ownly</p>
         </div>
       </div>
-      <div className="h-px w-full bg-[#E5E7EB]" />
+      <div className="h-px w-full bg-edge" />
       <dl className="flex flex-col gap-3 text-[13px]">
         <div className="flex items-center justify-between gap-4">
-          <dt className="text-[#666666]">Created</dt>
-          <dd className="font-semibold text-[#1A1A1A]">{formatShareDate(overview.created_at)}</dd>
+          <dt className="text-ink-muted">Created</dt>
+          <dd className="font-semibold text-ink">{formatShareDate(overview.created_at)}</dd>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <dt className="text-[#666666]">Expires</dt>
-          <dd className="max-w-[14rem] text-right font-semibold leading-snug text-[#1A1A1A]">
+          <dt className="text-ink-muted">Expires</dt>
+          <dd className="max-w-[14rem] text-right font-semibold leading-snug text-ink">
             {formatShareExpiry(overview.expires_at)}
           </dd>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <dt className="text-[#666666]">Total Files</dt>
-          <dd className="font-semibold text-[#1A1A1A]">{totalFilesLabel}</dd>
+          <dt className="text-ink-muted">Total Files</dt>
+          <dd className="font-semibold text-ink">{totalFilesLabel}</dd>
         </div>
         {folderLabel ? (
           <div className="flex items-center justify-between gap-4">
-            <dt className="text-[#666666]">Folders</dt>
-            <dd className="font-semibold text-[#1A1A1A]">{folderLabel}</dd>
+            <dt className="text-ink-muted">Folders</dt>
+            <dd className="font-semibold text-ink">{folderLabel}</dd>
           </div>
         ) : null}
         <div className="flex items-center justify-between gap-4">
-          <dt className="text-[#666666]">Total Size</dt>
-          <dd className="font-semibold text-[#1A1A1A]">
+          <dt className="text-ink-muted">Total Size</dt>
+          <dd className="font-semibold text-ink">
             {overview.total_bytes > 0 ? formatBytes(overview.total_bytes) : "—"}
           </dd>
         </div>

@@ -53,7 +53,7 @@ export function EpubReaderTocSheet({
                   style={{ paddingLeft: `${12 + entry.depth * 16}px` }}
                   onClick={() => onSelectEntry(entry)}
                 >
-                  {active ? <span className="h-5 w-0.5 shrink-0 rounded-full bg-[#2563EB]" /> : null}
+                  {active ? <span className="h-5 w-0.5 shrink-0 rounded-full bg-brand" /> : null}
                   <span>{entry.label}</span>
                 </button>
               );

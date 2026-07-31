@@ -42,7 +42,7 @@ function PageSetupDialogBody({
           <label className="flex flex-col gap-1 text-sm">
             Orientation
             <select
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={setup.orientation ?? "portrait"}
               onChange={(event) =>
                 setSetup((current) => ({
@@ -59,7 +59,7 @@ function PageSetupDialogBody({
           <label className="flex flex-col gap-1 text-sm">
             Paper size
             <select
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={setup.paperSize ?? "letter"}
               onChange={(event) =>
                 setSetup((current) => ({
@@ -80,7 +80,7 @@ function PageSetupDialogBody({
               type="number"
               min={10}
               max={400}
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={setup.scalePercent ?? 100}
               onChange={(event) =>
                 setSetup((current) => ({ ...current, scalePercent: Number(event.target.value) }))
@@ -91,7 +91,7 @@ function PageSetupDialogBody({
           <label className="flex flex-col gap-1 text-sm">
             Rows to repeat at top
             <input
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={setup.printTitlesRows ?? ""}
               onChange={(event) =>
                 setSetup((current) => ({ ...current, printTitlesRows: event.target.value }))
@@ -104,7 +104,7 @@ function PageSetupDialogBody({
         <label className="flex flex-col gap-1 text-sm">
           Header center
           <input
-            className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+            className="rounded-lg border border-edge px-2 py-1.5"
             value={setup.headerCenter ?? ""}
             onChange={(event) => setSetup((current) => ({ ...current, headerCenter: event.target.value }))}
           />
@@ -113,7 +113,7 @@ function PageSetupDialogBody({
         <label className="flex flex-col gap-1 text-sm">
           Footer center
           <input
-            className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+            className="rounded-lg border border-edge px-2 py-1.5"
             value={setup.footerCenter ?? ""}
             onChange={(event) => setSetup((current) => ({ ...current, footerCenter: event.target.value }))}
           />

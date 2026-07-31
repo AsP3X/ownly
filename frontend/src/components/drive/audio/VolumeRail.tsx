@@ -26,7 +26,7 @@ export function VolumeRail({
   const railHeight = isEmbedded ? "h-1.5" : "h-3";
   const fillHeight = isEmbedded ? "h-1.5 top-0" : "h-1 top-1/2 -translate-y-1/2";
   const trackHeight = isEmbedded ? "h-1.5 top-0" : "h-1 top-1/2 -translate-y-1/2";
-  const fillColor = isEmbedded ? "bg-[#4B5563]" : "bg-[#666666]";
+  const fillColor = isEmbedded ? "bg-ink-muted" : "bg-ink-muted";
   const iconSize = isCompact ? "h-4 w-4" : "h-[18px] w-[18px]";
 
   return (
@@ -36,7 +36,7 @@ export function VolumeRail({
         onClick={onToggleMute}
         aria-label={effectiveVolume === 0 ? "Unmute" : "Mute"}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center text-[#666666] transition-colors hover:text-[#1A1A1A]",
+          "inline-flex shrink-0 items-center justify-center text-ink-muted transition-colors hover:text-ink",
           isCompact ? "h-8 w-8" : "h-8 w-8",
         )}
       >
@@ -48,13 +48,13 @@ export function VolumeRail({
       </button>
 
       <div className={cn("relative cursor-pointer", railHeight, railWidth)}>
-        <div className={cn("absolute inset-x-0 rounded-sm bg-[#E5E7EB]", trackHeight)} />
+        <div className={cn("absolute inset-x-0 rounded-sm bg-edge", trackHeight)} />
         <div
           className={cn("absolute left-0 rounded-sm", fillHeight, fillColor)}
           style={{ width: `${effectiveVolume * 100}%` }}
         />
         <div
-          className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#1A1A1A] pointer-events-none"
+          className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-ink pointer-events-none"
           style={{ left: `calc(${effectiveVolume * 100}% - 4px)` }}
         />
         <input

@@ -1,9 +1,8 @@
-// Human: Desktop session chrome from login-signup.pencil component/Topbar — status + profile dropdown.
+// Human: Desktop page chrome — where-you-are on the left, account menu on the right.
 // Agent: RENDERS DriveProfileTrigger + DriveProfileMenu; CALLS onSignOut/onAdminConsole; Tailwind tokens only.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck } from "lucide-react";
 import { DriveProfileMenu } from "@/components/drive/DriveProfileMenu";
 import { DriveProfileTrigger } from "@/components/drive/DriveProfileTrigger";
 import { cn } from "@/lib/utils";
@@ -14,8 +13,18 @@ export type DriveDesktopTopbarProps = {
   initials: string;
   email?: string | null;
   isAdmin?: boolean;
-  /** Human: Left status line — drive default vs admin console override from Pencil topbar. */
-  statusText?: string;
+  /**
+   * Human: Where the user is — section or page name, shown at the left of the bar.
+   * Agent: Routes that show a breadcrumb pass `leadingSlotRef` instead; this is the fallback.
+   */
+  title?: string;
+  /**
+   * Human: When set, the left region becomes an empty slot the drive fills with its breadcrumb
+   * trail instead of showing the title.
+   * Agent: CALLBACK REF handed to DrivePage, which passes the resulting node to DriveCloudExplorer
+   *        as a portal target. The breadcrumb keeps its drag-drop state inside the explorer.
+   */
+  leadingSlotRef?: (node: HTMLDivElement | null) => void;
   onSignOut: () => void;
   className?: string;
 };
@@ -28,7 +37,8 @@ export function DriveDesktopTopbar({
   initials,
   email,
   isAdmin = false,
-  statusText = "Secure Encrypted Session Active",
+  title,
+  leadingSlotRef,
   onSignOut,
   className,
 }: DriveDesktopTopbarProps) {
@@ -77,37 +87,49 @@ export function DriveDesktopTopbar({
   return (
     <header
       className={cn(
-        "hidden h-16 shrink-0 items-center justify-between rounded-xl border border-edge bg-panel px-6 lg:flex",
+        // Human: Full-bleed bar with a single hairline floor — it spans sidebar-to-edge rather
+        // than floating as a card, so it reads as page chrome instead of another content panel.
+        // Agent: Gutters live INSIDE as padding so the bar's contents line up with the page
+        //        column below it; `sticky` only bites on the routes that nest it in a scroll pane.
+        //        Width stays `auto` — the flex parent stretches it, so callers that sit inside a
+        //        padded pane can widen it with negative margins (`w-full` would cap it instead).
+        "sticky top-0 z-30 hidden h-14 shrink-0 items-center justify-between gap-4",
+        "border-b border-edge bg-panel px-4 lg:flex lg:px-12",
         className,
       )}
     >
-      {/* Human: Left cluster — shield + encrypted session copy per Pencil Left Group */}
-      <div className="flex min-w-0 items-center gap-3">
-        <ShieldCheck className="size-4 shrink-0 text-ok" aria-hidden />
-        <p className="truncate text-[13px] font-medium text-ink-muted">{statusText}</p>
-      </div>
+      {/* Human: Left — folder trail on the explorer, section title everywhere else. */}
+      {leadingSlotRef ? (
+        <div ref={leadingSlotRef} className="flex min-w-0 flex-1 items-center" />
+      ) : (
+        <h1 className="min-w-0 truncate text-[15px] font-semibold text-ink">{title}</h1>
+      )}
 
-      {/* Human: Right cluster — profile trigger + dropdown (no inline sign-out per Profile Menu wireframe) */}
-      <div ref={profileAnchorRef} className="relative shrink-0">
-        <DriveProfileTrigger
-          displayName={displayName}
-          roleLabel={roleLabel}
-          initials={initials}
-          open={profileOpen}
-          onClick={() => setProfileOpen((open) => !open)}
-        />
-        <DriveProfileMenu
-          open={profileOpen}
-          displayName={displayName}
-          email={email}
-          initials={initials}
-          roleLabel={roleLabel}
-          isAdmin={isAdmin}
-          onLogout={handleSignOut}
-          onAdminConsole={isAdmin ? handleAdminConsole : undefined}
-          onProfile={handleProfile}
-          onSettings={handleSettings}
-        />
+      {/* Human: Right — hairline separates page state from account controls. */}
+      {/* Agent: RENDERS DriveProfileTrigger + DriveProfileMenu; no inline sign-out per wireframe. */}
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="h-6 w-px bg-edge" aria-hidden />
+        <div ref={profileAnchorRef} className="relative">
+          <DriveProfileTrigger
+            displayName={displayName}
+            roleLabel={roleLabel}
+            initials={initials}
+            open={profileOpen}
+            onClick={() => setProfileOpen((open) => !open)}
+          />
+          <DriveProfileMenu
+            open={profileOpen}
+            displayName={displayName}
+            email={email}
+            initials={initials}
+            roleLabel={roleLabel}
+            isAdmin={isAdmin}
+            onLogout={handleSignOut}
+            onAdminConsole={isAdmin ? handleAdminConsole : undefined}
+            onProfile={handleProfile}
+            onSettings={handleSettings}
+          />
+        </div>
       </div>
     </header>
   );

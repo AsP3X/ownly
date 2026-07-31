@@ -74,10 +74,10 @@ function StorageMetricCard({
 }) {
   const badgeClass =
     badge.tone === "info"
-      ? "bg-[#EFF6FF] text-[#3B82F6]"
+      ? "bg-brand-weak text-brand"
       : badge.tone === "warning"
-        ? "bg-[#FEF3C7] text-[#D97706]"
-        : "bg-[#ECFDF5] text-[#10B981]";
+        ? "bg-warn-weak text-warn"
+        : "bg-ok-weak text-ok";
 
   const Wrapper = onClick ? "button" : "div";
 
@@ -86,20 +86,20 @@ function StorageMetricCard({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-white p-5 text-left transition-colors",
-        onClick && "cursor-pointer hover:border-[#2563EB]/40 hover:bg-[#F7F8FA]/50",
-        active && "border-[#2563EB] ring-2 ring-[#2563EB]/20",
+        "flex flex-col gap-3 rounded-xl border border-edge bg-panel p-5 text-left transition-colors",
+        onClick && "cursor-pointer hover:border-brand/40 hover:bg-surface/50",
+        active && "border-brand ring-2 ring-brand/20",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13px] font-bold text-[#666666]">{label}</p>
+        <p className="text-[13px] font-bold text-ink-muted">{label}</p>
         <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold", badgeClass)}>
           {badge.label}
         </span>
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-2xl font-bold leading-none text-[#1A1A1A]">{value}</p>
-        <p className="text-xs font-normal text-[#888888]">{detail}</p>
+        <p className="text-2xl font-bold leading-none text-ink">{value}</p>
+        <p className="text-xs font-normal text-ink-faint">{detail}</p>
       </div>
     </Wrapper>
   );
@@ -117,7 +117,7 @@ function StorageNodesTabs({
 }) {
   return (
     <div
-      className="flex gap-6 overflow-x-auto border-b border-[#E5E7EB] sm:gap-8"
+      className="flex gap-6 overflow-x-auto border-b border-edge sm:gap-8"
       role="tablist"
       aria-label="Storage section tabs"
     >
@@ -132,12 +132,12 @@ function StorageNodesTabs({
             onClick={() => onChange(tab.id)}
             className={cn(
               "flex min-w-[140px] shrink-0 flex-col items-center gap-3 px-2 pb-3 text-sm transition-colors sm:min-w-[180px]",
-              active ? "font-semibold text-[#2563EB]" : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+              active ? "font-semibold text-brand" : "font-normal text-ink-muted hover:text-ink",
             )}
           >
             <span className="whitespace-nowrap">{tab.label}</span>
             <span
-              className={cn("h-0.5 w-full rounded-full", active ? "bg-[#2563EB]" : "bg-transparent")}
+              className={cn("h-0.5 w-full rounded-full", active ? "bg-brand" : "bg-transparent")}
               aria-hidden
             />
           </button>
@@ -170,7 +170,7 @@ function NodeStatusBadge({ status }: { status: string }) {
 /** Human: Primary node pill — marks the env-bootstrapped registry entry. */
 function PrimaryNodeBadge() {
   return (
-    <span className="inline-flex rounded-md bg-[#DBEAFE] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#2563EB]">
+    <span className="inline-flex rounded-md bg-brand-weak px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand">
       Primary
     </span>
   );
@@ -193,10 +193,10 @@ function NodeInfoCell({ row }: { row: AdminStorageNodeRow }) {
       </div>
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-semibold text-[#1A1A1A]">{row.id}</span>
+          <span className="truncate text-sm font-semibold text-ink">{row.id}</span>
           {isPrimaryStorageNode(row.id) ? <PrimaryNodeBadge /> : null}
         </span>
-        <span className="truncate text-xs text-[#666666]">{row.region_label}</span>
+        <span className="truncate text-xs text-ink-muted">{row.region_label}</span>
       </div>
     </div>
   );
@@ -218,13 +218,13 @@ function StorageCapacityCell({
   return (
     <div className="flex w-full min-w-[120px] flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[13px] font-medium text-[#1A1A1A]">{label}</span>
+        <span className="text-[13px] font-medium text-ink">{label}</span>
         {capacityBytes != null && capacityBytes > 0 ? (
-          <span className="shrink-0 text-xs font-semibold text-[#2563EB]">{percent}%</span>
+          <span className="shrink-0 text-xs font-semibold text-brand">{percent}%</span>
         ) : null}
       </div>
       <div
-        className="h-1 overflow-hidden rounded-sm bg-[#E5E7EB]"
+        className="h-1 overflow-hidden rounded-sm bg-edge"
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -232,7 +232,7 @@ function StorageCapacityCell({
         aria-label={`Storage used: ${label}`}
       >
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width] duration-300 ease-out"
+          className="h-full rounded-sm bg-brand transition-[width] duration-300 ease-out"
           style={{ width: `${fillWidth}%` }}
         />
       </div>
@@ -270,7 +270,7 @@ function NodeActionsMenu({
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className="flex size-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F7F8FA] hover:text-[#1A1A1A]"
+        className="flex size-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface hover:text-ink"
         aria-label="Node actions"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -281,32 +281,32 @@ function NodeActionsMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-20 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-[#E5E7EB] bg-white py-1 shadow-lg"
+          className="absolute right-0 z-20 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-edge bg-raised py-1 shadow-lg"
         >
           <button
             type="button"
             role="menuitem"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F8FA]"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-surface"
             onClick={(event) => {
               event.stopPropagation();
               setOpen(false);
               onView();
             }}
           >
-            <PanelRightOpen className="size-4 text-[#666666]" aria-hidden />
+            <PanelRightOpen className="size-4 text-ink-muted" aria-hidden />
             View details
           </button>
           <button
             type="button"
             role="menuitem"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F8FA]"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-surface"
             onClick={(event) => {
               event.stopPropagation();
               setOpen(false);
               onEdit();
             }}
           >
-            <Settings className="size-4 text-[#666666]" aria-hidden />
+            <Settings className="size-4 text-ink-muted" aria-hidden />
             Edit settings
           </button>
         </div>
@@ -328,16 +328,16 @@ function StorageNodesTable({
   onOpenDetail: (node: AdminStorageNodeRow) => void;
 }) {
   return (
-    <div className="hidden overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white md:block">
+    <div className="hidden overflow-x-auto rounded-xl border border-edge bg-panel md:block">
       <table className="w-full min-w-[800px] text-left">
         <caption className="sr-only">Storage nodes</caption>
         <thead>
-          <tr className="h-12 border-b border-[#E5E7EB] bg-[#F7F8FA]">
+          <tr className="h-12 border-b border-edge bg-surface">
             {["Node ID / Region", "Endpoint host", "Status", "Storage Capacity", "Latency", "Actions"].map(
               (col) => (
                 <th
                   key={col}
-                  className="px-5 py-0 text-xs font-semibold text-[#666666] first:min-w-[260px]"
+                  className="px-5 py-0 text-xs font-semibold text-ink-muted first:min-w-[260px]"
                 >
                   {col}
                 </th>
@@ -345,7 +345,7 @@ function StorageNodesTable({
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#E5E7EB]">
+        <tbody className="divide-y divide-edge">
           {nodes.map((row) => {
             const slow =
               highlightSlowLatency &&
@@ -355,15 +355,15 @@ function StorageNodesTable({
               <tr
                 key={row.id}
                 className={cn(
-                  "h-16 cursor-pointer text-[#1A1A1A] hover:bg-[#F7F8FA]/60",
-                  slow && "bg-[#FFFBEB]/60",
+                  "h-16 cursor-pointer text-ink hover:bg-surface/60",
+                  slow && "bg-warn-weak/60",
                 )}
                 onClick={() => onOpenDetail(row)}
               >
                 <td className="px-5 py-0 align-middle">
                   <NodeInfoCell row={row} />
                 </td>
-                <td className="px-5 py-0 align-middle text-[13px] text-[#666666]">
+                <td className="px-5 py-0 align-middle text-[13px] text-ink-muted">
                   {row.endpoint_host}
                 </td>
                 <td className="px-5 py-0 align-middle">
@@ -416,8 +416,8 @@ function StorageNodesMobileList({
           <article
             key={row.id}
             className={cn(
-              "rounded-xl border border-[#E5E7EB] bg-white p-4",
-              slow && "border-[#F59E0B]/40 bg-[#FFFBEB]/40",
+              "rounded-xl border border-edge bg-panel p-4",
+              slow && "border-warn/40 bg-warn-weak/40",
             )}
           >
             <button
@@ -431,12 +431,12 @@ function StorageNodesMobileList({
               </div>
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <dt className="text-xs font-semibold text-[#888888]">Endpoint host</dt>
-                  <dd className="mt-0.5 font-medium text-[#1A1A1A]">{row.endpoint_host}</dd>
+                  <dt className="text-xs font-semibold text-ink-faint">Endpoint host</dt>
+                  <dd className="mt-0.5 font-medium text-ink">{row.endpoint_host}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold text-[#888888]">Latency</dt>
-                  <dd className="mt-0.5 font-medium text-[#1A1A1A]">
+                  <dt className="text-xs font-semibold text-ink-faint">Latency</dt>
+                  <dd className="mt-0.5 font-medium text-ink">
                     {row.latency_ms != null ? `${row.latency_ms} ms` : "—"}
                   </dd>
                 </div>
@@ -446,7 +446,7 @@ function StorageNodesMobileList({
                 capacityBytes={row.target_capacity_bytes}
               />
             </button>
-            <div className="mt-3 flex justify-end border-t border-[#E5E7EB] pt-3">
+            <div className="mt-3 flex justify-end border-t border-edge pt-3">
               <NodeActionsMenu
                 onView={() => onOpenDetail(row)}
                 onEdit={() => onEditNode(row)}
@@ -471,14 +471,14 @@ function StoragePerformancePanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-[#666666]">
+      <p className="text-sm text-ink-muted">
         Per-node probe results from the latest refresh. Network average latency:{" "}
-        <span className="font-semibold text-[#1A1A1A]">
+        <span className="font-semibold text-ink">
           {avgLatencyMs != null ? `${avgLatencyMs} ms` : "—"}
         </span>
         .
       </p>
-      <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+      <div className="overflow-hidden rounded-xl border border-edge bg-panel">
         {nodes.map((node, index) => {
           const util = storageUtilPercentFromBytes(node.used_bytes, node.target_capacity_bytes);
           const latencyPct =
@@ -488,36 +488,36 @@ function StoragePerformancePanel({
               key={node.id}
               className={cn(
                 "flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6",
-                index > 0 && "border-t border-[#E5E7EB]",
+                index > 0 && "border-t border-edge",
               )}
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[#1A1A1A]">{node.id}</p>
-                <p className="truncate text-xs text-[#666666]">{node.region_label}</p>
+                <p className="truncate text-sm font-semibold text-ink">{node.id}</p>
+                <p className="truncate text-xs text-ink-muted">{node.region_label}</p>
               </div>
               <div className="grid w-full gap-3 sm:max-w-md sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
-                  <div className="flex justify-between text-xs text-[#666666]">
+                  <div className="flex justify-between text-xs text-ink-muted">
                     <span>Latency</span>
-                    <span className="font-medium text-[#1A1A1A]">
+                    <span className="font-medium text-ink">
                       {node.latency_ms != null ? `${node.latency_ms} ms` : "—"}
                     </span>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-sm bg-[#E5E7EB]">
+                  <div className="h-2 overflow-hidden rounded-sm bg-edge">
                     <div
-                      className="h-full rounded-sm bg-[#10B981]"
+                      className="h-full rounded-sm bg-ok"
                       style={{ width: `${latencyPct}%` }}
                     />
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <div className="flex justify-between text-xs text-[#666666]">
+                  <div className="flex justify-between text-xs text-ink-muted">
                     <span>Utilization</span>
-                    <span className="font-medium text-[#1A1A1A]">{util}%</span>
+                    <span className="font-medium text-ink">{util}%</span>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-sm bg-[#E5E7EB]">
+                  <div className="h-2 overflow-hidden rounded-sm bg-edge">
                     <div
-                      className="h-full rounded-sm bg-[#2563EB]"
+                      className="h-full rounded-sm bg-brand"
                       style={{ width: `${Math.max(util, node.used_bytes > 0 ? 4 : 0)}%` }}
                     />
                   </div>
@@ -535,13 +535,13 @@ function StoragePerformancePanel({
 /** Human: Empty registry — actionable card instead of plain helper text. */
 function StorageNodesEmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-[#E5E7EB] bg-white px-6 py-12 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-[#EFF6FF]">
-        <Server className="size-6 text-[#2563EB]" aria-hidden />
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-edge bg-panel px-6 py-12 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-brand-weak">
+        <Server className="size-6 text-brand" aria-hidden />
       </div>
       <div className="flex max-w-md flex-col gap-2">
-        <h2 className="text-lg font-bold text-[#1A1A1A]">No storage nodes configured</h2>
-        <p className="text-sm leading-relaxed text-[#666666]">
+        <h2 className="text-lg font-bold text-ink">No storage nodes configured</h2>
+        <p className="text-sm leading-relaxed text-ink-muted">
           Register a Nebular endpoint to monitor capacity and health probes, or configure object
           storage environment variables and restart the API to bootstrap the primary node.
         </p>
@@ -643,7 +643,7 @@ export function AdminStorageNodesPanel() {
                 Refresh
               </AdminConsoleOutlineButton>
               {refreshedLabel ? (
-                <p className="text-[11px] text-[#888888]">{refreshedLabel}</p>
+                <p className="text-[11px] text-ink-faint">{refreshedLabel}</p>
               ) : null}
             </div>
             <AdminConsolePrimaryButton onClick={() => setAddNodeOpen(true)}>
@@ -655,13 +655,13 @@ export function AdminStorageNodesPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading storage nodes…
         </div>
@@ -737,7 +737,7 @@ export function AdminStorageNodesPanel() {
 
           {nodeFilter !== "all" ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-[#666666]">
+              <span className="text-xs text-ink-muted">
                 Filter:{" "}
                 {nodeFilter === "high-util"
                   ? `Utilization ≥ ${HIGH_UTIL_PERCENT}%`
@@ -748,7 +748,7 @@ export function AdminStorageNodesPanel() {
               <button
                 type="button"
                 onClick={() => setNodeFilter("all")}
-                className="text-xs font-semibold text-[#2563EB] hover:underline"
+                className="text-xs font-semibold text-brand hover:underline"
               >
                 Clear filter
               </button>
@@ -759,7 +759,7 @@ export function AdminStorageNodesPanel() {
             data.nodes.length === 0 ? (
               <StorageNodesEmptyState onAdd={() => setAddNodeOpen(true)} />
             ) : filteredNodes.length === 0 ? (
-              <p className="text-sm text-[#666666]">No nodes match the current filter.</p>
+              <p className="text-sm text-ink-muted">No nodes match the current filter.</p>
             ) : (
               <>
                 <StorageNodesTable

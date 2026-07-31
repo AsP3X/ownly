@@ -33,7 +33,7 @@ export function FileProcessingBadge({ file, className, compact }: FileProcessing
       title={fullLabel}
     >
       <Loader2
-        className={cn("size-3 shrink-0 animate-spin", storing ? "text-emerald-700" : "text-violet-700")}
+        className={cn("size-3 shrink-0 animate-spin", storing ? "text-ok" : "text-proc")}
         aria-hidden
       />
       <span className="min-w-0 truncate">{displayLabel}</span>

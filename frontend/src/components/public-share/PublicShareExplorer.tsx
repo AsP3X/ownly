@@ -258,13 +258,13 @@ export function PublicShareExplorer({
     <div className="flex flex-col gap-4 lg:gap-6">
       {/* Human: Mobile-only section title + Download All — Pencil Page Actions Header Row */}
       <div className="flex items-center justify-between gap-3 lg:hidden">
-        <h1 className="text-lg font-bold text-[#1A1A1A]">Shared Files</h1>
+        <h1 className="text-lg font-bold text-ink">Shared Files</h1>
         {allowDownload && onDownloadAll ? (
           <button
             type="button"
             onClick={onDownloadAll}
             disabled={downloadAllDisabled || downloadAllLoading}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-xs font-bold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {downloadAllLoading ? (
               <Loader2 className="size-3 animate-spin" aria-hidden />
@@ -278,35 +278,35 @@ export function PublicShareExplorer({
 
       {/* Human: Search & Filter Row — full-width input + icon-only filter on mobile */}
       <div className="flex items-center gap-2.5">
-        <label className="relative flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[#E5E7EB] bg-white px-3.5 py-2.5 lg:max-w-xs lg:rounded-lg">
-          <Search className="size-3.5 shrink-0 text-[#666666] lg:size-4" aria-hidden />
+        <label className="relative flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-edge bg-panel px-3.5 py-2.5 lg:max-w-xs lg:rounded-lg">
+          <Search className="size-3.5 shrink-0 text-ink-muted lg:size-4" aria-hidden />
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search shared files..."
-            className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#1A1A1A] outline-none placeholder:text-[#888888] lg:placeholder:text-[#666666]"
+            className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint lg:placeholder:text-ink-muted"
           />
         </label>
         <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setFilterOpen((o) => !o)}
-            className="inline-flex size-11 items-center justify-center rounded-[10px] border border-[#E5E7EB] bg-white text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] lg:size-auto lg:gap-2 lg:rounded-lg lg:px-3.5 lg:py-2.5 lg:text-[13px] lg:font-semibold"
+            className="inline-flex size-11 items-center justify-center rounded-[10px] border border-edge bg-panel text-ink transition-colors hover:bg-surface lg:size-auto lg:gap-2 lg:rounded-lg lg:px-3.5 lg:py-2.5 lg:text-[13px] lg:font-semibold"
             aria-label="Filter items"
           >
             <SlidersHorizontal className="size-4" aria-hidden />
             <span className="hidden lg:inline">Filter</span>
           </button>
           {filterOpen ? (
-            <div className="absolute right-0 z-20 mt-1 min-w-[10rem] rounded-lg border border-[#E5E7EB] bg-white py-1 shadow-[0_8px_24px_#00000014]">
+            <div className="absolute right-0 z-20 mt-1 min-w-[10rem] rounded-lg border border-edge bg-panel py-1 shadow-[0_8px_24px_#00000014]">
               {(["all", "folders", "files"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   className={cn(
-                    "block w-full px-3 py-2 text-left text-sm capitalize transition-colors hover:bg-[#F7F8FA]",
-                    filterMode === mode && "font-semibold text-[#2563EB]",
+                    "block w-full px-3 py-2 text-left text-sm capitalize transition-colors hover:bg-surface",
+                    filterMode === mode && "font-semibold text-brand",
                   )}
                   onClick={() => {
                     setFilterMode(mode);
@@ -325,32 +325,32 @@ export function PublicShareExplorer({
       <nav className="flex flex-wrap items-center gap-1.5 text-xs lg:gap-2 lg:text-[13px]" aria-label="Folder path">
         <button
           type="button"
-          className="text-[#666666] transition-colors hover:text-[#2563EB] hover:underline"
+          className="text-ink-muted transition-colors hover:text-brand hover:underline"
           onClick={() => rootCrumb && onNavigateBreadcrumb(rootCrumb.id)}
         >
           Shared Link
         </button>
         {breadcrumbs.length > 1 ? (
           <>
-            <ChevronRight className="size-2.5 text-[#888888] lg:size-3" aria-hidden />
-            <span className="font-semibold text-[#1A1A1A]">{currentCrumb?.name ?? shareName}</span>
+            <ChevronRight className="size-2.5 text-ink-faint lg:size-3" aria-hidden />
+            <span className="font-semibold text-ink">{currentCrumb?.name ?? shareName}</span>
           </>
         ) : (
           <>
-            <ChevronRight className="size-2.5 text-[#888888] lg:size-3" aria-hidden />
-            <span className="font-semibold text-[#1A1A1A]">{shareName}</span>
+            <ChevronRight className="size-2.5 text-ink-faint lg:size-3" aria-hidden />
+            <span className="font-semibold text-ink">{shareName}</span>
           </>
         )}
       </nav>
 
       {/* Human: Bulk Action Bar — select all + download selected */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-[#666666] lg:gap-2.5 lg:text-[13px]">
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-muted lg:gap-2.5 lg:text-[13px]">
           <input
             type="checkbox"
             checked={allSelected}
             onChange={toggleSelectAll}
-            className="size-4 rounded border border-[#E5E7EB] accent-[#2563EB]"
+            className="size-4 rounded border border-edge accent-brand"
           />
           {visibleCount} item{visibleCount === 1 ? "" : "s"} inside folder
         </label>
@@ -360,7 +360,7 @@ export function PublicShareExplorer({
             onClick={() =>
               onBulkDownload(expandShareSelectionToFiles(selectedIds, allFiles, allFolders))
             }
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] lg:px-3.5 lg:py-2 lg:text-[13px]"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink transition-colors hover:bg-surface lg:px-3.5 lg:py-2 lg:text-[13px]"
           >
             <Download className="size-3 shrink-0 lg:size-3.5" aria-hidden />
             <span className="lg:hidden">DL Selected</span>
@@ -370,38 +370,38 @@ export function PublicShareExplorer({
       </div>
 
       {loading && visibleCount === 0 ? (
-        <div className="flex items-center justify-center gap-2 py-20 text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-20 text-ink-muted">
           <Loader2 className="size-5 animate-spin" />
           Loading folder…
         </div>
       ) : visibleCount === 0 && !loading ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white py-20 text-center">
-          <Folder className="size-10 text-[#E5E7EB]" aria-hidden />
-          <p className="font-semibold text-[#1A1A1A]">This folder is empty</p>
-          <p className="text-sm text-[#666666]">There are no files or subfolders here.</p>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-edge bg-panel py-20 text-center">
+          <Folder className="size-10 text-edge" aria-hidden />
+          <p className="font-semibold text-ink">This folder is empty</p>
+          <p className="text-sm text-ink-muted">There are no files or subfolders here.</p>
         </div>
       ) : (
         <div className="relative flex flex-col gap-2.5 lg:gap-3">
           {loading ? (
             <div
-              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/70"
+              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-panel/70"
               aria-live="polite"
             >
-              <Loader2 className="size-6 animate-spin text-[#666666]" />
+              <Loader2 className="size-6 animate-spin text-ink-muted" />
             </div>
           ) : null}
 
           {filteredFolders.map((folder) => (
             <div
               key={folder.id}
-              className="flex items-center justify-between gap-2.5 rounded-xl border border-[#E5E7EB] bg-white p-3 lg:gap-4 lg:px-5 lg:py-4"
+              className="flex items-center justify-between gap-2.5 rounded-xl border border-edge bg-panel p-3 lg:gap-4 lg:px-5 lg:py-4"
             >
               <div className="flex min-w-0 flex-1 items-center gap-2.5 lg:gap-4">
                 <input
                   type="checkbox"
                   checked={selectedIds.has(folder.id)}
                   onChange={() => toggleSelect(folder.id)}
-                  className="size-4 shrink-0 rounded border border-[#E5E7EB] accent-[#2563EB]"
+                  className="size-4 shrink-0 rounded border border-edge accent-brand"
                   aria-label={`Select ${folder.name}`}
                 />
                 <ShareFileTypeIcon isFolder mimeType={null} compact />
@@ -410,23 +410,23 @@ export function PublicShareExplorer({
                   onClick={() => onOpenFolder(folder)}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <p className="truncate text-[13px] font-bold text-[#1A1A1A] lg:text-sm lg:font-semibold">
+                  <p className="truncate text-[13px] font-bold text-ink lg:text-sm lg:font-semibold">
                     {folder.name}
                   </p>
-                  <p className="text-[11px] text-[#666666] lg:text-xs">Folder • Open to browse</p>
+                  <p className="text-[11px] text-ink-muted lg:text-xs">Folder • Open to browse</p>
                 </button>
               </div>
               <button
                 type="button"
                 onClick={() => onOpenFolder(folder)}
-                className="hidden shrink-0 rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1A1A1A] transition-colors hover:bg-[#F7F8FA] lg:inline-flex"
+                className="hidden shrink-0 rounded-lg border border-edge bg-panel px-3.5 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-surface lg:inline-flex"
               >
                 Open
               </button>
               <button
                 type="button"
                 onClick={() => onOpenFolder(folder)}
-                className="inline-flex shrink-0 items-center justify-center p-1 text-[#666666] transition-colors hover:text-[#2563EB] lg:hidden"
+                className="inline-flex shrink-0 items-center justify-center p-1 text-ink-muted transition-colors hover:text-brand lg:hidden"
                 aria-label={`Open ${folder.name}`}
               >
                 <ChevronRight className="size-4" aria-hidden />
@@ -441,8 +441,8 @@ export function PublicShareExplorer({
               <div
                 key={file.id}
                 className={cn(
-                  "flex items-center justify-between gap-2.5 rounded-xl border border-[#E5E7EB] bg-white p-3 lg:gap-4 lg:px-5 lg:py-4",
-                  processing && "border-violet-200 bg-violet-50/30",
+                  "flex items-center justify-between gap-2.5 rounded-xl border border-edge bg-panel p-3 lg:gap-4 lg:px-5 lg:py-4",
+                  processing && "border-proc/40 bg-proc-weak/30",
                 )}
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2.5 lg:gap-4">
@@ -451,7 +451,7 @@ export function PublicShareExplorer({
                     checked={selectedIds.has(file.id)}
                     onChange={() => toggleSelect(file.id)}
                     onClick={(event) => event.stopPropagation()}
-                    className="size-4 shrink-0 rounded border border-[#E5E7EB] accent-[#2563EB]"
+                    className="size-4 shrink-0 rounded border border-edge accent-brand"
                     aria-label={`Select ${file.name}`}
                   />
                   <ShareFileTypeIcon mimeType={file.mime_type} compact />
@@ -465,12 +465,12 @@ export function PublicShareExplorer({
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-[13px] font-bold text-[#1A1A1A] lg:text-sm lg:font-semibold">
+                      <p className="truncate text-[13px] font-bold text-ink lg:text-sm lg:font-semibold">
                         {file.name}
                       </p>
                       {processing ? <FileProcessingBadge file={file} /> : null}
                     </div>
-                    <p className="truncate text-[11px] text-[#666666] lg:text-xs">
+                    <p className="truncate text-[11px] text-ink-muted lg:text-xs">
                       <span className="lg:hidden">{fileMetaLine(file, true)}</span>
                       <span className="hidden lg:inline">{fileMetaLine(file, false)}</span>
                     </p>
@@ -481,7 +481,7 @@ export function PublicShareExplorer({
                     <button
                       type="button"
                       onClick={onPreview}
-                      className="hidden rounded-lg bg-[#F7F8FA] px-3.5 py-2 text-[13px] font-semibold text-[#1A1A1A] transition-colors hover:bg-[#EFF6FF] lg:inline-flex"
+                      className="hidden rounded-lg bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-brand-weak lg:inline-flex"
                     >
                       Preview
                     </button>
@@ -491,7 +491,7 @@ export function PublicShareExplorer({
                       type="button"
                       disabled={processing || downloadingId === file.id}
                       onClick={() => onDownload(file)}
-                      className="inline-flex shrink-0 items-center justify-center text-[#666666] transition-colors hover:text-[#2563EB] disabled:opacity-60 lg:gap-1.5 lg:rounded-lg lg:border lg:border-[#E5E7EB] lg:bg-white lg:px-3.5 lg:py-2 lg:text-[13px] lg:font-semibold lg:text-[#1A1A1A] lg:hover:bg-[#F7F8FA]"
+                      className="inline-flex shrink-0 items-center justify-center text-ink-muted transition-colors hover:text-brand disabled:opacity-60 lg:gap-1.5 lg:rounded-lg lg:border lg:border-edge lg:bg-panel lg:px-3.5 lg:py-2 lg:text-[13px] lg:font-semibold lg:text-ink lg:hover:bg-surface"
                       aria-label={`Download ${file.name}`}
                     >
                       {downloadingId === file.id ? (

@@ -135,9 +135,9 @@ export function PublicShareInlineAudio({
   }
 
   return (
-    <div className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_12px_32px_#00000014] sm:p-8">
-      <p className="text-lg font-bold text-[#1A1A1A]">Audio Preview</p>
-      <p className="mt-1 truncate text-sm text-[#666666]">{file.name}</p>
+    <div className="rounded-2xl border border-edge bg-panel p-6 shadow-[0_12px_32px_#00000014] sm:p-8">
+      <p className="text-lg font-bold text-ink">Audio Preview</p>
+      <p className="mt-1 truncate text-sm text-ink-muted">{file.name}</p>
       <div className="mt-6">
         <LightAudioPlayer variant="default" {...playerProps} />
       </div>

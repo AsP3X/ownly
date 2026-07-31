@@ -33,7 +33,7 @@ export function VideoThumbnailEditorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(90dvh,720px)] flex-col gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-xl">
-        <DialogHeader className="shrink-0 border-b border-neutral-100 px-6 py-5 pr-12">
+        <DialogHeader className="shrink-0 border-b border-hairline px-6 py-5 pr-12">
           <DialogTitle className="text-lg text-ink">Thumbnail</DialogTitle>
           <DialogDescription className="text-ink-muted">
             Choose the poster frame shown on this video in your library.
@@ -52,7 +52,7 @@ export function VideoThumbnailEditorDialog({
           </div>
         ) : null}
 
-        <DialogFooter className="shrink-0 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="shrink-0 border-t border-hairline bg-surface/80 px-6 py-4">
           <Button type="button" onClick={() => onOpenChange(false)}>
             Done
           </Button>

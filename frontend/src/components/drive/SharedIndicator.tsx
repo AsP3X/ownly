@@ -30,7 +30,7 @@ export function SharedIndicator({ flags, className }: SharedIndicatorProps) {
 
   return (
     <span title={label} className={cn("inline-flex shrink-0", className)}>
-      <Paperclip className="size-3.5 text-sky-600" aria-label={label} />
+      <Paperclip className="size-3.5 text-brand" aria-label={label} />
     </span>
   );
 }

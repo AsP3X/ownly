@@ -85,7 +85,7 @@ export function AdminAuditLogsPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
@@ -97,8 +97,8 @@ export function AdminAuditLogsPanel() {
           detail={`${(summary?.last_30_days ?? 0).toLocaleString()} in the last 30 days`}
           badge={{ label: "Audited", tone: "success" }}
           icon={Search}
-          iconBg="bg-[#EFF6FF]"
-          iconColor="text-[#2563EB]"
+          iconBg="bg-brand-weak"
+          iconColor="text-brand"
         />
         <AdminConsoleMetricCard
           label="CRITICAL EVENT SHIELD"
@@ -106,8 +106,8 @@ export function AdminAuditLogsPanel() {
           detail="Delete and revoke actions in the audit ledger"
           badge={{ label: summary?.critical_count ? "Review" : "Secure", tone: "success" }}
           icon={Search}
-          iconBg="bg-[#ECFDF5]"
-          iconColor="text-[#10B981]"
+          iconBg="bg-ok-weak"
+          iconColor="text-ok"
         />
         <AdminConsoleMetricCard
           label="LOG INTEGRITY STATUS"
@@ -115,8 +115,8 @@ export function AdminAuditLogsPanel() {
           detail="Append-only audit rows stored in PostgreSQL"
           badge={{ label: "Immutable", tone: "info" }}
           icon={Search}
-          iconBg="bg-[#EFF6FF]"
-          iconColor="text-[#2563EB]"
+          iconBg="bg-brand-weak"
+          iconColor="text-brand"
         />
       </div>
 
@@ -132,7 +132,7 @@ export function AdminAuditLogsPanel() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading audit events…
         </div>
@@ -140,7 +140,7 @@ export function AdminAuditLogsPanel() {
 
       {!loading && data ? (
         data.logs.length === 0 ? (
-          <p className="text-center text-sm text-[#666666]">No events in this category yet.</p>
+          <p className="text-center text-sm text-ink-muted">No events in this category yet.</p>
         ) : (
           <AdminConsoleTable
             caption="Audit events"
@@ -148,7 +148,7 @@ export function AdminAuditLogsPanel() {
             rows={data.logs.map((row) => [
               row.timestamp,
               row.actor_email ?? "system",
-              <span key={`${row.id}-action`} className="font-mono text-xs font-semibold text-[#2563EB]">
+              <span key={`${row.id}-action`} className="font-mono text-xs font-semibold text-brand">
                 {row.action}
               </span>,
               row.description,

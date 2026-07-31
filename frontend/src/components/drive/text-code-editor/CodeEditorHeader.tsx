@@ -128,7 +128,7 @@ export function CodeEditorHeader({
                 </span>
                 {dirty ? (
                   <span
-                    className="size-1.5 shrink-0 rounded-full bg-[#F59E0B]"
+                    className="size-1.5 shrink-0 rounded-full bg-warn"
                     title="Unsaved changes"
                     aria-label="Unsaved changes"
                   />
@@ -164,7 +164,7 @@ export function CodeEditorHeader({
         <ToolbarButton label="Format document (⇧⌥F)" onClick={onFormat} disabled={readOnly}>
           <span className="text-[11px] font-bold leading-none">Fmt</span>
         </ToolbarButton>
-        <span className={cn("mx-1 hidden h-4 w-px sm:block", theme.id === "dark" ? "bg-[#313244]" : "bg-[#E5E7EB]")} />
+        <span className={cn("mx-1 hidden h-4 w-px sm:block", theme.id === "dark" ? "bg-[#313244]" : "bg-edge")} />
         <ToolbarButton
           label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
           pressed={wordWrap}

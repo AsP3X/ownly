@@ -2,10 +2,12 @@
 // Agent: PRESENTATIONAL; all state lives in DriveCloudExplorer/DrivePage; STICKS to the scrollport top.
 
 import type { DragEvent, KeyboardEvent, ReactNode, RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { ArrowUpDown, FolderPlus, Search, SlidersHorizontal, Upload } from "lucide-react";
 import {
   ExplorerBreadcrumbs,
+  useMaxLgViewport,
   type ExplorerFolderCrumb,
 } from "@/components/drive/ExplorerBreadcrumbs";
 import { ExplorerSelectMenu } from "@/components/drive/ExplorerSelectMenu";
@@ -59,6 +61,13 @@ export type ExplorerToolbarProps = {
    * Agent: WRITTEN by DriveCloudExplorer's ResizeObserver; do not read it during render.
    */
   containerRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * Human: Desktop shows the folder trail up in the topbar instead of above the search row.
+   * Agent: PORTAL TARGET from DrivePage's topbar slot. The breadcrumb element is unchanged, so
+   *        its drop targets keep talking to the drag state that lives in DriveCloudExplorer.
+   *        Ignored below lg, where the topbar is hidden and the trail stays inline.
+   */
+  breadcrumbPortalTarget?: HTMLElement | null;
   className?: string;
 };
 
@@ -123,28 +132,42 @@ export function ExplorerToolbar({
   onUpload,
   bulkActionsSlot,
   containerRef,
+  breadcrumbPortalTarget,
   className,
 }: ExplorerToolbarProps) {
+  // Human: Below lg the topbar is hidden, so the trail has to stay in the toolbar.
+  const isMaxLg = useMaxLgViewport();
+  const breadcrumbs = (
+    <ExplorerBreadcrumbs
+      folderStack={folderStack}
+      onNavigateHome={onNavigateHome}
+      onNavigateMyCloudRoot={onNavigateMyCloudRoot}
+      onGoToFolderIndex={onGoToFolderIndex}
+      dragEnabled={dragEnabled}
+      dropTargetBreadcrumb={dropTargetBreadcrumb}
+      onBreadcrumbDragEnter={onBreadcrumbDragEnter}
+      onBreadcrumbDragOver={onBreadcrumbDragOver}
+      onBreadcrumbDragLeave={onBreadcrumbDragLeave}
+      onBreadcrumbDrop={onBreadcrumbDrop}
+    />
+  );
+  const hoistBreadcrumbs = !isMaxLg && breadcrumbPortalTarget !== null && breadcrumbPortalTarget !== undefined;
+
   return (
     <div
       ref={containerRef}
       className={cn(
-        "sticky top-0 z-20 flex flex-col gap-2.5 border-b border-edge bg-surface/95 pb-2.5 pt-1 backdrop-blur-sm",
+        // Human: No backdrop-filter here. It would make this element the containing block for
+        // its fixed-position descendants, and the mobile bulk actions bar renders inside this
+        // block — it would then anchor to the toolbar and cover the search field instead of
+        // floating above the bottom nav. bg-surface/95 already reads as opaque.
+        "sticky top-0 z-20 flex flex-col gap-2.5 border-b border-edge bg-surface/95 pb-2.5 pt-1",
         className,
       )}
     >
-      <ExplorerBreadcrumbs
-        folderStack={folderStack}
-        onNavigateHome={onNavigateHome}
-        onNavigateMyCloudRoot={onNavigateMyCloudRoot}
-        onGoToFolderIndex={onGoToFolderIndex}
-        dragEnabled={dragEnabled}
-        dropTargetBreadcrumb={dropTargetBreadcrumb}
-        onBreadcrumbDragEnter={onBreadcrumbDragEnter}
-        onBreadcrumbDragOver={onBreadcrumbDragOver}
-        onBreadcrumbDragLeave={onBreadcrumbDragLeave}
-        onBreadcrumbDrop={onBreadcrumbDrop}
-      />
+      {hoistBreadcrumbs
+        ? createPortal(breadcrumbs, breadcrumbPortalTarget)
+        : breadcrumbs}
 
       <div className="flex flex-wrap items-center gap-2">
         {/* Human: Search grows to fill the bar; Ctrl+K focus is wired in DriveCloudExplorer. */}
@@ -166,7 +189,10 @@ export function ExplorerToolbar({
           </kbd>
         </div>
 
-        <div className="flex items-center gap-2 max-lg:w-full max-lg:justify-between lg:ml-auto">
+        {/* Human: Wraps below ~350px — the view/filter/sort group plus both action buttons no
+            longer fit on one line there, and without wrapping the Upload button is clipped
+            off-screen by the pane's overflow-hidden. */}
+        <div className="flex flex-wrap items-center gap-2 max-lg:w-full max-lg:justify-between lg:ml-auto">
           <div className="flex items-center gap-2">
             <ExplorerViewSwitcher value={viewMode} onChange={onViewModeChange} />
 

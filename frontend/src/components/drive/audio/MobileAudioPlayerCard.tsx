@@ -133,13 +133,13 @@ export function MobileAudioPlayerCard({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-[20px] border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(0,0,0,0.05)]",
+        "flex flex-col gap-4 rounded-[20px] border border-edge bg-panel p-5 shadow-[0_8px_24px_rgba(0,0,0,0.05)]",
         className,
       )}
     >
       <div className="min-w-0">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-blue-600">Audio preview</p>
-        <p className="mt-1 truncate text-[15px] font-bold leading-snug text-[#1A1A1A]">{title}</p>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-brand">Audio preview</p>
+        <p className="mt-1 truncate text-[15px] font-bold leading-snug text-ink">{title}</p>
       </div>
 
       {waveformBars?.length ? (
@@ -153,9 +153,9 @@ export function MobileAudioPlayerCard({
           onSeekEnd={endScrub}
         />
       ) : (
-        <div className="flex h-[120px] flex-col items-center justify-center gap-2 rounded-xl bg-[#F7F8FA]">
-          <Music4 className="h-10 w-10 text-blue-600" strokeWidth={1.5} aria-hidden />
-          <p className="text-[11px] font-medium text-[#666666]">{specs}</p>
+        <div className="flex h-[120px] flex-col items-center justify-center gap-2 rounded-xl bg-surface">
+          <Music4 className="h-10 w-10 text-brand" strokeWidth={1.5} aria-hidden />
+          <p className="text-[11px] font-medium text-ink-muted">{specs}</p>
         </div>
       )}
 
@@ -169,7 +169,7 @@ export function MobileAudioPlayerCard({
       ) : null}
 
       {loading ? (
-        <p className="inline-flex items-center gap-1.5 text-sm text-[#888888]">
+        <p className="inline-flex items-center gap-1.5 text-sm text-ink-faint">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
           Loading audio…
         </p>
@@ -197,7 +197,7 @@ export function MobileAudioPlayerCard({
           aria-pressed={repeatActive}
           className={cn(
             "inline-flex items-center justify-center transition-colors",
-            repeatActive ? "text-blue-600" : "text-[#666666]",
+            repeatActive ? "text-brand" : "text-ink-muted",
           )}
         >
           <Repeat className="h-5 w-5" strokeWidth={1.75} />
@@ -209,7 +209,7 @@ export function MobileAudioPlayerCard({
             onClick={handlePreviousClick}
             disabled={previousDisabled}
             aria-label={hasPrevious ? "Previous track" : `Skip back ${AUDIO_SKIP_SECONDS} seconds`}
-            className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
+            className="inline-flex items-center justify-center text-ink transition-opacity disabled:opacity-40 disabled:pointer-events-none"
           >
             <SkipBack className="h-6 w-6" strokeWidth={1.75} />
           </button>
@@ -219,7 +219,7 @@ export function MobileAudioPlayerCard({
             onClick={togglePlay}
             disabled={transportDisabled}
             aria-label={isPlaying ? "Pause" : "Play"}
-            className="inline-flex h-[52px] w-[52px] items-center justify-center rounded-full bg-[#0A0A0A] text-white transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+            className="inline-flex h-[52px] w-[52px] items-center justify-center rounded-full bg-ink text-panel transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
           >
             {loading ? (
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -235,7 +235,7 @@ export function MobileAudioPlayerCard({
             onClick={handleNextClick}
             disabled={nextDisabled}
             aria-label={hasNext ? "Next track" : `Skip forward ${AUDIO_SKIP_SECONDS} seconds`}
-            className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
+            className="inline-flex items-center justify-center text-ink transition-opacity disabled:opacity-40 disabled:pointer-events-none"
           >
             <SkipForward className="h-6 w-6" strokeWidth={1.75} />
           </button>
@@ -245,7 +245,7 @@ export function MobileAudioPlayerCard({
           type="button"
           onClick={toggleMute}
           aria-label={effectiveVolume === 0 ? "Unmute" : "Mute"}
-          className="inline-flex items-center justify-center text-[#666666]"
+          className="inline-flex items-center justify-center text-ink-muted"
         >
           {effectiveVolume === 0 ? (
             <VolumeX className="h-5 w-5" strokeWidth={1.75} />

@@ -81,12 +81,12 @@ export function PublicShareInlineVideo({
   }, [streamUrl, sharePassword, onStreamError]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-black shadow-[0_12px_32px_#00000014]">
+    <div className="overflow-hidden rounded-2xl border border-edge bg-black shadow-[0_12px_32px_#00000014]">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-white sm:px-5">
-        <Film className="size-4 shrink-0 text-[#93C5FD]" aria-hidden />
+        <Film className="size-4 shrink-0 text-brand" aria-hidden />
         <p className="min-w-0 flex-1 truncate text-sm font-semibold">{file.name}</p>
         {file.hls_ready ? (
-          <span className="rounded-md bg-[#2563EB] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+          <span className="rounded-md bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
             Ready
           </span>
         ) : null}
@@ -105,7 +105,7 @@ export function PublicShareInlineVideo({
         ) : null}
       </div>
       {streamError ? (
-        <p className="border-t border-white/10 px-4 py-3 text-sm text-red-300">{streamError}</p>
+        <p className="border-t border-white/10 px-4 py-3 text-sm text-danger">{streamError}</p>
       ) : null}
     </div>
   );

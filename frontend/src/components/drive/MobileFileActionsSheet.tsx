@@ -92,14 +92,14 @@ function ActionRow({
       className={cn(
         "flex w-full items-center gap-3 py-3.5 text-left text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         indented ? "pl-8 pr-4" : "px-4",
-        destructive ? "text-red-600 active:bg-red-50" : "text-ink active:bg-neutral-50",
+        destructive ? "text-danger active:bg-danger-weak" : "text-ink active:bg-surface",
       )}
     >
       {icon ? (
         <span
           className={cn(
             "flex size-9 shrink-0 items-center justify-center rounded-full",
-            destructive ? "bg-red-50 text-red-600" : "bg-neutral-100 text-neutral-700",
+            destructive ? "bg-danger-weak text-danger" : "bg-sunken text-ink-muted",
           )}
         >
           {icon}
@@ -113,7 +113,7 @@ function ActionRow({
 }
 
 function ActionDivider() {
-  return <div className="mx-4 border-t border-neutral-100" />;
+  return <div className="mx-4 border-t border-hairline" />;
 }
 
 // Human: iOS-style action sheet with drag handle, grouped actions, and separate cancel pill.
@@ -194,14 +194,14 @@ export function MobileFileActionsSheet({
         showCloseButton={false}
         className="gap-3 rounded-t-[1.25rem] border-0 bg-transparent p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-none"
       >
-        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-neutral-300/80" aria-hidden />
+        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-edge-strong/80" aria-hidden />
 
-        <SheetHeader className="rounded-2xl bg-panel px-4 py-4 text-left shadow-sm ring-1 ring-neutral-200/70">
+        <SheetHeader className="rounded-2xl bg-panel px-4 py-4 text-left shadow-sm ring-1 ring-edge/70">
           <SheetTitle className="truncate text-base font-semibold">{title}</SheetTitle>
           {subtitle ? <SheetDescription>{subtitle}</SheetDescription> : null}
         </SheetHeader>
 
-        <div className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-neutral-200/70">
+        <div className="overflow-hidden rounded-2xl bg-panel shadow-sm ring-1 ring-edge/70">
           {file ? (
             <>
               {onEnterMobileSelection ? (
@@ -230,9 +230,9 @@ export function MobileFileActionsSheet({
                 type="button"
                 disabled={processing}
                 onClick={() => setOpenWithExpanded((expanded) => !expanded)}
-                className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-medium text-ink transition-colors active:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-medium text-ink transition-colors active:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sunken text-ink-muted">
                   <ExternalLink className="size-4" />
                 </span>
                 Open with
@@ -245,7 +245,7 @@ export function MobileFileActionsSheet({
                 </span>
               </button>
               {openWithExpanded ? (
-                <div className="border-t border-neutral-100 bg-neutral-50/60">
+                <div className="border-t border-hairline bg-surface/60">
                   <ActionRow
                     icon={null}
                     label="Download to device"
@@ -436,7 +436,7 @@ export function MobileFileActionsSheet({
         <Button
           type="button"
           variant="outline"
-          className="h-12 w-full rounded-2xl border-0 bg-panel text-[15px] font-semibold shadow-sm ring-1 ring-neutral-200/70"
+          className="h-12 w-full rounded-2xl border-0 bg-panel text-[15px] font-semibold shadow-sm ring-1 ring-edge/70"
           onClick={() => onOpenChange(false)}
         >
           Cancel

@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Save } from "lucide-react";
+import { ArrowLeft, Loader2, Save } from "lucide-react";
 import {
   changeOwnPassword,
   fetchDashboard,
@@ -209,12 +209,25 @@ export default function SettingsPage() {
   }, [detailsDraft, preferences, profile, securityDraft]);
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7F8FA] text-[#1A1A1A]">
-      <header className="shrink-0 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
-        <h1 className="text-lg font-bold text-[#1A1A1A]">Account Settings & Security</h1>
-        <p className="text-xs text-[#666666]">
-          Manage your personal details, secure keys, active sessions, and preferences.
-        </p>
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-surface text-ink">
+      {/* Human: Mobile header — the sidebar and bottom nav are desktop-only here, so without
+          this back control the route is a dead end on a phone.
+          Agent: Returns to the drive via the same handleNavChange the sidebar uses. */}
+      <header className="flex shrink-0 items-center gap-3 border-b border-edge bg-panel px-4 py-3 lg:hidden">
+        <button
+          type="button"
+          onClick={() => handleNavChange("home")}
+          aria-label="Back to drive"
+          className="-ml-1 flex size-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+        >
+          <ArrowLeft className="size-5" aria-hidden />
+        </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-bold text-ink">Account Settings & Security</h1>
+          <p className="truncate text-xs text-ink-muted">
+            Personal details, keys, sessions and preferences.
+          </p>
+        </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -227,7 +240,7 @@ export default function SettingsPage() {
           onSettingsClick={() => navigate("/settings")}
         />
 
-        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#F7F8FA]">
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-10 pt-4 lg:px-12 lg:pb-12 lg:pt-0">
             <DriveDesktopTopbar
               displayName={displayName}
@@ -235,15 +248,18 @@ export default function SettingsPage() {
               initials={initials}
               email={user?.email}
               isAdmin={isAdmin}
-              statusText="Secure Profile Session Active"
+              title="Account Settings & Security"
               onSignOut={logout}
-              className="hidden lg:flex"
+              // Human: Cancels the scroll pane's lg:px-12 so the bar reaches both
+              // edges; the bar re-applies the same gutter as internal padding.
+              className="hidden lg:-mx-12 lg:flex"
             />
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <h1 className="text-2xl font-bold text-[#1A1A1A]">Account Settings & Security</h1>
-                <p className="max-w-2xl text-sm text-[#666666]">
+              {/* Human: Title is carried by the topbar on lg and the mobile header below it,
+                  so only the supporting description renders here. */}
+              <div className="flex min-w-0 flex-col gap-1.5 max-lg:hidden">
+                <p className="max-w-2xl text-sm text-ink-muted">
                   Manage your personal details, secure keys, active sessions, and preferences.
                 </p>
               </div>
@@ -262,19 +278,19 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            {loading ? <p className="text-sm text-[#666666]">Loading settings…</p> : null}
+            {loading ? <p className="text-sm text-ink-muted">Loading settings…</p> : null}
             {loadError ? (
-              <p className="text-sm text-[#EF4444]" role="alert">
+              <p className="text-sm text-danger" role="alert">
                 {loadError}
               </p>
             ) : null}
             {saveError ? (
-              <p className="text-sm text-[#EF4444]" role="alert">
+              <p className="text-sm text-danger" role="alert">
                 {saveError}
               </p>
             ) : null}
             {saveSuccess ? (
-              <p className="text-sm text-[#10B981]" role="status">
+              <p className="text-sm text-ok" role="status">
                 {saveSuccess}
               </p>
             ) : null}

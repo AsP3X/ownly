@@ -69,8 +69,8 @@ export function ExcelChartDialog({
               className={cn(
                 "rounded-md border px-3 py-1.5 text-sm transition-colors",
                 selectedType === option.type
-                  ? "border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8]"
-                  : "border-[#E5E7EB] bg-white text-[#333333] hover:bg-[#F9FAFB]",
+                  ? "border-brand bg-brand-weak text-brand-hover"
+                  : "border-edge bg-panel text-ink hover:bg-surface",
               )}
               onClick={() => setSelectedType(option.type)}
             >
@@ -80,9 +80,9 @@ export function ExcelChartDialog({
         </div>
 
         {series.length === 0 ? (
-          <p className="text-sm text-[#666666]">Select a range with numeric values to chart.</p>
+          <p className="text-sm text-ink-muted">Select a range with numeric values to chart.</p>
         ) : (
-          <svg viewBox={`0 0 ${PREVIEW_WIDTH} ${PREVIEW_HEIGHT}`} className="w-full rounded-lg border border-[#E5E7EB] bg-white">
+          <svg viewBox={`0 0 ${PREVIEW_WIDTH} ${PREVIEW_HEIGHT}`} className="w-full rounded-lg border border-edge bg-panel">
             {previewModel.elements.map((element, index) => {
               if (element.kind === "rect") {
                 return (

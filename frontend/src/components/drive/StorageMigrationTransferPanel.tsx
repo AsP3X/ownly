@@ -41,7 +41,7 @@ function MigrationProgressBar({
         aria-valuemax={100}
         aria-label="Storage migration in progress"
       >
-        <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
+        <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-brand" />
       </div>
     );
   }
@@ -60,7 +60,7 @@ function MigrationProgressBar({
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-150 ease-out",
-          complete ? "bg-green-600" : "bg-blue-600",
+          complete ? "bg-ok" : "bg-brand",
         )}
         style={{ width: `${clamped}%` }}
       />
@@ -122,14 +122,14 @@ export function StorageMigrationTransferPanel({
       role="region"
       aria-label={title}
     >
-      <div className="flex items-center justify-between border-b border-neutral-100 bg-neutral-50 px-4 py-2.5">
+      <div className="flex items-center justify-between border-b border-hairline bg-surface px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
           {isRunning ? (
-            <Loader2 className="size-4 shrink-0 animate-spin text-blue-600" aria-hidden />
+            <Loader2 className="size-4 shrink-0 animate-spin text-brand" aria-hidden />
           ) : job.status === "complete" ? (
-            <CheckCircle2 className="size-4 shrink-0 text-green-600" aria-hidden />
+            <CheckCircle2 className="size-4 shrink-0 text-ok" aria-hidden />
           ) : (
-            <HardDriveDownload className="size-4 shrink-0 text-blue-600" aria-hidden />
+            <HardDriveDownload className="size-4 shrink-0 text-brand" aria-hidden />
           )}
           <span className="truncate">{title}</span>
         </div>
@@ -139,7 +139,7 @@ export function StorageMigrationTransferPanel({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs font-semibold text-neutral-600"
+              className="h-7 px-2 text-xs font-semibold text-ink-muted"
               onClick={() => cancelStorageMigrationJob()}
             >
               Stop
@@ -178,7 +178,7 @@ export function StorageMigrationTransferPanel({
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-sm font-medium text-ink">{statusLine(job)}</p>
             {isRunning && job.kind === "migrate" && job.totalTarget ? (
-              <span className="shrink-0 text-xs font-semibold text-blue-700">
+              <span className="shrink-0 text-xs font-semibold text-brand">
                 {migrationProgressPercent(job) ?? 0}%
               </span>
             ) : null}
@@ -186,7 +186,7 @@ export function StorageMigrationTransferPanel({
 
           <MigrationProgressBar job={job} />
 
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-ink-muted">
             {job.migrated} {job.kind === "preview" ? "would migrate" : "migrated"}
             {" · "}
             {job.skipped} skipped
@@ -213,7 +213,7 @@ export function StorageMigrationTransferPanel({
             </ul>
           ) : null}
 
-          {job.error ? <p className="text-xs text-red-600">{job.error}</p> : null}
+          {job.error ? <p className="text-xs text-danger">{job.error}</p> : null}
 
           {onViewLog ? (
             <Button
@@ -230,7 +230,7 @@ export function StorageMigrationTransferPanel({
         </div>
       ) : (
         <div className="px-4 py-3">
-          <p className="text-xs text-neutral-600">{statusLine(job)}</p>
+          <p className="text-xs text-ink-muted">{statusLine(job)}</p>
           <div className="mt-2">
             <MigrationProgressBar job={job} />
           </div>

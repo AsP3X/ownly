@@ -368,7 +368,7 @@ function StaticImageStage({
 
       {error ? (
         <p
-          className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+          className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-danger"
           role="alert"
         >
           {error}
@@ -895,7 +895,7 @@ export function ImagePreviewSurfaceMobile({
 
           {error ? (
             <p
-              className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-red-400"
+              className="pointer-events-none absolute inset-x-0 top-1/2 z-25 -translate-y-1/2 px-4 text-center text-sm text-danger"
               role="alert"
             >
               {error}

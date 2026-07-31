@@ -73,7 +73,7 @@ export function EpubPreviewSurfaceMobile({ onOpenChange, vm }: EpubPreviewSurfac
 
       <footer className="border-t border-border bg-background px-4 py-3">
         <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-border">
-          <div className="h-full rounded-full bg-[#2563EB]" style={{ width: `${Math.round(progressFraction * 100)}%` }} />
+          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(progressFraction * 100)}%` }} />
         </div>
         <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
           <span className="truncate pr-2">{chapterLabel}</span>

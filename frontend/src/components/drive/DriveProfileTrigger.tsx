@@ -1,6 +1,8 @@
 // Human: Topbar profile chip from component/Topbar — 32px avatar + name/role stack (login-signup.pencil).
 // Agent: RENDERS trigger only; parent supplies open state and dropdown via DriveProfileMenu sibling.
 
+import { ChevronDown } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 export type DriveProfileTriggerProps = {
@@ -30,21 +32,33 @@ export function DriveProfileTrigger({
       aria-haspopup="menu"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-3 py-1.5 outline-none transition-colors",
+        "flex items-center gap-2.5 rounded-lg py-1.5 pl-1.5 pr-2 transition-colors",
+        // Human: Keyboard users previously got nothing — `outline-none` with no focus style.
+        "outline-none focus-visible:ring-2 focus-visible:ring-focus/50",
         open ? "bg-surface" : "hover:bg-surface",
         className,
       )}
     >
-      <div
+      <span
         className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on"
         aria-hidden
       >
         {initials}
-      </div>
-      <div className="hidden min-w-0 flex-col gap-0.5 text-left sm:flex">
-        <span className="truncate text-[13px] font-bold text-ink">{displayName}</span>
-        <span className="truncate text-[11px] text-ink-muted">{roleLabel}</span>
-      </div>
+      </span>
+      <span className="hidden min-w-0 flex-col text-left sm:flex">
+        <span className="truncate text-[13px] font-semibold leading-tight text-ink">
+          {displayName}
+        </span>
+        <span className="truncate text-[11px] leading-tight text-ink-muted">{roleLabel}</span>
+      </span>
+      {/* Human: Chevron makes the menu affordance visible and mirrors the open state. */}
+      <ChevronDown
+        className={cn(
+          "size-3.5 shrink-0 text-ink-faint transition-transform duration-150",
+          open && "rotate-180",
+        )}
+        aria-hidden
+      />
     </button>
   );
 }

@@ -117,7 +117,7 @@ export function SetupStorageNodeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-full max-w-[560px] flex-col gap-5 overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[560px]"
+        className="flex max-h-[90vh] w-full max-w-[560px] flex-col gap-5 overflow-y-auto rounded-2xl border border-edge bg-panel p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[560px]"
         overlayClassName="bg-black/30"
       >
         <DialogTitle className="sr-only">Configure storage node</DialogTitle>
@@ -127,26 +127,26 @@ export function SetupStorageNodeDialog({
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-[#EFF6FF]">
-              <Server className="size-4 text-[#2563EB]" aria-hidden />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-brand-weak">
+              <Server className="size-4 text-brand" aria-hidden />
             </div>
-            <h2 className="text-lg font-bold text-[#1A1A1A]">Configure storage node</h2>
+            <h2 className="text-lg font-bold text-ink">Configure storage node</h2>
           </div>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="flex size-8 items-center justify-center rounded-full text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface"
             aria-label="Close dialog"
           >
             <X className="size-5" aria-hidden />
           </button>
         </div>
 
-        <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+        <div className="h-px w-full bg-edge" aria-hidden />
 
         <SetupNoticeBox>
           In Docker Compose use{" "}
-          <span className="font-medium text-[#1A1A1A]">http://object-storage:9000</span>. Each
+          <span className="font-medium text-ink">http://object-storage:9000</span>. Each
           additional node is a separate standalone Nebular endpoint registered in the admin console.
         </SetupNoticeBox>
 
@@ -182,11 +182,11 @@ export function SetupStorageNodeDialog({
             onChange={(e) => updateDraft({ capacityValue: e.target.value })}
           />
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-[#666666]">Unit</label>
+            <label className="text-xs font-semibold text-ink-muted">Unit</label>
             <select
               value={draft.capacityUnit}
               onChange={(e) => updateDraft({ capacityUnit: e.target.value as StorageCapacityUnit })}
-              className="h-10 rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm text-[#1A1A1A]"
+              className="h-10 rounded-lg border border-edge bg-panel px-3 text-sm text-ink"
             >
               {CAPACITY_UNITS.map((unit) => (
                 <option key={unit} value={unit}>
@@ -209,23 +209,23 @@ export function SetupStorageNodeDialog({
         </SetupOutlineButton>
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          <p className="rounded-lg border border-danger/40 bg-danger-weak px-3 py-2 text-sm text-danger" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] pt-4">
+        <div className="flex items-center justify-end gap-3 border-t border-edge pt-4">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="rounded-lg bg-[#1A1A1A] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#333333]"
+            className="rounded-lg bg-ink px-4 py-2.5 text-[13px] font-semibold text-panel transition-colors hover:bg-ink-muted"
           >
             Save node
           </button>

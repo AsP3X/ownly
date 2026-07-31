@@ -15,7 +15,7 @@ const ROLE_OPTIONS: { id: AdminUserRoleTier; label: string }[] = [
 
 /** Human: Horizontal rule between dialog header, body, and footer. */
 export function AdminEditUserDivider() {
-  return <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />;
+  return <div className="h-px w-full bg-edge" aria-hidden />;
 }
 
 /** Human: Account status row with green toggle per Pencil mpe3h frame. */
@@ -35,7 +35,7 @@ export function AdminEditUserStatusRow({
       checked={enabled}
       onCheckedChange={onEnabledChange}
       disabled={disabled}
-      switchClassName="h-6 w-11 data-checked:bg-[#10B981] data-unchecked:bg-[#E5E7EB] [&_[data-slot=switch-thumb]]:size-[18px]"
+      switchClassName="h-6 w-11 data-checked:bg-ok data-unchecked:bg-edge [&_[data-slot=switch-thumb]]:size-[18px]"
     />
   );
 }
@@ -52,7 +52,7 @@ export function AdminEditUserRoleSegments({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-semibold text-[#1A1A1A]">System Role</p>
+      <p className="text-sm font-semibold text-ink">System Role</p>
       <div className="flex gap-2">
         {ROLE_OPTIONS.map((option) => {
           const selected = value === option.id;
@@ -65,8 +65,8 @@ export function AdminEditUserRoleSegments({
               className={cn(
                 "flex flex-1 items-center justify-center rounded-lg border px-3 py-2.5 text-[13px] transition-colors",
                 selected
-                  ? "border-[#2563EB] bg-[#EFF6FF] font-medium text-[#2563EB]"
-                  : "border-[#E5E7EB] bg-white font-normal text-[#666666] hover:border-[#D1D5DB]",
+                  ? "border-brand bg-brand-weak font-medium text-brand"
+                  : "border-edge bg-panel font-normal text-ink-muted hover:border-edge",
                 disabled && "cursor-not-allowed opacity-60",
               )}
             >
@@ -104,8 +104,8 @@ export function AdminEditUserStorageSection({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-sm font-semibold text-[#1A1A1A]">Max Storage Capacity</p>
-      <div className="flex h-11 items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
+      <p className="text-sm font-semibold text-ink">Max Storage Capacity</p>
+      <div className="flex h-11 items-center rounded-lg border border-edge bg-panel px-4">
         <input
           type="number"
           min={1}
@@ -119,24 +119,24 @@ export function AdminEditUserStorageSection({
               onQuotaGbChange(parsed);
             }
           }}
-          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#1A1A1A] outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink outline-none"
           aria-label="Max storage capacity in gigabytes"
         />
-        <span className="shrink-0 text-sm text-[#666666]">GB</span>
+        <span className="shrink-0 text-sm text-ink-muted">GB</span>
       </div>
       <div className="flex flex-col gap-1.5">
-        <p className="text-[11px] text-[#666666]">
+        <p className="text-[11px] text-ink-muted">
           Current usage: {usedGb >= 10 ? usedGb.toFixed(0) : usedGb.toFixed(1)} GB /{" "}
           {quotaGb.toLocaleString()} GB allocated ({pct}%)
         </p>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F7F8FA]">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface">
           <div
-            className="h-full rounded-full bg-[#2563EB] transition-[width]"
+            className="h-full rounded-full bg-brand transition-[width]"
             style={{ width: `${pct}%` }}
           />
         </div>
       </div>
-      <p className="text-[11px] text-[#888888]">
+      <p className="text-[11px] text-ink-faint">
         Per-user quota overrides the instance default until you change it here.
       </p>
     </div>
@@ -154,16 +154,16 @@ export function AdminEditUserSessionsRow({
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-sm font-semibold text-[#1A1A1A]">Active Sessions</p>
-        <p className="text-xs text-[#666666]">{subtitle}</p>
+        <p className="text-sm font-semibold text-ink">Active Sessions</p>
+        <p className="text-xs text-ink-muted">{subtitle}</p>
       </div>
       <button
         type="button"
         onClick={onManageSessions}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-medium text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-medium text-ink-muted transition-colors hover:bg-surface"
       >
         Manage Sessions
-        <ChevronRight className="size-3.5 text-[#888888]" aria-hidden />
+        <ChevronRight className="size-3.5 text-ink-faint" aria-hidden />
       </button>
     </div>
   );
@@ -184,7 +184,7 @@ export function AdminEditUserCleanupRow({
       <span
         className={cn(
           "mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded border",
-          checked ? "border-[#2563EB] bg-[#2563EB]" : "border-[#E5E7EB] bg-white",
+          checked ? "border-brand bg-brand" : "border-edge bg-panel",
         )}
       >
         <input
@@ -194,11 +194,11 @@ export function AdminEditUserCleanupRow({
           disabled={disabled}
           onChange={(e) => onCheckedChange(e.target.checked)}
         />
-        {checked ? <Check className="size-3 text-white" strokeWidth={3} aria-hidden /> : null}
+        {checked ? <Check className="size-3 text-brand-on" strokeWidth={3} aria-hidden /> : null}
       </span>
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="text-[13px] font-medium text-[#1A1A1A]">Clean up user files upon deletion</span>
-        <span className="text-[11px] leading-relaxed text-[#666666]">
+        <span className="text-[13px] font-medium text-ink">Clean up user files upon deletion</span>
+        <span className="text-[11px] leading-relaxed text-ink-muted">
           When this user account is deleted, permanently erase all of their files and storage directories
           from active storage nodes instantly.
         </span>
@@ -223,7 +223,7 @@ export function AdminEditUserFooter({
         type="button"
         onClick={onCancel}
         disabled={saving}
-        className="rounded-lg border border-[#E5E7EB] bg-white px-[18px] py-2.5 text-[13px] font-medium text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+        className="rounded-lg border border-edge bg-panel px-[18px] py-2.5 text-[13px] font-medium text-ink-muted transition-colors hover:bg-surface disabled:opacity-60"
       >
         Cancel
       </button>
@@ -231,7 +231,7 @@ export function AdminEditUserFooter({
         type="button"
         onClick={onSave}
         disabled={saving}
-        className="rounded-lg bg-[#2563EB] px-[18px] py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+        className="rounded-lg bg-brand px-[18px] py-2.5 text-[13px] font-medium text-brand-on transition-colors hover:bg-brand-hover disabled:opacity-60"
       >
         {saving ? "Saving…" : "Save Changes"}
       </button>

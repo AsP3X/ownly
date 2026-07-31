@@ -75,24 +75,24 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
     <div
       ref={containerRef}
       className={cn(
-        "relative w-full overflow-hidden rounded-lg bg-[#F3F4F6]",
+        "relative w-full overflow-hidden rounded-lg bg-sunken",
         "aspect-[4/3]",
         className,
       )}
     >
       {failed ? (
         <div className="flex size-full items-center justify-center">
-          <FileText className="size-8 text-[#2563EB]" aria-hidden />
+          <FileText className="size-8 text-brand" aria-hidden />
         </div>
       ) : pdfObjectUrl && pageWidth > 0 ? (
         // Human: Top-aligned page — overflow clips the bottom so the tile shows the document header area.
         // Agent: items-start + overflow-hidden on ancestors; Page width matches tile for full-bleed width.
-        <div className="flex size-full items-start justify-center overflow-hidden bg-white">
+        <div className="dr-paper flex size-full items-start justify-center overflow-hidden bg-white">
           <Document
             file={pdfObjectUrl}
             loading={
               <div className="flex size-full items-center justify-center">
-                <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+                <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
               </div>
             }
             onLoadError={() => setFailed(true)}
@@ -105,7 +105,7 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
               renderTextLayer={false}
               loading={
                 <div className="flex size-full items-center justify-center">
-                  <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+                  <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
                 </div>
               }
               className="[&_canvas]:h-auto [&_canvas]:w-full"
@@ -114,7 +114,7 @@ export function ExplorerPdfThumbnail({ file, className }: ExplorerPdfThumbnailPr
         </div>
       ) : (
         <div className="flex size-full items-center justify-center">
-          <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+          <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
         </div>
       )}
     </div>

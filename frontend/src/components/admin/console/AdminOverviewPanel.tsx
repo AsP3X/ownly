@@ -96,13 +96,13 @@ export function AdminOverviewPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading dashboard…
         </div>
@@ -116,42 +116,42 @@ export function AdminOverviewPanel() {
               value={metrics.enabled_users.toLocaleString()}
               detail={`${metrics.total_users} total accounts`}
               icon={Users}
-              iconBg="bg-[#EFF6FF]"
-              iconColor="text-[#2563EB]"
+              iconBg="bg-brand-weak"
+              iconColor="text-brand"
             />
             <AdminConsoleMetricCard
               label="Total Storage Pool"
               value={formatBytes(metrics.total_storage_bytes)}
               detail={`${metrics.total_files.toLocaleString()} files indexed`}
               icon={Database}
-              iconBg="bg-[#FAF5FF]"
-              iconColor="text-[#8B5CF6]"
+              iconBg="bg-proc-weak"
+              iconColor="text-proc"
             />
             <AdminConsoleMetricCard
               label="System Node Health"
               value={`${storageLabel}`}
               detail={
-                <span className="inline-flex items-center gap-1 text-[#10B981]">
+                <span className="inline-flex items-center gap-1 text-ok">
                   <Check className="size-3.5" aria-hidden />
                   {data.storage_health.storage_mode} • {data.storage_health.bucket}
                 </span>
               }
               icon={Server}
-              iconBg="bg-[#ECFDF5]"
-              iconColor="text-[#10B981]"
+              iconBg="bg-ok-weak"
+              iconColor="text-ok"
             />
             <AdminConsoleMetricCard
               label="Active System Alerts"
               value={`${metrics.alert_count} Events`}
               detail={
-                <span className="inline-flex items-center gap-1 text-[#EF4444]">
+                <span className="inline-flex items-center gap-1 text-danger">
                   <Info className="size-3.5" aria-hidden />
                   Security and admin actions in audit log
                 </span>
               }
               icon={ShieldAlert}
-              iconBg="bg-[#FEF2F2]"
-              iconColor="text-[#EF4444]"
+              iconBg="bg-danger-weak"
+              iconColor="text-danger"
             />
           </div>
 
@@ -160,9 +160,9 @@ export function AdminOverviewPanel() {
               title="System Workload Diagnostics"
               subtitle="Recent API and audit activity (last 2 hours)"
               headerRight={
-                <div className="flex flex-wrap gap-3 text-[11px] text-[#666666]">
+                <div className="flex flex-wrap gap-3 text-[11px] text-ink-muted">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="size-2 rounded-full bg-[#2563EB]" aria-hidden />
+                    <span className="size-2 rounded-full bg-brand" aria-hidden />
                     Event volume
                   </span>
                 </div>
@@ -186,16 +186,16 @@ export function AdminOverviewPanel() {
                       title={`${bar.value} events at ${bar.label}`}
                     >
                       <div
-                        className="w-full min-w-[6px] max-w-6 rounded-t bg-[#2563EB] transition-[height]"
+                        className="w-full min-w-[6px] max-w-6 rounded-t bg-brand transition-[height]"
                         style={{ height: barHeightPx }}
                       />
-                      <span className="truncate text-[10px] text-[#888888]">{bar.label}</span>
+                      <span className="truncate text-[10px] text-ink-faint">{bar.label}</span>
                     </div>
                   );
                 })}
               </div>
               {data.workload.every((bar) => bar.value === 0) ? (
-                <p className="text-xs text-[#888888]">
+                <p className="text-xs text-ink-faint">
                   No audit events in the last two hours — bars will rise as users and admins act on the
                   instance.
                 </p>
@@ -216,42 +216,42 @@ export function AdminOverviewPanel() {
               title="Video stream packaging (HLS)"
               subtitle="Encode modes, rebuild health, and average packaging time"
               headerRight={
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-[#666666]">
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-muted">
                   <Film className="size-3.5" aria-hidden />
                   Source masters: {data.hls_video.source_master_count.toLocaleString()}
                 </span>
               }
             >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                <div className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
                     Ready to stream
                   </p>
-                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                  <p className="mt-1 text-2xl font-semibold text-ink">
                     {data.hls_video.ready_count.toLocaleString()}
                   </p>
                 </div>
-                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                <div className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
                     Processing / rebuilding
                   </p>
-                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                  <p className="mt-1 text-2xl font-semibold text-ink">
                     {data.hls_video.processing_count.toLocaleString()}
                   </p>
                 </div>
-                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                <div className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
                     Failed encodes
                   </p>
-                  <p className="mt-1 text-2xl font-semibold text-[#EF4444]">
+                  <p className="mt-1 text-2xl font-semibold text-danger">
                     {data.hls_video.failed_count.toLocaleString()}
                   </p>
                 </div>
-                <div className="rounded-xl border border-[#E5E5E5] bg-white p-4">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#888888]">
+                <div className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
                     Avg encode time
                   </p>
-                  <p className="mt-1 text-2xl font-semibold text-[#111111]">
+                  <p className="mt-1 text-2xl font-semibold text-ink">
                     {data.hls_video.avg_encode_ms != null
                       ? data.hls_video.avg_encode_ms >= 60_000
                         ? `${(data.hls_video.avg_encode_ms / 60_000).toFixed(1)} min`
@@ -269,7 +269,7 @@ export function AdminOverviewPanel() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-[#666666]">
+                <p className="mt-3 text-sm text-ink-muted">
                   Encode mode breakdown appears after videos finish packaging with the latest
                   pipeline.
                 </p>
@@ -292,7 +292,7 @@ export function AdminOverviewPanel() {
             }
           >
             {data.recent_alerts.length === 0 ? (
-              <p className="text-sm text-[#666666]">No audit events recorded yet.</p>
+              <p className="text-sm text-ink-muted">No audit events recorded yet.</p>
             ) : (
               <AdminConsoleTable
                 caption="Critical alerts"
@@ -304,7 +304,7 @@ export function AdminOverviewPanel() {
                   row.source,
                   row.detail.includes("failed") ? (
                     <span key={`${row.timestamp}-det`} className="inline-flex items-center gap-1">
-                      <AlertTriangle className="size-3.5 text-[#EF4444]" aria-hidden />
+                      <AlertTriangle className="size-3.5 text-danger" aria-hidden />
                       {row.detail}
                     </span>
                   ) : (

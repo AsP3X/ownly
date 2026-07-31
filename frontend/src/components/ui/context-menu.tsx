@@ -1,5 +1,5 @@
 // Human: Ownly context menu primitives on Base UI — Pencil explorer menus (login-signup.pencil).
-// Agent: EXPORTS ContextMenu*; Tailwind maps #2563EB / #F7F8FA / #E5E7EB; SubmenuTrigger uses safePolygon; no cursor-* utilities.
+// Agent: EXPORTS ContextMenu*; colours come from the --dr-* drive tokens so the menu follows light/dark; SubmenuTrigger uses safePolygon; no cursor-* utilities.
 
 import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
@@ -8,14 +8,14 @@ import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
 /** Human: Popup shell tokens shared by root and submenu surfaces. */
-// Agent: READS Ownly Pencil menu frames; USED by Content + SubContent classNames.
+// Agent: MATCHES ExplorerSelectMenu (border-edge/bg-raised); USED by Content + SubContent classNames.
 const ownlyMenuSurfaceClassName =
-  "z-50 max-h-(--available-height) min-w-0 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border border-[#E5E7EB] bg-white p-1.5 text-[#1A1A1A] shadow-[0_8px_16px_rgba(0,0,0,0.08)] outline-none duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
+  "z-50 max-h-(--available-height) min-w-0 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border border-edge bg-raised p-1.5 text-ink shadow-[0_8px_16px_rgba(0,0,0,0.08)] outline-none duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
 
-/** Human: Default row hover/focus — light gray fill, body text stays primary. */
+/** Human: Default row hover/focus — recessed fill against the raised popup, body text stays primary. */
 // Agent: APPLIES to items and checkbox/radio rows; destructive/primary override colors.
 const ownlyMenuRowInteractiveClassName =
-  "rounded-lg px-3 py-2 text-[13px] leading-none outline-hidden select-none hover:bg-[#F7F8FA] focus:bg-[#F7F8FA] data-disabled:pointer-events-none data-disabled:opacity-50"
+  "rounded-lg px-3 py-2 text-[13px] leading-none outline-hidden select-none hover:bg-surface focus:bg-surface data-disabled:pointer-events-none data-disabled:opacity-50"
 
 function ContextMenu({
   modal,
@@ -110,7 +110,7 @@ function ContextMenuLabel({
       data-slot="context-menu-label"
       data-inset={inset}
       className={cn(
-        "truncate px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#888888] uppercase data-inset:pl-9",
+        "truncate px-3 py-1.5 text-[11px] font-semibold tracking-wide text-ink-faint uppercase data-inset:pl-9",
         className
       )}
       {...props}
@@ -135,12 +135,12 @@ function ContextMenuItem({
       className={cn(
         "group/context-menu-item relative flex w-full items-center gap-2.5",
         ownlyMenuRowInteractiveClassName,
-        "text-[#1A1A1A] focus:text-[#1A1A1A]",
-        "data-[variant=primary]:font-semibold data-[variant=primary]:text-[#2563EB] data-[variant=primary]:hover:text-[#2563EB] data-[variant=primary]:focus:text-[#2563EB]",
-        "data-[variant=destructive]:text-[#EF4444] data-[variant=destructive]:hover:text-[#EF4444] data-[variant=destructive]:focus:text-[#EF4444] data-[variant=destructive]:hover:bg-[#F7F8FA] data-[variant=destructive]:focus:bg-[#F7F8FA]",
+        "text-ink focus:text-ink",
+        "data-[variant=primary]:font-semibold data-[variant=primary]:text-brand data-[variant=primary]:hover:text-brand data-[variant=primary]:focus:text-brand",
+        "data-[variant=destructive]:text-danger data-[variant=destructive]:hover:text-danger data-[variant=destructive]:focus:text-danger data-[variant=destructive]:hover:bg-danger-weak data-[variant=destructive]:focus:bg-danger-weak",
         "data-inset:pl-9",
-        "[&>svg:first-child]:size-3.5 [&>svg:first-child]:shrink-0 [&>svg:first-child]:text-[#666666]",
-        "data-[variant=primary]:[&>svg:first-child]:text-[#2563EB]",
+        "[&>svg:first-child]:size-3.5 [&>svg:first-child]:shrink-0 [&>svg:first-child]:text-ink-muted",
+        "data-[variant=primary]:[&>svg:first-child]:text-brand",
         className
       )}
       {...props}
@@ -169,14 +169,14 @@ function ContextMenuSubTrigger({
       className={cn(
         "flex w-full items-center justify-between gap-2",
         ownlyMenuRowInteractiveClassName,
-        "text-[#1A1A1A] data-open:bg-[#F7F8FA] data-open:font-semibold data-open:text-[#2563EB] hover:font-semibold hover:text-[#2563EB] focus:font-semibold focus:text-[#2563EB]",
+        "text-ink data-open:bg-surface data-open:font-semibold data-open:text-brand hover:font-semibold hover:text-brand focus:font-semibold focus:text-brand",
         "data-inset:pl-9",
         className
       )}
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto size-3 shrink-0 text-[#2563EB]" />
+      <ChevronRightIcon className="ml-auto size-3 shrink-0 text-brand" />
     </ContextMenuPrimitive.SubmenuTrigger>
   )
 }
@@ -213,7 +213,7 @@ function ContextMenuCheckboxItem({
       className={cn(
         "relative flex w-full items-center gap-2 pr-8 pl-3",
         ownlyMenuRowInteractiveClassName,
-        "text-[#1A1A1A] data-inset:pl-9",
+        "text-ink data-inset:pl-9",
         className
       )}
       checked={checked}
@@ -221,7 +221,7 @@ function ContextMenuCheckboxItem({
     >
       <span className="pointer-events-none absolute right-2">
         <ContextMenuPrimitive.CheckboxItemIndicator>
-          <CheckIcon className="size-3.5 text-[#2563EB]" />
+          <CheckIcon className="size-3.5 text-brand" />
         </ContextMenuPrimitive.CheckboxItemIndicator>
       </span>
       {children}
@@ -255,14 +255,14 @@ function ContextMenuRadioItem({
       className={cn(
         "relative flex w-full items-center gap-2 pr-8 pl-3",
         ownlyMenuRowInteractiveClassName,
-        "text-[#1A1A1A] data-inset:pl-9",
+        "text-ink data-inset:pl-9",
         className
       )}
       {...props}
     >
       <span className="pointer-events-none absolute right-2">
         <ContextMenuPrimitive.RadioItemIndicator>
-          <CheckIcon className="size-3.5 text-[#2563EB]" />
+          <CheckIcon className="size-3.5 text-brand" />
         </ContextMenuPrimitive.RadioItemIndicator>
       </span>
       {children}
@@ -277,7 +277,7 @@ function ContextMenuSeparator({
   return (
     <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
-      className={cn("my-0.5 h-px w-full bg-[#E5E7EB]", className)}
+      className={cn("my-0.5 h-px w-full bg-edge", className)}
       {...props}
     />
   )
@@ -290,7 +290,7 @@ function ContextMenuShortcut({
   return (
     <span
       data-slot="context-menu-shortcut"
-      className={cn("ml-auto text-[11px] text-[#888888]", className)}
+      className={cn("ml-auto text-[11px] text-ink-faint", className)}
       {...props}
     />
   )

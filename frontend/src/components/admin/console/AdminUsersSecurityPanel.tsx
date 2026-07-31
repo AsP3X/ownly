@@ -70,7 +70,7 @@ export function AdminUsersSecurityPanel() {
               type="button"
               onClick={() => void reload(true)}
               disabled={loading || refreshing}
-              className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface disabled:opacity-60"
             >
               {refreshing ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -88,7 +88,7 @@ export function AdminUsersSecurityPanel() {
       />
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}
@@ -103,7 +103,7 @@ export function AdminUsersSecurityPanel() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#666666]">
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Loading users…
         </div>
@@ -125,8 +125,8 @@ export function AdminUsersSecurityPanel() {
               <div key={user.id} className="flex items-center gap-3">
                 <AdminConsoleUserAvatar initials={userInitials(user.email)} />
                 <div className="min-w-0">
-                  <p className="font-semibold text-[#1A1A1A]">{user.email.split("@")[0]}</p>
-                  <p className="truncate text-xs text-[#666666]">{user.email}</p>
+                  <p className="font-semibold text-ink">{user.email.split("@")[0]}</p>
+                  <p className="truncate text-xs text-ink-muted">{user.email}</p>
                 </div>
               </div>,
               <AdminConsolePill key={`r-${user.id}`} tone="primary">
@@ -143,7 +143,7 @@ export function AdminUsersSecurityPanel() {
               <div key={`a-${user.id}`} className="flex items-center gap-4">
                 <button
                   type="button"
-                  className="text-[#666666] transition-colors hover:text-[#2563EB]"
+                  className="text-ink-muted transition-colors hover:text-brand"
                   aria-label={`Edit ${user.email}`}
                   onClick={() => setManageUser(user)}
                 >
@@ -151,7 +151,7 @@ export function AdminUsersSecurityPanel() {
                 </button>
                 <button
                   type="button"
-                  className="text-[#666666] transition-colors hover:text-[#DC2626] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="text-ink-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label={`Delete ${user.email}`}
                   disabled={currentUser?.id === user.id}
                   onClick={() => setDeleteUser(user)}
@@ -163,7 +163,7 @@ export function AdminUsersSecurityPanel() {
           />
 
           {users.length === 0 ? (
-            <p className="text-center text-sm text-[#666666]">No users yet. Add the first account above.</p>
+            <p className="text-center text-sm text-ink-muted">No users yet. Add the first account above.</p>
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -173,10 +173,10 @@ export function AdminUsersSecurityPanel() {
                   <AdminConsolePill tone={activationPct >= 100 ? "success" : "warning"}>
                     {activationPct >= 100 ? "Fully active" : "Partial"}
                   </AdminConsolePill>
-                  <p className="mt-2 text-3xl font-bold text-[#1A1A1A]">
+                  <p className="mt-2 text-3xl font-bold text-ink">
                     {activationPct.toFixed(1)}%
                   </p>
-                  <p className="mt-1 text-xs text-[#666666]">
+                  <p className="mt-1 text-xs text-ink-muted">
                     {enabledCount} of {total} accounts can sign in
                   </p>
                 </div>
@@ -184,7 +184,7 @@ export function AdminUsersSecurityPanel() {
             </AdminConsolePanel>
             <AdminConsolePanel title="Administrator Coverage">
               <AdminConsolePill tone="success">Protected</AdminConsolePill>
-              <p className="mt-2 text-sm text-[#666666]">
+              <p className="mt-2 text-sm text-ink-muted">
                 {summary?.admin_count ?? 0} administrator
                 {(summary?.admin_count ?? 0) === 1 ? "" : "s"} on this instance. At least one active
                 admin is always required.
@@ -202,7 +202,7 @@ export function AdminUsersSecurityPanel() {
             rows={roles.map((role) => [
               role.label,
               String(role.member_count),
-              <span key={`perm-${role.id}`} className="font-mono text-xs text-[#666666]">
+              <span key={`perm-${role.id}`} className="font-mono text-xs text-ink-muted">
                 {role.permissions}
               </span>,
               role.role_type === "system" ? "System" : "Custom",

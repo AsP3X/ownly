@@ -66,16 +66,16 @@ export function ExcelNamedRangeDialog({
             </div>
           </div>
 
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-[#E5E7EB]">
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-edge">
             {ranges.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-[#666666]">No named ranges yet.</p>
+              <p className="px-4 py-6 text-center text-sm text-ink-muted">No named ranges yet.</p>
             ) : (
-              <ul className="divide-y divide-[#E5E7EB]">
+              <ul className="divide-y divide-edge">
                 {ranges.map((range) => (
                   <li key={range.name} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                     <div className="min-w-0">
-                      <p className="font-semibold text-[#1A1A1A]">{range.name}</p>
-                      <p className="truncate text-[#666666]">
+                      <p className="font-semibold text-ink">{range.name}</p>
+                      <p className="truncate text-ink-muted">
                         {range.sheetName}!{selectionLabelFromRange(range)}
                       </p>
                     </div>

@@ -245,7 +245,7 @@ function VideoPlayerLandscapeDesktop({
           className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-6"
           role="alert"
         >
-          <p className="text-center text-sm text-red-400">{error}</p>
+          <p className="text-center text-sm text-danger">{error}</p>
           {onRetryPlayback || onRebuildStream ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               {onRetryPlayback ? (
@@ -272,7 +272,7 @@ function VideoPlayerLandscapeDesktop({
 
       {failed && !error ? (
         <div className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-6">
-          <p className="text-center text-sm text-red-400">
+          <p className="text-center text-sm text-danger">
             {file.hls_encode_error ?? "Video processing failed."}
           </p>
           {onRebuildStream ? (
@@ -433,7 +433,7 @@ function VideoPlayerLandscapeDesktop({
               aria-pressed={loop}
               className={cn(
                 "text-white transition hover:text-white/80 disabled:opacity-40",
-                loop && "text-sky-400",
+                loop && "text-brand",
               )}
             >
               <Repeat className="size-6" aria-hidden />

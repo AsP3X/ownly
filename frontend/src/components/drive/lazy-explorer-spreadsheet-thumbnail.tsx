@@ -32,11 +32,11 @@ function SpreadsheetThumbnailFallback({
         "flex items-center justify-center overflow-hidden",
         slotFill
           ? "absolute inset-0 size-full rounded-none border-0 bg-transparent"
-          : "relative aspect-square w-full rounded-lg border border-[#E5E7EB] bg-[#F3F4F6]",
+          : "relative aspect-square w-full rounded-lg border border-edge bg-sunken",
         className,
       )}
     >
-      <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+      <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
     </div>
   );
 }

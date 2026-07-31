@@ -120,7 +120,7 @@ export function EditorSearchPanel({
               aria-pressed={caseSensitive}
               className={cn(
                 "shrink-0 text-[11px]",
-                caseSensitive ? "text-[#2563EB]" : theme.panelTitle,
+                caseSensitive ? "text-brand" : theme.panelTitle,
               )}
             >
               Aa

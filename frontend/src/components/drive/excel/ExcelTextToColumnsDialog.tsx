@@ -38,7 +38,7 @@ export function ExcelTextToColumnsDialog({
         <label className="flex flex-col gap-1 text-sm">
           Delimiter
           <select
-            className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+            className="rounded-lg border border-edge px-2 py-1.5"
             value={delimiter}
             onChange={(event) => setDelimiter(event.target.value)}
           >

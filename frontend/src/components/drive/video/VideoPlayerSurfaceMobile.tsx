@@ -292,7 +292,7 @@ export function VideoPlayerSurfaceMobile({
           className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-4"
           role="alert"
         >
-          <p className="text-center text-sm text-red-400">{error}</p>
+          <p className="text-center text-sm text-danger">{error}</p>
           {onRetryPlayback || onRebuildStream ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               {onRetryPlayback ? (
@@ -319,7 +319,7 @@ export function VideoPlayerSurfaceMobile({
 
       {failed && !error ? (
         <div className="absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 px-4">
-          <p className="text-center text-sm text-red-400">
+          <p className="text-center text-sm text-danger">
             {file.hls_encode_error ?? "Video processing failed."}
           </p>
           {onRebuildStream ? (
@@ -436,7 +436,7 @@ export function VideoPlayerSurfaceMobile({
           <div className="max-w-[min(294px,calc(100%-5rem))] px-4 pb-1.5 pt-2">
             <p className="truncate text-base font-bold text-white">{file.name}</p>
             {metaDetailLine ? (
-              <p className="mt-1.5 truncate text-xs text-[#E5E7EB]">{metaDetailLine}</p>
+              <p className="mt-1.5 truncate text-xs text-edge">{metaDetailLine}</p>
             ) : null}
           </div>
 
@@ -455,7 +455,7 @@ export function VideoPlayerSurfaceMobile({
                   <Play className="size-4" fill="currentColor" aria-hidden />
                 )}
               </button>
-              <span className="text-[11px] tabular-nums text-[#E5E7EB]">{timeLabel}</span>
+              <span className="text-[11px] tabular-nums text-edge">{timeLabel}</span>
             </div>
             <div className="flex items-center gap-2.5">
               <VideoVolumeControl
@@ -494,7 +494,7 @@ export function VideoPlayerSurfaceMobile({
                 disabled={transportDisabled}
                 aria-label={loop ? "Disable loop" : "Enable loop"}
                 aria-pressed={loop}
-                className={cn("text-white disabled:opacity-40", loop && "text-sky-400")}
+                className={cn("text-white disabled:opacity-40", loop && "text-brand")}
               >
                 <Repeat className="size-4" aria-hidden />
               </button>
@@ -547,7 +547,7 @@ export function VideoPlayerSurfaceMobile({
         <div className="absolute left-6 top-[max(1.5rem,env(safe-area-inset-top))] z-30 flex max-w-[calc(100%-6rem)] items-center gap-2 rounded-[18px] bg-black/70 px-4 py-2 text-white backdrop-blur-sm">
           <p className="min-w-0 truncate text-xs font-medium">{landscapeMetaLabel}</p>
           {positionLabel ? (
-            <span className="shrink-0 text-[10px] text-[#E5E7EB]">{positionLabel}</span>
+            <span className="shrink-0 text-[10px] text-edge">{positionLabel}</span>
           ) : null}
           {(showDownloadAction || showShareAction) && (
             <div className="flex shrink-0 items-center gap-1 border-l border-white/20 pl-2">
@@ -653,7 +653,7 @@ export function VideoPlayerSurfaceMobile({
                 disabled={transportDisabled}
                 aria-label={loop ? "Disable loop" : "Enable loop"}
                 aria-pressed={loop}
-                className={cn("text-white disabled:opacity-40", loop && "text-sky-400")}
+                className={cn("text-white disabled:opacity-40", loop && "text-brand")}
               >
                 <Repeat className="size-5" aria-hidden />
               </button>

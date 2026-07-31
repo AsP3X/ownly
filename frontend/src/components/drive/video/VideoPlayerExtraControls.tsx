@@ -350,7 +350,7 @@ export function VideoPiPButton({
       aria-pressed={active}
       className={cn(
         "text-white transition hover:text-white/80 disabled:opacity-40",
-        active && "text-sky-400",
+        active && "text-brand",
       )}
     >
       <PictureInPicture2 className={isMobile ? "size-4" : "size-6"} aria-hidden />
@@ -388,7 +388,7 @@ export function VideoCaptionsButton({
       aria-pressed={active}
       className={cn(
         "text-white transition hover:text-white/80 disabled:opacity-40",
-        active && "text-sky-400",
+        active && "text-brand",
       )}
     >
       <Icon className={isMobile ? "size-4" : "size-6"} aria-hidden />

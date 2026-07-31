@@ -380,7 +380,7 @@ export function DriveContextMenu({
         {targetFile ? (
           <ContextMenuGroup>
             {targetProcessing ? (
-              <p className="px-3 py-2 text-[13px] leading-none text-[#888888]">
+              <p className="px-3 py-2 text-[13px] leading-none text-ink-faint">
                 Processing — actions unavailable
               </p>
             ) : null}

@@ -147,7 +147,7 @@ export function LightAudioPlayer({
       className={cn(
         isEmbedded
           ? "flex flex-col gap-5 overflow-visible"
-          : "overflow-visible rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] p-6",
+          : "overflow-visible rounded-2xl border border-edge bg-surface p-6",
         className,
       )}
     >
@@ -156,19 +156,19 @@ export function LightAudioPlayer({
         <div className="flex items-center justify-between gap-3 min-w-0">
           <div className="flex min-w-0 items-center gap-3">
             <div
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-brand/30 bg-brand-weak"
               aria-hidden
             >
-              <Music className="h-[22px] w-[22px] text-blue-600" strokeWidth={1.75} />
+              <Music className="h-[22px] w-[22px] text-brand" strokeWidth={1.75} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-[#1A1A1A]">{title}</p>
+              <p className="truncate text-sm font-semibold text-ink">{title}</p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-[#666666] bg-[#F7F8FA]">
+                <span className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-ink-muted bg-surface">
                   {formatLabel}
                 </span>
                 {loading ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-[#888888]">
+                  <span className="inline-flex items-center gap-1 text-xs text-ink-faint">
                     <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
                     Loading…
                   </span>
@@ -176,7 +176,7 @@ export function LightAudioPlayer({
               </div>
             </div>
           </div>
-          <span className="shrink-0 text-sm font-medium tabular-nums text-[#666666]">
+          <span className="shrink-0 text-sm font-medium tabular-nums text-ink-muted">
             {formatAudioTime(progress)} / {formatAudioTime(duration)}
           </span>
         </div>
@@ -192,7 +192,7 @@ export function LightAudioPlayer({
       ) : null}
 
       {isEmbedded && loading ? (
-        <p className="inline-flex items-center gap-1.5 text-sm text-[#888888]">
+        <p className="inline-flex items-center gap-1.5 text-sm text-ink-faint">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
           Loading audio…
         </p>
@@ -253,7 +253,7 @@ export function LightAudioPlayer({
             aria-pressed={repeatActive}
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center transition-colors",
-              repeatActive ? "text-blue-600" : "text-[#666666] hover:text-[#1A1A1A]",
+              repeatActive ? "text-brand" : "text-ink-muted hover:text-ink",
             )}
           >
             <Repeat className="h-4 w-4" strokeWidth={1.75} />
@@ -268,7 +268,7 @@ export function LightAudioPlayer({
             aria-label={hasPrevious ? "Previous track" : `Skip back ${AUDIO_SKIP_SECONDS} seconds`}
             className={cn(
               "inline-flex items-center justify-center transition-opacity disabled:opacity-40 disabled:pointer-events-none",
-              isEmbedded ? "text-[#666666]" : "text-[#1A1A1A]",
+              isEmbedded ? "text-ink-muted" : "text-ink",
             )}
           >
             <SkipBack className="h-5 w-5" strokeWidth={1.75} />
@@ -280,7 +280,7 @@ export function LightAudioPlayer({
             disabled={transportDisabled}
             aria-label={isPlaying ? "Pause" : "Play"}
             className={cn(
-              "inline-flex items-center justify-center rounded-full bg-[#0A0A0A] text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none",
+              "inline-flex items-center justify-center rounded-full bg-ink text-panel shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none",
               playButtonSize,
             )}
           >
@@ -300,7 +300,7 @@ export function LightAudioPlayer({
             aria-label={hasNext ? "Next track" : `Skip forward ${AUDIO_SKIP_SECONDS} seconds`}
             className={cn(
               "inline-flex items-center justify-center transition-opacity disabled:opacity-40 disabled:pointer-events-none",
-              isEmbedded ? "text-[#666666]" : "text-[#1A1A1A]",
+              isEmbedded ? "text-ink-muted" : "text-ink",
             )}
           >
             <SkipForward className="h-5 w-5" strokeWidth={1.75} />

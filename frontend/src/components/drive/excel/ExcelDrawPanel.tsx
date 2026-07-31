@@ -43,11 +43,11 @@ export function ExcelDrawPanel({
           aria-label="Ink color"
           value={strokeColor}
           onChange={(event) => onStrokeColorChange(event.target.value)}
-          className="h-8 w-10 cursor-pointer rounded border border-[#E5E7EB]"
+          className="h-8 w-10 cursor-pointer rounded border border-edge"
         />
         <button
           type="button"
-          className="rounded-sm px-2 py-1 text-xs hover:bg-[#E5E5E5]"
+          className="rounded-sm px-2 py-1 text-xs hover:bg-edge"
           onClick={onClearDrawings}
         >
           Clear all ink

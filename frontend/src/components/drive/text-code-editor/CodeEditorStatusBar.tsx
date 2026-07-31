@@ -57,26 +57,26 @@ export function CodeEditorStatusBar({
         <CloudLightning
           className={cn(
             "size-3 shrink-0",
-            syncTone === "saved" && "text-[#10B981]",
-            syncTone === "dirty" && "text-[#F59E0B]",
-            syncTone === "saving" && "text-[#2563EB]",
-            syncTone === "error" && "text-[#EF4444]",
+            syncTone === "saved" && "text-ok",
+            syncTone === "dirty" && "text-warn",
+            syncTone === "saving" && "text-brand",
+            syncTone === "error" && "text-danger",
           )}
           aria-hidden
         />
         <span
           className={cn(
             "truncate text-xs",
-            syncTone === "saved" && "text-[#10B981]",
-            syncTone === "dirty" && "text-[#F59E0B]",
-            syncTone === "saving" && "text-[#2563EB]",
-            syncTone === "error" && "text-[#EF4444]",
+            syncTone === "saved" && "text-ok",
+            syncTone === "dirty" && "text-warn",
+            syncTone === "saving" && "text-brand",
+            syncTone === "error" && "text-danger",
           )}
         >
           {syncLabel}
         </span>
         {readOnly ? (
-          <span className="hidden items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 sm:inline-flex dark:border-emerald-400/20 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <span className="hidden items-center gap-1 rounded-md border border-ok/30 bg-ok-weak px-1.5 py-0.5 text-[10px] font-bold text-ok sm:inline-flex dark:border-emerald-400/20 dark:bg-emerald-950/40 dark:text-emerald-300">
             <ShieldCheck className="size-3" aria-hidden />
             Read-only
           </span>
@@ -122,7 +122,7 @@ export function CodeEditorStatusBar({
             type="button"
             onClick={onSave}
             disabled={!canSave || saving}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
             Save

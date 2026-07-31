@@ -158,7 +158,7 @@ export function PdfPreviewSurfaceMobile({
 
         <div className="relative flex min-h-0 flex-1 flex-col">
           {error ? (
-            <p className="absolute inset-0 z-20 flex items-center justify-center px-6 text-center text-sm text-red-300" role="alert">
+            <p className="absolute inset-0 z-20 flex items-center justify-center px-6 text-center text-sm text-danger" role="alert">
               {error}
             </p>
           ) : null}
@@ -210,7 +210,7 @@ export function PdfPreviewSurfaceMobile({
                           }}
                           className="box-border mb-[var(--pdf-mobile-page-peek)] flex min-h-full w-full shrink-0 snap-center snap-always items-center justify-center px-3"
                         >
-                          <div className="max-w-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                          <div className="dr-paper max-w-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                             <Page
                               pageNumber={pageNumber}
                               width={scaledWidth}
@@ -220,8 +220,8 @@ export function PdfPreviewSurfaceMobile({
                                 hasSearchQuery && searchMatches.length > 0 ? customTextRenderer : undefined
                               }
                               loading={
-                                <div className="flex min-h-[50dvh] w-full items-center justify-center bg-white">
-                                  <Loader2 className="size-6 animate-spin text-[#888888]" aria-hidden />
+                                <div className="dr-paper flex min-h-[50dvh] w-full items-center justify-center bg-white">
+                                  <Loader2 className="size-6 animate-spin text-ink-faint" aria-hidden />
                                 </div>
                               }
                               className={cn(loading && "opacity-70")}
@@ -250,15 +250,15 @@ export function PdfPreviewSurfaceMobile({
                   />
                   <aside
                     id="pdf-mobile-thumbnail-drawer"
-                    className="absolute inset-y-0 left-0 z-50 flex w-[260px] max-w-[85vw] flex-col border-r border-[#E5E7EB] bg-[#F7F8FA] shadow-[4px_0_24px_rgba(0,0,0,0.2)] pt-[max(56px,env(safe-area-inset-top))]"
+                    className="absolute inset-y-0 left-0 z-50 flex w-[260px] max-w-[85vw] flex-col border-r border-edge bg-surface shadow-[4px_0_24px_rgba(0,0,0,0.2)] pt-[max(56px,env(safe-area-inset-top))]"
                   >
                     <div className="flex shrink-0 items-center justify-between px-3 pb-3">
-                      <p className="text-[11px] font-bold tracking-wide text-[#888888]">PAGE THUMBNAILS</p>
+                      <p className="text-[11px] font-bold tracking-wide text-ink-faint">PAGE THUMBNAILS</p>
                       <button
                         type="button"
                         onClick={() => setSidebarOpen(false)}
                         aria-label="Close page thumbnails"
-                        className="rounded-md p-1 text-[#666666] hover:bg-[#E5E7EB]"
+                        className="rounded-md p-1 text-ink-muted hover:bg-edge"
                       >
                         <PanelLeftClose className="size-4" aria-hidden />
                       </button>
@@ -285,10 +285,10 @@ export function PdfPreviewSurfaceMobile({
                               >
                                 <div
                                   className={cn(
-                                    "flex items-center justify-center rounded border bg-white p-1.5 transition-colors",
+                                    "dr-paper flex items-center justify-center rounded border bg-white p-1.5 transition-colors",
                                     isActive
-                                      ? "border-2 border-[#2563EB]"
-                                      : "border border-[#E5E7EB] hover:border-[#2563EB]/50",
+                                      ? "border-2 border-brand"
+                                      : "border border-edge hover:border-brand/50",
                                   )}
                                   style={{ width: thumbnailWidth }}
                                 >
@@ -307,7 +307,7 @@ export function PdfPreviewSurfaceMobile({
                                         className="flex w-full items-center justify-center"
                                         style={{ height: Math.round(thumbnailWidth * 1.295) }}
                                       >
-                                        <Loader2 className="size-4 animate-spin text-[#888888]" aria-hidden />
+                                        <Loader2 className="size-4 animate-spin text-ink-faint" aria-hidden />
                                       </div>
                                     }
                                   />
@@ -315,7 +315,7 @@ export function PdfPreviewSurfaceMobile({
                                 <span
                                   className={cn(
                                     "text-[10px]",
-                                    isActive ? "font-bold text-[#2563EB]" : "text-[#666666]",
+                                    isActive ? "font-bold text-brand" : "text-ink-muted",
                                   )}
                                 >
                                   Page {pageNumber}
@@ -352,7 +352,7 @@ export function PdfPreviewSurfaceMobile({
               className={cn(
                 "inline-flex h-8 items-center gap-1 rounded-2xl border px-2.5 text-[11px] font-bold tabular-nums text-white transition-colors",
                 sidebarOpen
-                  ? "border-[#2563EB] bg-[#2563EB]/20"
+                  ? "border-brand bg-brand/20"
                   : "border-white/10 bg-black/60",
               )}
             >
@@ -431,7 +431,7 @@ export function PdfPreviewSurfaceMobile({
                   }}
                   placeholder="Search in document"
                   aria-label="Search in PDF"
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-white/10 px-2 text-xs text-white outline-none placeholder:text-white/40 focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                  className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-white/10 px-2 text-xs text-white outline-none placeholder:text-white/40 focus:border-brand focus:ring-1 focus:ring-brand"
                 />
                 <span className="shrink-0 text-[10px] text-white/60" aria-live="polite">
                   {searchResultLabel}

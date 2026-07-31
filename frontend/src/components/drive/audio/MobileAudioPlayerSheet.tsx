@@ -138,25 +138,25 @@ export function MobileAudioPlayerSheet({
         overlayClassName="bg-[#0A0A15]/60 backdrop-blur-2xl"
       >
         {/* Human: Pencil Audio Player Bottom Sheet — drag handle, header, waveform, transport. */}
-        <div className="rounded-t-3xl border border-b-0 border-[#E5E7EB] bg-white px-6 pb-8 pt-3 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]">
+        <div className="rounded-t-3xl border border-b-0 border-edge bg-panel px-6 pb-8 pt-3 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]">
           <div className="flex h-2 items-center justify-center" aria-hidden>
-            <div className="h-1 w-9 rounded-sm bg-[#D1D5DB]" />
+            <div className="h-1 w-9 rounded-sm bg-edge" />
           </div>
 
           <div className="mt-3 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-brand">
                 Audio preview
               </p>
-              <p className="mt-0.5 truncate text-lg font-bold leading-tight text-[#1A1A1A]">
+              <p className="mt-0.5 truncate text-lg font-bold leading-tight text-ink">
                 {title}
               </p>
               {positionLabel ? (
-                <p className="mt-0.5 text-xs text-[#888888]">{positionLabel}</p>
+                <p className="mt-0.5 text-xs text-ink-faint">{positionLabel}</p>
               ) : null}
             </div>
             <SheetClose
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-[#F7F8FA] text-[#666666] transition-colors hover:bg-[#E5E7EB]"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-surface text-ink-muted transition-colors hover:bg-edge"
               aria-label="Close audio player"
             >
               <X className="h-4 w-4" strokeWidth={1.75} />
@@ -173,7 +173,7 @@ export function MobileAudioPlayerSheet({
           ) : null}
 
           {loading ? (
-            <p className="mt-4 inline-flex items-center gap-1.5 text-sm text-[#888888]">
+            <p className="mt-4 inline-flex items-center gap-1.5 text-sm text-ink-faint">
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
               Loading audio…
             </p>
@@ -213,7 +213,7 @@ export function MobileAudioPlayerSheet({
               disabled
               aria-hidden
               tabIndex={-1}
-              className="inline-flex items-center justify-center text-[#666666] opacity-40"
+              className="inline-flex items-center justify-center text-ink-muted opacity-40"
             >
               <Shuffle className="h-5 w-5" strokeWidth={1.75} />
             </button>
@@ -223,7 +223,7 @@ export function MobileAudioPlayerSheet({
               onClick={handlePreviousClick}
               disabled={previousDisabled}
               aria-label={hasPrevious ? "Previous track" : `Skip back ${AUDIO_SKIP_SECONDS} seconds`}
-              className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
+              className="inline-flex items-center justify-center text-ink transition-opacity disabled:opacity-40 disabled:pointer-events-none"
             >
               <SkipBack className="h-6 w-6" strokeWidth={1.75} />
             </button>
@@ -233,7 +233,7 @@ export function MobileAudioPlayerSheet({
               onClick={togglePlay}
               disabled={transportDisabled}
               aria-label={isPlaying ? "Pause" : "Play"}
-              className="inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_4px_12px_rgba(37,99,235,0.24)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              className="inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-brand text-brand-on shadow-[0_4px_12px_rgba(37,99,235,0.24)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
             >
               {loading ? (
                 <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
@@ -249,7 +249,7 @@ export function MobileAudioPlayerSheet({
               onClick={handleNextClick}
               disabled={nextDisabled}
               aria-label={hasNext ? "Next track" : `Skip forward ${AUDIO_SKIP_SECONDS} seconds`}
-              className="inline-flex items-center justify-center text-[#1A1A1A] transition-opacity disabled:opacity-40 disabled:pointer-events-none"
+              className="inline-flex items-center justify-center text-ink transition-opacity disabled:opacity-40 disabled:pointer-events-none"
             >
               <SkipForward className="h-6 w-6" strokeWidth={1.75} />
             </button>
@@ -261,7 +261,7 @@ export function MobileAudioPlayerSheet({
               aria-pressed={repeatActive}
               className={cn(
                 "inline-flex items-center justify-center transition-colors",
-                repeatActive ? "text-blue-600" : "text-[#666666]",
+                repeatActive ? "text-brand" : "text-ink-muted",
               )}
             >
               <Repeat className="h-5 w-5" strokeWidth={1.75} />
@@ -278,12 +278,12 @@ export function MobileAudioPlayerSheet({
             />
 
             <div
-              className="flex items-center gap-1 text-[11px] font-medium text-[#666666]"
+              className="flex items-center gap-1 text-[11px] font-medium text-ink-muted"
               aria-hidden
             >
               <Airplay className="h-3.5 w-3.5" strokeWidth={1.75} />
               <span>Device speaker</span>
-              <ChevronUp className="h-2.5 w-2.5 text-[#888888]" strokeWidth={2} />
+              <ChevronUp className="h-2.5 w-2.5 text-ink-faint" strokeWidth={2} />
             </div>
           </div>
         </div>

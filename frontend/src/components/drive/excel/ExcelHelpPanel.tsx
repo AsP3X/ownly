@@ -34,13 +34,13 @@ export function ExcelHelpPanel() {
           placeholder="Search help"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+          className="rounded-lg border border-edge px-2 py-1.5"
           style={{ fontFamily: EXCEL_RIBBON_FONT, fontSize: scaledPx(11) }}
         />
         <ul className="max-h-40 overflow-y-auto" style={{ fontFamily: EXCEL_RIBBON_FONT, fontSize: scaledPx(11) }}>
           {results.map((topic) => (
-            <li key={topic.title} className="mb-2 text-[#444444]">
-              <span className="font-semibold text-[#1A1A1A]">{topic.title}: </span>
+            <li key={topic.title} className="mb-2 text-ink-muted">
+              <span className="font-semibold text-ink">{topic.title}: </span>
               {topic.body}
             </li>
           ))}

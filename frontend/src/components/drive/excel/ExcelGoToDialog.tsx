@@ -91,20 +91,20 @@ export function ExcelGoToDialog({
           </div>
 
           {listedRanges.length > 0 ? (
-            <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-[#E5E7EB] p-2">
+            <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-edge p-2">
               {listedRanges.map((range) => (
                 <button
                   key={range.name}
                   type="button"
-                  className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-[#EFF6FF]"
+                  className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-brand-weak"
                   onClick={() => {
                     setReference(range.name);
                     onGoToNamedRange(range);
                     onOpenChange(false);
                   }}
                 >
-                  <span className="font-medium text-[#1A1A1A]">{range.name}</span>
-                  <span className="ml-2 text-xs text-[#888888]">
+                  <span className="font-medium text-ink">{range.name}</span>
+                  <span className="ml-2 text-xs text-ink-faint">
                     {range.sheetName}!{range.startRow + 1}
                   </span>
                 </button>

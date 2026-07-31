@@ -285,7 +285,7 @@ export function RibbonColorButton({
       {variant === "font" ? (
         <span style={{ fontSize: scaledPx(12), fontWeight: 700, color: EXCEL_RIBBON_TEXT, lineHeight: 1 }}>A</span>
       ) : (
-        <span style={{ width: scaledPx(14), height: scaledPx(14) }} className="flex items-center justify-center text-[#323130]">
+        <span style={{ width: scaledPx(14), height: scaledPx(14) }} className="flex items-center justify-center text-ink">
           {/* Human: paint-bucket stand-in — lucide PaintBucket may be missing in older lucide; use fill rect */}
           <svg viewBox="0 0 24 24" width={14} height={14} aria-hidden>
             <path
@@ -415,7 +415,7 @@ export function RibbonTabStrip({
           <button
             type="button"
             onClick={onComments}
-            className="inline-flex items-center rounded-sm text-[#323130] transition-colors hover:bg-[#E8E4EC]"
+            className="inline-flex items-center rounded-sm text-ink transition-colors hover:bg-sunken"
             style={{
               gap: scaledPx(5),
               padding: `${scaledPx(4)}px ${scaledPx(8)}px`,
@@ -518,7 +518,7 @@ export function RibbonSelect({
       disabled={disabled}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="rounded-sm border bg-panel outline-none hover:bg-[#FAFAFA] disabled:opacity-40"
+      className="rounded-sm border bg-panel outline-none hover:bg-surface disabled:opacity-40"
       style={{
         width: scaledPx(width),
         fontSize: scaledPx(10),

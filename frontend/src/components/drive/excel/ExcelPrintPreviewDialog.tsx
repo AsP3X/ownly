@@ -49,27 +49,27 @@ export function ExcelPrintPreviewDialog({
         </DialogHeader>
 
         <div
-          className="overflow-auto rounded-lg border border-[#E5E7EB] bg-[#E5E7EB] p-6"
+          className="overflow-auto rounded-lg border border-edge bg-edge p-6"
           style={{
             maxHeight: "min(60vh, 480px)",
           }}
         >
           <div
             ref={printRef}
-            className="mx-auto bg-white shadow-md"
+            className="mx-auto bg-panel shadow-md"
             style={{
               padding: `${margins.top * 16}px ${margins.right * 16}px ${margins.bottom * 16}px ${margins.left * 16}px`,
               maxWidth: "100%",
             }}
           >
-            <table className="w-full border-collapse text-xs text-[#1A1A1A]">
+            <table className="w-full border-collapse text-xs text-ink">
               <tbody>
                 {preview.rows.map((row, rowIndex) => (
                   <tr key={rowIndex}>
                     {row.map((cell, colIndex) => (
                       <td
                         key={colIndex}
-                        className="border border-[#D1D5DB] px-2 py-1 align-top whitespace-pre-wrap"
+                        className="border border-edge px-2 py-1 align-top whitespace-pre-wrap"
                       >
                         {cell}
                       </td>

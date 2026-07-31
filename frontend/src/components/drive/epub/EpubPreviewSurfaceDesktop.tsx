@@ -89,7 +89,7 @@ export function EpubPreviewSurfaceDesktop({
                   style={{ paddingLeft: `${12 + entry.depth * 16}px` }}
                   onClick={() => goToTocEntry(entry)}
                 >
-                  {active ? <span className="h-5 w-0.5 rounded-full bg-[#2563EB]" /> : null}
+                  {active ? <span className="h-5 w-0.5 rounded-full bg-brand" /> : null}
                   <span>{entry.label}</span>
                 </button>
               );

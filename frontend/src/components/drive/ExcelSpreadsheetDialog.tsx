@@ -716,7 +716,7 @@ export function ExcelSpreadsheetDialog({
 
         <div className={excelDialogShellClass}>
           {saveError ? (
-            <p className="border-b border-[#FECACA] bg-danger-weak px-5 py-2 text-xs text-[#B91C1C]" role="alert">
+            <p className="border-b border-danger/40 bg-danger-weak px-5 py-2 text-xs text-danger" role="alert">
               {saveError}
             </p>
           ) : null}

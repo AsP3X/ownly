@@ -112,7 +112,7 @@ export function AudioWaveformBars({
           key={index}
           className={cn(
             "w-1 shrink-0 rounded-sm transition-colors duration-150",
-            index < playedBarCount ? "bg-blue-600" : "bg-[#E5E7EB]",
+            index < playedBarCount ? "bg-brand" : "bg-edge",
           )}
           style={{ height: `${height}px` }}
           aria-hidden

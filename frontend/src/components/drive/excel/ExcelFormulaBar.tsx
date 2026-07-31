@@ -67,7 +67,7 @@ function ExcelFormulaBarInput({ cellLabel, value, readOnly, onCommit }: ExcelFor
           if (draft !== value) onCommit(draft);
         }}
         className={cn(
-          "min-w-0 flex-1 rounded border border-edge bg-panel text-ink outline-none focus:border-brand focus:ring-1 focus:ring-[#2563EB]",
+          "min-w-0 flex-1 rounded border border-edge bg-panel text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand",
           readOnly && "cursor-default bg-surface",
         )}
         style={{

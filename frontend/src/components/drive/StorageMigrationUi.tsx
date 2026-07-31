@@ -86,12 +86,12 @@ function StorageMigrationResultDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden border-edge bg-panel p-0 sm:max-w-md">
-        <DialogHeader className="border-b border-neutral-100 px-6 py-5">
+        <DialogHeader className="border-b border-hairline px-6 py-5">
           <DialogTitle className="flex items-center gap-2 text-lg text-ink">
             {success ? (
-              <CheckCircle2 className="size-5 shrink-0 text-green-600" aria-hidden />
+              <CheckCircle2 className="size-5 shrink-0 text-ok" aria-hidden />
             ) : (
-              <AlertTriangle className="size-5 shrink-0 text-amber-600" aria-hidden />
+              <AlertTriangle className="size-5 shrink-0 text-warn" aria-hidden />
             )}
             {resultTitle(job)}
           </DialogTitle>
@@ -102,7 +102,7 @@ function StorageMigrationResultDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 px-6 py-5 text-sm text-neutral-800">
+        <div className="space-y-3 px-6 py-5 text-sm text-ink">
           {isPreview ? (
             <p>
               <span className="font-semibold">{job.migrated}</span> object(s) need migration.
@@ -123,20 +123,20 @@ function StorageMigrationResultDialog({
             {job.failed > 0 ? ` · ${job.failed} failed` : ""}
           </p>
           {job.failed > 0 && !isPreview ? (
-            <p className="text-amber-800">
+            <p className="text-warn">
               {job.failed} object(s) failed — open the log for per-object details.
             </p>
           ) : null}
-          {job.error ? <p className="text-red-700">{job.error}</p> : null}
-          {startMigrationError ? <p className="text-red-700">{startMigrationError}</p> : null}
+          {job.error ? <p className="text-danger">{job.error}</p> : null}
+          {startMigrationError ? <p className="text-danger">{startMigrationError}</p> : null}
           {isPreview && success && job.migrated === 0 ? (
-            <p className="text-neutral-600">
+            <p className="text-ink-muted">
               All scanned objects are already on the current storage layout — migration is not needed.
             </p>
           ) : null}
         </div>
 
-        <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-neutral-100 bg-neutral-50/80 px-6 py-4">
+        <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-hairline bg-surface/80 px-6 py-4">
           <Button type="button" variant="outline" onClick={onViewLog}>
             <ScrollText className="size-4" aria-hidden />
             View log

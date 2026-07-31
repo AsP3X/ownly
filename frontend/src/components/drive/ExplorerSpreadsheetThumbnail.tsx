@@ -74,12 +74,12 @@ export function ExplorerSpreadsheetThumbnail({
         "overflow-hidden contain-[layout_paint]",
         slotFill
           ? "absolute inset-0 size-full rounded-none border-0 bg-transparent"
-          : "relative aspect-square w-full rounded-lg border border-[#E5E7EB] bg-white",
+          : "dr-paper relative aspect-square w-full rounded-lg border border-edge bg-white",
         className,
       )}
     >
       {failed ? (
-        <div className="flex size-full items-center justify-center bg-[#F3F4F6]">
+        <div className="flex size-full items-center justify-center bg-sunken">
           <FileSpreadsheet className="size-8 text-[#107C41]" aria-hidden />
         </div>
       ) : matrix ? (
@@ -95,8 +95,8 @@ export function ExplorerSpreadsheetThumbnail({
                       <td
                         key={colIndex}
                         className={cn(
-                          "truncate border border-[#E5E7EB] px-0.5 py-px leading-none text-[#1A1A1A]",
-                          rowIndex === 0 && "bg-[#FAFAFA] font-semibold text-[#666666]",
+                          "truncate border border-edge px-0.5 py-px leading-none text-ink",
+                          rowIndex === 0 && "bg-surface font-semibold text-ink-muted",
                         )}
                         style={{ fontSize: 7, maxWidth: 0 }}
                         title={cell}
@@ -111,8 +111,8 @@ export function ExplorerSpreadsheetThumbnail({
           </div>
         </div>
       ) : (
-        <div className="flex size-full items-center justify-center bg-[#F3F4F6]">
-          <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+        <div className="flex size-full items-center justify-center bg-sunken">
+          <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
         </div>
       )}
     </div>

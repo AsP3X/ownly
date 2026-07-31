@@ -23,7 +23,7 @@ export function RtfCollabPresence({
     const offline =
       /unavailable|offline|network|failed to fetch|websocket/i.test(error);
     return (
-      <div className="flex h-8 shrink-0 items-center border-b border-[#FDE68A] bg-[#FFFBEB] px-3 text-[11px] text-[#92400E]">
+      <div className="flex h-8 shrink-0 items-center border-b border-warn/40 bg-warn-weak px-3 text-[11px] text-warn">
         {offline ? `Co-editing offline — ${error}` : error}
       </div>
     );
@@ -33,10 +33,10 @@ export function RtfCollabPresence({
 
   return (
     <div
-      className="flex h-8 shrink-0 items-center gap-2 border-b border-[#E5E7EB] bg-[#F8FAFC] px-3"
+      className="flex h-8 shrink-0 items-center gap-2 border-b border-edge bg-surface px-3"
       aria-label="Collaborators"
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#64748B]">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
         Live{transport === "ws" ? " · WS" : " · poll"}
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -52,7 +52,7 @@ export function RtfCollabPresence({
           return (
             <div
               key={person.user_id}
-              className="flex shrink-0 items-center gap-1 rounded-full border border-[#E5E7EB] bg-white pr-2"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-edge bg-panel pr-2"
               title={[
                 person.display_name,
                 locked
@@ -69,7 +69,7 @@ export function RtfCollabPresence({
               >
                 {initial}
               </span>
-              <span className="max-w-[9rem] truncate text-[10px] text-[#334155]">
+              <span className="max-w-[9rem] truncate text-[10px] text-ink-muted">
                 {isYou ? "You" : person.display_name}
                 {locked ? " · locked" : hasCaret ? " · active" : ""}
               </span>
@@ -78,7 +78,7 @@ export function RtfCollabPresence({
         })}
       </div>
       {statusHint ? (
-        <span className="hidden text-[10px] text-[#94A3B8] sm:inline">{statusHint}</span>
+        <span className="hidden text-[10px] text-ink-faint sm:inline">{statusHint}</span>
       ) : null}
     </div>
   );

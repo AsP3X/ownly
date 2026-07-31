@@ -32,7 +32,7 @@ function TransferProgressBar({
   if (indeterminate && !complete) {
     return (
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-edge">
-        <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
+        <div className="absolute inset-y-0 w-2/5 animate-[upload-shimmer_1.4s_ease-in-out_infinite] rounded-full bg-brand" />
       </div>
     );
   }
@@ -43,7 +43,7 @@ function TransferProgressBar({
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-150 ease-out",
-          complete ? "bg-green-600" : "bg-blue-600",
+          complete ? "bg-ok" : "bg-brand",
         )}
         style={{ width: `${clamped}%` }}
       />
@@ -75,7 +75,7 @@ function QueuedDownloadsSummary({
   onCancelAll: () => void;
 }) {
   return (
-    <li className="flex items-center gap-2 border-b border-neutral-100 px-4 py-3">
+    <li className="flex items-center gap-2 border-b border-hairline px-4 py-3">
       <Clock className="size-4 shrink-0 text-ink-faint" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-ink">
@@ -103,22 +103,22 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
   const isActive = job.status === "downloading";
 
   return (
-    <li className="flex flex-col gap-2 border-b border-neutral-100 px-4 py-3 last:border-b-0">
+    <li className="flex flex-col gap-2 border-b border-hairline px-4 py-3 last:border-b-0">
       <div className="flex items-start gap-2">
         <div className="mt-0.5 shrink-0">
           {job.status === "complete" ? (
-            <CheckCircle2 className="size-4 text-green-600" aria-hidden />
+            <CheckCircle2 className="size-4 text-ok" aria-hidden />
           ) : job.status === "error" ? (
-            <AlertCircle className="size-4 text-red-500" aria-hidden />
+            <AlertCircle className="size-4 text-danger" aria-hidden />
           ) : (
-            <Loader2 className="size-4 animate-spin text-blue-600" aria-hidden />
+            <Loader2 className="size-4 animate-spin text-brand" aria-hidden />
           )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="truncate text-sm font-medium text-ink">{job.label}</p>
             {isActive ? (
-              <span className="shrink-0 text-xs font-semibold tabular-nums text-blue-700">
+              <span className="shrink-0 text-xs font-semibold tabular-nums text-brand">
                 {job.indeterminate ? "…" : `${job.progress}%`}
               </span>
             ) : null}
@@ -146,7 +146,7 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
         <TransferProgressBar value={100} complete />
       ) : null}
       {job.status === "error" && job.error ? (
-        <p className="text-xs text-red-600">{job.error}</p>
+        <p className="text-xs text-danger">{job.error}</p>
       ) : null}
     </li>
   );
@@ -185,17 +185,17 @@ export function DownloadTransferPanel({
       role="region"
       aria-label="Downloads"
     >
-      <div className="flex items-center justify-between border-b border-neutral-100 bg-neutral-50 px-4 py-2.5">
+      <div className="flex items-center justify-between border-b border-hairline bg-surface px-4 py-2.5">
         <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Download className="size-4 text-blue-600" aria-hidden />
+          <Download className="size-4 text-brand" aria-hidden />
           Downloads
           {activeCount > 0 ? (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+            <span className="rounded-full bg-brand-weak px-2 py-0.5 text-xs font-medium text-brand-hover">
               {activeCount} active
             </span>
           ) : null}
           {queuedCount > 0 ? (
-            <span className="rounded-full bg-edge px-2 py-0.5 text-xs font-medium text-neutral-700">
+            <span className="rounded-full bg-edge px-2 py-0.5 text-xs font-medium text-ink-muted">
               {queuedCount} queued
             </span>
           ) : null}

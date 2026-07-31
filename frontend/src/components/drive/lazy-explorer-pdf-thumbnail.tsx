@@ -21,11 +21,11 @@ function PdfThumbnailFallback({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg bg-[#F3F4F6]",
+        "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg bg-sunken",
         className,
       )}
     >
-      <Loader2 className="size-5 animate-spin text-[#888888]" aria-hidden />
+      <Loader2 className="size-5 animate-spin text-ink-faint" aria-hidden />
     </div>
   );
 }

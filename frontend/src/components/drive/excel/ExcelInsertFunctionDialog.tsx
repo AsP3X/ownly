@@ -48,7 +48,7 @@ export function ExcelInsertFunctionDialog({
           <label className="flex flex-col gap-1 text-sm">
             Category
             <select
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={category}
               onChange={(event) => {
                 setCategory(event.target.value);
@@ -67,7 +67,7 @@ export function ExcelInsertFunctionDialog({
           <label className="flex flex-col gap-1 text-sm">
             Function
             <select
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+              className="rounded-lg border border-edge px-2 py-1.5"
               value={selectedName}
               onChange={(event) => setSelectedName(event.target.value)}
             >
@@ -81,8 +81,8 @@ export function ExcelInsertFunctionDialog({
         </div>
 
         {selected ? (
-          <div className="rounded-lg border border-[#E5E7EB] bg-[#F7F8FA] p-3 text-sm text-[#666666]">
-            <p className="font-medium text-[#1A1A1A]">{selected.syntax}</p>
+          <div className="rounded-lg border border-edge bg-surface p-3 text-sm text-ink-muted">
+            <p className="font-medium text-ink">{selected.syntax}</p>
             <p className="mt-1">{selected.description}</p>
           </div>
         ) : null}
@@ -90,14 +90,14 @@ export function ExcelInsertFunctionDialog({
         <label className="flex flex-col gap-1 text-sm">
           Arguments
           <input
-            className="rounded-lg border border-[#E5E7EB] px-2 py-1.5"
+            className="rounded-lg border border-edge px-2 py-1.5"
             value={args}
             onChange={(event) => setArgs(event.target.value)}
             placeholder="A1:A10"
           />
         </label>
 
-        <p className="font-mono text-sm text-[#1A1A1A]">{preview}</p>
+        <p className="font-mono text-sm text-ink">{preview}</p>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

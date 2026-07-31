@@ -34,7 +34,7 @@ export function PublicSharePageLayout({
   const [infoOpen, setInfoOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F7F8FA] text-[#1A1A1A]">
+    <div className="flex min-h-screen flex-col bg-surface text-ink">
       <PublicSharePromoBanner />
       <PublicShareHeader
         downloadLabel={downloadLabel}

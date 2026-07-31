@@ -203,7 +203,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
         {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
         {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
         <ExplorerGridPreviewSlot>
-          <Folder className="size-7 text-amber-600 dark:text-amber-400" aria-hidden />
+          <Folder className="size-7 text-warn dark:text-warn" aria-hidden />
         </ExplorerGridPreviewSlot>
         {/* Human: Metadata footer separated by a hairline rather than floating under the image. */}
         {/* Agent: mt-1 + border-t; keeps the tile's overall height stable for contain-intrinsic-size. */}

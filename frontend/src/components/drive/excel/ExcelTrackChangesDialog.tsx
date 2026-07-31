@@ -55,7 +55,7 @@ export function ExcelTrackChangesDialog({
               </thead>
               <tbody>
                 {[...entries].reverse().map((entry) => (
-                  <tr key={entry.id} className="border-b border-[#F3F4F6]">
+                  <tr key={entry.id} className="border-b border-hairline">
                     <td className="px-2 py-1.5 text-ink-muted">
                       {new Date(entry.timestamp).toLocaleString()}
                     </td>

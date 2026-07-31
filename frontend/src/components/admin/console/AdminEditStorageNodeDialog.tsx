@@ -140,31 +140,31 @@ export function AdminEditStorageNodeDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-full max-w-[680px] flex-col gap-5 overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[680px]"
+        className="flex max-h-[90vh] w-full max-w-[680px] flex-col gap-5 overflow-y-auto rounded-2xl border border-edge bg-panel p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[680px]"
         overlayClassName="bg-black/30"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-[#EFF6FF]">
-              <Server className="size-4 text-[#2563EB]" aria-hidden />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-brand-weak">
+              <Server className="size-4 text-brand" aria-hidden />
             </div>
-            <h2 className="text-lg font-bold text-[#1A1A1A]">Edit Storage Node</h2>
+            <h2 className="text-lg font-bold text-ink">Edit Storage Node</h2>
           </div>
           <button
             type="button"
             onClick={handleClose}
             disabled={submitting}
-            className="flex size-8 items-center justify-center rounded-full text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface"
             aria-label="Close dialog"
           >
             <X className="size-5" aria-hidden />
           </button>
         </div>
-        <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+        <div className="h-px w-full bg-edge" aria-hidden />
 
-        <p className="text-sm text-[#666666]">
+        <p className="text-sm text-ink-muted">
           Update the region label, endpoint URL, or target capacity for{" "}
-          <span className="font-semibold text-[#1A1A1A]">{node.id}</span>. The node ID cannot be
+          <span className="font-semibold text-ink">{node.id}</span>. The node ID cannot be
           changed after registration.
         </p>
 
@@ -202,19 +202,19 @@ export function AdminEditStorageNodeDialog({
         </div>
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+        <div className="h-px w-full bg-edge" aria-hidden />
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={handleClose}
             disabled={submitting}
-            className="rounded-lg border border-[#E5E7EB] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+            className="rounded-lg border border-edge bg-panel px-5 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface disabled:opacity-60"
           >
             Cancel
           </button>
@@ -222,7 +222,7 @@ export function AdminEditStorageNodeDialog({
             type="button"
             onClick={() => void handleSave()}
             disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-brand-on transition-colors hover:bg-brand-hover disabled:opacity-60"
           >
             {submitting ? (
               <>

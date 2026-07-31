@@ -12,10 +12,10 @@ export function SetupErrorBanner({ message }: SetupErrorBannerProps) {
 
   return (
     <div
-      className="flex items-center gap-2.5 rounded-lg border border-[#FCA5A5] bg-[#FEE2E2] px-3 py-3 text-[13px] font-medium text-[#991B1B]"
+      className="flex items-center gap-2.5 rounded-lg border border-danger/40 bg-danger-weak px-3 py-3 text-[13px] font-medium text-danger"
       role="alert"
     >
-      <XCircle className="size-4 shrink-0 text-[#B91C1C]" aria-hidden />
+      <XCircle className="size-4 shrink-0 text-danger" aria-hidden />
       <span>{message}</span>
     </div>
   );

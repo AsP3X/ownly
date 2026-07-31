@@ -20,7 +20,7 @@ export function ExcelCollabPresence({
   if (error) {
     return (
       <div
-        className="flex shrink-0 items-center border-b border-[#FDE68A] bg-[#FFFBEB] px-3 text-[#92400E]"
+        className="flex shrink-0 items-center border-b border-warn/40 bg-warn-weak px-3 text-warn"
         style={{ height: scaledPx(28), fontSize: scaledPx(11) }}
       >
         Co-editing offline — {error}
@@ -32,11 +32,11 @@ export function ExcelCollabPresence({
 
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-b border-[#E5E7EB] bg-[#F8FAFC] px-3"
+      className="flex shrink-0 items-center gap-2 border-b border-edge bg-surface px-3"
       style={{ height: scaledPx(28) }}
       aria-label="Collaborators"
     >
-      <span className="font-semibold text-[#64748B]" style={{ fontSize: scaledPx(10) }}>
+      <span className="font-semibold text-ink-faint" style={{ fontSize: scaledPx(10) }}>
         Live{transport === "ws" ? " · WS" : transport === "poll" ? " · poll" : ""}
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -46,7 +46,7 @@ export function ExcelCollabPresence({
           return (
             <div
               key={person.user_id}
-              className="flex shrink-0 items-center gap-1 rounded-full border border-[#E5E7EB] bg-white pr-2"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-edge bg-panel pr-2"
               title={[
                 person.display_name,
                 person.sheet_name ? `Sheet: ${person.sheet_name}` : null,
@@ -66,7 +66,7 @@ export function ExcelCollabPresence({
               >
                 {initial}
               </span>
-              <span className="max-w-[8rem] truncate text-[#334155]" style={{ fontSize: scaledPx(10) }}>
+              <span className="max-w-[8rem] truncate text-ink-muted" style={{ fontSize: scaledPx(10) }}>
                 {isYou ? "You" : person.display_name}
                 {person.active_cell ? ` · ${person.active_cell}` : ""}
               </span>

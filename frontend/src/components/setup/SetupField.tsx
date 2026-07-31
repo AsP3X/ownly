@@ -14,15 +14,15 @@ export function SetupField({ label, colSpan = 1, className, id, ...props }: Setu
 
   return (
     <div className={cn("flex flex-col gap-2", colSpan === 2 && "col-span-2")}>
-      <label htmlFor={fieldId} className="text-sm font-semibold text-[#1A1A1A]">
+      <label htmlFor={fieldId} className="text-sm font-semibold text-ink">
         {label}
       </label>
       <input
         id={fieldId}
         className={cn(
           // Human: text-base on mobile prevents iOS Safari focus zoom; md:text-sm for desktop density.
-          "h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-4 text-base text-[#1A1A1A] md:text-sm",
-          "outline-none placeholder:text-[#888888] focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]",
+          "h-11 w-full rounded-lg border border-edge bg-panel px-4 text-base text-ink md:text-sm",
+          "outline-none placeholder:text-ink-faint focus:border-ink focus:ring-1 focus:ring-ink",
           className
         )}
         {...props}

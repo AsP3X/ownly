@@ -102,7 +102,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
 
           <div className="flex flex-col gap-4 py-4">
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-semibold text-neutral-700">Email</span>
+              <span className="font-semibold text-ink-muted">Email</span>
               <Input
                 type="email"
                 required
@@ -112,7 +112,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-semibold text-neutral-700">Password</span>
+              <span className="font-semibold text-ink-muted">Password</span>
               <Input
                 type="password"
                 required
@@ -123,7 +123,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-semibold text-neutral-700">Access role</span>
+              <span className="font-semibold text-ink-muted">Access role</span>
               <select
                 className="h-9 rounded-lg border border-input bg-transparent px-2.5 text-sm"
                 value={role}
@@ -134,7 +134,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
                 <option value="admin">Administrator</option>
               </select>
             </label>
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <label className="flex items-center gap-2 text-sm text-ink-muted">
               <input
                 type="checkbox"
                 checked={enabled}
@@ -143,7 +143,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
               />
               Account activated (can sign in)
             </label>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
           </div>
 
           <DialogFooter>
@@ -244,8 +244,8 @@ function AdminManageUserForm({
   return (
     <div className="flex flex-col gap-[22px]">
       <div className="flex flex-col gap-1 pr-8">
-        <h2 className="text-lg font-semibold text-[#1A1A1A]">Edit User Account</h2>
-        <p className="text-[13px] text-[#666666]">
+        <h2 className="text-lg font-semibold text-ink">Edit User Account</h2>
+        <p className="text-[13px] text-ink-muted">
           {userDisplayName(user.email)} • {user.email}
         </p>
       </div>
@@ -259,7 +259,7 @@ function AdminManageUserForm({
           onEnabledChange={setEnabled}
         />
         {isSelf ? (
-          <p className="text-xs text-[#888888]">
+          <p className="text-xs text-ink-faint">
             You cannot change your own account status or role here. Ask another administrator to update
             your account.
           </p>
@@ -280,7 +280,7 @@ function AdminManageUserForm({
           onManageSessions={() => setView("sessions")}
         />
         <AdminEditUserCleanupRow checked disabled onCheckedChange={() => undefined} />
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="text-sm text-danger">{error}</p> : null}
       </AdminEditUserBody>
 
       <AdminEditUserDivider />
@@ -307,7 +307,7 @@ export function AdminManageUserDialog({
       <DialogContent
         showCloseButton
         overlayClassName="bg-[#0F172A66] supports-backdrop-filter:backdrop-blur-[1px]"
-        className="max-w-[580px] gap-0 rounded-2xl border border-[#E5E7EB] bg-white p-7 shadow-[0_16px_32px_-4px_rgba(0,0,0,0.16)] sm:max-w-[580px]"
+        className="max-w-[580px] gap-0 rounded-2xl border border-edge bg-panel p-7 shadow-[0_16px_32px_-4px_rgba(0,0,0,0.16)] sm:max-w-[580px]"
       >
         {user ? (
           <AdminManageUserForm

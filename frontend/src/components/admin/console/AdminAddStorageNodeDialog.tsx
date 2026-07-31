@@ -48,8 +48,8 @@ export function DialogField({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-[#666666]">{label}</label>
-      <div className="flex h-10 items-center rounded-lg border border-[#E5E7EB] bg-white px-3">
+      <label className="text-xs font-semibold text-ink-muted">{label}</label>
+      <div className="flex h-10 items-center rounded-lg border border-edge bg-panel px-3">
         <input
           type={type}
           value={value}
@@ -57,8 +57,8 @@ export function DialogField({
           readOnly={readOnly}
           onChange={(event) => onChange?.(event.target.value)}
           className={cn(
-            "min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none placeholder:text-[#888888]",
-            readOnly && "cursor-default text-[#666666]",
+            "min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint",
+            readOnly && "cursor-default text-ink-muted",
           )}
         />
       </div>
@@ -80,9 +80,9 @@ export function DialogCapacityField({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-[#666666]">Target Capacity</label>
+      <label className="text-xs font-semibold text-ink-muted">Target Capacity</label>
       <div className="flex gap-2">
-        <div className="flex h-10 min-w-0 flex-1 items-center rounded-lg border border-[#E5E7EB] bg-white px-3">
+        <div className="flex h-10 min-w-0 flex-1 items-center rounded-lg border border-edge bg-panel px-3">
           <input
             type="number"
             min={0}
@@ -90,14 +90,14 @@ export function DialogCapacityField({
             value={value}
             placeholder="512"
             onChange={(event) => onValueChange(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none placeholder:text-[#888888]"
+            className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
         <div className="relative shrink-0">
           <select
             value={unit}
             onChange={(event) => onUnitChange(event.target.value as StorageCapacityUnit)}
-            className="h-10 appearance-none rounded-lg border border-[#E5E7EB] bg-white pl-3 pr-8 text-sm font-medium text-[#1A1A1A] outline-none"
+            className="h-10 appearance-none rounded-lg border border-edge bg-panel pl-3 pr-8 text-sm font-medium text-ink outline-none"
             aria-label="Capacity unit"
           >
             {CAPACITY_UNITS.map((option) => (
@@ -107,7 +107,7 @@ export function DialogCapacityField({
             ))}
           </select>
           <ChevronDown
-            className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-[#666666]"
+            className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
             aria-hidden
           />
         </div>
@@ -136,17 +136,17 @@ function AllocationToggleRow({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Icon className="mt-0.5 size-4 shrink-0 text-[#666666]" aria-hidden />
+          <Icon className="mt-0.5 size-4 shrink-0 text-ink-muted" aria-hidden />
           <div className="flex min-w-0 flex-col gap-1">
-            <p className="text-[13px] font-semibold text-[#1A1A1A]">{title}</p>
-            <p className="text-[11px] leading-relaxed text-[#666666]">{description}</p>
+            <p className="text-[13px] font-semibold text-ink">{title}</p>
+            <p className="text-[11px] leading-relaxed text-ink-muted">{description}</p>
           </div>
         </div>
         {/* Agent: 44×24 toggle per Pencil JgzzS frame. */}
         <Switch
           checked={checked}
           onCheckedChange={onCheckedChange}
-          className="h-6 w-11 shrink-0 data-checked:bg-[#2563EB] data-unchecked:bg-[#E5E7EB] [&_[data-slot=switch-thumb]]:size-5"
+          className="h-6 w-11 shrink-0 data-checked:bg-brand data-unchecked:bg-edge [&_[data-slot=switch-thumb]]:size-5"
         />
       </div>
       {checked ? children : null}
@@ -242,29 +242,29 @@ export function AdminAddStorageNodeDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-full max-w-[680px] flex-col gap-5 overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[680px]"
+        className="flex max-h-[90vh] w-full max-w-[680px] flex-col gap-5 overflow-y-auto rounded-2xl border border-edge bg-panel p-6 shadow-[0_12px_32px_-4px_#00000026] sm:max-w-[680px]"
         overlayClassName="bg-black/30"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[#1A1A1A]">Add Storage Node</h2>
+          <h2 className="text-lg font-bold text-ink">Add Storage Node</h2>
           <button
             type="button"
             onClick={handleClose}
             disabled={submitting}
-            className="flex size-8 items-center justify-center rounded-full text-[#666666] transition-colors hover:bg-[#F7F8FA]"
+            className="flex size-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface"
             aria-label="Close dialog"
           >
             <X className="size-5" aria-hidden />
           </button>
         </div>
-        <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+        <div className="h-px w-full bg-edge" aria-hidden />
 
-        <p className="text-sm text-[#666666]">
+        <p className="text-sm text-ink-muted">
           Register an additional standalone Nebular OS endpoint. File uploads continue to use the
           primary object storage URL configured at setup until routing is extended.
         </p>
 
-        <div className="flex gap-1 rounded-lg bg-[#F7F8FA] p-1">
+        <div className="flex gap-1 rounded-lg bg-surface p-1">
           {(
             [
               { id: "docker" as const, label: "Docker Stack Deployment" },
@@ -280,8 +280,8 @@ export function AdminAddStorageNodeDialog({
                 className={cn(
                   "flex flex-1 items-center justify-center rounded-lg px-3 py-2 text-[13px] transition-colors",
                   active
-                    ? "bg-white font-semibold text-[#1A1A1A] shadow-[0_1px_2px_#0000000D]"
-                    : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+                    ? "bg-panel font-semibold text-ink shadow-[0_1px_2px_#0000000D]"
+                    : "font-normal text-ink-muted hover:text-ink",
                 )}
               >
                 {tab.label}
@@ -323,7 +323,7 @@ export function AdminAddStorageNodeDialog({
           />
         </div>
 
-        <div className="flex flex-col gap-4 rounded-xl border border-[#E5E7EB] bg-[#F7F8FA] p-4">
+        <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-4">
           <AllocationToggleRow
             icon={Users}
             title="Dedicated Tenant Isolation"
@@ -331,9 +331,9 @@ export function AdminAddStorageNodeDialog({
             checked={tenantIsolation}
             onCheckedChange={setTenantIsolation}
           >
-            <div className="flex h-9 items-center justify-between rounded-lg border border-[#E5E7EB] bg-white px-3">
-              <span className="text-[13px] text-[#1A1A1A]">Enterprise: Alpha Corp</span>
-              <ChevronDown className="size-3.5 text-[#666666]" aria-hidden />
+            <div className="flex h-9 items-center justify-between rounded-lg border border-edge bg-panel px-3">
+              <span className="text-[13px] text-ink">Enterprise: Alpha Corp</span>
+              <ChevronDown className="size-3.5 text-ink-muted" aria-hidden />
             </div>
           </AllocationToggleRow>
 
@@ -344,27 +344,27 @@ export function AdminAddStorageNodeDialog({
             checked={mediaOptimization}
             onCheckedChange={setMediaOptimization}
           >
-            <div className="flex h-9 items-center justify-between rounded-lg border border-[#E5E7EB] bg-white px-3">
-              <span className="text-[13px] text-[#1A1A1A]">Media Class: Video & Streaming</span>
-              <ChevronDown className="size-3.5 text-[#666666]" aria-hidden />
+            <div className="flex h-9 items-center justify-between rounded-lg border border-edge bg-panel px-3">
+              <span className="text-[13px] text-ink">Media Class: Video & Streaming</span>
+              <ChevronDown className="size-3.5 text-ink-muted" aria-hidden />
             </div>
           </AllocationToggleRow>
         </div>
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          <p className="rounded-lg border border-danger/40 bg-danger-weak px-4 py-3 text-sm text-danger" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="h-px w-full bg-[#E5E7EB]" aria-hidden />
+        <div className="h-px w-full bg-edge" aria-hidden />
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={handleClose}
             disabled={submitting}
-            className="rounded-lg border border-[#E5E7EB] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA] disabled:opacity-60"
+            className="rounded-lg border border-edge bg-panel px-5 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface disabled:opacity-60"
           >
             Cancel
           </button>
@@ -372,7 +372,7 @@ export function AdminAddStorageNodeDialog({
             type="button"
             onClick={() => void handleProvision()}
             disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-brand-on transition-colors hover:bg-brand-hover disabled:opacity-60"
           >
             {submitting ? (
               <>

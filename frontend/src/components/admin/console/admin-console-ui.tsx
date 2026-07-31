@@ -24,14 +24,14 @@ export function AdminConsolePageHeader({
       <div className="flex min-w-0 flex-col gap-1.5">
         <h1
           className={cn(
-            "font-bold leading-tight text-[#1A1A1A]",
+            "font-bold leading-tight text-ink",
             titleSize === "lg" ? "text-[28px]" : "text-2xl",
           )}
         >
           {title}
         </h1>
         {description ? (
-          <p className="max-w-3xl text-sm leading-relaxed text-[#666666]">{description}</p>
+          <p className="max-w-3xl text-sm leading-relaxed text-ink-muted">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div> : null}
@@ -56,7 +56,7 @@ export function AdminConsoleOutlineButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#666666] transition-colors hover:bg-[#F7F8FA]",
+        "inline-flex items-center gap-2 rounded-lg border border-edge bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink-muted transition-colors hover:bg-surface",
         className,
       )}
     >
@@ -82,7 +82,7 @@ export function AdminConsolePrimaryButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-on transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60",
         className,
       )}
     >
@@ -103,7 +103,7 @@ export function AdminConsoleUnderlineTabs({
 }) {
   return (
     <div
-      className="flex gap-8 border-b border-[#E5E7EB]"
+      className="flex gap-8 border-b border-edge"
       role="tablist"
       aria-label="Section tabs"
     >
@@ -118,12 +118,12 @@ export function AdminConsoleUnderlineTabs({
             onClick={() => onChange(tab.id)}
             className={cn(
               "flex min-w-[140px] flex-col items-center gap-3 px-2 pb-3 text-[15px] transition-colors",
-              active ? "font-semibold text-[#2563EB]" : "font-normal text-[#666666] hover:text-[#1A1A1A]",
+              active ? "font-semibold text-brand" : "font-normal text-ink-muted hover:text-ink",
             )}
           >
             <span>{tab.label}</span>
             <span
-              className={cn("h-0.5 w-full rounded-full", active ? "bg-[#2563EB]" : "bg-transparent")}
+              className={cn("h-0.5 w-full rounded-full", active ? "bg-brand" : "bg-transparent")}
               aria-hidden
             />
           </button>
@@ -153,17 +153,17 @@ export function AdminConsoleMetricCard({
 }) {
   const badgeToneClass =
     badge?.tone === "success"
-      ? "bg-[#ECFDF5] text-[#10B981]"
+      ? "bg-ok-weak text-ok"
       : badge?.tone === "warning"
-        ? "bg-[#FFFBEB] text-[#D97706]"
+        ? "bg-warn-weak text-warn"
         : badge?.tone === "danger"
-          ? "bg-[#FEF2F2] text-[#EF4444]"
-          : "bg-[#EFF6FF] text-[#2563EB]";
+          ? "bg-danger-weak text-danger"
+          : "bg-brand-weak text-brand";
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-white p-5">
+    <div className="flex flex-col gap-3 rounded-xl border border-edge bg-panel p-5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13px] font-bold text-[#666666]">{label}</p>
+        <p className="text-[13px] font-bold text-ink-muted">{label}</p>
         {badge ? (
           <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold", badgeToneClass)}>
             {badge.label}
@@ -175,8 +175,8 @@ export function AdminConsoleMetricCard({
         )}
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-[26px] font-bold leading-none text-[#1A1A1A]">{value}</p>
-        {detail ? <div className="text-xs font-medium text-[#666666]">{detail}</div> : null}
+        <p className="text-[26px] font-bold leading-none text-ink">{value}</p>
+        {detail ? <div className="text-xs font-medium text-ink-muted">{detail}</div> : null}
       </div>
     </div>
   );
@@ -197,12 +197,12 @@ export function AdminConsolePanel({
 }) {
   return (
     <section
-      className={cn("flex flex-col gap-4 rounded-xl border border-[#E5E7EB] bg-white p-6", className)}
+      className={cn("flex flex-col gap-4 rounded-xl border border-edge bg-panel p-6", className)}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-base font-bold text-[#1A1A1A]">{title}</h2>
-          {subtitle ? <p className="text-xs text-[#666666]">{subtitle}</p> : null}
+          <h2 className="text-base font-bold text-ink">{title}</h2>
+          {subtitle ? <p className="text-xs text-ink-muted">{subtitle}</p> : null}
         </div>
         {headerRight}
       </div>
@@ -222,11 +222,11 @@ export function AdminConsoleTable({
   caption?: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white">
+    <div className="overflow-x-auto rounded-xl border border-edge bg-panel">
       <table className="w-full min-w-[720px] text-left text-sm">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead>
-          <tr className="border-b border-[#E5E7EB] bg-[#F7F8FA] text-[11px] font-bold uppercase tracking-wide text-[#888888]">
+          <tr className="border-b border-edge bg-surface text-[11px] font-bold uppercase tracking-wide text-ink-faint">
             {columns.map((col) => (
               <th key={col} className="px-4 py-3 font-bold">
                 {col}
@@ -234,9 +234,9 @@ export function AdminConsoleTable({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#E5E7EB]">
+        <tbody className="divide-y divide-edge">
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="text-[#1A1A1A] hover:bg-[#F7F8FA]/60">
+            <tr key={rowIndex} className="text-ink hover:bg-surface/60">
               {row.map((cell, cellIndex) => (
                 <td key={cellIndex} className="px-4 py-3 align-middle">
                   {cell}
@@ -253,7 +253,7 @@ export function AdminConsoleTable({
 /** Human: Settings panel — rounded-2xl white card with horizontal rows (System Settings wireframe). */
 export function AdminConsoleSettingsPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-6 rounded-2xl border border-[#E5E7EB] bg-white p-8">
+    <div className="flex flex-col gap-6 rounded-2xl border border-edge bg-panel p-8">
       {children}
     </div>
   );
@@ -270,10 +270,10 @@ export function AdminConsoleSettingsRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-6 border-b border-[#E5E7EB] pb-6 last:border-b-0 last:pb-0 lg:flex-row lg:gap-10">
+    <div className="flex flex-col gap-6 border-b border-edge pb-6 last:border-b-0 last:pb-0 lg:flex-row lg:gap-10">
       <div className="w-full max-w-[320px] shrink-0 flex-col gap-1">
-        <p className="text-base font-semibold text-[#1A1A1A]">{title}</p>
-        {description ? <p className="text-[13px] leading-relaxed text-[#666666]">{description}</p> : null}
+        <p className="text-base font-semibold text-ink">{title}</p>
+        {description ? <p className="text-[13px] leading-relaxed text-ink-muted">{description}</p> : null}
       </div>
       <div className="min-w-0 flex-1">{children}</div>
     </div>
@@ -299,20 +299,20 @@ export function AdminConsoleField({
   const editable = typeof onChange === "function";
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-[#666666]">{label}</label>
-      <div className="flex h-11 items-center rounded-lg border border-[#E5E7EB] bg-white px-4">
+      <label className="text-xs font-semibold text-ink-muted">{label}</label>
+      <div className="flex h-11 items-center rounded-lg border border-edge bg-panel px-4">
         {editable ? (
           <input
             type={type}
             value={value}
             placeholder={placeholder}
             onChange={(event) => onChange(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm text-[#1A1A1A] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none"
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm text-[#1A1A1A]">{value}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink">{value}</span>
         )}
-        {suffix ? <span className="shrink-0 text-sm font-medium text-[#666666]">{suffix}</span> : null}
+        {suffix ? <span className="shrink-0 text-sm font-medium text-ink-muted">{suffix}</span> : null}
       </div>
     </div>
   );
@@ -322,7 +322,7 @@ export function AdminConsoleField({
 export function AdminConsoleUserAvatar({ initials }: { initials: string }) {
   return (
     <div
-      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on"
       aria-hidden
     >
       {initials}
@@ -340,14 +340,14 @@ export function AdminConsolePill({
 }) {
   const toneClass =
     tone === "success"
-      ? "bg-[#ECFDF5] text-[#10B981]"
+      ? "bg-ok-weak text-ok"
       : tone === "danger"
-        ? "bg-[#FEF2F2] text-[#EF4444]"
+        ? "bg-danger-weak text-danger"
         : tone === "warning"
-          ? "bg-[#FFFBEB] text-[#D97706]"
+          ? "bg-warn-weak text-warn"
           : tone === "primary"
-            ? "bg-[#DBEAFE] text-[#2563EB]"
-            : "bg-[#F7F8FA] text-[#666666]";
+            ? "bg-brand-weak text-brand"
+            : "bg-surface text-ink-muted";
 
   return (
     <span className={cn("inline-flex rounded-md px-2 py-0.5 text-xs font-semibold", toneClass)}>
@@ -367,12 +367,12 @@ export function AdminConsoleResourceRow({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-[#1A1A1A]">{label}</span>
-        <span className="font-semibold text-[#2563EB]">{percent}%</span>
+        <span className="font-medium text-ink">{label}</span>
+        <span className="font-semibold text-brand">{percent}%</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-sm bg-[#E5E7EB]">
+      <div className="h-2 overflow-hidden rounded-sm bg-edge">
         <div
-          className="h-full rounded-sm bg-[#2563EB] transition-[width]"
+          className="h-full rounded-sm bg-brand transition-[width]"
           style={{ width: `${percent}%` }}
         />
       </div>

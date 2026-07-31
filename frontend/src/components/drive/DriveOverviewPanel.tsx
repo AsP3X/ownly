@@ -189,31 +189,7 @@ export function DriveOverviewPanel({
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Content header — title + primary actions */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-[32px] font-bold leading-tight text-ink">My Cloud</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto gap-2 rounded-lg border-edge bg-panel px-4 py-2.5 text-sm font-semibold text-ink hover:bg-surface"
-            onClick={onCreateFolder}
-          >
-            <FolderPlus className="size-4" aria-hidden />
-            New Folder
-          </Button>
-          <Button
-            type="button"
-            className="h-auto gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-on hover:bg-brand-hover"
-            onClick={onUpload}
-          >
-            <Upload className="size-4" aria-hidden />
-            Upload Files
-          </Button>
-        </div>
-      </div>
-
-      {/* Metrics row */}
+      {/* Human: Metrics lead the page — the "My Cloud" title now lives in the topbar. */}
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard
           label="Secure vault space"
@@ -233,6 +209,27 @@ export function DriveOverviewPanel({
           description="All files fully synchronized"
           icon={<RefreshCw className="size-4" />}
         />
+      </div>
+
+      {/* Human: Primary actions sit directly above the content they create into. */}
+      <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto gap-2 rounded-lg border-edge bg-panel px-4 py-2.5 text-sm font-semibold text-ink hover:bg-surface"
+          onClick={onCreateFolder}
+        >
+          <FolderPlus className="size-4" aria-hidden />
+          New Folder
+        </Button>
+        <Button
+          type="button"
+          className="h-auto gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-on hover:bg-brand-hover"
+          onClick={onUpload}
+        >
+          <Upload className="size-4" aria-hidden />
+          Upload Files
+        </Button>
       </div>
 
       {/* Folders */}
@@ -366,7 +363,7 @@ export function DriveOverviewPanel({
                           <div className="mt-1">
                             <FileProcessingBadge
                               file={file}
-                              className="bg-violet-100 text-violet-900"
+                              className="bg-proc-weak text-proc"
                             />
                           </div>
                         ) : null}

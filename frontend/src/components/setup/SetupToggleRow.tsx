@@ -25,8 +25,8 @@ export function SetupToggleRow({
   return (
     <div className={cn("flex items-center justify-between gap-4", disabled && "opacity-50")}>
       <div className="flex flex-col gap-1">
-        <span className="text-sm font-semibold text-[#1A1A1A]">{title}</span>
-        <span className="text-xs text-[#888888]">{description}</span>
+        <span className="text-sm font-semibold text-ink">{title}</span>
+        <span className="text-xs text-ink-faint">{description}</span>
       </div>
       {/* Human: Override default Switch sizing to match Pencil Toggle Capsule (40×24). */}
       <Switch
@@ -35,7 +35,7 @@ export function SetupToggleRow({
         disabled={disabled}
         className={
           switchClassName ??
-          "h-6 w-10 data-checked:bg-[#1A1A1A] data-unchecked:bg-[#E5E7EB] [&_[data-slot=switch-thumb]]:size-5"
+          "h-6 w-10 data-checked:bg-ink data-unchecked:bg-edge [&_[data-slot=switch-thumb]]:size-5"
         }
       />
     </div>
