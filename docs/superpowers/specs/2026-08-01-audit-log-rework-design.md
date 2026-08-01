@@ -14,7 +14,9 @@ every audit row has been storing since day one.
 
 This rework replaces the guessed taxonomy with a declarative catalog, moves filtering into indexed
 server-side SQL, adds free-text search plus multi-dimensional faceted filters with live counts,
-surfaces full per-event detail in a drawer, and makes every filtered view shareable via URL.
+surfaces full per-event detail in a drawer, and makes every filtered view shareable via URL. CSV
+export covers the full filtered set, bounded by an admin-configurable row limit that defaults to
+100,000 and can be raised or removed entirely.
 
 ---
 
@@ -27,6 +29,7 @@ surfaces full per-event detail in a drawer, and makes every filtered view sharea
 | Event detail | Row detail drawer with `context` JSON and `user_agent` |
 | Metrics | Measured values only; the fabricated "Verified 100%" card is removed |
 | Export | Server-side CSV over the **full filtered set**, not the loaded page |
+| Export cap | Configurable in admin settings; default 100,000; raisable, with `0` = unlimited |
 
 ---
 
@@ -242,17 +245,60 @@ Returns counts per category, counts per severity, top 10 actors, and top 10 acti
 aggregates. This is what replaces the `SELECT action FROM audit_logs` full scan.
 
 **Summary metrics**, all scoped to the active filter: events in range, critical + warning count,
-distinct actors, busiest action.
+distinct actors, busiest action. The facets payload also carries `export_max_rows`, the effective
+export cap (see §5), so the panel can warn about truncation without needing settings-read permission.
 
 **Export** cursor-pages internally in 1,000-row batches and streams, so it is bounded in memory
-regardless of result size. Applies the same filter as the on-screen view, capped at 100,000 rows. If
-the filtered set exceeds the cap, the response ends with a final CSV comment line stating the
-truncation and the count — an export must never silently misrepresent its own completeness.
+regardless of result size. It applies the same filter as the on-screen view and honors the
+configurable row cap described in §5. If the filtered set exceeds the cap, the response ends with a
+final CSV comment line stating the truncation and the true match count — an export must never
+silently misrepresent its own completeness.
 
 **Pagination** is cursor-based on `(created_at, id)` — stable under concurrent inserts, unlike
 `OFFSET`, which shifts rows when new events land mid-browse.
 
-### 5. Frontend
+### 5. Export row limit — admin setting
+
+The maximum number of rows a single audit export may produce is instance policy, not a constant.
+Compliance exports and incident investigations legitimately need the entire ledger; routine exports
+should not accidentally generate a multi-gigabyte download.
+
+**Storage.** A new `app_settings` key, following the existing key/value pattern:
+
+| Key | Default | Semantics |
+|-----|---------|-----------|
+| `audit_export_max_rows` | `100000` | Maximum rows per export. `0` means **unlimited**. |
+
+Read via the existing `read_setting` helper with the same parse-and-fall-back shape as
+`default_storage_quota_gb` (`console.rs:746`), so a missing or corrupt value degrades to the 100,000
+default rather than failing the export.
+
+**API surface.** `AdminSettingsResponse` gains `audit_export_max_rows: u64`;
+`AdminSettingsPatch` gains `audit_export_max_rows: Option<u64>`. Validation rejects nothing but
+negatives (excluded by the unsigned type) — any positive value is accepted, and `0` selects
+unlimited. There is deliberately **no upper bound**: capping the cap would defeat its purpose.
+
+Changing this value already flows through `patch_settings`, which writes an `admin.settings.update`
+audit row. That matters here more than for most settings: this control governs how much of the audit
+trail can leave the system, so changes to it must themselves be in the trail.
+
+**Reading the cap in the audit panel.** The effective cap is returned in the **facets** payload as
+`export_max_rows`, not read from `/admin/settings`. An auditor may hold `InstanceAuditRead` without
+`InstanceSettingsRead`; routing it through the settings endpoint would make the export UI fail for
+exactly the role that most needs it.
+
+**UI.** A number field in the System Settings panel's security section, mirroring the
+`default_storage_quota_gb` local-draft pattern (`AdminSystemSettingsPanel.tsx:515`) so typing does
+not fight `parseInt`. Labeled "Audit export row limit", suffix "rows", with helper text
+`0 = unlimited`. When set to `0`, an inline caution notes that unlimited exports of a large ledger
+can produce very large files and long-running downloads.
+
+**In the audit panel.** Before starting an export whose `total_matching` exceeds the cap, the Export
+button surfaces a confirmation naming both numbers — "Exporting 100,000 of 2,340,112 matching events.
+Raise the limit in System Settings to export more." — so truncation is known in advance, never
+discovered afterward in the file.
+
+### 6. Frontend
 
 The single 165-line panel splits into five focused modules:
 
@@ -302,18 +348,24 @@ gets its own icon rather than three copies of `Search`.
 **Empty states** distinguish "no audit events yet" from "no events match these filters" — the latter
 offering a "Clear filters" action.
 
-### 6. Testing
+### 7. Testing
 
 **Rust**
 - Catalog: no duplicates, fallback correctness, malformed action handling.
 - Filter builder: correct parameterized SQL per filter combination; empty filter produces no `WHERE`.
+- Export cap: default applies when the setting is absent; a corrupt value falls back to 100,000; `0`
+  streams the full set uncapped; a set cap truncates at exactly that row count and emits the
+  truncation footer with the true match count.
 - Integration (`backend/tests/http_integration.rs`): each endpoint's permission denial without
   `InstanceAuditRead`; filter correctness per dimension; cursor pagination boundaries including
-  concurrent-insert stability; CSV shape and header.
+  concurrent-insert stability; CSV shape and header; `export_max_rows` present in the facets payload
+  for a principal holding `InstanceAuditRead` but **not** `InstanceSettingsRead`.
 
 **TypeScript**
 - Filter ↔ URL query-string round-trip, including multi-value and empty cases.
 - API parameter serialization.
+- Export truncation confirmation appears when `total_matching > export_max_rows` and is skipped when
+  the cap is `0`.
 - Playwright: search → filter → open drawer → export.
 
 ---
@@ -341,3 +393,4 @@ and `Critical` without restructuring.
 | Generated column requires a full table rewrite on large ledgers | Additive `ALTER` on current data volumes is fast; the migration is documented as requiring a brief lock |
 | Catalog drifts as new actions are added | Fallback guarantees unknown actions remain visible and filterable; catalog is a label/severity refinement, never a gate |
 | Facet queries slow on very large tables | Split from the row query and debounced independently; all facet dimensions are index-backed |
+| Unlimited export (`0`) produces a huge file or a long-running request | Streaming with 1,000-row batches keeps server memory flat regardless of size; the UI cautions when the cap is set to `0`, and the pre-export confirmation names the row count before the download starts |
