@@ -1,4 +1,4 @@
-// Human: Admin Console - System Audit Logs panel; faceted filtering, detail drawer, server-side CSV export.
+// Human: Admin Console - System Audit Logs panel; faceted filtering, detail dialog, server-side CSV export.
 // Agent: CALLS fetchAdminAuditLogs/fetchAdminAuditFacets/downloadAdminAuditCsv; SYNCS filter state to the URL.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +18,7 @@ import {
   AdminConsolePageHeader,
   adminConsoleContentClassName,
 } from "@/components/admin/console/admin-console-ui";
-import { AuditEventDrawer } from "@/components/admin/console/AuditEventDrawer";
+import { AuditEventDialog } from "@/components/admin/console/AuditEventDialog";
 import { AuditFilterBar } from "@/components/admin/console/AuditFilterBar";
 import { AuditLogTable } from "@/components/admin/console/AuditLogTable";
 import {
@@ -315,7 +315,7 @@ export function AdminAuditLogsPanel() {
         </>
       )}
 
-      <AuditEventDrawer row={selected} onClose={() => setSelected(null)} />
+      <AuditEventDialog row={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

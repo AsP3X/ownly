@@ -1,4 +1,4 @@
-// Human: Time and severity formatting shared by the audit table and detail drawer.
+// Human: Time and severity formatting shared by the audit table and detail dialog.
 // Agent: PURE functions — unit tested in audit-log-format.test.ts.
 
 import type { AdminAuditSeverity } from "@/api/client";
@@ -43,7 +43,7 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   });
 }
 
-// Human: Full local timestamp for hover titles and the drawer.
+// Human: Full local timestamp for hover titles and the detail dialog.
 // Agent: Server sends RFC 3339 UTC; the browser renders it in the operator's zone.
 export function absoluteTime(iso: string): string {
   const parsed = Date.parse(iso);
@@ -59,7 +59,7 @@ export function absoluteTime(iso: string): string {
   });
 }
 
-// Human: Pretty-print the context JSONB for the drawer, tolerating non-object values.
+// Human: Pretty-print the context JSONB for the detail dialog, tolerating non-object values.
 export function formatContext(context: unknown): string | null {
   if (context == null) return null;
   try {
