@@ -4,6 +4,14 @@
 use ownly_backend::{config::Config, create_test_app_state, AppState};
 use std::sync::Arc;
 
+/// Human: Serializes the SEC-040 test, which renames audit_logs away, against tests that read it.
+// Agent: SEC-040 takes write(); any test touching audit_logs takes read(). Shared DB has no per-test schema.
+#[allow(dead_code)]
+pub fn audit_table_guard() -> &'static tokio::sync::RwLock<()> {
+    static GUARD: std::sync::OnceLock<tokio::sync::RwLock<()>> = std::sync::OnceLock::new();
+    GUARD.get_or_init(|| tokio::sync::RwLock::new(()))
+}
+
 /// Human: True when integration tests must fail instead of silently skipping.
 // Agent: READS CI or OWNLY_REQUIRE_DATABASE_URL env vars.
 pub fn should_require_database() -> bool {

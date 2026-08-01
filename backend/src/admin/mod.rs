@@ -1,6 +1,9 @@
 // Human: Admin-only API surface for instance user directory and console dashboards.
 // Agent: EXPORTS handlers + console routes; ENFORCES role=admin via require_admin before mutations.
 
+pub mod audit_catalog;
+pub mod audit_logs;
+pub mod audit_query;
 pub mod console;
 pub mod groups;
 pub mod handlers;

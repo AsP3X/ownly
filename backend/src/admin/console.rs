@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::HeaderMap,
     Extension, Json,
 };
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::{
+    admin::audit_catalog,
     admin::handlers::require_instance_permission,
     app_settings_secrets::AppSettingsSecretStore,
     audit,
@@ -25,24 +26,6 @@ use crate::{
     temp_cleanup::{self, GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY},
     AppState,
 };
-
-#[derive(Debug, Deserialize)]
-pub struct AuditLogsQuery {
-    #[serde(default = "default_audit_category")]
-    pub category: String,
-    #[serde(default = "default_audit_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-}
-
-fn default_audit_category() -> String {
-    "all".into()
-}
-
-fn default_audit_limit() -> i64 {
-    50
-}
 
 pub(crate) async fn read_setting(pool: &PgPool, key: &str) -> Option<String> {
     let row: Option<(String,)> =
@@ -70,64 +53,6 @@ fn parse_bool_setting(value: Option<String>, default: bool) -> bool {
     value
         .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
         .unwrap_or(default)
-}
-
-fn audit_category(action: &str) -> &'static str {
-    if action.starts_with("admin.") {
-        return "keys";
-    }
-    if action.starts_with("setup.") || action.starts_with("files.") {
-        return "nodes";
-    }
-    if action.starts_with("auth.")
-        || action.contains("delete")
-        || action.contains("revoke")
-    {
-        return "alerts";
-    }
-    "all"
-}
-
-fn audit_severity(action: &str) -> &'static str {
-    if action.contains("delete") || action.contains("revoke") {
-        "Warning"
-    } else if action.starts_with("admin.") {
-        "Info"
-    } else if action.starts_with("auth.") {
-        "Success"
-    } else {
-        "Info"
-    }
-}
-
-fn audit_description(action: &str, resource_type: Option<&str>, resource_id: Option<&str>) -> String {
-    match action {
-        "auth.login" => "User signed in".into(),
-        "auth.register" => "New account registered".into(),
-        "auth.logout" => "User signed out".into(),
-        "auth.sessions.revoke" => "User revoked a signed-in session".into(),
-        "auth.sessions.revoke_others" => "User revoked other signed-in sessions".into(),
-        "setup.complete" => "Instance setup completed".into(),
-        "admin.users.create" => "Administrator created a user account".into(),
-        "admin.users.update" => "Administrator updated a user account".into(),
-        "admin.users.delete" => "Administrator removed a user account".into(),
-        "admin.sessions.revoke" => "Administrator revoked a user session".into(),
-        "admin.sessions.revoke_others" => "Administrator revoked other user sessions".into(),
-        "admin.settings.update" => "Administrator updated system settings".into(),
-        "admin.gif_preview_temp.cleanup" => {
-            "Administrator purged iOS GIF preview scratch files and cached MP4 sidecars".into()
-        }
-        "files.upload" => "File uploaded to storage".into(),
-        "files.delete" => "File deleted".into(),
-        other => {
-            let target = match (resource_type, resource_id) {
-                (Some(rt), Some(rid)) => format!(" ({rt}: {rid})"),
-                (Some(rt), None) => format!(" ({rt})"),
-                _ => String::new(),
-            };
-            format!("{other}{target}")
-        }
-    }
 }
 
 // Human: Eight 15-minute audit buckets for the workload diagnostics chart (last 2 hours).
@@ -330,15 +255,10 @@ pub async fn overview(
     let recent_alerts: Vec<AdminOverviewAlertRow> = alert_rows
         .into_iter()
         .map(|(action, resource_type, resource_id, ip, created_at)| {
-            let severity = match audit_severity(&action) {
-                "Warning" => "Warning",
-                "Success" => "Info",
-                _ => "Info",
-            };
             AdminOverviewAlertRow {
-                severity: severity.into(),
+                severity: audit_catalog::severity_of(&action).as_str().into(),
                 source: ip,
-                detail: audit_description(
+                detail: audit_catalog::label_of(
                     &action,
                     Some(resource_type.as_str()),
                     resource_id.as_deref(),
@@ -456,170 +376,6 @@ async fn build_hls_video_metrics(pool: &sqlx::PgPool) -> Result<AdminHlsVideoMet
     })
 }
 
-#[derive(Debug, Serialize)]
-pub struct AdminAuditLogRow {
-    pub id: String,
-    pub timestamp: String,
-    pub actor_email: Option<String>,
-    pub action: String,
-    pub description: String,
-    pub severity: String,
-    pub ip: Option<String>,
-    pub category: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminAuditLogsSummary {
-    pub total: i64,
-    pub critical_count: i64,
-    pub last_30_days: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminAuditLogsResponse {
-    pub logs: Vec<AdminAuditLogRow>,
-    pub summary: AdminAuditLogsSummary,
-    pub counts_by_category: std::collections::HashMap<String, i64>,
-}
-
-// Human: Paginated audit ledger for the System Audit Logs panel with category filters.
-// Agent: GET /api/v1/admin/audit-logs; READS audit_logs LEFT JOIN users; AUDIT exempt.
-pub async fn list_audit_logs(
-    State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
-    Query(query): Query<AuditLogsQuery>,
-) -> Result<Json<AdminAuditLogsResponse>, AppError> {
-    require_instance_permission(&state.pool, &claims, Permission::InstanceAuditRead).await?;
-
-    let limit = query.limit.clamp(1, 200);
-    let offset = query.offset.max(0);
-
-    let category = query.category.trim().to_lowercase();
-    let rows: Vec<(
-        String,
-        DateTime<Utc>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = match category.as_str() {
-        "keys" => {
-            sqlx::query_as(
-                "SELECT a.id, a.created_at, u.email, a.action, a.resource_type, a.resource_id, a.ip \
-                 FROM audit_logs a \
-                 LEFT JOIN users u ON u.id = a.user_id \
-                 WHERE a.action LIKE 'admin.%' \
-                 ORDER BY a.created_at DESC \
-                 LIMIT $1 OFFSET $2",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
-        }
-        "nodes" => {
-            sqlx::query_as(
-                "SELECT a.id, a.created_at, u.email, a.action, a.resource_type, a.resource_id, a.ip \
-                 FROM audit_logs a \
-                 LEFT JOIN users u ON u.id = a.user_id \
-                 WHERE a.action LIKE 'setup.%' OR a.action LIKE 'files.%' \
-                 ORDER BY a.created_at DESC \
-                 LIMIT $1 OFFSET $2",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
-        }
-        "alerts" => {
-            sqlx::query_as(
-                "SELECT a.id, a.created_at, u.email, a.action, a.resource_type, a.resource_id, a.ip \
-                 FROM audit_logs a \
-                 LEFT JOIN users u ON u.id = a.user_id \
-                 WHERE a.action LIKE 'auth.%' OR a.action LIKE '%delete%' OR a.action LIKE '%revoke%' \
-                 ORDER BY a.created_at DESC \
-                 LIMIT $1 OFFSET $2",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
-        }
-        _ => {
-            sqlx::query_as(
-                "SELECT a.id, a.created_at, u.email, a.action, a.resource_type, a.resource_id, a.ip \
-                 FROM audit_logs a \
-                 LEFT JOIN users u ON u.id = a.user_id \
-                 ORDER BY a.created_at DESC \
-                 LIMIT $1 OFFSET $2",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
-        }
-    };
-
-    let total: (i64,) = sqlx::query_as("SELECT COUNT(*)::BIGINT FROM audit_logs")
-        .fetch_one(&state.pool)
-        .await?;
-    let critical_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::BIGINT FROM audit_logs \
-         WHERE action LIKE '%delete%' OR action LIKE '%revoke%'",
-    )
-    .fetch_one(&state.pool)
-    .await?;
-    let last_30_days: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::BIGINT FROM audit_logs WHERE created_at >= now() - interval '30 days'",
-    )
-    .fetch_one(&state.pool)
-    .await?;
-
-    let all_actions: Vec<(String,)> =
-        sqlx::query_as("SELECT action FROM audit_logs")
-            .fetch_all(&state.pool)
-            .await?;
-    let mut counts_by_category: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
-    counts_by_category.insert("all".into(), total.0);
-    for (action,) in all_actions {
-        let cat = audit_category(&action);
-        *counts_by_category.entry(cat.to_string()).or_insert(0) += 1;
-    }
-
-    let logs: Vec<AdminAuditLogRow> = rows
-        .into_iter()
-        .map(
-            |(id, created_at, actor_email, action, resource_type, resource_id, ip)| {
-                AdminAuditLogRow {
-                    id: id.clone(),
-                    timestamp: created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                    actor_email,
-                    action: action.clone(),
-                    description: audit_description(
-                        &action,
-                        resource_type.as_deref(),
-                        resource_id.as_deref(),
-                    ),
-                    severity: audit_severity(&action).into(),
-                    ip,
-                    category: audit_category(&action).into(),
-                }
-            },
-        )
-        .collect();
-
-    Ok(Json(AdminAuditLogsResponse {
-        logs,
-        summary: AdminAuditLogsSummary {
-            total: total.0,
-            critical_count: critical_count.0,
-            last_30_days: last_30_days.0,
-        },
-        counts_by_category,
-    }))
-}
 
 #[derive(Debug, Serialize)]
 pub struct AdminStorageNodeRow {
@@ -681,6 +437,8 @@ pub struct AdminSettingsResponse {
     pub enforce_mfa_on_admin_login: bool,
     /// Human: When enabled, idle ownly_gif_preview_* ffmpeg scratch dirs are purged automatically.
     pub gif_preview_temp_auto_cleanup: bool,
+    /// Human: Maximum rows one audit CSV export may produce; 0 means unlimited.
+    pub audit_export_max_rows: i64,
     pub smtp: AdminSmtpSettings,
     pub notification_rules: AdminNotificationRules,
 }
@@ -705,6 +463,8 @@ pub struct AdminSettingsPatch {
     pub notification_audit_violations: Option<bool>,
     pub notification_quota_alerts: Option<bool>,
     pub gif_preview_temp_auto_cleanup: Option<bool>,
+    /// Human: 0 selects unlimited; there is deliberately no upper bound.
+    pub audit_export_max_rows: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -752,6 +512,7 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         read_setting(&state.pool, GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY).await,
         true,
     );
+    let audit_export_max_rows = crate::admin::audit_logs::export_max_rows(&state.pool).await;
 
     let smtp_password_set = AppSettingsSecretStore::secret_is_set(
         read_setting(&state.pool, "smtp_password").await.as_deref(),
@@ -767,6 +528,7 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         default_onboarding_role,
         enforce_mfa_on_admin_login,
         gif_preview_temp_auto_cleanup,
+        audit_export_max_rows,
         smtp: AdminSmtpSettings {
             host: read_setting(&state.pool, "smtp_host")
                 .await
@@ -873,6 +635,20 @@ pub async fn patch_settings(
             &state.pool,
             GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY,
             if v { "true" } else { "false" },
+        )
+        .await?;
+    }
+    if let Some(v) = body.audit_export_max_rows {
+        // Human: 0 means unlimited; negatives are meaningless and would silently disable exports.
+        if v < 0 {
+            return Err(AppError::BadRequest(
+                "audit export row limit cannot be negative (use 0 for unlimited)".into(),
+            ));
+        }
+        upsert_setting(
+            &state.pool,
+            crate::admin::audit_logs::AUDIT_EXPORT_MAX_ROWS_KEY,
+            &v.to_string(),
         )
         .await?;
     }
@@ -1027,7 +803,7 @@ pub async fn security_overview(
     let rotation_history: Vec<AdminKeyRotationRow> = rotation_rows
         .into_iter()
         .map(|(action, ip, created_at)| AdminKeyRotationRow {
-            title: audit_description(&action, None, None),
+            title: audit_catalog::label_of(&action, None, None),
             initiator: format!(
                 "Initiator: {}",
                 ip.unwrap_or_else(|| "system".into())

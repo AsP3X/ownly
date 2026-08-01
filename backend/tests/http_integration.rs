@@ -4849,6 +4849,8 @@ async fn copy_file_rejected_when_quota_exceeded() {
 // Agent: RENAME audit_logs; DELETE /admin/users/:id; EXPECT 500; VERIFY target user still exists.
 #[tokio::test]
 async fn admin_delete_user_rolls_back_when_audit_write_fails() {
+    // Human: Exclusive — this test renames audit_logs away, which would break any concurrent reader.
+    let _audit_guard = test_harness::audit_table_guard().write().await;
     let Some(state) = test_harness::TestHarness::state("admin_delete_user_rolls_back_when_audit_write_fails")
         .await
     else {
@@ -5345,4 +5347,481 @@ async fn hls_reprocess_queues_encode_job_for_ready_video() {
         .execute(&state.pool)
         .await
         .ok();
+}
+
+// Human: Seed an admin plus a spread of audit rows for the audit-ledger endpoint tests.
+// Agent: RETURNS (admin_id, admin_token, marker) — marker scopes assertions to this test's rows.
+async fn seed_audit_fixture(
+    state: &std::sync::Arc<ownly_backend::AppState>,
+    label: &str,
+) -> (String, String, String) {
+    let admin_id = uuid::Uuid::new_v4().to_string();
+    let admin_email = format!("audit-{label}-{admin_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'admin', true)",
+    )
+    .bind(&admin_id)
+    .bind(&admin_email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert admin");
+
+    // Human: resource_id carries a unique marker so filters can isolate this fixture's rows.
+    let marker = format!("marker-{}", uuid::Uuid::new_v4());
+    let seeded: [(&str, &str); 4] = [
+        ("auth.login", "10.0.0.1"),
+        ("files.delete.permanent", "10.0.0.2"),
+        ("files.upload", "10.0.0.3"),
+        ("shares.revoke", "10.0.0.4"),
+    ];
+    for (action, ip) in seeded {
+        sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, ip, user_agent, context) \
+             VALUES ($1, $2, $3, 'file', $4, $5, 'TestAgent/1.0', $6)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&admin_id)
+        .bind(action)
+        .bind(&marker)
+        .bind(ip)
+        .bind(serde_json::json!({ "seeded": true }))
+        .execute(&state.pool)
+        .await
+        .expect("insert audit row");
+    }
+
+    let admin_token = ownly_backend::auth::handlers::create_token(
+        admin_id.clone(),
+        admin_email,
+        "admin".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("admin token");
+
+    (admin_id, admin_token, marker)
+}
+
+// Human: Audit ledger must reject callers without the instance audit-read permission.
+// Agent: GET /admin/audit-logs as a non-admin; EXPECT 403 on all three endpoints.
+#[tokio::test]
+async fn audit_logs_requires_audit_read_permission() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) =
+        test_harness::TestHarness::state("audit_logs_requires_audit_read_permission").await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("audit-denied-{user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'pro', true)",
+    )
+    .bind(&user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .execute(&state.pool)
+    .await
+    .expect("insert user");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id,
+        email,
+        "pro".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    for path in [
+        "/api/v1/admin/audit-logs",
+        "/api/v1/admin/audit-logs/facets",
+        "/api/v1/admin/audit-logs/export.csv",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{path} should be forbidden"
+        );
+    }
+}
+
+// Human: Rows must carry catalog-derived category/label/severity plus context and user agent.
+// Agent: GET /admin/audit-logs filtered to the fixture marker; EXPECT enriched payload.
+#[tokio::test]
+async fn audit_logs_return_enriched_rows() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) = test_harness::TestHarness::state("audit_logs_return_enriched_rows").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "enriched").await;
+    let app = create_router(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/admin/audit-logs?resource_id={marker}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json = response_json(response).await;
+    assert_eq!(json["total_matching"], 4);
+    let rows = json["rows"].as_array().expect("rows array");
+    assert_eq!(rows.len(), 4);
+
+    let deletion = rows
+        .iter()
+        .find(|row| row["action"] == "files.delete.permanent")
+        .expect("permanent delete row");
+    assert_eq!(deletion["severity"], "Critical");
+    assert_eq!(deletion["category"], "files");
+    assert_eq!(deletion["label"], "File permanently deleted");
+    assert_eq!(deletion["user_agent"], "TestAgent/1.0");
+    assert_eq!(deletion["context"]["seeded"], true);
+    // Human: RFC 3339 so the browser can localize; the old format was a naive zoneless string.
+    assert!(
+        deletion["timestamp"]
+            .as_str()
+            .expect("timestamp")
+            .contains('T'),
+        "timestamp should be RFC 3339"
+    );
+}
+
+// Human: Each filter dimension must actually narrow the result set.
+// Agent: GET /admin/audit-logs with severity, category, ip, and search filters.
+#[tokio::test]
+async fn audit_logs_filter_by_each_dimension() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) = test_harness::TestHarness::state("audit_logs_filter_by_each_dimension").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "filters").await;
+    let app = create_router(state.clone());
+
+    async fn query_for(app: &axum::Router, token: &str, query: String) -> serde_json::Value {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/admin/audit-logs?{query}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        response_json(response).await
+    }
+
+    let critical = query_for(
+        &app,
+        &token,
+        format!("resource_id={marker}&severities=Critical"),
+    )
+    .await;
+    assert_eq!(critical["total_matching"], 1);
+    assert_eq!(critical["rows"][0]["action"], "files.delete.permanent");
+
+    let files = query_for(&app, &token, format!("resource_id={marker}&categories=files")).await;
+    assert_eq!(files["total_matching"], 2);
+
+    let by_ip = query_for(&app, &token, format!("resource_id={marker}&ip=10.0.0.1")).await;
+    assert_eq!(by_ip["total_matching"], 1);
+    assert_eq!(by_ip["rows"][0]["action"], "auth.login");
+
+    let searched = query_for(&app, &token, format!("resource_id={marker}&q=shares")).await;
+    assert_eq!(searched["total_matching"], 1);
+    assert_eq!(searched["rows"][0]["action"], "shares.revoke");
+
+    let none = query_for(
+        &app,
+        &token,
+        format!("resource_id={marker}&categories=groups"),
+    )
+    .await;
+    assert_eq!(none["total_matching"], 0);
+}
+
+// Human: An unusable filter value must fail loudly rather than silently returning everything.
+// Agent: GET /admin/audit-logs with a bad severity and a bad date; EXPECT 400 both times.
+#[tokio::test]
+async fn audit_logs_reject_unusable_filters() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) = test_harness::TestHarness::state("audit_logs_reject_unusable_filters").await
+    else {
+        return;
+    };
+    let (_admin_id, token, _marker) = seed_audit_fixture(&state, "badfilters").await;
+    let app = create_router(state.clone());
+
+    for query in ["severities=Sideways", "from=last-tuesday"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/admin/audit-logs?{query}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{query} should be rejected"
+        );
+    }
+}
+
+// Human: Keyset pagination must walk the whole set without repeating or dropping rows.
+// Agent: GET /admin/audit-logs?limit=1 repeatedly, following next_cursor.
+#[tokio::test]
+async fn audit_logs_paginate_without_gaps_or_repeats() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) =
+        test_harness::TestHarness::state("audit_logs_paginate_without_gaps_or_repeats").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "paging").await;
+    let app = create_router(state.clone());
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    for _ in 0..10 {
+        let mut uri = format!("/api/v1/admin/audit-logs?resource_id={marker}&limit=1");
+        if let Some(cursor) = cursor.as_ref() {
+            uri.push_str("&cursor=");
+            uri.push_str(&cursor.replace('+', "%2B").replace(':', "%3A"));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = response_json(response).await;
+
+        for row in json["rows"].as_array().expect("rows") {
+            seen.push(row["id"].as_str().expect("row id").to_string());
+        }
+
+        match json["next_cursor"].as_str() {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+
+    assert_eq!(seen.len(), 4, "should walk exactly the four seeded rows");
+    let mut unique = seen.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 4, "pagination repeated a row: {seen:?}");
+}
+
+// Human: Facets must reach an auditor and include the export cap the panel needs for its warning.
+// Agent: GET /admin/audit-logs/facets; EXPECT per-dimension counts + export_max_rows.
+#[tokio::test]
+async fn audit_facets_include_counts_and_export_cap() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) =
+        test_harness::TestHarness::state("audit_facets_include_counts_and_export_cap").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "facets").await;
+    let app = create_router(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/admin/audit-logs/facets?resource_id={marker}"
+                ))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json = response_json(response).await;
+    assert_eq!(json["summary"]["total"], 4);
+    // Human: files.delete.permanent (Critical) + shares.revoke (Warning).
+    assert_eq!(json["summary"]["elevated"], 2);
+    assert_eq!(json["summary"]["distinct_actors"], 1);
+
+    let files = json["categories"]
+        .as_array()
+        .expect("categories")
+        .iter()
+        .find(|bucket| bucket["key"] == "files")
+        .expect("files bucket");
+    assert_eq!(files["count"], 2);
+
+    let critical = json["severities"]
+        .as_array()
+        .expect("severities")
+        .iter()
+        .find(|bucket| bucket["key"] == "Critical")
+        .expect("critical bucket");
+    assert_eq!(critical["count"], 1);
+
+    // Human: Default cap, served here so auditors without settings-read still receive it.
+    assert_eq!(json["export_max_rows"], 100_000);
+}
+
+// Human: Export streams the filtered set as CSV with a header row and one line per event.
+// Agent: GET /admin/audit-logs/export.csv; EXPECT text/csv + no truncation footer.
+#[tokio::test]
+async fn audit_export_streams_filtered_csv() {
+    // Human: Shared — SEC-040 renames audit_logs away, so readers must not overlap it.
+    let _audit_guard = test_harness::audit_table_guard().read().await;
+    let Some(state) = test_harness::TestHarness::state("audit_export_streams_filtered_csv").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "export").await;
+    let app = create_router(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/admin/audit-logs/export.csv?resource_id={marker}"
+                ))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("text/csv; charset=utf-8")
+    );
+
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("csv body");
+    let csv = String::from_utf8(bytes.to_vec()).expect("utf-8 csv");
+    let lines: Vec<&str> = csv.lines().filter(|line| !line.is_empty()).collect();
+
+    assert!(lines[0].starts_with("\"Timestamp\",\"Actor\",\"Action\""));
+    assert_eq!(lines.len(), 5, "header plus four seeded rows: {csv}");
+    assert!(csv.contains("files.delete.permanent"));
+    assert!(csv.contains("File permanently deleted"));
+    assert!(
+        !csv.contains("# Export truncated"),
+        "nothing should be truncated: {csv}"
+    );
+}
+
+// Human: A configured cap must truncate the export and say so, never silently drop rows.
+// Agent: SET audit_export_max_rows=2; EXPECT 2 rows plus a footer naming the true total.
+#[tokio::test]
+async fn audit_export_truncates_and_declares_it() {
+    // Human: Exclusive — this test mutates the instance-wide export cap in app_settings.
+    // Agent: A read guard would let concurrent audit tests observe the lowered cap.
+    let _audit_guard = test_harness::audit_table_guard().write().await;
+    let Some(state) =
+        test_harness::TestHarness::state("audit_export_truncates_and_declares_it").await
+    else {
+        return;
+    };
+    let (_admin_id, token, marker) = seed_audit_fixture(&state, "cap").await;
+
+    sqlx::query(
+        "INSERT INTO app_settings (key, value) VALUES ('audit_export_max_rows', '2') \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .execute(&state.pool)
+    .await
+    .expect("set export cap");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/admin/audit-logs/export.csv?resource_id={marker}"
+                ))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("csv body");
+    let csv = String::from_utf8(bytes.to_vec()).expect("utf-8 csv");
+    let data_lines = csv
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .count();
+
+    assert_eq!(data_lines, 3, "header plus exactly two capped rows: {csv}");
+    assert!(
+        csv.contains("# Export truncated at 2 of 4 matching events"),
+        "footer must name both counts: {csv}"
+    );
+    assert!(csv.contains("audit_export_max_rows = 2"));
+
+    // Human: Restore the default, or every later run in this database inherits a cap of 2.
+    sqlx::query("DELETE FROM app_settings WHERE key = 'audit_export_max_rows'")
+        .execute(&state.pool)
+        .await
+        .expect("restore export cap");
 }

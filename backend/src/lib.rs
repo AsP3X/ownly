@@ -869,7 +869,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/admin/audit-logs",
-            get(admin::console::list_audit_logs),
+            get(admin::audit_logs::list_audit_logs),
+        )
+        .route(
+            "/api/v1/admin/audit-logs/facets",
+            get(admin::audit_logs::audit_log_facets),
+        )
+        .route(
+            "/api/v1/admin/audit-logs/export.csv",
+            get(admin::audit_logs::export_audit_logs),
         )
         .route(
             "/api/v1/admin/storage",

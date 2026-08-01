@@ -64,6 +64,9 @@ export function AdminSystemSettingsPanel() {
   // Human: Local draft for the default quota number field — avoids parseInt-on-keystroke fighting the input.
   // Agent: SYNCED from server snapshot; PARSED in handleSave into default_storage_quota_gb.
   const [defaultQuotaDraft, setDefaultQuotaDraft] = useState<string | null>(null);
+  // Human: Local draft for the audit export row limit — same reason as the quota field.
+  // Agent: SYNCED from server snapshot; PARSED in handleSave into audit_export_max_rows.
+  const [auditExportLimitDraft, setAuditExportLimitDraft] = useState<string | null>(null);
   const [loggingDialogOpen, setLoggingDialogOpen] = useState(false);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
@@ -114,6 +117,15 @@ export function AdminSystemSettingsPanel() {
     const defaultStorageQuotaGb = Number.isNaN(parsedDefaultQuotaGb)
       ? form.default_storage_quota_gb
       : Math.max(1, parsedDefaultQuotaGb);
+    // Human: 0 is meaningful here (unlimited), so only negatives and gibberish fall back.
+    const parsedAuditExportLimit = Number.parseInt(
+      auditExportLimitDraft ?? String(form.audit_export_max_rows),
+      10,
+    );
+    const auditExportMaxRows =
+      Number.isNaN(parsedAuditExportLimit) || parsedAuditExportLimit < 0
+        ? form.audit_export_max_rows
+        : parsedAuditExportLimit;
 
     const body: AdminSettingsPatch = {
       ...(smtpPasswordDraft.trim() ? { smtp_password: smtpPasswordDraft } : {}),
@@ -126,6 +138,7 @@ export function AdminSystemSettingsPanel() {
       default_onboarding_role: form.default_onboarding_role,
       enforce_mfa_on_admin_login: form.enforce_mfa_on_admin_login,
       gif_preview_temp_auto_cleanup: form.gif_preview_temp_auto_cleanup,
+      audit_export_max_rows: auditExportMaxRows,
       smtp_host: form.smtp.host,
       smtp_port: form.smtp.port,
       smtp_from: form.smtp.from_address,
@@ -139,6 +152,7 @@ export function AdminSystemSettingsPanel() {
       const updated = await updateAdminSettings(body);
       setEditedForm(updated);
       setDefaultQuotaDraft(String(updated.default_storage_quota_gb));
+      setAuditExportLimitDraft(String(updated.audit_export_max_rows));
       setInstanceName(updated.instance_name);
       setSmtpPasswordDraft("");
       setSavedMessage("Settings saved successfully.");
@@ -547,6 +561,36 @@ export function AdminSystemSettingsPanel() {
                   <p className="text-sm text-ink-muted">
                     Adjust session duration in server environment variables and restart the API stack.
                   </p>
+                </AdminConsoleSettingsRow>
+                <AdminConsoleSettingsRow
+                  title="Audit Export Row Limit"
+                  description="Maximum number of events a single audit CSV export may contain."
+                >
+                  <div className="flex flex-col gap-2">
+                    <AdminConsoleField
+                      label="Maximum rows per export"
+                      value={auditExportLimitDraft ?? String(form.audit_export_max_rows)}
+                      type="number"
+                      suffix="rows"
+                      onChange={(v) => {
+                        setAuditExportLimitDraft(v);
+                        const parsed = Number.parseInt(v, 10);
+                        if (!Number.isNaN(parsed) && parsed >= 0) {
+                          patchForm({ audit_export_max_rows: parsed });
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-ink-faint">
+                      Set to <span className="font-semibold">0</span> for no limit. Exports beyond the
+                      limit are truncated, and the CSV states how many events were left out.
+                    </p>
+                    {(auditExportLimitDraft ?? String(form.audit_export_max_rows)) === "0" ? (
+                      <p className="rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-xs text-warn">
+                        Unlimited exports of a large ledger can produce very large files and
+                        long-running downloads.
+                      </p>
+                    ) : null}
+                  </div>
                 </AdminConsoleSettingsRow>
                 <AdminConsoleSettingsRow
                   title="Quantum-Resistant Encryption"

@@ -538,36 +538,88 @@ export async function fetchAdminOverview() {
   return apiFetch("/admin/overview") as Promise<AdminOverviewResponse>;
 }
 
+export type AdminAuditSeverity = "Critical" | "Warning" | "Notice" | "Info";
+
 export type AdminAuditLogRow = {
   id: string;
+  /** Human: RFC 3339 UTC — format client-side so the operator sees their own timezone. */
   timestamp: string;
+  actor_id: string | null;
   actor_email: string | null;
   action: string;
-  description: string;
-  severity: string;
-  ip: string | null;
   category: string;
+  label: string;
+  severity: AdminAuditSeverity;
+  resource_type: string | null;
+  resource_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  context: unknown | null;
 };
 
 export type AdminAuditLogsResponse = {
-  logs: AdminAuditLogRow[];
-  summary: { total: number; critical_count: number; last_30_days: number };
-  counts_by_category: Record<string, number>;
+  rows: AdminAuditLogRow[];
+  total_matching: number;
+  has_more: boolean;
+  next_cursor: string | null;
 };
 
-// Human: Filterable audit ledger for the System Audit Logs panel.
-// Agent: GET /admin/audit-logs?category=&limit=&offset=; REQUIRES admin JWT.
-export async function fetchAdminAuditLogs(params?: {
-  category?: string;
-  limit?: number;
-  offset?: number;
-}) {
-  const search = new URLSearchParams();
-  if (params?.category) search.set("category", params.category);
-  if (params?.limit != null) search.set("limit", String(params.limit));
-  if (params?.offset != null) search.set("offset", String(params.offset));
-  const qs = search.toString();
+export type AdminAuditFacetBucket = { key: string; label: string; count: number };
+
+export type AdminAuditFacetsResponse = {
+  categories: AdminAuditFacetBucket[];
+  severities: AdminAuditFacetBucket[];
+  actions: AdminAuditFacetBucket[];
+  actors: AdminAuditFacetBucket[];
+  summary: {
+    total: number;
+    elevated: number;
+    distinct_actors: number;
+    busiest_action: string | null;
+    busiest_action_count: number;
+  };
+  /** Human: Effective export ceiling; 0 means unlimited. Served here so auditors without settings-read still get it. */
+  export_max_rows: number;
+};
+
+// Human: One page of audit events matching the active filter.
+// Agent: GET /admin/audit-logs?<filters>&cursor=&limit=; REQUIRES InstanceAuditRead.
+export async function fetchAdminAuditLogs(params: URLSearchParams) {
+  const qs = params.toString();
   return apiFetch(`/admin/audit-logs${qs ? `?${qs}` : ""}`) as Promise<AdminAuditLogsResponse>;
+}
+
+// Human: Facet counts and summary metrics for the active filter.
+// Agent: GET /admin/audit-logs/facets; heavier than the row query, so callers debounce it separately.
+export async function fetchAdminAuditFacets(params: URLSearchParams) {
+  const qs = params.toString();
+  return apiFetch(
+    `/admin/audit-logs/facets${qs ? `?${qs}` : ""}`,
+  ) as Promise<AdminAuditFacetsResponse>;
+}
+
+// Human: Download the filtered ledger as CSV, honoring the admin-configured row cap.
+// Agent: GET /admin/audit-logs/export.csv; streams server-side — never builds the file in the browser.
+export async function downloadAdminAuditCsv(params: URLSearchParams): Promise<void> {
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE}/admin/audit-logs/export.csv${qs ? `?${qs}` : ""}`, {
+    credentials: API_FETCH_CREDENTIALS,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      response.statusText || "Audit export failed",
+      "audit_export_failed",
+      response.status,
+    );
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export type AdminStorageNodeRow = {
@@ -697,6 +749,8 @@ export type AdminSettingsResponse = {
   enforce_mfa_on_admin_login: boolean;
   /** Human: Auto-purge idle ownly_gif_preview_* ffmpeg scratch dirs on the API host. */
   gif_preview_temp_auto_cleanup: boolean;
+  /** Human: Max rows one audit CSV export may produce; 0 means unlimited. */
+  audit_export_max_rows: number;
   smtp: {
     host: string;
     port: string;
@@ -722,6 +776,7 @@ export type AdminSettingsPatch = Partial<{
   default_onboarding_role: string;
   enforce_mfa_on_admin_login: boolean;
   gif_preview_temp_auto_cleanup: boolean;
+  audit_export_max_rows: number;
   smtp_host: string;
   smtp_port: string;
   smtp_from: string;
