@@ -90,7 +90,7 @@ export function AdminCreateUserDialog({ open, onOpenChange, onSaved }: DialogBas
       open={open}
       onOpenChange={(next) => handleDialogOpenChange(next, onOpenChange, resetForm)}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md sm:max-w-md">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Add New User</DialogTitle>

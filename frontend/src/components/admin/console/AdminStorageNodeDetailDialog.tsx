@@ -444,7 +444,9 @@ export function AdminStorageNodeDetailDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 shadow-[0_12px_32px_-4px_#00000026] sm:w-full"
+        // Human: sm:max-w repeats the width — DialogContent's base carries sm:max-w-sm, which an
+        // unprefixed max-w cannot override at >=640px.
+        className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl border border-edge bg-panel p-0 shadow-[0_12px_32px_-4px_#00000026] sm:w-full sm:max-w-[760px]"
         overlayClassName="bg-black/30"
       >
         <div className="flex items-center justify-between border-b border-edge px-4 py-4 sm:px-6 sm:py-5">

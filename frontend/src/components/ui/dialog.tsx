@@ -54,6 +54,9 @@ function DialogContent({
   overlayClassName?: string
   motionlessPopup?: boolean
 }) {
+  // Human: Callers that want a wider dialog must pass a sm:max-w-* — the base sm:max-w-sm below
+  // still wins at >=640px against a plain max-w-*, so an unprefixed override alone renders 384px.
+  // Agent: PAIR every caller max-w-X with sm:max-w-X; tailwind-merge treats the two as separate groups.
   return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} />
