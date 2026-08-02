@@ -41,6 +41,7 @@ All setup, configuration, and operations guides live under **`docs/`**.
 | **Getting started** (wizard, submodules, stop/start) | [docs/getting-started.md](docs/getting-started.md) |
 | **Configuration** (env vars, secrets, URLs) | [docs/configuration.md](docs/configuration.md) |
 | **Architecture** | [docs/architecture.md](docs/architecture.md) |
+| **File version history** | [docs/file-versioning.md](docs/file-versioning.md) |
 | **Local development** (Rust / Node, tests) | [docs/local-development.md](docs/local-development.md) |
 | **Compose profiles** (prod, multi-node, GPU) | [docs/compose-profiles.md](docs/compose-profiles.md) |
 | **Backup & restore** (Postgres + blobs) | [docs/backup-restore.md](docs/backup-restore.md) |

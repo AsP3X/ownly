@@ -9,6 +9,7 @@ import {
   FileText,
   Film,
   Folder,
+  History,
   ImageIcon,
   Info,
   Link2,
@@ -22,6 +23,7 @@ import { getErrorMessage, reprocessAllHls, reprocessFileHls } from "@/api/client
 import { ConfirmCancelRebuildsDialog } from "@/components/drive/ConfirmCancelRebuildsDialog";
 import { ConfirmRebuildAllVideosDialog } from "@/components/drive/ConfirmRebuildAllVideosDialog";
 import { cancelAllPendingHlsReprocess } from "@/lib/upload-manager";
+import { FileVersionsPanel } from "@/components/drive/FileVersionsPanel";
 import { ShareLinksPanel } from "@/components/drive/ShareLinksPanel";
 import { VideoThumbnailEditorDialog } from "@/components/drive/VideoThumbnailEditorDialog";
 import type { ShareTarget } from "@/components/drive/ShareDialog";
@@ -56,8 +58,10 @@ type ResourceDetailsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   target: DetailsTarget | null;
-  initialTab?: "details" | "sharing";
+  initialTab?: "details" | "sharing" | "history";
   onShareChanged?: () => void;
+  /** Human: Notifies parent when restoring a version swaps the file's live bytes. */
+  onVersionRestored?: (file: FileItem) => void;
   /** Human: Whether the current file is in the user's favourites set. */
   isFavourited?: boolean;
   /** Human: Toggle favourite from Details only (not the context menu). */
@@ -82,7 +86,7 @@ type ResourceDetailsDialogProps = {
   }) => void;
 };
 
-type DetailsTab = "details" | "sharing";
+type DetailsTab = "details" | "sharing" | "history";
 
 function toShareTarget(target: DetailsTarget): ShareTarget {
   if (target.kind === "file") {
@@ -167,6 +171,7 @@ export function ResourceDetailsDialog({
   target,
   initialTab = "details",
   onShareChanged,
+  onVersionRestored,
   isFavourited = false,
   onToggleFavourite,
   onThumbnailSelected,
@@ -356,6 +361,22 @@ export function ResourceDetailsDialog({
               <Link2 className="size-3.5" aria-hidden />
               Sharing
             </button>
+            {/* Human: History is file-only — folders have no content bytes to version. */}
+            {target?.kind === "file" ? (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 border-b-2 px-4 py-3 text-[13px] transition",
+                  tab === "history"
+                    ? "border-brand font-semibold text-brand"
+                    : "border-transparent font-medium text-ink-muted hover:text-ink",
+                )}
+                onClick={() => setTab("history")}
+              >
+                <History className="size-3.5" aria-hidden />
+                History
+              </button>
+            ) : null}
           </div>
 
           <div className="max-h-[min(52vh,28rem)] overflow-y-auto px-7 py-2">
@@ -516,6 +537,10 @@ export function ResourceDetailsDialog({
                   </>
                 )}
               </dl>
+            ) : tab === "history" ? (
+              target.kind === "file" ? (
+                <FileVersionsPanel file={target.file} onRestored={onVersionRestored} />
+              ) : null
             ) : (
               <div className="py-3">
                 <ShareLinksPanel target={toShareTarget(target)} onChanged={onShareChanged} />

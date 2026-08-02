@@ -1,5 +1,5 @@
-// Human: In-place file content replace for shared editors — keeps ownership (unlike delete+reupload).
-// Agent: REQUIRES ContentWrite; PUTS storage blob; UPDATES size_bytes; RETURNS FileDto.
+// Human: Copy-on-write file content replace for shared editors — keeps ownership (unlike delete+reupload).
+// Agent: REQUIRES ContentWrite; DELEGATES to files::versions which archives the prior bytes before switching.
 
 use axum::{
     body::Bytes,
@@ -15,10 +15,9 @@ use crate::{
     auth::handlers::Claims,
     error::AppError,
     files::{
-        handlers::{FileDto, FILE_COLUMNS},
-        recycle_bin::ACTIVE_FILES_SQL,
+        handlers::FileDto,
+        versions::{self, ContentWrite, VersionOrigin},
     },
-    storage::put_with_retry,
     AppState,
 };
 
@@ -28,7 +27,7 @@ pub struct ReplaceContentResponse {
 }
 
 // Human: PUT /api/v1/files/{id}/content — replace text/RTF bytes without changing owner or id.
-// Agent: ensure_file_access ContentWrite; storage.put; UPDATE files.size_bytes; AUDIT files.content_replace.
+// Agent: ensure_file_access ContentWrite; versions::write_file_content; AUDIT files.content_replace.
 pub async fn put_file_content(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -48,54 +47,47 @@ pub async fn put_file_content(
         return Err(AppError::BadRequest("content body must not be empty".into()));
     }
 
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "SELECT storage_key, mime_type FROM files WHERE id = $1 AND deleted_at IS NULL",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let (storage_key, mime_type) = row.ok_or(AppError::NotFound)?;
+    let mime_type: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT mime_type FROM files WHERE id = $1 AND deleted_at IS NULL")
+            .bind(&id)
+            .fetch_optional(&state.pool)
+            .await?;
+    let mime_type = mime_type.ok_or(AppError::NotFound)?.0;
     let content_type = mime_type
         .as_deref()
         .filter(|m| !m.is_empty())
-        .unwrap_or("application/octet-stream");
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
     let size_bytes = body.len() as i64;
-    let data = body.to_vec();
-
-    put_with_retry(state.storage.as_ref(), &storage_key, content_type, || {
-        let data = data.clone();
-        async move { Ok(data) }
-    })
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("storage put failed: {e}")))?;
-
-    sqlx::query(
-        "UPDATE files SET size_bytes = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    let result = versions::write_file_content(
+        &state,
+        ContentWrite {
+            file_id: &id,
+            bytes: body.to_vec(),
+            content_type: &content_type,
+            actor_id: Some(&claims.sub),
+            origin: VersionOrigin::User,
+        },
     )
-    .bind(&id)
-    .bind(size_bytes)
-    .execute(&state.pool)
     .await?;
 
-    let file: FileDto = sqlx::query_as(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
-    ))
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    // Human: An unchanged autosave is not a content change — do not pad the audit ledger with it.
+    if result.archived {
+        audit::write_audit_logged(
+            &state.pool,
+            Some(&claims.sub),
+            "files.content_replace",
+            Some("file"),
+            Some(&id),
+            Some(serde_json::json!({
+                "size_bytes": size_bytes,
+                "revision": result.revision,
+            })),
+            &headers,
+        )
+        .await;
+    }
 
-    audit::write_audit_logged(
-        &state.pool,
-        Some(&claims.sub),
-        "files.content_replace",
-        Some("file"),
-        Some(&id),
-        Some(serde_json::json!({ "size_bytes": size_bytes })),
-        &headers,
-    )
-    .await;
-
-    Ok(Json(ReplaceContentResponse { file }))
+    Ok(Json(ReplaceContentResponse { file: result.file }))
 }

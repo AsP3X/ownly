@@ -23,4 +23,5 @@ pub mod upload_finalize;
 pub mod upload_spool;
 pub mod upload_staging;
 pub mod upload_validation;
+pub mod versions;
 pub mod zip_job;

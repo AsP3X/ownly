@@ -15,7 +15,7 @@ Ownly is a self-hosted personal cloud (Rust/Axum API, Vite/React web UI, Postgre
 The largest **remaining** gaps versus commercial drives fall into four buckets:
 
 1. **Daily-use file ops** — basic filename search only; no unified folder search or relevance ranking.
-2. **Reliability at scale** — resumable upload hardening (direct-to-Nebular, iOS background resume); no file versioning.
+2. **Reliability at scale** — resumable upload hardening (direct-to-Nebular, iOS background resume); content edits are versioned, but re-uploading over an existing file still is not.
 3. **Client coverage** — web + iOS browse/upload; no desktop sync or Android app.
 4. **Production polish** — email notifications, backup runbooks, API metrics, expanded E2E coverage.
 
@@ -135,56 +135,48 @@ Chunked uploads, janitor, expiry audit, staging + signed part PUTs, content dedu
 
 ### 1.3 File versioning
 
-**Priority:** P2  
-**Effort:** Medium–large
+**Status:** **Shipped for content writes** (migration `038_file_versions.sql`, `backend/src/files/versions.rs`).  
+**Priority:** P2 for the remaining upload-replacement scope.
 
-#### Current state
+#### What shipped
 
-Migration `021_file_content_hash.sql` adds `content_hash` for **duplicate detection** on upload preflight (`check_upload_names`), not history.
+Content writes are now **copy-on-write**. `PUT /files/{id}/content` and the public-share edit route
+write the new bytes to a fresh blob under `users/{uid}/revisions/{uuid}` and archive the previous
+state as a `file_versions` row, instead of overwriting the existing object in place.
 
-There is **no** `file_versions` table, no "restore previous version" UI, no automatic versioning on overwrite.
+This also fixed two live data bugs that in-place overwrite had introduced alongside per-user dedup
+(migration `035_files_storage_key_shared_dedup.sql`):
 
-#### Proposed direction
+- Editing one file **rewrote the bytes of every other file sharing its `storage_key`**, and left the
+  sibling's `size_bytes` stale.
+- `content_hash` was never updated on write, so a later upload of the original bytes would dedup onto
+  a blob that had since been edited.
 
-**Schema (illustrative)**
+| Piece | Where |
+|-------|-------|
+| Schema + retention default | `backend/migrations/postgres/038_file_versions.sql` |
+| Archive / restore / prune | `backend/src/files/versions.rs` |
+| Write paths | `backend/src/files/content_replace.rs`, `backend/src/shares/handlers.rs` |
+| Refcount + blob purge | `backend/src/files/content_hash.rs`, `backend/src/files/file_delete.rs` |
+| API | `GET /files/{id}/versions`, `GET .../versions/{vid}/content`, `POST .../versions/{vid}/restore` |
+| UI | History tab in `ResourceDetailsDialog` via `FileVersionsPanel.tsx` |
+| Admin setting | `file_version_max_per_file` (default 25; 0 keeps everything) |
+| Quota | `quota.rs` counts `file_versions.size_bytes` against the owner |
+| Tests | `backend/tests/versioning.rs` |
 
-```sql
-CREATE TABLE file_versions (
-    id            TEXT PRIMARY KEY,
-    file_id       TEXT NOT NULL REFERENCES files(id),
-    version_number INT NOT NULL,
-    storage_key     TEXT NOT NULL,
-    size_bytes      BIGINT NOT NULL,
-    content_hash    TEXT,
-    created_by      TEXT REFERENCES users(id),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (file_id, version_number)
-);
-```
+Restore is itself versioned — restoring v1 archives the current bytes first, so it is undoable.
+Identical rewrites are a no-op, so editor autosave does not spam history.
 
-**Behavior**
+#### Remaining scope
 
-- On upload replacing same path/name: optionally bump version (configurable: always / manual / off).
-- Retention policy: keep last N versions or N days (admin setting).
-- Download specific version; restore promotes copy to current.
-- Blob lifecycle: old versions reference same Nebular keys until purge job runs.
-
-**Relation to dedup:** Version rows may share `content_hash` / storage key when content unchanged (see [`storage-disk-improvements.md`](storage-disk-improvements.md) §2).
-
-#### Key files
-
-- New migration, `backend/src/files/versions.rs`
-- Upload handler — branch on existing file name in folder
-- Frontend: file details panel version list
-- Delete job — purge orphaned version blobs
-
-#### Verification
-
-- Upload `doc.pdf` twice; two versions listed; restore v1 works.
-- Permanent delete file removes all version blobs.
-- Quota counts current + versions policy (define explicitly).
-
----
+- **Upload-based replacement is still not versioned.** Re-uploading `doc.pdf` into a folder that
+  already has one creates a separate file (or dedups); it does not bump a revision on the existing
+  row. Wiring `upload_finalize` into `versions::write_file_content` is the natural follow-up.
+- **No version pruning UI** — retention is enforced automatically by the cap; there is no per-file
+  "delete this version" action.
+- **Node migration skips revision blobs.** `storage_migration_runs` enumerates `files.storage_key`
+  only, so archived revisions are not relocated when a storage node is drained.
+- **iOS client** does not surface version history.
 
 ## 2. Platform and clients
 
@@ -483,7 +475,7 @@ Detailed plan: [`docs/storage-disk-improvements.md`](storage-disk-improvements.m
 flowchart TD
     A["Phase 1: Search + upload follow-ups"] --> B["Phase 2: Disk savings + backup runbook"]
     B --> C["Phase 3: Desktop sync OR Android"]
-    C --> D["Phase 4: Versioning + email + 2FA"]
+    C --> D["Phase 4: Upload versioning + email + 2FA"]
 ```
 
 | Phase | Focus | Why first |
@@ -491,7 +483,7 @@ flowchart TD
 | **1** | Unified search + resumable hardening (direct-to-Nebular, iOS background) | Daily-use wins; last upload reliability gaps |
 | **2** | Disk savings + backup/restore docs | Production adopters; measurable Nebular disk reduction |
 | **3** | Desktop sync **or** Android | Expands beyond "web locker" |
-| **4** | Versioning, email notifications, 2FA | Production-grade polish |
+| **4** | Upload-replacement versioning, email notifications, 2FA | Production-grade polish |
 
 ---
 

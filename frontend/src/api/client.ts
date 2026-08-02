@@ -751,6 +751,8 @@ export type AdminSettingsResponse = {
   gif_preview_temp_auto_cleanup: boolean;
   /** Human: Max rows one audit CSV export may produce; 0 means unlimited. */
   audit_export_max_rows: number;
+  /** Human: Prior content revisions kept per file before the oldest is pruned; 0 means unlimited. */
+  file_version_max_per_file: number;
   smtp: {
     host: string;
     port: string;
@@ -777,6 +779,7 @@ export type AdminSettingsPatch = Partial<{
   enforce_mfa_on_admin_login: boolean;
   gif_preview_temp_auto_cleanup: boolean;
   audit_export_max_rows: number;
+  file_version_max_per_file: number;
   smtp_host: string;
   smtp_port: string;
   smtp_from: string;
@@ -1075,6 +1078,30 @@ export type FileItem = {
   document_thumbnail_error?: string | null;
   /** True when an active public share link exists for this file. */
   share_public?: boolean;
+  /** Revision of the live bytes — 1 until the first content edit archives a version. */
+  revision?: number;
+};
+
+/** One superseded content state, newest first in the history list. */
+export type FileVersion = {
+  id: string;
+  file_id: string;
+  revision: number;
+  size_bytes: number;
+  mime_type: string | null;
+  created_by: string | null;
+  /** Null for anonymous public-link edits or a since-deleted account. */
+  created_by_email: string | null;
+  created_via: "user" | "public_share" | "restore";
+  created_at: string;
+};
+
+export type FileVersionListResponse = {
+  versions: FileVersion[];
+  /** Revision of the live bytes — always one past the newest history entry. */
+  current_revision: number;
+  /** Versions kept per file before the oldest is pruned; 0 means unlimited. */
+  retention_limit: number;
 };
 
 export type VideoStreamUrlResponse = {
@@ -2921,6 +2948,61 @@ export async function probeServerGifAnimationPreviewUrl(
 
 export function fileDownloadUrl(id: string) {
   return `${API_BASE}/files/${id}/download`;
+}
+
+// Human: Archived revisions for one file, newest first.
+// Agent: GET /files/:id/versions; REQUIRES content.read.
+export async function listFileVersions(fileId: string): Promise<FileVersionListResponse> {
+  return (await apiFetch(
+    `/files/${encodeURIComponent(fileId)}/versions`,
+  )) as FileVersionListResponse;
+}
+
+// Human: Make an archived revision current — the bytes being replaced are archived in turn.
+// Agent: POST /files/:id/versions/:versionId/restore; REQUIRES content.write.
+export async function restoreFileVersion(
+  fileId: string,
+  versionId: string,
+): Promise<{ file: FileItem }> {
+  return (await apiFetch(
+    `/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(versionId)}/restore`,
+    { method: "POST" },
+  )) as { file: FileItem };
+}
+
+export function fileVersionDownloadUrl(fileId: string, versionId: string) {
+  return `${API_BASE}/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(versionId)}/content`;
+}
+
+// Human: Download one archived revision to disk without disturbing the live file.
+// Agent: FETCH the version content route with session credentials; SAVE via object URL.
+export async function downloadFileVersion(
+  fileId: string,
+  versionId: string,
+  filename: string,
+): Promise<void> {
+  const response = await fetch(fileVersionDownloadUrl(fileId, versionId), {
+    credentials: API_FETCH_CREDENTIALS,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      response.statusText || "Version download failed",
+      "version_download_failed",
+      response.status,
+    );
+  }
+  const blob = await response.blob();
+  const href = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(href);
+  }
 }
 
 // Human: Resolve a ticket stream or download path against the site origin for <audio> element src.

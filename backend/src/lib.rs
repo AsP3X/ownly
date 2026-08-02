@@ -616,6 +616,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             put(files::content_replace::put_file_content).layer(DefaultBodyLimit::max(max_upload)),
         )
         .route(
+            "/api/v1/files/{id}/versions",
+            get(files::versions::list_file_versions),
+        )
+        .route(
+            "/api/v1/files/{id}/versions/{version_id}/content",
+            get(files::versions::get_file_version_content),
+        )
+        .route(
+            "/api/v1/files/{id}/versions/{version_id}/restore",
+            post(files::versions::post_restore_file_version),
+        )
+        .route(
             "/api/v1/files/{id}/deletion-preview",
             get(files::delete_job::file_deletion_preview),
         )

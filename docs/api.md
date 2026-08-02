@@ -30,7 +30,7 @@ Import it into Swagger UI, Redoc, Insomnia, or Postman for exploration.
 | Prefix | Purpose |
 |--------|---------|
 | `/auth/*` | Register, login, refresh, logout, me |
-| `/files/*` | List, upload, download, rename, delete, search |
+| `/files/*` | List, upload, download, rename, delete, search, version history |
 | `/uploads/*` | Resumable chunked upload sessions |
 | `/folders/*` | Folder tree |
 | `/shares/*` · `/public/shares/*` | User and public share links |

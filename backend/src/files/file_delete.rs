@@ -39,6 +39,45 @@ pub struct FilePurgeRow {
     pub storage_key: String,
     pub segment_count: Option<i32>,
     pub mime_type: Option<String>,
+    /// Human: Archived revision blobs, captured before the DELETE cascades file_versions away.
+    /// Agent: NOT a column — filled by attach_version_keys; purged by parallel_purge_file_rows.
+    #[sqlx(skip)]
+    pub version_storage_keys: Vec<String>,
+}
+
+// Human: Attach each row's archived revision blobs so they can be purged after the cascade removes the rows.
+// Agent: ONE query for the whole batch; a failure leaves the lists empty (blobs orphan rather than vanish early).
+async fn attach_version_keys(pool: &PgPool, rows: &mut [FilePurgeRow]) {
+    if rows.is_empty() {
+        return;
+    }
+    let file_ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let pairs: Vec<(String, String)> = match sqlx::query_as(
+        "SELECT file_id, storage_key FROM file_versions WHERE file_id = ANY($1)",
+    )
+    .bind(&file_ids)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(pairs) => pairs,
+        Err(error) => {
+            tracing::warn!(%error, "loading version blobs for purge failed");
+            return;
+        }
+    };
+    if pairs.is_empty() {
+        return;
+    }
+    let mut by_file: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (file_id, storage_key) in pairs {
+        by_file.entry(file_id).or_default().push(storage_key);
+    }
+    for row in rows.iter_mut() {
+        if let Some(keys) = by_file.remove(&row.id) {
+            row.version_storage_keys = keys;
+        }
+    }
 }
 
 // Human: Count storage delete attempts for one file row (matches delete_storage_artifacts).
@@ -226,7 +265,7 @@ pub async fn load_owned_files_for_purge(
     user_id: &str,
     file_ids: &[String],
 ) -> Result<Vec<FilePurgeRow>, AppError> {
-    let rows: Vec<FilePurgeRow> = sqlx::query_as(
+    let mut rows: Vec<FilePurgeRow> = sqlx::query_as(
         "SELECT id, name, storage_key, segment_count, mime_type FROM files \
          WHERE user_id = $1 AND id = ANY($2) ORDER BY name ASC",
     )
@@ -239,6 +278,7 @@ pub async fn load_owned_files_for_purge(
         return Err(AppError::NotFound);
     }
 
+    attach_version_keys(pool, &mut rows).await;
     Ok(rows)
 }
 
@@ -248,7 +288,7 @@ pub async fn load_files_for_purge_by_ids(
     pool: &PgPool,
     file_ids: &[String],
 ) -> Result<Vec<FilePurgeRow>, AppError> {
-    let rows: Vec<FilePurgeRow> = sqlx::query_as(
+    let mut rows: Vec<FilePurgeRow> = sqlx::query_as(
         "SELECT id, name, storage_key, segment_count, mime_type FROM files \
          WHERE id = ANY($1) ORDER BY name ASC",
     )
@@ -260,6 +300,7 @@ pub async fn load_files_for_purge_by_ids(
         return Err(AppError::NotFound);
     }
 
+    attach_version_keys(pool, &mut rows).await;
     Ok(rows)
 }
 
@@ -296,10 +337,22 @@ where
     .await?;
     let (storage_key, name, segment_count, mime_type) = row.ok_or(AppError::NotFound)?;
 
+    // Human: Capture revision blobs before the DELETE cascades file_versions away.
+    let version_keys = crate::files::versions::version_storage_keys_for_file(pool, file_id)
+        .await
+        .unwrap_or_default();
+
     sqlx::query("DELETE FROM files WHERE id = $1")
         .bind(file_id)
         .execute(pool)
         .await?;
+
+    crate::files::versions::purge_unreferenced_version_blobs(
+        state.storage.clone(),
+        pool,
+        &version_keys,
+    )
+    .await;
 
     if crate::files::content_hash::storage_key_still_referenced(pool, &storage_key).await? {
         on_blob_deleted(0, 0);
@@ -357,6 +410,12 @@ pub async fn parallel_purge_file_rows(
     rows: Vec<FilePurgeRow>,
     progress: Option<Arc<AtomicU32>>,
 ) {
+    // Human: Version blobs come from every row, not just the storage_key-unique ones.
+    let version_keys: Vec<String> = rows
+        .iter()
+        .flat_map(|row| row.version_storage_keys.iter().cloned())
+        .collect();
+
     // Human: Batch deletes may remove several rows that shared one storage_key — purge once per unique key.
     let mut unique_by_key: std::collections::HashMap<String, FilePurgeRow> =
         std::collections::HashMap::new();
@@ -395,6 +454,10 @@ pub async fn parallel_purge_file_rows(
             }
         })
         .await;
+
+    // Human: Archived revisions outlive the cascade only as blobs — drop the ones nothing else points at.
+    // Agent: RUNS after the file rows are gone so refcounts reflect the deletion.
+    crate::files::versions::purge_unreferenced_version_blobs(storage, pool, &version_keys).await;
 }
 
 // Human: Delete one user-owned file row and best-effort purge its object storage keys.
@@ -430,11 +493,23 @@ where
     .await?;
     let (storage_key, name, segment_count, mime_type) = row.ok_or(AppError::NotFound)?;
 
+    // Human: Capture revision blobs before the DELETE cascades file_versions away.
+    let version_keys = crate::files::versions::version_storage_keys_for_file(pool, file_id)
+        .await
+        .unwrap_or_default();
+
     sqlx::query("DELETE FROM files WHERE id = $1 AND user_id = $2")
         .bind(file_id)
         .bind(user_id)
         .execute(pool)
         .await?;
+
+    crate::files::versions::purge_unreferenced_version_blobs(
+        state.storage.clone(),
+        pool,
+        &version_keys,
+    )
+    .await;
 
     if crate::files::content_hash::storage_key_still_referenced(pool, &storage_key).await? {
         on_blob_deleted(0, 0);

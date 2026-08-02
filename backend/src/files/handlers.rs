@@ -47,7 +47,7 @@ pub(crate) const FILE_COLUMNS: &str = "id, name, mime_type, size_bytes, folder_i
     video_thumbnail_ready, video_thumbnail_status, video_thumbnail_error, video_thumbnail_progress, \
     video_thumbnail_selected_index, \
     image_thumbnail_ready, image_thumbnail_status, image_thumbnail_error, \
-    document_thumbnail_ready, document_thumbnail_status, document_thumbnail_error";
+    document_thumbnail_ready, document_thumbnail_status, document_thumbnail_error, revision";
 
 const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
 
@@ -134,6 +134,8 @@ pub struct FileDto {
     pub document_thumbnail_ready: bool,
     pub document_thumbnail_status: Option<String>,
     pub document_thumbnail_error: Option<String>,
+    /// Human: Revision of the live bytes — 1 until the first content edit archives a version.
+    pub revision: i32,
 }
 
 #[derive(Debug, Serialize)]

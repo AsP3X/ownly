@@ -22,7 +22,6 @@ use crate::{
         gif_preview::{self, qualifies_for_animated_preview},
         handlers::{FileDto, FILE_COLUMNS},
         processing::ensure_file_not_processing,
-        recycle_bin::ACTIVE_FILES_SQL,
         zip_job::{
             dedupe_zip_member_names, run_zip_entries_job, zip_status_json, FolderDownloadJob,
             FolderDownloadRegistry, ZipDownloadStatusResponse, ZipFileEntry,
@@ -41,7 +40,6 @@ use crate::{
         load_file_in_share_scope, resolve_active_share, sharer_email, verify_share_password,
         ShareRecord, SHARE_RECORD_COLUMNS,
     },
-    storage::put_with_retry,
     stream_ticket,
     AppState,
 };
@@ -1180,49 +1178,39 @@ pub async fn public_share_put_content(
         mime
     };
     let size_bytes = body.len() as i64;
-    let data = body.to_vec();
-    let storage_key = row.storage_key.clone();
 
-    put_with_retry(state.storage.as_ref(), &storage_key, content_type, || {
-        let data = data.clone();
-        async move { Ok(data) }
-    })
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("storage put failed: {e}")))?;
-
-    sqlx::query(
-        "UPDATE files SET size_bytes = $2, updated_at = NOW() \
-         WHERE id = $1 AND user_id = $3 AND deleted_at IS NULL",
+    // Human: An anonymous edit must never be the last word on someone's file — archive the prior bytes first.
+    // Agent: created_by stays NULL on the archived revision; the owner can restore it from version history.
+    let result = crate::files::versions::write_file_content(
+        &state,
+        crate::files::versions::ContentWrite {
+            file_id: &file_id,
+            bytes: body.to_vec(),
+            content_type,
+            actor_id: None,
+            origin: crate::files::versions::VersionOrigin::PublicShare,
+        },
     )
-    .bind(&file_id)
-    .bind(size_bytes)
-    .bind(&share.user_id)
-    .execute(&state.pool)
     .await?;
 
-    let file: FileDto = sqlx::query_as(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE id = $1 AND {ACTIVE_FILES_SQL}"
-    ))
-    .bind(&file_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    if result.archived {
+        audit::write_audit_logged(
+            &state.pool,
+            None,
+            "shares.public_content_replace",
+            Some("file"),
+            Some(&file_id),
+            Some(serde_json::json!({
+                "share_token": share.token,
+                "size_bytes": size_bytes,
+                "revision": result.revision,
+            })),
+            &headers,
+        )
+        .await;
+    }
 
-    audit::write_audit_logged(
-        &state.pool,
-        None,
-        "shares.public_content_replace",
-        Some("file"),
-        Some(&file_id),
-        Some(serde_json::json!({
-            "share_token": share.token,
-            "size_bytes": size_bytes,
-        })),
-        &headers,
-    )
-    .await;
-
-    Ok(Json(PublicReplaceContentResponse { file }))
+    Ok(Json(PublicReplaceContentResponse { file: result.file }))
 }
 
 // Human: List files and subfolders visible inside a folder-type public share.

@@ -69,6 +69,12 @@ pub async fn hash_file_sha256(path: &Path) -> Result<String, AppError> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+// Human: SHA-256 of an in-memory body — content writes already hold the full bytes.
+// Agent: MATCHES hash_file_sha256 output format (64-char lowercase hex) so dedup lookups interoperate.
+pub fn hash_bytes_sha256(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
 // Human: Find an active same-user file with identical content_hash and size for per-user dedup.
 // Agent: READS files WHERE deleted_at IS NULL; RETURNS oldest match; video only when hls_ready.
 pub async fn find_dedup_source(
@@ -140,11 +146,12 @@ pub async fn find_trashed_dedup_file_id(
     Ok(row.map(|(id,)| id))
 }
 
-// Human: True when any files row still references this storage_key (including recycle bin).
-// Agent: USED before purge_file_storage so shared-blob dedup copies keep the object alive.
+// Human: True when any files row or archived version still references this storage_key (including recycle bin).
+// Agent: USED before purge_file_storage so dedup copies AND version history keep the object alive.
 pub async fn storage_key_still_referenced(pool: &PgPool, storage_key: &str) -> Result<bool, AppError> {
     let row: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM files WHERE storage_key = $1 LIMIT 1",
+        "SELECT 1 WHERE EXISTS (SELECT 1 FROM files WHERE storage_key = $1) \
+                       OR EXISTS (SELECT 1 FROM file_versions WHERE storage_key = $1)",
     )
     .bind(storage_key)
     .fetch_optional(pool)
@@ -152,8 +159,8 @@ pub async fn storage_key_still_referenced(pool: &PgPool, storage_key: &str) -> R
     Ok(row.is_some())
 }
 
-// Human: Which storage keys from a candidate set are still referenced by any remaining file row.
-// Agent: SELECT DISTINCT storage_key WHERE storage_key = ANY; USED by parallel_purge to skip shared blobs.
+// Human: Which storage keys from a candidate set are still referenced by a file row or an archived version.
+// Agent: UNION over files + file_versions; USED by parallel_purge to skip shared blobs.
 pub async fn storage_keys_still_referenced(
     pool: &PgPool,
     storage_keys: &[String],
@@ -162,7 +169,9 @@ pub async fn storage_keys_still_referenced(
         return Ok(std::collections::HashSet::new());
     }
     let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT storage_key FROM files WHERE storage_key = ANY($1)",
+        "SELECT storage_key FROM files WHERE storage_key = ANY($1) \
+         UNION \
+         SELECT storage_key FROM file_versions WHERE storage_key = ANY($1)",
     )
     .bind(storage_keys)
     .fetch_all(pool)

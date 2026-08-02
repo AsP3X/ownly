@@ -67,6 +67,9 @@ export function AdminSystemSettingsPanel() {
   // Human: Local draft for the audit export row limit — same reason as the quota field.
   // Agent: SYNCED from server snapshot; PARSED in handleSave into audit_export_max_rows.
   const [auditExportLimitDraft, setAuditExportLimitDraft] = useState<string | null>(null);
+  // Human: Local draft for the version retention cap — same reason as the quota field.
+  // Agent: SYNCED from server snapshot; PARSED in handleSave into file_version_max_per_file.
+  const [versionRetentionDraft, setVersionRetentionDraft] = useState<string | null>(null);
   const [loggingDialogOpen, setLoggingDialogOpen] = useState(false);
 
   const loadSettings = useCallback(() => fetchAdminSettings(), []);
@@ -127,6 +130,16 @@ export function AdminSystemSettingsPanel() {
         ? form.audit_export_max_rows
         : parsedAuditExportLimit;
 
+    // Human: 0 is meaningful here too (keep every revision), so only negatives and gibberish fall back.
+    const parsedVersionRetention = Number.parseInt(
+      versionRetentionDraft ?? String(form.file_version_max_per_file),
+      10,
+    );
+    const fileVersionMaxPerFile =
+      Number.isNaN(parsedVersionRetention) || parsedVersionRetention < 0
+        ? form.file_version_max_per_file
+        : parsedVersionRetention;
+
     const body: AdminSettingsPatch = {
       ...(smtpPasswordDraft.trim() ? { smtp_password: smtpPasswordDraft } : {}),
       instance_name: form.instance_name,
@@ -139,6 +152,7 @@ export function AdminSystemSettingsPanel() {
       enforce_mfa_on_admin_login: form.enforce_mfa_on_admin_login,
       gif_preview_temp_auto_cleanup: form.gif_preview_temp_auto_cleanup,
       audit_export_max_rows: auditExportMaxRows,
+      file_version_max_per_file: fileVersionMaxPerFile,
       smtp_host: form.smtp.host,
       smtp_port: form.smtp.port,
       smtp_from: form.smtp.from_address,
@@ -153,6 +167,7 @@ export function AdminSystemSettingsPanel() {
       setEditedForm(updated);
       setDefaultQuotaDraft(String(updated.default_storage_quota_gb));
       setAuditExportLimitDraft(String(updated.audit_export_max_rows));
+      setVersionRetentionDraft(String(updated.file_version_max_per_file));
       setInstanceName(updated.instance_name);
       setSmtpPasswordDraft("");
       setSavedMessage("Settings saved successfully.");
@@ -588,6 +603,37 @@ export function AdminSystemSettingsPanel() {
                       <p className="rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-xs text-warn">
                         Unlimited exports of a large ledger can produce very large files and
                         long-running downloads.
+                      </p>
+                    ) : null}
+                  </div>
+                </AdminConsoleSettingsRow>
+                <AdminConsoleSettingsRow
+                  title="File Version History"
+                  description="How many previous versions of a file's contents are kept after it is edited."
+                >
+                  <div className="flex flex-col gap-2">
+                    <AdminConsoleField
+                      label="Versions kept per file"
+                      value={versionRetentionDraft ?? String(form.file_version_max_per_file)}
+                      type="number"
+                      suffix="versions"
+                      onChange={(v) => {
+                        setVersionRetentionDraft(v);
+                        const parsed = Number.parseInt(v, 10);
+                        if (!Number.isNaN(parsed) && parsed >= 0) {
+                          patchForm({ file_version_max_per_file: parsed });
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-ink-faint">
+                      Every edit archives the previous contents so it can be restored. Older versions
+                      beyond this limit are deleted automatically. Set to{" "}
+                      <span className="font-semibold">0</span> to keep every version.
+                    </p>
+                    {(versionRetentionDraft ?? String(form.file_version_max_per_file)) === "0" ? (
+                      <p className="rounded-lg border border-warn/40 bg-warn-weak px-3 py-2 text-xs text-warn">
+                        Keeping every version means edited files never release their old contents,
+                        which counts against each user's storage quota.
                       </p>
                     ) : null}
                   </div>

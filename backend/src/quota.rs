@@ -38,12 +38,16 @@ pub async fn resolve_user_quota_bytes(pool: &PgPool, user_id: &str) -> Result<i6
     load_default_quota_bytes(pool).await
 }
 
-// Human: Sum active file bytes owned by one user — used before storage writes.
-// Agent: READS files WHERE user_id AND deleted_at IS NULL; RETURNS COALESCE SUM size_bytes.
+// Human: Sum active file bytes plus archived version bytes owned by one user — used before storage writes.
+// Agent: READS files WHERE deleted_at IS NULL + file_versions; version history occupies real disk, so it counts.
 pub async fn load_user_used_bytes(pool: &PgPool, user_id: &str) -> Result<i64, AppError> {
     let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
-         WHERE user_id = $1 AND deleted_at IS NULL",
+        "SELECT ( \
+             (SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files \
+              WHERE user_id = $1 AND deleted_at IS NULL) \
+           + (SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM file_versions \
+              WHERE user_id = $1) \
+         )::BIGINT",
     )
     .bind(user_id)
     .fetch_optional(pool)

@@ -439,6 +439,8 @@ pub struct AdminSettingsResponse {
     pub gif_preview_temp_auto_cleanup: bool,
     /// Human: Maximum rows one audit CSV export may produce; 0 means unlimited.
     pub audit_export_max_rows: i64,
+    /// Human: Prior content revisions kept per file before the oldest is pruned; 0 means unlimited.
+    pub file_version_max_per_file: i64,
     pub smtp: AdminSmtpSettings,
     pub notification_rules: AdminNotificationRules,
 }
@@ -465,6 +467,8 @@ pub struct AdminSettingsPatch {
     pub gif_preview_temp_auto_cleanup: Option<bool>,
     /// Human: 0 selects unlimited; there is deliberately no upper bound.
     pub audit_export_max_rows: Option<i64>,
+    /// Human: 0 keeps every revision — raises disk use in exchange for a complete history.
+    pub file_version_max_per_file: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -513,6 +517,8 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         true,
     );
     let audit_export_max_rows = crate::admin::audit_logs::export_max_rows(&state.pool).await;
+    let file_version_max_per_file =
+        crate::files::versions::max_versions_per_file(&state.pool).await;
 
     let smtp_password_set = AppSettingsSecretStore::secret_is_set(
         read_setting(&state.pool, "smtp_password").await.as_deref(),
@@ -529,6 +535,7 @@ async fn load_settings_response(state: &AppState) -> Result<AdminSettingsRespons
         enforce_mfa_on_admin_login,
         gif_preview_temp_auto_cleanup,
         audit_export_max_rows,
+        file_version_max_per_file,
         smtp: AdminSmtpSettings {
             host: read_setting(&state.pool, "smtp_host")
                 .await
@@ -648,6 +655,20 @@ pub async fn patch_settings(
         upsert_setting(
             &state.pool,
             crate::admin::audit_logs::AUDIT_EXPORT_MAX_ROWS_KEY,
+            &v.to_string(),
+        )
+        .await?;
+    }
+    if let Some(v) = body.file_version_max_per_file {
+        // Human: 0 means keep everything; a negative cap would silently discard all history.
+        if v < 0 {
+            return Err(AppError::BadRequest(
+                "version retention cannot be negative (use 0 to keep every revision)".into(),
+            ));
+        }
+        upsert_setting(
+            &state.pool,
+            crate::files::versions::MAX_VERSIONS_PER_FILE_KEY,
             &v.to_string(),
         )
         .await?;
