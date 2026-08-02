@@ -16,7 +16,7 @@ export function AuthThemeToggle({ className }: { className?: string }) {
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
       title={isDark ? "Switch to light theme" : "Switch to dark theme"}
       className={cn(
-        "group relative inline-flex size-10 items-center justify-center overflow-hidden rounded-full",
+        "group relative inline-flex size-10 items-center justify-center overflow-hidden rounded-full touch:size-11",
         "border border-edge/70 bg-panel/70 text-ink-muted backdrop-blur-md",
         "transition-[transform,background-color,color,box-shadow] duration-200 ease-out",
         "hover:-translate-y-0.5 hover:text-brand hover:shadow-lg hover:shadow-black/10 active:translate-y-0 active:scale-95",

@@ -49,7 +49,7 @@ export function LandingFooter() {
                 <Link
                   key={link.label}
                   to={link.to}
-                  className="text-sm text-[#666666] transition-colors hover:text-[#1A1A1A]"
+                  className="text-sm text-[#666666] transition-colors hover:text-[#1A1A1A] touch:flex touch:min-h-11 touch:items-center"
                 >
                   {link.label}
                 </Link>
@@ -57,7 +57,7 @@ export function LandingFooter() {
                 <a
                   key={link.label}
                   href={link.to}
-                  className="text-sm text-[#666666] transition-colors hover:text-[#1A1A1A]"
+                  className="text-sm text-[#666666] transition-colors hover:text-[#1A1A1A] touch:flex touch:min-h-11 touch:items-center"
                 >
                   {link.label}
                 </a>

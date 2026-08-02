@@ -15,7 +15,8 @@ export function AuthFooterLink({ prefix, linkLabel, to }: AuthFooterLinkProps) {
       <span>{prefix}</span>
       <Link
         to={to}
-        className="group relative font-semibold text-brand transition-colors duration-150 hover:text-brand-hover focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none"
+        // Human: touch:py-3 turns a bare text link into a tappable row without changing the desktop line.
+        className="group relative font-semibold text-brand transition-colors duration-150 hover:text-brand-hover focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none touch:inline-flex touch:min-h-11 touch:items-center touch:px-1"
       >
         {linkLabel}
         <span

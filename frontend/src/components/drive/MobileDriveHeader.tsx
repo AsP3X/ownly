@@ -131,7 +131,7 @@ export function MobileDriveHeader({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             className="shrink-0 text-ink-muted"
             aria-label="Go back"
             onClick={onBack}
@@ -142,7 +142,7 @@ export function MobileDriveHeader({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             className="shrink-0 text-ink-muted"
             aria-label="Open menu"
             onClick={onMenuOpen}
@@ -165,7 +165,7 @@ export function MobileDriveHeader({
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               className="text-ink-muted"
               aria-label="New folder"
               onClick={onCreateFolder}
@@ -176,7 +176,7 @@ export function MobileDriveHeader({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             className="text-brand"
             aria-label="Upload files"
             onClick={onUpload}
@@ -191,7 +191,7 @@ export function MobileDriveHeader({
               aria-haspopup="menu"
               onClick={onProfileToggle}
               className={cn(
-                "flex size-9 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on shadow-sm outline-none",
+                "flex size-9 touch:size-11 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-on shadow-sm outline-none",
                 profileOpen && "ring-2 ring-brand/30 ring-offset-2 ring-offset-surface",
               )}
             >

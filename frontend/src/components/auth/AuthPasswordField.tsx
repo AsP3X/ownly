@@ -79,7 +79,7 @@ export function AuthPasswordField({
           <button
             type="button"
             className={cn(
-              "inline-flex size-8 items-center justify-center rounded-lg text-ink-faint",
+              "inline-flex size-8 items-center justify-center rounded-lg text-ink-faint touch:size-11",
               "transition-[color,background-color,transform] duration-150 ease-out",
               "hover:bg-sunken hover:text-ink active:scale-90",
               "focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none",

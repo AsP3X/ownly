@@ -16,7 +16,9 @@ export function AuthCheckbox({ checked, onChange, children, className }: AuthChe
   return (
     <label
       className={cn(
-        "group/checkbox flex cursor-pointer items-center gap-2.5 text-sm text-ink-muted select-none",
+        // Human: The 18px box is the visual, but the whole label row is the tap target — touch:min-h-11
+        // gives it a finger-sized band without moving anything on desktop.
+        "group/checkbox flex min-h-5 cursor-pointer items-center gap-2.5 text-sm text-ink-muted select-none touch:min-h-11",
         "transition-colors duration-150 hover:text-ink",
         className,
       )}

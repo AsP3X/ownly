@@ -5,6 +5,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Human: Fingers need bigger controls than a mouse. Matches any touch device (incl. tablets, which are
+   wide enough to miss sm:) plus phone-width windows, mirroring the h-11 sm:h-10 pattern in SetupField. */
+/* Agent: MOUSE DESKTOPS KEEP THE DENSE SCALE; PAIRS with base sizes in button-variants.ts. */
+@custom-variant touch {
+  @media (pointer: coarse) {
+    @slot;
+  }
+  @media (max-width: 639px) {
+    @slot;
+  }
+}
+
 /* Human: Mobile video layout — data-video-layout from useNarrowVideoLayout (Safari-safe aspect detection). */
 /* Agent: video-portrait / video-landscape match [data-video-layout] on dialog viewport; children use video-*: utilities. */
 @custom-variant video-portrait (&:where([data-video-layout="portrait"], [data-video-layout="portrait"] *));

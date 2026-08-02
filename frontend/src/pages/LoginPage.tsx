@@ -187,7 +187,7 @@ export default function LoginPage() {
             </AuthCheckbox>
             <button
               type="button"
-              className="rounded-md text-sm font-semibold text-brand transition-colors duration-150 hover:text-brand-hover hover:underline focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none"
+              className="rounded-md text-sm font-semibold text-brand transition-colors duration-150 hover:text-brand-hover hover:underline focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none touch:inline-flex touch:min-h-11 touch:items-center touch:px-1"
               onClick={() => {
                 setError("");
                 setInfo("Contact your administrator to reset your password.");

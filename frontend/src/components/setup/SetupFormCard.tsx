@@ -44,9 +44,11 @@ export function SetupFormCard({
         // Agent: sticky + safe-area inset under sm; a plain row inside the panel from sm up.
         <div
           className={[
-            "sticky bottom-0 z-10 -mx-4 border-t border-edge bg-panel px-4 py-3",
+            // Agent: NO -mx-4 here — the outer wrapper already bleeds to the screen edges;
+            // doubling it pushed this row 16px past both edges and scrolled the whole page sideways.
+            "sticky bottom-0 z-10 border-t border-edge bg-panel px-4 py-3",
             "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
-            "sm:static sm:mx-0 sm:-mt-px sm:rounded-b-lg sm:border sm:border-edge sm:bg-surface sm:px-5 sm:py-3.5 sm:pb-3.5",
+            "sm:static sm:-mt-px sm:rounded-b-lg sm:border sm:border-edge sm:bg-surface sm:px-5 sm:py-3.5 sm:pb-3.5",
           ].join(" ")}
         >
           {actions}
