@@ -13,6 +13,10 @@ dist-ssr
 *.local
 public/pdf.worker.min.js
 
+# Playwright run output — screenshots, traces, and .last-run.json are rewritten every run
+test-results/
+playwright-report/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
