@@ -98,14 +98,29 @@ pub fn file_id_from_storage_key(key: &str) -> Option<String> {
 }
 
 // Human: Free bytes this node can still accept for placement/preflight.
-// Agent: ENFORCES Nebular max_logical_bytes when > 0; OTHERWISE unlimited (Ownly target_capacity is display-only).
+// Agent: ENFORCES both Nebular max_logical_bytes and the admin target_capacity_bytes; the LOWER wins.
 pub(crate) fn remaining_bytes(node: &NodeSnapshot) -> i64 {
-    // Human: Only Nebular's hard cap can reject PUTs with 507 — inventing a gate from admin target
-    // falsely blocks uploads when HLS logical usage approaches the soft target while disk still has room.
-    if node.max_logical_bytes > 0 {
-        return (node.max_logical_bytes - node.used_bytes.max(0)).max(0);
-    }
-    i64::MAX
+    // Human: The admin target used to be advisory here — it only fed a progress bar, so a node
+    // configured for 100 GB happily grew past it and the operator had no way to stop that from
+    // the console. A capacity an admin sets is meant to hold, so it now gates placement.
+    //
+    // The original objection to this was real and worth recording: `used_bytes` is PHYSICAL (it
+    // counts HLS segments, source.master and export.mp4, none of which are in files.size_bytes),
+    // so a target chosen while thinking about user-visible library size will bind sooner than
+    // expected. That is an argument for setting the target against physical usage — which the
+    // console now reports honestly — not for letting the limit be ignored.
+    //
+    // Agent: MIN of both caps; 0/None means "no cap from that source", not "no capacity".
+    let nebula_free = if node.max_logical_bytes > 0 {
+        (node.max_logical_bytes - node.used_bytes.max(0)).max(0)
+    } else {
+        i64::MAX
+    };
+    let target_free = match node.target_capacity_bytes {
+        Some(target) if target > 0 => (target - node.used_bytes.max(0)).max(0),
+        _ => i64::MAX,
+    };
+    nebula_free.min(target_free)
 }
 
 // Human: Sum free space across hard-capped storage nodes — matches upload striping preflight.
@@ -539,12 +554,37 @@ mod tests {
     }
 
     #[test]
-    fn soft_target_alone_does_not_cap_network_when_nebular_unlimited() {
+    fn admin_target_caps_placement_when_nebular_is_unlimited() {
         // Human: Setup often sets target_capacity to 50–100GB while NOS_MAX_LOGICAL_BYTES stays 0.
-        // Agent: remaining must stay unlimited so HLS-inflated logical usage cannot false-block uploads.
-        let nodes = vec![snap("a", 49 * 1024 * 1024 * 1024, 0, Some(50 * 1024 * 1024 * 1024))];
-        assert_eq!(remaining_bytes(&nodes[0]), i64::MAX);
-        assert_eq!(aggregate_network_remaining_bytes(&nodes), None);
+        // This used to mean "unlimited", so the console's capacity was decorative. The admin
+        // target is now the binding cap in exactly that configuration.
+        let gb = 1024 * 1024 * 1024;
+        let nodes = vec![snap("a", 49 * gb, 0, Some(50 * gb))];
+        assert_eq!(remaining_bytes(&nodes[0]), gb);
+        assert_eq!(aggregate_network_remaining_bytes(&nodes), Some(gb));
+    }
+
+    #[test]
+    fn node_over_its_admin_target_accepts_nothing_further() {
+        // Human: The reported case — 121 GB sitting on a node configured for 100 GB.
+        let gb = 1024 * 1024 * 1024;
+        let nodes = vec![snap("a", 121 * gb, 0, Some(100 * gb))];
+        assert_eq!(remaining_bytes(&nodes[0]), 0);
+        assert!(plan_upload(&nodes, "users/u/files/f", 1024).is_err());
+    }
+
+    #[test]
+    fn lower_of_nebular_cap_and_admin_target_wins() {
+        // Nebular cap tighter than the admin target.
+        assert_eq!(remaining_bytes(&snap("a", 10, 50, Some(1000))), 40);
+        // Admin target tighter than the Nebular cap.
+        assert_eq!(remaining_bytes(&snap("b", 10, 1000, Some(50))), 40);
+    }
+
+    #[test]
+    fn no_cap_configured_stays_unlimited() {
+        assert_eq!(remaining_bytes(&snap("a", 5000, 0, None)), i64::MAX);
+        assert_eq!(aggregate_network_remaining_bytes(&[snap("a", 5000, 0, None)]), None);
     }
 
     #[test]
@@ -578,15 +618,19 @@ mod tests {
     }
 
     #[test]
-    fn plan_uses_single_node_when_nebular_unlimited_even_if_soft_target_full() {
+    fn plan_rejects_upload_that_would_exceed_the_admin_target() {
+        // Human: Was `plan_uses_single_node_when_nebular_unlimited_even_if_soft_target_full`,
+        // which asserted a 50-byte write onto a node 99/100 full still succeeded because the
+        // Ownly target did not gate placement. That is the behaviour being removed: the target
+        // is a limit now, so this write is refused.
         let nodes = vec![snap("a", 99, 0, Some(100))];
-        let plan = plan_upload(&nodes, "users/u/files/f", 50).unwrap();
+        assert!(plan_upload(&nodes, "users/u/files/f", 50).is_err());
+
+        // Human: One byte still fits — the cap binds at the boundary, it does not close early.
+        let plan = plan_upload(&nodes, "users/u/files/f", 1).unwrap();
         assert!(matches!(
             plan,
-            UploadPlacementPlan::Single {
-                node_id,
-                ..
-            } if node_id == "a"
+            UploadPlacementPlan::Single { node_id, .. } if node_id == "a"
         ));
     }
 }

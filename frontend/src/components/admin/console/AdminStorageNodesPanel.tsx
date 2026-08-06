@@ -65,10 +65,9 @@ export function storageBarFillPercent(percent: number, hasBytes: boolean, minimu
 }
 
 /**
- * Human: The configured node capacity is a TARGET, not an enforced ceiling — the backend only
- * rejects writes on Nebular's own `max_logical_bytes`, and `remaining_bytes()` treats an
- * Ownly-side target as unlimited. Over-target therefore needs to read as "attention", never as
- * a healthy full bar.
+ * Human: The configured node capacity is enforced — placement.rs remaining_bytes() takes the lower
+ * of Nebular's max_logical_bytes and this target, so a node at or past capacity refuses further
+ * uploads with 507. Over-capacity must therefore read as "uploads are blocked", not as a full bar.
  */
 export function isOverCapacity(usedBytes: number, capacityBytes: number | null): boolean {
   return capacityBytes != null && capacityBytes > 0 && usedBytes > capacityBytes;
@@ -280,8 +279,8 @@ function StorageCapacityCell({
         />
       </div>
       {overCapacity ? (
-        <span className="text-[11px] font-medium text-warn">
-          Over target — capacity is advisory, not enforced
+        <span className="text-[11px] font-medium text-danger">
+          Over capacity — this node is refusing new uploads
         </span>
       ) : null}
     </div>
@@ -802,14 +801,14 @@ export function AdminStorageNodesPanel() {
               value={usedLabel}
               detail={
                 networkOverCapacity
-                  ? `${utilizationPct}% of the configured target — the target is advisory and does not block writes`
+                  ? `${utilizationPct}% of configured capacity — uploads are blocked until usage drops below 100%`
                   : `${utilizationPct}% average disk storage utilized across network`
               }
-              // Human: The tone was pinned to "success", so a network 21% over its target still
+              // Human: The tone was pinned to "success", so a network over its capacity still
               // rendered as a green badge. Tone now follows the number it labels.
               badge={{
                 label: networkOverCapacity
-                  ? "Over target"
+                  ? "Over capacity"
                   : utilizationPct > HIGH_UTIL_PERCENT
                     ? "High"
                     : "Optimal",
