@@ -2352,9 +2352,14 @@ export default function DrivePage() {
       onEnterMobileSelection={handleEnterMobileSelection}
     >
       {/* Human: Full-viewport shell — header stays fixed; only the main pane scrolls. */}
-      {/* Agent: flex h-screen overflow-hidden; WRITES scroll containment on main, not document body. */}
+      {/* Agent: flex + overflow-hidden; WRITES scroll containment on main, not document body. */}
+      {/* Human: NOT h-screen. `100vh` is the LARGE viewport, so on mobile it stays tall enough to
+          sit behind the browser's collapsible URL bar — the bottom nav and the explorer status
+          strip anchored to the pane floor then fell outside the visible area until the bar
+          collapsed. svh is the always-safe height; dvh tracks the chrome where supported.
+          Agent: Same pattern the media dialogs already use (PdfPreviewSurfaceMobile et al). */}
       <div
-        className="flex h-screen flex-col overflow-hidden bg-surface text-ink"
+        className="flex h-[100svh] flex-col overflow-hidden bg-surface text-ink supports-[height:100dvh]:h-dvh"
         onDragOver={(event) => {
           if (!event.dataTransfer?.types?.includes("Files")) return;
           event.preventDefault();

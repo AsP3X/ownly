@@ -873,11 +873,15 @@ export const DriveCloudExplorer = memo(function DriveCloudExplorer({
       {/* Human: pb-4 keeps the final row off the sticky status strip below. */}
       {/* Human: `relative` anchors the marquee box; the pointer handler starts a sweep only on
           empty space, so dragging a tile still moves the file. */}
+      {/* Human: The toolbar's bleed (-mt-4 / md:-mt-6) puts its flow box above this section, but it
+          sticks 16px (md: 24px) lower, so that much of the padding below is spent clearing the bar
+          before any gap appears. Without the extra, the first tile row sits flush against it.
+          Agent: MEASURED at 390px — pt-4 gave a 0px gap; pt-8 gives 16px. lg has no bleed (mt-0). */}
       <section
         ref={entriesSectionRef}
         onPointerDown={handleMarqueePointerDown}
         onClickCapture={handleEntryClickCapture}
-        className="relative flex flex-1 flex-col pb-4 pt-4"
+        className="relative flex flex-1 flex-col pb-4 pt-8 md:pt-10 lg:pt-4"
       >
         {/* Human: Painted directly through the ref during a drag — re-rendering the whole grid
             on every pointer move would be visibly slower on large folders. */}

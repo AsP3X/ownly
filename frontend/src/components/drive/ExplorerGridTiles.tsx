@@ -244,7 +244,8 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
           >
             {folder.name}
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-ink-faint lg:text-[11px]">
+          {/* Human: 11px everywhere — 10px metadata is hard to read at arm's length on a phone. */}
+          <span className="flex items-center gap-1 text-[11px] text-ink-faint">
             Folder
             <SharedIndicator flags={shareFlags} className="size-3" />
           </span>
@@ -583,7 +584,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
         {/* Agent: mt-1 + border-t; size/date use tabular numerals so columns of tiles line up. */}
         <span className="mt-1 flex flex-col gap-0.5 border-t border-hairline px-1 pt-1.5">
           <ExplorerGridFileName name={file.name} selected={isSelected} />
-          <span className="flex items-center gap-1 text-[10px] tabular-nums text-ink-faint lg:text-[11px]">
+          <span className="flex items-center gap-1 text-[11px] tabular-nums text-ink-faint">
             {formatBytes(file.size_bytes)}
             <span aria-hidden>·</span>
             {formatFileUpdatedRelative(file.updated_at)}

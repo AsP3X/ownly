@@ -213,7 +213,9 @@ export function ExplorerToolbar({
             aria-label="Search files. Press Enter to search."
             // Human: text-base below lg — iOS Safari zooms the whole page when a focused field
             // is under 16px, and this raw input bypassed the ui/Input component that guards it.
-            className="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none lg:text-[13px]"
+            // h-full makes the whole 44px field tappable; the bare input was only 24px tall, so
+            // most of what reads as the search box did not actually focus it.
+            className="h-full min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none lg:text-[13px]"
           />
           <button
             type="button"
