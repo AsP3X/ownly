@@ -14,6 +14,7 @@ export const ADMIN_SECTION_PARAM = "section";
 const DRIVE_VIEWS: readonly DriveNavId[] = [
   "home",
   "my-files",
+  "favourites",
   "shared-files",
   "recycle-bin",
 ];
