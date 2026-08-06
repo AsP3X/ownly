@@ -156,7 +156,8 @@ pub async fn resolve_active_share(pool: &PgPool, token: &str) -> Result<ShareRec
 }
 
 // Human: Walk parent_id chain to confirm a folder lives inside the shared folder subtree.
-// Agent: BFS upward; RETURNS true when folder_id equals root_id or is a descendant.
+// Agent: Single recursive CTE fetches the entire ancestor chain in one round trip instead of
+//        one query per hop (O(depth) → O(1) round trips).
 pub async fn folder_is_under_root(
     pool: &PgPool,
     user_id: &str,
@@ -167,29 +168,23 @@ pub async fn folder_is_under_root(
         return Ok(true);
     }
 
-    let mut current = folder_id.to_string();
-    loop {
-        let row: Option<(Option<String>,)> = sqlx::query_as(&format!(
-            "SELECT parent_id FROM folders WHERE id = $1 AND user_id = $2 AND {ACTIVE_FOLDERS_SQL}",
-        ))
-        .bind(&current)
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
+    let row: Option<(String,)> = sqlx::query_as(
+        "WITH RECURSIVE ancestors AS ( \
+           SELECT id, parent_id FROM folders WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL \
+           UNION ALL \
+           SELECT f.id, f.parent_id FROM folders f \
+           INNER JOIN ancestors a ON f.id = a.parent_id \
+           WHERE f.deleted_at IS NULL \
+         ) \
+         SELECT id FROM ancestors WHERE id = $3",
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .bind(root_id)
+    .fetch_optional(pool)
+    .await?;
 
-        let Some((parent_id,)) = row else {
-            return Ok(false);
-        };
-
-        let Some(parent) = parent_id else {
-            return Ok(false);
-        };
-
-        if parent == root_id {
-            return Ok(true);
-        }
-        current = parent;
-    }
+    Ok(row.is_some())
 }
 
 // Human: Ensure a browse target folder is allowed for a folder-type share link.
@@ -472,13 +467,51 @@ pub async fn list_all_folders_in_share(
 
 // Human: Ensure every requested id belongs to this share before zip/save/download-all.
 // Agent: FILE share requires exact id; FOLDER share checks subtree membership per file row.
+//        Batched into a single query with ANY($3) instead of N sequential round trips.
 pub async fn ensure_file_ids_in_share(
     pool: &PgPool,
     share: &ShareRecord,
     file_ids: &[String],
 ) -> Result<(), AppError> {
-    for file_id in file_ids {
-        load_file_in_share_scope(pool, share, file_id).await?;
+    if file_ids.is_empty() {
+        return Ok(());
     }
+
+    if share.resource_type == "file" {
+        // Human: File-type share only serves one resource — every id must match it exactly.
+        for file_id in file_ids {
+            if file_id != &share.resource_id {
+                return Err(AppError::NotFound);
+            }
+        }
+    }
+
+    let rows: Vec<ShareScopedFileRow> = sqlx::query_as(&format!(
+        "SELECT id, storage_key, name, mime_type, folder_id, hls_ready, download_export_ready, \
+         hls_encode_status, audio_waveform_ready, audio_encode_status \
+         FROM files WHERE id = ANY($1::text[]) AND user_id = $2 AND {ACTIVE_FILES_SQL}",
+    ))
+    .bind(file_ids)
+    .bind(&share.user_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Human: FOLDER share additionally requires each file to live under the shared root.
+    if share.resource_type == "folder" {
+        for row in &rows {
+            // Human: ShareScopedFileRow is a tuple: (id, storage_key, name, mime_type, folder_id, ...)
+            // Agent: READS row.4 (folder_id); CALLS folder_is_under_root for subtree validation.
+            if let Some(ref folder_id) = row.4 {
+                if !folder_is_under_root(pool, &share.user_id, folder_id, &share.resource_id).await? {
+                    return Err(AppError::NotFound);
+                }
+            }
+        }
+    }
+
+    if rows.len() != file_ids.len() {
+        return Err(AppError::NotFound);
+    }
+
     Ok(())
 }

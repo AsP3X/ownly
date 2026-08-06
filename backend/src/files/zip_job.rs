@@ -217,11 +217,16 @@ async fn write_storage_object_to_zip(
         .get_stream(object_key)
         .await
         .map_err(|error| format!("open {object_key}: {error}"))?;
+    // Human: start_file is a thin header write — fine on the async runtime.
     zip.start_file(member_path, options)
         .map_err(|error| format!("zip entry {member_path}: {error}"))?;
     while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
-        zip.write_all(&chunk)
-            .map_err(|error| format!("write zip entry {member_path}: {error}"))?;
+        // Human: Deflate compression is CPU-bound — move off the async worker thread.
+        // Agent: block_in_place lets the runtime schedule other tasks while we compress.
+        tokio::task::block_in_place(|| {
+            zip.write_all(&chunk)
+                .map_err(|error| format!("write zip entry {member_path}: {error}"))
+        })?;
     }
     Ok(())
 }

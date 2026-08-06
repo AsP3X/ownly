@@ -12,11 +12,13 @@ pub use handlers::{decode_token, decode_token_for_refresh, Claims};
 
 use crate::{error::AppError, AppState};
 
+pub mod cache;
 pub mod handlers;
 pub mod session_cookie;
 
 // Human: Parse session cookie or Bearer JWT, verify expiry, confirm the user row still exists and is enabled.
 // Agent: READS JWT + postgres users; REQUIRES enabled=true; RELOADS role from DB; MUTATES Request extensions with Claims.
+//        Uses in-process cache (30s TTL) to collapse 4–5 DB round trips to 0 for most requests.
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
@@ -29,6 +31,35 @@ pub async fn auth_middleware(
 
     if chrono::Utc::now().timestamp() > claims.exp {
         return Err(AppError::Unauthorized);
+    }
+
+    // Human: Check the in-process auth cache first — avoids 4–5 DB round trips on every request.
+    // Agent: READS cache::get_cached_auth; FALLS BACK to full DB chain on miss or expiry.
+    if let Some(cached) = cache::get_cached_auth(&claims.sub) {
+        if !cached.enabled {
+            return Err(AppError::Forbidden(
+                "account is not activated. Contact an administrator.".into(),
+            ));
+        }
+        if claims.ver < cached.session_epoch {
+            return Err(AppError::Unauthorized);
+        }
+        if let Some(ref sid) = claims.sid {
+            if cached.revoked_sids.iter().any(|id| id == sid) {
+                return Err(AppError::Unauthorized);
+            }
+        } else if let Some(min_iat) = cached.min_valid_iat {
+            if claims.iat < min_iat {
+                return Err(AppError::Unauthorized);
+            }
+        }
+        claims.role = if cached.is_admin {
+            "admin".into()
+        } else {
+            cached.role.clone()
+        };
+        request.extensions_mut().insert(claims);
+        return Ok(next.run(request).await);
     }
 
     let enabled: Option<(bool, String)> =
@@ -50,17 +81,33 @@ pub async fn auth_middleware(
     claims.role =
         crate::authz::effective_jwt_role(&state.pool, &claims.sub, &db_role).await?;
 
-    if !crate::user_sessions::is_token_session_valid(
-        &state.pool,
-        &claims.sub,
-        claims.sid.as_deref(),
-        claims.ver,
-        claims.iat,
-    )
-    .await?
-    {
+    let is_admin = claims.role == "admin";
+
+    let session_epoch = crate::user_sessions::load_session_epoch(&state.pool, &claims.sub).await?;
+    if claims.ver < session_epoch {
         return Err(AppError::Unauthorized);
     }
+
+    let revoked_sids = crate::user_sessions::load_revoked_session_ids(&state.pool, &claims.sub).await?;
+    if let Some(ref sid) = claims.sid {
+        if revoked_sids.iter().any(|id| id == sid) {
+            return Err(AppError::Unauthorized);
+        }
+    }
+
+    // Human: Populate the cache so subsequent requests from this user skip the DB chain.
+    // Agent: WRITES cache::set_cached_auth with all fields the cache check above reads.
+    cache::set_cached_auth(
+        &claims.sub,
+        cache::CachedAuth {
+            enabled: user_enabled,
+            role: db_role,
+            is_admin,
+            session_epoch,
+            revoked_sids,
+            min_valid_iat: None, // only needed for legacy sid-less tokens; not cached here
+        },
+    );
 
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)

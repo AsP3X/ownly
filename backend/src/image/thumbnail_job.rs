@@ -103,7 +103,10 @@ pub async fn run_image_thumbnail_job(
 
     let source_bytes =
         load_source_bytes(storage.as_ref(), &job.storage_key, job.tmp_source.clone()).await?;
-    let jpeg = generate_grid_thumbnail_jpeg(&source_bytes)?;
+    // Human: Image decode + resize + JPEG encode is CPU-bound — offload to blocking pool.
+    let jpeg = tokio::task::spawn_blocking(move || generate_grid_thumbnail_jpeg(&source_bytes))
+        .await
+        .map_err(|e| format!("thumbnail task panicked: {e}"))??;
     let thumb_key = grid_thumbnail_storage_key(&job.storage_key);
 
     // Human: Thumbnail PUTs run concurrently with upload ingest — retry transient Nebular 5xx.

@@ -1,53 +1,42 @@
-// Human: Polls GET /dashboard for the signed-in user's upload rate-limit headroom.
-// Agent: READS upload_rate_limit; DEDUPES in-flight fetches; NEVER hooks upload progress events.
+// Human: Reads upload rate-limit headroom from the shared dashboard context (no separate fetch).
+// Agent: READS InstanceNameContext.dashboard; SUBSCRIBES upload-complete events to trigger refreshDashboard.
+//        Previously fetched /dashboard independently — now shares the single InstanceNameProvider fetch.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDashboard, type UploadRateLimitStatus } from "@/api/client";
+import { useCallback, useEffect, useState } from "react";
+import { type UploadRateLimitStatus } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useInstanceName } from "@/hooks/useInstanceName";
 import { subscribeUploadFileComplete } from "@/lib/upload-manager";
 
 const POLL_INTERVAL_MS = 15_000;
-/** Human: Minimum spacing between dashboard polls so bursts cannot stampede the API. */
-const MIN_REFRESH_GAP_MS = 5_000;
 
 // Human: Live upload throttle snapshot for sidebar widgets — null while loading or signed out.
-// Agent: CALLS fetchDashboard on interval + after each completed upload (throttled); DEDUPES concurrent requests.
+// Agent: READS dashboard from InstanceNameContext; POLLS refreshDashboard on interval + after uploads.
 export function useUploadRateLimit() {
   const { token } = useAuth();
+  const { dashboard, refreshDashboard } = useInstanceName();
   const [status, setStatus] = useState<UploadRateLimitStatus | null>(null);
   const [loading, setLoading] = useState(false);
-  const inFlightRef = useRef<Promise<void> | null>(null);
-  const lastRefreshAtRef = useRef(0);
+
+  // Human: Derive rate-limit status from the shared dashboard whenever it updates.
+  // Agent: READS dashboard.upload_rate_limit; WRITES local status state.
+  useEffect(() => {
+    if (!token || !dashboard) return;
+    setStatus(dashboard.upload_rate_limit ?? null);
+    setLoading(false);
+  }, [token, dashboard]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-
-    const now = Date.now();
-    if (now - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
-      return inFlightRef.current ?? undefined;
-    }
-    if (inFlightRef.current) {
-      return inFlightRef.current;
-    }
-
     setLoading(true);
-    const promise = fetchDashboard()
-      .then((dashboard) => {
-        setStatus(dashboard.upload_rate_limit ?? null);
-        lastRefreshAtRef.current = Date.now();
-      })
-      .catch(() => {
-        // Human: Keep the last known snapshot when a background poll fails.
-        // Agent: SWALLOWS transient errors so the sidebar does not flicker empty.
-      })
-      .finally(() => {
-        inFlightRef.current = null;
-        setLoading(false);
-      });
-
-    inFlightRef.current = promise;
-    return promise;
-  }, [token]);
+    try {
+      await refreshDashboard();
+    } catch {
+      // Human: Keep the last known snapshot when a background poll fails.
+    } finally {
+      setLoading(false);
+    }
+  }, [token, refreshDashboard]);
 
   useEffect(() => {
     if (!token) return;
@@ -59,7 +48,6 @@ export function useUploadRateLimit() {
     }, POLL_INTERVAL_MS);
 
     // Human: Refresh after a file finishes uploading — not on every progress tick.
-    // Agent: SUBSCRIBES subscribeUploadFileComplete only; THROTTLED by MIN_REFRESH_GAP_MS + inFlightRef.
     const unsubscribe = subscribeUploadFileComplete(() => {
       void refresh();
     });

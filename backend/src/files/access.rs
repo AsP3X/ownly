@@ -193,15 +193,15 @@ pub async fn directly_granted_file_ids(pool: &PgPool, user_id: &str) -> Result<V
     .await?;
     ids.extend(user_rows.into_iter().map(|(id,)| id));
 
-    for gid in group_ids {
+    if !group_ids.is_empty() {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT resource_id FROM permission_grants \
-             WHERE subject_type = 'group' AND subject_id = $1 \
+             WHERE subject_type = 'group' AND subject_id = ANY($1::text[]) \
                AND resource_type = 'file' AND resource_id IS NOT NULL AND effect = 'allow' \
                AND permission IN ('content.read','content.write','content.delete','content.share','content.manage_acl') \
                AND (expires_at IS NULL OR expires_at > now())",
         )
-        .bind(&gid)
+        .bind(&group_ids)
         .fetch_all(pool)
         .await?;
         ids.extend(rows.into_iter().map(|(id,)| id));

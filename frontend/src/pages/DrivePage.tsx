@@ -2090,10 +2090,15 @@ export default function DrivePage() {
   }
 
   const usagePercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
-  const nameFilteredFiles =
-    activeNav === "home" && committedQuery
-      ? files.filter((file) => file.name.toLowerCase().includes(committedQuery.toLowerCase()))
-      : files;
+  // Human: Client-side name filter for the Home view when a search query is active.
+  // Agent: MEMO avoids re-creating the filtered array on every render (e.g. upload progress ticks).
+  const nameFilteredFiles = useMemo(
+    () =>
+      activeNav === "home" && committedQuery
+        ? files.filter((file) => file.name.toLowerCase().includes(committedQuery.toLowerCase()))
+        : files,
+    [activeNav, committedQuery, files],
+  );
   // Human: Browser file order — server paginates with sort=; client re-sorts for live upload patches.
   // Agent: CALLS sortExplorerFiles after listFiles/mergeExplorerFileRow updates.
   const browserFiles = useMemo(
@@ -2115,6 +2120,65 @@ export default function DrivePage() {
   const selectableBrowserFolderIds = useMemo(
     () => visibleFolders.map((folder) => folder.id),
     [visibleFolders],
+  );
+
+  // Human: Stable preview props objects — avoids fresh identity on every render defeating
+  //        DynamicImportPreview's internal memo (which spreads previewProps into the child).
+  const videoPreviewProps = useMemo(
+    () => ({
+      videos: galleryVideos,
+      file: previewVideo!,
+      open: true,
+      onOpenChange: (open: boolean) => { if (!open) setPreviewVideo(null); },
+      onFileChange: handleGalleryVideoChange,
+      onDownload: handleDownload,
+      onShare: handleShareFile,
+      folderLabel: videoPlayerFolderLabel,
+      onHlsReprocessQueued: handleHlsReprocessQueued,
+    }),
+    [galleryVideos, previewVideo, handleGalleryVideoChange, handleDownload, handleShareFile, videoPlayerFolderLabel, handleHlsReprocessQueued],
+  );
+  const imagePreviewProps = useMemo(
+    () => ({
+      images: galleryImages,
+      file: previewImage!,
+      open: true,
+      onOpenChange: (open: boolean) => { if (!open) setPreviewImage(null); },
+      onFileChange: handleGalleryImageChange,
+      onDownload: handleDownload,
+      onShare: handleShareFile,
+    }),
+    [galleryImages, previewImage, handleGalleryImageChange, handleDownload, handleShareFile],
+  );
+  const pdfPreviewProps = useMemo(
+    () => ({
+      file: previewPdf!,
+      open: true,
+      onOpenChange: (open: boolean) => { if (!open) setPreviewPdf(null); },
+      onDownload: handleDownload,
+    }),
+    [previewPdf, handleDownload],
+  );
+  const epubPreviewProps = useMemo(
+    () => ({
+      file: previewEpub!,
+      open: true,
+      onOpenChange: (open: boolean) => { if (!open) setPreviewEpub(null); },
+      onDownload: handleDownload,
+    }),
+    [previewEpub, handleDownload],
+  );
+  const textPreviewProps = useMemo(
+    () => ({
+      tabs: galleryTextFiles,
+      file: previewText!,
+      open: true,
+      branchLabel: textEditorBranchLabel,
+      onOpenChange: (open: boolean) => { if (!open) setPreviewText(null); },
+      onFileChange: handleGalleryTextChange,
+      onFileSaved: handleTextFileSaved,
+    }),
+    [galleryTextFiles, previewText, textEditorBranchLabel, handleGalleryTextChange, handleTextFileSaved],
   );
   const allBrowserItemsSelected =
     (selectableBrowserFileIds.length > 0 || selectableBrowserFolderIds.length > 0) &&
@@ -2343,77 +2407,31 @@ export default function DrivePage() {
         {previewVideo !== null ? (
           <DynamicImportPreview
             loader={loadVideoPreviewDialog}
-            previewProps={{
-              videos: galleryVideos,
-              file: previewVideo,
-              open: true,
-              onOpenChange: (open) => {
-                if (!open) setPreviewVideo(null);
-              },
-              onFileChange: handleGalleryVideoChange,
-              onDownload: handleDownload,
-              onShare: handleShareFile,
-              folderLabel: videoPlayerFolderLabel,
-              onHlsReprocessQueued: handleHlsReprocessQueued,
-            }}
+            previewProps={videoPreviewProps}
           />
         ) : null}
         {previewImage !== null ? (
           <DynamicImportPreview
             loader={loadImagePreviewDialog}
-            previewProps={{
-              images: galleryImages,
-              file: previewImage,
-              open: true,
-              onOpenChange: (open) => {
-                if (!open) setPreviewImage(null);
-              },
-              onFileChange: handleGalleryImageChange,
-              onDownload: handleDownload,
-              onShare: handleShareFile,
-            }}
+            previewProps={imagePreviewProps}
           />
         ) : null}
         {previewPdf !== null ? (
           <DynamicImportPreview
             loader={loadPdfPreviewDialog}
-            previewProps={{
-              file: previewPdf,
-              open: true,
-              onOpenChange: (open) => {
-                if (!open) setPreviewPdf(null);
-              },
-              onDownload: handleDownload,
-            }}
+            previewProps={pdfPreviewProps}
           />
         ) : null}
         {previewEpub !== null ? (
           <DynamicImportPreview
             loader={loadEpubPreviewDialog}
-            previewProps={{
-              file: previewEpub,
-              open: true,
-              onOpenChange: (open) => {
-                if (!open) setPreviewEpub(null);
-              },
-              onDownload: handleDownload,
-            }}
+            previewProps={epubPreviewProps}
           />
         ) : null}
         {previewText !== null ? (
           <DynamicImportPreview
             loader={loadTextCodeEditorDialog}
-            previewProps={{
-              tabs: galleryTextFiles,
-              file: previewText,
-              open: true,
-              branchLabel: textEditorBranchLabel,
-              onOpenChange: (open) => {
-                if (!open) setPreviewText(null);
-              },
-              onFileChange: handleGalleryTextChange,
-              onFileSaved: handleTextFileSaved,
-            }}
+            previewProps={textPreviewProps}
           />
         ) : null}
         {previewRtf !== null ? (

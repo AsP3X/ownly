@@ -106,12 +106,20 @@ pub async fn run_document_thumbnail_job(
     let tmp_path = job.tmp_source.as_deref();
     let source_bytes =
         load_source_bytes(storage.as_ref(), &job.storage_key, tmp_path).await?;
-    let jpeg = generate_document_grid_thumbnail_jpeg(
-        &source_bytes,
-        &job.mime_type,
-        &job.filename,
-        tmp_path,
-    )?;
+    // Human: PDF/spreadsheet/EPUB rendering is CPU-bound — offload to blocking pool.
+    let mime_type = job.mime_type.clone();
+    let filename = job.filename.clone();
+    let tmp_path_owned = tmp_path.map(|p| p.to_path_buf());
+    let jpeg = tokio::task::spawn_blocking(move || {
+        generate_document_grid_thumbnail_jpeg(
+            &source_bytes,
+            &mime_type,
+            &filename,
+            tmp_path_owned.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("document thumbnail task panicked: {e}"))??;
     let thumb_key = crate::image::grid_thumbnail_storage_key(&job.storage_key);
 
     // Human: Thumbnail PUTs run concurrently with upload ingest — retry transient Nebular 5xx.

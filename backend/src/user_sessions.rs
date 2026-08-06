@@ -97,6 +97,7 @@ pub async fn bump_session_epoch(pool: &PgPool, user_id: &str) -> Result<u64, App
     .bind(next.to_string())
     .execute(pool)
     .await?;
+    crate::auth::cache::invalidate_auth(user_id);
     Ok(next)
 }
 
@@ -177,6 +178,7 @@ pub async fn revoke_session_id(pool: &PgPool, user_id: &str, session_id: &str) -
     if is_latest_login_session(pool, user_id, session_id).await? {
         bump_session_epoch(pool, user_id).await?;
     }
+    crate::auth::cache::invalidate_auth(user_id);
     Ok(())
 }
 
@@ -236,6 +238,7 @@ pub async fn revoke_all_except_session(
     if let Some(created_at) = kept_created_at {
         store_min_valid_iat(pool, user_id, created_at.timestamp()).await?;
     }
+    crate::auth::cache::invalidate_auth(user_id);
     Ok(())
 }
 

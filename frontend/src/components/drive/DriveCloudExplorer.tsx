@@ -2,6 +2,7 @@
 // Agent: OWNS drag-drop + selection state; DELEGATES chrome to ExplorerToolbar/ExplorerStatusBar.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -191,8 +192,10 @@ type DriveCloudExplorerProps = {
   breadcrumbPortalTarget?: HTMLElement | null;
 };
 
-/** Human: My Cloud browser surface matching Ownly File Explorer Pencil frame. */
-export function DriveCloudExplorer({
+/** Human: My Cloud browser surface matching Ownly File Explorer Pencil frame.
+ * Agent: MEMO prevents full re-render when DrivePage state changes (selection, upload progress, etc.)
+ *        that don't affect the explorer's own props. */
+export const DriveCloudExplorer = memo(function DriveCloudExplorer({
   folderStack,
   folders,
   files,
@@ -1178,4 +1181,4 @@ export function DriveCloudExplorer({
       />
     </div>
   );
-}
+});
