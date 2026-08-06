@@ -43,10 +43,35 @@ type MetricBadgeTone = "success" | "info" | "warning";
 const HIGH_UTIL_PERCENT = 85;
 const SLOW_LATENCY_MS = 50;
 
-/** Human: Utilization percent from byte counts — used for labels, filters, and progress bars. */
-function storageUtilPercentFromBytes(usedBytes: number, capacityBytes: number | null): number {
+/**
+ * Human: Utilization percent from byte counts. NOT clamped — a node can genuinely hold more than
+ * its configured target, and clamping hid exactly that: the KPI card reported 121% while the node
+ * row underneath it said 100%.
+ * Agent: Clamp at the RENDER site for bar widths (storageBarFillPercent), never here — filters and
+ *        labels need the true value.
+ */
+export function storageUtilPercentFromBytes(
+  usedBytes: number,
+  capacityBytes: number | null,
+): number {
   if (capacityBytes == null || capacityBytes <= 0) return 0;
-  return Math.min(100, Math.round((usedBytes / capacityBytes) * 100));
+  return Math.round((usedBytes / capacityBytes) * 100);
+}
+
+/** Human: Bar width for a utilization percent — a track cannot render past full. */
+export function storageBarFillPercent(percent: number, hasBytes: boolean, minimum = 2): number {
+  if (!hasBytes) return 0;
+  return Math.min(100, Math.max(percent, minimum));
+}
+
+/**
+ * Human: The configured node capacity is a TARGET, not an enforced ceiling — the backend only
+ * rejects writes on Nebular's own `max_logical_bytes`, and `remaining_bytes()` treats an
+ * Ownly-side target as unlimited. Over-target therefore needs to read as "attention", never as
+ * a healthy full bar.
+ */
+export function isOverCapacity(usedBytes: number, capacityBytes: number | null): boolean {
+  return capacityBytes != null && capacityBytes > 0 && usedBytes > capacityBytes;
 }
 
 /** Human: Used / total capacity with per-value units (KB, MB, GB, TB) from byte counts. */
@@ -213,15 +238,23 @@ function StorageCapacityCell({
 }) {
   const percent = storageUtilPercentFromBytes(usedBytes, capacityBytes);
   const label = formatStorageUtilizationPair(usedBytes, capacityBytes);
-  const fillWidth =
-    usedBytes > 0 && capacityBytes != null && capacityBytes > 0 ? Math.max(percent, 2) : 0;
+  const hasCapacity = capacityBytes != null && capacityBytes > 0;
+  const overCapacity = isOverCapacity(usedBytes, capacityBytes);
+  const fillWidth = storageBarFillPercent(percent, usedBytes > 0 && hasCapacity);
 
   return (
     <div className="flex w-full min-w-[120px] flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[13px] font-medium text-ink">{label}</span>
-        {capacityBytes != null && capacityBytes > 0 ? (
-          <span className="shrink-0 text-xs font-semibold text-brand">{percent}%</span>
+        {hasCapacity ? (
+          <span
+            className={cn(
+              "shrink-0 text-xs font-semibold",
+              overCapacity ? "text-warn" : "text-brand",
+            )}
+          >
+            {percent}%
+          </span>
         ) : null}
       </div>
       <div
@@ -229,14 +262,28 @@ function StorageCapacityCell({
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`Storage used: ${label}`}
+        // Human: aria-valuemax tracks the real percent when over target, so assistive tech is not
+        // told "100 of 100" on a node holding 121% of its target.
+        aria-valuemax={Math.max(100, percent)}
+        aria-label={
+          overCapacity
+            ? `Storage used: ${label} — over configured target`
+            : `Storage used: ${label}`
+        }
       >
         <div
-          className="h-full rounded-sm bg-brand transition-[width] duration-300 ease-out"
+          className={cn(
+            "h-full rounded-sm transition-[width] duration-300 ease-out",
+            overCapacity ? "bg-warn" : "bg-brand",
+          )}
           style={{ width: `${fillWidth}%` }}
         />
       </div>
+      {overCapacity ? (
+        <span className="text-[11px] font-medium text-warn">
+          Over target — capacity is advisory, not enforced
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -562,12 +609,26 @@ function StoragePerformancePanel({
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between text-xs text-ink-muted">
                     <span>Utilization</span>
-                    <span className="font-medium text-ink">{util}%</span>
+                    <span
+                      className={cn(
+                        "font-medium",
+                        isOverCapacity(node.used_bytes, node.target_capacity_bytes)
+                          ? "text-warn"
+                          : "text-ink",
+                      )}
+                    >
+                      {util}%
+                    </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-sm bg-edge">
                     <div
-                      className="h-full rounded-sm bg-brand"
-                      style={{ width: `${Math.max(util, node.used_bytes > 0 ? 4 : 0)}%` }}
+                      className={cn(
+                        "h-full rounded-sm",
+                        isOverCapacity(node.used_bytes, node.target_capacity_bytes)
+                          ? "bg-warn"
+                          : "bg-brand",
+                      )}
+                      style={{ width: `${storageBarFillPercent(util, node.used_bytes > 0, 4)}%` }}
                     />
                   </div>
                 </div>
@@ -646,6 +707,9 @@ export function AdminStorageNodesPanel() {
   const usedLabel = metrics
     ? formatStorageUtilizationPair(metrics.used_bytes, metrics.capacity_bytes)
     : "—";
+  const networkOverCapacity = metrics
+    ? isOverCapacity(metrics.used_bytes, metrics.capacity_bytes)
+    : false;
 
   const inactiveNodes = metrics ? metrics.total_nodes - metrics.active_nodes : 0;
   const nodeStatusDetail =
@@ -736,8 +800,25 @@ export function AdminStorageNodesPanel() {
             <StorageMetricCard
               label="TOTAL STORAGE UTILIZED"
               value={usedLabel}
-              detail={`${utilizationPct}% average disk storage utilized across network`}
-              badge={{ label: utilizationPct > HIGH_UTIL_PERCENT ? "High" : "Optimal", tone: "success" }}
+              detail={
+                networkOverCapacity
+                  ? `${utilizationPct}% of the configured target — the target is advisory and does not block writes`
+                  : `${utilizationPct}% average disk storage utilized across network`
+              }
+              // Human: The tone was pinned to "success", so a network 21% over its target still
+              // rendered as a green badge. Tone now follows the number it labels.
+              badge={{
+                label: networkOverCapacity
+                  ? "Over target"
+                  : utilizationPct > HIGH_UTIL_PERCENT
+                    ? "High"
+                    : "Optimal",
+                tone: networkOverCapacity
+                  ? "warning"
+                  : utilizationPct > HIGH_UTIL_PERCENT
+                    ? "warning"
+                    : "success",
+              }}
               active={nodeFilter === "high-util"}
               onClick={() => {
                 setTab("all");
