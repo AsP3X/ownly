@@ -1,5 +1,5 @@
 // Human: Smoke spec — confirms the SPA boots and renders the setup wizard when setup is incomplete.
-// Agent: MOCKS /setup/status; NAVIGATES /setup; ASSERTS Welcome heading visible.
+// Agent: MOCKS /setup/status; NAVIGATES /setup; ASSERTS step 1 of the wizard is on screen.
 
 import { test, expect } from "@playwright/test";
 
@@ -13,7 +13,12 @@ test("setup wizard renders when setup is incomplete", async ({ page }) => {
   });
 
   await page.goto("/setup");
-  await expect(page.getByRole("heading", { name: "Welcome to Ownly" })).toBeVisible({
+
+  // Human: Step 1 owns the page heading; the token field proves the form rendered with it rather
+  // than an empty shell. Both are viewport-independent — the "Step 1 of 4" line is mobile-only.
+  // Agent: TITLE comes from SETUP_STEPS[0] in components/setup/setup-steps.ts — keep the two in step.
+  await expect(page.getByRole("heading", { name: "Administrator account" })).toBeVisible({
     timeout: 15_000,
   });
+  await expect(page.getByLabel("Setup token")).toBeVisible();
 });
