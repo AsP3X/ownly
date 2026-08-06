@@ -52,7 +52,8 @@ type ConfirmDeleteDialogProps = {
   folderPreviewError?: string;
   /** Human: Drive shows Recycle + Permanently; recycle-bin-permanent shows blob preview + Permanently only. */
   variant?: "drive" | "recycle-bin-permanent";
-  onDeleted?: (target: DeleteTarget) => void;
+  /** Human: `permanent` tells the caller whether the item is still recoverable from the bin. */
+  onDeleted?: (target: DeleteTarget, options: { permanent: boolean }) => void;
 };
 
 // Human: Render a readable summary of nested folder contents for the delete prompt.
@@ -232,7 +233,7 @@ export function ConfirmDeleteDialog({
           );
 
           if (finalStatus.status === "complete") {
-            onDeleted?.(target);
+            onDeleted?.(target, { permanent });
             handleOpenChange(false);
           } else {
             setError(finalStatus.error ?? "Could not delete this file.");
@@ -286,7 +287,7 @@ export function ConfirmDeleteDialog({
         );
       }
 
-      onDeleted?.(target);
+      onDeleted?.(target, { permanent });
       handleOpenChange(false);
     } catch (err) {
       setError(getErrorMessage(err));

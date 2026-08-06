@@ -22,9 +22,11 @@ import {
   listFolders,
   moveFile,
   moveFolder,
+  restoreRecycleBinItems,
   type FileItem,
   type FolderDeletionPreview,
   type FolderItem,
+  type FolderPathSegment,
   type RecycleBinResponse,
   type ShareFlags,
   type SharedByMeItem,
@@ -41,6 +43,7 @@ import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
 import { DriveCloudExplorer } from "@/components/drive/DriveCloudExplorer";
+import { DriveCommandPalette } from "@/components/drive/DriveCommandPalette";
 import { DriveOverviewPanel } from "@/components/drive/DriveOverviewPanel";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
 import { SharedFilesPanel } from "@/components/drive/SharedFilesPanel";
@@ -89,6 +92,19 @@ import {
   shouldPollFileThumbnail,
 } from "@/lib/file-processing";
 import { toastError, toastSuccess } from "@/lib/toast";
+import {
+  captureMoveOrigins,
+  describeMoveFailure,
+  describeMoveSummary,
+  describeMoveUndoneSummary,
+  describeRecycleSummary,
+  describeRestoreSummary,
+  formatItemCount,
+  UNDOABLE_TOAST_MS,
+  type MoveOrigin,
+} from "@/lib/drive-actions";
+import { ROOT_FOLDER_LABEL } from "@/lib/folder-path";
+import type { DriveCommandActionId } from "@/lib/drive-command-palette";
 import {
   resetExplorerThumbnailWarmScope,
   touchCachedExplorerThumbnailsForFiles,
@@ -299,6 +315,7 @@ export default function DrivePage() {
   const [hasMoreFolders, setHasMoreFolders] = useState(false);
   const [foldersLoadingMore, setFoldersLoadingMore] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Human: Topbar slot the explorer portals its folder trail into on desktop.
   // Agent: STATE (not a ref) so the explorer re-renders once the node exists.
   const [topbarBreadcrumbSlot, setTopbarBreadcrumbSlot] = useState<HTMLDivElement | null>(null);
@@ -637,6 +654,24 @@ export default function DrivePage() {
     [activeNav, currentFolderId, fileSort, primeExplorerThumbnailCache, refreshDashboard, serverTypeFilter],
   );
 
+  // Human: Re-fetch whatever the open view shows, search included — the common case for mutations.
+  // Agent: WRAPS refresh with the active nav + committed query; PASS { silent: true } to keep rows visible.
+  const refreshCurrentView = useCallback(
+    (options?: { silent?: boolean }) =>
+      refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
+        nav: activeNav,
+        ...options,
+      }),
+    [activeNav, committedQuery, refresh],
+  );
+
+  // Human: Undo runs from a toast, possibly long after the view moved on.
+  // Agent: MIRRORS refreshCurrentView so deferred callbacks reload what is on screen now, not then.
+  const refreshCurrentViewRef = useRef(refreshCurrentView);
+  useEffect(() => {
+    refreshCurrentViewRef.current = refreshCurrentView;
+  }, [refreshCurrentView]);
+
   // Human: Load Shared Files tab data when the sidebar nav selects that view.
   // Agent: GET /shares/with-me + /shares/by-me; WRITES shared* state for SharedFilesPanel.
   const refreshSharedFiles = useCallback(async () => {
@@ -907,9 +942,25 @@ export default function DrivePage() {
     setFolderPreviewError("");
   }
 
+  // Human: Pull recycled items back out of the bin — the Undo action on a recycle toast.
+  // Agent: POST /recycle-bin/restore; REFRESHES listing + storage stats; TOASTS the outcome.
+  async function undoRecycle(fileIds: string[], folderIds: string[]) {
+    try {
+      const result = await restoreRecycleBinItems({
+        file_ids: fileIds,
+        folder_ids: folderIds,
+      });
+      void refreshDashboard();
+      await refreshCurrentViewRef.current({ silent: true });
+      toastSuccess(describeRestoreSummary(result.restored_files + result.restored_folders));
+    } catch (e) {
+      toastError(getErrorMessage(e));
+    }
+  }
+
   // Human: Refresh drive state after ConfirmDeleteDialog completes a successful delete.
-  // Agent: CLEARS file prefs / breadcrumb crumbs; CALLS refresh for current nav view.
-  function handleDeleted(target: DeleteTarget) {
+  // Agent: CLEARS file prefs / breadcrumb crumbs; REFRESHES current nav view; OFFERS undo for recycles.
+  function handleDeleted(target: DeleteTarget, options: { permanent: boolean }) {
     setError("");
     if (target.kind === "file") {
       removeFilePreferences(target.id);
@@ -918,104 +969,163 @@ export default function DrivePage() {
       setFolderStack((prev) => prev.filter((crumb) => crumb.id !== target.id));
     }
     void refreshDashboard();
-    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-      nav: activeNav,
+    void refreshCurrentView();
+
+    if (options.permanent) return;
+    toastSuccess(describeRecycleSummary([target.name]), {
+      duration: UNDOABLE_TOAST_MS,
+      action: {
+        label: "Undo",
+        onClick: () =>
+          void undoRecycle(
+            target.kind === "file" ? [target.id] : [],
+            target.kind === "folder" ? [target.id] : [],
+          ),
+      },
     });
   }
 
-  // Human: Persist a drag-and-drop move by updating the file's folder_id on the API.
-  // Agent: CALLS moveFile; REFRESHES listing silently so the row disappears from the current folder.
-  async function handleMoveFileToFolder(fileId: string, folderId: string | null) {
-    const file = files.find((item) => item.id === fileId);
-    if (file && isFileProcessing(file)) return;
+  // Human: Run one move batch, tolerating per-item failures so one bad row cannot abort the rest.
+  // Agent: RETURNS the origins that actually moved plus the first error; CALLER owns feedback.
+  async function applyMoveBatch(
+    origins: MoveOrigin[],
+    resolveTargetParentId: (origin: MoveOrigin) => string | null,
+  ) {
+    const applied: MoveOrigin[] = [];
+    let failure = "";
+    for (const origin of origins) {
+      try {
+        const targetParentId = resolveTargetParentId(origin);
+        if (origin.kind === "file") {
+          await moveFile(origin.id, targetParentId);
+        } else {
+          await moveFolder(origin.id, targetParentId);
+        }
+        applied.push(origin);
+      } catch (e) {
+        failure = failure || getErrorMessage(e);
+      }
+    }
+    return { applied, failure };
+  }
 
-    setError("");
-    try {
-      await moveFile(fileId, folderId);
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
-    } catch (e) {
-      setError(getErrorMessage(e));
+  // Human: Put a completed move back where it came from — the Undo action on the move toast.
+  // Agent: REPLAYS applyMoveBatch against each origin's previous parent; REFRESHES the open view.
+  async function undoDriveMove(moved: MoveOrigin[]) {
+    const { applied, failure } = await applyMoveBatch(moved, (origin) => origin.parentId);
+    await refreshCurrentViewRef.current({ silent: true });
+    if (applied.length > 0) {
+      toastSuccess(describeMoveUndoneSummary(applied));
+    }
+    if (failure) {
+      toastError(describeMoveFailure(moved.length - applied.length, failure));
     }
   }
 
-  // Human: Persist a folder hierarchy change by PATCHing parent_id on the API.
-  // Agent: CALLS moveFolder; REFRESHES listing; TRIMS folderStack when the open folder moved away.
-  async function handleMoveFolderToParent(folderId: string, parentId: string | null) {
-    setError("");
-    try {
-      await moveFolder(folderId, parentId);
-      setFolderStack((prev) => prev.filter((crumb) => crumb.id !== folderId));
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
-    } catch (e) {
-      setError(getErrorMessage(e));
+  /**
+   * Human: Move files and folders into one destination and confirm it with an undoable toast.
+   * Agent: CAPTURES previous parents first; TRIMS breadcrumbs for moved folders; REFRESHES silently.
+   *        RETURNS the failure text instead of surfacing it — drag-drop toasts it, the picker inlines it.
+   */
+  async function runDriveMove(
+    filesToMove: FileItem[],
+    foldersToMove: FolderItem[],
+    destinationId: string | null,
+    destinationLabel: string,
+  ) {
+    const origins = captureMoveOrigins(filesToMove, foldersToMove, destinationId);
+    if (origins.length === 0) {
+      return { requested: 0, movedCount: 0, failure: "" };
     }
+
+    setError("");
+    const { applied, failure } = await applyMoveBatch(origins, () => destinationId);
+
+    const movedFolderIds = new Set(
+      applied.filter((origin) => origin.kind === "folder").map((origin) => origin.id),
+    );
+    if (movedFolderIds.size > 0) {
+      setFolderStack((prev) => prev.filter((crumb) => !movedFolderIds.has(crumb.id)));
+    }
+    await refreshCurrentView({ silent: true });
+
+    if (applied.length > 0) {
+      toastSuccess(describeMoveSummary(applied, destinationLabel), {
+        duration: UNDOABLE_TOAST_MS,
+        action: { label: "Undo", onClick: () => void undoDriveMove(applied) },
+      });
+    }
+
+    return {
+      requested: origins.length,
+      movedCount: applied.length,
+      failure: describeMoveFailure(origins.length - applied.length, failure),
+    };
   }
 
-  // Human: Explorer drag-drop entry — moves every checked file when batch-select mode is active.
-  // Agent: READS mobileSelectionMode + selectedFileIds; CALLS moveFile per id; CLEARS selection on batch success.
+  // Human: Name a drop destination for the move toast — a visible folder, a breadcrumb, or the root.
+  // Agent: READS folders + folderStack; both are the only drop targets the explorer offers.
+  function resolveDropDestinationLabel(folderId: string | null) {
+    if (folderId === null) return ROOT_FOLDER_LABEL;
+    return (
+      folders.find((folder) => folder.id === folderId)?.name ??
+      folderStack.find((crumb) => crumb.id === folderId)?.name ??
+      ROOT_FOLDER_LABEL
+    );
+  }
+
+  // Human: Files one drag-drop should move — the whole checked batch in tap-select mode, else the dragged row.
+  // Agent: SKIPS processing files; batch requires mobileSelectionMode so desktop drags stay single-row.
+  function resolveDraggedFiles(fileId: string): FileItem[] {
+    const dragged = files.find((item) => item.id === fileId);
+    if (!dragged || isFileProcessing(dragged)) return [];
+    if (mobileSelectionMode && selectedFileIds.has(fileId) && selectedFileIds.size > 1) {
+      return files.filter((item) => selectedFileIds.has(item.id) && !isFileProcessing(item));
+    }
+    return [dragged];
+  }
+
+  // Human: Folders one drag-drop should move — every checked folder when the dragged one is checked.
+  // Agent: READS selectedFolderIds; MIRRORS resolveDraggedFiles for the folder lane.
+  function resolveDraggedFolders(folderId: string): FolderItem[] {
+    const dragged = folders.find((item) => item.id === folderId);
+    if (!dragged) return [];
+    if (selectedFolderIds.has(folderId) && selectedFolderIds.size > 1) {
+      return folders.filter((item) => selectedFolderIds.has(item.id));
+    }
+    return [dragged];
+  }
+
+  // Human: Explorer drag-drop entry for files — moves the dragged row or the checked batch.
+  // Agent: CALLS runDriveMove; CLEARS selection only after a batch move, as before.
   async function handleExplorerMoveFileToFolder(fileId: string, folderId: string | null) {
-    const draggedFile = files.find((item) => item.id === fileId);
-    if (draggedFile && isFileProcessing(draggedFile)) return;
+    const filesToMove = resolveDraggedFiles(fileId);
+    if (filesToMove.length === 0) return;
 
-    const batchIds =
-      mobileSelectionMode &&
-      selectedFileIds.has(fileId) &&
-      selectedFileIds.size > 1
-        ? [...selectedFileIds].filter((id) => {
-            const candidate = files.find((item) => item.id === id);
-            return candidate !== undefined && !isFileProcessing(candidate);
-          })
-        : null;
-
-    if (!batchIds) {
-      await handleMoveFileToFolder(fileId, folderId);
-      return;
-    }
-
-    setError("");
-    try {
-      for (const id of batchIds) {
-        await moveFile(id, folderId);
-      }
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
-      handleClearBrowserSelection();
-    } catch (e) {
-      setError(getErrorMessage(e));
-    }
+    const result = await runDriveMove(
+      filesToMove,
+      [],
+      folderId,
+      resolveDropDestinationLabel(folderId),
+    );
+    if (result.failure) toastError(result.failure);
+    if (result.movedCount > 0 && filesToMove.length > 1) handleClearBrowserSelection();
   }
 
-  // Human: Explorer drag-drop for folders — batch-moves checked folders when applicable.
-  // Agent: READS selectedFolderIds; CALLS moveFolder per id; CLEARS selection after batch success.
+  // Human: Explorer drag-drop entry for folders — moves the dragged folder or the checked batch.
+  // Agent: CALLS runDriveMove; runDriveMove already trims breadcrumbs for folders that moved.
   async function handleExplorerMoveFolderToParent(folderId: string, parentId: string | null) {
-    const batchIds =
-      selectedFolderIds.has(folderId) && selectedFolderIds.size > 1
-        ? [...selectedFolderIds]
-        : null;
+    const foldersToMove = resolveDraggedFolders(folderId);
+    if (foldersToMove.length === 0) return;
 
-    if (!batchIds) {
-      await handleMoveFolderToParent(folderId, parentId);
-      return;
-    }
-
-    setError("");
-    try {
-      for (const id of batchIds) {
-        await moveFolder(id, parentId);
-      }
-      setFolderStack((prev) => prev.filter((crumb) => !batchIds.includes(crumb.id)));
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
-      handleClearBrowserSelection();
-    } catch (e) {
-      setError(getErrorMessage(e));
-    }
+    const result = await runDriveMove(
+      [],
+      foldersToMove,
+      parentId,
+      resolveDropDestinationLabel(parentId),
+    );
+    if (result.failure) toastError(result.failure);
+    if (result.movedCount > 0 && foldersToMove.length > 1) handleClearBrowserSelection();
   }
 
   // Human: Enter mobile multi-select — seed the tapped file and show selection chrome on all tiles.
@@ -1146,6 +1256,7 @@ export default function DrivePage() {
   }
 
   const folderPickerTargetId = folderPickerStack.at(-1)?.id ?? null;
+  const folderPickerDestinationLabel = folderPickerStack.at(-1)?.name ?? ROOT_FOLDER_LABEL;
 
   // Human: Copy every selected file into the folder currently shown in the picker.
   // Agent: SEQUENTIAL POST /files/:id/copy; REFRESHES listing; CLEARS selection on success.
@@ -1159,11 +1270,16 @@ export default function DrivePage() {
       for (const file of folderPickerFiles) {
         await copyFile(file.id, folderPickerTargetId);
       }
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
+      await refreshCurrentView({ silent: true });
       handleClearBrowserSelection();
       closeFolderPicker();
+      toastSuccess(
+        `Copied ${
+          folderPickerFiles.length === 1
+            ? `“${folderPickerFiles[0]!.name}”`
+            : formatItemCount(folderPickerFiles.length)
+        } to ${folderPickerDestinationLabel}`,
+      );
     } catch (err) {
       const message = getErrorMessage(err);
       setFolderPickerError(message);
@@ -1173,47 +1289,30 @@ export default function DrivePage() {
     }
   }
 
-  // Human: Move selected files that are not already in the picker destination folder.
-  // Agent: SKIPS same-folder rows; PATCH moveFile per file; REFRESHES; CLEARS selection.
+  // Human: Move selected files and folders into the folder currently shown in the picker.
+  // Agent: CALLS runDriveMove (skips same-folder rows, toasts Undo); KEEPS failures inline in the dialog.
   async function handleFolderPickerMove() {
-    const filesToMove = folderPickerFiles.filter(
-      (file) => (file.folder_id ?? null) !== folderPickerTargetId,
+    setFolderPickerSubmitting("move");
+    setFolderPickerError("");
+
+    const result = await runDriveMove(
+      folderPickerFiles,
+      folderPickerFoldersToMove,
+      folderPickerTargetId,
+      folderPickerDestinationLabel,
     );
-    const foldersToMove = folderPickerFoldersToMove.filter(
-      (folder) => (folder.parent_id ?? null) !== folderPickerTargetId,
-    );
-    if (filesToMove.length === 0 && foldersToMove.length === 0) {
+    setFolderPickerSubmitting(null);
+
+    if (result.requested === 0) {
       setFolderPickerError("Everything selected is already in this folder.");
       return;
     }
-
-    setFolderPickerSubmitting("move");
-    setFolderPickerError("");
-    setError("");
-    try {
-      for (const file of filesToMove) {
-        await moveFile(file.id, folderPickerTargetId);
-      }
-      for (const folder of foldersToMove) {
-        await moveFolder(folder.id, folderPickerTargetId);
-      }
-      if (foldersToMove.length > 0) {
-        setFolderStack((prev) =>
-          prev.filter((crumb) => !foldersToMove.some((folder) => folder.id === crumb.id)),
-        );
-      }
-      await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-        silent: true,
-      });
-      handleClearBrowserSelection();
-      closeFolderPicker();
-    } catch (err) {
-      const message = getErrorMessage(err);
-      setFolderPickerError(message);
-      setError(message);
-    } finally {
-      setFolderPickerSubmitting(null);
+    if (result.failure) {
+      setFolderPickerError(result.failure);
+      return;
     }
+    handleClearBrowserSelection();
+    closeFolderPicker();
   }
 
   function handleDownload(file: FileItem) {
@@ -1282,8 +1381,46 @@ export default function DrivePage() {
     setPreviewRtf(file);
   }
 
+  // Human: Route a file to the viewer or editor that matches its type.
+  // Agent: RETURNS false when no viewer handles the type, so callers can fall back.
+  function openFileByType(file: FileItem, options?: { canEdit?: boolean }): boolean {
+    if (isRtfPreviewMime(file.mime_type, file.name)) {
+      handlePreviewRtf(file, options);
+      return true;
+    }
+    if (isTextCodePreviewMime(file.mime_type, file.name)) {
+      handlePreviewText(file);
+      return true;
+    }
+    if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
+      handlePreviewSpreadsheet(file);
+      return true;
+    }
+    if (isPdfMime(file.mime_type)) {
+      handlePreviewPdf(file);
+      return true;
+    }
+    if (isEpubMime(file.mime_type, file.name)) {
+      handlePreviewEpub(file);
+      return true;
+    }
+    if (isImageMime(file.mime_type)) {
+      handlePreviewImage(file);
+      return true;
+    }
+    if (isAudioMime(file.mime_type)) {
+      handlePreviewAudio(file);
+      return true;
+    }
+    if (file.mime_type?.startsWith("video/")) {
+      handlePreviewVideo(file);
+      return true;
+    }
+    return false;
+  }
+
   // Human: Open a Shared with me file with the correct view/edit capability for collab.
-  // Agent: MAPS SharedWithMeItem → FileItem; ROUTES RTF/text/media previews with canEdit flag.
+  // Agent: MAPS SharedWithMeItem → FileItem; DELEGATES routing to openFileByType with canEdit.
   function handlePreviewGrantedFile(item: SharedWithMeItem) {
     if (item.resource_type !== "file") return;
     const file: FileItem = {
@@ -1298,38 +1435,7 @@ export default function DrivePage() {
       hls_encode_status: null,
       conversion_progress: 0,
     };
-    const canEdit = item.permission === "edit";
-    if (isRtfPreviewMime(file.mime_type, file.name)) {
-      handlePreviewRtf(file, { canEdit });
-      return;
-    }
-    if (isTextCodePreviewMime(file.mime_type, file.name)) {
-      handlePreviewText(file);
-      return;
-    }
-    if (isSpreadsheetPreviewMime(file.mime_type, file.name)) {
-      handlePreviewSpreadsheet(file);
-      return;
-    }
-    if (isPdfMime(file.mime_type)) {
-      handlePreviewPdf(file);
-      return;
-    }
-    if (isEpubMime(file.mime_type, file.name)) {
-      handlePreviewEpub(file);
-      return;
-    }
-    if (isImageMime(file.mime_type)) {
-      handlePreviewImage(file);
-      return;
-    }
-    if (isAudioMime(file.mime_type)) {
-      handlePreviewAudio(file);
-      return;
-    }
-    if (file.mime_type?.startsWith("video/")) {
-      handlePreviewVideo(file);
-    }
+    openFileByType(file, { canEdit: item.permission === "edit" });
   }
 
   // Human: Open the Excel-style spreadsheet dialog for .xlsx/.xls/.ods workbooks.
@@ -1742,9 +1848,12 @@ export default function DrivePage() {
   }
 
   // Human: Refresh drive state after bulk delete succeeds for one or more files.
-  // Agent: CLEARS prefs + selection; CALLS refresh for the active My files view.
-  function handleBulkDeleted(deletedIds: string[]) {
+  // Agent: CLEARS prefs + selection; REFRESHES the active My files view; OFFERS undo for recycles.
+  function handleBulkDeleted(deletedIds: string[], options: { permanent: boolean }) {
     setError("");
+    const deletedNames = deletedIds.map(
+      (fileId) => bulkDeleteItems.find((item) => item.id === fileId)?.name,
+    );
     for (const fileId of deletedIds) {
       removeFilePreferences(fileId);
     }
@@ -1752,8 +1861,12 @@ export default function DrivePage() {
     clearFileSelectionState();
     setBulkDeleteItems([]);
     void refreshDashboard();
-    void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-      nav: activeNav,
+    void refreshCurrentView();
+
+    if (options.permanent || deletedIds.length === 0) return;
+    toastSuccess(describeRecycleSummary(deletedNames), {
+      duration: UNDOABLE_TOAST_MS,
+      action: { label: "Undo", onClick: () => void undoRecycle(deletedIds, []) },
     });
   }
 
@@ -1770,6 +1883,60 @@ export default function DrivePage() {
       setQuery("");
       setTypeFilter("all");
       setFolderStack([]);
+    }
+  }
+
+  // Human: Send the explorer to a folder trail — used by palette hits and reveal-in-folder.
+  // Agent: LEAVES search mode so the target folder's own contents are what loads.
+  function goToFolderPath(path: FolderPathSegment[]) {
+    setActiveNav("my-files");
+    setQuery("");
+    setCommittedQuery("");
+    setTypeFilter("all");
+    handleClearBrowserSelection();
+    setFolderStack(path.map((segment) => ({ id: segment.id, name: segment.name })));
+  }
+
+  // Human: Open a palette hit — media and documents in their viewer, anything else in details.
+  // Agent: FALLS BACK to the details overlay so every result stays actionable.
+  function handleCommandPaletteOpenFile(file: FileItem) {
+    if (!openFileByType(file)) {
+      handleDetailsFile(file);
+    }
+  }
+
+  // Human: Run the palette's query as a normal explorer search over the whole library.
+  function handleCommandPaletteSearch(nextQuery: string) {
+    setActiveNav("my-files");
+    setFolderStack([]);
+    handleClearBrowserSelection();
+    setQuery(nextQuery);
+    setCommittedQuery(nextQuery);
+  }
+
+  // Human: Perform one palette command — the same actions the sidebar and toolbar expose.
+  // Agent: REUSES handleNavChange so nav side effects (clearing search/selection) stay in one place.
+  function handleCommandPaletteAction(action: DriveCommandActionId) {
+    switch (action) {
+      case "upload":
+        setUploadDialogOpen(true);
+        break;
+      case "new-folder":
+        setActiveNav("my-files");
+        setCreateFolderDialogOpen(true);
+        break;
+      case "go-home":
+        handleNavChange("home");
+        break;
+      case "go-my-files":
+        handleNavChange("my-files");
+        break;
+      case "go-shared-files":
+        handleNavChange("shared-files");
+        break;
+      case "go-recycle-bin":
+        handleNavChange("recycle-bin");
+        break;
     }
   }
 
@@ -1856,6 +2023,26 @@ export default function DrivePage() {
     [activeNav, folders],
   );
   const initials = userInitials(user?.email);
+
+  // Human: Cmd/Ctrl+K opens the command palette from anywhere in the drive.
+  // Agent: SKIPS text inputs and open dialogs so editors keep their own chord shortcuts.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      const target = event.target as HTMLElement | null;
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+      if (isEditableTarget || target?.closest("[role='dialog'], dialog") !== null) return;
+
+      event.preventDefault();
+      setCommandPaletteOpen(true);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Human: Ctrl+A selects all files; F2 renames when exactly one file is checked.
   // Agent: LISTENS document keydown on my-files; SKIPS inputs and contenteditable targets.
@@ -2135,6 +2322,14 @@ export default function DrivePage() {
             }}
           />
         ) : null}
+        <DriveCommandPalette
+          open={commandPaletteOpen}
+          onOpenChange={setCommandPaletteOpen}
+          onOpenFile={handleCommandPaletteOpenFile}
+          onOpenFolderPath={goToFolderPath}
+          onSearchInDrive={handleCommandPaletteSearch}
+          onRunAction={handleCommandPaletteAction}
+        />
         <ShareDialog
           open={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
@@ -2469,6 +2664,7 @@ export default function DrivePage() {
                   onOpenFolder={openFolder}
                   onCreateFolder={() => setCreateFolderDialogOpen(true)}
                   onUpload={() => setUploadDialogOpen(true)}
+                  onOpenCommandPalette={() => setCommandPaletteOpen(true)}
                   mobileSelectionMode={mobileSelectionMode}
                   onTapToggleFileSelection={handleTapToggleFileSelection}
                   onMoveFileToFolder={(fileId, folderId) =>

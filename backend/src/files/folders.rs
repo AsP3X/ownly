@@ -48,6 +48,29 @@ pub struct CreateFolderRequest {
     pub parent_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FolderPathsRequest {
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FolderPathSegment {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FolderPathsResponse {
+    pub paths: std::collections::HashMap<String, Vec<FolderPathSegment>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct FolderPathRow {
+    origin_id: String,
+    id: String,
+    name: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CreateFolderResponse {
     pub folder: FolderDto,
@@ -248,6 +271,70 @@ fn summarize_content_types(files: &[FolderContentFile]) -> Vec<FolderContentType
             })
         })
         .collect()
+}
+
+/// Human: Folder ids one path lookup may resolve — one page of command palette results.
+const MAX_FOLDER_PATH_IDS: usize = 64;
+
+/// Human: Ancestor hops walked per folder before the trail is cut short.
+/// Agent: GUARDS the recursive CTE against a cycle left by corrupted parent_id data.
+const MAX_FOLDER_PATH_DEPTH: i32 = 64;
+
+// Human: Root-to-folder breadcrumb trails, so search hits can show where they live.
+// Agent: POST /folders/paths JSON { ids }; OWNED active folders only; unknown ids are omitted.
+pub async fn folder_paths(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<FolderPathsRequest>,
+) -> Result<Json<FolderPathsResponse>, AppError> {
+    let mut ids = body.ids;
+    ids.sort();
+    ids.dedup();
+
+    if ids.len() > MAX_FOLDER_PATH_IDS {
+        return Err(AppError::BadRequest(format!(
+            "at most {MAX_FOLDER_PATH_IDS} folder ids can be resolved at once"
+        )));
+    }
+
+    let mut paths: std::collections::HashMap<String, Vec<FolderPathSegment>> =
+        std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(Json(FolderPathsResponse { paths }));
+    }
+
+    // Human: One recursive walk resolves every requested trail instead of a query per folder.
+    // Agent: depth DESC emits each trail root-first; foreign folders never join, so no names leak.
+    let rows: Vec<FolderPathRow> = sqlx::query_as(
+        "WITH RECURSIVE trail AS ( \
+             SELECT id AS origin_id, id, name, parent_id, 0 AS depth \
+             FROM folders \
+             WHERE id = ANY($1) AND user_id = $2 AND deleted_at IS NULL \
+             UNION ALL \
+             SELECT t.origin_id, f.id, f.name, f.parent_id, t.depth + 1 \
+             FROM folders f \
+             JOIN trail t ON f.id = t.parent_id \
+             WHERE f.user_id = $2 AND f.deleted_at IS NULL AND t.depth < $3 \
+         ) \
+         SELECT origin_id, id, name FROM trail ORDER BY origin_id, depth DESC",
+    )
+    .bind(&ids)
+    .bind(&claims.sub)
+    .bind(MAX_FOLDER_PATH_DEPTH)
+    .fetch_all(&state.pool)
+    .await?;
+
+    for row in rows {
+        paths
+            .entry(row.origin_id)
+            .or_default()
+            .push(FolderPathSegment {
+                id: row.id,
+                name: row.name,
+            });
+    }
+
+    Ok(Json(FolderPathsResponse { paths }))
 }
 
 // Human: Preview what deleting a folder would remove — file type counts and nested folders.

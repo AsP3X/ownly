@@ -1457,6 +1457,21 @@ export async function listFolders(params?: ListFoldersParams) {
   }>;
 }
 
+/** Human: One hop of a folder trail, ordered root-first by the API. */
+export type FolderPathSegment = {
+  id: string;
+  name: string;
+};
+
+// Human: Resolve where folders live so search hits can show a location and jump to it.
+// Agent: POST /folders/paths JSON { ids }; RETURNS root-first trails; OMITS ids the caller cannot read.
+export async function fetchFolderPaths(ids: string[]) {
+  return apiFetch("/folders/paths", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  }) as Promise<{ paths: Record<string, FolderPathSegment[]> }>;
+}
+
 // Human: Create a folder for organizing files in the drive browser.
 // Agent: POST /folders JSON { name, parent_id? }; RETURNS { folder: FolderItem }.
 export async function createFolder(payload: { name: string; parent_id?: string | null }) {

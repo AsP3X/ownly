@@ -54,7 +54,8 @@ type ConfirmBulkDeleteDialogProps = {
   description?: string;
   /** Human: Runs after a successful permanent delete job (e.g. empty recycle bin folder cleanup). */
   onPermanentComplete?: () => Promise<void>;
-  onDeleted?: (deletedIds: string[]) => void;
+  /** Human: `permanent` tells the caller whether the files are still recoverable from the bin. */
+  onDeleted?: (deletedIds: string[], options: { permanent: boolean }) => void;
   /** Human: Empty entire recycle bin — preview/delete all trashed files without a 500-file cap. */
   recycleBinEmpty?: boolean;
 };
@@ -211,7 +212,7 @@ export function ConfirmBulkDeleteDialog({
             );
 
         if (finalStatus.deleted_file_ids.length > 0) {
-          onDeleted?.(finalStatus.deleted_file_ids);
+          onDeleted?.(finalStatus.deleted_file_ids, { permanent });
         }
 
         if (finalStatus.status === "complete") {
@@ -247,7 +248,7 @@ export function ConfirmBulkDeleteDialog({
       }
 
       if (deletedIds.length > 0) {
-        onDeleted?.(deletedIds);
+        onDeleted?.(deletedIds, { permanent });
       }
 
       if (failures.length === 0) {

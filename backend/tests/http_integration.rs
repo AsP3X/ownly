@@ -4184,6 +4184,108 @@ async fn folder_search_finds_matches_by_name() {
         .ok();
 }
 
+// Human: Folder path lookup returns the root-first trail for owned folders only.
+// Agent: POST /folders/paths { ids }; EXPECT trail root→leaf; foreign folder ids omitted.
+#[tokio::test]
+async fn folder_paths_returns_root_first_trail_for_owned_folders() {
+    let Some(state) =
+        test_harness::TestHarness::state("folder_paths_returns_root_first_trail_for_owned_folders")
+            .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let other_user_id = uuid::Uuid::new_v4().to_string();
+    let root_id = uuid::Uuid::new_v4().to_string();
+    let child_id = uuid::Uuid::new_v4().to_string();
+    let foreign_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("folder-paths-{user_id}@example.com");
+    let other_email = format!("folder-paths-other-{other_user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, address) in [(&user_id, &email), (&other_user_id, &other_email)] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+        )
+        .bind(id)
+        .bind(address)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    sqlx::query("INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, NULL, 'Work')")
+        .bind(&root_id)
+        .bind(&user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert root folder");
+    sqlx::query("INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, $3, 'Invoices')")
+        .bind(&child_id)
+        .bind(&user_id)
+        .bind(&root_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert child folder");
+    sqlx::query("INSERT INTO folders (id, user_id, parent_id, name) VALUES ($1, $2, NULL, 'Private')")
+        .bind(&foreign_id)
+        .bind(&other_user_id)
+        .execute(&state.pool)
+        .await
+        .expect("insert foreign folder");
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let app = create_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/folders/paths")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "ids": [child_id, foreign_id] }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = response_json(response).await;
+    let trail: Vec<&str> = json["paths"][&child_id]
+        .as_array()
+        .expect("trail array")
+        .iter()
+        .filter_map(|segment| segment["name"].as_str())
+        .collect();
+    assert_eq!(trail, vec!["Work", "Invoices"]);
+    assert!(json["paths"][&foreign_id].is_null());
+
+    sqlx::query("DELETE FROM folders WHERE id = ANY($1)")
+        .bind(vec![child_id, root_id, foreign_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(vec![user_id, other_user_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Owners can reparent a folder under another folder via PATCH parent_id.
 // Agent: PATCH /folders/{child} { parent_id }; EXPECT 200; child.parent_id updated.
 #[tokio::test]

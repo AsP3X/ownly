@@ -49,6 +49,8 @@ export type ExplorerToolbarProps = {
 
   onCreateFolder: () => void;
   onUpload: () => void;
+  /** Human: Opens the ⌘K palette — the chip inside the search field is its visible affordance. */
+  onOpenCommandPalette: () => void;
   /**
    * Human: Bulk actions bar, rendered inside the sticky block so it stacks under the toolbar
    * instead of fighting it for `top: 0`.
@@ -130,6 +132,7 @@ export function ExplorerToolbar({
   onViewModeChange,
   onCreateFolder,
   onUpload,
+  onOpenCommandPalette,
   bulkActionsSlot,
   containerRef,
   breadcrumbPortalTarget,
@@ -170,7 +173,7 @@ export function ExplorerToolbar({
         : breadcrumbs}
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* Human: Search grows to fill the bar; Ctrl+K focus is wired in DriveCloudExplorer. */}
+        {/* Human: Search filters this view; the ⌘K chip opens the palette that searches everything. */}
         {/* Agent: type=search keeps the native clear affordance; Enter submits via onSearchKeyDown. */}
         <div className="flex h-9 min-w-[10rem] flex-1 items-center gap-2 rounded-lg border border-edge bg-panel px-3 focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-focus/25 lg:max-w-[22rem]">
           <Search className="size-4 shrink-0 text-ink-faint" aria-hidden />
@@ -181,12 +184,17 @@ export function ExplorerToolbar({
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onSearchKeyDown}
             placeholder="Search files…"
-            aria-label="Search files. Press Enter to search, Ctrl+K or Command+K to focus."
+            aria-label="Search files. Press Enter to search."
             className="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-faint focus:outline-none"
           />
-          <kbd className="hidden shrink-0 rounded border border-edge bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-ink-faint lg:inline">
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            aria-label="Open the command palette to search everywhere. Shortcut: Ctrl+K or Command+K."
+            className="hidden shrink-0 rounded border border-edge bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-ink-faint transition-colors hover:border-brand/35 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/40 lg:inline"
+          >
             ⌘K
-          </kbd>
+          </button>
         </div>
 
         {/* Human: Wraps below ~350px — the view/filter/sort group plus both action buttons no

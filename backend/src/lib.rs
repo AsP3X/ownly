@@ -755,6 +755,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(files::folders::list_folders).post(files::folders::create_folder),
         )
         .route(
+            "/api/v1/folders/paths",
+            post(files::folders::folder_paths),
+        )
+        .route(
             "/api/v1/folders/{id}/download",
             get(files::folder_download::get_folder_download_status)
                 .post(files::folder_download::post_folder_download)

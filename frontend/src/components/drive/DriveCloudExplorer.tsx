@@ -120,6 +120,8 @@ type DriveCloudExplorerProps = {
   onOpenFolder: (folder: FolderItem) => void;
   onCreateFolder: () => void;
   onUpload: () => void;
+  /** Human: Opens the ⌘K palette from the shortcut chip inside the search field. */
+  onOpenCommandPalette: () => void;
   onMoveFileToFolder?: (fileId: string, folderId: string | null) => void | Promise<void>;
   onMoveFolderToParent?: (
     folderId: string,
@@ -207,6 +209,7 @@ export function DriveCloudExplorer({
   onOpenFolder,
   onCreateFolder,
   onUpload,
+  onOpenCommandPalette,
   onMoveFileToFolder,
   onMoveFolderToParent,
   onPreviewVideo,
@@ -267,28 +270,6 @@ export function DriveCloudExplorer({
       input.setSelectionRange(end, end);
     }, 0);
   }
-
-  // Human: Global Cmd/Ctrl+K focuses the drive search bar, matching common cloud-drive UX.
-  // Agent: LISTENS document keydown; SKIPS when inside another input/textarea/dialog.
-  useEffect(() => {
-    function handleKeyDown(event: globalThis.KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const isEditableTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable === true;
-      const isInsideDialog = target?.closest("[role='dialog'], dialog") !== null;
-      const isShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
-
-      if (!isShortcut || isEditableTarget || isInsideDialog) return;
-
-      event.preventDefault();
-      searchInputRef.current?.focus();
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   // Human: Publish the sticky toolbar's height so the list column header can pin right below it.
   // Agent: WRITES --explorer-toolbar-h on the explorer root; RE-MEASURES when the bulk bar appears.
@@ -741,6 +722,7 @@ export function DriveCloudExplorer({
         onViewModeChange={onViewModeChange}
         onCreateFolder={onCreateFolder}
         onUpload={onUpload}
+        onOpenCommandPalette={onOpenCommandPalette}
         bulkActionsSlot={bulkActionsSlot}
         breadcrumbPortalTarget={breadcrumbPortalTarget}
       />

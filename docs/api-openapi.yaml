@@ -87,6 +87,44 @@ paths:
       responses:
         "200":
           description: Paginated folder list
+  /folders/paths:
+    post:
+      summary: Resolve root-first folder trails for many folders at once
+      description: >-
+        Returns the breadcrumb trail for each requested folder, ordered root first and
+        including the folder itself. Ids the caller does not own are omitted from the
+        response. At most 64 ids per request.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Map of folder id to its root-first trail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          name: { type: string }
+        "400":
+          description: More than 64 folder ids requested
   /folders/{id}:
     patch:
       summary: Rename folder
