@@ -10,5 +10,6 @@ pub mod handlers;
 pub mod storage_migration;
 pub mod storage_migration_run;
 pub mod storage_nodes;
+pub mod storage_reclaim;
 
 pub use handlers::{require_admin, require_instance_permission};

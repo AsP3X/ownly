@@ -934,6 +934,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/admin/maintenance/migrate-storage-blobs",
             post(admin::storage_migration::migrate_storage_blobs),
         )
+        // Human: Reconcile node objects against the DB. Preview is read-only; run deletes only
+        // the classes named in the body, and an omitted `classes` field deletes nothing.
+        .route(
+            "/api/v1/admin/maintenance/storage-reclaim/preview",
+            post(admin::storage_reclaim::storage_reclaim_preview),
+        )
+        .route(
+            "/api/v1/admin/maintenance/storage-reclaim/run",
+            post(admin::storage_reclaim::storage_reclaim_run),
+        )
         .route(
             "/api/v1/admin/maintenance/storage-migration/status",
             get(admin::storage_migration_run::get_storage_migration_status),
