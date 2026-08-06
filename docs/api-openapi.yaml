@@ -73,6 +73,59 @@ paths:
           description: Updated file row
         "409":
           description: Name collision in folder
+  /favourites:
+    get:
+      summary: List the signed-in account's starred file ids
+      description: >-
+        Returns starred file ids, newest star first. Recycled files are omitted and reappear
+        if the file is restored.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Starred file ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_ids:
+                    type: array
+                    items: { type: string }
+    post:
+      summary: Star files for this account
+      description: >-
+        Idempotent. Ids the caller does not own, or that are in the recycle bin, are ignored.
+        At most 500 ids per request.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FavouriteIdsRequest" }
+      responses:
+        "200":
+          description: Requested ids and how many rows changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FavouriteMutationResponse" }
+        "400":
+          description: More than 500 file ids requested
+    delete:
+      summary: Remove the star from files for this account
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FavouriteIdsRequest" }
+      responses:
+        "200":
+          description: Requested ids and how many rows changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FavouriteMutationResponse" }
+        "400":
+          description: More than 500 file ids requested
   /folders:
     get:
       summary: List folders or search by name (q)
@@ -311,3 +364,20 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  schemas:
+    FavouriteIdsRequest:
+      type: object
+      required: [file_ids]
+      properties:
+        file_ids:
+          type: array
+          items: { type: string }
+    FavouriteMutationResponse:
+      type: object
+      properties:
+        file_ids:
+          type: array
+          items: { type: string }
+        changed:
+          type: integer
+          description: Rows actually inserted or deleted; 0 when the request was a no-op.

@@ -18,6 +18,7 @@ import {
   Home,
   Loader2,
   Search,
+  Star,
   Trash2,
   Upload,
   Users,
@@ -78,6 +79,7 @@ const ACTION_ICONS: Record<DriveCommandActionId, typeof Upload> = {
   "new-folder": FolderPlus,
   "go-my-files": Folder,
   "go-home": Home,
+  "go-favourites": Star,
   "go-shared-files": Users,
   "go-recycle-bin": Trash2,
 };

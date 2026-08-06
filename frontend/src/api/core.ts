@@ -2,6 +2,7 @@
 // Agent: EXPORTS apiFetch, ApiError, getErrorMessage; READ by domain API modules and client barrel.
 
 import { clearCsrfHint, readCsrfHint, setCsrfHint, syncCsrfHintFromCookie } from "@/lib/csrf-hint";
+import { isNetworkFailure, NETWORK_ERROR_MESSAGE } from "@/lib/network-errors";
 import { getSetupToken } from "@/lib/setup-token";
 import { hasSessionHint } from "@/lib/session-hint";
 
@@ -311,10 +312,15 @@ export function normalizeStorageErrorMessage(message: string): string {
   return message;
 }
 
+// Human: One place every surfaced error passes through — banner, toasts, dialogs, upload tray.
+// Agent: A real HTTP status means the server answered, so it can never be a connectivity failure.
 export function getErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.status > 0) return normalizeStorageErrorMessage(err.message);
+    if (isNetworkFailure(err)) return NETWORK_ERROR_MESSAGE;
     return normalizeStorageErrorMessage(err.message);
   }
+  if (isNetworkFailure(err)) return NETWORK_ERROR_MESSAGE;
   if (err instanceof Error) return normalizeStorageErrorMessage(err.message);
   return "Something went wrong";
 }

@@ -1457,6 +1457,30 @@ export async function listFolders(params?: ListFoldersParams) {
   }>;
 }
 
+// Human: Starred file ids for the signed-in account, newest star first.
+// Agent: GET /favourites; OMITS recycled files, so a restore brings the star back with the file.
+export async function fetchFavouriteFileIds() {
+  return apiFetch("/favourites") as Promise<{ file_ids: string[] }>;
+}
+
+// Human: Star files for this account.
+// Agent: POST /favourites JSON { file_ids }; IDEMPOTENT; ignores ids the caller does not own.
+export async function addFavouriteFiles(fileIds: string[]) {
+  return apiFetch("/favourites", {
+    method: "POST",
+    body: JSON.stringify({ file_ids: fileIds }),
+  }) as Promise<{ file_ids: string[]; changed: number }>;
+}
+
+// Human: Remove the star from files for this account.
+// Agent: DELETE /favourites JSON { file_ids }.
+export async function removeFavouriteFiles(fileIds: string[]) {
+  return apiFetch("/favourites", {
+    method: "DELETE",
+    body: JSON.stringify({ file_ids: fileIds }),
+  }) as Promise<{ file_ids: string[]; changed: number }>;
+}
+
 /** Human: One hop of a folder trail, ordered root-first by the API. */
 export type FolderPathSegment = {
   id: string;

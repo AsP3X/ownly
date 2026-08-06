@@ -23,6 +23,7 @@ import {
   RtfEditorSurface,
   type RtfEditorSurfaceHandle,
 } from "@/components/drive/rtf/RtfEditorSurface";
+import { ConfirmDiscardDialog } from "@/components/drive/ConfirmDiscardDialog";
 import { RtfCollabPresence } from "@/components/drive/rtf/RtfCollabPresence";
 import { RtfEditorToolbar } from "@/components/drive/rtf/RtfEditorToolbar";
 import {
@@ -99,6 +100,8 @@ export function RtfEditorDialog({
   const [draftHtml, setDraftHtml] = useState("<p><br></p>");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  /** Human: Guards closing the editor while edits are unsaved. */
+  const [discardPromptOpen, setDiscardPromptOpen] = useState(false);
   /** Human: Bumps after remote HTML apply so lock marks re-wrap onto the new DOM. */
   const [collabLayoutTick, setCollabLayoutTick] = useState(0);
 
@@ -420,6 +423,12 @@ export function RtfEditorDialog({
     };
   }, [collab, collabEnabled]);
 
+  // Human: Close for real — used directly when clean, and after the discard prompt confirms.
+  const closeEditor = useCallback(() => {
+    void collab.releaseLock();
+    onOpenChange(false);
+  }, [collab, onOpenChange]);
+
   const handleCloseRequest = useCallback(
     (nextOpen: boolean) => {
       if (nextOpen) {
@@ -427,13 +436,12 @@ export function RtfEditorDialog({
         return;
       }
       if (dirty && !readOnly) {
-        const confirmed = window.confirm("Discard unsaved changes?");
-        if (!confirmed) return;
+        setDiscardPromptOpen(true);
+        return;
       }
-      void collab.releaseLock();
-      onOpenChange(false);
+      closeEditor();
     },
-    [collab, dirty, onOpenChange, readOnly],
+    [closeEditor, dirty, onOpenChange, readOnly],
   );
 
   const handleSave = useCallback(async () => {
@@ -660,6 +668,15 @@ export function RtfEditorDialog({
           </footer>
         </div>
       </DialogContent>
+      <ConfirmDiscardDialog
+        open={discardPromptOpen}
+        onOpenChange={setDiscardPromptOpen}
+        name={file?.name}
+        onConfirm={() => {
+          setDiscardPromptOpen(false);
+          closeEditor();
+        }}
+      />
     </Dialog>
   );
 }

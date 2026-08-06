@@ -4184,6 +4184,139 @@ async fn folder_search_finds_matches_by_name() {
         .ok();
 }
 
+// Human: Favourites are per account — starred ids survive, foreign ids are ignored, unstar removes.
+// Agent: POST/GET/DELETE /favourites; EXPECT owner scoping and idempotent re-star.
+#[tokio::test]
+async fn favourites_round_trip_is_owner_scoped_and_idempotent() {
+    let Some(state) =
+        test_harness::TestHarness::state("favourites_round_trip_is_owner_scoped_and_idempotent")
+            .await
+    else {
+        return;
+    };
+
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let other_user_id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let foreign_file_id = uuid::Uuid::new_v4().to_string();
+    let email = format!("favourites-{user_id}@example.com");
+    let other_email = format!("favourites-other-{other_user_id}@example.com");
+    let password_hash =
+        ownly_backend::auth::handlers::hash_password("password123").expect("hash password");
+
+    for (id, address) in [(&user_id, &email), (&other_user_id, &other_email)] {
+        sqlx::query(
+            "INSERT INTO users (id, email, password_hash, role, enabled) VALUES ($1, $2, $3, 'user', true)",
+        )
+        .bind(id)
+        .bind(address)
+        .bind(&password_hash)
+        .execute(&state.pool)
+        .await
+        .expect("insert user");
+    }
+
+    for (id, owner, name) in [
+        (&file_id, &user_id, "mine.pdf"),
+        (&foreign_file_id, &other_user_id, "theirs.pdf"),
+    ] {
+        sqlx::query(
+            "INSERT INTO files (id, user_id, name, storage_key, size_bytes) VALUES ($1, $2, $3, $4, 10)",
+        )
+        .bind(id)
+        .bind(owner)
+        .bind(name)
+        .bind(format!("test/{id}"))
+        .execute(&state.pool)
+        .await
+        .expect("insert file");
+    }
+
+    let token = ownly_backend::auth::handlers::create_token(
+        user_id.clone(),
+        email,
+        "user".into(),
+        &state.jwt_secret,
+        None,
+        0,
+    )
+    .expect("token");
+
+    let favourites_request = |method: &str, body: Option<serde_json::Value>| {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri("/api/v1/favourites")
+            .header("authorization", format!("Bearer {token}"));
+        if body.is_some() {
+            builder = builder.header("content-type", "application/json");
+        }
+        builder
+            .body(match body {
+                Some(value) => Body::from(value.to_string()),
+                None => Body::empty(),
+            })
+            .unwrap()
+    };
+
+    // Human: Star one owned file plus one that belongs to someone else.
+    let response = create_router(state.clone())
+        .oneshot(favourites_request(
+            "POST",
+            Some(serde_json::json!({ "file_ids": [file_id, foreign_file_id] })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_json(response).await["changed"], 1);
+
+    // Human: Re-starring the same file changes nothing — the composite key absorbs it.
+    let response = create_router(state.clone())
+        .oneshot(favourites_request(
+            "POST",
+            Some(serde_json::json!({ "file_ids": [file_id] })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["changed"], 0);
+
+    let response = create_router(state.clone())
+        .oneshot(favourites_request("GET", None))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let listed: Vec<String> = serde_json::from_value(response_json(response).await["file_ids"].clone())
+        .expect("file_ids array");
+    assert_eq!(listed, vec![file_id.clone()]);
+
+    let response = create_router(state.clone())
+        .oneshot(favourites_request(
+            "DELETE",
+            Some(serde_json::json!({ "file_ids": [file_id] })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["changed"], 1);
+
+    let response = create_router(state.clone())
+        .oneshot(favourites_request("GET", None))
+        .await
+        .unwrap();
+    let listed: Vec<String> = serde_json::from_value(response_json(response).await["file_ids"].clone())
+        .expect("file_ids array");
+    assert!(listed.is_empty());
+
+    sqlx::query("DELETE FROM files WHERE id = ANY($1)")
+        .bind(vec![file_id, foreign_file_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(vec![user_id, other_user_id])
+        .execute(&state.pool)
+        .await
+        .ok();
+}
+
 // Human: Folder path lookup returns the root-first trail for owned folders only.
 // Agent: POST /folders/paths { ids }; EXPECT trail root→leaf; foreign folder ids omitted.
 #[tokio::test]

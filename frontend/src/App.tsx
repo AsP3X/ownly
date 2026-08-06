@@ -5,6 +5,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { setupStatus } from "@/api/client";
+import { OfflineBanner } from "@/components/OfflineBanner";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
 import { AuthProvider } from "@/context/AuthContext";
@@ -201,6 +202,7 @@ export default function App() {
           </Suspense>
           </RouteErrorBoundary>
           <AuthenticatedDriveShellExtras />
+          <OfflineBanner />
           <ThemedToaster />
         </SetupGuard>
         </InstanceNameProvider>

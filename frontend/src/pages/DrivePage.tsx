@@ -18,6 +18,8 @@ import {
   renameFile,
   renameFolder,
   reprocessFileHls,
+  addFavouriteFiles,
+  removeFavouriteFiles,
   listFiles,
   listFolders,
   moveFile,
@@ -42,7 +44,10 @@ import {
 import { MobileBottomNav } from "@/components/drive/MobileBottomNav";
 import { DriveDesktopTopbar } from "@/components/drive/DriveDesktopTopbar";
 import { MobileDriveHeader } from "@/components/drive/MobileDriveHeader";
-import { DriveCloudExplorer } from "@/components/drive/DriveCloudExplorer";
+import {
+  DriveCloudExplorer,
+  type ExplorerListMode,
+} from "@/components/drive/DriveCloudExplorer";
 import { DriveCommandPalette } from "@/components/drive/DriveCommandPalette";
 import { DriveOverviewPanel } from "@/components/drive/DriveOverviewPanel";
 import { DriveSidebar, type DriveNavId } from "@/components/drive/DriveSidebar";
@@ -58,6 +63,7 @@ import {
   type DeleteTarget,
 } from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
+import { RenameDialog, type RenameTarget } from "@/components/drive/RenameDialog";
 import { FolderPickerDialog, type FolderPickerCrumb } from "@/components/drive/FolderPickerDialog";
 import { ShareDialog, type ShareTarget } from "@/components/drive/ShareDialog";
 import {
@@ -104,6 +110,7 @@ import {
   type MoveOrigin,
 } from "@/lib/drive-actions";
 import { ROOT_FOLDER_LABEL } from "@/lib/folder-path";
+import { loadFavouriteFileIds } from "@/lib/favourites";
 import type { DriveCommandActionId } from "@/lib/drive-command-palette";
 import {
   resetExplorerThumbnailWarmScope,
@@ -112,6 +119,7 @@ import {
 } from "@/lib/explorer-thumbnail-prefetch";
 import { enqueueDownload, enqueueBulkDownload, enqueueFolderDownload } from "@/lib/download-manager";
 import { useInstanceName } from "@/hooks/useInstanceName";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useAuth } from "@/hooks/useAuth";
 import { useDriveUrlState } from "@/hooks/useDriveUrlState";
 import {
@@ -134,14 +142,12 @@ import {
 } from "@/lib/utils-app";
 import { displayNameFromEmail } from "@/lib/public-share-format";
 import {
-  getFavouriteFileIds,
   getRecentFileIds,
   readExplorerFileSort,
   readExplorerViewMode,
   recordFileAccess,
   removeFilePreferences,
   sortFilesByRecentAccess,
-  toggleFavouriteFile,
   writeExplorerFileSort,
   writeExplorerViewMode,
   explorerFileSortToApiParam,
@@ -163,6 +169,7 @@ type FolderCrumb = { id: string; name: string };
 const DRIVE_NAV_TITLES: Record<NavItemId, string> = {
   home: "My Cloud",
   "my-files": "My Cloud",
+  favourites: "Favourites",
   "shared-files": "Shared Files",
   "recycle-bin": "Recycle bin",
 };
@@ -260,6 +267,7 @@ export default function DrivePage() {
     logout();
   }, [logout]);
 
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [folderDeletePreview, setFolderDeletePreview] = useState<FolderDeletionPreview | null>(
     null,
@@ -288,9 +296,7 @@ export default function DrivePage() {
   const [folderPickerSubmitting, setFolderPickerSubmitting] = useState<"copy" | "move" | null>(
     null,
   );
-  const [favouriteIds, setFavouriteIds] = useState<Set<string>>(
-    () => new Set(getFavouriteFileIds()),
-  );
+  const [favouriteIds, setFavouriteIds] = useState<Set<string>>(() => new Set());
   const [previewVideo, setPreviewVideo] = useState<FileItem | null>(null);
   const [previewImage, setPreviewImage] = useState<FileItem | null>(null);
   const [previewPdf, setPreviewPdf] = useState<FileItem | null>(null);
@@ -337,6 +343,9 @@ export default function DrivePage() {
 
   const currentFolderId = folderStack.at(-1)?.id ?? null;
   const isSearchingMyFiles = activeNav === "my-files" && committedQuery.length > 0;
+  // Human: Favourites and search are flat lists — no folder section, no drop targets, no trail.
+  const explorerListMode: ExplorerListMode =
+    activeNav === "favourites" ? "favourites" : isSearchingMyFiles ? "search" : "folder";
   // Human: A library that has never stored a byte, viewed at its root — show onboarding, not "nothing here".
   // Agent: READS dashboard usedBytes; false as soon as anything is uploaded or the user browses deeper.
   const isFirstRunLibrary =
@@ -561,6 +570,30 @@ export default function DrivePage() {
           return;
         }
 
+        // Human: Favourites is a flat view of starred files, wherever they live in the tree.
+        // Agent: RESOLVES the current star ids through /files/batch, the same route Home uses
+        //        for recents; no folders, so the explorer renders it without a trail.
+        if (nav === "favourites") {
+          const starred = await loadFavouriteFileIds();
+          setFavouriteIds(starred);
+          const { files: starredFiles } = await batchFiles([...starred], "minimal");
+          setFolders([]);
+          setFiles(starredFiles);
+          primeExplorerThumbnailCache(starredFiles);
+          setFileCount(starredFiles.length);
+          setHasMoreFiles(false);
+          setFolderCount(0);
+          setHasMoreFolders(false);
+          const flags = buildShareFlagMaps(starredFiles, []);
+          setFileShareFlags(flags.files);
+          setFolderShareFlags({});
+          setRecycleBinData(null);
+          setRecycleBinError("");
+          pruneFileSelection(starredFiles);
+          pruneFolderSelection([]);
+          return;
+        }
+
         const targetFolderId =
           options?.folderId !== undefined ? options.folderId : currentFolderId;
 
@@ -671,6 +704,22 @@ export default function DrivePage() {
   useEffect(() => {
     refreshCurrentViewRef.current = refreshCurrentView;
   }, [refreshCurrentView]);
+
+  // Human: Pull the account's stars once per mount, importing any left in this browser's storage.
+  // Agent: FAILURE is non-fatal — stars simply render empty until the next load.
+  useEffect(() => {
+    let cancelled = false;
+    void loadFavouriteFileIds()
+      .then((ids) => {
+        if (!cancelled) setFavouriteIds(ids);
+      })
+      .catch(() => {
+        // Human: Favourites are decoration on every view except their own; never block the drive.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Human: Load Shared Files tab data when the sidebar nav selects that view.
   // Agent: GET /shares/with-me + /shares/by-me; WRITES shared* state for SharedFilesPanel.
@@ -964,7 +1013,6 @@ export default function DrivePage() {
     setError("");
     if (target.kind === "file") {
       removeFilePreferences(target.id);
-      setFavouriteIds(new Set(getFavouriteFileIds()));
     } else {
       setFolderStack((prev) => prev.filter((crumb) => crumb.id !== target.id));
     }
@@ -1686,50 +1734,84 @@ export default function DrivePage() {
     setDetailsOpen(true);
   }
 
-  // Human: Prompt for a new display name and PATCH the file row in place.
-  // Agent: CALLS renameFile; REFRESHES listing on success; SURFACES API errors in drive error state.
-  const handleRenameFile = useCallback(
-    async (file: FileItem) => {
-      if (isFileProcessing(file)) return;
-      const nextName = window.prompt("Rename file", file.name);
-      if (!nextName || nextName.trim() === file.name) return;
-      try {
-        await renameFile(file.id, nextName.trim());
-        await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-          silent: true,
-          nav: activeNav,
-        });
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    },
-    [activeNav, committedQuery, refresh],
-  );
+  // Human: Open the rename dialog for a file row — the dialog owns validation and the PATCH.
+  // Agent: SKIPS files mid-processing, matching every other row action.
+  const handleRenameFile = useCallback((file: FileItem) => {
+    if (isFileProcessing(file)) return;
+    setRenameTarget({ kind: "file", id: file.id, name: file.name });
+  }, []);
 
-  // Human: Prompt for a new folder label and PATCH the folder row.
-  // Agent: CALLS renameFolder; REFRESHES explorer listing after successful rename.
-  const handleRenameFolder = useCallback(
-    async (folder: FolderItem) => {
-      const nextName = window.prompt("Rename folder", folder.name);
-      if (!nextName || nextName.trim() === folder.name) return;
-      try {
-        await renameFolder(folder.id, nextName.trim());
-        await refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
-          silent: true,
-          nav: activeNav,
-        });
-      } catch (err) {
-        setError(getErrorMessage(err));
+  // Human: Open the rename dialog for a folder row.
+  const handleRenameFolder = useCallback((folder: FolderItem) => {
+    setRenameTarget({ kind: "folder", id: folder.id, name: folder.name });
+  }, []);
+
+  // Human: Put a renamed item back under its old name — the Undo action on the rename toast.
+  // Agent: PATCHES the same id back; REFRESHES the open view; TOASTS success or the failure reason.
+  async function undoRename(target: RenameTarget) {
+    try {
+      if (target.kind === "file") {
+        await renameFile(target.id, target.name);
+      } else {
+        await renameFolder(target.id, target.name);
       }
-    },
-    [activeNav, committedQuery, refresh],
-  );
+      await refreshCurrentViewRef.current({ silent: true });
+      toastSuccess(`Name restored to “${target.name}”`);
+    } catch (err) {
+      toastError(getErrorMessage(err));
+    }
+  }
+
+  // Human: Refresh and confirm after the rename dialog completes, offering to put the old name back.
+  // Agent: RECEIVES the pre-rename target, so undo already knows the name to restore.
+  function handleRenamed(target: RenameTarget, nextName: string) {
+    void refreshCurrentView({ silent: true });
+    toastSuccess(`Renamed to “${nextName}”`, {
+      duration: UNDOABLE_TOAST_MS,
+      action: { label: "Undo", onClick: () => void undoRename(target) },
+    });
+  }
+
+  // Human: Names already taken in the open listing, so the dialog can catch a clash before the PATCH.
+  // Agent: SAME-KIND names only, excluding the item being renamed; the API enforces the real rule.
+  const renameSiblingNames = useMemo(() => {
+    if (!renameTarget) return [];
+    return renameTarget.kind === "file"
+      ? files.filter((file) => file.id !== renameTarget.id).map((file) => file.name)
+      : folders.filter((folder) => folder.id !== renameTarget.id).map((folder) => folder.name);
+  }, [files, folders, renameTarget]);
+
+  /**
+   * Human: Star or unstar files for the account.
+   * Agent: OPTIMISTIC — the star flips immediately and rolls back if the request fails, so a
+   *        dropped connection cannot leave the UI claiming something the server never stored.
+   */
+  async function applyFavouriteChange(fileIds: string[], starred: boolean) {
+    if (fileIds.length === 0) return;
+    const previous = favouriteIds;
+    const next = new Set(previous);
+    for (const fileId of fileIds) {
+      if (starred) next.add(fileId);
+      else next.delete(fileId);
+    }
+    setFavouriteIds(next);
+
+    try {
+      if (starred) await addFavouriteFiles(fileIds);
+      else await removeFavouriteFiles(fileIds);
+      if (activeNav === "favourites") {
+        await refreshCurrentView({ silent: true });
+      }
+    } catch (err) {
+      setFavouriteIds(previous);
+      toastError(getErrorMessage(err));
+    }
+  }
 
   function handleToggleFavourite(fileId: string) {
     const file = files.find((item) => item.id === fileId);
     if (file && isFileProcessing(file)) return;
-    toggleFavouriteFile(fileId);
-    setFavouriteIds(new Set(getFavouriteFileIds()));
+    void applyFavouriteChange([fileId], !favouriteIds.has(fileId));
   }
 
   // Human: Resolve selected ids to FileItem rows from the current in-memory listing.
@@ -1763,20 +1845,15 @@ export default function DrivePage() {
     clearFileSelectionState();
   }
 
-  // Human: Favourite all selected files, or remove favourites when every selected file is starred.
-  // Agent: READS favouriteIds; TOGGLES each selected id toward a uniform favourited state.
+  // Human: Star every selected file, or clear them all when the whole selection is already starred.
+  // Agent: ONE request for the batch; MOVES the selection toward a uniform state as before.
   function handleBulkToggleFavourite() {
     if (selectedFiles.length === 0) return;
     const allFavourited = selectedFiles.every((file) => favouriteIds.has(file.id));
-    for (const file of selectedFiles) {
-      const isFavourited = favouriteIds.has(file.id);
-      if (allFavourited && isFavourited) {
-        toggleFavouriteFile(file.id);
-      } else if (!allFavourited && !isFavourited) {
-        toggleFavouriteFile(file.id);
-      }
-    }
-    setFavouriteIds(new Set(getFavouriteFileIds()));
+    const targets = selectedFiles
+      .filter((file) => favouriteIds.has(file.id) === allFavourited)
+      .map((file) => file.id);
+    void applyFavouriteChange(targets, !allFavourited);
     clearFileSelectionState();
   }
 
@@ -1857,7 +1934,6 @@ export default function DrivePage() {
     for (const fileId of deletedIds) {
       removeFilePreferences(fileId);
     }
-    setFavouriteIds(new Set(getFavouriteFileIds()));
     clearFileSelectionState();
     setBulkDeleteItems([]);
     void refreshDashboard();
@@ -1879,7 +1955,7 @@ export default function DrivePage() {
   function handleNavChange(nav: NavItemId) {
     setActiveNav(nav);
     handleClearBrowserSelection();
-    if (nav === "home" || nav === "recycle-bin" || nav === "shared-files") {
+    if (nav !== "my-files") {
       setQuery("");
       setTypeFilter("all");
       setFolderStack([]);
@@ -1930,6 +2006,9 @@ export default function DrivePage() {
         break;
       case "go-my-files":
         handleNavChange("my-files");
+        break;
+      case "go-favourites":
+        handleNavChange("favourites");
         break;
       case "go-shared-files":
         handleNavChange("shared-files");
@@ -2024,6 +2103,20 @@ export default function DrivePage() {
   );
   const initials = userInitials(user?.email);
 
+  // Human: A listing fetched while the connection was down is stale — reload it once it returns.
+  // Agent: SILENT refresh so rows stay put; only fires on the offline→online edge, not on mount.
+  const online = useOnlineStatus();
+  const wasOfflineRef = useRef(false);
+  useEffect(() => {
+    if (!online) {
+      wasOfflineRef.current = true;
+      return;
+    }
+    if (!wasOfflineRef.current) return;
+    wasOfflineRef.current = false;
+    void refreshCurrentViewRef.current({ silent: true });
+  }, [online]);
+
   // Human: Cmd/Ctrl+K opens the command palette from anywhere in the drive.
   // Agent: SKIPS text inputs and open dialogs so editors keep their own chord shortcuts.
   useEffect(() => {
@@ -2068,7 +2161,7 @@ export default function DrivePage() {
         const file = files.find((item) => item.id === fileId);
         if (file) {
           event.preventDefault();
-          void handleRenameFile(file);
+          handleRenameFile(file);
         }
         return;
       }
@@ -2078,7 +2171,7 @@ export default function DrivePage() {
         const folder = folders.find((item) => item.id === folderId);
         if (folder) {
           event.preventDefault();
-          void handleRenameFolder(folder);
+          handleRenameFolder(folder);
         }
         return;
       }
@@ -2142,8 +2235,8 @@ export default function DrivePage() {
       onCopyToFolder={handleOpenFolderPicker}
       onMoveToFolder={handleOpenFolderPicker}
       onMoveFolderToFolder={(folder) => handleOpenFolderPickerForFolders(folder)}
-      onRenameFile={(file) => void handleRenameFile(file)}
-      onRenameFolder={(folder) => void handleRenameFolder(folder)}
+      onRenameFile={handleRenameFile}
+      onRenameFolder={handleRenameFolder}
       explorerDragActive={explorerDragActive}
       enableMobileSelectActions={!isDesktopViewport}
       onEnterMobileSelection={handleEnterMobileSelection}
@@ -2360,6 +2453,14 @@ export default function DrivePage() {
           onHlsReprocessQueued={handleHlsReprocessQueued}
           onHlsReprocessAllQueued={handleHlsReprocessAllQueued}
           onHlsReprocessAllCancelled={handleHlsReprocessAllCancelled}
+        />
+        <RenameDialog
+          target={renameTarget}
+          onOpenChange={(open) => {
+            if (!open) setRenameTarget(null);
+          }}
+          siblingNames={renameSiblingNames}
+          onRenamed={handleRenamed}
         />
         <ConfirmDeleteDialog
           open={deleteTarget !== null}
@@ -2579,7 +2680,7 @@ export default function DrivePage() {
               )}
             />
 
-            {activeNav === "my-files" ? (
+            {activeNav === "my-files" || activeNav === "favourites" ? (
               // Human: Grow to the pane floor without shrinking below the file list.
               // Agent: `min-h-full` cannot chain — a % min-height against an auto-height parent
               //        resolves to auto, which stranded the explorer's status strip mid-list.
@@ -2640,10 +2741,10 @@ export default function DrivePage() {
                   allSelected={allBrowserItemsSelected}
                   onDeleteFile={requestDeleteFile}
                   onDeleteFolder={requestDeleteFolder}
-                  isSearching={isSearchingMyFiles}
+                  listMode={explorerListMode}
                   firstRun={isFirstRunLibrary}
                   loading={loading}
-                  dragEnabled={!isSearchingMyFiles}
+                  dragEnabled={explorerListMode === "folder"}
                   selectable
                   selectedFileIds={selectedFileIds}
                   onSelectedFileIdsChange={handleSelectedFileIdsChange}
@@ -2651,6 +2752,7 @@ export default function DrivePage() {
                   onSelectedFolderIdsChange={handleSelectedFolderIdsChange}
                   fileShareFlags={fileShareFlags}
                   folderShareFlags={folderShareFlags}
+                  favouriteFileIds={favouriteIds}
                   hasMoreFiles={hasMoreFiles}
                   loadingMoreFiles={filesLoadingMore}
                   onLoadMoreFiles={() => void loadMoreFiles()}

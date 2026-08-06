@@ -755,6 +755,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(files::folders::list_folders).post(files::folders::create_folder),
         )
         .route(
+            "/api/v1/favourites",
+            get(files::favourites::list_favourites)
+                .post(files::favourites::add_favourites)
+                .delete(files::favourites::remove_favourites),
+        )
+        .route(
             "/api/v1/folders/paths",
             post(files::folders::folder_paths),
         )

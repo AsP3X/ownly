@@ -7,6 +7,7 @@ import type { FileItem, FolderItem, ShareFlags } from "@/api/client";
 import type { MobileActionTarget } from "@/components/drive/MobileFileActionsSheet";
 import { ExplorerFileGlyph } from "@/components/drive/ExplorerFileGlyph";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
+import { FavouriteIndicator } from "@/components/drive/FavouriteIndicator";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import type { ExplorerTouchDragBindings } from "@/components/drive/useExplorerTouchDrag";
 import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
@@ -327,6 +328,8 @@ export type ExplorerFileListRowProps = {
   shareFlags?: ShareFlags;
   selectionEnabled: boolean;
   isSelected: boolean;
+  /** Human: Starred for this account — rendered as a badge next to the name. */
+  isFavourite?: boolean;
   hasActiveSelection: boolean;
   mobileSelectionMode?: boolean;
   isDragging: boolean;
@@ -384,6 +387,7 @@ export const ExplorerFileListRow = memo(function ExplorerFileListRow({
   shareFlags,
   selectionEnabled,
   isSelected,
+  isFavourite = false,
   hasActiveSelection,
   mobileSelectionMode = false,
   isDragging,
@@ -556,6 +560,7 @@ export const ExplorerFileListRow = memo(function ExplorerFileListRow({
                   {file.name}
                 </span>
                 <SharedIndicator flags={shareFlags} className="size-3 shrink-0" />
+                <FavouriteIndicator favourite={isFavourite} className="size-3 shrink-0" />
               </span>
               {/* Human: Mobile has no columns — fold size and date under the name instead. */}
               {/* Agent: lg:hidden; desktop reads the same values from the dedicated columns. */}

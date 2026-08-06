@@ -12,6 +12,7 @@ import {
   replacePublicShareFileContent,
   replaceTextFileContent,
 } from "@/api/client";
+import { ConfirmDiscardDialog } from "@/components/drive/ConfirmDiscardDialog";
 import { RtfCollabPresence } from "@/components/drive/rtf/RtfCollabPresence";
 import { CodeEditorHeader } from "@/components/drive/text-code-editor/CodeEditorHeader";
 import { CodeEditorStatusBar } from "@/components/drive/text-code-editor/CodeEditorStatusBar";
@@ -115,6 +116,10 @@ export function TextCodeEditorDialog({
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  /** Human: Which close the discard prompt is guarding — the whole editor, or one tab. */
+  const [pendingDiscard, setPendingDiscard] = useState<
+    { kind: "editor" } | { kind: "tab"; file: FileItem } | null
+  >(null);
   const [themePreference, setThemePreference] = useState<EditorThemePreference>(() =>
     readEditorThemePreference(),
   );
@@ -354,6 +359,12 @@ export function TextCodeEditorDialog({
     setSaveError("");
   }, [activeFile?.id, open]);
 
+  // Human: Close for real — used directly when nothing is dirty, and after the discard prompt.
+  const closeEditor = useCallback(() => {
+    setBuffers({});
+    onOpenChange(false);
+  }, [onOpenChange]);
+
   const handleCloseRequest = useCallback(
     (nextOpen: boolean) => {
       if (nextOpen) {
@@ -362,13 +373,12 @@ export function TextCodeEditorDialog({
       }
       const anyDirty = Object.values(buffers).some((buffer) => buffer.value !== buffer.savedValue);
       if (anyDirty && !readOnly) {
-        const confirmed = window.confirm("Discard unsaved changes?");
-        if (!confirmed) return;
+        setPendingDiscard({ kind: "editor" });
+        return;
       }
-      setBuffers({});
-      onOpenChange(false);
+      closeEditor();
     },
-    [buffers, onOpenChange, readOnly],
+    [buffers, closeEditor, onOpenChange, readOnly],
   );
 
   const handleSelectTab = useCallback(
@@ -379,15 +389,9 @@ export function TextCodeEditorDialog({
     [activeFile?.id, onFileChange],
   );
 
-  const handleCloseTab = useCallback(
+  // Human: Drop one tab — used directly when it is clean, and after the discard prompt.
+  const closeTab = useCallback(
     (closing: FileItem) => {
-      const closingBuffer = buffers[closing.id] ?? emptyBuffer();
-      const closingDirty = closingBuffer.value !== closingBuffer.savedValue;
-      if (closingDirty && !readOnly) {
-        const confirmed = window.confirm(`Discard unsaved changes in ${closing.name}?`);
-        if (!confirmed) return;
-      }
-
       const remaining = openTabs.filter((tab) => tab.id !== closing.id);
       setOpenTabs(remaining);
       setBuffers((current) => {
@@ -404,8 +408,30 @@ export function TextCodeEditorDialog({
         }
       }
     },
-    [activeFile?.id, buffers, onFileChange, onOpenChange, openTabs, readOnly],
+    [activeFile?.id, onFileChange, onOpenChange, openTabs],
   );
+
+  const handleCloseTab = useCallback(
+    (closing: FileItem) => {
+      const closingBuffer = buffers[closing.id] ?? emptyBuffer();
+      const closingDirty = closingBuffer.value !== closingBuffer.savedValue;
+      if (closingDirty && !readOnly) {
+        setPendingDiscard({ kind: "tab", file: closing });
+        return;
+      }
+      closeTab(closing);
+    },
+    [buffers, closeTab, readOnly],
+  );
+
+  // Human: Run whichever close the discard prompt was guarding, then dismiss the prompt.
+  const handleConfirmDiscard = useCallback(() => {
+    const pending = pendingDiscard;
+    setPendingDiscard(null);
+    if (!pending) return;
+    if (pending.kind === "editor") closeEditor();
+    else closeTab(pending.file);
+  }, [closeEditor, closeTab, pendingDiscard]);
 
   const handleValueChange = useCallback(
     (nextValue: string) => {
@@ -658,6 +684,14 @@ export function TextCodeEditorDialog({
           </div>
         </EditorThemeProvider>
       </DialogContent>
+      <ConfirmDiscardDialog
+        open={pendingDiscard !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingDiscard(null);
+        }}
+        name={pendingDiscard?.kind === "tab" ? pendingDiscard.file.name : undefined}
+        onConfirm={handleConfirmDiscard}
+      />
     </Dialog>
   );
 }

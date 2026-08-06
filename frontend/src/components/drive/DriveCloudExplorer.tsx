@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -32,7 +33,17 @@ import { ExplorerStatusBar } from "@/components/drive/ExplorerStatusBar";
 import { ExplorerToolbar } from "@/components/drive/ExplorerToolbar";
 import { EXPLORER_GRID_LAYOUT_CLASS } from "@/components/drive/ExplorerGridPreviewSlot";
 import { useExplorerKeyboardNav } from "@/components/drive/useExplorerKeyboardNav";
+import {
+  entryRefFromNode,
+  useExplorerMarqueeSelect,
+} from "@/components/drive/useExplorerMarqueeSelect";
 import { useExplorerTouchDrag } from "@/components/drive/useExplorerTouchDrag";
+import {
+  entryRefKey,
+  sliceEntryRange,
+  splitEntryRefs,
+  type ExplorerEntryRef,
+} from "@/lib/explorer-selection";
 import {
   FILE_DRAG_MIME,
   FOLDER_DRAG_MIME,
@@ -53,6 +64,9 @@ import { cn } from "@/lib/utils";
 // Agent: CANONICAL definition now lives in ExplorerBreadcrumbs.
 export type { ExplorerFolderCrumb } from "@/components/drive/ExplorerBreadcrumbs";
 import type { ExplorerFolderCrumb } from "@/components/drive/ExplorerBreadcrumbs";
+
+/** Human: Which listing the explorer is showing — drives folder visibility and empty-state copy. */
+export type ExplorerListMode = "folder" | "search" | "favourites";
 
 type TypeFilterOption = { id: FileTypeFilter; label: string };
 
@@ -89,8 +103,11 @@ type DriveCloudExplorerProps = {
   /** Human: Thumbnail grid or detail rows; persisted by DrivePage via drive-preferences. */
   viewMode: ExplorerViewMode;
   onViewModeChange: (mode: ExplorerViewMode) => void;
-  /** Human: True while filtering by name across the library — hides the Folders section. */
-  isSearching?: boolean;
+  /**
+   * Human: What the listing represents — a folder's contents, search hits, or starred files.
+   * Agent: Anything but "folder" is a flat view: no Folders section, no drop targets, no trail.
+   */
+  listMode?: ExplorerListMode;
   /** Human: Empty library at the drive root — swaps the empty state for onboarding hints. */
   firstRun?: boolean;
   /** Human: True while the explorer listing is being fetched — shows a loading indicator without unmounting search. */
@@ -107,6 +124,8 @@ type DriveCloudExplorerProps = {
   ) => void;
   fileShareFlags?: Record<string, ShareFlags>;
   folderShareFlags?: Record<string, ShareFlags>;
+  /** Human: Starred file ids for this account — drives the star badge on rows and tiles. */
+  favouriteFileIds?: Set<string>;
   hasMoreFiles?: boolean;
   loadingMoreFiles?: boolean;
   onLoadMoreFiles?: () => void;
@@ -185,7 +204,7 @@ export function DriveCloudExplorer({
   onFileSortChange,
   viewMode,
   onViewModeChange,
-  isSearching = false,
+  listMode = "folder",
   firstRun = false,
   loading = false,
   dragEnabled = false,
@@ -196,6 +215,7 @@ export function DriveCloudExplorer({
   onSelectedFolderIdsChange,
   fileShareFlags = {},
   folderShareFlags = {},
+  favouriteFileIds,
   hasMoreFiles = false,
   loadingMoreFiles = false,
   onLoadMoreFiles,
@@ -249,6 +269,8 @@ export function DriveCloudExplorer({
   const activeDragRef = useRef<ExplorerDragPayload | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const entriesContainerRef = useRef<HTMLDivElement>(null);
+  /** Human: Full-height entries area — the marquee's coordinate space and hit-test scope. */
+  const entriesSectionRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -355,9 +377,14 @@ export function DriveCloudExplorer({
     selectionEnabled &&
     ((selectedFileIds?.size ?? 0) > 0 || (selectedFolderIds?.size ?? 0) > 0);
 
+  // Human: A flat view has no folders to show and no place to create one.
+  const isSearching = listMode === "search";
+  const isFlatList = listMode !== "folder";
   const listEmptyMessage = isSearching
     ? "Try a different search term or clear filters."
-    : "Create a folder, upload a file, or change your search and filters.";
+    : listMode === "favourites"
+      ? "Star a file from its details panel and it shows up here, on every device."
+      : "Create a folder, upload a file, or change your search and filters.";
   const showEmptyState = folders.length === 0 && files.length === 0;
   const isListView = viewMode === "list";
 
@@ -365,7 +392,7 @@ export function DriveCloudExplorer({
   // Agent: SHARED by both layouts; off-screen paint skipped via content-visibility on each tile.
   const gridEntries = useMemo(() => {
     const entries: ExplorerGridEntry[] = [];
-    if (!isSearching) {
+    if (!isFlatList) {
       for (const folder of folders) {
         entries.push({ kind: "folder", folder });
       }
@@ -374,7 +401,7 @@ export function DriveCloudExplorer({
       entries.push({ kind: "file", file });
     }
     return entries;
-  }, [files, folders, isSearching]);
+  }, [files, folders, isFlatList]);
 
   useEffect(() => {
     const root = scrollElementRef?.current ?? null;
@@ -496,6 +523,113 @@ export function DriveCloudExplorer({
       });
     },
     [onSelectedFolderIdsChange, selectionEnabled],
+  );
+
+  // Human: Listing order for range selection — the same sequence the two layouts render.
+  // Agent: MIRRORS gridEntries; processing files stay in the order but are filtered on apply.
+  const entryOrder = useMemo<ExplorerEntryRef[]>(
+    () =>
+      gridEntries.map((entry) =>
+        entry.kind === "folder"
+          ? { kind: "folder" as const, id: entry.folder.id }
+          : { kind: "file" as const, id: entry.file.id },
+      ),
+    [gridEntries],
+  );
+
+  // Human: Files mid-processing have no checkbox, so no gesture may sweep them into a selection.
+  const unselectableFileIds = useMemo(
+    () => new Set(files.filter(isFileProcessing).map((file) => file.id)),
+    [files],
+  );
+
+  const keepSelectable = useCallback(
+    (refs: readonly ExplorerEntryRef[]) =>
+      refs.filter((ref) => ref.kind === "folder" || !unselectableFileIds.has(ref.id)),
+    [unselectableFileIds],
+  );
+
+  /** Human: Where a Shift+click range starts — the last entry clicked without Shift. */
+  const selectionAnchorRef = useRef<ExplorerEntryRef | null>(null);
+  /** Human: Selection as it stood when a marquee drag began, for Ctrl/Shift-additive sweeps. */
+  const marqueeStartRef = useRef<{ files: string[]; folders: string[] }>({
+    files: [],
+    folders: [],
+  });
+
+  // Human: Shift+click extends from the anchor; Ctrl/Cmd keeps what was already selected.
+  // Agent: REPLACES the selection with the range unless additive.
+  const applyRangeSelection = useCallback(
+    (refs: readonly ExplorerEntryRef[], additive: boolean) => {
+      if (!selectionEnabled || !onSelectedFileIdsChange || !onSelectedFolderIdsChange) return;
+      const { fileIds, folderIds } = splitEntryRefs(keepSelectable(refs));
+      onSelectedFileIdsChange((prev) => new Set(additive ? [...prev, ...fileIds] : fileIds));
+      onSelectedFolderIdsChange((prev) => new Set(additive ? [...prev, ...folderIds] : folderIds));
+    },
+    [keepSelectable, onSelectedFileIdsChange, onSelectedFolderIdsChange, selectionEnabled],
+  );
+
+  // Human: A marquee sweep always resolves against what was selected when the drag started,
+  // so shrinking the box releases entries it no longer covers.
+  const applyMarqueeSelection = useCallback(
+    (refs: readonly ExplorerEntryRef[], additive: boolean) => {
+      if (!selectionEnabled || !onSelectedFileIdsChange || !onSelectedFolderIdsChange) return;
+      const { fileIds, folderIds } = splitEntryRefs(keepSelectable(refs));
+      const start = marqueeStartRef.current;
+      onSelectedFileIdsChange(new Set(additive ? [...start.files, ...fileIds] : fileIds));
+      onSelectedFolderIdsChange(new Set(additive ? [...start.folders, ...folderIds] : folderIds));
+    },
+    [keepSelectable, onSelectedFileIdsChange, onSelectedFolderIdsChange, selectionEnabled],
+  );
+
+  // Human: Clicking the background clears the selection, and drops the range anchor with it.
+  // Agent: SKIPS the state write when nothing is selected, so idle clicks cause no re-render.
+  const handleClearSelectionFromBackground = useCallback(() => {
+    selectionAnchorRef.current = null;
+    if ((selectedFileIds?.size ?? 0) === 0 && (selectedFolderIds?.size ?? 0) === 0) return;
+    onClearSelection?.();
+  }, [onClearSelection, selectedFileIds, selectedFolderIds]);
+
+  const handleMarqueeStart = useCallback(() => {
+    marqueeStartRef.current = {
+      files: [...(selectedFileIds ?? [])],
+      folders: [...(selectedFolderIds ?? [])],
+    };
+  }, [selectedFileIds, selectedFolderIds]);
+
+  const { overlayRef: marqueeOverlayRef, handlePointerDown: handleMarqueePointerDown } =
+    useExplorerMarqueeSelect({
+      // Human: Only where a mouse and a listing both exist — never over the empty or loading states.
+      enabled: selectionEnabled && !loading && gridEntries.length > 0 && !mobileSelectionMode,
+      containerRef: entriesSectionRef,
+      onMarqueeStart: handleMarqueeStart,
+      onMarqueeSelect: applyMarqueeSelection,
+      onClearSelection: handleClearSelectionFromBackground,
+    });
+
+  /**
+   * Human: Shift+click on a row or tile selects the whole span from the anchor.
+   * Agent: CAPTURE phase — stopping here keeps the click from opening the file it landed on.
+   */
+  const handleEntryClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (!selectionEnabled) return;
+      const ref = entryRefFromNode(event.target as Element | null);
+      if (!ref) return;
+
+      const anchor = selectionAnchorRef.current;
+      if (event.shiftKey && anchor) {
+        event.preventDefault();
+        event.stopPropagation();
+        applyRangeSelection(
+          sliceEntryRange(entryOrder, entryRefKey(anchor), entryRefKey(ref)),
+          event.metaKey || event.ctrlKey,
+        );
+        return;
+      }
+      selectionAnchorRef.current = ref;
+    },
+    [applyRangeSelection, entryOrder, selectionEnabled],
   );
 
   // Human: List header tick box selects or clears every selectable entry in the folder.
@@ -730,14 +864,29 @@ export function DriveCloudExplorer({
       {/* Human: One sequence — folders first, then files, in whichever layout is active. */}
       {/* Agent: RENDERS folders when not searching; FILES follow; EMPTY state when both absent. */}
       {/* Human: pb-4 keeps the final row off the sticky status strip below. */}
-      <section className="flex flex-1 flex-col pb-4 pt-4">
+      {/* Human: `relative` anchors the marquee box; the pointer handler starts a sweep only on
+          empty space, so dragging a tile still moves the file. */}
+      <section
+        ref={entriesSectionRef}
+        onPointerDown={handleMarqueePointerDown}
+        onClickCapture={handleEntryClickCapture}
+        className="relative flex flex-1 flex-col pb-4 pt-4"
+      >
+        {/* Human: Painted directly through the ref during a drag — re-rendering the whole grid
+            on every pointer move would be visibly slower on large folders. */}
+        <div
+          ref={marqueeOverlayRef}
+          aria-hidden
+          style={{ display: "none" }}
+          className="pointer-events-none absolute left-0 top-0 z-10 origin-top-left rounded-sm border border-brand/70 bg-brand/12"
+        />
         {loading ? (
           isListView ? (
             <ExplorerListSkeleton />
           ) : (
             <ExplorerGridSkeleton count={8} />
           )
-        ) : showEmptyState && firstRun && !isSearching ? (
+        ) : showEmptyState && firstRun && !isFlatList ? (
           // Human: Brand-new library — onboarding hints instead of the terse "nothing here" copy.
           <ExplorerFirstRunEmptyState onUpload={onUpload} onCreateFolder={onCreateFolder} />
         ) : showEmptyState ? (
@@ -746,19 +895,23 @@ export function DriveCloudExplorer({
               className="flex size-12 items-center justify-center rounded-xl bg-sunken"
               aria-hidden
             >
-              {isSearching ? (
+              {isFlatList ? (
                 <Search className="size-5 text-ink-faint" />
               ) : (
                 <FileIcon className="size-5 text-ink-faint" />
               )}
             </span>
             <p className="text-sm font-semibold text-ink">
-              {isSearching ? "No matching files" : "Nothing here yet"}
+              {listMode === "search"
+                ? "No matching files"
+                : listMode === "favourites"
+                  ? "No starred files yet"
+                  : "Nothing here yet"}
             </p>
             <p className="max-w-sm text-[13px] text-ink-muted">{listEmptyMessage}</p>
             {/* Human: Empty folders offer the two actions that resolve the state. */}
             {/* Agent: HIDDEN while searching — creating a folder would not clear the query. */}
-            {!isSearching ? (
+            {!isFlatList ? (
               <div className="mt-1 flex items-center gap-2">
                 <Button
                   type="button"
@@ -805,7 +958,7 @@ export function DriveCloudExplorer({
                         folder={entry.folder}
                         shareFlags={folderShareFlags[entry.folder.id]}
                         isDropTarget={activeDropTargetFolderId === entry.folder.id}
-                        dragEnabled={dragEnabled && !isSearching}
+                        dragEnabled={dragEnabled && !isFlatList}
                         selectionEnabled={selectionEnabled}
                         isSelected={
                           selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
@@ -836,6 +989,7 @@ export function DriveCloudExplorer({
                         key={entry.file.id}
                         file={entry.file}
                         shareFlags={fileShareFlags[entry.file.id]}
+                        isFavourite={favouriteFileIds?.has(entry.file.id) ?? false}
                         selectionEnabled={selectionEnabled}
                         isSelected={
                           selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)
@@ -887,7 +1041,7 @@ export function DriveCloudExplorer({
                         folder={entry.folder}
                         shareFlags={folderShareFlags[entry.folder.id]}
                         isDropTarget={activeDropTargetFolderId === entry.folder.id}
-                        dragEnabled={dragEnabled && !isSearching}
+                        dragEnabled={dragEnabled && !isFlatList}
                         selectionEnabled={selectionEnabled}
                         isSelected={
                           selectionEnabled && (selectedFolderIds?.has(entry.folder.id) ?? false)
@@ -917,6 +1071,7 @@ export function DriveCloudExplorer({
                         key={entry.file.id}
                         file={entry.file}
                         shareFlags={fileShareFlags[entry.file.id]}
+                        isFavourite={favouriteFileIds?.has(entry.file.id) ?? false}
                         selectionEnabled={selectionEnabled}
                         isSelected={
                           selectionEnabled && (selectedFileIds?.has(entry.file.id) ?? false)
@@ -963,10 +1118,10 @@ export function DriveCloudExplorer({
               </div>
             </ExplorerScrollProvider>
             <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
-            {!isSearching && hasMoreFolders && loadingMoreFolders ? (
+            {!isFlatList && hasMoreFolders && loadingMoreFolders ? (
               <p className="py-2 text-center text-xs text-ink-muted">Loading more folders…</p>
             ) : null}
-            {!isSearching && hasMoreFolders && onLoadMoreFolders ? (
+            {!isFlatList && hasMoreFolders && onLoadMoreFolders ? (
               <div className="flex justify-center py-2">
                 <Button
                   type="button"

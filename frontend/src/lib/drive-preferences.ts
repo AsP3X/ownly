@@ -1,8 +1,7 @@
-// Human: Client-side drive preferences until the API tracks recent access and favourites.
-// Agent: READS/WRITES localStorage keys for recent file opens and starred favourites.
+// Human: Client-side drive preferences — recent opens and explorer layout choices.
+// Agent: READS/WRITES localStorage; favourites moved to the API (see lib/favourites.ts).
 
 const RECENT_KEY = "ownly_recent_files";
-const FAVOURITES_KEY = "ownly_favourite_files";
 const EXPLORER_FILE_SORT_KEY = "ownly_explorer_file_sort";
 const EXPLORER_VIEW_MODE_KEY = "ownly_explorer_view_mode";
 const MAX_RECENT = 50;
@@ -58,21 +57,6 @@ function writeRecent(entries: RecentEntry[]) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(entries));
 }
 
-function readFavouriteIds(): string[] {
-  try {
-    const raw = localStorage.getItem(FAVOURITES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as string[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeFavouriteIds(ids: string[]) {
-  localStorage.setItem(FAVOURITES_KEY, JSON.stringify(ids));
-}
-
 // Human: Return recent file ids in access order for Home batch loading.
 // Agent: READS ownly_recent_files; RETURNS fileId strings only.
 export function getRecentFileIds(): string[] {
@@ -87,27 +71,10 @@ export function recordFileAccess(fileId: string) {
   writeRecent(next.slice(0, MAX_RECENT));
 }
 
-// Human: Return favourite file ids in user-star order.
-// Agent: READS ownly_favourite_files from localStorage.
-export function getFavouriteFileIds(): string[] {
-  return readFavouriteIds();
-}
-
-// Human: Toggle starred state for a file and return whether it is now favourited.
-// Agent: WRITES ownly_favourite_files; RETURNS new favourited boolean.
-export function toggleFavouriteFile(fileId: string): boolean {
-  const ids = readFavouriteIds();
-  const exists = ids.includes(fileId);
-  const next = exists ? ids.filter((id) => id !== fileId) : [...ids, fileId];
-  writeFavouriteIds(next);
-  return !exists;
-}
-
 // Human: Drop stale preference rows when a file is deleted from the library.
-// Agent: REMOVES fileId from recent + favourites localStorage keys.
+// Agent: REMOVES fileId from the recent list; favourites cascade server-side.
 export function removeFilePreferences(fileId: string) {
   writeRecent(readRecent().filter((entry) => entry.fileId !== fileId));
-  writeFavouriteIds(readFavouriteIds().filter((id) => id !== fileId));
 }
 
 // Human: Restore the user's last file sort choice for My Cloud explorer.
@@ -177,13 +144,4 @@ export function sortFilesByRecentAccess<T extends { id: string; updated_at: stri
       (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
     )
     .slice(0, limit);
-}
-
-// Human: Resolve favourite file rows from the current library listing.
-// Agent: READS favourite ids; FILTERS files array preserving star order.
-export function pickFavouriteFiles<T extends { id: string }>(files: T[]): T[] {
-  const byId = new Map(files.map((file) => [file.id, file]));
-  return readFavouriteIds()
-    .map((id) => byId.get(id))
-    .filter((file): file is T => file !== undefined);
 }

@@ -8,6 +8,7 @@ pub mod content_replace;
 pub mod delete_config;
 pub mod delete_job;
 pub mod file_copy;
+pub mod favourites;
 pub mod file_delete;
 pub mod folder_download;
 pub mod folder_move;

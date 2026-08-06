@@ -12,6 +12,7 @@ import { ExplorerImageThumbnail } from "@/components/drive/ExplorerImageThumbnai
 import { ExplorerVideoThumbnail } from "@/components/drive/ExplorerVideoThumbnail";
 import { FileProcessingBadge } from "@/components/drive/FileProcessingBadge";
 import { FileProcessingProgressOverlay } from "@/components/drive/FileProcessingProgressOverlay";
+import { FavouriteIndicator } from "@/components/drive/FavouriteIndicator";
 import { SharedIndicator } from "@/components/drive/SharedIndicator";
 import { explorerFileRowRenderEqual } from "@/lib/explorer-file-list-updates";
 import { splitFilenameExtension } from "@/lib/explorer-grid-filename";
@@ -232,6 +233,8 @@ export type ExplorerFileGridTileProps = {
   shareFlags?: ShareFlags;
   selectionEnabled: boolean;
   isSelected: boolean;
+  /** Human: Starred for this account — rendered as a badge next to the name. */
+  isFavourite?: boolean;
   hasActiveSelection: boolean;
   /** Human: Mobile tap-to-select mode — tile taps toggle checkboxes instead of opening previews. */
   mobileSelectionMode?: boolean;
@@ -290,6 +293,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
   shareFlags,
   selectionEnabled,
   isSelected,
+  isFavourite = false,
   hasActiveSelection,
   mobileSelectionMode = false,
   isDragging,
@@ -558,6 +562,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
             <span aria-hidden>·</span>
             {formatFileUpdatedRelative(file.updated_at)}
             <SharedIndicator flags={shareFlags} className="size-3" />
+            <FavouriteIndicator favourite={isFavourite} className="size-3" />
           </span>
           {processing ? (
             <span className="mt-0.5 flex w-full max-w-full overflow-hidden">

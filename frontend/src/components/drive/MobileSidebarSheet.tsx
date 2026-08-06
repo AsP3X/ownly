@@ -6,6 +6,7 @@ import {
   FolderOpen,
   FolderPlus,
   Home,
+  Star,
   Trash2,
   Upload,
   Users,
@@ -150,6 +151,12 @@ export function MobileSidebarSheet({
               icon={<FolderOpen className="size-4" />}
               active={activeNav === "my-files"}
               onClick={() => handleNav("my-files")}
+            />
+            <DrawerNavItem
+              label="Favourites"
+              icon={<Star className="size-4" />}
+              active={activeNav === "favourites"}
+              onClick={() => handleNav("favourites")}
             />
             <DrawerNavItem
               label="Shared Files"

@@ -7,6 +7,7 @@ export type DriveCommandActionId =
   | "new-folder"
   | "go-home"
   | "go-my-files"
+  | "go-favourites"
   | "go-shared-files"
   | "go-recycle-bin";
 
@@ -22,6 +23,7 @@ export const DRIVE_COMMAND_ACTIONS: readonly DriveCommandAction[] = [
   { id: "new-folder", label: "New folder", keywords: ["create", "directory"] },
   { id: "go-my-files", label: "Go to My Cloud", keywords: ["browse", "files", "library"] },
   { id: "go-home", label: "Go to Home", keywords: ["overview", "recent", "start"] },
+  { id: "go-favourites", label: "Go to Favourites", keywords: ["star", "starred", "bookmark"] },
   { id: "go-shared-files", label: "Go to Shared Files", keywords: ["links", "with me"] },
   { id: "go-recycle-bin", label: "Go to Recycle bin", keywords: ["trash", "deleted", "restore"] },
 ];

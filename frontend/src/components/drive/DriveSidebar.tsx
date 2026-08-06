@@ -8,6 +8,7 @@ import {
   Home,
   Settings,
   Shield,
+  Star,
   Trash2,
   Users,
 } from "lucide-react";
@@ -17,7 +18,7 @@ import { useUploadRateLimit } from "@/hooks/useUploadRateLimit";
 import { formatBytes } from "@/lib/utils-app";
 import { cn } from "@/lib/utils";
 
-export type DriveNavId = "home" | "my-files" | "shared-files" | "recycle-bin";
+export type DriveNavId = "home" | "my-files" | "favourites" | "shared-files" | "recycle-bin";
 
 type DriveSidebarProps = {
   activeNav: DriveNavId;
@@ -133,6 +134,12 @@ export function DriveSidebar({
           icon={<HardDrive className="size-[18px]" strokeWidth={2} />}
           active={activeNav === "my-files"}
           onClick={() => onNavChange("my-files")}
+        />
+        <SidebarNavRow
+          label="Favourites"
+          icon={<Star className="size-[18px]" strokeWidth={2} />}
+          active={activeNav === "favourites"}
+          onClick={() => onNavChange("favourites")}
         />
         <SidebarNavRow
           label="Shared Files"
