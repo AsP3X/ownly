@@ -70,11 +70,13 @@ export function ExplorerStatusBar({
         // Human: Fully opaque — a translucent footer lets file rows read through the counts.
         "sticky z-10 flex items-center gap-2.5 overflow-x-auto border-t border-edge bg-surface px-3 py-2 text-[11px] text-ink-muted",
         "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-        // Human: Sticky offsets resolve against the scrollport, not the pane's padding box, so
-        // `bottom-0` parked the strip underneath the fixed bottom nav on mobile — only its top
-        // hairline stayed visible. Below lg it pins above the nav instead, matching the offset
-        // BulkActionsBar uses so the two occupy the same slot.
-        "bottom-0 max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom))]",
+        // Human: Pins to the scrollport floor at every width. On mobile the pane's own bottom
+        // padding already reserves room for the fixed bottom nav, so an extra offset here would
+        // double-count it and lift the strip into the middle of the file list.
+        // Agent: Chrome resolves a sticky `bottom` against the scroll container's CONTENT box,
+        //        which already excludes that padding — measured: `bottom-0` sits 15px above the
+        //        nav at every scroll position, `bottom:5.25rem` floats it 99px above. Leave at 0.
+        "bottom-0",
         "max-lg:rounded-lg max-lg:border",
         // Human: While selecting on mobile the bulk bar occupies this slot and reports the count.
         selectedCount > 0 && "max-lg:hidden",
