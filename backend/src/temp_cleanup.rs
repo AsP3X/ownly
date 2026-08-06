@@ -26,6 +26,14 @@ pub const GIF_PREVIEW_TEMP_PREFIX: &str = "ownly_gif_preview_";
 /// Agent: READ by start_temp_janitor; WRITTEN by admin settings PATCH; DEFAULT true when unset.
 pub const GIF_PREVIEW_TEMP_AUTO_CLEANUP_KEY: &str = "gif_preview_temp_auto_cleanup";
 
+/// Human: How long a cached export.mp4 download remux survives after it was built.
+/// Agent: READ by sweep_expired_download_exports. Long enough to serve retries, ranged requests
+///        and a resumed download; short enough that the copy is not effectively permanent.
+const DOWNLOAD_EXPORT_MAX_AGE_HOURS: i64 = 48;
+
+/// Human: Batch ceiling per sweep so one pass cannot stall the janitor on a huge backlog.
+const DOWNLOAD_EXPORT_SWEEP_LIMIT: i64 = 200;
+
 const OWNLY_TEMP_PREFIXES: &[&str] = &[
     "ownly_upload_",
     "ownly_hls_",
@@ -207,6 +215,53 @@ async fn sweep_failed_hls_orphans(state: &crate::AppState) -> u32 {
 
         cleaned += 1;
         debug!(file_id = %file_id, storage_key = %storage_key, "purged failed HLS orphan prefix");
+    }
+    cleaned
+}
+
+// Human: Expire cached export.mp4 remuxes that nothing has needed for a while.
+// Agent: SELECT ready exports past DOWNLOAD_EXPORT_MAX_AGE_HOURS; DELETE blob; CLEAR flags.
+//        The next download re-runs the export job, so this costs CPU, never data.
+async fn sweep_expired_download_exports(state: &crate::AppState) -> u32 {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, storage_key FROM files \
+         WHERE COALESCE(download_export_ready, false) \
+           AND download_export_created_at IS NOT NULL \
+           AND download_export_created_at < now() - ($1::int * INTERVAL '1 hour') \
+         LIMIT $2",
+    )
+    .bind(DOWNLOAD_EXPORT_MAX_AGE_HOURS as i32)
+    .bind(DOWNLOAD_EXPORT_SWEEP_LIMIT)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut cleaned = 0u32;
+    for (file_id, storage_key) in rows {
+        let export_key = format!(
+            "{storage_key}/{}",
+            crate::hls::encode_job::EXPORT_OBJECT_SUFFIX
+        );
+
+        // Human: Clear the flags only when the blob is actually gone. Flipping the row first and
+        // failing the delete would strand the object exactly the way stale exports leaked before.
+        match state.storage.delete(&export_key).await {
+            Ok(()) => {
+                let _ = sqlx::query(
+                    "UPDATE files SET download_export_ready = false, download_export_status = NULL, \
+                     download_export_progress = 0, download_export_size_bytes = NULL, \
+                     download_export_created_at = NULL WHERE id = $1",
+                )
+                .bind(&file_id)
+                .execute(&state.pool)
+                .await;
+                cleaned += 1;
+                debug!(%file_id, %export_key, "expired cached download export");
+            }
+            Err(error) => {
+                tracing::warn!(%file_id, %export_key, %error, "expiring download export failed");
+            }
+        }
     }
     cleaned
 }
@@ -463,6 +518,11 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
                 info!(failed_hls, "failed HLS orphan prefixes cleaned");
             }
 
+            let expired_exports = sweep_expired_download_exports(&state).await;
+            if expired_exports > 0 {
+                info!(expired_exports, "expired cached download exports cleaned");
+            }
+
             let removed = sweep_idle_temp_files(
                 &state.pool,
                 TEMP_IDLE_MAX_AGE,
@@ -486,6 +546,31 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn download_export_ttl_outlives_a_resumed_download() {
+        // Human: The remux is what the download streams from, so the window has to cover a
+        // retry, a ranged request or a resumed transfer — not just the first response.
+        assert!(
+            DOWNLOAD_EXPORT_MAX_AGE_HOURS >= 24,
+            "TTL must comfortably exceed a single download attempt"
+        );
+        // Human: And it must actually expire, or the cache is permanent again.
+        assert!(DOWNLOAD_EXPORT_MAX_AGE_HOURS <= 24 * 7);
+        assert!(DOWNLOAD_EXPORT_SWEEP_LIMIT > 0);
+    }
+
+    #[test]
+    fn export_object_key_matches_the_delete_path() {
+        // Human: The janitor builds this key by hand; if it drifts from the constant that
+        // file_delete and the reclaim scanner use, the sweep would silently delete nothing.
+        let storage_key = "users/u1/files/f1";
+        let built = format!(
+            "{storage_key}/{}",
+            crate::hls::encode_job::EXPORT_OBJECT_SUFFIX
+        );
+        assert_eq!(built, "users/u1/files/f1/export.mp4");
+    }
 
     #[test]
     fn upload_spool_file_id_parses_uuid_suffix() {

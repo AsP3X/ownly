@@ -27,6 +27,11 @@ const HLS_SEGMENT_PROGRESS_STEP: usize = 3;
 // Agent: OBJECT key under `{storage_key}/source.master`; UPLOADED after first successful encode.
 pub const SOURCE_MASTER_OBJECT: &str = "source.master";
 
+/// Human: Cached download remux built on first download of an HLS-stored video.
+// Agent: OBJECT key under `{storage_key}/export.mp4`. Private copies of this literal also live in
+//        files/{file_delete,handlers,zip_job}.rs — prefer this one for new call sites.
+pub const EXPORT_OBJECT_SUFFIX: &str = "export.mp4";
+
 /// Human: User-visible error when the upload spool was removed before HLS could start.
 // Agent: WRITTEN to files.hls_encode_error; MATCHED by is_permanent_encode_failure for job finalization.
 pub const HLS_SOURCE_UNAVAILABLE: &str =
@@ -623,9 +628,10 @@ pub async fn run_hls_encode_job(
                         )
                         .await;
                     }
-                    // Human: Cached download export was built from the previous segment tree — force rebuild.
-                    // Agent: CLEARS download_export_* so next download remuxes the new HLS package.
-                    invalidate_download_export(&pool, &file_id).await;
+                    // Human: Cached download export was built from the previous segment tree — drop
+                    // the stale blob and force a rebuild on the next download.
+                    // Agent: DELETES export.mp4 + CLEARS download_export_*.
+                    invalidate_download_export(&storage, &pool, &file_id, &storage_key).await;
 
                     // Human: Persist original upload bytes as source.master for future clean reprocess.
                     // Agent: ONLY from Spool (first encode); KEEP existing master on reprocess paths.
@@ -1006,13 +1012,30 @@ async fn purge_stale_hls_segments(
     }
 }
 
-// Human: Mark cached export.mp4 stale after HLS segments change.
-// Agent: WRITES download_export_ready=false so download routes remux again.
-async fn invalidate_download_export(pool: &PgPool, file_id: &str) {
+// Human: Drop the cached export.mp4 after HLS segments change — both the row flags AND the blob.
+// Agent: DELETES {storage_key}/export.mp4 then WRITES download_export_ready=false.
+//
+// Human: This used to clear the columns only. The stale blob then sat on the node forever: the
+// next download rebuilt and overwrote it, but a file that was never downloaded again kept a
+// full-size orphan, and nulling download_export_size_bytes made it invisible to accounting too.
+// Delete first — if the DB write fails afterwards the next download simply rebuilds, whereas
+// clearing the flag first would strand the object with nothing left pointing at it.
+async fn invalidate_download_export(
+    storage: &Arc<dyn Storage>,
+    pool: &PgPool,
+    file_id: &str,
+    storage_key: &str,
+) {
+    let export_key = format!("{storage_key}/{EXPORT_OBJECT_SUFFIX}");
+    if let Err(error) = storage.delete(&export_key).await {
+        // Human: Not fatal — the reclaim sweeper will find it — but it must be visible.
+        tracing::warn!(%file_id, %export_key, %error, "failed to delete stale download export");
+    }
+
     let _ = sqlx::query(
         "UPDATE files SET download_export_ready = false, download_export_status = NULL, \
          download_export_error = NULL, download_export_progress = 0, \
-         download_export_size_bytes = NULL WHERE id = $1",
+         download_export_size_bytes = NULL, download_export_created_at = NULL WHERE id = $1",
     )
     .bind(file_id)
     .execute(pool)

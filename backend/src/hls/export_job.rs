@@ -146,9 +146,12 @@ pub async fn run_hls_export_job(
 
     set_export_progress(&pool, &file_id, 100).await;
 
+    // Human: Stamp the build time so the janitor can expire this cache. Without it the remux
+    // lived until the file itself was deleted, one full extra copy per downloaded video.
     let _ = sqlx::query(
         "UPDATE files SET download_export_ready = true, download_export_status = 'ready', \
-         download_export_error = NULL, download_export_size_bytes = $1 WHERE id = $2",
+         download_export_error = NULL, download_export_size_bytes = $1, \
+         download_export_created_at = now() WHERE id = $2",
     )
     .bind(mp4_bytes.len() as i64)
     .bind(&file_id)

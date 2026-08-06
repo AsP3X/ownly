@@ -100,6 +100,12 @@ struct PrefixGroup {
     bytes: i64,
 }
 
+/// Human: True for the cached download remux under a file prefix.
+/// Agent: SHARES the suffix constant with encode_job so the two cannot drift apart.
+fn is_cached_export_key(key: &str) -> bool {
+    key.ends_with(&format!("/{}", crate::hls::encode_job::EXPORT_OBJECT_SUFFIX))
+}
+
 fn describe(class: ReclaimClass) -> &'static str {
     match class {
         ReclaimClass::Orphan => {
@@ -283,7 +289,7 @@ pub async fn scan_reclaimable(
                 let exports: Vec<(String, i64)> = group
                     .keys
                     .iter()
-                    .filter(|(key, _)| key.ends_with("/export.mp4"))
+                    .filter(|(key, _)| is_cached_export_key(key))
                     .cloned()
                     .collect();
                 let export_bytes: i64 = exports.iter().map(|(_, size)| *size).sum();
@@ -403,7 +409,7 @@ pub async fn reclaim_storage(
             None => {
                 if requested.contains(&ReclaimClass::CachedExport) {
                     keys.iter()
-                        .filter(|(key, _)| key.ends_with("/export.mp4"))
+                        .filter(|(key, _)| is_cached_export_key(key))
                         .cloned()
                         .collect()
                 } else {
