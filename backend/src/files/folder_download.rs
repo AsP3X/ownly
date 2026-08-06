@@ -164,7 +164,10 @@ pub async fn collect_zip_entries_for_folder(
         }
     }
 
-    Ok(entries)
+    // Human: Folder trees looked safe because paths are unique per directory, but HLS videos are
+    // renamed to .mp4 on the way into the archive — so `clip.webm` and `clip.mp4` sitting in the
+    // same folder collide and the zip fails to open. Dedupe against the post-rename path.
+    Ok(crate::files::zip_job::dedupe_zip_member_names(entries))
 }
 
 // Human: Start (or re-use) a background zip job for the selected folder.

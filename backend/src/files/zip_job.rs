@@ -175,24 +175,54 @@ pub fn mp4_zip_name(name: &str) -> String {
     }
 }
 
-// Human: Ensure zip member names stay unique when multiple files share a display name.
-// Agent: APPENDS " (N)" before extension on duplicates; PRESERVES first occurrence unchanged.
+/// Human: The name this entry will actually carry inside the archive.
+/// Agent: APPLIES the HLS .mp4 rename; PRESERVES any directory prefix. This is the only name that
+///        matters for uniqueness — dedupe against anything else and the archive can still collide.
+pub fn effective_zip_member_path(entry: &ZipFileEntry) -> String {
+    if !is_hls_stored_video(&entry.mime_type, entry.hls_ready) {
+        return entry.zip_path.clone();
+    }
+    match entry.zip_path.rsplit_once('/') {
+        Some((dir, file)) => format!("{dir}/{}", mp4_zip_name(file)),
+        None => mp4_zip_name(&entry.zip_path),
+    }
+}
+
+// Human: Ensure zip member names stay unique once the .mp4 rename has been applied.
+// Agent: APPENDS " (N)" before the extension on duplicates; PRESERVES first occurrence unchanged.
+//
+// Human: This used to key on `display_name`, the pre-rename filename, while the .mp4 rewrite for
+// HLS videos happened later in resolve_object_key. So `clip.webm` and `clip.mp4` in one folder
+// both landed on `clip.mp4` after dedupe had already declared them unique, and the archive failed
+// to open with "Duplicate filename". Keying on the post-rename path is what actually prevents it.
+//
+// Agent: The key is the FULL path, not the bare filename — `a/report.pdf` and `b/report.pdf` are
+//        distinct members and must not be renamed into `report (2).pdf`.
 pub fn dedupe_zip_member_names(entries: Vec<ZipFileEntry>) -> Vec<ZipFileEntry> {
     let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     entries
         .into_iter()
         .map(|mut entry| {
-            let base = entry.display_name.clone();
-            let count = seen.entry(base.clone()).or_insert(0);
+            let effective = effective_zip_member_path(&entry);
+            let count = seen.entry(effective.clone()).or_insert(0);
             *count += 1;
             entry.zip_path = if *count == 1 {
-                base
+                effective
             } else {
-                disambiguate_filename(&base, *count)
+                disambiguate_path(&effective, *count)
             };
             entry
         })
         .collect()
+}
+
+/// Human: Disambiguate the filename portion only, leaving any directory prefix untouched.
+/// Agent: SPLITS on the last '/' so `docs/report.pdf` becomes `docs/report (2).pdf`.
+fn disambiguate_path(path: &str, index: u32) -> String {
+    match path.rsplit_once('/') {
+        Some((dir, file)) => format!("{dir}/{}", disambiguate_filename(file, index)),
+        None => disambiguate_filename(path, index),
+    }
 }
 
 // Human: Insert a numeric suffix before the file extension (e.g. report (2).pdf).
@@ -366,16 +396,11 @@ async fn resolve_object_key(
 ) -> Result<(String, String), String> {
     if is_hls_stored_video(&entry.mime_type, entry.hls_ready) {
         ensure_hls_export_ready(pool, storage, key_store, entry).await?;
-        let member_path = if entry.zip_path.contains('/') {
-            if let Some((dir, file)) = entry.zip_path.rsplit_once('/') {
-                let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
-                format!("{dir}/{stem}.mp4")
-            } else {
-                mp4_zip_name(&entry.display_name)
-            }
-        } else {
-            mp4_zip_name(&entry.display_name)
-        };
+        // Human: zip_path is already the final member name — dedupe_zip_member_names applied the
+        // .mp4 rename and any " (N)" suffix. Re-deriving it here would drop that suffix and
+        // reintroduce the collision this path used to cause.
+        let member_path = sanitize_zip_entry_path(&entry.zip_path)
+            .map_err(|error| error.to_string())?;
         Ok((
             format!("{}/{EXPORT_OBJECT_SUFFIX}", entry.storage_key),
             member_path,
@@ -699,6 +724,102 @@ pub async fn zip_archive_stream_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(zip_path: &str, name: &str, mime: &str, hls_ready: bool) -> ZipFileEntry {
+        ZipFileEntry {
+            zip_path: zip_path.into(),
+            file_id: format!("id-{name}"),
+            storage_key: format!("users/u/files/id-{name}"),
+            display_name: name.into(),
+            mime_type: Some(mime.into()),
+            hls_ready,
+            export_ready: true,
+            segment_count: 4,
+        }
+    }
+
+    fn paths(entries: &[ZipFileEntry]) -> Vec<String> {
+        entries.iter().map(|e| e.zip_path.clone()).collect()
+    }
+
+    #[test]
+    fn transcoded_video_and_real_mp4_do_not_collide() {
+        // Human: The reported failure — "zip entry webm_hm.mp4: Duplicate filename". Both files
+        // become webm_hm.mp4 once the HLS rename runs, so dedupe must see the POST-rename name.
+        let out = dedupe_zip_member_names(vec![
+            entry("webm_hm.webm", "webm_hm.webm", "video/webm", true),
+            entry("webm_hm.mp4", "webm_hm.mp4", "video/mp4", true),
+        ]);
+        assert_eq!(paths(&out), vec!["webm_hm.mp4", "webm_hm (2).mp4"]);
+    }
+
+    #[test]
+    fn collision_inside_a_folder_keeps_the_directory_prefix() {
+        // Human: The folder-download path, which previously did not dedupe at all.
+        let out = dedupe_zip_member_names(vec![
+            entry("clips/webm_hm.webm", "webm_hm.webm", "video/webm", true),
+            entry("clips/webm_hm.mp4", "webm_hm.mp4", "video/mp4", true),
+        ]);
+        assert_eq!(
+            paths(&out),
+            vec!["clips/webm_hm.mp4", "clips/webm_hm (2).mp4"]
+        );
+    }
+
+    #[test]
+    fn same_name_in_different_folders_is_not_renamed() {
+        // Human: Distinct members. Keying on the bare filename would corrupt the tree by
+        // renaming the second one for no reason.
+        let out = dedupe_zip_member_names(vec![
+            entry("a/report.pdf", "report.pdf", "application/pdf", false),
+            entry("b/report.pdf", "report.pdf", "application/pdf", false),
+        ]);
+        assert_eq!(paths(&out), vec!["a/report.pdf", "b/report.pdf"]);
+    }
+
+    #[test]
+    fn three_way_collision_numbers_sequentially() {
+        let out = dedupe_zip_member_names(vec![
+            entry("v.mkv", "v.mkv", "video/x-matroska", true),
+            entry("v.webm", "v.webm", "video/webm", true),
+            entry("v.mp4", "v.mp4", "video/mp4", true),
+        ]);
+        assert_eq!(paths(&out), vec!["v.mp4", "v (2).mp4", "v (3).mp4"]);
+    }
+
+    #[test]
+    fn non_video_duplicates_still_dedupe() {
+        let out = dedupe_zip_member_names(vec![
+            entry("notes.txt", "notes.txt", "text/plain", false),
+            entry("notes.txt", "notes.txt", "text/plain", false),
+        ]);
+        assert_eq!(paths(&out), vec!["notes.txt", "notes (2).txt"]);
+    }
+
+    #[test]
+    fn video_without_hls_keeps_its_original_extension() {
+        // Human: Only HLS-stored videos are remuxed to mp4; a plain stored .webm is served as-is,
+        // so renaming it here would hand the user a file that is not what it claims to be.
+        let out = dedupe_zip_member_names(vec![entry(
+            "raw.webm",
+            "raw.webm",
+            "video/webm",
+            false,
+        )]);
+        assert_eq!(paths(&out), vec!["raw.webm"]);
+    }
+
+    #[test]
+    fn every_member_path_is_unique_after_dedupe() {
+        let out = dedupe_zip_member_names(vec![
+            entry("clips/v.webm", "v.webm", "video/webm", true),
+            entry("clips/v.mp4", "v.mp4", "video/mp4", true),
+            entry("clips/v.mkv", "v.mkv", "video/x-matroska", true),
+            entry("other/v.webm", "v.webm", "video/webm", true),
+        ]);
+        let unique: std::collections::HashSet<String> = paths(&out).into_iter().collect();
+        assert_eq!(unique.len(), out.len(), "zip member paths must be unique");
+    }
 
     #[test]
     fn zip_entry_options_store_video_without_deflate() {
