@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   CornerDownLeft,
+  FilePlus2,
   Folder,
   FolderPlus,
   Home,
@@ -77,6 +78,7 @@ type PaletteRow =
 const ACTION_ICONS: Record<DriveCommandActionId, typeof Upload> = {
   upload: Upload,
   "new-folder": FolderPlus,
+  "new-document": FilePlus2,
   "go-my-files": Folder,
   "go-home": Home,
   "go-favourites": Star,

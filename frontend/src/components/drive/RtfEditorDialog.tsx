@@ -45,6 +45,7 @@ import {
 import { htmlToRtf } from "@/lib/rtf/html-to-rtf";
 import { rtfToHtml } from "@/lib/rtf/rtf-to-html";
 import { htmlToPlainText } from "@/lib/rtf/sentence-range";
+import { registerUnsavedWork } from "@/lib/unsaved-work";
 import { cn } from "@/lib/utils";
 
 export type RtfEditorDialogProps = {
@@ -443,6 +444,20 @@ export function RtfEditorDialog({
     },
     [closeEditor, dirty, onOpenChange, readOnly],
   );
+
+  // Human: Let an expiring session offer this draft as a download instead of discarding it.
+  // Agent: RE-REGISTERS on each edit so the snapshot closure always sees the current HTML.
+  useEffect(() => {
+    if (!open || !dirty || readOnly || !file) return;
+    return registerUnsavedWork({
+      id: `rtf:${file.id}`,
+      name: file.name,
+      getSnapshot: () =>
+        new Blob([htmlToRtf(surfaceRef.current?.getHtml() ?? draftHtmlRef.current)], {
+          type: "application/rtf",
+        }),
+    });
+  }, [dirty, file, open, readOnly, draftHtml]);
 
   const handleSave = useCallback(async () => {
     if (!file || readOnly || saving || !dirty) return;

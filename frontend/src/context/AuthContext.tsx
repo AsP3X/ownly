@@ -2,7 +2,7 @@
 // Agent: PROBES /me on mount; PROVIDES AuthContext to the app shell.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   fetchCurrentUser,
   fetchMyInstancePermissions,
@@ -20,6 +20,16 @@ import { AuthContext, SESSION_ACTIVE, type User } from "@/context/auth-context";
 import { hasInstancePermission as checkInstancePermission, isInstanceAdmin } from "@/lib/instance-permissions";
 import { prefetchDrivePageChunk } from "@/lib/prefetch-route-chunks";
 import { clearSessionHint, setSessionHint } from "@/lib/session-hint";
+import { hasUnsavedWork, listUnsavedWork, type UnsavedWorkItem } from "@/lib/unsaved-work";
+import { SessionExpiredDialog } from "@/components/SessionExpiredDialog";
+
+/** Human: What the sign-in page shows and where it returns to after an unplanned sign-out. */
+function signInAgainState(from: string) {
+  return {
+    from,
+    info: "Your session expired. Sign in to pick up where you left off.",
+  };
+}
 
 /** Human: Run session probes after first paint so login shell is not blocked on /me. */
 function scheduleIdleTask(task: () => void): () => void {
@@ -33,6 +43,21 @@ function scheduleIdleTask(task: () => void): () => void {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [expiredWithUnsavedWork, setExpiredWithUnsavedWork] = useState<UnsavedWorkItem[] | null>(
+    null,
+  );
+
+  /**
+   * Human: Where the user was when the session died, so sign-in can bring them back.
+   * Agent: REF because the 401 handler is registered once but fires much later.
+   */
+  const locationRef = useRef(`${location.pathname}${location.search}`);
+  useEffect(() => {
+    // Human: Never return to the auth pages themselves after signing in.
+    if (location.pathname === "/login" || location.pathname === "/register") return;
+    locationRef.current = `${location.pathname}${location.search}`;
+  }, [location.pathname, location.search]);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -108,12 +133,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate("/", { replace: true });
   }, [navigate]);
 
+  /**
+   * Human: The session ended on its own (expired JWT, revoked token, backend restart) rather than
+   * the user signing out. Send them to sign-in with a reason and a way back to where they were.
+   * Agent: HOLDS the redirect while an editor holds a draft — see SessionExpiredDialog.
+   */
+  const expireSession = useCallback(() => {
+    clearSessionHint();
+    clearCsrfHint();
+    sessionExpHintRef.current = null;
+    setToken(null);
+    setUser(null);
+    setInstancePermissions([]);
+
+    if (hasUnsavedWork()) {
+      setExpiredWithUnsavedWork(listUnsavedWork());
+      return;
+    }
+    navigate("/login", { replace: true, state: signInAgainState(locationRef.current) });
+  }, [navigate]);
+
+  // Human: Leave the page only once the user has had the chance to rescue their draft.
+  const continueToSignIn = useCallback(() => {
+    setExpiredWithUnsavedWork(null);
+    navigate("/login", { replace: true, state: signInAgainState(locationRef.current) });
+  }, [navigate]);
+
   // Human: Any API 401 while a token exists should clear local session (revoked JWT, disabled user, etc.).
-  // Agent: REGISTERS logout with apiFetch; RUNS on all pages that mount AuthProvider.
+  // Agent: REGISTERS expireSession with apiFetch; RUNS on all pages that mount AuthProvider.
   useEffect(() => {
-    setUnauthorizedHandler(() => logout());
+    setUnauthorizedHandler(() => expireSession());
     return () => setUnauthorizedHandler(null);
-  }, [logout]);
+  }, [expireSession]);
 
   // Human: Keep session marker aligned when apiFetch silently rotates the HttpOnly cookie after refresh.
   // Agent: LISTENS setSessionRefreshListener; UPDATES exp hint from server expires_in_seconds.
@@ -244,5 +295,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [token, user, sessionReady, instancePermissions, setAuth, logout, hasInstancePermission, isAdmin],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {/* Human: Rendered inside the provider so the drive — and the draft it holds — stays mounted. */}
+      <SessionExpiredDialog
+        open={expiredWithUnsavedWork !== null}
+        items={expiredWithUnsavedWork ?? []}
+        onSignIn={continueToSignIn}
+      />
+    </AuthContext.Provider>
+  );
 }

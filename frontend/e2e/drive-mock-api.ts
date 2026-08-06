@@ -50,10 +50,12 @@ export type DriveCallLog = {
   renamed: { id: string; name: string }[];
   /** Human: Server-side stars, so favourites survive a nav change within one test. */
   favourites: Set<string>;
+  /** Human: Files the client uploaded, including documents it built itself. */
+  uploads: { name: string; size: number }[];
 };
 
 export function createCallLog(): DriveCallLog {
-  return { restored: [], renamed: [], favourites: new Set() };
+  return { restored: [], renamed: [], favourites: new Set(), uploads: [] };
 }
 
 // Human: Install every API route the drive shell touches on first paint.
@@ -127,6 +129,15 @@ export async function mockDriveApi(page: Page, calls: DriveCallLog) {
       return;
     }
     route.fulfill({ json: { file: FILES[0] } });
+  });
+
+  // Human: Multipart upload — record what the client actually sent, then hand back a file row.
+  // Agent: MUST register after the single-segment /files/{id} regex, which also matches /files/upload.
+  await page.route("**/api/v1/files/upload", (route) => {
+    const body = route.request().postData() ?? "";
+    const name = /filename="([^"]+)"/.exec(body)?.[1] ?? "";
+    calls.uploads.push({ name, size: body.length });
+    route.fulfill({ json: { file: file("new-1", name, "text/plain", null) } });
   });
 
   // Human: Batch resolve backs both Home recents and the Favourites view.

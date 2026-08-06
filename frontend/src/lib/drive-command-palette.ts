@@ -5,6 +5,7 @@
 export type DriveCommandActionId =
   | "upload"
   | "new-folder"
+  | "new-document"
   | "go-home"
   | "go-my-files"
   | "go-favourites"
@@ -21,6 +22,11 @@ export type DriveCommandAction = {
 export const DRIVE_COMMAND_ACTIONS: readonly DriveCommandAction[] = [
   { id: "upload", label: "Upload files", keywords: ["add", "import", "new"] },
   { id: "new-folder", label: "New folder", keywords: ["create", "directory"] },
+  {
+    id: "new-document",
+    label: "New document",
+    keywords: ["create", "text", "rich", "spreadsheet", "note"],
+  },
   { id: "go-my-files", label: "Go to My Cloud", keywords: ["browse", "files", "library"] },
   { id: "go-home", label: "Go to Home", keywords: ["overview", "recent", "start"] },
   { id: "go-favourites", label: "Go to Favourites", keywords: ["star", "starred", "bookmark"] },

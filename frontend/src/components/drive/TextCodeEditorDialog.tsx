@@ -13,6 +13,7 @@ import {
   replaceTextFileContent,
 } from "@/api/client";
 import { ConfirmDiscardDialog } from "@/components/drive/ConfirmDiscardDialog";
+import { registerUnsavedWork } from "@/lib/unsaved-work";
 import { RtfCollabPresence } from "@/components/drive/rtf/RtfCollabPresence";
 import { CodeEditorHeader } from "@/components/drive/text-code-editor/CodeEditorHeader";
 import { CodeEditorStatusBar } from "@/components/drive/text-code-editor/CodeEditorStatusBar";
@@ -358,6 +359,18 @@ export function TextCodeEditorDialog({
     setSettingsOpen(false);
     setSaveError("");
   }, [activeFile?.id, open]);
+
+  // Human: Let an expiring session offer this draft as a download instead of discarding it.
+  // Agent: RE-REGISTERS on each keystroke so the snapshot closure always sees the current text.
+  useEffect(() => {
+    if (!open || !dirty || readOnly || !activeFile) return;
+    const value = activeBuffer.value;
+    return registerUnsavedWork({
+      id: `text:${activeFile.id}`,
+      name: activeFile.name,
+      getSnapshot: () => new Blob([value], { type: "text/plain" }),
+    });
+  }, [activeBuffer.value, activeFile, dirty, open, readOnly]);
 
   // Human: Close for real — used directly when nothing is dirty, and after the discard prompt.
   const closeEditor = useCallback(() => {

@@ -25,6 +25,7 @@ import {
   moveFile,
   moveFolder,
   restoreRecycleBinItems,
+  uploadFileWithProgress,
   type FileItem,
   type FolderDeletionPreview,
   type FolderItem,
@@ -63,6 +64,7 @@ import {
   type DeleteTarget,
 } from "@/components/drive/ConfirmDeleteDialog";
 import { DriveContextMenu } from "@/components/drive/DriveContextMenu";
+import { NewDocumentDialog } from "@/components/drive/NewDocumentDialog";
 import { RenameDialog, type RenameTarget } from "@/components/drive/RenameDialog";
 import { FolderPickerDialog, type FolderPickerCrumb } from "@/components/drive/FolderPickerDialog";
 import { ShareDialog, type ShareTarget } from "@/components/drive/ShareDialog";
@@ -111,6 +113,11 @@ import {
 } from "@/lib/drive-actions";
 import { ROOT_FOLDER_LABEL } from "@/lib/folder-path";
 import { loadFavouriteFileIds } from "@/lib/favourites";
+import {
+  buildNewDocumentFile,
+  uniqueDocumentName,
+  type NewDocumentTemplate,
+} from "@/lib/new-document";
 import type { DriveCommandActionId } from "@/lib/drive-command-palette";
 import {
   resetExplorerThumbnailWarmScope,
@@ -268,6 +275,9 @@ export default function DrivePage() {
   }, [logout]);
 
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [newDocumentError, setNewDocumentError] = useState("");
+  const [creatingDocument, setCreatingDocument] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [folderDeletePreview, setFolderDeletePreview] = useState<FolderDeletionPreview | null>(
     null,
@@ -1973,6 +1983,39 @@ export default function DrivePage() {
     setFolderStack(path.map((segment) => ({ id: segment.id, name: segment.name })));
   }
 
+  /**
+   * Human: Create an empty document in the open folder and drop straight into its editor.
+   * Agent: BUILDS bytes client-side; REUSES the normal upload path, so quota, dedup and the
+   *        transfer tray all behave exactly as they do for a picked file.
+   */
+  async function handleCreateDocument(template: NewDocumentTemplate) {
+    if (creatingDocument) return;
+    setCreatingDocument(true);
+    setNewDocumentError("");
+
+    try {
+      const name = uniqueDocumentName(
+        template.defaultBaseName,
+        template.extension,
+        files.map((file) => file.name),
+      );
+      const document = await buildNewDocumentFile(template, name);
+      const { file: created } = await uploadFileWithProgress(document, undefined, {
+        folderId: activeNav === "my-files" ? currentFolderId : null,
+      });
+
+      setNewDocumentOpen(false);
+      await refreshCurrentView({ silent: true });
+      void refreshDashboard();
+      toastSuccess(`Created “${created.name}”`);
+      openFileByType(created);
+    } catch (err) {
+      setNewDocumentError(getErrorMessage(err));
+    } finally {
+      setCreatingDocument(false);
+    }
+  }
+
   // Human: Open a palette hit — media and documents in their viewer, anything else in details.
   // Agent: FALLS BACK to the details overlay so every result stays actionable.
   function handleCommandPaletteOpenFile(file: FileItem) {
@@ -2000,6 +2043,9 @@ export default function DrivePage() {
       case "new-folder":
         setActiveNav("my-files");
         setCreateFolderDialogOpen(true);
+        break;
+      case "new-document":
+        setNewDocumentOpen(true);
         break;
       case "go-home":
         handleNavChange("home");
@@ -2454,6 +2500,21 @@ export default function DrivePage() {
           onHlsReprocessAllQueued={handleHlsReprocessAllQueued}
           onHlsReprocessAllCancelled={handleHlsReprocessAllCancelled}
         />
+        <NewDocumentDialog
+          open={newDocumentOpen}
+          onOpenChange={(open) => {
+            setNewDocumentOpen(open);
+            if (!open) setNewDocumentError("");
+          }}
+          destinationLabel={
+            activeNav === "my-files"
+              ? (folderStack.at(-1)?.name ?? ROOT_FOLDER_LABEL)
+              : ROOT_FOLDER_LABEL
+          }
+          error={newDocumentError}
+          creating={creatingDocument}
+          onCreate={(template) => void handleCreateDocument(template)}
+        />
         <RenameDialog
           target={renameTarget}
           onOpenChange={(open) => {
@@ -2765,6 +2826,7 @@ export default function DrivePage() {
                   onGoToFolderIndex={goToFolderIndex}
                   onOpenFolder={openFolder}
                   onCreateFolder={() => setCreateFolderDialogOpen(true)}
+                  onCreateDocument={() => setNewDocumentOpen(true)}
                   onUpload={() => setUploadDialogOpen(true)}
                   onOpenCommandPalette={() => setCommandPaletteOpen(true)}
                   mobileSelectionMode={mobileSelectionMode}

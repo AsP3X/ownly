@@ -4,7 +4,14 @@
 import type { DragEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { ArrowUpDown, FolderPlus, Search, SlidersHorizontal, Upload } from "lucide-react";
+import {
+  ArrowUpDown,
+  FilePlus2,
+  FolderPlus,
+  Search,
+  SlidersHorizontal,
+  Upload,
+} from "lucide-react";
 import {
   ExplorerBreadcrumbs,
   useMaxLgViewport,
@@ -48,6 +55,8 @@ export type ExplorerToolbarProps = {
   onViewModeChange: (mode: ExplorerViewMode) => void;
 
   onCreateFolder: () => void;
+  /** Human: Opens the New document picker — the entry point for the built-in editors. */
+  onCreateDocument: () => void;
   onUpload: () => void;
   /** Human: Opens the ⌘K palette — the chip inside the search field is its visible affordance. */
   onOpenCommandPalette: () => void;
@@ -131,6 +140,7 @@ export function ExplorerToolbar({
   viewMode,
   onViewModeChange,
   onCreateFolder,
+  onCreateDocument,
   onUpload,
   onOpenCommandPalette,
   bulkActionsSlot,
@@ -229,6 +239,9 @@ export function ExplorerToolbar({
           <div className="flex items-center gap-2">
             <ToolbarButton onClick={onCreateFolder} icon={<FolderPlus className="size-4" />}>
               <span className="max-sm:sr-only">New Folder</span>
+            </ToolbarButton>
+            <ToolbarButton onClick={onCreateDocument} icon={<FilePlus2 className="size-4" />}>
+              <span className="max-sm:sr-only">New Document</span>
             </ToolbarButton>
             <ToolbarButton onClick={onUpload} icon={<Upload className="size-4" />} primary>
               <span className="max-sm:sr-only">Upload Files</span>

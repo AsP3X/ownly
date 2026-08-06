@@ -138,6 +138,8 @@ type DriveCloudExplorerProps = {
   onGoToFolderIndex: (index: number) => void;
   onOpenFolder: (folder: FolderItem) => void;
   onCreateFolder: () => void;
+  /** Human: Opens the New document picker from the toolbar. */
+  onCreateDocument: () => void;
   onUpload: () => void;
   /** Human: Opens the ⌘K palette from the shortcut chip inside the search field. */
   onOpenCommandPalette: () => void;
@@ -228,6 +230,7 @@ export function DriveCloudExplorer({
   onGoToFolderIndex,
   onOpenFolder,
   onCreateFolder,
+  onCreateDocument,
   onUpload,
   onOpenCommandPalette,
   onMoveFileToFolder,
@@ -855,6 +858,7 @@ export function DriveCloudExplorer({
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
         onCreateFolder={onCreateFolder}
+        onCreateDocument={onCreateDocument}
         onUpload={onUpload}
         onOpenCommandPalette={onOpenCommandPalette}
         bulkActionsSlot={bulkActionsSlot}
