@@ -87,30 +87,40 @@ export type ExplorerToolbarProps = {
 function ToolbarButton({
   onClick,
   icon,
-  children,
+  label,
   primary = false,
+  className,
 }: {
   onClick: () => void;
   icon: ReactNode;
-  children: ReactNode;
+  /** Human: Visible caption from sm up; always the accessible name, since it is icon-only below sm. */
+  label: string;
   primary?: boolean;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={label}
+      title={label}
       className={cn(
         "flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+        // Human: Icon-only widths below sm need a square touch target, not a 36px pill.
+        "max-sm:size-11 max-sm:justify-center max-sm:gap-0 max-sm:px-0",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/40",
         primary
           ? "bg-brand text-brand-on hover:bg-brand-hover"
           : "border border-edge bg-panel text-ink hover:bg-surface",
+        className,
       )}
     >
       <span className="shrink-0" aria-hidden>
         {icon}
       </span>
-      {children}
+      <span className="max-sm:hidden" aria-hidden>
+        {label}
+      </span>
     </button>
   );
 }
@@ -165,6 +175,10 @@ export function ExplorerToolbar({
     />
   );
   const hoistBreadcrumbs = !isMaxLg && breadcrumbPortalTarget !== null && breadcrumbPortalTarget !== undefined;
+  // Human: At the root on mobile the trail reads "Home › My Cloud", which the sticky mobile header
+  // already says one line above. Drop the row there and keep it once you are inside a folder,
+  // where it is the only way to jump more than one level up.
+  const showInlineBreadcrumbs = !isMaxLg || folderStack.length > 0;
 
   return (
     <div
@@ -180,12 +194,14 @@ export function ExplorerToolbar({
     >
       {hoistBreadcrumbs
         ? createPortal(breadcrumbs, breadcrumbPortalTarget)
-        : breadcrumbs}
+        : showInlineBreadcrumbs
+          ? breadcrumbs
+          : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {/* Human: Search filters this view; the ⌘K chip opens the palette that searches everything. */}
         {/* Agent: type=search keeps the native clear affordance; Enter submits via onSearchKeyDown. */}
-        <div className="flex h-9 min-w-[10rem] flex-1 items-center gap-2 rounded-lg border border-edge bg-panel px-3 focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-focus/25 lg:max-w-[22rem]">
+        <div className="flex h-9 min-w-[10rem] flex-1 items-center gap-2 rounded-lg border border-edge bg-panel px-3 focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-focus/25 max-lg:h-11 lg:max-w-[22rem]">
           <Search className="size-4 shrink-0 text-ink-faint" aria-hidden />
           <input
             ref={searchInputRef}
@@ -195,7 +211,9 @@ export function ExplorerToolbar({
             onKeyDown={onSearchKeyDown}
             placeholder="Search files…"
             aria-label="Search files. Press Enter to search."
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-faint focus:outline-none"
+            // Human: text-base below lg — iOS Safari zooms the whole page when a focused field
+            // is under 16px, and this raw input bypassed the ui/Input component that guards it.
+            className="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none lg:text-[13px]"
           />
           <button
             type="button"
@@ -210,8 +228,10 @@ export function ExplorerToolbar({
         {/* Human: Wraps below ~350px — the view/filter/sort group plus both action buttons no
             longer fit on one line there, and without wrapping the Upload button is clipped
             off-screen by the pane's overflow-hidden. */}
-        <div className="flex flex-wrap items-center gap-2 max-lg:w-full max-lg:justify-between lg:ml-auto">
-          <div className="flex items-center gap-2">
+        {/* Human: Tighter gaps below lg — at 320px the two clusters plus 8px gaps overflowed by a
+            few pixels and wrapped the row onto a third line. */}
+        <div className="flex flex-wrap items-center gap-2 max-lg:w-full max-lg:justify-between max-lg:gap-1.5 lg:ml-auto">
+          <div className="flex items-center gap-2 max-lg:gap-1.5">
             <ExplorerViewSwitcher value={viewMode} onChange={onViewModeChange} />
 
             <ExplorerSelectMenu
@@ -236,16 +256,26 @@ export function ExplorerToolbar({
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <ToolbarButton onClick={onCreateFolder} icon={<FolderPlus className="size-4" />}>
-              <span className="max-sm:sr-only">New Folder</span>
-            </ToolbarButton>
-            <ToolbarButton onClick={onCreateDocument} icon={<FilePlus2 className="size-4" />}>
-              <span className="max-sm:sr-only">New Document</span>
-            </ToolbarButton>
-            <ToolbarButton onClick={onUpload} icon={<Upload className="size-4" />} primary>
-              <span className="max-sm:sr-only">Upload Files</span>
-            </ToolbarButton>
+          <div className="flex items-center gap-2 max-lg:gap-1.5">
+            <ToolbarButton
+              onClick={onCreateFolder}
+              icon={<FolderPlus className="size-4" />}
+              label="New Folder"
+            />
+            <ToolbarButton
+              onClick={onCreateDocument}
+              icon={<FilePlus2 className="size-4" />}
+              label="New Document"
+            />
+            {/* Human: Hidden below lg — the mobile bottom nav carries the Upload tab, and three
+                identical upload entry points on one phone screen is two too many. */}
+            <ToolbarButton
+              onClick={onUpload}
+              icon={<Upload className="size-4" />}
+              label="Upload Files"
+              primary
+              className="max-lg:hidden"
+            />
           </div>
         </div>
       </div>

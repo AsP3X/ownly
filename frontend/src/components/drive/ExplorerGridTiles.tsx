@@ -81,6 +81,8 @@ export type ExplorerFolderGridTileProps = {
   getTouchDragBindings?: () => ExplorerTouchDragBindings;
   onToggleSelected?: (folderId: string, checked: boolean) => void;
   onOpenFolder: (folder: FolderItem) => void;
+  /** Human: Mobile action sheet trigger — grid view has no hover/right-click, so folders need it too. */
+  onOpenActions?: (target: MobileActionTarget) => void;
   onDragStart?: (event: DragEvent<HTMLElement>, folderId: string) => void;
   onDragEnd?: () => void;
   onDragEnter: (event: DragEvent<HTMLElement>, folderId: string) => void;
@@ -105,6 +107,7 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
   getTouchDragBindings,
   onToggleSelected,
   onOpenFolder,
+  onOpenActions,
   onDragStart,
   onDragEnd,
   onDragEnter,
@@ -171,6 +174,27 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
           </span>
         </label>
       ) : null}
+      {/* Human: Without this, folder rename/share/delete are unreachable in mobile grid view —
+          there is no hover row or right-click there, only the list view carried the trigger. */}
+      {/* Agent: lg:hidden mirrors the file tile; OPENS MobileFileActionsSheet with a folder target. */}
+      {onOpenActions ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            "absolute left-1.5 top-1.5 z-10 size-9 text-ink-faint lg:hidden",
+            isSelected && "bg-panel/80",
+          )}
+          aria-label={`Actions for ${folder.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenActions({ kind: "folder", folder });
+          }}
+        >
+          <MoreVertical className="size-4" aria-hidden />
+        </Button>
+      ) : null}
       <button
         type="button"
         data-explorer-activate
@@ -203,8 +227,10 @@ export const ExplorerFolderGridTile = memo(function ExplorerFolderGridTile({
       >
         {/* Human: Same preview slot footprint as file tiles so folders align in the grid. */}
         {/* Agent: RENDERS centered folder icon inside the shared square preview slot. */}
+        {/* Human: Larger glyph below lg — a 28px icon reads as a rendering failure inside the
+            wide phone preview frame. */}
         <ExplorerGridPreviewSlot>
-          <Folder className="size-7 text-warn dark:text-warn" aria-hidden />
+          <Folder className="size-9 text-warn dark:text-warn lg:size-7" aria-hidden />
         </ExplorerGridPreviewSlot>
         {/* Human: Metadata footer separated by a hairline rather than floating under the image. */}
         {/* Agent: mt-1 + border-t; keeps the tile's overall height stable for contain-intrinsic-size. */}
@@ -471,7 +497,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           variant="ghost"
           size="icon-sm"
           className={cn(
-            "absolute left-1.5 top-1.5 z-10 size-7 text-ink-faint lg:hidden",
+            "absolute left-1.5 top-1.5 z-10 size-9 text-ink-faint lg:hidden",
             isSelected && "bg-panel/80",
           )}
           aria-label={`Actions for ${file.name}`}
@@ -549,7 +575,7 @@ export const ExplorerFileGridTile = memo(function ExplorerFileGridTile({
           ) : thumbnailProcessing ? (
             <ExplorerThumbnailShimmer slotFill />
           ) : (
-            <ExplorerFileGlyph mimeType={file.mime_type} className="size-7" />
+            <ExplorerFileGlyph mimeType={file.mime_type} className="size-9 lg:size-7" />
           )}
           {processing ? <FileProcessingProgressOverlay file={file} /> : null}
         </ExplorerGridPreviewSlot>

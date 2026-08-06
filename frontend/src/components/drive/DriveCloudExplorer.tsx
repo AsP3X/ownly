@@ -1066,6 +1066,7 @@ export const DriveCloudExplorer = memo(function DriveCloudExplorer({
                         }
                         onToggleSelected={toggleFolderSelected}
                         onOpenFolder={onOpenFolder}
+                        onOpenActions={onOpenActions}
                         onDragStart={handleFolderDragStart}
                         onDragEnd={resetDragState}
                         onDragEnter={handleFolderDragEnter}

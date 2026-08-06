@@ -3,13 +3,7 @@
 
 import { type RefObject, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ArrowLeft,
-  FolderPlus,
-  Menu,
-  Search,
-  Upload,
-} from "lucide-react";
+import { ArrowLeft, Menu, Search } from "lucide-react";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { DriveProfileMenu } from "@/components/drive/DriveProfileMenu";
 import { Button } from "@/components/ui/button";
@@ -37,8 +31,6 @@ type MobileDriveHeaderProps = {
   onProfileToggle: () => void;
   onLogout: () => void;
   onMenuOpen: () => void;
-  onUpload: () => void;
-  onCreateFolder: () => void;
   onBack: () => void;
 };
 
@@ -60,8 +52,6 @@ export function MobileDriveHeader({
   onProfileToggle,
   onLogout,
   onMenuOpen,
-  onUpload,
-  onCreateFolder,
   onBack,
 }: MobileDriveHeaderProps) {
   const navigate = useNavigate();
@@ -160,29 +150,9 @@ export function MobileDriveHeader({
           </h1>
         </div>
 
+        {/* Human: Navigation and identity only. Upload lives in the bottom nav's thumb zone and
+            New folder in the explorer toolbar; repeating both up here just crowded the title. */}
         <div className="flex shrink-0 items-center gap-1">
-          {activeNav === "my-files" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="text-ink-muted"
-              aria-label="New folder"
-              onClick={onCreateFolder}
-            >
-              <FolderPlus className="size-5" />
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="text-brand"
-            aria-label="Upload files"
-            onClick={onUpload}
-          >
-            <Upload className="size-5" />
-          </Button>
           <div ref={profileRef} className="relative">
             <button
               type="button"

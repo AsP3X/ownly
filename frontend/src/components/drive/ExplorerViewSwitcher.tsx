@@ -32,7 +32,7 @@ export function ExplorerViewSwitcher({
       role="radiogroup"
       aria-label="Explorer layout"
       className={cn(
-        "flex h-9 items-center gap-0.5 rounded-lg border border-edge bg-panel p-0.5",
+        "flex h-9 items-center gap-0.5 rounded-lg border border-edge bg-panel p-0.5 max-lg:h-11",
         className,
       )}
     >
@@ -49,7 +49,7 @@ export function ExplorerViewSwitcher({
             title={option.label}
             onClick={() => onChange(option.id)}
             className={cn(
-              "flex size-7 items-center justify-center rounded-md transition-colors",
+              "flex size-7 items-center justify-center rounded-md transition-colors max-lg:size-9",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/40",
               active
                 ? "bg-brand-weak text-brand"

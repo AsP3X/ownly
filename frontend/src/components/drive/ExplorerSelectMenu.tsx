@@ -4,12 +4,18 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Check } from "lucide-react";
+import { useMaxLgViewport } from "@/components/drive/ExplorerBreadcrumbs";
 import { cn } from "@/lib/utils";
+
+/** Human: Gutter kept between the viewport edges and the mobile popover. */
+const MOBILE_MENU_GUTTER_PX = 12;
 
 export type ExplorerSelectMenuOption<T extends string> = {
   id: T;
@@ -49,9 +55,46 @@ export function ExplorerSelectMenu<T extends string>({
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
+  const isMobile = useMaxLgViewport();
+  // Human: Mobile popover geometry, measured from the trigger when the menu opens.
+  const [mobileMenuStyle, setMobileMenuStyle] = useState<CSSProperties | null>(null);
+
+  // Human: The triggers sit mid-row, so a right-aligned 240px menu ran off the left edge of a
+  // narrow phone — and `min-width` beats `max-width`, so clamping the width alone cannot fix it.
+  // Pinning to the viewport instead also escapes the scroll pane, which clips on both axes.
+  // Agent: LAYOUT EFFECT so the menu never paints at the wrong spot; RECOMPUTES on resize/scroll.
+  useLayoutEffect(() => {
+    if (!open || !isMobile) {
+      setMobileMenuStyle(null);
+      return;
+    }
+    function position() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      setMobileMenuStyle({
+        position: "fixed",
+        top: Math.round(rect.bottom + 6),
+        left: MOBILE_MENU_GUTTER_PX,
+        right: MOBILE_MENU_GUTTER_PX,
+        minWidth: 0,
+        maxHeight: `calc(100dvh - ${Math.round(rect.bottom + 6)}px - 5.5rem)`,
+      });
+    }
+    position();
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    return () => {
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
+  }, [isMobile, open]);
 
   const activeLabel = options.find((option) => option.id === value)?.label ?? "";
   const isActive = value !== neutralValue;
+  // Human: Below lg the caption and the active chip are hidden to keep the control row on one
+  // line, so the accessible name has to carry both parts on its own.
+  const triggerLabel = isActive ? `${label}: ${activeLabel}` : label;
 
   // Human: Dismiss on a click anywhere outside the trigger/menu cluster.
   // Agent: LISTENS document mousedown while open; WRITES open false.
@@ -89,8 +132,13 @@ export function ExplorerSelectMenu<T extends string>({
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={menuId}
+        aria-label={triggerLabel}
+        title={triggerLabel}
         className={cn(
-          "flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors",
+          // Human: Icon-only below lg. With the caption and the active value spelled out, the
+          // Sort trigger alone ran most of a phone's width and pushed the row into a third line.
+          "flex h-9 items-center gap-2 rounded-lg border text-[13px] font-medium transition-colors",
+          "max-lg:size-11 max-lg:justify-center max-lg:gap-0 max-lg:p-0 lg:px-3",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/40",
           isActive
             ? "border-brand/35 bg-brand-weak text-brand"
@@ -101,9 +149,14 @@ export function ExplorerSelectMenu<T extends string>({
         <span className="shrink-0" aria-hidden>
           {icon}
         </span>
-        {label}
+        <span className="max-lg:hidden" aria-hidden>
+          {label}
+        </span>
         {isActive ? (
-          <span className="max-w-[9rem] truncate rounded-md bg-brand/12 px-1.5 py-0.5 text-[11px] font-semibold">
+          <span
+            className="max-w-[9rem] truncate rounded-md bg-brand/12 px-1.5 py-0.5 text-[11px] font-semibold max-lg:hidden"
+            aria-hidden
+          >
             {activeLabel}
           </span>
         ) : null}
@@ -114,9 +167,14 @@ export function ExplorerSelectMenu<T extends string>({
           id={menuId}
           role="listbox"
           aria-label={menuLabel}
+          style={mobileMenuStyle ?? undefined}
           className={cn(
-            "absolute right-0 top-full z-30 mt-1.5 min-w-[13rem] overflow-hidden rounded-lg border border-edge bg-raised p-1 shadow-[0_10px_30px_rgba(15,23,42,0.12)]",
-            menuClassName,
+            "z-30 overflow-y-auto rounded-lg border border-edge bg-raised p-1 shadow-[0_10px_30px_rgba(15,23,42,0.12)]",
+            // Human: Desktop anchors under the trigger; mobile is positioned from JS above, so it
+            // must not also carry the absolute/min-width rules that caused the overflow.
+            mobileMenuStyle
+              ? "fixed"
+              : cn("absolute right-0 top-full mt-1.5 min-w-[13rem]", menuClassName),
           )}
         >
           {options.map((option) => {
@@ -132,7 +190,8 @@ export function ExplorerSelectMenu<T extends string>({
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors",
+                  // Human: Fingers get taller rows — 30px options are hard to hit accurately.
+                  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors touch:py-2.5",
                   selected
                     ? "font-semibold text-brand"
                     : "text-ink-muted hover:bg-surface hover:text-ink",

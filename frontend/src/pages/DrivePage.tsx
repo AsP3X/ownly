@@ -2638,11 +2638,6 @@ export default function DrivePage() {
         onProfileToggle={() => setProfileOpen((open) => !open)}
         onLogout={handleSignOut}
         onMenuOpen={() => setMobileSidebarOpen(true)}
-        onUpload={() => setUploadDialogOpen(true)}
-        onCreateFolder={() => {
-          setActiveNav("my-files");
-          setCreateFolderDialogOpen(true);
-        }}
         onBack={() => goToFolderIndex(folderStack.length - 2)}
       />
 
