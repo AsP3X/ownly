@@ -31,6 +31,9 @@ export type DownloadJob = {
   progress: number;
   phase: DownloadProgressUpdate["phase"];
   indeterminate: boolean;
+  /** Human: Zip members compressed so far — only zip jobs report these. */
+  filesDone?: number;
+  filesTotal?: number;
   status: DownloadJobStatus;
   method: DownloadMethod | null;
   error?: string;
@@ -161,6 +164,11 @@ async function runDownloadJob(job: DownloadJob) {
             progress: update.percent,
             phase: update.phase,
             indeterminate: update.indeterminate ?? false,
+            // Human: Only overwrite when the poll actually carried counts, so a later update without
+            // them cannot blank a figure the tray is already showing.
+            ...(update.filesTotal != null
+              ? { filesDone: update.filesDone ?? 0, filesTotal: update.filesTotal }
+              : {}),
             ...(update.archiveName ? { label: update.archiveName } : {}),
           });
         },
@@ -185,6 +193,11 @@ async function runDownloadJob(job: DownloadJob) {
           progress: update.percent,
           phase: update.phase,
           indeterminate: update.indeterminate ?? false,
+          // Human: Only overwrite when the poll actually carried counts, so a later update without
+          // them cannot blank a figure the tray is already showing.
+          ...(update.filesTotal != null
+            ? { filesDone: update.filesDone ?? 0, filesTotal: update.filesTotal }
+            : {}),
           ...(update.archiveName ? { label: update.archiveName } : {}),
         });
       });

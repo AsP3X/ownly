@@ -103,6 +103,8 @@ pub async fn post_bulk_download(
         size_bytes: None,
         archive_path: None,
         cancelled: false,
+        files_done: 0,
+        files_total: 0,
     };
     state
         .folder_download_jobs

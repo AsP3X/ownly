@@ -1533,6 +1533,9 @@ export type FolderDownloadStatus = {
   archive_name: string;
   size_bytes: number | null;
   error?: string | null;
+  /** Members compressed so far / in total. 0 while the entry list is still being built. */
+  files_done: number;
+  files_total: number;
 };
 
 export async function startFolderDownload(folderId: string) {
@@ -1561,6 +1564,9 @@ export type BulkDownloadStatus = {
   archive_name: string;
   size_bytes: number | null;
   error?: string | null;
+  /** Members compressed so far / in total. 0 while the entry list is still being built. */
+  files_done: number;
+  files_total: number;
 };
 
 // Human: Start a server-side zip job for multiple selected files.
@@ -1622,11 +1628,19 @@ export async function downloadFolderItem(
       percent: Math.min(99, status.progress),
       indeterminate,
       archiveName: status.archive_name,
+      filesDone: status.files_done,
+      filesTotal: status.files_total,
     });
 
     if (status.ready) {
       sizeBytes = status.size_bytes ?? 0;
-      onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+      onProgress?.({
+        phase: "processing",
+        percent: 100,
+        indeterminate: false,
+        filesDone: status.files_total,
+        filesTotal: status.files_total,
+      });
       break;
     }
 
@@ -1683,11 +1697,19 @@ export async function downloadBulkFiles(
       percent: Math.min(99, status.progress),
       indeterminate,
       archiveName: status.archive_name,
+      filesDone: status.files_done,
+      filesTotal: status.files_total,
     });
 
     if (status.ready) {
       sizeBytes = status.size_bytes ?? 0;
-      onProgress?.({ phase: "processing", percent: 100, indeterminate: false });
+      onProgress?.({
+        phase: "processing",
+        percent: 100,
+        indeterminate: false,
+        filesDone: status.files_total,
+        filesTotal: status.files_total,
+      });
       break;
     }
 
@@ -2812,6 +2834,10 @@ export type DownloadProgressUpdate = {
   indeterminate?: boolean;
   /** Folder zip jobs surface the dated archive filename while compressing. */
   archiveName?: string;
+  /** Members compressed so far — zip jobs only, so the tray can show "12 of 40 files". */
+  filesDone?: number;
+  /** Total members in the archive; 0 or undefined while the entry list is still resolving. */
+  filesTotal?: number;
 };
 
 export type VideoExportStatus = {

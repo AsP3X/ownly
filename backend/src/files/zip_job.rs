@@ -38,6 +38,31 @@ pub struct FolderDownloadJob {
     pub size_bytes: Option<i64>,
     pub archive_path: Option<PathBuf>,
     pub cancelled: bool,
+    /// Human: Members written to the archive so far — drives "12 of 40 files" in the tray.
+    /// Agent: INCREMENTED after each member is written, not before; 0 until compression starts.
+    pub files_done: i32,
+    /// Human: Total members this archive will contain. 0 while the entry list is still being built.
+    pub files_total: i32,
+}
+
+impl FolderDownloadJob {
+    /// Human: A fresh queued job — the state every entry point starts from.
+    /// Agent: Callers override the fields they care about; keeps the 9 construction sites honest
+    ///        about file counts instead of each inventing its own defaults.
+    pub fn queued(archive_name: impl Into<String>) -> Self {
+        Self {
+            status: "queued".to_string(),
+            progress: 0,
+            ready: false,
+            error: None,
+            archive_name: archive_name.into(),
+            size_bytes: None,
+            archive_path: None,
+            cancelled: false,
+            files_done: 0,
+            files_total: 0,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -128,6 +153,10 @@ pub struct ZipDownloadStatusResponse {
     pub archive_name: String,
     pub size_bytes: Option<i64>,
     pub error: Option<String>,
+    /// Human: Members compressed so far, for "12 of 40 files" in the download tray.
+    pub files_done: i32,
+    /// Human: Total members in the archive; 0 while the entry list is still being resolved.
+    pub files_total: i32,
 }
 
 // Human: Serialize registry job state for download tray polling endpoints.
@@ -139,6 +168,13 @@ pub fn zip_status_json(job: &FolderDownloadJob) -> ZipDownloadStatusResponse {
         archive_name: job.archive_name.clone(),
         size_bytes: job.size_bytes,
         error: job.error.clone(),
+        // Human: A finished archive reads "40 of 40", never "39 of 40" from a missed final tick.
+        files_done: if job.ready {
+            job.files_total.max(job.files_done)
+        } else {
+            job.files_done
+        },
+        files_total: job.files_total,
     }
 }
 
@@ -430,6 +466,8 @@ async fn mark_failed(
                 size_bytes: None,
                 archive_path: None,
                 cancelled: false,
+                files_done: 0,
+                files_total: 0,
             },
         )
         .await;
@@ -460,6 +498,20 @@ pub async fn run_zip_entries_job(
     }
 
     let total = entries.len().max(1);
+
+    // Human: Publish the denominator before the first member is written, so the tray can show
+    // "0 of 40 files" immediately instead of an unqualified spinner while the archive warms up.
+    // Agent: entries.len(), not `total` — the .max(1) floor is for the percentage maths only and
+    //        would otherwise report "of 1" for a genuinely empty selection.
+    if let Some(mut job) = state.folder_download_jobs.get(&registry_key).await {
+        job.files_total = entries.len() as i32;
+        job.files_done = 0;
+        state
+            .folder_download_jobs
+            .set(registry_key.clone(), job)
+            .await;
+    }
+
     let zip_file = match std::fs::File::create(&archive_path) {
         Ok(file) => file,
         Err(error) => {
@@ -494,6 +546,10 @@ pub async fn run_zip_entries_job(
         if let Some(mut job) = state.folder_download_jobs.get(&registry_key).await {
             job.progress = pct.max(5);
             job.status = "compressing".to_string();
+            // Human: `index` members are finished at this point — the one at `index` is about to
+            // start. Reporting index+1 here would claim a file was compressed before it was.
+            job.files_done = index as i32;
+            job.files_total = total as i32;
             state
                 .folder_download_jobs
                 .set(registry_key.clone(), job)
@@ -585,6 +641,10 @@ pub async fn run_zip_entries_job(
                 size_bytes: Some(size_bytes),
                 archive_path: Some(archive_path),
                 cancelled: false,
+                // Human: Every member is written by the time we get here — the final state must
+                // read "40 of 40", not carry the last in-loop value which was one short.
+                files_done: entries.len() as i32,
+                files_total: entries.len() as i32,
             },
         )
         .await;
@@ -850,6 +910,8 @@ mod tests {
                         "mv_bulk_zip_{job_id}/files.zip"
                     ))),
                     cancelled: false,
+                    files_done: 0,
+                    files_total: 0,
                 },
             )
             .await;
@@ -878,6 +940,8 @@ mod tests {
                     size_bytes: None,
                     archive_path: None,
                     cancelled: false,
+                    files_done: 0,
+                    files_total: 0,
                 },
             )
             .await;

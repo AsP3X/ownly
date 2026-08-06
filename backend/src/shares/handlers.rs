@@ -1732,6 +1732,8 @@ pub async fn public_share_download_archive(
                 size_bytes: None,
                 archive_path: None,
                 cancelled: false,
+                files_done: 0,
+                files_total: 0,
             }),
             single_file_id: Some(file_ids[0].clone()),
         }));
@@ -1756,6 +1758,8 @@ pub async fn public_share_download_archive(
         size_bytes: None,
         archive_path: None,
         cancelled: false,
+        files_done: 0,
+        files_total: 0,
     };
     state.folder_download_jobs.set(key.clone(), job.clone()).await;
 

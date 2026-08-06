@@ -589,6 +589,8 @@ async fn mark_registry_queued_to_compressing(
                     size_bytes: None,
                     archive_path: None,
                     cancelled: false,
+                    files_done: 0,
+                    files_total: 0,
                 },
             )
             .await;

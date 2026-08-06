@@ -51,10 +51,18 @@ function TransferProgressBar({
   );
 }
 
-function phaseLabel(job: DownloadJob): string {
+export function phaseLabel(job: DownloadJob): string {
   if (job.phase === "processing") {
     if (job.kind === "folder" || job.kind === "bulk") {
       const target = job.kind === "folder" ? "folder" : "files";
+      // Human: A file count answers "is it stuck?" far better than a percentage does — a big
+      // video can hold one member for a long time while the percent barely moves.
+      // Agent: filesTotal is 0 until the server has resolved the entry list; fall back to % then.
+      if (job.filesTotal != null && job.filesTotal > 0) {
+        const done = Math.min(job.filesDone ?? 0, job.filesTotal);
+        const noun = job.filesTotal === 1 ? "file" : "files";
+        return `Compressing ${target}… ${done} of ${job.filesTotal} ${noun}`;
+      }
       return job.progress > 0
         ? `Compressing ${target}… ${job.progress}%`
         : `Compressing ${target}…`;

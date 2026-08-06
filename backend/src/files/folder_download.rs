@@ -34,6 +34,9 @@ pub struct FolderDownloadStatusResponse {
     archive_name: String,
     size_bytes: Option<i64>,
     error: Option<String>,
+    /// Human: Members compressed so far / in total — the tray renders "12 of 40 files".
+    files_done: i32,
+    files_total: i32,
 }
 
 fn folder_status_json(job: &FolderDownloadJob) -> FolderDownloadStatusResponse {
@@ -45,6 +48,8 @@ fn folder_status_json(job: &FolderDownloadJob) -> FolderDownloadStatusResponse {
         archive_name: status.archive_name,
         size_bytes: status.size_bytes,
         error: status.error,
+        files_done: status.files_done,
+        files_total: status.files_total,
     }
 }
 
@@ -212,6 +217,8 @@ pub async fn post_folder_download(
         size_bytes: None,
         archive_path: None,
         cancelled: false,
+        files_done: 0,
+        files_total: 0,
     };
     state
         .folder_download_jobs
