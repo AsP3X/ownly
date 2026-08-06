@@ -78,7 +78,13 @@ fn archive_filename(folder_name: &str) -> String {
     format!("{label} {stamp}.zip")
 }
 
+/// Human: Ceiling on folder nesting the archive walk will follow.
+/// Agent: Guards the recursive CTE against a parent_id cycle looping forever. Well beyond any
+///        real tree, so hitting it means the data is malformed, not that the folder is deep.
+const MAX_FOLDER_DEPTH: i32 = 64;
+
 type FolderFileRow = (
+    String,
     String,
     String,
     String,
@@ -88,13 +94,22 @@ type FolderFileRow = (
     Option<i32>,
 );
 
-// Human: Walk a folder subtree and collect every file with its zip-relative path.
-// Agent: BFS folders table; READS files per folder; RETURNS ordered ZipFileEntry list.
+/// Human: Everything an archive needs from a folder tree — its files and its directory skeleton.
+/// Agent: `directories` carries EVERY folder in the tree, so empty ones survive into the zip.
+pub struct FolderZipContents {
+    pub entries: Vec<ZipFileEntry>,
+    pub directories: Vec<String>,
+}
+
+// Human: Collect a folder subtree — every file with its zip-relative path, plus the directory
+// skeleton so empty folders survive into the archive.
+// Agent: TWO queries total (recursive CTE for the tree, one IN-list for the files). The previous
+//        BFS issued two round trips PER FOLDER, so a deep tree cost hundreds of queries.
 pub async fn collect_zip_entries_for_folder(
     pool: &sqlx::PgPool,
     actor_id: &str,
     root_folder_id: &str,
-) -> Result<Vec<ZipFileEntry>, AppError> {
+) -> Result<FolderZipContents, AppError> {
     access::ensure_folder_access(
         pool,
         actor_id,
@@ -111,72 +126,100 @@ pub async fn collect_zip_entries_for_folder(
     .await?;
     let (owner_id,) = owner_row.ok_or(AppError::NotFound)?;
 
-    let mut entries = Vec::new();
-    let mut queue: Vec<(String, String)> = vec![(root_folder_id.to_string(), String::new())];
+    // Human: `prefix` is each folder's own path RELATIVE to the root, so the root itself is ''
+    // and its name never appears inside the archive — the zip filename already carries it.
+    // Agent: depth guard stops a parent_id cycle from recursing forever.
+    let folders: Vec<(String, String)> = sqlx::query_as(
+        "WITH RECURSIVE tree AS ( \
+             SELECT id, ''::text AS prefix, 0 AS depth \
+               FROM folders \
+              WHERE id = $2 AND user_id = $1 AND deleted_at IS NULL \
+             UNION ALL \
+             SELECT child.id, \
+                    CASE WHEN parent.prefix = '' THEN child.name \
+                         ELSE parent.prefix || '/' || child.name END, \
+                    parent.depth + 1 \
+               FROM folders child \
+               JOIN tree parent ON child.parent_id = parent.id \
+              WHERE child.user_id = $1 \
+                AND child.deleted_at IS NULL \
+                AND parent.depth < $3 \
+         ) \
+         SELECT id, prefix FROM tree ORDER BY prefix ASC",
+    )
+    .bind(&owner_id)
+    .bind(root_folder_id)
+    .bind(MAX_FOLDER_DEPTH)
+    .fetch_all(pool)
+    .await?;
 
-    while let Some((folder_id, prefix)) = queue.pop() {
-        let subfolders: Vec<(String, String)> = sqlx::query_as(
-            "SELECT id, name FROM folders \
-             WHERE user_id = $1 AND parent_id = $2 AND deleted_at IS NULL \
-             ORDER BY name ASC",
-        )
-        .bind(&owner_id)
-        .bind(&folder_id)
-        .fetch_all(pool)
-        .await?;
+    let folder_ids: Vec<String> = folders.iter().map(|(id, _)| id.clone()).collect();
+    let prefix_by_id: std::collections::HashMap<&str, &str> = folders
+        .iter()
+        .map(|(id, prefix)| (id.as_str(), prefix.as_str()))
+        .collect();
 
-        for (child_id, child_name) in subfolders {
-            let child_prefix = if prefix.is_empty() {
-                child_name
-            } else {
-                format!("{prefix}/{child_name}")
-            };
-            queue.push((child_id, child_prefix));
+    // Human: Every folder below the root becomes an explicit directory member. Without this an
+    // empty folder simply vanishes from the archive, because zip infers directories only from
+    // the paths of the files inside them.
+    let mut directories = Vec::new();
+    for (_, prefix) in &folders {
+        if prefix.is_empty() {
+            continue;
         }
+        directories.push(crate::files::zip_job::sanitize_zip_entry_path(prefix)?);
+    }
 
-        let rows: Vec<FolderFileRow> = sqlx::query_as(
-            "SELECT id, name, storage_key, mime_type, hls_ready, download_export_ready, segment_count \
-             FROM files WHERE user_id = $1 AND folder_id = $2 AND deleted_at IS NULL \
-             ORDER BY name ASC",
-        )
-        .bind(&owner_id)
-        .bind(&folder_id)
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<FolderFileRow> = sqlx::query_as(
+        "SELECT folder_id, id, name, storage_key, mime_type, hls_ready, download_export_ready, \
+                segment_count \
+           FROM files \
+          WHERE user_id = $1 AND folder_id = ANY($2) AND deleted_at IS NULL \
+          ORDER BY name ASC",
+    )
+    .bind(&owner_id)
+    .bind(&folder_ids)
+    .fetch_all(pool)
+    .await?;
 
-        for (
+    let mut entries = Vec::with_capacity(rows.len());
+    for (
+        folder_id,
+        file_id,
+        name,
+        storage_key,
+        mime_type,
+        hls_ready,
+        export_ready,
+        segment_count,
+    ) in rows
+    {
+        let prefix = prefix_by_id.get(folder_id.as_str()).copied().unwrap_or("");
+        let raw_zip_path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let zip_path = crate::files::zip_job::sanitize_zip_entry_path(&raw_zip_path)?;
+        entries.push(ZipFileEntry {
+            zip_path,
             file_id,
-            name,
             storage_key,
+            display_name: name,
             mime_type,
             hls_ready,
             export_ready,
-            segment_count,
-        ) in rows
-        {
-            let raw_zip_path = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}/{name}")
-            };
-            let zip_path = crate::files::zip_job::sanitize_zip_entry_path(&raw_zip_path)?;
-            entries.push(ZipFileEntry {
-                zip_path,
-                file_id,
-                storage_key,
-                display_name: name,
-                mime_type,
-                hls_ready,
-                export_ready,
-                segment_count: segment_count.unwrap_or(0),
-            });
-        }
+            segment_count: segment_count.unwrap_or(0),
+        });
     }
 
     // Human: Folder trees looked safe because paths are unique per directory, but HLS videos are
     // renamed to .mp4 on the way into the archive — so `clip.webm` and `clip.mp4` sitting in the
     // same folder collide and the zip fails to open. Dedupe against the post-rename path.
-    Ok(crate::files::zip_job::dedupe_zip_member_names(entries))
+    Ok(FolderZipContents {
+        entries: crate::files::zip_job::dedupe_zip_member_names(entries),
+        directories,
+    })
 }
 
 // Human: Start (or re-use) a background zip job for the selected folder.

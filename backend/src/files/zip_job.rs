@@ -519,6 +519,9 @@ pub async fn run_zip_entries_job(
     work_dir: PathBuf,
     archive_name: String,
     entries: Vec<ZipFileEntry>,
+    // Human: Explicit directory members, so folders with no files in them still appear in the
+    // archive. Empty for flat jobs (bulk selections, public shares) which have no tree.
+    directories: Vec<String>,
     log_context: &str,
     background_job_id: Option<String>,
 ) {
@@ -566,6 +569,24 @@ pub async fn run_zip_entries_job(
     };
 
     let mut zip = zip::ZipWriter::new(zip_file);
+
+    // Human: Directory members go in first so the archive mirrors the tree even where a folder
+    // holds no files — zip otherwise infers directories purely from member paths, so an empty
+    // one disappears entirely.
+    // Agent: add_directory appends the trailing '/' itself; a failure here is not fatal because
+    //        every folder that DOES contain files is still implied by those file paths.
+    let dir_options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    for directory in &directories {
+        if let Err(error) = zip.add_directory(directory, dir_options) {
+            tracing::warn!(
+                context = log_context,
+                directory = %directory,
+                %error,
+                "could not add directory entry to archive"
+            );
+        }
+    }
+
     // Human: Members that could not be read. The archive still ships; these are reported so the
     // user knows the download is incomplete rather than silently short.
     let mut skipped: Vec<String> = Vec::new();

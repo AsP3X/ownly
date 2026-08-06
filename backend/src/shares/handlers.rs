@@ -1774,6 +1774,8 @@ pub async fn public_share_download_archive(
             work_dir,
             archive_name,
             entries,
+            // Human: Share archives are a flat selection — no folder tree to mirror.
+            Vec::new(),
             &format!("public-share:{token}"),
             None,
         )

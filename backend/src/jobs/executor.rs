@@ -636,6 +636,8 @@ async fn run_zip_bulk(state: Arc<AppState>, job: &BackgroundJob) -> Result<(), S
         work_dir,
         payload.archive_name.clone(),
         entries,
+        // Human: A multi-select is a flat list — there is no folder tree to preserve.
+        Vec::new(),
         &format!("bulk:{}", payload.job_id),
         Some(job.id.clone()),
     )
@@ -671,7 +673,7 @@ async fn run_zip_folder(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
     )
     .await;
 
-    let entries = super::super::files::folder_download::collect_zip_entries_for_folder(
+    let contents = super::super::files::folder_download::collect_zip_entries_for_folder(
         &state.pool,
         &job.user_id,
         &payload.folder_id,
@@ -685,7 +687,8 @@ async fn run_zip_folder(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
         payload.registry_key.clone(),
         work_dir,
         payload.archive_name.clone(),
-        entries,
+        contents.entries,
+        contents.directories,
         &format!("folder:{}", payload.folder_name),
         Some(job.id.clone()),
     )
