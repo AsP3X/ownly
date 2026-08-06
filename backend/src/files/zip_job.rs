@@ -43,6 +43,9 @@ pub struct FolderDownloadJob {
     pub files_done: i32,
     /// Human: Total members this archive will contain. 0 while the entry list is still being built.
     pub files_total: i32,
+    /// Human: Names of members that could not be read and were left out of the archive.
+    /// Agent: EMPTY on success; a ready job with entries here is a PARTIAL archive.
+    pub skipped_files: Vec<String>,
 }
 
 impl FolderDownloadJob {
@@ -61,6 +64,7 @@ impl FolderDownloadJob {
             cancelled: false,
             files_done: 0,
             files_total: 0,
+            skipped_files: Vec::new(),
         }
     }
 }
@@ -157,6 +161,8 @@ pub struct ZipDownloadStatusResponse {
     pub files_done: i32,
     /// Human: Total members in the archive; 0 while the entry list is still being resolved.
     pub files_total: i32,
+    /// Human: Files left out because they could not be read. Non-empty means a partial archive.
+    pub skipped_files: Vec<String>,
 }
 
 // Human: Serialize registry job state for download tray polling endpoints.
@@ -168,13 +174,16 @@ pub fn zip_status_json(job: &FolderDownloadJob) -> ZipDownloadStatusResponse {
         archive_name: job.archive_name.clone(),
         size_bytes: job.size_bytes,
         error: job.error.clone(),
-        // Human: A finished archive reads "40 of 40", never "39 of 40" from a missed final tick.
-        files_done: if job.ready {
+        // Human: A finished archive reads "40 of 40" rather than "39 of 40" from a missed final
+        // tick — but only when nothing was skipped. Rounding up a partial archive would hide
+        // exactly the fact the user needs to see.
+        files_done: if job.ready && job.skipped_files.is_empty() {
             job.files_total.max(job.files_done)
         } else {
             job.files_done
         },
         files_total: job.files_total,
+        skipped_files: job.skipped_files.clone(),
     }
 }
 
@@ -272,26 +281,54 @@ fn disambiguate_filename(name: &str, index: u32) -> String {
 }
 
 
+/// Human: Whether a failed member left anything behind in the archive.
+/// Agent: Decides skip-vs-abort. Getting this wrong ships a corrupt zip, so the variant is
+///        chosen by WHERE the failure happened, never by what kind of error it was.
+#[derive(Debug)]
+pub enum MemberWriteError {
+    /// Human: Failed before the entry header was written — the archive is untouched and this
+    /// member can be skipped. Covers the common case of a missing or unreadable object.
+    Untouched(String),
+    /// Human: Failed after start_file, so a header and possibly some bytes are already in the
+    /// archive. There is no way to retract them, so the whole job must fail.
+    Partial(String),
+}
+
+impl MemberWriteError {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Untouched(message) | Self::Partial(message) => message,
+        }
+    }
+}
+
 async fn write_storage_object_to_zip(
     storage: &dyn crate::storage::Storage,
     object_key: &str,
     zip: &mut zip::ZipWriter<std::fs::File>,
     member_path: &str,
     options: SimpleFileOptions,
-) -> Result<(), String> {
-    let (mut stream, _, _) = storage
-        .get_stream(object_key)
-        .await
-        .map_err(|error| format!("open {object_key}: {error}"))?;
+) -> Result<(), MemberWriteError> {
+    // Human: Opening the stream first is what makes skipping safe — a missing blob fails here,
+    // before the archive has been touched. Do not reorder this past start_file.
+    let (mut stream, _, _) = storage.get_stream(object_key).await.map_err(|error| {
+        MemberWriteError::Untouched(format!("open {object_key}: {error}"))
+    })?;
     // Human: start_file is a thin header write — fine on the async runtime.
-    zip.start_file(member_path, options)
-        .map_err(|error| format!("zip entry {member_path}: {error}"))?;
-    while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
+    zip.start_file(member_path, options).map_err(|error| {
+        MemberWriteError::Untouched(format!("zip entry {member_path}: {error}"))
+    })?;
+    while let Some(chunk) = stream
+        .try_next()
+        .await
+        .map_err(|error| MemberWriteError::Partial(error.to_string()))?
+    {
         // Human: Deflate compression is CPU-bound — move off the async worker thread.
         // Agent: block_in_place lets the runtime schedule other tasks while we compress.
         tokio::task::block_in_place(|| {
-            zip.write_all(&chunk)
-                .map_err(|error| format!("write zip entry {member_path}: {error}"))
+            zip.write_all(&chunk).map_err(|error| {
+                MemberWriteError::Partial(format!("write zip entry {member_path}: {error}"))
+            })
         })?;
     }
     Ok(())
@@ -468,6 +505,7 @@ async fn mark_failed(
                 cancelled: false,
                 files_done: 0,
                 files_total: 0,
+                skipped_files: Vec::new(),
             },
         )
         .await;
@@ -528,6 +566,10 @@ pub async fn run_zip_entries_job(
     };
 
     let mut zip = zip::ZipWriter::new(zip_file);
+    // Human: Members that could not be read. The archive still ships; these are reported so the
+    // user knows the download is incomplete rather than silently short.
+    let mut skipped: Vec<String> = Vec::new();
+    let mut written: usize = 0;
 
     for (index, entry) in entries.iter().enumerate() {
         if state
@@ -570,35 +612,76 @@ pub async fn run_zip_entries_job(
             {
                 Ok(keys) => keys,
                 Err(message) => {
-                    mark_failed(
-                        &state.folder_download_jobs,
-                        &registry_key,
-                        &archive_name,
-                        &message,
-                    )
-                    .await;
-                    let _ = zip.finish();
-                    let _ = tokio::fs::remove_dir_all(&work_dir).await;
-                    return;
+                    // Human: Nothing written yet — drop this member and keep the archive.
+                    tracing::warn!(
+                        context = log_context,
+                        file = %entry.display_name,
+                        reason = %message,
+                        "skipping zip member"
+                    );
+                    skipped.push(entry.display_name.clone());
+                    continue;
                 }
             };
 
         let options = zip_entry_options(&entry.mime_type, &member_path);
-        if let Err(message) =
-            write_storage_object_to_zip(state.storage.as_ref(), &object_key, &mut zip, &member_path, options)
-                .await
+        match write_storage_object_to_zip(
+            state.storage.as_ref(),
+            &object_key,
+            &mut zip,
+            &member_path,
+            options,
+        )
+        .await
         {
-            mark_failed(
-                &state.folder_download_jobs,
-                &registry_key,
-                &archive_name,
-                &format!("read {}: {message}", entry.display_name),
-            )
-            .await;
-            let _ = zip.finish();
-            let _ = tokio::fs::remove_dir_all(&work_dir).await;
-            return;
+            Ok(()) => {}
+            // Human: One unreadable file used to discard the whole archive — every other file
+            // already compressed was thrown away with it. A missing blob is exactly the failure
+            // an operator hits after storage drift, and losing the other 39 files helps nobody.
+            Err(error @ MemberWriteError::Untouched(_)) => {
+                tracing::warn!(
+                    context = log_context,
+                    file = %entry.display_name,
+                    reason = %error.message(),
+                    "skipping zip member"
+                );
+                skipped.push(entry.display_name.clone());
+                continue;
+            }
+            // Human: A header and possibly bytes are already in the archive and cannot be
+            // retracted, so continuing here would hand the user a corrupt zip.
+            Err(error @ MemberWriteError::Partial(_)) => {
+                mark_failed(
+                    &state.folder_download_jobs,
+                    &registry_key,
+                    &archive_name,
+                    &format!("read {}: {}", entry.display_name, error.message()),
+                )
+                .await;
+                let _ = zip.finish();
+                let _ = tokio::fs::remove_dir_all(&work_dir).await;
+                return;
+            }
         }
+        written += 1;
+    }
+
+    // Human: Everything failed — an empty archive is not a useful download, so report the
+    // failure rather than handing over a zip with nothing in it.
+    if written == 0 && !entries.is_empty() {
+        mark_failed(
+            &state.folder_download_jobs,
+            &registry_key,
+            &archive_name,
+            &format!(
+                "no files could be read ({} skipped)",
+                skipped.len()
+            ),
+        )
+        .await;
+        let _ = zip.finish();
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        return;
     }
 
     if let Err(error) = zip.finish() {
@@ -641,10 +724,12 @@ pub async fn run_zip_entries_job(
                 size_bytes: Some(size_bytes),
                 archive_path: Some(archive_path),
                 cancelled: false,
-                // Human: Every member is written by the time we get here — the final state must
-                // read "40 of 40", not carry the last in-loop value which was one short.
-                files_done: entries.len() as i32,
+                // Human: Report what actually landed in the archive. When members were skipped
+                // this reads "38 of 40", which together with skipped_files tells the user the
+                // download is short and exactly which files are missing.
+                files_done: written as i32,
                 files_total: entries.len() as i32,
+                skipped_files: skipped.clone(),
             },
         )
         .await;
@@ -912,6 +997,7 @@ mod tests {
                     cancelled: false,
                     files_done: 0,
                     files_total: 0,
+                    skipped_files: Vec::new(),
                 },
             )
             .await;
@@ -942,6 +1028,7 @@ mod tests {
                     cancelled: false,
                     files_done: 0,
                     files_total: 0,
+                    skipped_files: Vec::new(),
                 },
             )
             .await;

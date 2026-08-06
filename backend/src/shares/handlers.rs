@@ -1734,6 +1734,7 @@ pub async fn public_share_download_archive(
                 cancelled: false,
                 files_done: 0,
                 files_total: 0,
+                skipped_files: Vec::new(),
             }),
             single_file_id: Some(file_ids[0].clone()),
         }));
@@ -1760,6 +1761,7 @@ pub async fn public_share_download_archive(
         cancelled: false,
         files_done: 0,
         files_total: 0,
+        skipped_files: Vec::new(),
     };
     state.folder_download_jobs.set(key.clone(), job.clone()).await;
 

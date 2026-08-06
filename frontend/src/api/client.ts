@@ -1536,6 +1536,8 @@ export type FolderDownloadStatus = {
   /** Members compressed so far / in total. 0 while the entry list is still being built. */
   files_done: number;
   files_total: number;
+  /** Files left out because they could not be read. Non-empty means a PARTIAL archive. */
+  skipped_files: string[];
 };
 
 export async function startFolderDownload(folderId: string) {
@@ -1567,6 +1569,8 @@ export type BulkDownloadStatus = {
   /** Members compressed so far / in total. 0 while the entry list is still being built. */
   files_done: number;
   files_total: number;
+  /** Files left out because they could not be read. Non-empty means a PARTIAL archive. */
+  skipped_files: string[];
 };
 
 // Human: Start a server-side zip job for multiple selected files.
@@ -1630,6 +1634,7 @@ export async function downloadFolderItem(
       archiveName: status.archive_name,
       filesDone: status.files_done,
       filesTotal: status.files_total,
+      skippedFiles: status.skipped_files,
     });
 
     if (status.ready) {
@@ -1638,8 +1643,11 @@ export async function downloadFolderItem(
         phase: "processing",
         percent: 100,
         indeterminate: false,
-        filesDone: status.files_total,
+        // Human: Report what actually landed, not the total — a partial archive must not
+        // present itself as complete.
+        filesDone: status.files_done,
         filesTotal: status.files_total,
+        skippedFiles: status.skipped_files,
       });
       break;
     }
@@ -1699,6 +1707,7 @@ export async function downloadBulkFiles(
       archiveName: status.archive_name,
       filesDone: status.files_done,
       filesTotal: status.files_total,
+      skippedFiles: status.skipped_files,
     });
 
     if (status.ready) {
@@ -1707,8 +1716,11 @@ export async function downloadBulkFiles(
         phase: "processing",
         percent: 100,
         indeterminate: false,
-        filesDone: status.files_total,
+        // Human: Report what actually landed, not the total — a partial archive must not
+        // present itself as complete.
+        filesDone: status.files_done,
         filesTotal: status.files_total,
+        skippedFiles: status.skipped_files,
       });
       break;
     }
@@ -2838,6 +2850,8 @@ export type DownloadProgressUpdate = {
   filesDone?: number;
   /** Total members in the archive; 0 or undefined while the entry list is still resolving. */
   filesTotal?: number;
+  /** Files the server could not read and left out — a non-empty list means a partial archive. */
+  skippedFiles?: string[];
 };
 
 export type VideoExportStatus = {

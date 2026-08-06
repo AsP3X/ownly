@@ -34,6 +34,8 @@ export type DownloadJob = {
   /** Human: Zip members compressed so far — only zip jobs report these. */
   filesDone?: number;
   filesTotal?: number;
+  /** Human: Files the server could not read. Non-empty means the archive is incomplete. */
+  skippedFiles?: string[];
   status: DownloadJobStatus;
   method: DownloadMethod | null;
   error?: string;
@@ -169,6 +171,7 @@ async function runDownloadJob(job: DownloadJob) {
             ...(update.filesTotal != null
               ? { filesDone: update.filesDone ?? 0, filesTotal: update.filesTotal }
               : {}),
+            ...(update.skippedFiles ? { skippedFiles: update.skippedFiles } : {}),
             ...(update.archiveName ? { label: update.archiveName } : {}),
           });
         },
@@ -198,6 +201,7 @@ async function runDownloadJob(job: DownloadJob) {
           ...(update.filesTotal != null
             ? { filesDone: update.filesDone ?? 0, filesTotal: update.filesTotal }
             : {}),
+          ...(update.skippedFiles ? { skippedFiles: update.skippedFiles } : {}),
           ...(update.archiveName ? { label: update.archiveName } : {}),
         });
       });

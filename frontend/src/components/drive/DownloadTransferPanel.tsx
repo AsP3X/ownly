@@ -107,8 +107,23 @@ function QueuedDownloadsSummary({
 
 // Human: Active or finished download row — queued jobs never render here (use QueuedDownloadsSummary).
 // Agent: RENDERS progress for downloading; complete bar / error text for terminal states.
+// Human: A finished archive that is missing files reads as a plain success otherwise — the user
+// would only find out when they opened the zip and something was not there.
+export function skippedSummary(job: DownloadJob): string | null {
+  const skipped = job.skippedFiles;
+  if (!skipped || skipped.length === 0) return null;
+  const subject = skipped.length === 1 ? "1 file was" : `${skipped.length} files were`;
+  // Human: Name a couple so the warning is actionable, but never dump a hundred names into a
+  // tray row — the count carries the rest.
+  const named = skipped.slice(0, 2).join(", ");
+  const rest = skipped.length - Math.min(2, skipped.length);
+  const tail = rest > 0 ? ` and ${rest} more` : "";
+  return `${subject} left out — could not be read: ${named}${tail}`;
+}
+
 function DownloadJobRow({ job }: { job: DownloadJob }) {
   const isActive = job.status === "downloading";
+  const skipped = skippedSummary(job);
 
   return (
     <li className="flex flex-col gap-2 border-b border-hairline px-4 py-3 last:border-b-0">
@@ -155,6 +170,13 @@ function DownloadJobRow({ job }: { job: DownloadJob }) {
       ) : null}
       {job.status === "error" && job.error ? (
         <p className="text-xs text-danger">{job.error}</p>
+      ) : null}
+      {/* Human: Warning, not error — the archive downloaded fine, it is just short. */}
+      {skipped ? (
+        <p className="flex items-start gap-1.5 text-xs text-warn">
+          <AlertCircle className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span>{skipped}</span>
+        </p>
       ) : null}
     </li>
   );

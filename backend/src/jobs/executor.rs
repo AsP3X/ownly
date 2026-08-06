@@ -591,6 +591,7 @@ async fn mark_registry_queued_to_compressing(
                     cancelled: false,
                     files_done: 0,
                     files_total: 0,
+                    skipped_files: Vec::new(),
                 },
             )
             .await;

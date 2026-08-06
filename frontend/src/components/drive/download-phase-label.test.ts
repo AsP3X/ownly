@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { phaseLabel } from "./DownloadTransferPanel";
+import { phaseLabel, skippedSummary } from "./DownloadTransferPanel";
 import type { DownloadJob } from "@/lib/download-manager";
 
 function job(overrides: Partial<DownloadJob>): DownloadJob {
@@ -76,6 +76,32 @@ describe("phaseLabel — zip compression", () => {
     );
     expect(phaseLabel(job({ phase: "downloading", filesDone: 40, filesTotal: 40 }))).toBe(
       "Downloading…",
+    );
+  });
+});
+
+describe("skippedSummary — partial archives", () => {
+  it("says nothing when every file was compressed", () => {
+    expect(skippedSummary(job({ skippedFiles: [] }))).toBeNull();
+    expect(skippedSummary(job({}))).toBeNull();
+  });
+
+  it("names a single unreadable file", () => {
+    expect(skippedSummary(job({ skippedFiles: ["broken.mp4"] }))).toBe(
+      "1 file was left out — could not be read: broken.mp4",
+    );
+  });
+
+  it("names the first two and counts the rest", () => {
+    // Human: A folder with many missing blobs must not dump every name into a tray row.
+    expect(
+      skippedSummary(job({ skippedFiles: ["a.mp4", "b.mp4", "c.mp4", "d.mp4"] })),
+    ).toBe("4 files were left out — could not be read: a.mp4, b.mp4 and 2 more");
+  });
+
+  it("does not add a tail when exactly two were skipped", () => {
+    expect(skippedSummary(job({ skippedFiles: ["a.mp4", "b.mp4"] }))).toBe(
+      "2 files were left out — could not be read: a.mp4, b.mp4",
     );
   });
 });

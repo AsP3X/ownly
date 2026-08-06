@@ -37,6 +37,9 @@ pub struct FolderDownloadStatusResponse {
     /// Human: Members compressed so far / in total — the tray renders "12 of 40 files".
     files_done: i32,
     files_total: i32,
+    /// Human: Files left out because they could not be read — a non-empty list means the
+    /// archive is partial, not that the job failed.
+    skipped_files: Vec<String>,
 }
 
 fn folder_status_json(job: &FolderDownloadJob) -> FolderDownloadStatusResponse {
@@ -50,6 +53,7 @@ fn folder_status_json(job: &FolderDownloadJob) -> FolderDownloadStatusResponse {
         error: status.error,
         files_done: status.files_done,
         files_total: status.files_total,
+        skipped_files: status.skipped_files,
     }
 }
 
@@ -219,6 +223,7 @@ pub async fn post_folder_download(
         cancelled: false,
         files_done: 0,
         files_total: 0,
+        skipped_files: Vec::new(),
     };
     state
         .folder_download_jobs

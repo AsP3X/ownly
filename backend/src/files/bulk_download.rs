@@ -105,6 +105,7 @@ pub async fn post_bulk_download(
         cancelled: false,
         files_done: 0,
         files_total: 0,
+        skipped_files: Vec::new(),
     };
     state
         .folder_download_jobs
