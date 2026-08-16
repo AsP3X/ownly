@@ -10,7 +10,7 @@ use tempfile::{NamedTempFile, TempDir};
 
 use crate::files::zip_job::is_hls_stored_video;
 use crate::hls::export::export_cache_is_valid;
-use crate::hls::export_job::{materialize_hls_mp4_for_ffmpeg, run_hls_export_job, EXPORT_OBJECT_KEY};
+use crate::hls::export_job::{materialize_hls_mp4_for_ffmpeg, EXPORT_OBJECT_KEY};
 use crate::hls::key_store::KeyStore;
 use crate::storage::Storage;
 
@@ -261,7 +261,7 @@ async fn resolve_video_source(
 }
 
 // Human: HLS vault videos keep segments + sidecars — not the upload spool path at storage_key.
-// Agent: PREFERS cached export.mp4; ELSE remuxes segments locally; LAST runs full export job.
+// Agent: PREFERS cached export.mp4; ELSE remuxes segments locally; NEVER persists a new export.
 async fn resolve_hls_video_source(
     pool: &PgPool,
     storage: Arc<dyn Storage>,
@@ -297,42 +297,10 @@ async fn resolve_hls_video_source(
         });
     }
 
-    set_thumbnail_progress(pool, file_id, 18).await;
-    run_hls_export_job(
-        pool.clone(),
-        storage.clone(),
-        key_store.clone(),
-        file_id.to_string(),
-        storage_key.to_string(),
-        segment_count,
+    Err(
+        "could not remux HLS locally for thumbnails; export.mp4 is not created during ingest"
+            .into(),
     )
-    .await;
-
-    let refreshed: Option<(bool, Option<i64>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT download_export_ready, download_export_size_bytes, download_export_error \
-             FROM files WHERE id = $1",
-        )
-            .bind(file_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| format!("files export row load failed: {e}"))?;
-
-    let Some((export_ready, export_size, export_error)) = refreshed else {
-        return Err("file row not found after export".into());
-    };
-    if !export_cache_is_valid(export_ready, export_size) {
-        let detail = export_error
-            .filter(|message| !message.trim().is_empty())
-            .unwrap_or_else(|| "video export is not ready for thumbnail regeneration".to_string());
-        return Err(detail);
-    }
-
-    let export_key = format!("{storage_key}/{EXPORT_OBJECT_KEY}");
-    set_thumbnail_progress(pool, file_id, 22).await;
-    let file = download_source_to_temp(storage, &export_key).await?;
-    set_thumbnail_progress(pool, file_id, 35).await;
-    Ok(LocalVideoSource::File(file))
 }
 
 // Human: Stream the stored video object from Nebular into a temp file for ffmpeg analysis.

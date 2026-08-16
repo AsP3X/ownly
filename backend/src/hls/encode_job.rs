@@ -24,8 +24,14 @@ use crate::storage::Storage;
 const HLS_SEGMENT_PROGRESS_STEP: usize = 3;
 
 /// Human: Original upload bytes retained beside HLS for clean reprocess (not a second-gen remux).
-// Agent: OBJECT key under `{storage_key}/source.master`; UPLOADED after first successful encode.
+// Agent: OBJECT key under `{storage_key}/source.master`; NO LONGER written on first ingest.
 pub const SOURCE_MASTER_OBJECT: &str = "source.master";
+
+// Human: First ingest used to PUT a full-size source.master next to HLS — a hidden second copy.
+// Agent: FALSE so new uploads keep only the HLS package; existing masters still load for reprocess.
+pub fn persist_source_master_after_ingest() -> bool {
+    false
+}
 
 /// Human: Cached download remux built on first download of an HLS-stored video.
 // Agent: OBJECT key under `{storage_key}/export.mp4`. Private copies of this literal also live in
@@ -633,23 +639,19 @@ pub async fn run_hls_encode_job(
                     // Agent: DELETES export.mp4 + CLEARS download_export_*.
                     invalidate_download_export(&storage, &pool, &file_id, &storage_key).await;
 
-                    // Human: Persist original upload bytes as source.master for future clean reprocess.
-                    // Agent: ONLY from Spool (first encode); KEEP existing master on reprocess paths.
-                    let mut has_source_master = load_source_master_flag(&pool, &file_id).await;
-                    if source.is_spool() {
-                        match persist_source_master(storage.as_ref(), &storage_key, &tmp_video).await
+                    // Human: Do not upload a second full-size original — HLS is the stored package.
+                    // Agent: KEEP existing source.master on reprocess; NEVER PUT a new one on first ingest.
+                    let has_source_master = load_source_master_flag(&pool, &file_id).await;
+                    if persist_source_master_after_ingest() && source.is_spool() && !has_source_master
+                    {
+                        if let Err(error) =
+                            persist_source_master(storage.as_ref(), &storage_key, &tmp_video).await
                         {
-                            Ok(()) => {
-                                has_source_master = true;
-                                tracing::info!(%file_id, "retained HLS source master for reprocess");
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    %file_id,
-                                    %error,
-                                    "failed to retain HLS source master; reprocess will remux segments"
-                                );
-                            }
+                            tracing::warn!(
+                                %file_id,
+                                %error,
+                                "failed to retain HLS source master; reprocess will remux segments"
+                            );
                         }
                     }
 
@@ -1105,6 +1107,58 @@ mod tests {
         assert_eq!(
             source_master_storage_key("users/u1/files/f1"),
             "users/u1/files/f1/source.master"
+        );
+    }
+
+    #[test]
+    fn first_ingest_does_not_store_a_second_full_copy() {
+        // Human: source.master doubled every video on disk and was invisible in the drive.
+        // Reprocess remuxes HLS when the original is not retained.
+        assert!(!persist_source_master_after_ingest());
+    }
+
+    #[tokio::test]
+    async fn dropping_source_master_leaves_the_hls_package() {
+        use crate::storage::{memory::MemoryStorage, Storage};
+        use std::sync::Arc;
+
+        let storage = Arc::new(MemoryStorage::new()) as Arc<dyn Storage>;
+        let base = "users/u1/files/f1";
+        storage
+            .put(&format!("{base}/stream.m3u8"), "application/vnd.apple.mpegurl", vec![1])
+            .await
+            .unwrap();
+        storage
+            .put(&format!("{base}/init.mp4"), "video/mp4", vec![2])
+            .await
+            .unwrap();
+        storage
+            .put(&format!("{base}/segments/0000.m4s"), "video/mp4", vec![3])
+            .await
+            .unwrap();
+        storage
+            .put(&source_master_storage_key(base), "application/octet-stream", vec![9; 32])
+            .await
+            .unwrap();
+
+        storage
+            .delete(&source_master_storage_key(base))
+            .await
+            .unwrap();
+
+        assert!(
+            !storage
+                .exists(&source_master_storage_key(base))
+                .await
+                .unwrap()
+        );
+        assert!(storage.exists(&format!("{base}/stream.m3u8")).await.unwrap());
+        assert!(storage.exists(&format!("{base}/init.mp4")).await.unwrap());
+        assert!(
+            storage
+                .exists(&format!("{base}/segments/0000.m4s"))
+                .await
+                .unwrap()
         );
     }
 }

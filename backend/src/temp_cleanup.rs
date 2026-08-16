@@ -219,6 +219,41 @@ async fn sweep_failed_hls_orphans(state: &crate::AppState) -> u32 {
     cleaned
 }
 
+// Human: Drop the full-size original kept beside HLS — playback uses segments, rebuild remuxes.
+// Agent: SELECT ready videos with hls_source_master; DELETE source.master; CLEAR the flag.
+async fn sweep_retained_source_masters(state: &crate::AppState) -> u32 {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, storage_key FROM files \
+         WHERE COALESCE(hls_source_master, false) \
+           AND COALESCE(hls_ready, false) \
+         LIMIT 50",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut cleaned = 0u32;
+    for (file_id, storage_key) in rows {
+        let key = crate::hls::encode_job::source_master_storage_key(&storage_key);
+        match state.storage.delete(&key).await {
+            Ok(()) => {
+                let _ = sqlx::query(
+                    "UPDATE files SET hls_source_master = false WHERE id = $1",
+                )
+                .bind(&file_id)
+                .execute(&state.pool)
+                .await;
+                cleaned += 1;
+                debug!(%file_id, %key, "dropped retained HLS source master");
+            }
+            Err(error) => {
+                tracing::warn!(%file_id, %key, %error, "dropping source.master failed");
+            }
+        }
+    }
+    cleaned
+}
+
 // Human: Expire cached export.mp4 remuxes that nothing has needed for a while.
 // Agent: SELECT ready exports past DOWNLOAD_EXPORT_MAX_AGE_HOURS; DELETE blob; CLEAR flags.
 //        The next download re-runs the export job, so this costs CPU, never data.
@@ -521,6 +556,11 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
             let expired_exports = sweep_expired_download_exports(&state).await;
             if expired_exports > 0 {
                 info!(expired_exports, "expired cached download exports cleaned");
+            }
+
+            let dropped_masters = sweep_retained_source_masters(&state).await;
+            if dropped_masters > 0 {
+                info!(dropped_masters, "dropped retained HLS source.master copies");
             }
 
             let removed = sweep_idle_temp_files(

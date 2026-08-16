@@ -49,6 +49,8 @@ pub enum ReclaimClass {
     Orphan,
     /// Human: `export.mp4` for a live file: a cached download remux, rebuilt on demand.
     CachedExport,
+    /// Human: Full original next to HLS (`source.master`) — not shown in the drive, rebuilt not required.
+    SourceMaster,
     /// Human: Soft-deleted past the retention window — the recycle bin sweeper should have taken it.
     ExpiredRecycleBin,
 }
@@ -58,6 +60,7 @@ impl ReclaimClass {
         match self {
             Self::Orphan => "orphan",
             Self::CachedExport => "cached_export",
+            Self::SourceMaster => "source_master",
             Self::ExpiredRecycleBin => "expired_recycle_bin",
         }
     }
@@ -106,6 +109,13 @@ fn is_cached_export_key(key: &str) -> bool {
     key.ends_with(&format!("/{}", crate::hls::encode_job::EXPORT_OBJECT_SUFFIX))
 }
 
+fn is_source_master_key(key: &str) -> bool {
+    key.ends_with(&format!(
+        "/{}",
+        crate::hls::encode_job::SOURCE_MASTER_OBJECT
+    ))
+}
+
 fn describe(class: ReclaimClass) -> &'static str {
     match class {
         ReclaimClass::Orphan => {
@@ -113,6 +123,9 @@ fn describe(class: ReclaimClass) -> &'static str {
         }
         ReclaimClass::CachedExport => {
             "Cached export.mp4 download remuxes. Rebuilt automatically on the next download."
+        }
+        ReclaimClass::SourceMaster => {
+            "Retained original video next to HLS (source.master). Playback uses segments; rebuild remuxes HLS."
         }
         ReclaimClass::ExpiredRecycleBin => {
             "Objects for files soft-deleted past the retention window."
@@ -284,19 +297,30 @@ pub async fn scan_reclaimable(
             // Human: Whole prefix is unreachable — every object in it counts.
             Some(whole) => add(whole, &group.keys, group.bytes),
             None => {
-                // Human: Live file. Only the cached download remux is reclaimable; everything
-                // else here (source.master, HLS segments, thumbnails) is still serving the file.
+                // Human: Live file. Playback needs HLS + thumbs. export.mp4 and source.master
+                // are optional sidecars that used to leak a second/third full copy per video.
                 let exports: Vec<(String, i64)> = group
                     .keys
                     .iter()
                     .filter(|(key, _)| is_cached_export_key(key))
                     .cloned()
                     .collect();
+                let masters: Vec<(String, i64)> = group
+                    .keys
+                    .iter()
+                    .filter(|(key, _)| is_source_master_key(key))
+                    .cloned()
+                    .collect();
                 let export_bytes: i64 = exports.iter().map(|(_, size)| *size).sum();
+                let master_bytes: i64 = masters.iter().map(|(_, size)| *size).sum();
                 if !exports.is_empty() {
                     add(ReclaimClass::CachedExport, &exports, export_bytes);
                 }
-                retained_bytes = retained_bytes.saturating_add(group.bytes - export_bytes);
+                if !masters.is_empty() {
+                    add(ReclaimClass::SourceMaster, &masters, master_bytes);
+                }
+                retained_bytes = retained_bytes
+                    .saturating_add(group.bytes - export_bytes - master_bytes);
             }
         }
     }
@@ -407,14 +431,15 @@ pub async fn reclaim_storage(
             Some(whole) if requested.contains(&whole) => keys.clone(),
             Some(_) => Vec::new(),
             None => {
-                if requested.contains(&ReclaimClass::CachedExport) {
-                    keys.iter()
-                        .filter(|(key, _)| is_cached_export_key(key))
-                        .cloned()
-                        .collect()
-                } else {
-                    Vec::new()
-                }
+                keys.iter()
+                    .filter(|(key, _)| {
+                        (requested.contains(&ReclaimClass::CachedExport)
+                            && is_cached_export_key(key))
+                            || (requested.contains(&ReclaimClass::SourceMaster)
+                                && is_source_master_key(key))
+                    })
+                    .cloned()
+                    .collect()
             }
         };
 
@@ -439,6 +464,14 @@ pub async fn reclaim_storage(
         sqlx::query(
             "UPDATE files SET download_export_ready = false, download_export_size_bytes = NULL \
              WHERE COALESCE(download_export_ready, false)",
+        )
+        .execute(&state.pool)
+        .await
+        .ok();
+    }
+    if requested.contains(&ReclaimClass::SourceMaster) && objects_deleted > 0 {
+        sqlx::query(
+            "UPDATE files SET hls_source_master = false WHERE COALESCE(hls_source_master, false)",
         )
         .execute(&state.pool)
         .await
@@ -510,7 +543,17 @@ mod tests {
     fn class_strings_are_stable() {
         assert_eq!(ReclaimClass::Orphan.as_str(), "orphan");
         assert_eq!(ReclaimClass::CachedExport.as_str(), "cached_export");
+        assert_eq!(ReclaimClass::SourceMaster.as_str(), "source_master");
         assert_eq!(ReclaimClass::ExpiredRecycleBin.as_str(), "expired_recycle_bin");
+    }
+
+    #[test]
+    fn source_master_is_a_reclaimable_sidecar_not_a_live_file() {
+        // Human: Every video ingest used to PUT a full-size source.master next to HLS — invisible
+        // in the drive, counted as physical disk. Reclaim must be able to drop those copies.
+        assert!(is_source_master_key("users/u1/files/f1/source.master"));
+        assert!(!is_source_master_key("users/u1/files/f1/export.mp4"));
+        assert!(!is_source_master_key("users/u1/files/f1/segments/0000.m4s"));
     }
 
     #[test]
@@ -545,7 +588,7 @@ mod tests {
     #[test]
     fn classes_deserialize_from_snake_case() {
         let request: ReclaimRequest = serde_json::from_str(
-            r#"{"node_id":"n","classes":["orphan","cached_export","expired_recycle_bin"]}"#,
+            r#"{"node_id":"n","classes":["orphan","cached_export","source_master","expired_recycle_bin"]}"#,
         )
         .expect("parse");
         assert_eq!(
@@ -553,6 +596,7 @@ mod tests {
             vec![
                 ReclaimClass::Orphan,
                 ReclaimClass::CachedExport,
+                ReclaimClass::SourceMaster,
                 ReclaimClass::ExpiredRecycleBin
             ]
         );
