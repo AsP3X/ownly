@@ -22,6 +22,7 @@ Common overrides (shell or Compose-read `.env` for non-secret vars):
 | Variable | Purpose | Default (dev) |
 |----------|---------|----------------|
 | `OBJECT_STORAGE_PUBLIC_URL` | Browser base for presigned media (nginx `/media/`) | `http://localhost:8080` |
+| `FRONTEND_PORT` | Host port published by frontend/nginx (`:80` in the container) | `8080` |
 | `MAX_UPLOAD_BYTES` | Upload cap for API, nginx, Nebular | 10 GiB |
 | `OWNLY_ENVIRONMENT` | `development` or `production` | `development` |
 | `UPLOAD_RPM` | Per-user upload request budget per minute | `1200` |
