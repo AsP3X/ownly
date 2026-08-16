@@ -385,6 +385,8 @@ pub struct AdminStorageNodeRow {
     pub endpoint_host: String,
     pub status: String,
     pub used_bytes: i64,
+    #[serde(default)]
+    pub physical_bytes: i64,
     pub capacity_label: String,
     pub target_capacity_bytes: Option<i64>,
     pub latency_ms: Option<u128>,
@@ -394,6 +396,8 @@ pub struct AdminStorageNodeRow {
 #[derive(Debug, Serialize)]
 pub struct AdminStorageMetrics {
     pub used_bytes: i64,
+    #[serde(default)]
+    pub physical_bytes: i64,
     pub capacity_bytes: Option<i64>,
     pub active_nodes: i64,
     pub total_nodes: i64,

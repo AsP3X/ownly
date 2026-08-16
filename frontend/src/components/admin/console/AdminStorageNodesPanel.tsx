@@ -802,7 +802,10 @@ export function AdminStorageNodesPanel() {
               detail={
                 networkOverCapacity
                   ? `${utilizationPct}% of configured capacity — uploads are blocked until usage drops below 100%`
-                  : `${utilizationPct}% average disk storage utilized across network`
+                  : metrics.physical_bytes != null &&
+                      metrics.physical_bytes > metrics.used_bytes
+                    ? `${formatBytes(metrics.physical_bytes)} on disk including HLS and system objects`
+                    : `${utilizationPct}% of configured library capacity`
               }
               // Human: The tone was pinned to "success", so a network over its capacity still
               // rendered as a green badge. Tone now follows the number it labels.

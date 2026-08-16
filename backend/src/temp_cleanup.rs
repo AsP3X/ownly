@@ -535,6 +535,45 @@ async fn sweep_expired_upload_sessions(state: &crate::AppState) -> u32 {
     cleaned
 }
 
+// Human: Delete upload-staging prefixes whose session is no longer active (SQL abort left parts behind).
+// Agent: LISTS upload-staging/*; SKIPS ids still active/completing; CALLS cleanup_staging_prefix.
+async fn sweep_orphaned_upload_staging(state: &crate::AppState) -> u32 {
+    let Ok(keys) = state.storage.list_keys_with_prefix("upload-staging/").await else {
+        return 0;
+    };
+    let mut session_ids = std::collections::BTreeSet::new();
+    for key in keys {
+        let mut parts = key.split('/');
+        if parts.next() != Some("upload-staging") {
+            continue;
+        }
+        if let Some(session_id) = parts.next().filter(|id| !id.is_empty()) {
+            session_ids.insert(session_id.to_string());
+        }
+    }
+    if session_ids.is_empty() {
+        return 0;
+    }
+
+    let active: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM upload_sessions WHERE status IN ('active', 'completing')",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+    let active: std::collections::HashSet<String> = active.into_iter().map(|(id,)| id).collect();
+
+    let mut cleaned = 0u32;
+    for session_id in session_ids {
+        if active.contains(&session_id) {
+            continue;
+        }
+        crate::files::upload_staging::cleanup_staging_prefix(&state.storage, &session_id).await;
+        cleaned += 1;
+    }
+    cleaned
+}
+
 // Human: Spawn a periodic task that purges idle Ownly temp scratch files.
 // Agent: CALLED from run(); READS gif_preview_temp_auto_cleanup setting each sweep.
 pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
@@ -561,6 +600,11 @@ pub fn start_temp_janitor(state: std::sync::Arc<crate::AppState>) {
             let dropped_masters = sweep_retained_source_masters(&state).await;
             if dropped_masters > 0 {
                 info!(dropped_masters, "dropped retained HLS source.master copies");
+            }
+
+            let dropped_staging = sweep_orphaned_upload_staging(&state).await;
+            if dropped_staging > 0 {
+                info!(dropped_staging, "dropped leftover upload-staging prefixes");
             }
 
             let removed = sweep_idle_temp_files(

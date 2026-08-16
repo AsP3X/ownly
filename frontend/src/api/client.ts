@@ -629,6 +629,7 @@ export type AdminStorageNodeRow = {
   endpoint_host: string;
   status: string;
   used_bytes: number;
+  physical_bytes?: number;
   capacity_label: string;
   target_capacity_bytes: number | null;
   latency_ms: number | null;
@@ -640,6 +641,7 @@ export type AdminStorageResponse = {
   metadata_mode: string;
   metrics: {
     used_bytes: number;
+    physical_bytes?: number;
     capacity_bytes: number | null;
     active_nodes: number;
     total_nodes: number;

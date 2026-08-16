@@ -273,19 +273,37 @@ fn format_capacity_amount(bytes: i64) -> String {
 
 // Human: Map one registry row + live probe into the admin API node shape.
 // Agent: READS StorageNodeRecord + NodeProbe; RETURNS AdminStorageNodeRow for list/detail responses.
-fn build_node_row(record: &StorageNodeRecord, probe: &NodeProbe) -> AdminStorageNodeRow {
+fn build_node_row(
+    record: &StorageNodeRecord,
+    probe: &NodeProbe,
+    library_bytes: i64,
+    node_count: usize,
+) -> AdminStorageNodeRow {
     let status = node_status(probe);
+    let used_bytes = display_used_bytes(library_bytes, probe.logical_bytes, node_count);
     AdminStorageNodeRow {
         id: record.id.clone(),
         region_label: record.region_label.clone(),
         base_url: record.base_url.clone(),
         endpoint_host: endpoint_host_from_url(&record.base_url),
         status,
-        used_bytes: probe.logical_bytes,
-        capacity_label: capacity_label(probe.logical_bytes, record.target_capacity_bytes),
+        used_bytes,
+        physical_bytes: probe.logical_bytes,
+        capacity_label: capacity_label(used_bytes, record.target_capacity_bytes),
         target_capacity_bytes: record.target_capacity_bytes,
         latency_ms: probe.latency_ms,
         storage_mode: record.architecture.clone(),
+    }
+}
+
+// Human: A single node's headline must match the drive sidebar (library files), not Nebular's
+//        sum of HLS segments, source.master, and leftover upload-staging.
+// Agent: ONE node → library_bytes; MULTI-node → physical probe (library cannot be attributed).
+pub(crate) fn display_used_bytes(library_bytes: i64, physical_bytes: i64, node_count: usize) -> i64 {
+    if node_count <= 1 {
+        library_bytes.max(0)
+    } else {
+        physical_bytes.max(0)
     }
 }
 
@@ -379,7 +397,8 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
         .filter_map(|record| record.target_capacity_bytes)
         .sum();
 
-    let mut nodes = Vec::with_capacity(records.len());
+    let node_count = records.len();
+    let mut nodes = Vec::with_capacity(node_count);
     let mut active_nodes = 0_i64;
     let mut latency_sum = 0_u128;
     let mut latency_count = 0_u64;
@@ -395,7 +414,7 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
             latency_count += 1;
         }
         probed_used_bytes += probe.logical_bytes;
-        nodes.push(build_node_row(&record, &probe));
+        nodes.push(build_node_row(&record, &probe, used_bytes.0, node_count));
     }
 
     let avg_latency_ms = if latency_count > 0 {
@@ -409,11 +428,8 @@ async fn build_storage_response(state: &AppState) -> Result<AdminStorageResponse
     Ok(AdminStorageResponse {
         metadata_mode,
         metrics: AdminStorageMetrics {
-            used_bytes: if probed_used_bytes > 0 {
-                probed_used_bytes
-            } else {
-                used_bytes.0
-            },
+            used_bytes: display_used_bytes(used_bytes.0, probed_used_bytes, node_count),
+            physical_bytes: probed_used_bytes,
             capacity_bytes: if node_capacity_bytes > 0 {
                 Some(node_capacity_bytes)
             } else {
@@ -643,7 +659,22 @@ pub async fn get_storage_node_detail(
     .ok_or(AppError::NotFound)?;
 
     let probe = probe_storage_node(&record.base_url).await;
-    let node = build_node_row(&record, &probe);
+    let library_bytes: (i64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM files WHERE deleted_at IS NULL",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    let node_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM storage_nodes WHERE enabled = true",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    let node = build_node_row(
+        &record,
+        &probe,
+        library_bytes.0,
+        node_count.0.max(0) as usize,
+    );
     let (media_breakdown, indexed_files_total) = fetch_media_breakdown(&state.pool).await?;
 
     let list_prefix = normalize_list_prefix(query.prefix);
@@ -924,7 +955,7 @@ pub async fn update_storage_node(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_target_capacity_bytes;
+    use super::{display_used_bytes, parse_target_capacity_bytes};
     use crate::error::AppError;
 
     #[test]
@@ -944,5 +975,14 @@ mod tests {
     fn parse_capacity_rejects_invalid_unit() {
         let err = parse_target_capacity_bytes(10.0, "PB").unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn single_node_capacity_uses_library_bytes_not_physical_sidecars() {
+        // 821 MiB library vs 2.4 GiB on disk (HLS / source.master / leftover staging).
+        let library = 821 * 1024 * 1024;
+        let physical = (2.4 * 1024.0 * 1024.0 * 1024.0) as i64;
+        assert_eq!(display_used_bytes(library, physical, 1), library);
+        assert_eq!(display_used_bytes(library, physical, 2), physical);
     }
 }
