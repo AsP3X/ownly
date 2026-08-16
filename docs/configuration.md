@@ -23,7 +23,7 @@ Common overrides (shell or Compose-read `.env` for non-secret vars):
 |----------|---------|----------------|
 | `OBJECT_STORAGE_PUBLIC_URL` | Browser base for presigned media (nginx `/media/`) | `http://localhost:8080` |
 | `FRONTEND_PORT` | Host port published by frontend/nginx (`:80` in the container). Local Compose only — the production overlay publishes no host ports (Nginx Proxy Manager / Traefik on `proxy-network` → `ownly-frontend:80`) | `8080` |
-| `MAX_UPLOAD_BYTES` | Upload cap for API, nginx, Nebular | 10 GiB |
+| `MAX_UPLOAD_BYTES` | Upload cap for API, in-stack nginx, and Nebular. An outer proxy (Nginx Proxy Manager) has its own `client_max_body_size` (default 1MB) and must be raised separately | 10 GiB |
 | `OWNLY_ENVIRONMENT` | `development` or `production` | `development` |
 | `UPLOAD_RPM` | Per-user upload request budget per minute | `1200` |
 | `TRUST_PROXY_HEADERS` | Trust `X-Forwarded-*` for rate limits | `false` (set `true` only behind trusted proxy) |

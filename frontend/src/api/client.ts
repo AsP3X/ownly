@@ -2615,7 +2615,7 @@ async function startMultipartUpload(
           /entity too large|payload too large/i.test(body.raw ?? "");
         if (tooLarge) {
           message =
-            "This file exceeds the server upload limit. Ask your admin to raise MAX_UPLOAD_BYTES (and rebuild the stack).";
+            "This file exceeds an upload size limit. In Nginx Proxy Manager, set client_max_body_size 0; on the proxy host. Otherwise raise MAX_UPLOAD_BYTES and recreate the stack.";
         }
       }
       const code = errorObject?.code ?? "request_failed";

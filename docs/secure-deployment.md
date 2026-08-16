@@ -38,6 +38,17 @@ The overlay:
 - Sets `OWNLY_ENVIRONMENT=production`, `TRUST_PROXY_HEADERS=true` (nginx is the trusted proxy), and `OWNLY_ALLOW_PRIVATE_OUTBOUND=0`.
 - Requires `POSTGRES_PASSWORD` and `CORS_ALLOWED_ORIGINS`.
 
+Nginx Proxy Manager defaults `client_max_body_size` to **1MB**. That returns HTTP 413 before Ownly sees the file (the UI used to blame `MAX_UPLOAD_BYTES`). On the Ownly proxy host → **Advanced** → **Custom Nginx Configuration**:
+
+```nginx
+client_max_body_size 0;
+proxy_request_buffering off;
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+```
+
+`0` means unlimited at the edge. Ownly's own cap stays `MAX_UPLOAD_BYTES` (default 10 GiB). Set `OBJECT_STORAGE_PUBLIC_URL` and `CORS_ALLOWED_ORIGINS` to the public HTTPS origin NPM serves.
+
 Optional profiles (merge as needed):
 
 | Overlay | Purpose |
