@@ -42,7 +42,7 @@ Generate `.env` files with random secrets (minimum 32 characters):
 # or: docker compose --profile init run --rm init-env
 ```
 
-This copies `.env.example` → `.env` and `backend/.env.example` → `backend/.env`, replacing `GENERATE_ME` placeholders.
+This copies `.env.example` → `.env` and `backend/.env.example` → `backend/.env`, replacing `GENERATE_ME` placeholders. It also generates `POSTGRES_PASSWORD` and rewrites `DATABASE_URL` in `.env` and `backend/.env` so they match. If Postgres was already initialized with an older password, update the role or recreate the volume after rotating.
 
 **Required strong secrets (never commit real values):**
 

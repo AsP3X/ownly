@@ -4,7 +4,7 @@ umask 077
 
 # Human: Values the API rejects at startup (must match backend/src/secrets.rs KNOWN_WEAK + GENERATE_ME).
 # Agent: USED by is_weak_env_value and replace_weak_secret_keys before init-env exits.
-WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me ownly-master-key"
+WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me ownly-master-key ownly-compose-local-dev-postgres-password-not-for-production ownly"
 
 # Human: Strip CRLF, whitespace, and optional quotes from .env values.
 # Agent: CALLED before weak/length checks so SETUP_TOKEN="GENERATE_ME" is still detected.
@@ -90,7 +90,12 @@ init_env_file() {
 
     case "$env_file" in
         .env)
-            replace_weak_secret_keys "JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET" "$env_file"
+            replace_weak_secret_keys "JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET POSTGRES_PASSWORD" "$env_file"
+            if ! grep -qE '^[[:space:]]*POSTGRES_PASSWORD[[:space:]]*=' "$env_file" 2>/dev/null; then
+                secret="$(generate_secret)"
+                printf '%s\n' "POSTGRES_PASSWORD=$secret" >> "$env_file"
+                echo "  Generated POSTGRES_PASSWORD in ${env_file}"
+            fi
             ;;
         backend/.env)
             replace_weak_secret_keys "JWT_SECRET SETUP_TOKEN SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET" "$env_file"
@@ -102,7 +107,7 @@ init_env_file() {
 
     # Human: Fail loudly if placeholders remain so operators do not start a broken stack.
     # Agent: EXITS 1 when GENERATE_ME or weak secret still present on rotated keys.
-    for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET; do
+    for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET POSTGRES_PASSWORD; do
         line=$(grep -m1 -E "^[[:space:]]*${key}[[:space:]]*=" "$env_file" 2>/dev/null || true)
         [ -z "$line" ] && continue
         value=${line#*=}
@@ -127,6 +132,35 @@ init_env_file() {
                 /^NOS_SIGNING_SECRET=/ { print "NOS_SIGNING_SECRET=" signing; next }
                 { print }
             ' "$env_file" > "${env_file}.sync" && mv "${env_file}.sync" "$env_file"
+        fi
+        # Human: Compose Postgres and the API URL must share one password (hex from generate_secret).
+        # Agent: REWRITES DATABASE_URL userinfo from POSTGRES_PASSWORD; PRESERVES host/db from an existing URL.
+        postgres_password="$(grep -m1 -E '^[[:space:]]*POSTGRES_PASSWORD[[:space:]]*=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+        postgres_password="$(normalize_env_value "$postgres_password")"
+        if [ -n "$postgres_password" ]; then
+            db_line=$(grep -m1 -E '^[[:space:]]*DATABASE_URL[[:space:]]*=' "$env_file" 2>/dev/null || true)
+            if [ -n "$db_line" ]; then
+                after_scheme=${db_line#*://}
+                rest=${after_scheme#*@}
+                if [ "$rest" != "$after_scheme" ]; then
+                    userinfo=${after_scheme%@*}
+                    db_user=${userinfo%%:*}
+                    [ -n "$db_user" ] || db_user=ownly
+                    scheme=${db_line%%://*}
+                    awk -v scheme="$scheme" -v db_user="$db_user" -v password="$postgres_password" -v rest="$rest" '
+                        /^[[:space:]]*DATABASE_URL[[:space:]]*=/ { print scheme "://" db_user ":" password "@" rest; next }
+                        { print }
+                    ' "$env_file" > "${env_file}.db" && mv "${env_file}.db" "$env_file"
+                fi
+            else
+                postgres_user="$(grep -m1 -E '^[[:space:]]*POSTGRES_USER[[:space:]]*=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+                postgres_user="$(normalize_env_value "$postgres_user")"
+                [ -n "$postgres_user" ] || postgres_user=ownly
+                postgres_db="$(grep -m1 -E '^[[:space:]]*POSTGRES_DB[[:space:]]*=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+                postgres_db="$(normalize_env_value "$postgres_db")"
+                [ -n "$postgres_db" ] || postgres_db=ownly
+                printf '%s\n' "DATABASE_URL=postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}" >> "$env_file"
+            fi
         fi
         # Human: Backend container reads OBJECT_STORAGE_JWT_SECRET; Nebular uses NOS_JWT_SECRET.
         # Agent: SYNC from NOS_JWT_SECRET so env_file-only Compose does not need a duplicate manual line.
@@ -188,6 +222,7 @@ sync_env_key ".env" "SIGNING_SECRET" "backend/.env" "SIGNING_SECRET"
 sync_env_key ".env" "NOS_JWT_SECRET" "backend/.env" "OBJECT_STORAGE_JWT_SECRET"
 sync_env_key ".env" "NOS_JWT_SECRET" "nebular-os/.env" "NOS_JWT_SECRET"
 sync_env_key ".env" "NOS_SIGNING_SECRET" "nebular-os/.env" "NOS_SIGNING_SECRET"
+sync_env_key ".env" "DATABASE_URL" "backend/.env" "DATABASE_URL"
 
 setup_line=$(grep -m1 -E '^[[:space:]]*SETUP_TOKEN[[:space:]]*=' .env 2>/dev/null || true)
 if [ -n "$setup_line" ]; then
