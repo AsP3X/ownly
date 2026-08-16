@@ -5,6 +5,7 @@ use crate::config::{
     Config, COMPOSE_DEV_JWT_SECRET, COMPOSE_DEV_OBJECT_STORAGE_JWT_SECRET, COMPOSE_DEV_SETUP_TOKEN,
     COMPOSE_DEV_SIGNING_SECRET,
 };
+use subtle::ConstantTimeEq;
 
 pub const MIN_SECRET_LEN: usize = 32;
 
@@ -146,6 +147,55 @@ pub fn validate_startup_secrets(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn strip_matching_quotes(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &value[1..value.len() - 1];
+        }
+    }
+    value
+}
+
+// Human: Strip BOM, whitespace, and matching surrounding quotes from any env secret.
+// Agent: USED by Config::from_env so CRLF or quoted .env values do not become the stored secret.
+pub fn normalize_secret_value(value: &str) -> String {
+    let without_bom = value.trim_start_matches('\u{feff}');
+    strip_matching_quotes(without_bom.trim()).trim().to_string()
+}
+
+fn strip_setup_token_prefix(value: &str) -> &str {
+    const PREFIX: &str = "setup_token";
+    if value.len() >= PREFIX.len() && value[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        let rest = value[PREFIX.len()..].trim_start();
+        if let Some(stripped) = rest.strip_prefix('=') {
+            return stripped.trim_start();
+        }
+    }
+    value
+}
+
+// Human: Same as normalize_secret_value plus optional `SETUP_TOKEN=` line prefix from .env copies.
+// Agent: APPLIED to both the configured token and the X-Setup-Token header before compare.
+pub fn normalize_setup_token(value: &str) -> String {
+    let first = normalize_secret_value(value);
+    let without_prefix = strip_setup_token_prefix(&first);
+    normalize_secret_value(without_prefix)
+}
+
+// Human: Constant-time compare after normalize — header and env file copies must match.
+// Agent: RETURNS false when either side is empty after normalize.
+pub fn setup_tokens_match(provided: &str, expected: &str) -> bool {
+    let provided = normalize_setup_token(provided);
+    let expected = normalize_setup_token(expected);
+    if provided.is_empty() || expected.is_empty() {
+        return false;
+    }
+    provided.as_bytes().ct_eq(expected.as_bytes()).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +328,39 @@ mod tests {
         assert!(weak_secret_reason("SETUP_TOKEN", "").is_some());
         let good = "a".repeat(40);
         assert!(weak_secret_reason("SETUP_TOKEN", &good).is_none());
+    }
+
+    #[test]
+    fn normalize_setup_token_strips_crlf_quotes_and_env_prefix() {
+        let raw = "  SETUP_TOKEN=\"ownly-compose-local-dev-setup-token-not-for-production-use\"\r\n";
+        assert_eq!(
+            normalize_setup_token(raw),
+            "ownly-compose-local-dev-setup-token-not-for-production-use"
+        );
+        assert_eq!(
+            normalize_setup_token("'abc-token-with-more-than-32-characters!!'"),
+            "abc-token-with-more-than-32-characters!!"
+        );
+        assert_eq!(
+            normalize_setup_token("setup_token = hexsecret0123456789abcdef0123456789ab"),
+            "hexsecret0123456789abcdef0123456789ab"
+        );
+    }
+
+    #[test]
+    fn setup_tokens_match_after_paste_noise() {
+        let expected = "operator-generated-setup-token-with-32-chars!!";
+        assert!(setup_tokens_match(expected, expected));
+        assert!(setup_tokens_match(
+            "SETUP_TOKEN=operator-generated-setup-token-with-32-chars!!\r\n",
+            expected
+        ));
+        assert!(setup_tokens_match(
+            "  \"operator-generated-setup-token-with-32-chars!!\"  ",
+            expected
+        ));
+        assert!(!setup_tokens_match("wrong-token-value-that-is-long-enough!!", expected));
+        assert!(!setup_tokens_match("", expected));
+        assert!(!setup_tokens_match("   ", expected));
     }
 }

@@ -27,8 +27,6 @@ const SETUP_ADVISORY_LOCK_ID: i64 = 0x4f57_4e4c_5900;
 /// Agent: MATCHES SEC-005/SEC-012 bootstrap probe; compared to AppState.setup_token.
 pub const SETUP_TOKEN_HEADER: &str = "X-Setup-Token";
 
-use subtle::ConstantTimeEq;
-
 // Human: Reject setup mutations unless the caller presents the configured bootstrap secret.
 // Agent: READS X-Setup-Token header; RETURNS 403 when missing or wrong (checked before setup_complete gate).
 fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppError> {
@@ -36,7 +34,7 @@ fn require_setup_token(headers: &HeaderMap, state: &AppState) -> Result<(), AppE
         .get(SETUP_TOKEN_HEADER)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if provided.as_bytes().ct_ne(state.setup_token.as_bytes()).into() {
+    if !crate::secrets::setup_tokens_match(provided, &state.setup_token) {
         return Err(AppError::Forbidden(
             "valid setup token is required to complete instance setup".into(),
         ));

@@ -10,13 +10,15 @@ x-ownly-proxy-networks: &ownly-proxy-networks
     - ownly-internal
     - proxy-network
 
+# Human: Prefer SETUP_TOKEN (and sibling secrets) from the project .env after ./init-env.sh.
+# Agent: INTERPOLATES ${VAR:-compose-dev-literal}; host env overrides .env — compose-up.sh unsets empties.
 x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
-  JWT_SECRET: ownly-compose-local-dev-jwt-secret-not-for-production
-  SETUP_TOKEN: ownly-compose-local-dev-setup-token-not-for-production-use
-  SIGNING_SECRET: ownly-compose-local-dev-nos-signing-secret-not-for-production
-  NOS_JWT_SECRET: ownly-compose-local-dev-nos-jwt-secret-not-for-production-use
-  NOS_SIGNING_SECRET: ownly-compose-local-dev-nos-signing-secret-not-for-production
-  OBJECT_STORAGE_JWT_SECRET: ownly-compose-local-dev-nos-jwt-secret-not-for-production-use
+  JWT_SECRET: ${JWT_SECRET:-ownly-compose-local-dev-jwt-secret-not-for-production}
+  SETUP_TOKEN: ${SETUP_TOKEN:-ownly-compose-local-dev-setup-token-not-for-production-use}
+  SIGNING_SECRET: ${SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
+  NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
+  NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
+  OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
 
 services:
   init-env:

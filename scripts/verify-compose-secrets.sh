@@ -41,9 +41,12 @@ read_env_key() {
 echo "Working directory: $(pwd)"
 echo ""
 
-echo "Zero-config: secrets are literals in docker-compose.yml (a root .env is not used)."
+echo "Compose interpolates SETUP_TOKEN from .env when present; otherwise uses the compose-dev literal."
 if [ -f .env ]; then
-    echo "NOTE: .env exists but Compose no longer substitutes secrets from it — remove or ignore for Docker."
+    echo "NOTE: .env is present — backend SETUP_TOKEN should match this file after recreate."
+    if env_token=$(read_env_key SETUP_TOKEN .env 2>/dev/null); then
+        echo "  .env SETUP_TOKEN: $(is_weak_hint "$env_token")"
+    fi
 fi
 
 echo ""

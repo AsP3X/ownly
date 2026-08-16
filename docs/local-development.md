@@ -17,7 +17,7 @@ For a zero-config full stack, prefer [Getting started](./getting-started.md) (`d
 
 ```bash
 cd backend
-cp .env.example .env   # or use root ./init-env.sh
+cp .env.example .env   # or use root ./init-env.sh (syncs SETUP_TOKEN into backend/.env)
 # Point DATABASE_URL and OBJECT_STORAGE_* at your running Compose services
 cargo run
 ```

@@ -139,7 +139,19 @@ impl Config {
         if std::env::var("OWNLY_SKIP_DOTENV").is_err() {
             dotenvy::dotenv().ok();
         }
-        Ok(envy::from_env()?)
+        let mut config: Self = envy::from_env()?;
+        config.normalize_secrets();
+        Ok(config)
+    }
+
+    // Human: .env copies on Windows often include CRLF or quotes — do not store those as the secret.
+    // Agent: TRIMS jwt/setup/signing/nos secrets after envy parse; SETUP_TOKEN also drops a key= prefix.
+    fn normalize_secrets(&mut self) {
+        use crate::secrets::{normalize_secret_value, normalize_setup_token};
+        self.jwt_secret = normalize_secret_value(&self.jwt_secret);
+        self.setup_token = normalize_setup_token(&self.setup_token);
+        self.signing_secret = normalize_secret_value(&self.signing_secret);
+        self.object_storage_jwt_secret = normalize_secret_value(&self.object_storage_jwt_secret);
     }
 }
 

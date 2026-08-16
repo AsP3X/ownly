@@ -9,12 +9,13 @@ import {
   setupStorageInfo,
   testSetupDatabase,
   getErrorMessage,
+  ApiError,
 } from "@/api/client";
 import { useInstanceName } from "@/hooks/useInstanceName";
 import { useAuth } from "@/hooks/useAuth";
 import { DEFAULT_INSTANCE_NAME } from "@/lib/instance-name";
 import { writeSetupStatusCache } from "@/lib/setup-status-cache";
-import { clearSetupToken, setSetupToken } from "@/lib/setup-token";
+import { clearSetupToken, normalizeSetupTokenInput, setSetupToken } from "@/lib/setup-token";
 import { getJwtExp } from "@/lib/jwt";
 import { SetupActionsRow } from "@/components/setup/SetupActionsRow";
 import { SetupConnectionUrlBox } from "@/components/setup/SetupConnectionUrlBox";
@@ -42,6 +43,9 @@ import {
   redactPostgresUrl,
   type PostgresConnectionFields,
 } from "@/lib/utils-app";
+
+const SETUP_TOKEN_UNRECOGNIZED =
+  "That setup token was not recognized. Paste SETUP_TOKEN from .env (after ./init-env.sh) or the value printed in the API log on first boot.";
 
 type Step = SetupStepNumber;
 
@@ -94,9 +98,10 @@ export default function SetupPage() {
   }
 
   useEffect(() => {
-    if (!setupToken.trim()) return;
+    const normalized = normalizeSetupTokenInput(setupToken);
+    if (!normalized) return;
     let cancelled = false;
-    setSetupToken(setupToken);
+    setSetupToken(normalized);
     Promise.all([setupDatabaseInfo(), setupStorageInfo()])
       .then(([dbInfo, storageInfo]) => {
         if (cancelled) return;
@@ -116,7 +121,7 @@ export default function SetupPage() {
   }, [setupToken]);
 
   function validateStep1() {
-    if (!setupToken.trim()) return "Setup token is required";
+    if (!normalizeSetupTokenInput(setupToken)) return "Setup token is required";
     if (!fullName.trim()) return "Full name is required";
     if (!email.trim()) return "Email is required";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Invalid email address";
@@ -162,7 +167,7 @@ export default function SetupPage() {
     }
   }
 
-  function next() {
+  async function next() {
     setError("");
     const validators: Record<Step, () => string | null> = {
       1: validateStep1,
@@ -174,6 +179,23 @@ export default function SetupPage() {
     if (err) {
       setError(err);
       return;
+    }
+    if (step === 1) {
+      const normalized = normalizeSetupTokenInput(setupToken);
+      setSetupToken(normalized);
+      setLoading(true);
+      try {
+        await setupDatabaseInfo();
+      } catch (e) {
+        setError(
+          e instanceof ApiError && e.status === 403
+            ? SETUP_TOKEN_UNRECOGNIZED
+            : getErrorMessage(e),
+        );
+        return;
+      } finally {
+        setLoading(false);
+      }
     }
     if (step === 2) {
       setStorageNode((prev) => ({ ...prev, regionLabel: instanceName.trim() }));
@@ -247,7 +269,7 @@ export default function SetupPage() {
       void handleSubmit();
       return;
     }
-    next();
+    void next();
   }
 
   function handlePostgresFieldChange(field: keyof PostgresConnectionFields, value: string) {
@@ -311,7 +333,12 @@ export default function SetupPage() {
                 setSetupTokenValue(value);
                 setSetupToken(value);
               }}
-              hint="SETUP_TOKEN from the server environment, printed to the API log on first boot. Entering it loads the database and storage defaults below."
+              onBlur={() => {
+                const normalized = normalizeSetupTokenInput(setupToken);
+                if (normalized !== setupToken) setSetupTokenValue(normalized);
+                setSetupToken(normalized);
+              }}
+              hint="Paste SETUP_TOKEN from .env after ./init-env.sh, or the value printed in the API log on first boot. The whole line or just the value both work."
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"

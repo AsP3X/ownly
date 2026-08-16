@@ -13,6 +13,13 @@ services:
 
   object-storage:
     ports: !reset []
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET - run ./init-env.sh}
+      SETUP_TOKEN: ${SETUP_TOKEN:?set SETUP_TOKEN - run ./init-env.sh}
+      SIGNING_SECRET: ${SIGNING_SECRET:?set SIGNING_SECRET - run ./init-env.sh}
+      NOS_JWT_SECRET: ${NOS_JWT_SECRET:?set NOS_JWT_SECRET - run ./init-env.sh}
+      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:?set NOS_SIGNING_SECRET - run ./init-env.sh}
+      OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:?set OBJECT_STORAGE_JWT_SECRET - run ./init-env.sh}
 
   object-storage-b:
     ports: !reset []
@@ -26,3 +33,11 @@ services:
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
       OWNLY_ALLOW_PRIVATE_OUTBOUND: ${OWNLY_ALLOW_PRIVATE_OUTBOUND:-0}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS for production Compose}
+      # Human: Production must not fall back to committed compose-dev literals (API rejects them anyway).
+      # Agent: REQUIRES values from .env (init-env.sh) or exported secrets — no :- defaults.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET - run ./init-env.sh}
+      SETUP_TOKEN: ${SETUP_TOKEN:?set SETUP_TOKEN - run ./init-env.sh}
+      SIGNING_SECRET: ${SIGNING_SECRET:?set SIGNING_SECRET - run ./init-env.sh}
+      NOS_JWT_SECRET: ${NOS_JWT_SECRET:?set NOS_JWT_SECRET - run ./init-env.sh}
+      NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:?set NOS_SIGNING_SECRET - run ./init-env.sh}
+      OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:?set OBJECT_STORAGE_JWT_SECRET - run ./init-env.sh}

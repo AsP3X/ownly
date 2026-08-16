@@ -7,7 +7,7 @@ Use this checklist before exposing Ownly on the public internet. It complements 
 ## Before you expose port 443 (or any public HTTP)
 
 1. **Firewall** — Allow only the reverse proxy (or frontend) port. Block direct access to Postgres, object storage, and the API process on the host.
-2. **Secrets** — Run `./init-env.sh` (or `docker compose --profile init run --rm init-env`) and replace every `GENERATE_ME` / dev literal with unique values (`openssl rand -hex 32`). Never use committed Compose dev secrets in production.
+2. **Secrets** — Run `./init-env.sh` (or `docker compose --profile init run --rm init-env`). Compose interpolates `SETUP_TOKEN` and the other secrets from `.env`. Never use committed Compose dev secrets in production.
 3. **`OWNLY_ENVIRONMENT=production`** — Required on API hosts. Rejects Compose dev secrets and requires explicit CORS origins at startup.
 4. **`CORS_ALLOWED_ORIGINS`** — Set comma-separated browser origins (e.g. `https://app.example.com`). Empty or permissive CORS is not allowed in production.
 5. **`TRUST_PROXY_HEADERS`** — Default `false`. Set `true` only when the API is **solely** reachable through a trusted reverse proxy that sets `X-Forwarded-For` / `X-Real-IP` (e.g. nginx in the Compose stack).

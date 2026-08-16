@@ -2298,6 +2298,45 @@ async fn setup_database_info_requires_bootstrap_token() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
+// Human: Pasting SETUP_TOKEN=... from .env must still unlock setup info.
+// Agent: GET /setup/database with prefixed X-Setup-Token; EXPECT 200 or 409, never 403.
+#[tokio::test]
+async fn setup_database_info_accepts_pasted_env_line() {
+    let Some(state) = test_harness::TestHarness::state(
+        "setup_database_info_accepts_pasted_env_line",
+    )
+    .await
+    else {
+        return;
+    };
+
+    let app = create_router(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/setup/database")
+                .header(
+                    "X-Setup-Token",
+                    "SETUP_TOKEN=test-setup-token-at-least-32-chars!!",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "pasted .env SETUP_TOKEN line must be recognized"
+    );
+    assert!(
+        response.status() == StatusCode::OK || response.status() == StatusCode::CONFLICT,
+        "expected 200 (pre-setup) or 409 (already set up), got {}",
+        response.status()
+    );
+}
+
 // Human: Soft-deleted files must not be downloadable by the owner (SEC-004).
 // Agent: GET /files/{id}/download after deleted_at set; EXPECT 404.
 #[tokio::test]

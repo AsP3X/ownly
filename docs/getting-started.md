@@ -26,13 +26,19 @@ Open **http://localhost:8080**.
 | Nebular OS | http://localhost:9000 |
 | PostgreSQL | `localhost:5432` (`ownly` / dev password in `docker-compose.yml`) |
 
-No `.env` file is required for **local Docker**. Dev secrets are baked into `docker-compose.yml` for zero-config runs. Host `.env` files do **not** override those baked-in secrets (intentional).
+No `.env` file is required for **local Docker**. Without one, Compose uses the committed development `SETUP_TOKEN`:
+
+`ownly-compose-local-dev-setup-token-not-for-production-use`
+
+After `./init-env.sh` (or `docker compose --profile init run --rm init-env`), paste the generated `SETUP_TOKEN` from `.env` — Compose now interpolates that value into the API. The API also prints the live token on first boot while setup is still open.
 
 For production secrets and hardening, see [Configuration](./configuration.md) and [Secure deployment](./secure-deployment.md).
 
 ## First-run wizard
 
-On first launch the onboarding flow at `/setup` configures:
+The wizard asks for **SETUP_TOKEN** first. Use the compose-dev value above, or the token from `.env` / the API log after init-env. Pasting the whole `SETUP_TOKEN=...` line is fine.
+
+On first launch the onboarding flow at `/setup` then configures:
 
 1. **Admin account** — root administrator  
 2. **Instance settings** — name, public registration, account approval  

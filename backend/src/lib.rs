@@ -230,7 +230,7 @@ async fn build_app_state(
         pool: pool.clone(),
         storage,
         jwt_secret: config.jwt_secret.clone(),
-        setup_token: config.setup_token.clone(),
+        setup_token: crate::secrets::normalize_setup_token(&config.setup_token),
         signing_secret: config.signing_secret.clone(),
         url_expiry_seconds: config.url_expiry_seconds,
         jwt_access_ttl_hours: config.jwt_access_ttl_hours.max(1),
@@ -1029,12 +1029,36 @@ fn ensure_temp_dir() -> anyhow::Result<()> {
     Ok(())
 }
 
+// Human: Operators paste this into the first-run wizard — print it until an admin exists.
+// Agent: READS users COUNT; LOGS the live SETUP_TOKEN only while setup_complete is false.
+async fn log_first_run_setup_token(state: &AppState) {
+    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+        .fetch_one(&state.pool)
+        .await
+    {
+        Ok(0) => {
+            info!(
+                setup_token = %state.setup_token,
+                "First-run setup is open. Paste this SETUP_TOKEN into the wizard (same value as SETUP_TOKEN in .env after ./init-env.sh)."
+            );
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "Could not check whether setup is complete before logging SETUP_TOKEN"
+            );
+        }
+    }
+}
+
 pub async fn run() -> anyhow::Result<()> {
     logging::init_subscriber();
 
     let config = Config::from_env()?;
     ensure_temp_dir()?;
     let state = create_app_state(&config).await?;
+    log_first_run_setup_token(&state).await;
     logging::load_and_apply(&state.pool).await;
     admin::storage_migration_run::resume_running_storage_migrations(state.clone()).await;
     jobs::start_worker_pool(state.clone(), jobs::JobWorkerSettings::from(&config));

@@ -3,11 +3,33 @@
 
 let setupToken: string | null = null;
 
+function stripMatchingQuotes(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+    (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+  ) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+// Human: Accept a pasted .env line or quoted value — the wizard should not require a perfect copy.
+// Agent: TRIMS BOM/whitespace/quotes; STRIPS optional setup_token= prefix (case-insensitive).
+export function normalizeSetupTokenInput(raw: string): string {
+  let value = raw.replace(/^\uFEFF/, "").trim();
+  value = stripMatchingQuotes(value);
+  const prefix = /^setup_token\s*=\s*/i;
+  if (prefix.test(value)) {
+    value = stripMatchingQuotes(value.replace(prefix, "").trim());
+  }
+  return value;
+}
+
 // Human: Remember the operator-supplied setup token for the current browser session only.
-// Agent: WRITES module state; NOT persisted to web storage.
+// Agent: WRITES normalized module state; NOT persisted to web storage.
 export function setSetupToken(token: string) {
-  const trimmed = token.trim();
-  setupToken = trimmed || null;
+  const normalized = normalizeSetupTokenInput(token);
+  setupToken = normalized || null;
 }
 
 // Human: Read the active setup token for X-Setup-Token headers.

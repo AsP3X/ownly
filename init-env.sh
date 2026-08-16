@@ -143,9 +143,57 @@ init_env_file() {
         fi
     fi
 
+    # Human: Git-on-Windows examples keep CRLF — strip CR so Compose and the API see the same token.
+    # Agent: REWRITES file as LF-only after every awk rewrite in this function.
+    tr -d '\r' < "$env_file" > "${env_file}.lf" && mv "${env_file}.lf" "$env_file"
+    chmod 600 "$env_file" 2>/dev/null || true
+
     echo "$env_file is ready."
+}
+
+# Human: Copy one generated secret onto another env file so wizard / cargo / Compose agree.
+# Agent: OVERWRITES dest_key in dest_file with src_key from src_file; no-op if either is missing.
+sync_env_key() {
+    src_file="$1"
+    src_key="$2"
+    dest_file="$3"
+    dest_key="$4"
+
+    [ -f "$src_file" ] && [ -f "$dest_file" ] || return 0
+    line=$(grep -m1 -E "^[[:space:]]*${src_key}[[:space:]]*=" "$src_file" 2>/dev/null || true)
+    [ -z "$line" ] && return 0
+    value=$(normalize_env_value "${line#*=}")
+    [ -z "$value" ] && return 0
+
+    if grep -qE "^[[:space:]]*${dest_key}[[:space:]]*=" "$dest_file" 2>/dev/null; then
+        awk -v key="$dest_key" -v secret="$value" '
+            $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { print key "=" secret; next }
+            { print }
+        ' "$dest_file" > "${dest_file}.sync" && mv "${dest_file}.sync" "$dest_file"
+    else
+        printf '%s\n' "${dest_key}=${value}" >> "$dest_file"
+    fi
+    tr -d '\r' < "$dest_file" > "${dest_file}.lf" && mv "${dest_file}.lf" "$dest_file"
 }
 
 init_env_file ".env" ".env.example"
 init_env_file "backend/.env" "backend/.env.example"
 init_env_file "nebular-os/.env" "nebular-os/.env.example"
+
+# Human: Root .env is the source of truth after generation — backend/nebular copies must match.
+# Agent: SYNC after all GENERATE_ME replacements so independent openssl draws cannot diverge.
+sync_env_key ".env" "SETUP_TOKEN" "backend/.env" "SETUP_TOKEN"
+sync_env_key ".env" "JWT_SECRET" "backend/.env" "JWT_SECRET"
+sync_env_key ".env" "SIGNING_SECRET" "backend/.env" "SIGNING_SECRET"
+sync_env_key ".env" "NOS_JWT_SECRET" "backend/.env" "OBJECT_STORAGE_JWT_SECRET"
+sync_env_key ".env" "NOS_JWT_SECRET" "nebular-os/.env" "NOS_JWT_SECRET"
+sync_env_key ".env" "NOS_SIGNING_SECRET" "nebular-os/.env" "NOS_SIGNING_SECRET"
+
+setup_line=$(grep -m1 -E '^[[:space:]]*SETUP_TOKEN[[:space:]]*=' .env 2>/dev/null || true)
+if [ -n "$setup_line" ]; then
+    setup_token=$(normalize_env_value "${setup_line#*=}")
+    echo ""
+    echo "First-run setup token (paste into the wizard at /setup):"
+    echo "  $setup_token"
+    echo "This is SETUP_TOKEN in .env (and backend/.env). After setup it is not used to sign in."
+fi

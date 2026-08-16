@@ -27,14 +27,10 @@ See [Getting started](./getting-started.md) and [Secure deployment](./secure-dep
 No host ports on Postgres, object storage, or the API. Users reach the app via the frontend/nginx service only.
 
 ```bash
+./init-env.sh
 export POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export CORS_ALLOWED_ORIGINS="https://your-domain.example"
-export JWT_SECRET="$(openssl rand -hex 32)"
-export SETUP_TOKEN="$(openssl rand -hex 32)"
-export SIGNING_SECRET="$(openssl rand -hex 32)"
-export OBJECT_STORAGE_JWT_SECRET="$(openssl rand -hex 32)"
-export NOS_JWT_SECRET="$(openssl rand -hex 32)"
-export NOS_SIGNING_SECRET="$(openssl rand -hex 32)"
+# Optional: export JWT_SECRET / SETUP_TOKEN / … — otherwise Compose reads them from .env.
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```

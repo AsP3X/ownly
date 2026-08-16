@@ -8,12 +8,14 @@ How Ownly is configured in local Compose, production Compose, and bare-metal / n
 
 | Mode | Secrets source | Typical use |
 |------|----------------|-------------|
-| **Local Docker (default)** | Literals in `docker-compose.yml` | Day-to-day development |
-| **Production / non-Docker** | `.env` from `./init-env.sh` + overrides | Internet-facing or custom hosts |
+| **Local Docker (default)** | `${SECRET:-compose-dev-literal}` in `docker-compose.yml` | Day-to-day development |
+| **Production / non-Docker** | `.env` from `./init-env.sh` + overlays | Internet-facing or custom hosts |
 
 ### Local Docker
 
-Edit `docker-compose.yml` when you need custom **public URLs** or other non-secret tuning. Host `.env` files do **not** override the baked-in Compose **dev secrets** — that keeps local runs predictable.
+Edit `docker-compose.yml` when you need custom **public URLs** or other non-secret tuning. After `./init-env.sh`, the generated `.env` **does** supply `SETUP_TOKEN` / JWT / signing secrets (Compose interpolates `${SETUP_TOKEN:-…}`). Without a `.env`, the committed development literals are used.
+
+If a secret is exported as an empty string in your shell, it overrides `.env` — run `./scripts/compose-up.sh` (or `unset SETUP_TOKEN JWT_SECRET …`) before `docker compose up`.
 
 Common overrides (shell or Compose-read `.env` for non-secret vars):
 
