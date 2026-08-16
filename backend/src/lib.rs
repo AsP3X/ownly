@@ -635,7 +635,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/v1/files/upload",
             post(files::handlers::upload_file).layer(DefaultBodyLimit::max(max_upload)),
         )
-        .route("/api/v1/uploads", post(uploads::handlers::create_session))
+        .route(
+            "/api/v1/uploads",
+            post(uploads::handlers::create_session).delete(uploads::handlers::abort_all_sessions),
+        )
         .route(
             "/api/v1/uploads/{id}",
             get(uploads::handlers::get_session).delete(uploads::handlers::abort_session),

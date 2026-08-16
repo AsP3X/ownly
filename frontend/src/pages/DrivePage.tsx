@@ -74,9 +74,11 @@ import {
 } from "@/components/drive/ResourceDetailsDialog";
 import { DynamicImportPreview, loadAudioPreviewDialog, loadEpubPreviewDialog, loadExcelSpreadsheetDialog, loadImagePreviewDialog, loadPdfPreviewDialog, loadRtfEditorDialog, loadTextCodeEditorDialog, loadVideoPreviewDialog } from "@/lib/dynamic-import-preview";
 import { UploadDialog } from "@/components/drive/UploadDialog";
+import { abortAllResumableUploadSessions } from "@/lib/resumable-upload";
 import {
-  effectiveRemainingFromDashboard,
+  displayedStorageUsedBytes,
   limitingStorageKind,
+  remainingForNewUpload,
   type StorageLimitKind,
 } from "@/lib/upload-storage-capacity";
 import { RecycleBinPanel } from "@/components/drive/RecycleBinPanel";
@@ -85,6 +87,7 @@ import {
   subscribeUploadFileIngestProgress,
   subscribeUploadFileRegistered,
   clearCancelledHlsReprocessItems,
+  getUploadBatch,
   trackActiveHlsEncodeJobs,
   trackHlsReprocessFiles,
 } from "@/lib/upload-manager";
@@ -252,6 +255,7 @@ export default function DrivePage() {
     setTypeFilter,
   });
   const [usedBytes, setUsedBytes] = useState(0);
+  const [reservedBytes, setReservedBytes] = useState(0);
   const [quotaBytes, setQuotaBytes] = useState(1);
   const [effectiveRemainingBytes, setEffectiveRemainingBytes] = useState(
     Number.POSITIVE_INFINITY,
@@ -428,19 +432,32 @@ export default function DrivePage() {
     }
   }, []);
 
-  // Human: Mirror shared dashboard stats into local drive UI state when the provider fetch completes.
-  // Agent: READS dashboard from InstanceNameProvider; WRITES used/quota/effective remaining bytes.
-  useEffect(() => {
-    if (!dashboard) return;
-    setUsedBytes(dashboard.used_bytes);
-    setQuotaBytes(dashboard.quota_bytes || 1);
-    setEffectiveRemainingBytes(effectiveRemainingFromDashboard(dashboard));
-    setStorageLimitKind(limitingStorageKind(dashboard));
-    dashboardLoadedRef.current = true;
-  }, [dashboard]);
-
   // Human: Storage summary for the sidebar and upload preflight — includes network node headroom.
   // Agent: CALLS shared refreshDashboard; WRITES local quota state from returned payload.
+  const applyDashboardStats = useCallback(
+    (nextDashboard: {
+      used_bytes: number;
+      reserved_bytes?: number | null;
+      quota_bytes: number;
+      network_remaining_bytes?: number | null;
+      effective_remaining_bytes?: number | null;
+    }) => {
+      const localInFlight = (getUploadBatch()?.items ?? []).some(
+        (item) => item.status === "uploading" || item.status === "queued",
+      );
+      setUsedBytes(nextDashboard.used_bytes);
+      setReservedBytes(nextDashboard.reserved_bytes ?? 0);
+      setQuotaBytes(nextDashboard.quota_bytes || 1);
+      const remaining = remainingForNewUpload(nextDashboard, { hasLocalInFlight: localInFlight });
+      const limitKind = limitingStorageKind(nextDashboard);
+      setEffectiveRemainingBytes(remaining);
+      setStorageLimitKind(limitKind);
+      dashboardLoadedRef.current = true;
+      return { remainingBytes: remaining, limitKind };
+    },
+    [],
+  );
+
   const refreshDashboard = useCallback(async (): Promise<{
     remainingBytes: number;
     limitKind: StorageLimitKind;
@@ -449,15 +466,37 @@ export default function DrivePage() {
     if (!nextDashboard) {
       return { remainingBytes: Number.POSITIVE_INFINITY, limitKind: "none" };
     }
-    setUsedBytes(nextDashboard.used_bytes);
-    setQuotaBytes(nextDashboard.quota_bytes || 1);
-    const effective = effectiveRemainingFromDashboard(nextDashboard);
-    const limitKind = limitingStorageKind(nextDashboard);
-    setEffectiveRemainingBytes(effective);
-    setStorageLimitKind(limitKind);
-    dashboardLoadedRef.current = true;
-    return { remainingBytes: effective, limitKind };
-  }, [refreshDashboardShared]);
+    return applyDashboardStats(nextDashboard);
+  }, [applyDashboardStats, refreshDashboardShared]);
+
+  // Human: Upload preflight only — drop leftover reservations from a failed browser session, then remeasure.
+  // Agent: NOT used by ordinary dashboard refreshes (those must not abort another tab's in-flight upload).
+  const prepareUploadStorageLimits = useCallback(async (): Promise<{
+    remainingBytes: number;
+    limitKind: StorageLimitKind;
+  }> => {
+    let nextDashboard = await refreshDashboardShared();
+    if (!nextDashboard) {
+      return { remainingBytes: Number.POSITIVE_INFINITY, limitKind: "none" };
+    }
+    const localInFlight = (getUploadBatch()?.items ?? []).some(
+      (item) => item.status === "uploading" || item.status === "queued",
+    );
+    if ((nextDashboard.reserved_bytes ?? 0) > 0 && !localInFlight) {
+      await abortAllResumableUploadSessions().catch(() => {
+        // Human: Best-effort — leftover reservations still expire server-side.
+      });
+      nextDashboard = (await refreshDashboardShared()) ?? nextDashboard;
+    }
+    return applyDashboardStats(nextDashboard);
+  }, [applyDashboardStats, refreshDashboardShared]);
+
+  // Human: Mirror shared dashboard stats into local drive UI state when the provider fetch completes.
+  // Agent: READS dashboard from InstanceNameProvider; WRITES used/quota/effective remaining bytes.
+  useEffect(() => {
+    if (!dashboard) return;
+    applyDashboardStats(dashboard);
+  }, [applyDashboardStats, dashboard]);
 
   // Human: Refresh paperclip indicators after share dialog changes (list rows may be stale).
   // Agent: POST /shares/status; WRITES fileShareFlags + folderShareFlags maps.
@@ -2089,7 +2128,8 @@ export default function DrivePage() {
     setMobileActionsOpen(true);
   }
 
-  const usagePercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
+  const displayUsedBytes = displayedStorageUsedBytes(usedBytes, reservedBytes);
+  const usagePercent = Math.min(100, Math.round((displayUsedBytes / quotaBytes) * 100));
   // Human: Client-side name filter for the Home view when a search query is active.
   // Agent: MEMO avoids re-creating the filtered array on every render (e.g. upload progress ticks).
   const nameFilteredFiles = useMemo(
@@ -2388,7 +2428,7 @@ export default function DrivePage() {
           folderId={activeNav === "my-files" ? currentFolderId : null}
           effectiveRemainingBytes={effectiveRemainingBytes}
           storageLimitKind={storageLimitKind}
-          onRefreshStorageLimits={refreshDashboard}
+          onRefreshStorageLimits={prepareUploadStorageLimits}
           initialFiles={uploadDropFiles}
           onLibraryChanged={() =>
             void refresh(activeNav === "my-files" ? committedQuery || undefined : undefined, {
@@ -2586,7 +2626,7 @@ export default function DrivePage() {
           open={mobileSidebarOpen}
           onOpenChange={setMobileSidebarOpen}
           activeNav={activeNav}
-          usedBytes={usedBytes}
+          usedBytes={displayUsedBytes}
           quotaBytes={quotaBytes}
           usagePercent={usagePercent}
           onNavChange={handleNavChange}
@@ -2595,7 +2635,7 @@ export default function DrivePage() {
             setActiveNav("my-files");
             setCreateFolderDialogOpen(true);
           }}
-          storageBar={<StorageUsageBar usedBytes={usedBytes} quotaBytes={quotaBytes} />}
+          storageBar={<StorageUsageBar usedBytes={displayUsedBytes} quotaBytes={quotaBytes} />}
         />
         <MobileFileActionsSheet
           target={mobileActionTarget}
@@ -2653,7 +2693,7 @@ export default function DrivePage() {
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
         <DriveSidebar
           activeNav={activeNav}
-          usedBytes={usedBytes}
+          usedBytes={displayUsedBytes}
           quotaBytes={quotaBytes}
           onNavChange={handleNavChange}
         />
@@ -2810,7 +2850,7 @@ export default function DrivePage() {
                   viewMode={viewMode}
                   onViewModeChange={handleViewModeChange}
                   instanceName={instanceName}
-                  usedBytes={usedBytes}
+                  usedBytes={displayUsedBytes}
                   quotaBytes={quotaBytes}
                   totalFolderCount={folderCount}
                   totalFileCount={fileCount}
@@ -2900,7 +2940,7 @@ export default function DrivePage() {
               <DriveOverviewPanel
                 folders={overviewFolders}
                 recentFiles={recentFiles}
-                usedBytes={usedBytes}
+                usedBytes={displayUsedBytes}
                 quotaBytes={quotaBytes}
                 fileShareFlags={fileShareFlags}
                 folderShareFlags={folderShareFlags}

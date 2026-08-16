@@ -184,6 +184,17 @@ export async function abortResumableUploadSession(sessionId: string): Promise<vo
   }
 }
 
+// Human: Release leftover quota reservations from failed/abandoned resumable uploads.
+// Agent: DELETE /uploads (no id); USED before picker preflight when this browser has no in-flight upload.
+export async function abortAllResumableUploadSessions(): Promise<void> {
+  const res = await mutationFetch(`${API_BASE}/uploads`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 404) {
+    throw await parseApiError(res, "Could not abort leftover upload sessions");
+  }
+}
+
 // Human: Proxy one part through Ownly API (video spool path and direct-upload fallback).
 // Agent: PUT /uploads/{id}/parts/{n} with octet-stream body; RECORDS adaptive sample.
 async function uploadPartViaApi(

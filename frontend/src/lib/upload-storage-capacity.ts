@@ -7,6 +7,8 @@ import { formatBytes } from "@/lib/utils-app";
 export type UploadStorageSnapshot = {
   used_bytes: number;
   quota_bytes: number;
+  /** Bytes reserved by active/completing resumable upload sessions. */
+  reserved_bytes?: number | null;
   network_remaining_bytes?: number | null;
   effective_remaining_bytes?: number | null;
 };
@@ -33,6 +35,33 @@ export function remainingQuotaBytes(usedBytes: number, quotaBytes: number): numb
   }
   const used = Number.isFinite(usedBytes) ? Math.max(0, usedBytes) : 0;
   return Math.max(0, quotaBytes - used);
+}
+
+/** Human: Used library bytes plus unfinished upload reservations (sidebar / status bar). */
+export function displayedStorageUsedBytes(usedBytes: number, reservedBytes?: number | null): number {
+  const used = Number.isFinite(usedBytes) ? Math.max(0, usedBytes) : 0;
+  const reserved =
+    reservedBytes != null && Number.isFinite(reservedBytes) ? Math.max(0, reservedBytes) : 0;
+  return used + reserved;
+}
+
+/** Human: Headroom for a new picker selection — leftover reservations from a dead tab must not block retry. */
+export function remainingForNewUpload(
+  snapshot: UploadStorageSnapshot,
+  options: { hasLocalInFlight: boolean },
+): number {
+  const effective = effectiveRemainingFromDashboard(snapshot);
+  const reserved =
+    snapshot.reserved_bytes != null && Number.isFinite(snapshot.reserved_bytes)
+      ? Math.max(0, snapshot.reserved_bytes)
+      : 0;
+  if (options.hasLocalInFlight || reserved <= 0) {
+    return effective;
+  }
+  if (!Number.isFinite(effective) || effective === Number.POSITIVE_INFINITY) {
+    return effective;
+  }
+  return effective + reserved;
 }
 
 // Human: Decide whether the account quota or the storage-node network is the tighter limit.

@@ -1304,6 +1304,7 @@ pub async fn dashboard_summary(
         "instance_name": instance_name.map(|(n,)| n).unwrap_or_else(|| "Ownly".into()),
         "file_count": stats.0,
         "used_bytes": stats.1,
+        "reserved_bytes": reserved_bytes,
         "quota_bytes": quota_bytes,
         "network_remaining_bytes": network_remaining_bytes,
         "effective_remaining_bytes": if effective_remaining_bytes == i64::MAX {

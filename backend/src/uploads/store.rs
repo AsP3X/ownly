@@ -463,6 +463,23 @@ pub async fn mark_aborted(
     .map_err(AppError::from)
 }
 
+// Human: Abort every in-flight session for one user (orphaned reservations after a failed browser upload).
+// Agent: UPDATE status aborted + clear reservation; RETURNS previous rows for spool/staging cleanup.
+pub async fn mark_all_aborted_for_user(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Vec<UploadSessionRow>, AppError> {
+    sqlx::query_as(&format!(
+        "UPDATE upload_sessions SET status = 'aborted', quota_reserved_bytes = 0, updated_at = now() \
+         WHERE user_id = $1 AND status IN ('active', 'completing') \
+         RETURNING {SESSION_COLUMNS}"
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from)
+}
+
 // Human: Count in-flight upload sessions for admin health.
 // Agent: READS upload_sessions WHERE active/completing.
 pub async fn count_active_sessions(pool: &PgPool) -> Result<i64, AppError> {

@@ -5,8 +5,10 @@ import {
   type PendingUploadFile,
 } from "@/lib/upload-conflicts";
 import {
+  displayedStorageUsedBytes,
   effectiveRemainingFromDashboard,
   limitingStorageKind,
+  remainingForNewUpload,
   splitUploadsByCapacity,
   storageOverflowNotice,
   storageWarningForFile,
@@ -154,5 +156,38 @@ describe("effectiveRemainingFromDashboard", () => {
 
   it("falls back to quota headroom when the network cap is unknown", () => {
     expect(effectiveRemainingFromDashboard({ used_bytes: 10, quota_bytes: 100 })).toBe(90);
+  });
+});
+
+describe("remainingForNewUpload", () => {
+  const fiveGb = 5 * 1024 ** 3;
+  const file28 = 2.8 * 1024 ** 3;
+  const leftover22 = 2.2 * 1024 ** 3;
+
+  it("adds orphaned reservations back so a retry is not blocked by its own leftover session", () => {
+    const snapshot = {
+      used_bytes: 0,
+      quota_bytes: fiveGb,
+      reserved_bytes: file28,
+      effective_remaining_bytes: leftover22,
+    };
+    expect(remainingForNewUpload(snapshot, { hasLocalInFlight: false })).toBe(fiveGb);
+    expect(storageWarningForFile(file28, remainingForNewUpload(snapshot, { hasLocalInFlight: false }))).toBeNull();
+  });
+
+  it("keeps the reservation charged while this browser still has an upload in flight", () => {
+    const snapshot = {
+      used_bytes: 0,
+      quota_bytes: fiveGb,
+      reserved_bytes: file28,
+      effective_remaining_bytes: leftover22,
+    };
+    expect(remainingForNewUpload(snapshot, { hasLocalInFlight: true })).toBe(leftover22);
+  });
+});
+
+describe("displayedStorageUsedBytes", () => {
+  it("includes unfinished upload reservations so 0 B used is not shown while 2.8 GB is reserved", () => {
+    expect(displayedStorageUsedBytes(0, 2.8 * 1024 ** 3)).toBe(2.8 * 1024 ** 3);
   });
 });

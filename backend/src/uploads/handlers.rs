@@ -38,7 +38,8 @@ use crate::{
 use super::assemble::{append_part_to_source, resolve_session_source};
 use super::store::{
     consume_part_signed_token, count_active_sessions_for_user, expected_part_size, insert_session,
-    list_received_parts, load_session_for_user, mark_aborted, mark_complete, mark_completing,
+    list_received_parts, load_session_for_user, mark_aborted, mark_all_aborted_for_user,
+    mark_complete, mark_completing,
     part_signed_token_matches, record_part_with_checksum, set_part_signed_token, total_parts,
     UploadSessionRow, DEFAULT_CHUNK_SIZE, MAX_ACTIVE_SESSIONS_PER_USER, MAX_CHUNK_SIZE,
     MIN_CHUNK_SIZE,
@@ -901,4 +902,34 @@ pub async fn abort_session(
     .ok();
 
     Ok(Json(serde_json::json!({ "aborted": true })))
+}
+
+// Human: Drop leftover resumable reservations so a retry is not charged twice against quota.
+// Agent: DELETE /uploads; ABORTS every active/completing session for the caller.
+pub async fn abort_all_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let sessions = mark_all_aborted_for_user(&state.pool, &claims.sub).await?;
+    for session in &sessions {
+        if upload_is_video(&session.filename, &session.mime_type) {
+            cleanup_upload_work_dir(&upload_work_dir(&session.file_id)).await;
+        } else {
+            cleanup_staging_prefix(&state.storage, &session.id).await;
+        }
+        state.upload_metrics.inc_sessions_aborted();
+        audit::write_audit(
+            &state.pool,
+            Some(&claims.sub),
+            "uploads.session.abort",
+            Some("upload_session"),
+            Some(&session.id),
+            None,
+            &headers,
+        )
+        .await
+        .ok();
+    }
+    Ok(Json(serde_json::json!({ "aborted": sessions.len() })))
 }

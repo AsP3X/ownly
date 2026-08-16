@@ -1033,6 +1033,8 @@ export type DashboardResponse = {
   file_count: number;
   used_bytes: number;
   quota_bytes: number;
+  /** Bytes reserved by unfinished resumable uploads (not yet files). */
+  reserved_bytes?: number;
   /** Sum of free space on capped storage nodes; omitted when network is uncapped. */
   network_remaining_bytes?: number | null;
   /** min(user quota remaining, network remaining); null when unlimited. */

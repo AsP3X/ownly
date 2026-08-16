@@ -38,6 +38,7 @@ import {
   publishUploadBatchSnapshot,
   readUploadBatchSnapshot,
 } from "@/lib/upload-batch-snapshot";
+import { abortResumableUploadSession } from "@/lib/resumable-upload";
 import { suggestedFileConcurrency } from "@/lib/upload-adaptive";
 import { createClientId } from "@/lib/utils-app";
 import {
@@ -1254,6 +1255,9 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
     }
 
     const message = getErrorMessage(error);
+    const reservedSessionId =
+      batch?.items.find((item) => item.id === uploadId)?.resumableServerSessionId ??
+      claimed.resumableServerSessionId;
     updateItems((items) =>
       items.map((item) =>
         item.id === uploadId
@@ -1261,10 +1265,18 @@ async function uploadClaimedItem(claimed: InternalUploadItem, retryAttempt = 0) 
               ...item,
               status: (cancelled ? "cancelled" : "error") as UploadItemStatus,
               error: cancelled ? "Cancelled" : message,
+              // Human: Terminal failure must drop the server reservation or the next picker check
+              // sees quota as already spent (e.g. 2.8 GB reserved of a 5 GB account).
+              resumableServerSessionId: cancelled ? item.resumableServerSessionId : null,
             }
           : item,
       ),
     );
+    if (!cancelled && reservedSessionId) {
+      void abortResumableUploadSession(reservedSessionId).catch(() => {
+        // Human: Best-effort — stale reservations also expire after SESSION_IDLE_HOURS.
+      });
+    }
   }
 }
 
