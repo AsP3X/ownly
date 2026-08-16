@@ -24,7 +24,7 @@ See [Getting started](./getting-started.md) and [Secure deployment](./secure-dep
 
 ## Production overlay
 
-No host ports on Postgres, object storage, or the API. Users reach the app via the frontend/nginx service only.
+No host ports on any service. Users reach the app through an edge proxy on `proxy-network` (Nginx Proxy Manager, Traefik, …) targeting `ownly-frontend:80`.
 
 ```bash
 ./init-env.sh

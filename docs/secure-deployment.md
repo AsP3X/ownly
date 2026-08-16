@@ -17,7 +17,7 @@ Use this checklist before exposing Ownly on the public internet. It complements 
 
 ## Docker Compose (production overlay)
 
-For Compose-based deployments, merge the production overlay so Postgres and object storage are not published on the host:
+For Compose-based deployments, merge the production overlay so no service publishes a host port:
 
 ```bash
 export POSTGRES_PASSWORD="$(openssl rand -hex 32)"
@@ -34,7 +34,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 
 The overlay:
 
-- Removes host port bindings for Postgres, object storage, and the API (frontend/nginx remains the entrypoint).
+- Removes host port bindings for every service. Point Nginx Proxy Manager / Traefik at `ownly-frontend:80` on `proxy-network`.
 - Sets `OWNLY_ENVIRONMENT=production`, `TRUST_PROXY_HEADERS=true` (nginx is the trusted proxy), and `OWNLY_ALLOW_PRIVATE_OUTBOUND=0`.
 - Requires `POSTGRES_PASSWORD` and `CORS_ALLOWED_ORIGINS`.
 

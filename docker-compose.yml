@@ -175,7 +175,7 @@ networks:
   ownly-internal:
     driver: bridge
     internal: false
-  # Human: Shared edge/proxy network (Traefik etc.) — often created outside this Compose project.
+  # Human: Shared edge/proxy network (Nginx Proxy Manager, Traefik, …) — created outside this Compose project.
   # Agent: external:true avoids "incorrect label com.docker.compose.network" when the network already exists.
   proxy-network:
     name: proxy-network

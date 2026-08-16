@@ -2,8 +2,9 @@
 # Agent: RUN `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`
 #        REQUIRES strong POSTGRES_PASSWORD, unique secrets, and explicit CORS_ALLOWED_ORIGINS.
 #
-# Postgres, object storage, and the API stay on the internal Compose network (no host ports).
-# Frontend/nginx remains the only published entrypoint (${FRONTEND_PORT:-8080}:80).
+# No service publishes a host port. Reach the stack through an edge proxy on
+# proxy-network (Nginx Proxy Manager, Traefik, …) targeting ownly-frontend:80.
+# FRONTEND_PORT in the base file is local Compose only.
 
 services:
   postgres:
@@ -38,3 +39,6 @@ services:
       NOS_JWT_SECRET: ${NOS_JWT_SECRET:?set NOS_JWT_SECRET - run ./init-env.sh}
       NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:?set NOS_SIGNING_SECRET - run ./init-env.sh}
       OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:?set OBJECT_STORAGE_JWT_SECRET - run ./init-env.sh}
+
+  frontend:
+    ports: !reset []
