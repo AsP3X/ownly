@@ -53,7 +53,7 @@ docker compose -f docker-compose.yml -f docker-compose.rep.yml up --build
 Register node B in **Admin → Add Storage Node** with the in-network URL and a target capacity.  
 Ownly routes by remaining capacity; see [Nebular metadata notes](./nebular-os-storage-metadata-prompt.md).
 
-For production multi-node, merge `docker-compose.prod.yml` as well (node-b host port is removed).
+For production multi-node, merge `docker-compose.prod.yml` as well, then unset node-b's host port (`object-storage-b.ports: !reset []`) so port 9001 is not published.
 
 ## GPU HLS ingest (NVIDIA)
 

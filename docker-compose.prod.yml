@@ -21,9 +21,6 @@ services:
       NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:?set NOS_SIGNING_SECRET - run ./init-env.sh}
       OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:?set OBJECT_STORAGE_JWT_SECRET - run ./init-env.sh}
 
-  object-storage-b:
-    ports: !reset []
-
   backend:
     ports: !reset []
     environment:
