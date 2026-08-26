@@ -22,9 +22,14 @@ import { Button } from "@/components/ui/button";
 /**
  * Human: Ceiling for the scrollable file list. The list sizes to its content and only scrolls
  * past this point — a fixed height left a large empty void whenever few files were in flight.
+ *
+ * Human: The flat 19rem was taller than a landscape phone's ENTIRE viewport (390px), so the
+ * upload tray swallowed the screen. The value now lives in --upload-list-max-h (index.css),
+ * which keeps 19rem on desktop and additionally bounds it by viewport share below lg —
+ * desktop is deliberately left exactly as it was.
  * Agent: APPLIED as max-height; the list has no min-height so short batches render compactly.
  */
-export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "19rem";
+export const UPLOAD_PANEL_LIST_MAX_HEIGHT = "var(--upload-list-max-h)";
 
 /**
  * Human: How long the list waits before handing space back. A file leaves the in-flight set the

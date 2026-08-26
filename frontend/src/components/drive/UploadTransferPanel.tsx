@@ -148,6 +148,8 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
       <div
         className={cn(
           "grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-5 pt-4 transition-[padding,border-color] duration-300",
+          // Human: Desktop chrome padding is generous; a phone tray cannot afford it.
+          "max-lg:px-4 max-lg:pt-3 short:pt-2",
           !minimized ? "border-b border-edge pb-3" : "border-b border-transparent pb-1",
         )}
       >
@@ -250,7 +252,9 @@ export function UploadTransferPanel({ minimized, onMinimizedChange }: UploadTran
         aria-hidden={!showMinimizedLive}
       >
         <div className="transfer-panel-body-inner">
-          <div className="flex min-h-[6.75rem] flex-col gap-2.5 px-4 pb-4 pt-3">
+          {/* Human: The 6.75rem floor reserves room for the warning line and backlog summary. It
+              is dead space on a short viewport, where those are rarely both present. */}
+          <div className="flex min-h-[6.75rem] flex-col gap-2.5 px-4 pb-4 pt-3 short:min-h-0 short:gap-1.5 short:pb-2">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-[13px] font-semibold text-ink transition-opacity duration-200">
                 {formatUploadFilesProgress(processedCount, totalCount)}

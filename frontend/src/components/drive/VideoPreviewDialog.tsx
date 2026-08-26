@@ -131,11 +131,12 @@ export function VideoPreviewDialog({
   const showGalleryHint = isNarrow && videos.length > 1;
   // Human: Portrait phone — TikTok-style vertical gallery scroll between videos.
   // Agent: ENABLED when narrow + portrait layout + gallery; landscape phone keeps instant swipe.
-  const useVerticalGalleryScroll =
-    isNarrow &&
-    narrowLayout === "portrait" &&
-    videos.length > 1 &&
-    Boolean(onFileChange);
+  // Human: Whether this viewing session has a gallery at all. Orientation-independent, so the
+  // wrapper's presence never changes on rotation — only its behaviour does.
+  const hasGallery = isNarrow && videos.length > 1 && Boolean(onFileChange);
+  // Human: Portrait phone — TikTok-style vertical gallery scroll between videos.
+  // Agent: Landscape keeps the wrapper mounted but stops the swipe track.
+  const useVerticalGalleryScroll = hasGallery && narrowLayout === "portrait";
 
   // Human: Reset stream state before paint when gallery selection changes — not videoElement (ref callback owns that).
   // Agent: useLayoutEffect CLEARS streamUrl/error before useHlsVideoAttach runs; AVOIDS nulling videoElement after ref attach.
@@ -373,8 +374,16 @@ export function VideoPreviewDialog({
             </div>
           ) : null}
 
+          {/*
+            Human: One branch, not two. Swapping between a wrapped and an unwrapped player when
+            the phone rotated changed the element type at this position, so React tore down the
+            <video> and playback stopped — the reason a video had to be started in the
+            orientation you wanted to watch it in. The gallery now stays mounted and simply
+            stops responding to swipes in landscape.
+            Agent: Do NOT reintroduce a conditional that renders the surface from two branches.
+          */}
           {file && isNarrow ? (
-            useVerticalGalleryScroll ? (
+            hasGallery ? (
               <VideoVerticalGallery
                 videos={videos}
                 currentIndex={currentIndex}
@@ -383,6 +392,7 @@ export function VideoPreviewDialog({
                 goPrevious={goPrevious}
                 goNext={goNext}
                 activeFileId={file.id}
+                enabled={useVerticalGalleryScroll}
               >
                 <VideoPlayerSurfaceMobile
                   key={file.id}

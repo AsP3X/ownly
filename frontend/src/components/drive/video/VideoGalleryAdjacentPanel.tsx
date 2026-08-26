@@ -44,6 +44,9 @@ export function VideoGalleryAdjacentPanel({ file, label }: VideoGalleryAdjacentP
 
   return (
     <div
+      // Human: Marks the prev/next panels so tests can tell an active swipe track from a
+      // dormant one without reaching into class names.
+      data-gallery-adjacent=""
       className="relative size-full overflow-hidden bg-black"
       aria-hidden
     >

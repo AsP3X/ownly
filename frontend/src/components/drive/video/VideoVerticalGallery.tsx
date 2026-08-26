@@ -12,6 +12,7 @@ import {
 import type { FileItem } from "@/api/client";
 import { VideoGalleryAdjacentPanel } from "@/components/drive/video/VideoGalleryAdjacentPanel";
 import { isVideoGallerySwipeZone } from "@/components/drive/video/video-gallery-swipe";
+import { cn } from "@/lib/utils";
 import {
   VIDEO_GALLERY_AXIS_LOCK_PX,
   VIDEO_GALLERY_COMMIT_FALLBACK_MS,
@@ -43,6 +44,11 @@ type VideoVerticalGalleryProps = {
   goPrevious: () => void;
   goNext: () => void;
   activeFileId: string;
+  /**
+   * Human: Whether vertical swipe-between-videos is active. Landscape turns it off, but the
+   * wrapper STAYS MOUNTED — see the note on the render below.
+   */
+  enabled: boolean;
   children: ReactNode;
 };
 
@@ -56,6 +62,7 @@ export function VideoVerticalGallery({
   goPrevious,
   goNext,
   activeFileId,
+  enabled,
   children,
 }: VideoVerticalGalleryProps) {
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -391,49 +398,70 @@ export function VideoVerticalGallery({
     return () => track.removeEventListener("transitionend", handleTrackTransitionEnd);
   }, [clearCommitFallbackTimer, containerHeight, flushPendingSwipeCommit]);
 
+  // Human: Track physics only run when the gallery is enabled AND measured.
+  const trackActive = enabled && containerHeight > 0;
   const trackHeightStyle =
-    containerHeight > 0 ? { height: containerHeight * 3 } : { height: "300%" as const };
+    trackActive ? { height: containerHeight * 3 } : undefined;
 
   return (
     <div
       ref={galleryRef}
-      className="absolute inset-0 touch-none overflow-hidden"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchCancel}
-      aria-label="Swipe up or down to browse videos"
+      className={cn(
+        "absolute inset-0 overflow-hidden",
+        // Human: touch-none would swallow the player's own controls when swiping is off.
+        trackActive && "touch-none",
+      )}
+      onTouchStart={trackActive ? handleTouchStart : undefined}
+      onTouchMove={trackActive ? handleTouchMove : undefined}
+      onTouchEnd={trackActive ? handleTouchEnd : undefined}
+      onTouchCancel={trackActive ? handleTouchCancel : undefined}
+      aria-label={trackActive ? "Swipe up or down to browse videos" : undefined}
     >
-      {containerHeight > 0 ? (
-        <div
-          ref={trackRef}
-          className="absolute left-0 w-full flex flex-col"
-          style={trackHeightStyle}
-        >
+      {/*
+        Human: `children` holds the one and only <video>. Its path through this tree must never
+        change, or React unmounts it and playback stops dead — which is exactly what rotating the
+        phone used to do. So the track, the centre panel and the inner shell are ALWAYS rendered;
+        only their styling and the adjacent panels react to `trackActive`. Do not "simplify" this
+        into a conditional that renders children from two different branches.
+      */}
+      <div
+        ref={trackRef}
+        className={cn(
+          "flex w-full flex-col",
+          trackActive ? "absolute left-0" : "absolute inset-0",
+        )}
+        style={trackHeightStyle}
+      >
+        {trackActive ? (
           <div style={{ height: containerHeight }} className="w-full shrink-0">
             <VideoGalleryAdjacentPanel
               file={previousFile}
               label={previousFile?.name ?? "Previous video"}
             />
           </div>
-          <div
-            style={{ height: containerHeight }}
-            className="relative w-full shrink-0 overflow-hidden"
-          >
-            {/* Human: Player shell needs a sized flex parent — fixed-height panel alone collapses flex-1. */}
-            {/* Agent: absolute inset-0 flex column; FILLS center gallery slot for VideoPlayerSurfaceMobile. */}
-            <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
-          </div>
+        ) : null}
+
+        <div
+          style={trackActive ? { height: containerHeight } : undefined}
+          className={cn(
+            "relative w-full overflow-hidden",
+            trackActive ? "shrink-0" : "min-h-0 flex-1",
+          )}
+        >
+          {/* Human: Player shell needs a sized flex parent — fixed-height panel alone collapses flex-1. */}
+          {/* Agent: absolute inset-0 flex column; FILLS centre gallery slot for VideoPlayerSurfaceMobile. */}
+          <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
+        </div>
+
+        {trackActive ? (
           <div style={{ height: containerHeight }} className="w-full shrink-0">
             <VideoGalleryAdjacentPanel
               file={nextFile}
               label={nextFile?.name ?? "Next video"}
             />
           </div>
-        </div>
-      ) : (
-        <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
-      )}
+        ) : null}
+      </div>
     </div>
   );
 }

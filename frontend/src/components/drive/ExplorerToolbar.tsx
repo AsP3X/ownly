@@ -189,6 +189,8 @@ export function ExplorerToolbar({
         // block — it would then anchor to the toolbar and cover the search field instead of
         // floating above the bottom nav. bg-surface/95 already reads as opaque.
         "sticky top-0 z-20 flex flex-col gap-2.5 border-b border-edge bg-surface/95 pb-2.5 pt-1",
+        // Human: Every vertical pixel counts on a landscape phone.
+        "short:max-lg:gap-1.5 short:max-lg:pb-1.5",
         className,
       )}
     >
@@ -232,7 +234,10 @@ export function ExplorerToolbar({
             off-screen by the pane's overflow-hidden. */}
         {/* Human: Tighter gaps below lg — at 320px the two clusters plus 8px gaps overflowed by a
             few pixels and wrapped the row onto a third line. */}
-        <div className="flex flex-wrap items-center gap-2 max-lg:w-full max-lg:justify-between max-lg:gap-1.5 lg:ml-auto">
+        {/* Human: `max-lg:w-full` forces these onto a second row, which is right on a portrait
+            phone and wrong in landscape — there the viewport is ~390px tall and a two-row toolbar
+            eats the file list. On a short viewport they sit beside the search field instead. */}
+        <div className="flex flex-wrap items-center gap-2 max-lg:w-full max-lg:justify-between max-lg:gap-1.5 short:max-lg:w-auto short:max-lg:justify-end lg:ml-auto">
           <div className="flex items-center gap-2 max-lg:gap-1.5">
             <ExplorerViewSwitcher value={viewMode} onChange={onViewModeChange} />
 

@@ -116,7 +116,7 @@ export function MobileDriveHeader({
           : "bg-surface/95",
       )}
     >
-      <div className="flex items-center gap-2 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <div className="flex items-center gap-2 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] short:pb-1 short:pt-[max(0.25rem,env(safe-area-inset-top))]">
         {inFolder ? (
           <Button
             type="button"
@@ -142,7 +142,9 @@ export function MobileDriveHeader({
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium uppercase tracking-wide text-ink-faint">
+          {/* Human: The eyebrow is the first thing to go when height is scarce — the title
+              below it already says where you are. */}
+          <p className="truncate text-xs font-medium uppercase tracking-wide text-ink-faint short:hidden">
             {inFolder ? "Folder" : activeNav === "home" ? instanceName : "Library"}
           </p>
           <h1 className="truncate text-lg font-semibold tracking-tight text-ink">

@@ -17,6 +17,31 @@
   }
 }
 
+/* Human: Landscape phone — plenty of width, almost no height. The drive shell stacks a header, a
+   two-row toolbar, a status strip and a bottom nav, which together leave barely one row of tiles
+   visible at 390px tall. `short` compresses that chrome. */
+/* Agent: 500px covers every phone in landscape and no tablet in portrait (iPad mini is 744 wide,
+   1133 tall). Pair with max-lg: — a short DESKTOP window should keep the dense desktop layout. */
+@custom-variant short {
+  @media (max-height: 500px) {
+    @slot;
+  }
+}
+
+/* Human: Ceiling for the upload tray's file list. Desktop keeps the roomy 19rem; below lg the
+   list is also bounded by a share of the viewport, because 19rem is taller than a landscape
+   phone's whole screen and the tray ended up swallowing the drive behind it. */
+/* Agent: READ as var(--upload-list-max-h) by upload-batch-view's inline max-height. A single
+   value cannot serve both — any share small enough to help a phone also shrinks desktop. */
+:root {
+  --upload-list-max-h: 19rem;
+}
+@media (max-width: 1023px) {
+  :root {
+    --upload-list-max-h: min(19rem, 32dvh);
+  }
+}
+
 /* Human: Mobile video layout — data-video-layout from useNarrowVideoLayout (Safari-safe aspect detection). */
 /* Agent: video-portrait / video-landscape match [data-video-layout] on dialog viewport; children use video-*: utilities. */
 @custom-variant video-portrait (&:where([data-video-layout="portrait"], [data-video-layout="portrait"] *));
