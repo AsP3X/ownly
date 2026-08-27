@@ -4,6 +4,9 @@ nebular-os/.env
 backend/target/
 nebular-os/target/
 frontend/node_modules/
+# Human: Root-level node_modules is not a dependency tree — vitest writes its cache to
+# node_modules/.vite/ from the repo root, which showed up as an untracked path.
+node_modules/
 frontend/dist/
 *.db
 .DS_Store
