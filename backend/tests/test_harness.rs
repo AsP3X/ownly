@@ -83,6 +83,10 @@ impl TestHarness {
             }
         };
 
+        // Human: ContentRead cache is process-global — clear it so tests cannot leak Allow across cases.
+        // Agent: CALLS invalidate_all_file_reads before AppState bootstrap.
+        ownly_backend::files::access_cache::invalidate_all_file_reads();
+
         let cfg = test_config(&database_url);
         match create_test_app_state(&cfg).await {
             Ok(state) => Some(state),

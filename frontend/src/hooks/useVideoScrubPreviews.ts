@@ -20,6 +20,14 @@ type UseVideoScrubPreviewsOptions = {
   enabled?: boolean;
 };
 
+// Human: Delay storyboard JPEG fetches so opening a video does not compete with HLS startup.
+// Agent: APPLIED after the thumbnail manifest (captions_ready) returns; CANCELLED on unmount.
+const SCRUB_FETCH_DEFER_MS = 2000;
+
+// Human: Parallelism for seek-bar preview JPEGs after playback has had a chance to start.
+// Agent: BATCH size for Promise.all over scrub/poster sources.
+const SCRUB_FETCH_CONCURRENCY = 3;
+
 // Human: Pick the scrub frame nearest to a hover time for the seek tooltip.
 // Agent: LINEAR scan of sorted frames; RETURNS null when ladder empty.
 export function findNearestScrubFrame(
@@ -90,25 +98,42 @@ export function useVideoScrubPreviews({
           return;
         }
 
-        // Human: Cap concurrent fetches so opening a long video does not stampede the API.
-        // Agent: SEQUENTIAL blob fetch; BUILDS object URLs.
+        // Human: Storyboard JPEGs wait so playlist/init/first-segment win the connection budget.
+        // Agent: DELAY SCRUB_FETCH_DEFER_MS; CHECK cancelled; THEN fetch with SCRUB_FETCH_CONCURRENCY.
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, SCRUB_FETCH_DEFER_MS);
+        });
+        if (cancelled) return;
+
         const loaded: ScrubPreviewFrame[] = [];
-        for (const source of sources) {
+        for (let offset = 0; offset < sources.length; offset += SCRUB_FETCH_CONCURRENCY) {
           if (cancelled) return;
-          try {
-            const blob =
-              source.kind === "scrub"
-                ? await fetchFileScrubFrameBlob(file.id, source.index)
-                : await fetchFileThumbnailBlob(file.id, source.index);
-            if (cancelled) return;
-            const url = URL.createObjectURL(blob);
+          const batch = sources.slice(offset, offset + SCRUB_FETCH_CONCURRENCY);
+          const batchResults = await Promise.all(
+            batch.map(async (source) => {
+              try {
+                const blob =
+                  source.kind === "scrub"
+                    ? await fetchFileScrubFrameBlob(file.id, source.index)
+                    : await fetchFileThumbnailBlob(file.id, source.index);
+                return {
+                  timestampSeconds: source.timestampSeconds,
+                  blob,
+                };
+              } catch {
+                return null;
+              }
+            }),
+          );
+          if (cancelled) return;
+          for (const result of batchResults) {
+            if (!result) continue;
+            const url = URL.createObjectURL(result.blob);
             objectUrls.push(url);
             loaded.push({
-              timestampSeconds: source.timestampSeconds,
+              timestampSeconds: result.timestampSeconds,
               imageUrl: url,
             });
-          } catch {
-            // Skip individual missing frames; keep the rest of the ladder.
           }
         }
 

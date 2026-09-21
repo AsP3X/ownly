@@ -2,6 +2,7 @@
 // Agent: MODULE files::handlers + files::folders; ROUTES mounted under /api/v1/files and /api/v1/folders.
 
 pub mod access;
+pub mod access_cache;
 pub mod bulk_download;
 pub mod content_hash;
 pub mod content_replace;

@@ -154,6 +154,58 @@ async fn hls_playback_regression_build_playlist_upgrades_ts_when_fmp4_on_disk() 
     );
 }
 
+// Human: fMP4 playlists already declare MAP/.m4s — rewrite without probing init.mp4 on storage.
+// Agent: PUTS stream.m3u8 with .m4s URIs and NO init.mp4; ASSERTS rewrite still emits .m4s API paths.
+#[tokio::test]
+async fn hls_playback_regression_fmp4_playlist_skips_init_probe() {
+    let storage = MemoryStorage::new();
+    let playlist = concat!(
+        "#EXTM3U\n",
+        "#EXT-X-VERSION:7\n",
+        "#EXT-X-MAP:URI=\"init.mp4\"\n",
+        "#EXTINF:6.000,\n",
+        "segments/0000.m4s\n",
+        "#EXTINF:6.000,\n",
+        "segments/0001.m4s\n",
+        "#EXT-X-ENDLIST\n",
+    );
+    storage
+        .put(
+            &format!("{STORAGE_KEY}/stream.m3u8"),
+            "application/vnd.apple.mpegurl",
+            playlist.as_bytes().to_vec(),
+        )
+        .await
+        .expect("put playlist");
+
+    assert!(
+        !storage_hls_uses_fmp4(&storage, STORAGE_KEY).await,
+        "init.mp4 and 0000.m4s are intentionally absent so a HEAD probe would fail"
+    );
+
+    let out = build_playlist_for_playback(
+        &storage,
+        STORAGE_KEY,
+        "/api/v1/files/id",
+        "/api/v1/files/id/key",
+        "/api/v1/files/id/init",
+        2,
+        0,
+        None,
+    )
+    .await
+    .expect("build playlist");
+
+    assert!(
+        out.contains("/api/v1/files/id/segments/0000.m4s"),
+        "playlist must reference m4s without an init.mp4 HEAD:\n{out}"
+    );
+    assert!(
+        !out.contains("0000.ts"),
+        "playlist must not fall back to ts when MAP is present:\n{out}"
+    );
+}
+
 // Human: REGRESSION — partial Nebular upload must not pass validation (was marked hls_ready).
 // Agent: ASSERTS validate_segment_upload_outcome and failure message shape.
 #[test]

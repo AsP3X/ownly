@@ -297,6 +297,12 @@ pub async fn upsert_grant(
 
     tx.commit().await?;
 
+    if grant.subject_type == "user" {
+        crate::files::access_cache::invalidate_file_reads_for_user(&grant.subject_id);
+    } else {
+        crate::files::access_cache::invalidate_all_file_reads();
+    }
+
     Ok(grant)
 }
 
@@ -353,6 +359,12 @@ pub async fn revoke_grant_by_id(
     .await?;
 
     tx.commit().await?;
+
+    if grant.subject_type == "user" {
+        crate::files::access_cache::invalidate_file_reads_for_user(&grant.subject_id);
+    } else {
+        crate::files::access_cache::invalidate_all_file_reads();
+    }
 
     Ok(())
 }
@@ -448,6 +460,7 @@ pub async fn grant_content_for_user_share(
     .bind(owner_id)
     .execute(pool)
     .await?;
+    crate::files::access_cache::invalidate_file_reads_for_user(subject_user_id);
     Ok(())
 }
 
@@ -489,5 +502,6 @@ pub async fn revoke_content_read_for_user_share(
     .bind(resource_id)
     .execute(pool)
     .await?;
+    crate::files::access_cache::invalidate_file_reads_for_user(subject_user_id);
     Ok(())
 }

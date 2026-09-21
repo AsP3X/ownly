@@ -10,6 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::{
     audit,
@@ -40,6 +41,14 @@ pub struct TicketParams {
 // Human: How long an HLS playback ticket remains valid for AVPlayer segment fetches without JWT.
 // Agent: PASSED to stream_ticket::generate_ticket from get_stream_url; MUST match ticket validation on /hls/* routes.
 const HLS_PLAYBACK_TICKET_TTL_SECS: u64 = 4 * 3600;
+
+// Human: Cap object-storage existence probes so a slow/locked Nebular cannot stall play start.
+// Agent: WRAPS storage.exists / first-segment HEAD; ON timeout playback proceeds from DB hls_ready.
+const HLS_STORAGE_PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
+
+// Human: Cap stream.m3u8 GET so a locked object-store cannot stall the manifest.
+// Agent: WRAPS read_storage_text; ON timeout FALLS BACK to synthetic playlist from DB segment_count.
+const HLS_PLAYLIST_READ_TIMEOUT: Duration = Duration::from_secs(4);
 
 // Human: Row shape for HLS playback lookups — storage key, readiness, segment count, source size.
 // Agent: READ by ensure_file_owned; size_bytes drives synthetic playlist segment duration tier.
@@ -189,10 +198,15 @@ pub(crate) async fn build_playlist_for_playback(
     duration_seconds: Option<i32>,
 ) -> Result<String, AppError> {
     let segment_target_secs = hls_segment_target_secs(source_size_bytes);
-    let fmp4_on_storage = storage_hls_uses_fmp4(storage, storage_key).await;
     let playlist_key = format!("{storage_key}/stream.m3u8");
-    if let Ok(content) = read_storage_text(storage, &playlist_key).await {
-        let fmp4 = fmp4_on_storage || crate::hls::playlist::playlist_uses_fmp4(&content);
+    if let Ok(content) = read_playlist_text(storage, &playlist_key).await {
+        // Human: Modern fMP4 manifests already declare MAP/.m4s — skip extra Nebular HEADs on play start.
+        // Agent: ONLY probes init.mp4 / 0000.m4s when the stored playlist still lists legacy .ts URIs.
+        let fmp4 = if crate::hls::playlist::playlist_uses_fmp4(&content) {
+            true
+        } else {
+            probe_storage_hls_uses_fmp4(storage, storage_key).await
+        };
         let prefer_fmp4 = fmp4;
         if let Ok(playlist) = PlaylistGenerator::rewrite_stored_playlist(
             &content,
@@ -225,11 +239,11 @@ pub(crate) async fn build_playlist_for_playback(
         );
     }
 
-    let fmp4 = fmp4_on_storage;
+    let fmp4 = probe_storage_hls_uses_fmp4(storage, storage_key).await;
     // Human: DB segment_count can be 0 while storage still has a valid ffmpeg manifest.
     // Agent: RE-PARSE stored playlist before emitting an empty synthetic manifest.
     let effective_segment_count = if segment_count == 0 {
-        if let Ok(content) = read_storage_text(storage, &playlist_key).await {
+        if let Ok(content) = read_playlist_text(storage, &playlist_key).await {
             parse_segment_manifest(&content)
                 .ok()
                 .map(|(files, durations)| {
@@ -284,6 +298,18 @@ pub(crate) async fn storage_hls_uses_fmp4(storage: &dyn Storage, storage_key: &s
     storage.exists(&first_m4s).await.unwrap_or(false)
 }
 
+// Human: Same as storage_hls_uses_fmp4 but bounded so a stuck HEAD cannot delay the manifest.
+// Agent: TIMEOUT HLS_STORAGE_PROBE_TIMEOUT; RETURNS true on timeout (new ingest is fMP4;
+//        open_hls_segment aliases .m4s↔.ts if the guess is wrong).
+async fn probe_storage_hls_uses_fmp4(storage: &dyn Storage, storage_key: &str) -> bool {
+    tokio::time::timeout(
+        HLS_STORAGE_PROBE_TIMEOUT,
+        storage_hls_uses_fmp4(storage, storage_key),
+    )
+    .await
+    .unwrap_or(true)
+}
+
 // Human: Map object-storage transport failures to API errors — avoid 404 when JWT/auth is wrong.
 // Agent: READS anyhow message; RETURNS Storage on 401/403; NotFound only for missing objects.
 fn map_hls_segment_storage_error(err: anyhow::Error) -> AppError {
@@ -330,6 +356,18 @@ pub(crate) async fn open_hls_segment(
     Err(AppError::NotFound)
 }
 
+// Human: Read stream.m3u8 with a short deadline — playback can synthesize a VOD playlist from DB.
+// Agent: TIMEOUT HLS_PLAYLIST_READ_TIMEOUT; RETURNS NotFound-shaped Err on timeout.
+async fn read_playlist_text(storage: &dyn Storage, key: &str) -> Result<String, AppError> {
+    match tokio::time::timeout(HLS_PLAYLIST_READ_TIMEOUT, read_storage_text(storage, key)).await {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(storage_key = %key, "HLS playlist GET timed out; using synthetic fallback");
+            Err(AppError::NotFound)
+        }
+    }
+}
+
 // Human: Read a small storage object (playlist/key) into UTF-8 text for manifest rewriting.
 // Agent: READS storage stream; RETURNS Err when object missing or not valid UTF-8.
 async fn read_storage_text(storage: &dyn Storage, key: &str) -> Result<String, AppError> {
@@ -364,7 +402,7 @@ pub(crate) async fn resolve_hls_aes_key(
 }
 
 // Human: Tell the client which URL to pass to hls.js — playlist when ready, otherwise null with progress.
-// Agent: READS hls_ready; VERIFIES first segment in storage; RETURNS JSON with error when package missing.
+// Agent: READS hls_ready; PROBES first segment with a short timeout; RETURNS JSON with error when package is confirmed missing.
 pub async fn get_stream_url(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -390,33 +428,48 @@ pub async fn get_stream_url(
         row.ok_or(AppError::NotFound)?;
 
     if hls_ready.unwrap_or(false) {
-        // Human: DB can say ready after a failed rebuild while objects were purged — fail closed for the player.
-        // Agent: EXISTS 0000.m4s/ts; MARKS failed + RETURNS hls_ready false with re-upload guidance.
-        if !storage_has_first_hls_segment(state.storage.as_ref(), &storage_key).await {
-            let missing =
-                "Stream package is missing from storage — re-upload the video or rebuild if a source exists.";
-            let _ = sqlx::query(
-                "UPDATE files SET hls_ready = false, hls_encode_status = 'failed', \
-                 hls_encode_error = $1, conversion_progress = 0 \
-                 WHERE id = $2 AND user_id = $3 AND hls_ready",
-            )
-            .bind(missing)
-            .bind(&id)
-            .bind(&claims.sub)
-            .execute(&state.pool)
-            .await;
-            tracing::error!(
-                file_id = %id,
-                storage_key = %storage_key,
-                "HLS ready in DB but first segment missing from object storage"
-            );
-            return Ok(Json(serde_json::json!({
-                "url": null,
-                "hls_ready": false,
-                "conversion_progress": 0,
-                "hls_encode_status": "failed",
-                "hls_encode_error": missing,
-            })));
+        // Human: Confirm the package still exists, but never block play start on a slow storage HEAD.
+        // Agent: TIMEOUT 1.5s; ON timeout ISSUES the ticket anyway; ON false MARKS failed.
+        let first_segment = tokio::time::timeout(
+            HLS_STORAGE_PROBE_TIMEOUT,
+            storage_has_first_hls_segment(state.storage.as_ref(), &storage_key),
+        )
+        .await;
+        match first_segment {
+            Ok(false) => {
+                let missing =
+                    "Stream package is missing from storage — re-upload the video or rebuild if a source exists.";
+                let _ = sqlx::query(
+                    "UPDATE files SET hls_ready = false, hls_encode_status = 'failed', \
+                     hls_encode_error = $1, conversion_progress = 0 \
+                     WHERE id = $2 AND user_id = $3 AND hls_ready",
+                )
+                .bind(missing)
+                .bind(&id)
+                .bind(&claims.sub)
+                .execute(&state.pool)
+                .await;
+                tracing::error!(
+                    file_id = %id,
+                    storage_key = %storage_key,
+                    "HLS ready in DB but first segment missing from object storage"
+                );
+                return Ok(Json(serde_json::json!({
+                    "url": null,
+                    "hls_ready": false,
+                    "conversion_progress": 0,
+                    "hls_encode_status": "failed",
+                    "hls_encode_error": missing,
+                })));
+            }
+            Ok(true) => {}
+            Err(_) => {
+                tracing::warn!(
+                    file_id = %id,
+                    storage_key = %storage_key,
+                    "HLS first-segment probe timed out; issuing playback ticket from DB hls_ready"
+                );
+            }
         }
 
         let ticket = stream_ticket::generate_ticket(

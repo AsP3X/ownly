@@ -10,13 +10,20 @@ use crate::{
 };
 
 // Human: Gate an action on a file by id — NotFound when missing, Forbidden when denied.
-// Agent: READS files row; CALLS authorize Content* on File(id).
+// Agent: ContentRead hits a 30s (user, file) cache after a successful authorize so HLS
+//        segments skip the grant resolver; deny-wins and owner fallback stay in authorize().
 pub async fn ensure_file_access(
     pool: &PgPool,
     user_id: &str,
     file_id: &str,
     permission: Permission,
 ) -> Result<(), AppError> {
+    if permission == Permission::ContentRead
+        && crate::files::access_cache::get_cached_file_read(user_id, file_id)
+    {
+        return Ok(());
+    }
+
     let exists: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM files WHERE id = $1 AND deleted_at IS NULL",
     )
@@ -32,7 +39,12 @@ pub async fn ensure_file_access(
         permission,
         ResourceRef::File(file_id.to_string()),
     )
-    .await
+    .await?;
+
+    if permission == Permission::ContentRead {
+        crate::files::access_cache::set_cached_file_read(user_id, file_id);
+    }
+    Ok(())
 }
 
 // Human: Gate an action on a folder by id.

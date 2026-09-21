@@ -120,8 +120,8 @@ export async function loadExplorerDocumentThumbnailBlob(
   return blob;
 }
 
-// Human: Load a video poster blob — server JPEG plus optional client downscale for oversized posters.
-// Agent: CALLS /thumbnail; RESIZES when blob dimensions exceed grid tile budget.
+// Human: Load a video poster blob for explorer tiles — server JPEG, no client downscale.
+// Agent: CALLS /thumbnail; CSS object-cover scales the 640px poster in the grid.
 export async function loadExplorerVideoThumbnailBlob(
   file: FileItem,
   options: {
@@ -140,8 +140,9 @@ export async function loadExplorerVideoThumbnailBlob(
     priority: options.priority,
     parentSignal: options.signal,
     task: async (signal) => {
-      const poster = await fetchVideoPosterBlobWithRetry(file.id, signal);
-      return resizeImageBlobForGridTile(poster, signal);
+      // Human: CSS object-cover scales the 640px poster — skip a 48-tile decode/resize stampede.
+      // Agent: RETURNS the server JPEG as-is; grid tiles already cover-crop in ExplorerVideoThumbnail.
+      return fetchVideoPosterBlobWithRetry(file.id, signal);
     },
   });
 
