@@ -107,6 +107,75 @@ impl KeyStore {
         self.create_key_for_file(file_id).await
     }
 
+    // Human: A dedup/copy row plays the same encrypted segments, so it needs the same content key.
+    // Agent: COPIES the envelope blob (not bound to file_id) under a fresh key_id; FALLS BACK to any
+    //        row sharing the source's storage_key; NO-OP when the source has no key or dst has one.
+    pub async fn copy_key_for_file(
+        &self,
+        source_file_id: &str,
+        dest_file_id: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "INSERT INTO file_encryption_keys (file_id, key_id, encrypted_key) \
+             SELECT $2, gen_random_uuid()::text, k.encrypted_key \
+             FROM file_encryption_keys k \
+             JOIN files f ON f.id = k.file_id \
+             WHERE f.id = $1 \
+                OR f.storage_key = (SELECT storage_key FROM files WHERE id = $1) \
+             ORDER BY (f.id = $1) DESC, k.created_at \
+             LIMIT 1 \
+             ON CONFLICT (file_id) DO NOTHING",
+        )
+        .bind(source_file_id)
+        .bind(dest_file_id)
+        .execute(&self.pool)
+        .await
+        .context("copying file encryption key")?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Human: Repair ready videos created by dedup/copy before keys were copied — they could never play.
+    /// Agent: PASS 1 shares storage_key (dedup); PASS 2 same user + content_hash with exactly one
+    ///        candidate package (copies; dedup siblings share a key). SKIPS ambiguous rows — a
+    ///        wrong key would decrypt to garbage.
+    pub async fn backfill_missing_keys_at_startup(&self) -> anyhow::Result<u64> {
+        let shared = sqlx::query(
+            "INSERT INTO file_encryption_keys (file_id, key_id, encrypted_key) \
+             SELECT DISTINCT ON (f.id) f.id, gen_random_uuid()::text, k.encrypted_key \
+             FROM files f \
+             JOIN files src ON src.storage_key = f.storage_key AND src.id <> f.id \
+             JOIN file_encryption_keys k ON k.file_id = src.id \
+             WHERE f.hls_ready \
+               AND NOT EXISTS (SELECT 1 FROM file_encryption_keys x WHERE x.file_id = f.id) \
+             ORDER BY f.id, k.created_at \
+             ON CONFLICT (file_id) DO NOTHING",
+        )
+        .execute(&self.pool)
+        .await
+        .context("backfilling keys for shared-storage video rows")?
+        .rows_affected();
+
+        let copied = sqlx::query(
+            "INSERT INTO file_encryption_keys (file_id, key_id, encrypted_key) \
+             SELECT f.id, gen_random_uuid()::text, (array_agg(k.encrypted_key))[1] \
+             FROM files f \
+             JOIN files src ON src.user_id = f.user_id AND src.content_hash = f.content_hash \
+                           AND src.id <> f.id AND src.hls_ready \
+             JOIN file_encryption_keys k ON k.file_id = src.id \
+             WHERE f.hls_ready AND f.content_hash IS NOT NULL \
+               AND NOT EXISTS (SELECT 1 FROM file_encryption_keys x WHERE x.file_id = f.id) \
+             GROUP BY f.id \
+             HAVING COUNT(DISTINCT src.storage_key) = 1 \
+             ON CONFLICT (file_id) DO NOTHING",
+        )
+        .execute(&self.pool)
+        .await
+        .context("backfilling keys for copied video rows")?
+        .rows_affected();
+
+        Ok(shared + copied)
+    }
+
     pub async fn create_key_for_file(&self, file_id: &str) -> anyhow::Result<(Uuid, AesKey)> {
         let key = generate_media_key();
         let key_id = Uuid::new_v4();

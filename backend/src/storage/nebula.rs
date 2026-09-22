@@ -663,7 +663,16 @@ impl Storage for NebulaStorage {
             .header(reqwest::header::AUTHORIZATION, self.auth_header())
             .send()
             .await?;
-        Ok(response.status().is_success())
+        // Human: Only a real 404 means "missing" — a 5xx/401 must not read as a deleted object.
+        // Agent: RETURNS Err for non-2xx/non-404 so callers (HLS play start) do not mark files failed.
+        let status = response.status();
+        if status.is_success() {
+            Ok(true)
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Ok(false)
+        } else {
+            anyhow::bail!("object storage HEAD failed: {status}")
+        }
     }
 
     async fn object_size(&self, key: &str) -> anyhow::Result<u64> {

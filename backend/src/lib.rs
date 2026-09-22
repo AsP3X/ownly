@@ -283,6 +283,14 @@ async fn build_app_state(
                     return Err(e.context("legacy HLS key blob migration failed at startup"));
                 }
             }
+            // Human: Best-effort — a failed repair must not keep the API from starting.
+            match hls_key_store.backfill_missing_keys_at_startup().await {
+                Ok(count) if count > 0 => {
+                    info!(count, "Restored missing HLS keys for deduped/copied videos")
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "HLS key backfill failed at startup"),
+            }
             hls_key_store
         },
         folder_download_jobs: files::zip_job::FolderDownloadRegistry::new(),

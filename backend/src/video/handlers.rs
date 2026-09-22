@@ -636,7 +636,7 @@ pub async fn reprocess_hls(
     // Human: Job title shows rebuild intent in the transfer/job tray.
     // Agent: ENQUEUES HlsEncode with display name "Rebuild stream — {name}".
     let job_title = format!("Rebuild stream — {name}");
-    jobs::enqueue_job(
+    let enqueued = jobs::enqueue_job(
         &state.pool,
         &claims.sub,
         JobKind::HlsEncode,
@@ -646,7 +646,12 @@ pub async fn reprocess_hls(
         serde_json::to_value(payload)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("hls reprocess payload: {e}")))?,
     )
-    .await?;
+    .await;
+    if let Err(error) = enqueued {
+        // Human: No job was created — put the existing package back online instead of hiding it.
+        restore_ready_after_failed_reprocess_enqueue(&state.pool, &id, hls_ready).await;
+        return Err(error);
+    }
 
     audit::write_audit(
         &state.pool,
@@ -671,6 +676,24 @@ pub async fn reprocess_hls(
         "file": file,
         "concurrent_limit": state.user_transcode_gate.max_per_user(),
     })))
+}
+
+// Human: Undo the "reprocessing" flip when the rebuild job could not be queued.
+// Agent: RESTORES hls_ready only when it was ready before and still has segments.
+async fn restore_ready_after_failed_reprocess_enqueue(pool: &sqlx::PgPool, id: &str, was_ready: bool) {
+    if !was_ready {
+        return;
+    }
+    let result = sqlx::query(
+        "UPDATE files SET hls_ready = true, hls_encode_status = 'ready', conversion_progress = 100 \
+         WHERE id = $1 AND hls_encode_status = 'reprocessing' AND COALESCE(segment_count, 0) > 0",
+    )
+    .bind(id)
+    .execute(pool)
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(%id, %error, "failed to restore HLS package after reprocess enqueue failure");
+    }
 }
 
 // Human: Queue HLS reprocess for ready videos that have not already completed a successful rebuild.
@@ -765,7 +788,13 @@ pub async fn reprocess_all_hls(
             }
             Err(error) => {
                 tracing::warn!(%id, %error, "failed to enqueue HLS reprocess");
+                // Human: No job exists for this video — keep it playable instead of hidden forever.
+                restore_ready_after_failed_reprocess_enqueue(&state.pool, &id, true).await;
                 skipped += 1;
+                // Human: The per-user job cap is hit — every remaining enqueue would fail too.
+                if matches!(error, AppError::RateLimited { .. }) {
+                    break;
+                }
             }
         }
     }

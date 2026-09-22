@@ -46,9 +46,26 @@ export function createHlsInstance(xhrSetup?: HlsAuthSetup): Hls {
     nudgeMaxRetry: 5,
     maxStarvationDelay: 8,
     maxLoadingDelay: 8,
-    fragLoadingTimeOut: 120_000,
-    fragLoadingMaxRetry: 6,
-    manifestLoadingTimeOut: 60_000,
+    // Human: The legacy fragLoadingTimeOut (120s) became a 120s time-to-first-byte, so one stalled
+    // segment left the player blank for minutes per attempt. Give up on a silent request after 10s
+    // and retry, but still allow slow links 2 minutes to finish a segment once bytes are flowing.
+    // Agent: Modern *LoadPolicy config — do NOT mix with deprecated fragLoading*/manifestLoading* keys.
+    fragLoadPolicy: {
+      default: {
+        maxTimeToFirstByteMs: 10_000,
+        maxLoadTimeMs: 120_000,
+        timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+        errorRetry: { maxNumRetry: 6, retryDelayMs: 1_000, maxRetryDelayMs: 8_000 },
+      },
+    },
+    manifestLoadPolicy: {
+      default: {
+        maxTimeToFirstByteMs: 15_000,
+        maxLoadTimeMs: 30_000,
+        timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+        errorRetry: { maxNumRetry: 2, retryDelayMs: 1_000, maxRetryDelayMs: 8_000 },
+      },
+    },
     xhrSetup,
   });
 }

@@ -1077,6 +1077,13 @@ pub async fn copy_file(
     .fetch_one(&state.pool)
     .await?;
 
+    // Human: Copied segments are byte-identical, so the copy needs the source's content key.
+    state
+        .hls_key_store
+        .copy_key_for_file(&id, &new_file_id)
+        .await
+        .map_err(AppError::Internal)?;
+
     audit::write_audit(
         &state.pool,
         Some(&claims.sub),

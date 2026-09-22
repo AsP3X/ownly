@@ -67,17 +67,21 @@ pub fn validate_segment_upload_outcome(outcome: &SegmentUploadOutcome) -> Result
     Err(segment_upload_failure_message(outcome))
 }
 
-// Human: Count `.m4s` objects under `{storage_key}/segments/` after upload.
-// Agent: READS storage list API; FINAL gate when PUT counters and storage disagree.
-pub async fn count_stored_hls_segments(
+// Human: Count stored `NNNN.m4s` segments whose index is below `expected`.
+// Agent: IGNORES stale leftovers from a longer previous package and non-numeric names.
+async fn count_stored_hls_segments_below(
     storage: &dyn Storage,
     storage_key: &str,
+    expected: usize,
 ) -> anyhow::Result<usize> {
     let prefix = format!("{storage_key}/segments/");
+    let suffix = format!(".{HLS_SEGMENT_EXTENSION}");
     let keys = storage.list_keys_with_prefix(&prefix).await?;
     Ok(keys
         .iter()
-        .filter(|key| key.ends_with(&format!(".{HLS_SEGMENT_EXTENSION}")))
+        .filter_map(|key| key.rsplit('/').next()?.strip_suffix(suffix.as_str()))
+        .filter_map(|stem| stem.parse::<usize>().ok())
+        .filter(|index| *index < expected)
         .count())
 }
 
@@ -89,9 +93,12 @@ pub async fn verify_hls_segments_in_storage(
     mut outcome: SegmentUploadOutcome,
 ) -> Result<SegmentUploadOutcome, String> {
     validate_segment_upload_outcome(&outcome)?;
-    let stored_in_bucket = count_stored_hls_segments(storage, storage_key)
-        .await
-        .map_err(|error| format!("verify HLS segments in storage: {error}"))?;
+    // Human: A rebuild that produces fewer segments still has the old higher-index ones until
+    //        purge_stale_hls_segments runs after this check — count only this encode's indexes.
+    let stored_in_bucket =
+        count_stored_hls_segments_below(storage, storage_key, outcome.expected)
+            .await
+            .map_err(|error| format!("verify HLS segments in storage: {error}"))?;
     if stored_in_bucket != outcome.expected {
         outcome.uploaded = stored_in_bucket;
         outcome.failed = outcome.expected.saturating_sub(stored_in_bucket);
@@ -327,6 +334,33 @@ fn is_likely_storage_pressure(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Human: A rebuild that yields fewer segments must verify before stale ones are purged.
+    #[tokio::test]
+    async fn verify_ignores_stale_higher_index_segments_from_previous_package() {
+        let storage = crate::storage::memory::MemoryStorage::new();
+        for index in 0..5 {
+            storage
+                .put(&format!("f/segments/{index:04}.m4s"), "video/mp4", vec![1])
+                .await
+                .expect("put");
+        }
+        let outcome = SegmentUploadOutcome {
+            expected: 3,
+            uploaded: 3,
+            failed: 0,
+            bytes: 3,
+        };
+        assert!(verify_hls_segments_in_storage(&storage, "f", outcome).await.is_ok());
+
+        let missing = SegmentUploadOutcome {
+            expected: 6,
+            uploaded: 6,
+            failed: 0,
+            bytes: 6,
+        };
+        assert!(verify_hls_segments_in_storage(&storage, "f", missing).await.is_err());
+    }
 
     #[test]
     fn plan_reduces_parallelism_for_large_segments() {

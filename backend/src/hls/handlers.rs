@@ -312,15 +312,22 @@ async fn probe_storage_hls_uses_fmp4(storage: &dyn Storage, storage_key: &str) -
 
 // Human: Map object-storage transport failures to API errors — avoid 404 when JWT/auth is wrong.
 // Agent: READS anyhow message; RETURNS Storage on 401/403; NotFound only for missing objects.
-fn map_hls_segment_storage_error(err: anyhow::Error) -> AppError {
+pub(crate) fn map_hls_segment_storage_error(err: anyhow::Error) -> AppError {
     let msg = err.to_string();
-    if msg.contains("401") || msg.contains("403") {
-        AppError::Storage("object storage authentication failed".into())
-    } else if msg.contains("404") {
+    if is_storage_not_found(&err) {
         AppError::NotFound
+    } else if msg.contains("401") || msg.contains("403") {
+        AppError::Storage("object storage authentication failed".into())
     } else {
         AppError::Storage(msg)
     }
+}
+
+// Human: True only for a definite "object missing" answer (Nebular 404 / in-memory miss).
+// Agent: MATCHES the status suffix, not a bare "404" — object keys contain UUIDs.
+fn is_storage_not_found(err: &anyhow::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("failed: 404") || msg.contains("key not found")
 }
 
 // Human: Open an encrypted HLS media segment, trying `.ts` / `.m4s` aliases when needed.
@@ -345,7 +352,15 @@ pub(crate) async fn open_hls_segment(
                     error = %err,
                     "HLS segment object-storage GET failed"
                 );
-                last_err = Some(err);
+                // Human: Keep a transient error over a later alias 404 — hls.js never retries 4xx,
+                //        so one storage hiccup must surface as 5xx, not "segment missing".
+                let is_missing = is_storage_not_found(&err);
+                let have_transient = last_err
+                    .as_ref()
+                    .is_some_and(|prev| !is_storage_not_found(prev));
+                if !(is_missing && have_transient) {
+                    last_err = Some(err);
+                }
             }
         }
     }
@@ -436,7 +451,7 @@ pub async fn get_stream_url(
         )
         .await;
         match first_segment {
-            Ok(false) => {
+            Ok(Ok(false)) => {
                 let missing =
                     "Stream package is missing from storage — re-upload the video or rebuild if a source exists.";
                 let _ = sqlx::query(
@@ -462,7 +477,15 @@ pub async fn get_stream_url(
                     "hls_encode_error": missing,
                 })));
             }
-            Ok(true) => {}
+            Ok(Ok(true)) => {}
+            Ok(Err(err)) => {
+                tracing::warn!(
+                    file_id = %id,
+                    storage_key = %storage_key,
+                    error = %err,
+                    "HLS first-segment probe failed; issuing playback ticket from DB hls_ready"
+                );
+            }
             Err(_) => {
                 tracing::warn!(
                     file_id = %id,
@@ -499,10 +522,19 @@ pub async fn get_stream_url(
 
 // Human: True when the first media segment object exists (package is actually playable).
 // Agent: EXISTS 0000.m4s OR 0000.ts; USED by get_stream_url before issuing a ticket.
-async fn storage_has_first_hls_segment(storage: &dyn Storage, storage_key: &str) -> bool {
+// Human: Err (storage 5xx / connection reset) is "unknown", never "missing" — a hiccup must not
+//        permanently fail a playable video.
+// Agent: RETURNS Ok(false) ONLY when both aliases answered 404.
+async fn storage_has_first_hls_segment(
+    storage: &dyn Storage,
+    storage_key: &str,
+) -> anyhow::Result<bool> {
     let m4s = format!("{storage_key}/segments/0000.{HLS_SEGMENT_EXTENSION}");
     let ts = format!("{storage_key}/segments/0000.ts");
-    storage.exists(&m4s).await.unwrap_or(false) || storage.exists(&ts).await.unwrap_or(false)
+    if storage.exists(&m4s).await? {
+        return Ok(true);
+    }
+    storage.exists(&ts).await
 }
 
 pub async fn get_playlist(
@@ -625,7 +657,7 @@ pub async fn get_init(
         .storage
         .get_stream(&key)
         .await
-        .map_err(|_| AppError::NotFound)?;
+        .map_err(map_hls_segment_storage_error)?;
 
     Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
 }
@@ -733,7 +765,7 @@ pub async fn get_hls_init(
         .storage
         .get_stream(&key)
         .await
-        .map_err(|_| AppError::NotFound)?;
+        .map_err(map_hls_segment_storage_error)?;
 
     Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
 }

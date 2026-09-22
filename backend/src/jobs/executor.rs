@@ -195,6 +195,22 @@ async fn run_hls_encode(state: Arc<AppState>, job: &BackgroundJob) -> Result<(),
                 fail_job(&state.pool, &job_id, &message).await
             };
             fail_result.map_err(|e| e.to_string())?;
+            // Human: run_hls_encode_job marked the file failed, but the job was re-queued for another
+            //        attempt — show it as queued so the upload tray keeps waiting instead of
+            //        reporting a failure that later "fixes itself".
+            // Agent: ONLY when the job row is back in 'queued' and the file is not ready.
+            warn_if_err(
+                "hls_encode_requeue_file_status",
+                sqlx::query(
+                    "UPDATE files SET hls_encode_status = 'queued', hls_encode_error = NULL \
+                     WHERE id = $1 AND NOT hls_ready AND hls_encode_status = 'failed' \
+                       AND EXISTS (SELECT 1 FROM background_jobs WHERE id = $2 AND status = 'queued')",
+                )
+                .bind(&file_id)
+                .bind(&job_id)
+                .execute(&state.pool)
+                .await,
+            );
             tracing::warn!(job_id = %job_id, error = %message, "HLS encode job failed");
         }
     }

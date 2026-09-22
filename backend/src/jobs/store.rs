@@ -7,6 +7,25 @@ use crate::error::AppError;
 
 use super::model::{BackgroundJob, JobKind, JobResponse, JobStatus};
 
+const MAX_QUEUED_JOBS_PER_USER: i64 = 64;
+
+/// Human: Fail fast (429) when `needed` more jobs would exceed the per-user queue cap (SEC-033).
+// Agent: CALL before writing rows that depend on the jobs — e.g. a video files row that is
+//        useless without its encode job — so a throttled upload leaves nothing half-created.
+pub async fn ensure_job_capacity(pool: &PgPool, user_id: &str, needed: i64) -> Result<(), AppError> {
+    let (queued_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT FROM background_jobs \
+         WHERE user_id = $1 AND status IN ('queued', 'running')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    if queued_count + needed > MAX_QUEUED_JOBS_PER_USER {
+        return Err(AppError::rate_limited(60));
+    }
+    Ok(())
+}
+
 /// Human: Insert a new queued job or return an existing active job for the same resource.
 // Agent: INSERT background_jobs; CHECKS active resource before insert for dedup; CAP per-user queue depth (SEC-033).
 pub async fn enqueue_job(
@@ -18,17 +37,7 @@ pub async fn enqueue_job(
     resource_id: Option<&str>,
     payload: serde_json::Value,
 ) -> Result<String, AppError> {
-    const MAX_QUEUED_JOBS_PER_USER: i64 = 64;
-    let (queued_count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::BIGINT FROM background_jobs \
-         WHERE user_id = $1 AND status IN ('queued', 'running')",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-    if queued_count >= MAX_QUEUED_JOBS_PER_USER {
-        return Err(AppError::rate_limited(60));
-    }
+    ensure_job_capacity(pool, user_id, 1).await?;
 
     if let (Some(rt), Some(rid)) = (resource_type, resource_id) {
         if let Some(existing) = find_active_job(pool, kind, rt, rid).await? {

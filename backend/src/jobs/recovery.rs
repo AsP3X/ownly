@@ -25,7 +25,8 @@ pub async fn recover_stuck_processing_jobs(
 }
 
 /// Human: Restart queued jobs that waited longer than the stale threshold without being claimed.
-// Agent: READS stale queued rows; REFRESHES ingest payloads; BUMPS created_at to queue front; RESETS progress.
+// Agent: READS stale queued rows; REFRESHES ingest payloads; RESETS progress. NEVER touches created_at —
+//        claim is already oldest-first, and bumping every stale row each minute reshuffled long backlogs.
 pub async fn recover_stale_queued_jobs(pool: &PgPool, stale_minutes: i64) -> Result<u64, AppError> {
     let stale_minutes = stale_minutes.clamp(1, i64::from(i32::MAX)) as i32;
     let rows = sqlx::query_as::<_, BackgroundJob>(
@@ -46,10 +47,6 @@ pub async fn recover_stale_queued_jobs(pool: &PgPool, stale_minutes: i64) -> Res
             "UPDATE background_jobs SET \
                 progress = 0, \
                 updated_at = now(), \
-                created_at = ( \
-                    SELECT COALESCE(MIN(b.created_at), now()) - INTERVAL '1 second' \
-                    FROM background_jobs b WHERE b.status = 'queued' \
-                ), \
                 payload = $2, \
                 error = COALESCE(error, 'restarted after prolonged queue wait') \
              WHERE id = $1 AND status = 'queued'",
@@ -107,8 +104,8 @@ const INGEST_ORPHAN_GUARD: &str = "
 async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Result<u64, AppError> {
     // Human: Include reprocessing so stuck rebuilds re-queue via remux when the upload spool is gone.
     // Agent: READS segment_count to choose empty tmp_video (rebuild) vs spool path (first ingest).
-    let rows: Vec<(String, String, String, Option<i32>, Option<String>)> = sqlx::query_as(&format!(
-        "SELECT f.id, f.user_id, f.name, f.segment_count, f.hls_encode_status \
+    let rows: Vec<(String, String, String, String, Option<i32>, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT f.id, f.user_id, f.name, f.storage_key, f.segment_count, f.hls_encode_status \
          FROM files f \
          WHERE f.mime_type LIKE 'video/%' \
            AND NOT f.hls_ready \
@@ -127,8 +124,8 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
     // Agent: Recovery only re-enqueues rebuild/ingest jobs; package restore is encode_job's responsibility.
 
     let mut restarted = 0u64;
-    for (file_id, user_id, name, segment_count, status) in rows {
-        let storage_key = format!("users/{user_id}/files/{file_id}");
+    // Human: Use the row's storage_key — dedup/copy/restored rows do not live at users/{u}/files/{id}.
+    for (file_id, user_id, name, storage_key, segment_count, status) in rows {
         let spool_path = upload_spool_source_path(&file_id);
         let spool_ok = tokio::fs::metadata(&spool_path)
             .await
@@ -188,7 +185,8 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
             duration_seconds: 0,
         };
 
-        enqueue_job(
+        // Human: One throttled user (job cap) must not abort recovery for every other file.
+        if let Err(error) = enqueue_job(
             pool,
             &user_id,
             JobKind::HlsEncode,
@@ -198,7 +196,11 @@ async fn recover_orphaned_hls_encodes(pool: &PgPool, stale_minutes: i32) -> Resu
             serde_json::to_value(payload)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("hls_encode payload: {e}")))?,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%file_id, %error, "orphaned ingest re-enqueue failed; retrying next sweep");
+            continue;
+        }
 
         restarted += 1;
         tracing::warn!(
@@ -244,7 +246,8 @@ async fn recover_orphaned_audio_waveforms(pool: &PgPool, stale_minutes: i32) -> 
             tmp_audio: None,
         };
 
-        enqueue_job(
+        // Human: One throttled user (job cap) must not abort recovery for every other file.
+        if let Err(error) = enqueue_job(
             pool,
             &user_id,
             JobKind::AudioWaveform,
@@ -254,7 +257,11 @@ async fn recover_orphaned_audio_waveforms(pool: &PgPool, stale_minutes: i32) -> 
             serde_json::to_value(payload)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("audio_waveform payload: {e}")))?,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%file_id, %error, "orphaned ingest re-enqueue failed; retrying next sweep");
+            continue;
+        }
 
         restarted += 1;
         tracing::warn!(
@@ -299,7 +306,8 @@ async fn recover_orphaned_image_thumbnails(pool: &PgPool, stale_minutes: i32) ->
             tmp_source: None,
         };
 
-        enqueue_job(
+        // Human: One throttled user (job cap) must not abort recovery for every other file.
+        if let Err(error) = enqueue_job(
             pool,
             &user_id,
             JobKind::ImageThumbnail,
@@ -309,7 +317,11 @@ async fn recover_orphaned_image_thumbnails(pool: &PgPool, stale_minutes: i32) ->
             serde_json::to_value(payload)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("image_thumbnail payload: {e}")))?,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%file_id, %error, "orphaned ingest re-enqueue failed; retrying next sweep");
+            continue;
+        }
 
         restarted += 1;
         tracing::warn!(
@@ -354,7 +366,8 @@ async fn recover_orphaned_video_thumbnails(pool: &PgPool, stale_minutes: i32) ->
             tmp_video: None,
         };
 
-        enqueue_job(
+        // Human: One throttled user (job cap) must not abort recovery for every other file.
+        if let Err(error) = enqueue_job(
             pool,
             &user_id,
             JobKind::VideoThumbnail,
@@ -364,7 +377,11 @@ async fn recover_orphaned_video_thumbnails(pool: &PgPool, stale_minutes: i32) ->
             serde_json::to_value(payload)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("video_thumbnail payload: {e}")))?,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%file_id, %error, "orphaned ingest re-enqueue failed; retrying next sweep");
+            continue;
+        }
 
         restarted += 1;
         tracing::warn!(
@@ -421,7 +438,8 @@ async fn recover_orphaned_document_thumbnails(pool: &PgPool, stale_minutes: i32)
             tmp_source: None,
         };
 
-        enqueue_job(
+        // Human: One throttled user (job cap) must not abort recovery for every other file.
+        if let Err(error) = enqueue_job(
             pool,
             &user_id,
             JobKind::DocumentThumbnail,
@@ -431,7 +449,11 @@ async fn recover_orphaned_document_thumbnails(pool: &PgPool, stale_minutes: i32)
             serde_json::to_value(payload)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("document_thumbnail payload: {e}")))?,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%file_id, %error, "orphaned ingest re-enqueue failed; retrying next sweep");
+            continue;
+        }
 
         restarted += 1;
         tracing::warn!(

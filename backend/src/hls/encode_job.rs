@@ -448,7 +448,19 @@ pub async fn run_hls_encode_job(
         Ok(pair) => pair,
         Err(e) => {
             let msg = format!("create encryption key: {e}");
-            mark_failed(&pool, &file_id, &msg).await;
+            if is_reprocess_job {
+                let detail = format!("Stream rebuild failed — previous package restored. ({msg})");
+                let _ = restore_package_after_failed_reprocess(
+                    &pool,
+                    storage.as_ref(),
+                    &file_id,
+                    &storage_key,
+                    &detail,
+                )
+                .await;
+            } else {
+                mark_failed(&pool, &file_id, &msg).await;
+            }
             cleanup_work_dir(&work_dir).await;
             return Err(msg);
         }
@@ -706,7 +718,22 @@ pub async fn run_hls_encode_job(
                 }
                 Err(e) => {
                     let msg = format!("ffmpeg transcode: {e}");
-                    mark_failed(&pool, &file_id, &msg).await;
+                    // Human: ffmpeg writes only to local scratch — a failed rebuild has not touched
+                    //        the stored package, so keep the old one playable instead of hiding it.
+                    if is_reprocess_job {
+                        let detail =
+                            format!("Stream rebuild failed — previous package restored. ({msg})");
+                        let _ = restore_package_after_failed_reprocess(
+                            &pool,
+                            storage.as_ref(),
+                            &file_id,
+                            &storage_key,
+                            &detail,
+                        )
+                        .await;
+                    } else {
+                        mark_failed(&pool, &file_id, &msg).await;
+                    }
                     discard_hls_output(&hls_output_dir).await;
                     Err(msg)
                 }
@@ -874,10 +901,15 @@ async fn download_storage_object_to_temp(
 
 // Human: True when storage still holds the first media segment (package is playable).
 // Agent: EXISTS 0000.m4s OR 0000.ts under `{storage_key}/segments/`.
+// Human: A storage error is "unknown", not "missing" — restoring beats hiding a playable package.
 async fn storage_has_hls_media(storage: &dyn Storage, storage_key: &str) -> bool {
     let m4s = format!("{storage_key}/segments/0000.{HLS_SEGMENT_EXTENSION}");
     let ts = format!("{storage_key}/segments/0000.ts");
-    storage.exists(&m4s).await.unwrap_or(false) || storage.exists(&ts).await.unwrap_or(false)
+    match storage.exists(&m4s).await {
+        Ok(true) | Err(_) => return true,
+        Ok(false) => {}
+    }
+    storage.exists(&ts).await.unwrap_or(true)
 }
 
 // Human: After a failed rebuild, put the prior HLS package back online only when media still exists.

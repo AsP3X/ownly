@@ -154,10 +154,28 @@ pub async fn is_protected_upload_spool(pool: &PgPool, path: &Path) -> bool {
     .flatten();
 
     // Human: Protect only in-flight encodes — failed/cancelled spools are reclaimable after idle TTL.
-    matches!(
+    if matches!(
         row,
-        Some((false, status)) if status == "queued" || status == "processing"
-    )
+        Some((false, ref status)) if status == "queued" || status == "processing"
+    ) {
+        return true;
+    }
+
+    // Human: A retryable ffmpeg failure marks the file 'failed' while the job is re-queued — the
+    //        spool is the only copy of the original, so keep it until no encode job is pending.
+    // Agent: READS background_jobs hls_encode queued/running for this file id.
+    if matches!(row, Some((false, _))) {
+        return sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM background_jobs \
+             WHERE kind = 'hls_encode' AND resource_type = 'file' AND resource_id = $1 \
+               AND status IN ('queued', 'running'))",
+        )
+        .bind(&spool_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(true);
+    }
+    false
 }
 
 // Human: Purge partial Nebular prefixes for failed/cancelled HLS that never became hls_ready.

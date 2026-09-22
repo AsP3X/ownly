@@ -410,6 +410,11 @@ async fn finalize_new_blob_from_spool(
             "files.upload persisting video metadata"
         );
 
+        // Human: Check the job cap before inserting — a 'queued' video row with no encode job
+        //        stays "processing" forever, and the client's retry then hits a duplicate id.
+        // Agent: 2 jobs = HlsEncode + VideoThumbnail; 429 lets the upload manager back off.
+        jobs::store::ensure_job_capacity(&state.pool, &input.user_id, 2).await?;
+
         let storage_node_id = crate::storage::placement::reserve_node_for_upload(
             &state.pool,
             &input.storage_key,
@@ -651,6 +656,14 @@ async fn insert_deduped_file(
 
     crate::storage::placement::link_file_to_placement(&state.pool, file_id, &source.storage_key)
         .await?;
+
+    // Human: Shared segments are encrypted with the source's key — without a copy the key route
+    //        404s and the deduped video never plays.
+    state
+        .hls_key_store
+        .copy_key_for_file(&source.id, file_id)
+        .await
+        .map_err(AppError::Internal)?;
 
     Ok(file)
 }

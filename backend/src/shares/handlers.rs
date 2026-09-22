@@ -1020,6 +1020,13 @@ async fn copy_share_file_into_library(
     .fetch_one(&state.pool)
     .await?;
 
+    // Human: Copied segments are byte-identical, so the saved copy needs the source's content key.
+    state
+        .hls_key_store
+        .copy_key_for_file(file_id, &new_file_id)
+        .await
+        .map_err(AppError::Internal)?;
+
     audit::write_audit_logged(
         &state.pool,
         Some(grantee_id),
@@ -1648,7 +1655,7 @@ pub async fn public_share_init(
         .storage
         .get_stream(&key)
         .await
-        .map_err(|_| AppError::NotFound)?;
+        .map_err(crate::hls::handlers::map_hls_segment_storage_error)?;
 
     Ok(crate::hls::handlers::segment_media_response(
         stream,
