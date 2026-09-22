@@ -96,6 +96,8 @@ export function useVideoTransport({
   const hideChromeTimerRef = useRef<number | null>(null);
   const wasNativeFullscreenRef = useRef(false);
   const resumeAppliedForFileRef = useRef<string | null>(null);
+  // Human: Seek target held until the element can play — see seekWhenReady.
+  const pendingSeekRef = useRef<number | null>(null);
   const lastResumeWriteRef = useRef(0);
 
   const isFullscreen = isNativeFullscreen || isImmersive;
@@ -103,6 +105,20 @@ export function useVideoTransport({
 
   const failed = file.hls_encode_status === "failed";
   const transportDisabled = loading || Boolean(error) || failed || !file.hls_ready;
+
+  // Human: iOS Safari native HLS freezes for good when currentTime is set before media data
+  // exists (at loadedmetadata, readyState 1): `seeking` fires, `seeked` never does, and play()
+  // leaves the playhead stuck while reporting it is playing. Hold early seeks until `canplay`.
+  // Agent: WRITES currentTime when readyState >= HAVE_FUTURE_DATA; ELSE STORES pendingSeekRef
+  //        (latest wins) for the canplay listener. Verified in the iOS 27 simulator.
+  const seekWhenReady = useCallback((video: HTMLVideoElement, timeSeconds: number) => {
+    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      pendingSeekRef.current = null;
+      video.currentTime = timeSeconds;
+    } else {
+      pendingSeekRef.current = timeSeconds;
+    }
+  }, []);
 
   const getFullscreenTargets = useCallback(
     () => ({
@@ -214,7 +230,8 @@ export function useVideoTransport({
     if (!video) return;
 
     const syncProgress = () => {
-      setProgress(video.currentTime);
+      // Human: Show the pending target, not 0, while an early seek waits for canplay.
+      setProgress(pendingSeekRef.current ?? video.currentTime);
       setDuration(Number.isFinite(video.duration) ? video.duration : 0);
       setBufferedSegments(readBufferedSegments(video.buffered));
     };
@@ -238,8 +255,15 @@ export function useVideoTransport({
       resumeAppliedForFileRef.current = file.id;
       if (saved == null || dur <= 0) return;
       if (!isMeaningfulResumePosition(saved, dur)) return;
-      video.currentTime = saved;
+      seekWhenReady(video, saved);
       setProgress(saved);
+    };
+
+    const onCanPlay = () => {
+      const pending = pendingSeekRef.current;
+      if (pending == null) return;
+      pendingSeekRef.current = null;
+      video.currentTime = pending;
     };
 
     const onLoadedMetadata = () => {
@@ -251,6 +275,7 @@ export function useVideoTransport({
     video.addEventListener("durationchange", syncProgress);
     video.addEventListener("progress", syncProgress);
     video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("canplay", onCanPlay);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("ended", onEnded);
@@ -277,17 +302,18 @@ export function useVideoTransport({
       video.removeEventListener("durationchange", syncProgress);
       video.removeEventListener("progress", syncProgress);
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("ended", onEnded);
       // Human: Persist playhead when unmounting (gallery advance / close).
-      // Agent: CALLS writeVideoResumePosition with currentTime.
+      // Agent: CALLS writeVideoResumePosition with currentTime (or the still-pending seek target).
       const dur = Number.isFinite(video.duration) ? video.duration : 0;
-      writeVideoResumePosition(file.id, video.currentTime, dur);
+      writeVideoResumePosition(file.id, pendingSeekRef.current ?? video.currentTime, dur);
     };
     // volume/muted/rate/loop applied via dedicated effects; only bind listeners on file/ref change
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: rebind on file swap only
-  }, [videoRef, file.id, persistResume]);
+  }, [videoRef, file.id, persistResume, seekWhenReady]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -348,6 +374,7 @@ export function useVideoTransport({
     setShowChrome(true);
     setIsImmersive(false);
     resumeAppliedForFileRef.current = null;
+    pendingSeekRef.current = null;
     lastResumeWriteRef.current = 0;
     clearHideChromeTimer();
   }, [file.id, clearHideChromeTimer]);
@@ -417,18 +444,18 @@ export function useVideoTransport({
       if (!video || transportDisabled) return;
       const dur = Number.isFinite(video.duration) ? video.duration : 0;
       const next = Math.min(Math.max(0, timeSeconds), dur > 0 ? dur : timeSeconds);
-      video.currentTime = next;
+      seekWhenReady(video, next);
       setProgress(next);
       revealChrome();
     },
-    [revealChrome, transportDisabled, videoRef],
+    [revealChrome, seekWhenReady, transportDisabled, videoRef],
   );
 
   const seekBy = useCallback(
     (deltaSeconds: number) => {
       const video = videoRef.current;
       if (!video || transportDisabled) return;
-      handleSeek(video.currentTime + deltaSeconds);
+      handleSeek((pendingSeekRef.current ?? video.currentTime) + deltaSeconds);
     },
     [handleSeek, transportDisabled, videoRef],
   );
