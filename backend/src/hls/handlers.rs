@@ -611,6 +611,7 @@ pub async fn get_segment(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path((id, segment_name)): Path<(String, String)>,
+    request_headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (storage_key, hls_ready, _, _, _) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
@@ -632,7 +633,7 @@ pub async fn get_segment(
     let (stream, size, resolved_name) =
         open_hls_segment(state.storage.as_ref(), &storage_key, &segment_name).await?;
 
-    Ok(segment_media_response(stream, size, &resolved_name))
+    Ok(segment_media_response(stream, size, &resolved_name, &request_headers))
 }
 
 // Human: AES-128 fMP4 init segment (EXT-X-MAP) for owned video playback.
@@ -641,6 +642,7 @@ pub async fn get_init(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
+    request_headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (storage_key, hls_ready, _, _, _) =
         ensure_file_owned(state.as_ref(), &id, &claims.sub).await?;
@@ -659,7 +661,7 @@ pub async fn get_init(
         .await
         .map_err(map_hls_segment_storage_error)?;
 
-    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
+    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME, &request_headers))
 }
 
 // Human: Ticket-gated HLS master manifest for native AVPlayer HTTP playback (no JWT on segments).
@@ -747,6 +749,7 @@ pub async fn get_hls_init(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<TicketParams>,
+    request_headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
@@ -767,7 +770,7 @@ pub async fn get_hls_init(
         .await
         .map_err(map_hls_segment_storage_error)?;
 
-    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME))
+    Ok(segment_media_response(stream, size, HLS_INIT_FILENAME, &request_headers))
 }
 
 // Human: Ticket-gated encrypted media segment proxy for AVPlayer.
@@ -776,6 +779,7 @@ pub async fn get_hls_segment(
     State(state): State<Arc<AppState>>,
     Path((id, segment_name)): Path<(String, String)>,
     Query(params): Query<TicketParams>,
+    request_headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let ticket_user = require_hls_ticket(&params, &id, &state.signing_secret)?;
 
@@ -799,15 +803,20 @@ pub async fn get_hls_segment(
     let (stream, size, resolved_name) =
         open_hls_segment(state.storage.as_ref(), &storage_key, &segment_name).await?;
 
-    Ok(segment_media_response(stream, size, &resolved_name))
+    Ok(segment_media_response(stream, size, &resolved_name, &request_headers))
 }
 
 // Human: HLS media segment/init response with Content-Length and type by filename.
 // Agent: SETS video/mp4 for .m4s/.mp4 and video/mp2t for legacy .ts; no-store on all.
+// Human: iOS Safari fetches media in byte ranges — ignoring Range and returning the whole
+//        segment with 200 made it re-request segment 0 forever. Honor single ranges with 206.
+// Agent: READS request Range; SLICES the storage stream (no buffering); 416 when unsatisfiable;
+//        ALWAYS advertises Accept-Ranges when the object size is known.
 pub(crate) fn segment_media_response(
     stream: StorageStream,
     size: u64,
     object_name: &str,
+    request_headers: &HeaderMap,
 ) -> Response {
     let content_type = hls_segment_content_type(object_name);
     let mut headers = HeaderMap::new();
@@ -823,13 +832,129 @@ pub(crate) fn segment_media_response(
             .parse()
             .expect("cache control"),
     );
-    if size > 0 {
-        if let Ok(value) = size.to_string().parse() {
-            headers.insert(header::CONTENT_LENGTH, value);
+    if size == 0 {
+        return (headers, Body::from_stream(stream)).into_response();
+    }
+    headers.insert(header::ACCEPT_RANGES, header::HeaderValue::from_static("bytes"));
+
+    let range = request_headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| parse_single_byte_range(value, size));
+
+    match range {
+        Some(ByteRange::Satisfiable { start, end }) => {
+            let len = end - start + 1;
+            if let Ok(value) = format!("bytes {start}-{end}/{size}").parse() {
+                headers.insert(header::CONTENT_RANGE, value);
+            }
+            if let Ok(value) = len.to_string().parse() {
+                headers.insert(header::CONTENT_LENGTH, value);
+            }
+            (
+                axum::http::StatusCode::PARTIAL_CONTENT,
+                headers,
+                Body::from_stream(slice_storage_stream(stream, start, len)),
+            )
+                .into_response()
+        }
+        Some(ByteRange::Unsatisfiable) => {
+            if let Ok(value) = format!("bytes */{size}").parse() {
+                headers.insert(header::CONTENT_RANGE, value);
+            }
+            (axum::http::StatusCode::RANGE_NOT_SATISFIABLE, headers).into_response()
+        }
+        // Human: Absent, malformed, or multi-range requests get the full object (RFC 9110 allows it).
+        Some(ByteRange::Ignore) | None => {
+            if let Ok(value) = size.to_string().parse() {
+                headers.insert(header::CONTENT_LENGTH, value);
+            }
+            (headers, Body::from_stream(stream)).into_response()
         }
     }
+}
 
-    (headers, Body::from_stream(stream)).into_response()
+#[derive(Debug, PartialEq, Eq)]
+enum ByteRange {
+    Satisfiable { start: u64, end: u64 },
+    Unsatisfiable,
+    Ignore,
+}
+
+// Human: Parse one `bytes=a-b` / `bytes=a-` / `bytes=-n` range against a known object size.
+// Agent: RETURNS inclusive [start, end] clamped to size; Ignore for multi-range or junk.
+fn parse_single_byte_range(value: &str, size: u64) -> ByteRange {
+    let Some(spec) = value.trim().strip_prefix("bytes=") else {
+        return ByteRange::Ignore;
+    };
+    if spec.contains(',') {
+        return ByteRange::Ignore;
+    }
+    let Some((first, last)) = spec.trim().split_once('-') else {
+        return ByteRange::Ignore;
+    };
+    let (first, last) = (first.trim(), last.trim());
+    if first.is_empty() {
+        // Suffix range: the final `n` bytes.
+        let Ok(n) = last.parse::<u64>() else {
+            return ByteRange::Ignore;
+        };
+        if n == 0 {
+            return ByteRange::Unsatisfiable;
+        }
+        return ByteRange::Satisfiable {
+            start: size.saturating_sub(n),
+            end: size - 1,
+        };
+    }
+    let Ok(start) = first.parse::<u64>() else {
+        return ByteRange::Ignore;
+    };
+    let end = if last.is_empty() {
+        size - 1
+    } else {
+        match last.parse::<u64>() {
+            Ok(end) if end >= start => end.min(size - 1),
+            _ => return ByteRange::Ignore,
+        }
+    };
+    if start >= size {
+        return ByteRange::Unsatisfiable;
+    }
+    ByteRange::Satisfiable { start, end }
+}
+
+// Human: Drop the first `skip` bytes of a storage stream and stop after `take` bytes.
+// Agent: STREAMS chunk by chunk; ENDS early so the upstream GET is dropped once the range is sent.
+fn slice_storage_stream(stream: StorageStream, skip: u64, take: u64) -> StorageStream {
+    use futures_util::StreamExt;
+
+    let state = (stream, skip, take);
+    Box::pin(futures_util::stream::unfold(
+        state,
+        |(mut stream, mut skip, mut take)| async move {
+            loop {
+                if take == 0 {
+                    return None;
+                }
+                let mut chunk = match stream.next().await? {
+                    Ok(chunk) => chunk,
+                    Err(error) => return Some((Err(error), (stream, skip, 0))),
+                };
+                if skip >= chunk.len() as u64 {
+                    skip -= chunk.len() as u64;
+                    continue;
+                }
+                let _ = chunk.split_to(skip as usize);
+                skip = 0;
+                if chunk.len() as u64 > take {
+                    chunk.truncate(take as usize);
+                }
+                take -= chunk.len() as u64;
+                return Some((Ok(chunk), (stream, skip, take)));
+            }
+        },
+    ))
 }
 
 // Human: Pick Content-Type for proxied HLS objects (.m4s init/media vs legacy MPEG-TS).
@@ -1114,7 +1239,78 @@ pub async fn get_export(
 mod tests {
     use super::{
         append_ticket_to_playlist, encode_query_component, hls_segment_content_type,
+        parse_single_byte_range, segment_media_response, slice_storage_stream, ByteRange,
     };
+    use crate::storage::StorageStream;
+    use axum::http::{header, HeaderMap, StatusCode};
+
+    fn chunked_stream(data: &[u8], chunk: usize) -> StorageStream {
+        let chunks: Vec<Result<bytes::Bytes, std::io::Error>> = data
+            .chunks(chunk)
+            .map(|c| Ok(bytes::Bytes::copy_from_slice(c)))
+            .collect();
+        Box::pin(futures_util::stream::iter(chunks))
+    }
+
+    async fn body_bytes(response: axum::response::Response) -> Vec<u8> {
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body")
+            .to_vec()
+    }
+
+    #[test]
+    fn byte_range_parsing_covers_open_suffix_and_invalid_forms() {
+        use ByteRange::*;
+        assert_eq!(parse_single_byte_range("bytes=0-1", 100), Satisfiable { start: 0, end: 1 });
+        assert_eq!(parse_single_byte_range("bytes=10-", 100), Satisfiable { start: 10, end: 99 });
+        assert_eq!(parse_single_byte_range("bytes=90-500", 100), Satisfiable { start: 90, end: 99 });
+        assert_eq!(parse_single_byte_range("bytes=-30", 100), Satisfiable { start: 70, end: 99 });
+        assert_eq!(parse_single_byte_range("bytes=-500", 100), Satisfiable { start: 0, end: 99 });
+        assert_eq!(parse_single_byte_range("bytes=100-", 100), Unsatisfiable);
+        assert_eq!(parse_single_byte_range("bytes=-0", 100), Unsatisfiable);
+        assert_eq!(parse_single_byte_range("bytes=5-1", 100), Ignore);
+        assert_eq!(parse_single_byte_range("bytes=0-1,5-6", 100), Ignore);
+        assert_eq!(parse_single_byte_range("items=0-1", 100), Ignore);
+    }
+
+    #[tokio::test]
+    async fn slice_spans_chunk_boundaries() {
+        use futures_util::StreamExt;
+        let data: Vec<u8> = (0..=255u8).collect();
+        let sliced: Vec<u8> = slice_storage_stream(chunked_stream(&data, 7), 10, 30)
+            .map(|chunk| chunk.expect("chunk").to_vec())
+            .collect::<Vec<_>>()
+            .await
+            .concat();
+        assert_eq!(sliced, data[10..40]);
+    }
+
+    // Human: iOS Safari asks for `bytes=0-1` first — it must get 206 with 2 bytes, not the segment.
+    #[tokio::test]
+    async fn segment_response_honors_range_requests() {
+        let data: Vec<u8> = (0..100u8).collect();
+        let mut request = HeaderMap::new();
+        request.insert(header::RANGE, "bytes=0-1".parse().unwrap());
+        let response =
+            segment_media_response(chunked_stream(&data, 16), 100, "0000.m4s", &request);
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 0-1/100");
+        assert_eq!(response.headers()[header::CONTENT_LENGTH], "2");
+        assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+        assert_eq!(body_bytes(response).await, vec![0, 1]);
+
+        let full = segment_media_response(chunked_stream(&data, 16), 100, "0000.m4s", &HeaderMap::new());
+        assert_eq!(full.status(), StatusCode::OK);
+        assert_eq!(full.headers()[header::ACCEPT_RANGES], "bytes");
+        assert_eq!(body_bytes(full).await, data);
+
+        let mut past_end = HeaderMap::new();
+        past_end.insert(header::RANGE, "bytes=100-".parse().unwrap());
+        let response = segment_media_response(chunked_stream(&data, 16), 100, "0000.m4s", &past_end);
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes */100");
+    }
 
     #[test]
     fn hls_segment_content_type_by_extension() {

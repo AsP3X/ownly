@@ -1630,6 +1630,7 @@ pub async fn public_share_segment(
         stream,
         size,
         &resolved_name,
+        &headers,
     ))
 }
 
@@ -1661,6 +1662,7 @@ pub async fn public_share_init(
         stream,
         size,
         crate::hls::playlist::HLS_INIT_FILENAME,
+        &headers,
     ))
 }
 
