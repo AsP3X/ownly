@@ -6,11 +6,14 @@ ENV GIT_SHA=${GIT_SHA}
 RUN apt-get update && apt-get install -y libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY Cargo.toml ./
+# Human: Build from the committed Cargo.lock — without it every build resolved the newest crates, which broke the
+# image once a dependency (uuid 1.27) required a newer rustc than this builder ships.
+# Agent: --locked FAILS instead of silently re-resolving when Cargo.toml and Cargo.lock disagree.
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
 
-RUN cargo build --release
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 
