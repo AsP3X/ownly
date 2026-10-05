@@ -60,6 +60,7 @@ use sqlx::PgPool;
 use storage::{
     gated::GatedStorage,
     memory::MemoryStorage,
+    nebula::{NebulaStorage, ServiceAuthCheck},
     put_gate::StoragePutGate,
     router::{RouterConfig, RouterStorage},
     Storage,
@@ -365,7 +366,35 @@ pub async fn create_app_state(config: &Config) -> anyhow::Result<Arc<AppState>> 
         anyhow::bail!("only proxy storage mode is supported in this release");
     }
     wait_for_nebular_health(&config.object_storage_url).await?;
+    verify_nebular_service_auth(config).await?;
     build_app_state(config, None, false).await
+}
+
+// Human: Fail at boot when the primary node rejects the API's service JWT, instead of serving 401s per request.
+// Agent: BUILDS a NebulaStorage from Config; CALLS verify_service_auth; BAILS on 401/403, WARNS on other errors.
+async fn verify_nebular_service_auth(config: &Config) -> anyhow::Result<()> {
+    let signing_secret = std::env::var("NOS_SIGNING_SECRET")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| config.signing_secret.clone());
+    let storage = NebulaStorage::new(
+        config.object_storage_url.clone(),
+        config.object_storage_public_url.clone(),
+        config.object_storage_bucket.clone(),
+        &config.object_storage_jwt_secret,
+        &signing_secret,
+    )?;
+    match storage.verify_service_auth().await {
+        Ok(ServiceAuthCheck::Accepted) => {
+            info!("Nebular OS accepted the API service token");
+            Ok(())
+        }
+        Ok(ServiceAuthCheck::Refused(message)) => Err(anyhow::anyhow!(message)),
+        Err(error) => {
+            tracing::warn!(%error, "Nebular OS service auth check failed; continuing");
+            Ok(())
+        }
+    }
 }
 
 // Human: Test harness entry — same AppState as production but with in-memory storage (no Nebular dependency).

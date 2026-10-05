@@ -186,12 +186,16 @@ pub(crate) async fn probe_reachable(base_url: &str) -> bool {
 pub(crate) async fn probe_node_metrics(base_url: &str) -> NodeMetrics {
     let client = crate::outbound_target::outbound_probe_client();
     let metrics_url = format!("{}/metrics", base_url.trim_end_matches('/'));
-    match client
-        .get(&metrics_url)
-        .header("accept", "application/json")
-        .send()
-        .await
+    let mut request = client.get(&metrics_url).header("accept", "application/json");
+    // Human: Nodes started with NOS_METRICS_TOKEN answer /metrics only with that bearer token.
+    // Agent: READS NOS_METRICS_TOKEN (shared by every node); OMITS Authorization when unset.
+    if let Some(token) = std::env::var("NOS_METRICS_TOKEN")
+        .ok()
+        .filter(|token| !token.trim().is_empty())
     {
+        request = request.bearer_auth(token.trim());
+    }
+    match request.send().await {
         Ok(resp) if resp.status().is_success() => resp
             .json::<NosMetricsBody>()
             .await
@@ -203,7 +207,25 @@ pub(crate) async fn probe_node_metrics(base_url: &str) -> NodeMetrics {
                 logical_bytes: 0,
                 max_logical_bytes: 0,
             }),
-        _ => NodeMetrics {
+        // Human: A token mismatch would otherwise read as an empty, uncapped node and keep attracting writes.
+        // Agent: WARNS with the env var to fix; still RETURNS zeros so the probe never fails the caller.
+        Ok(resp) => {
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                tracing::warn!(
+                    %metrics_url,
+                    "Nebular /metrics refused the probe (401) — NOS_METRICS_TOKEN differs between API and node; \
+                     capacity-aware placement sees this node as empty"
+                );
+            } else {
+                tracing::warn!(%metrics_url, %status, "Nebular /metrics probe failed");
+            }
+            NodeMetrics {
+                logical_bytes: 0,
+                max_logical_bytes: 0,
+            }
+        }
+        Err(_) => NodeMetrics {
             logical_bytes: 0,
             max_logical_bytes: 0,
         },

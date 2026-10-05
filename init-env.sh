@@ -121,6 +121,12 @@ init_env_file() {
             echo "Error: ${env_file} ${key} is only ${len} characters (need >= 32)."
             exit 1
         fi
+        # Human: Nebular OS refuses secrets with fewer than 8 distinct characters (e.g. 32 x "a") at startup.
+        distinct=$(printf '%s' "$value" | fold -w1 | sort -u | wc -l | tr -d ' ')
+        if [ "$distinct" -lt 8 ]; then
+            echo "Error: ${env_file} ${key} uses only ${distinct} distinct characters (need >= 8; use openssl rand -hex 32)."
+            exit 1
+        fi
     done
 
     # Human: Nebular presigned URLs must use the same HMAC secret as ownly-backend (NOS_SIGNING_SECRET).
@@ -210,9 +216,32 @@ sync_env_key() {
     tr -d '\r' < "$dest_file" > "${dest_file}.lf" && mv "${dest_file}.lf" "$dest_file"
 }
 
+# Human: Add KEY=value only when the file has no active KEY line, so an operator's own value always wins.
+# Agent: APPENDS (with a separating newline when the file lacks a trailing one); NO-OP when the file is missing.
+ensure_env_key() {
+    file="$1"
+    key="$2"
+    value="$3"
+
+    [ -f "$file" ] || return 0
+    grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null && return 0
+    if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then
+        printf '\n' >> "$file"
+    fi
+    printf '%s\n' "${key}=${value}" >> "$file"
+}
+
 init_env_file ".env" ".env.example"
 init_env_file "backend/.env" "backend/.env.example"
 init_env_file "nebular-os/.env" "nebular-os/.env.example"
+
+# Human: Compose defaults the Nebular JWT scope to ownly / nebular-os; a natively run API or Nebular must agree,
+# or every storage call is refused with 401.
+# Agent: DEFAULTS first, then sync_env_key below copies custom values from the root .env.
+ensure_env_key "backend/.env" "OBJECT_STORAGE_JWT_ISSUER" "ownly"
+ensure_env_key "backend/.env" "OBJECT_STORAGE_JWT_AUDIENCE" "nebular-os"
+ensure_env_key "nebular-os/.env" "NOS_JWT_ISSUER" "ownly"
+ensure_env_key "nebular-os/.env" "NOS_JWT_AUDIENCE" "nebular-os"
 
 # Human: Root .env is the source of truth after generation — backend/nebular copies must match.
 # Agent: SYNC after all GENERATE_ME replacements so independent openssl draws cannot diverge.
@@ -223,6 +252,12 @@ sync_env_key ".env" "NOS_JWT_SECRET" "backend/.env" "OBJECT_STORAGE_JWT_SECRET"
 sync_env_key ".env" "NOS_JWT_SECRET" "nebular-os/.env" "NOS_JWT_SECRET"
 sync_env_key ".env" "NOS_SIGNING_SECRET" "nebular-os/.env" "NOS_SIGNING_SECRET"
 sync_env_key ".env" "DATABASE_URL" "backend/.env" "DATABASE_URL"
+sync_env_key ".env" "NOS_METRICS_TOKEN" "backend/.env" "NOS_METRICS_TOKEN"
+sync_env_key ".env" "NOS_METRICS_TOKEN" "nebular-os/.env" "NOS_METRICS_TOKEN"
+sync_env_key ".env" "OBJECT_STORAGE_JWT_ISSUER" "backend/.env" "OBJECT_STORAGE_JWT_ISSUER"
+sync_env_key ".env" "OBJECT_STORAGE_JWT_AUDIENCE" "backend/.env" "OBJECT_STORAGE_JWT_AUDIENCE"
+sync_env_key ".env" "OBJECT_STORAGE_JWT_ISSUER" "nebular-os/.env" "NOS_JWT_ISSUER"
+sync_env_key ".env" "OBJECT_STORAGE_JWT_AUDIENCE" "nebular-os/.env" "NOS_JWT_AUDIENCE"
 
 setup_line=$(grep -m1 -E '^[[:space:]]*SETUP_TOKEN[[:space:]]*=' .env 2>/dev/null || true)
 if [ -n "$setup_line" ]; then

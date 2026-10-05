@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
-use crate::storage::nebula::NebulaStorage;
+use crate::storage::nebula::{NebulaStorage, ServiceAuthCheck};
 use crate::storage::placement::{
     self, base_file_storage_key, is_derived_storage_key, load_node_snapshots_cached,
     load_stripe_parts, persist_placement, plan_upload, resolve_node_for_key, UploadPlacementPlan,
@@ -75,6 +75,23 @@ impl RouterStorage {
             &self.config.signing_secret,
             Some(self.config.request_timeout),
         )?;
+
+        // Human: Registered nodes pass /health probes even when they refuse our JWT (secret or iss/aud mismatch),
+        // so check auth once per node and name the settings to fix in the log.
+        // Agent: SPAWNS verify_service_auth on first client creation; LOGS only, never blocks the request path.
+        let probe = client.clone();
+        let probe_node_id = node_id.to_string();
+        tokio::spawn(async move {
+            match probe.verify_service_auth().await {
+                Ok(ServiceAuthCheck::Accepted) => {}
+                Ok(ServiceAuthCheck::Refused(message)) => {
+                    tracing::error!(node_id = %probe_node_id, "{message}");
+                }
+                Err(error) => {
+                    tracing::warn!(node_id = %probe_node_id, %error, "storage node auth check failed");
+                }
+            }
+        });
 
         let mut guard = self.clients.write().await;
         guard.insert(node_id.to_string(), client.clone());

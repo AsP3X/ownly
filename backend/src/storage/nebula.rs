@@ -15,7 +15,18 @@ const SERVICE_JWT_TTL_SECS: i64 = 4 * 3600;
 // Agent: COMPARED in ServiceJwtCache::needs_refresh; PREVENTS 401 on storage GET/PUT after stack uptime exceeds TTL.
 const SERVICE_JWT_REFRESH_LEEWAY_SECS: i64 = 300;
 
+// Human: Drop pooled keep-alive connections before Nebular closes them (NOS_HEADER_READ_TIMEOUT_SECS, default 75s);
+// reusing a connection the server just closed fails the request, and PUTs are not retried by reqwest.
+// Agent: MUST stay below NOS_HEADER_READ_TIMEOUT_SECS on every node; APPLIED in new_with_request_timeout.
+const NEBULAR_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(50);
+
+// Human: Buffered PUT bodies above this size hash their Content-MD5 on the blocking pool, not the async runtime.
+// Agent: READ by content_md5_base64; HLS segments and thumbnails are usually above it.
+const CONTENT_MD5_INLINE_MAX_BYTES: usize = 256 * 1024;
+
+use base64::Engine as _;
 use futures_util::stream::{self, StreamExt};
+use md5::{Digest as _, Md5};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::Sha256;
@@ -86,9 +97,6 @@ pub struct MigrateBlobsMaintenanceReport {
     pub next_start_after: Option<String>,
     #[serde(default)]
     pub is_truncated: bool,
-    /// Human: True when Nebular honoured dry_run and performed no writes.
-    #[serde(default)]
-    pub dry_run_applied: bool,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -117,6 +125,38 @@ impl ServiceJwtCache {
     }
 }
 
+// Human: Optional `iss` / `aud` for service JWTs — must match NOS_JWT_ISSUER / NOS_JWT_AUDIENCE on every node.
+// Agent: READS OBJECT_STORAGE_JWT_ISSUER / OBJECT_STORAGE_JWT_AUDIENCE; EMPTY or unset omits the claim.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServiceJwtScope {
+    pub issuer: Option<String>,
+    pub audience: Option<String>,
+}
+
+impl ServiceJwtScope {
+    // Human: A node that has no NOS_JWT_AUDIENCE rejects tokens carrying `aud`, so both sides must be set together.
+    // Agent: TRIMS values; FILTERS empty strings to None.
+    pub fn from_env() -> Self {
+        let read = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        Self {
+            issuer: read("OBJECT_STORAGE_JWT_ISSUER"),
+            audience: read("OBJECT_STORAGE_JWT_AUDIENCE"),
+        }
+    }
+}
+
+/// Human: Outcome of NebulaStorage::verify_service_auth — Refused carries an operator-facing config hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServiceAuthCheck {
+    Accepted,
+    Refused(String),
+}
+
 #[derive(Clone, Debug)]
 pub struct NebulaStorage {
     client: reqwest::Client,
@@ -124,6 +164,7 @@ pub struct NebulaStorage {
     public_base_url: String,
     bucket: String,
     jwt_secret: String,
+    jwt_scope: ServiceJwtScope,
     jwt_cache: Arc<RwLock<ServiceJwtCache>>,
     signing_secret: String,
 }
@@ -160,8 +201,12 @@ impl NebulaStorage {
         signing_secret: &str,
         request_timeout: Option<Duration>,
     ) -> anyhow::Result<Self> {
-        let issued = generate_service_token(jwt_secret)?;
-        let mut builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(30));
+        let jwt_scope = ServiceJwtScope::from_env();
+        let issued = generate_service_token(jwt_secret, &jwt_scope)?;
+        let mut builder = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .pool_idle_timeout(NEBULAR_POOL_IDLE_TIMEOUT)
+            .tcp_nodelay(true);
         if let Some(timeout) = request_timeout {
             builder = builder.timeout(timeout);
         }
@@ -172,6 +217,7 @@ impl NebulaStorage {
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             bucket,
             jwt_secret: jwt_secret.to_string(),
+            jwt_scope,
             jwt_cache: Arc::new(RwLock::new(ServiceJwtCache {
                 token: issued.token,
                 exp: issued.exp,
@@ -201,7 +247,7 @@ impl NebulaStorage {
             }
         }
 
-        let issued = generate_service_token(&self.jwt_secret)?;
+        let issued = generate_service_token(&self.jwt_secret, &self.jwt_scope)?;
         let mut cache = self
             .jwt_cache
             .write()
@@ -390,6 +436,33 @@ impl NebulaStorage {
         })
     }
 
+    // Human: Prove the node accepts this client's service JWT — /health/ready is unauthenticated, so a secret or
+    // iss/aud mismatch would otherwise only surface as 401s on every storage call.
+    // Agent: GET /{bucket}?prefix=…&limit=1 (JWT-only route); RETURNS Refused(message) on 401/403, Err on transport/5xx.
+    pub async fn verify_service_auth(&self) -> anyhow::Result<ServiceAuthCheck> {
+        let list_url = format!("{}/{}", self.base_url, self.bucket);
+        let response = self
+            .client
+            .get(&list_url)
+            .header(reqwest::header::AUTHORIZATION, self.auth_header())
+            .query(&[("prefix", "ownly-auth-probe/"), ("limit", "1")])
+            .send()
+            .await?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Ok(ServiceAuthCheck::Refused(format!(
+                "Nebular OS at {} refused the API's service token ({status}). OBJECT_STORAGE_JWT_SECRET must equal \
+                 the node's NOS_JWT_SECRET, and OBJECT_STORAGE_JWT_ISSUER / OBJECT_STORAGE_JWT_AUDIENCE \
+                 (currently {:?} / {:?}) must equal its NOS_JWT_ISSUER / NOS_JWT_AUDIENCE",
+                self.base_url, self.jwt_scope.issuer, self.jwt_scope.audience
+            )));
+        }
+        if !status.is_success() {
+            anyhow::bail!("Nebular OS auth check at {} failed: {status}", self.base_url);
+        }
+        Ok(ServiceAuthCheck::Accepted)
+    }
+
     // Human: Read the first bytes of an object — used to detect legacy compression without full GET.
     // Agent: HTTP GET with Range when possible; RETURNS up to max_bytes prefix.
     pub async fn get_object_prefix(&self, key: &str, max_bytes: u64) -> anyhow::Result<Vec<u8>> {
@@ -413,24 +486,20 @@ impl NebulaStorage {
     }
 
     // Human: Server-side legacy blob migration when Nebular ships `/_nos/maintenance/migrate_blobs`.
+    // Nebular has no dry-run mode for it — every call rewrites blobs, so dry runs must not use it.
     // Agent: POST admin JWT; RETURNS None on 404/405 so caller can fall back to client rewrite.
     pub async fn try_migrate_blobs_maintenance(
         &self,
         limit: u64,
         start_after: Option<&str>,
-        dry_run: bool,
     ) -> anyhow::Result<Option<MigrateBlobsMaintenanceReport>> {
         let url = format!("{}/_nos/maintenance/migrate_blobs", self.base_url);
         let limit_param = limit.to_string();
-        let dry_run_param = if dry_run { "true" } else { "false" };
         let mut request = self
             .client
             .post(&url)
             .header(reqwest::header::AUTHORIZATION, self.auth_header())
-            .query(&[
-                ("limit", limit_param.as_str()),
-                ("dry_run", dry_run_param),
-            ]);
+            .query(&[("limit", limit_param.as_str())]);
 
         if let Some(after) = start_after {
             request = request.query(&[("start_after", after)]);
@@ -533,9 +602,25 @@ struct IssuedServiceJwt {
     exp: i64,
 }
 
+// Human: Base64 MD5 of a buffered PUT body — Nebular (>= 0.2) verifies it while the body streams and refuses
+// a mismatch with 400 before anything is stored.
+// Agent: HASHES on spawn_blocking above CONTENT_MD5_INLINE_MAX_BYTES; RETURNS the body back with the digest.
+async fn content_md5_base64(data: Vec<u8>) -> anyhow::Result<(Vec<u8>, String)> {
+    let encode = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(Md5::digest(bytes));
+    if data.len() <= CONTENT_MD5_INLINE_MAX_BYTES {
+        let digest = encode(&data);
+        return Ok((data, digest));
+    }
+    Ok(tokio::task::spawn_blocking(move || {
+        let digest = encode(&data);
+        (data, digest)
+    })
+    .await?)
+}
+
 // Human: Mint a short-lived admin JWT for backend→Nebular object-storage calls.
-// Agent: EMITS HS256 token; RETURNS token + exp for ServiceJwtCache refresh decisions.
-fn generate_service_token(jwt_secret: &str) -> anyhow::Result<IssuedServiceJwt> {
+// Agent: EMITS HS256 token with optional iss/aud from ServiceJwtScope; RETURNS token + exp for cache refresh.
+fn generate_service_token(jwt_secret: &str, scope: &ServiceJwtScope) -> anyhow::Result<IssuedServiceJwt> {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde::{Deserialize, Serialize};
 
@@ -546,6 +631,10 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<IssuedServiceJwt> 
         role: String,
         exp: i64,
         iat: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        iss: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        aud: Option<String>,
     }
 
     let now = SystemTime::now()
@@ -560,6 +649,8 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<IssuedServiceJwt> 
         role: "admin".to_string(),
         exp,
         iat: now,
+        iss: scope.issuer.clone(),
+        aud: scope.audience.clone(),
     };
 
     let token = encode(
@@ -568,62 +659,6 @@ fn generate_service_token(jwt_secret: &str) -> anyhow::Result<IssuedServiceJwt> 
         &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )?;
     Ok(IssuedServiceJwt { token, exp })
-}
-
-#[cfg(test)]
-mod service_jwt_tests {
-    use super::*;
-
-    // Human: Service JWT refresh must trigger inside the leeway window, not only after hard expiry.
-    // Agent: ASSERTS needs_refresh true when now >= exp - SERVICE_JWT_REFRESH_LEEWAY_SECS.
-    #[test]
-    fn service_jwt_cache_needs_refresh_inside_leeway() {
-        let now = chrono::Utc::now().timestamp();
-        let cache = ServiceJwtCache {
-            token: "token".into(),
-            exp: now + SERVICE_JWT_REFRESH_LEEWAY_SECS,
-        };
-        assert!(cache.needs_refresh());
-    }
-
-    // Human: Fresh tokens should be reused until the leeway window opens.
-    // Agent: ASSERTS needs_refresh false when exp is far in the future.
-    #[test]
-    fn service_jwt_cache_reuses_fresh_token() {
-        let now = chrono::Utc::now().timestamp();
-        let cache = ServiceJwtCache {
-            token: "token".into(),
-            exp: now + SERVICE_JWT_TTL_SECS,
-        };
-        assert!(!cache.needs_refresh());
-    }
-
-    // Human: Cloned storage clients must share one JWT cache so router node clients do not drift.
-    // Agent: CLONES NebulaStorage; MUTATES one cache; EXPECTS other clone to see refreshed token.
-    #[test]
-    fn cloned_nebula_storage_shares_service_jwt_cache() {
-        let storage = NebulaStorage::new(
-            "http://127.0.0.1:9000".into(),
-            "http://127.0.0.1:9000".into(),
-            "ownly".into(),
-            "test-jwt-secret",
-            "test-signing-secret",
-        )
-        .expect("storage client");
-
-        let clone = storage.clone();
-        {
-            let mut cache = storage
-                .jwt_cache
-                .write()
-                .expect("jwt cache write");
-            cache.token = "rotated".into();
-            cache.exp = chrono::Utc::now().timestamp() + SERVICE_JWT_TTL_SECS;
-        }
-
-        let cache = clone.jwt_cache.read().expect("jwt cache read");
-        assert_eq!(cache.token, "rotated");
-    }
 }
 
 #[async_trait::async_trait]
@@ -685,7 +720,14 @@ impl Storage for NebulaStorage {
         if !response.status().is_success() {
             anyhow::bail!("object storage HEAD failed: {}", response.status());
         }
-        Ok(response.content_length().unwrap_or(0))
+        // Human: reqwest's content_length() reports the (empty) HEAD body, always 0 — read the header instead.
+        // Agent: PARSES Content-Length; BAILS when absent so part confirm never accepts a bogus size.
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .ok_or_else(|| anyhow::anyhow!("object storage HEAD returned no Content-Length"))
     }
 
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
@@ -763,11 +805,13 @@ impl Storage for NebulaStorage {
             "nebular storage PUT starting"
         );
         let started = Instant::now();
+        let (data, content_md5) = content_md5_base64(data).await?;
         let response = self
             .client
             .put(&url)
             .header(reqwest::header::AUTHORIZATION, self.auth_header())
             .header(reqwest::header::CONTENT_TYPE, content_type)
+            .header("content-md5", content_md5)
             .body(data)
             .send()
             .await
@@ -883,5 +927,104 @@ impl Storage for NebulaStorage {
             signature,
             expires
         ))
+    }
+}
+
+#[cfg(test)]
+mod service_jwt_tests {
+    use super::*;
+
+    // Human: Service JWT refresh must trigger inside the leeway window, not only after hard expiry.
+    // Agent: ASSERTS needs_refresh true when now >= exp - SERVICE_JWT_REFRESH_LEEWAY_SECS.
+    #[test]
+    fn service_jwt_cache_needs_refresh_inside_leeway() {
+        let now = chrono::Utc::now().timestamp();
+        let cache = ServiceJwtCache {
+            token: "token".into(),
+            exp: now + SERVICE_JWT_REFRESH_LEEWAY_SECS,
+        };
+        assert!(cache.needs_refresh());
+    }
+
+    // Human: Fresh tokens should be reused until the leeway window opens.
+    // Agent: ASSERTS needs_refresh false when exp is far in the future.
+    #[test]
+    fn service_jwt_cache_reuses_fresh_token() {
+        let now = chrono::Utc::now().timestamp();
+        let cache = ServiceJwtCache {
+            token: "token".into(),
+            exp: now + SERVICE_JWT_TTL_SECS,
+        };
+        assert!(!cache.needs_refresh());
+    }
+
+    // Human: Cloned storage clients must share one JWT cache so router node clients do not drift.
+    // Agent: CLONES NebulaStorage; MUTATES one cache; EXPECTS other clone to see refreshed token.
+    #[test]
+    fn cloned_nebula_storage_shares_service_jwt_cache() {
+        let storage = NebulaStorage::new(
+            "http://127.0.0.1:9000".into(),
+            "http://127.0.0.1:9000".into(),
+            "ownly".into(),
+            "test-jwt-secret",
+            "test-signing-secret",
+        )
+        .expect("storage client");
+
+        let clone = storage.clone();
+        {
+            let mut cache = storage
+                .jwt_cache
+                .write()
+                .expect("jwt cache write");
+            cache.token = "rotated".into();
+            cache.exp = chrono::Utc::now().timestamp() + SERVICE_JWT_TTL_SECS;
+        }
+
+        let cache = clone.jwt_cache.read().expect("jwt cache read");
+        assert_eq!(cache.token, "rotated");
+    }
+
+    fn decode_unverified(token: &str) -> serde_json::Value {
+        let payload = token.split('.').nth(1).expect("jwt payload");
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("base64 payload");
+        serde_json::from_slice(&bytes).expect("json payload")
+    }
+
+    // Human: Nebular without NOS_JWT_AUDIENCE rejects any token carrying `aud`, so an unset scope must omit it.
+    // Agent: ASSERTS iss/aud absent for default scope and present when configured.
+    #[test]
+    fn service_token_includes_iss_and_aud_only_when_configured() {
+        let plain = generate_service_token("test-jwt-secret", &ServiceJwtScope::default()).expect("token");
+        let claims = decode_unverified(&plain.token);
+        assert!(claims.get("iss").is_none());
+        assert!(claims.get("aud").is_none());
+        assert_eq!(claims["role"], "admin");
+
+        let scope = ServiceJwtScope {
+            issuer: Some("ownly".into()),
+            audience: Some("nebular-os".into()),
+        };
+        let scoped = generate_service_token("test-jwt-secret", &scope).expect("token");
+        let claims = decode_unverified(&scoped.token);
+        assert_eq!(claims["iss"], "ownly");
+        assert_eq!(claims["aud"], "nebular-os");
+    }
+
+    // Human: Content-MD5 must be the base64 of the raw digest (RFC 1864), the same on both hashing paths.
+    // Agent: ASSERTS known MD5 for "hello" and equal digests for small vs blocking-pool bodies.
+    #[tokio::test]
+    async fn content_md5_matches_rfc1864_on_both_paths() {
+        let (body, digest) = content_md5_base64(b"hello".to_vec()).await.expect("md5");
+        assert_eq!(body, b"hello");
+        assert_eq!(digest, "XUFAKrxLKna5cZ2REBfFkg==");
+
+        let large = vec![7u8; CONTENT_MD5_INLINE_MAX_BYTES + 1];
+        let expected = base64::engine::general_purpose::STANDARD.encode(Md5::digest(&large));
+        let (body, digest) = content_md5_base64(large.clone()).await.expect("md5");
+        assert_eq!(body, large);
+        assert_eq!(digest, expected);
     }
 }

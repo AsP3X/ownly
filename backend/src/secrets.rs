@@ -9,6 +9,10 @@ use subtle::ConstantTimeEq;
 
 pub const MIN_SECRET_LEN: usize = 32;
 
+// Human: Same floor Nebular OS (>= 0.2) enforces at startup — 32 × "a" passes a length check but is not random.
+// Agent: COMPARED in validate_field; KEEP equal to MIN_DISTINCT_CHARS in nebular-os src/secrets.rs.
+pub const MIN_DISTINCT_CHARS: usize = 8;
+
 // Human: Committed docker-compose.yml literals — allowed in development, forbidden in production.
 // Agent: MATCHED when OWNLY_ENVIRONMENT=production; REJECTS at validate_startup_secrets.
 const COMPOSE_DEV_SECRETS: &[&str] = &[
@@ -126,6 +130,13 @@ fn validate_field(env_name: &str, value: &str, production: bool) -> anyhow::Resu
             value.len()
         );
     }
+    let distinct = value.chars().collect::<std::collections::HashSet<_>>().len();
+    if distinct < MIN_DISTINCT_CHARS {
+        anyhow::bail!(
+            "{env_name} uses only {distinct} distinct characters (need {MIN_DISTINCT_CHARS}); \
+             set a random secret, e.g. `openssl rand -hex 32`."
+        );
+    }
     Ok(())
 }
 
@@ -206,6 +217,21 @@ mod tests {
             assert!(is_weak_secret(weak), "expected weak: {weak}");
         }
         assert!(is_weak_secret("GENERATE_ME"));
+    }
+
+    // Human: Long but low-variety secrets must fail here too, since Nebular refuses them for the shared NOS secrets.
+    // Agent: ASSERTS 40 × "a" rejected and an openssl-style hex secret accepted.
+    #[test]
+    fn rejects_low_variety_secrets() {
+        let low_variety = "a".repeat(40);
+        let error = validate_field("JWT_SECRET", &low_variety, false).expect_err("low variety");
+        assert!(error.to_string().contains("distinct characters"));
+        validate_field(
+            "JWT_SECRET",
+            "6a9e83b55809ff3661af93afa84d386894e54be66273f99bca1d5897adb1ab19",
+            false,
+        )
+        .expect("random hex secret");
     }
 
     #[test]

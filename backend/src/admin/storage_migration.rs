@@ -410,41 +410,10 @@ pub(crate) async fn execute_node_migration_batch(
     request: NodeMigrationBatchRequest<'_>,
 ) -> Result<MigrateStorageBlobsNodeReport, AppError> {
     let client = nebula_client_for_node(state, record, Some(MIGRATION_HTTP_REQUEST_TIMEOUT)).await?;
-    let maintenance_client =
-        nebula_client_for_node(state, record, Some(MIGRATION_MAINTENANCE_TIMEOUT)).await?;
 
+    // Human: Nebular's migrate_blobs has no dry-run mode (it rewrites blobs on every call), so dry runs only probe
+    // objects from the client side.
     if request.dry_run {
-        if request.prefer_server {
-            if let Some(server) = maintenance_client
-                .try_migrate_blobs_maintenance(request.limit, request.start_after, true)
-                .await
-                .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
-            {
-                if server.dry_run_applied {
-                    emit_object_log(
-                        request.log_sink,
-                        "info",
-                        format!(
-                            "Batch on {} via nebular_maintenance: would migrate {}, skipped {}, failed {}",
-                            record.id, server.migrated, server.skipped, server.failed
-                        ),
-                        None,
-                    );
-                    return Ok(MigrateStorageBlobsNodeReport {
-                        node_id: record.id.clone(),
-                        method: "nebular_maintenance".into(),
-                        scanned: server.scanned,
-                        migrated: server.migrated,
-                        skipped: server.skipped,
-                        failed: server.failed,
-                        failures: Vec::new(),
-                        next_start_after: server.next_start_after,
-                        is_truncated: server.is_truncated,
-                    });
-                }
-            }
-        }
-
         return migrate_node_client_batch(
             &client,
             &record.id,
@@ -459,8 +428,10 @@ pub(crate) async fn execute_node_migration_batch(
     }
 
     if request.prefer_server {
+        let maintenance_client =
+            nebula_client_for_node(state, record, Some(MIGRATION_MAINTENANCE_TIMEOUT)).await?;
         if let Some(server) = maintenance_client
-            .try_migrate_blobs_maintenance(request.limit, request.start_after, false)
+            .try_migrate_blobs_maintenance(request.limit, request.start_after)
             .await
             .map_err(|e| AppError::BadRequest(format!("nebular maintenance failed: {e:#}")))?
         {

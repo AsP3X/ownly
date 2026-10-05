@@ -22,6 +22,8 @@ pub fn is_likely_transient_put_error(error: &anyhow::Error) -> bool {
         || msg.contains("connection reset")
         || msg.contains("500 internal server error")
         || msg.contains("503 service unavailable")
+        // Human: Nebular (>= 0.2) answers 408 when an upload body stalls past NOS_UPLOAD_IDLE_TIMEOUT_SECS.
+        || msg.contains("408 request timeout")
         || msg.contains("backpressure")
         || msg.contains("storage error")
 }
@@ -111,6 +113,12 @@ mod tests {
     #[test]
     fn transient_detection_matches_backpressure() {
         let err = anyhow::anyhow!("object storage PUT backpressure (retry after 1s)");
+        assert!(is_likely_transient_put_error(&err));
+    }
+
+    #[test]
+    fn transient_detection_matches_upload_idle_timeout() {
+        let err = anyhow::anyhow!("object storage PUT failed: 408 Request Timeout");
         assert!(is_likely_transient_put_error(&err));
     }
 

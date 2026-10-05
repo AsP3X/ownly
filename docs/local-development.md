@@ -36,6 +36,8 @@ docker compose up -d postgres object-storage
 cd backend && cargo run
 ```
 
+The Compose node only accepts service tokens with `iss=ownly` / `aud=nebular-os` (Nebular OS 0.2). `./init-env.sh` writes the matching `OBJECT_STORAGE_JWT_ISSUER` / `OBJECT_STORAGE_JWT_AUDIENCE` into `backend/.env` (and `NOS_JWT_ISSUER` / `NOS_JWT_AUDIENCE` into `nebular-os/.env` for a natively run node). Re-run `./init-env.sh` to add them to an existing `backend/.env`; without them the API refuses to start with a message naming the two settings.
+
 ### Backend verification
 
 ```bash

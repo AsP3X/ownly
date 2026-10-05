@@ -52,8 +52,11 @@ This copies `.env.example` → `.env` and `backend/.env.example` → `backend/.e
 | `SETUP_TOKEN` | Gates first-run setup mutations |
 | `SIGNING_SECRET` / `NOS_SIGNING_SECRET` | Presigned URL HMAC (must match across API + Nebular) |
 | `OBJECT_STORAGE_JWT_SECRET` / `NOS_JWT_SECRET` | Nebular API JWT |
+| `NOS_METRICS_TOKEN` | Bearer token for Nebular `/metrics` (optional; generated for new `.env` files) |
 | `POSTGRES_PASSWORD` | Database (production) |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins (required when `OWNLY_ENVIRONMENT=production`) |
+
+`OBJECT_STORAGE_JWT_ISSUER` / `OBJECT_STORAGE_JWT_AUDIENCE` (Compose defaults `ownly` / `nebular-os`) scope the API's Nebular JWTs; every node needs matching `NOS_JWT_ISSUER` / `NOS_JWT_AUDIENCE`. See [Nebular OS 0.2 settings](./nebular-integration.md#nebular-os-02-settings).
 
 Full lists: [`.env.example`](../.env.example) and [`backend/.env.example`](../backend/.env.example).
 

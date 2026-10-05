@@ -37,6 +37,22 @@ x-nebular-storage-env: &nebular-storage-env
   NOS_VERIFY_ON_READ: ${NOS_VERIFY_ON_READ:-false}
   NOS_READ_BUFFER_SIZE: ${NOS_READ_BUFFER_SIZE:-262144}
   NOS_WEBHOOKS_JSON: ${NOS_WEBHOOKS_JSON:-}
+  # Human: Nebular 0.2 hardening — keep in sync with object-storage in docker-compose.yml.
+  NOS_JWT_ISSUER: ${OBJECT_STORAGE_JWT_ISSUER-ownly}
+  NOS_JWT_AUDIENCE: ${OBJECT_STORAGE_JWT_AUDIENCE-nebular-os}
+  NOS_METRICS_TOKEN: ${NOS_METRICS_TOKEN:-}
+  NOS_ALLOW_PUBLIC_READ: "false"
+  NOS_LEGACY_ACCESS_KEY_AUTH: "false"
+  NOS_PRESIGN_MAX_TTL_SECS: ${NOS_PRESIGN_MAX_TTL_SECS:-86400}
+  NOS_CORS_ORIGINS: ${NOS_CORS_ORIGINS:-${CORS_ALLOWED_ORIGINS:-}}
+  NOS_FSYNC_WRITES: ${NOS_FSYNC_WRITES:-true}
+  NOS_UPLOAD_IDLE_TIMEOUT_SECS: ${NOS_UPLOAD_IDLE_TIMEOUT_SECS:-60}
+  NOS_HEADER_READ_TIMEOUT_SECS: ${NOS_HEADER_READ_TIMEOUT_SECS:-75}
+  NOS_SEND_STALL_TIMEOUT_SECS: ${NOS_SEND_STALL_TIMEOUT_SECS:-300}
+  NOS_MAX_CONNECTIONS: ${NOS_MAX_CONNECTIONS:-0}
+  NOS_SHUTDOWN_GRACE_SECS: ${NOS_SHUTDOWN_GRACE_SECS:-8}
+  NOS_BLOCK_CACHE_MAX_BYTES: ${NOS_BLOCK_CACHE_MAX_BYTES:-67108864}
+  NOS_ORPHAN_GC_INTERVAL_SECS: ${NOS_ORPHAN_GC_INTERVAL_SECS:-0}
   RUST_LOG: ${RUST_LOG:-debug}
 
 x-nebular-storage-service: &nebular-storage-service
@@ -51,6 +67,7 @@ x-nebular-storage-service: &nebular-storage-service
     timeout: 5s
     retries: 18
     start_period: 120s
+  stop_grace_period: 15s
 
 services:
   object-storage:

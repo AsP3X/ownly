@@ -10,7 +10,7 @@ if ! command -v openssl >/dev/null 2>&1; then
 fi
 
 # Agent: Shell exports override Compose .env — clear common secret overrides.
-unset SETUP_TOKEN JWT_SECRET SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET
+unset SETUP_TOKEN JWT_SECRET SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET OBJECT_STORAGE_JWT_SECRET NOS_METRICS_TOKEN
 
 WEAK_SECRETS="GENERATE_ME change-me-in-production change-me-in-production-jwt-secret dev-jwt-secret-change-me dev-nos-jwt-secret-change-me dev-nos-signing-secret-change-me ownly-master-key"
 
@@ -63,6 +63,19 @@ echo "Checking $(pwd)/.env ..."
 for key in JWT_SECRET SETUP_TOKEN SIGNING_SECRET NOS_JWT_SECRET NOS_SIGNING_SECRET; do
     rotate_key_in_file "$key" ".env"
 done
+
+# Human: NOS_METRICS_TOKEN may be empty on purpose (/metrics open) — only replace the GENERATE_ME placeholder,
+# which every node would otherwise accept as a publicly known token.
+# Agent: REWRITES the line in place when the value is exactly GENERATE_ME; leaves other values alone.
+metrics_line=$(grep -m1 -E '^[[:space:]]*NOS_METRICS_TOKEN[[:space:]]*=' .env 2>/dev/null || true)
+if [ -n "$metrics_line" ] && [ "$(normalize_env_value "${metrics_line#*=}")" = "GENERATE_ME" ]; then
+    secret=$(generate_secret)
+    echo "  Fixing placeholder NOS_METRICS_TOKEN in .env"
+    awk -v secret="$secret" '
+        /^[[:space:]]*NOS_METRICS_TOKEN[[:space:]]*=/ { print "NOS_METRICS_TOKEN=" secret; next }
+        { print }
+    ' .env > .env.metrics && mv .env.metrics .env
+fi
 
 # Human: Keep Nebular signing aligned with API after JWT_SECRET/SIGNING_SECRET rotation.
 if [ -f .env ]; then

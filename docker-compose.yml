@@ -19,6 +19,15 @@ x-ownly-compose-dev-secrets: &ownly-compose-dev-secrets
   NOS_JWT_SECRET: ${NOS_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
   NOS_SIGNING_SECRET: ${NOS_SIGNING_SECRET:-ownly-compose-local-dev-nos-signing-secret-not-for-production}
   OBJECT_STORAGE_JWT_SECRET: ${OBJECT_STORAGE_JWT_SECRET:-ownly-compose-local-dev-nos-jwt-secret-not-for-production-use}
+  # Human: Nebular (>= 0.2) only accepts service JWTs with this iss/aud, so tokens minted with the same HS256
+  # secret for another purpose are refused. Remote nodes need the same NOS_JWT_ISSUER / NOS_JWT_AUDIENCE.
+  # Agent: BACKEND reads OBJECT_STORAGE_JWT_*; NEBULAR reads NOS_JWT_*; set both to empty to opt out together.
+  OBJECT_STORAGE_JWT_ISSUER: ${OBJECT_STORAGE_JWT_ISSUER-ownly}
+  OBJECT_STORAGE_JWT_AUDIENCE: ${OBJECT_STORAGE_JWT_AUDIENCE-nebular-os}
+  NOS_JWT_ISSUER: ${OBJECT_STORAGE_JWT_ISSUER-ownly}
+  NOS_JWT_AUDIENCE: ${OBJECT_STORAGE_JWT_AUDIENCE-nebular-os}
+  # Human: When set, Nebular /metrics requires this bearer token; the backend sends it for capacity probes.
+  NOS_METRICS_TOKEN: ${NOS_METRICS_TOKEN:-}
 
 services:
   init-env:
@@ -90,6 +99,29 @@ services:
       NOS_VERIFY_ON_READ: ${NOS_VERIFY_ON_READ:-false}
       NOS_READ_BUFFER_SIZE: ${NOS_READ_BUFFER_SIZE:-262144}
       NOS_WEBHOOKS_JSON: ${NOS_WEBHOOKS_JSON:-}
+      # Human: Nebular 0.2 hardening — see docs/nebular-integration.md "Nebular OS 0.2 settings".
+      # Agent: SYNC with x-nebular-storage-env in docker-compose.rep.yml.
+      NOS_ALLOW_PUBLIC_READ: "false"
+      NOS_LEGACY_ACCESS_KEY_AUTH: "false"
+      # Human: Must stay >= URL_EXPIRY_SECONDS (download links) or presigned GETs are refused.
+      NOS_PRESIGN_MAX_TTL_SECS: ${NOS_PRESIGN_MAX_TTL_SECS:-86400}
+      # Human: Browsers reach Nebular same-origin via nginx /media/; only the app's own origins get CORS headers.
+      # Agent: DEFAULTS to CORS_ALLOWED_ORIGINS (empty in dev = any); set here, not in prod, so overlay order can't reset it.
+      NOS_CORS_ORIGINS: ${NOS_CORS_ORIGINS:-${CORS_ALLOWED_ORIGINS:-}}
+      NOS_FSYNC_WRITES: ${NOS_FSYNC_WRITES:-true}
+      # Human: Slow-client protection — stalled upload bodies (408), slow request headers / idle keep-alive,
+      # and downloads the client stopped reading. The backend's pool idle timeout (50s) stays below the header one.
+      NOS_UPLOAD_IDLE_TIMEOUT_SECS: ${NOS_UPLOAD_IDLE_TIMEOUT_SECS:-60}
+      NOS_HEADER_READ_TIMEOUT_SECS: ${NOS_HEADER_READ_TIMEOUT_SECS:-75}
+      NOS_SEND_STALL_TIMEOUT_SECS: ${NOS_SEND_STALL_TIMEOUT_SECS:-300}
+      NOS_MAX_CONNECTIONS: ${NOS_MAX_CONNECTIONS:-0}
+      NOS_SHUTDOWN_GRACE_SECS: ${NOS_SHUTDOWN_GRACE_SECS:-8}
+      NOS_BLOCK_CACHE_MAX_BYTES: ${NOS_BLOCK_CACHE_MAX_BYTES:-67108864}
+      # Human: Leave 0 when NOS_METADATA_MODE=blob_only — orphan GC would treat every blob as unreferenced.
+      NOS_ORPHAN_GC_INTERVAL_SECS: ${NOS_ORPHAN_GC_INTERVAL_SECS:-0}
+      # Human: NOS_RATE_LIMIT_RPS stays off: it keys on the peer IP, and every browser request arrives via nginx.
+    # Human: Lets in-flight requests finish (NOS_SHUTDOWN_GRACE_SECS) before Docker sends SIGKILL.
+    stop_grace_period: 15s
     ports:
       - "9000:9000"
     volumes:
