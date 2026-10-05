@@ -407,7 +407,7 @@ pub async fn extract_scrub_frames(input: &Path) -> Result<Vec<(f64, Vec<u8>)>, S
     ]);
 
     let timeout = std::time::Duration::from_secs(
-        ((duration as u64).saturating_mul(2).max(30)).min(300),
+        (duration as u64).saturating_mul(2).clamp(30, 300),
     );
     let output = run_command_with_timeout(&mut command, timeout, "ffmpeg scrub extract")
         .await

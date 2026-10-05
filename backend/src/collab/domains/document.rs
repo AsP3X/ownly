@@ -289,10 +289,10 @@ impl CollabDomain for DocumentDomain {
                     presence["lock_end"] = json!(ne);
                 }
                 None => {
-                    presence.as_object_mut().map(|m| {
+                    if let Some(m) = presence.as_object_mut() {
                         m.remove("lock_start");
                         m.remove("lock_end");
-                    });
+                    }
                 }
             }
         }
