@@ -1,0 +1,343 @@
+# orbit.toml — how orbit sets up, builds and runs Ownly (format: orbit/docs/orbit-toml.md, version 1).
+# It covers init-env.sh (root .env and backend/.env), the compose files and overlays, the nebular-os submodule,
+# and wraps scripts/backup-ownly.sh, scripts/restore-ownly.sh and scripts/check-api-deployment.sh as actions.
+# No secret values live here: they are generated into .env (mode 600) and never replaced once set.
+version = 1
+name = "Ownly"
+kind = "compose"
+description = "Self-hosted drive: Rust API, Vite web app behind nginx, Postgres and Nebular OS object storage"
+
+[env]
+file = ".env"
+template = ".env.example"
+placeholder = "GENERATE_ME"
+# init-env.sh also fills backend/.env (used only by a native `cargo run` of the API; Compose sets
+# OWNLY_SKIP_DOTENV=1). Same keys it syncs from the root .env. nebular-os/.env is left out, see the report.
+also_write = [
+  { file = "backend/.env", template = "backend/.env.example", keys = [
+    "SETUP_TOKEN", "JWT_SECRET", "SIGNING_SECRET", "OBJECT_STORAGE_JWT_SECRET", "DATABASE_URL",
+    "NOS_METRICS_TOKEN", "OBJECT_STORAGE_JWT_ISSUER", "OBJECT_STORAGE_JWT_AUDIENCE",
+  ] },
+]
+
+[checks]
+files = [
+  "docker-compose.yml", "docker-compose.prod.yml", "docker-compose.rep.yml", "docker-compose.gpu.yml",
+  "docker/nebular-os.Dockerfile", "backend/Dockerfile", "backend/Cargo.lock", "frontend/Dockerfile",
+  "frontend/package-lock.json", "frontend/nginx.conf.template", "frontend/nginx-http-map.conf",
+  "backend/.env.example",
+]
+tools = ["git"]
+
+# ── how people reach Ownly ──────────────────────────────────────────────────
+
+[settings.PROXY_MODE]
+ask = "How will people reach Ownly?"
+help = "local: ports 8080/3000/9000/5432 on this machine. npm: docker-compose.prod.yml, no host ports, edge proxy"
+type = "choice"
+choices = ["local", "npm"]
+labels = { local = "Ports on this machine (development)", npm = "Production behind Nginx Proxy Manager / Traefik" }
+aliases = { external = "npm", proxy = "npm", prod = "npm", production = "npm", dev = "local", development = "local" }
+default = "local"
+
+[settings.FRONTEND_PORT]
+ask = "Web host port"
+help = "API 3000, Nebular 9000 and Postgres 5432 are fixed in docker-compose.yml"
+type = "port"
+default = "8080"
+check_free = true
+when = "PROXY_MODE == 'local'"
+omit_default = true
+
+[settings.OBJECT_STORAGE_PUBLIC_URL]
+ask = "Public URL (how browsers reach the app)"
+help = "presigned downloads go through nginx /media/ on this origin; change it with the web port"
+type = "url"
+default = [
+  { when = "PROXY_MODE == 'npm'", value = "https://drive.example.com" },
+  { value = "http://localhost:${FRONTEND_PORT}" },
+]
+required = true
+
+# docker-compose.prod.yml requires it (${CORS_ALLOWED_ORIGINS:?}); a hand-edited list that already
+# contains the public URL is kept.
+[settings.CORS_ALLOWED_ORIGINS]
+derive = "${OBJECT_STORAGE_PUBLIC_URL|trim_slash}"
+keep_when = "CORS_ALLOWED_ORIGINS contains OBJECT_STORAGE_PUBLIC_URL"
+when = "PROXY_MODE == 'npm'"
+required = true
+
+[settings.OWNLY_STORAGE_NODE_B]
+ask = "Run a second Nebular storage node?"
+help = "docker-compose.rep.yml: object-storage-b on host port 9001, for multi-node testing"
+type = "bool"
+true_value = "1"
+false_value = ""
+
+[settings.OWNLY_GPU]
+ask = "Use the NVIDIA GPU for video (HLS) encoding?"
+help = "docker-compose.gpu.yml; needs the NVIDIA Container Toolkit"
+type = "bool"
+true_value = "1"
+false_value = ""
+
+# The same file list orbit passes with -f, for the commands that do not get -f: scripts/backup-ownly.sh,
+# scripts/restore-ownly.sh and a plain `docker compose …` typed in this folder. Keep in sync with [compose].
+[settings.COMPOSE_FILE]
+derive = [
+  { when = "OWNLY_STORAGE_NODE_B && PROXY_MODE == 'npm' && OWNLY_GPU", value = "docker-compose.yml:docker-compose.rep.yml:docker-compose.prod.yml:docker-compose.gpu.yml" },
+  { when = "OWNLY_STORAGE_NODE_B && PROXY_MODE == 'npm'", value = "docker-compose.yml:docker-compose.rep.yml:docker-compose.prod.yml" },
+  { when = "OWNLY_STORAGE_NODE_B && OWNLY_GPU", value = "docker-compose.yml:docker-compose.rep.yml:docker-compose.gpu.yml" },
+  { when = "OWNLY_STORAGE_NODE_B", value = "docker-compose.yml:docker-compose.rep.yml" },
+  { when = "PROXY_MODE == 'npm' && OWNLY_GPU", value = "docker-compose.yml:docker-compose.prod.yml:docker-compose.gpu.yml" },
+  { when = "PROXY_MODE == 'npm'", value = "docker-compose.yml:docker-compose.prod.yml" },
+  { when = "OWNLY_GPU", value = "docker-compose.yml:docker-compose.gpu.yml" },
+  { value = "docker-compose.yml" },
+]
+
+# ── database (init-env.sh: GENERATE_ME → openssl rand -hex 32; DATABASE_URL follows the password) ──
+
+[settings.POSTGRES_USER]
+default = "ownly"
+locked_when = "data:database"
+
+[settings.POSTGRES_DB]
+default = "ownly"
+locked_when = "data:database"
+
+[settings.POSTGRES_PASSWORD]
+type = "secret"
+generate = "hex:32"
+min_len = 32
+locked_when = "data:database"
+weak = [
+  "change-me-in-production", "change-me-in-production-jwt-secret", "dev-jwt-secret-change-me",
+  "dev-nos-jwt-secret-change-me", "dev-nos-signing-secret-change-me", "ownly-master-key",
+  "ownly-compose-local-dev-postgres-password-not-for-production", "ownly",
+]
+
+# init-env.sh rewrites the password in DATABASE_URL and keeps its host and database; orbit keeps a URL that
+# already carries the current password (a custom host stays) and otherwise writes the Compose one.
+[settings.DATABASE_URL]
+derive = "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+keep_when = "DATABASE_URL contains POSTGRES_PASSWORD"
+
+# ── API and Nebular secrets ─────────────────────────────────────────────────
+
+[settings.JWT_SECRET]
+type = "secret"
+generate = "hex:32"
+min_len = 32
+weak = [
+  "change-me-in-production", "change-me-in-production-jwt-secret", "dev-jwt-secret-change-me",
+  "dev-nos-jwt-secret-change-me", "dev-nos-signing-secret-change-me", "ownly-master-key",
+  "ownly-compose-local-dev-postgres-password-not-for-production", "ownly",
+]
+
+# Pasted into the first-run wizard at /setup.
+[settings.SETUP_TOKEN]
+type = "secret"
+generate = "hex:32"
+min_len = 32
+weak = [
+  "change-me-in-production", "change-me-in-production-jwt-secret", "dev-jwt-secret-change-me",
+  "dev-nos-jwt-secret-change-me", "dev-nos-signing-secret-change-me", "ownly-master-key",
+  "ownly-compose-local-dev-postgres-password-not-for-production", "ownly",
+]
+
+[settings.SIGNING_SECRET]
+type = "secret"
+generate = "hex:32"
+min_len = 32
+weak = [
+  "change-me-in-production", "change-me-in-production-jwt-secret", "dev-jwt-secret-change-me",
+  "dev-nos-jwt-secret-change-me", "dev-nos-signing-secret-change-me", "ownly-master-key",
+  "ownly-compose-local-dev-postgres-password-not-for-production", "ownly",
+]
+
+# Nebular presigned URLs must use the API's HMAC secret (init-env.sh copies SIGNING_SECRET).
+[settings.NOS_SIGNING_SECRET]
+derive = "${SIGNING_SECRET}"
+
+[settings.NOS_JWT_SECRET]
+type = "secret"
+generate = "hex:32"
+min_len = 32
+weak = [
+  "change-me-in-production", "change-me-in-production-jwt-secret", "dev-jwt-secret-change-me",
+  "dev-nos-jwt-secret-change-me", "dev-nos-signing-secret-change-me", "ownly-master-key",
+  "ownly-compose-local-dev-postgres-password-not-for-production", "ownly",
+]
+
+# The API signs Nebular service JWTs with the secret Nebular verifies (init-env.sh copies NOS_JWT_SECRET).
+[settings.OBJECT_STORAGE_JWT_SECRET]
+derive = "${NOS_JWT_SECRET}"
+
+# Bearer token for Nebular /metrics; the API sends it for capacity probes.
+[settings.NOS_METRICS_TOKEN]
+type = "secret"
+generate = "hex:32"
+
+# ── compose ─────────────────────────────────────────────────────────────────
+
+# rep before prod, so prod's ${…:?} required-secret checks on object-storage are the ones that apply.
+[compose]
+files = ["docker-compose.yml"]
+overlays = [
+  { file = "docker-compose.rep.yml", when = "OWNLY_STORAGE_NODE_B" },
+  { file = "docker-compose.prod.yml", when = "PROXY_MODE == 'npm'" },
+  { file = "docker-compose.gpu.yml", when = "OWNLY_GPU" },
+]
+# backend and frontend join the external proxy-network in every mode (docker-compose.yml).
+networks = [{ name = "proxy-network" }]
+build_env = { GIT_SHA = "${git.revision}" }
+wait = true
+# object-storage: start_period 120s + 18 retries x 10s before backend may start.
+wait_timeout = 420
+pull_on_rebuild = true
+
+# An empty nebular-os/ breaks the object-storage build ("failed to read dockerfile").
+[[hooks.before_build]]
+cmd = ["git", "submodule", "update", "--init", "--recursive"]
+label = "Fetch nebular-os (pinned submodule)"
+
+# ── data ────────────────────────────────────────────────────────────────────
+
+[[storage]]
+name = "database"
+service = "postgres"
+mount = "/var/lib/postgresql/data"
+volume = "postgres_data"
+has_data = "PG_VERSION"
+helper_image = "postgres:16-alpine"
+
+[[storage]]
+name = "blobs"
+service = "object-storage"
+mount = "/data"
+volume = "nebular_data"
+
+[[storage]]
+name = "blobs-b"
+service = "object-storage-b"
+mount = "/data"
+volume = "nebular_extra_b_data"
+
+# ── after deploy ────────────────────────────────────────────────────────────
+
+[[probe]]
+url = "http://127.0.0.1:${FRONTEND_PORT}/api/v1/health/ready"
+when = "PROXY_MODE == 'local'"
+timeout = 5
+retries = 3
+
+[[probe]]
+url = "${OBJECT_STORAGE_PUBLIC_URL|trim_slash}/api/v1/health/ready"
+when = "PROXY_MODE == 'npm'"
+timeout = 5
+retries = 3
+
+[[probe]]
+url = "http://127.0.0.1:9001/health/ready"
+when = "OWNLY_STORAGE_NODE_B"
+timeout = 5
+
+[[diagnose]]
+match = "port is already allocated"
+hint = "A host port is taken (web FRONTEND_PORT, API 3000, Nebular 9000/9001, Postgres 5432): stop the other stack or pick another web port in Setup."
+[[diagnose]]
+match = "address already in use"
+hint = "A host port is taken (web FRONTEND_PORT, API 3000, Nebular 9000/9001, Postgres 5432): stop the other stack or pick another web port in Setup."
+[[diagnose]]
+match = "failed to read dockerfile"
+hint = "nebular-os/ is empty: the submodule was not fetched (git submodule update --init --recursive)."
+[[diagnose]]
+match = "network proxy-network"
+hint = "Check the shared proxy network: docker network inspect proxy-network"
+[[diagnose]]
+match = "password authentication failed"
+logs = "backend"
+hint = "Postgres keeps the password it was first initialised with. Run the action 'Sync database password' to set it to POSTGRES_PASSWORD from .env."
+[[diagnose]]
+match = "known weak default"
+logs = "backend"
+hint = "A secret in .env is a known weak value; orbit never rotates it. Replace it with `openssl rand -hex 32` (or run ./init-env.sh by hand)."
+[[diagnose]]
+match = "CORS_ALLOWED_ORIGINS"
+hint = "Production needs CORS_ALLOWED_ORIGINS: run Setup and set the public URL."
+[[diagnose]]
+match = "could not select device driver"
+hint = "The GPU overlay needs the NVIDIA Container Toolkit; turn the GPU option off in Setup."
+[[diagnose]]
+match = "unhealthy"
+hint = "A service did not become healthy (object-storage may need up to 5 minutes on a cold volume): see Logs."
+
+[show]
+urls = [
+  { label = "Web", url = "${OBJECT_STORAGE_PUBLIC_URL|trim_slash}" },
+  { label = "API", url = "http://localhost:3000/api/v1", when = "PROXY_MODE == 'local'" },
+  { label = "Nebular OS", url = "http://localhost:9000", when = "PROXY_MODE == 'local'" },
+  { label = "Nebular node B", url = "http://localhost:9001", when = "OWNLY_STORAGE_NODE_B" },
+]
+open = "${OBJECT_STORAGE_PUBLIC_URL|trim_slash}"
+notes = [
+  { text = "Edge proxy: point ${OBJECT_STORAGE_PUBLIC_URL|host} to http://ownly-frontend:80 on proxy-network; set client_max_body_size 0 and proxy_request_buffering off (docs/secure-deployment.md)", when = "PROXY_MODE == 'npm'" },
+  { text = "OWNLY_ALLOW_PRIVATE_OUTBOUND=1 in .env also applies in production; the docs want 0 there", when = "PROXY_MODE == 'npm' && OWNLY_ALLOW_PRIVATE_OUTBOUND == '1'" },
+  { text = "Postgres is published on localhost:5432 (local mode)", when = "PROXY_MODE == 'local'" },
+  { text = "Register node B: Admin → Add Storage Node → http://object-storage-b:9000", when = "OWNLY_STORAGE_NODE_B" },
+  { text = "docker-compose.rep.yml still publishes node B on host port 9001 in production", when = "OWNLY_STORAGE_NODE_B && PROXY_MODE == 'npm'" },
+]
+
+# ── project actions ─────────────────────────────────────────────────────────
+
+# scripts/backup-ownly.sh: pg_dump -Fc + Nebular volume tars + MANIFEST.json + SHA256SUMS, the format
+# restore-ownly.sh reads. It finds the compose files through COMPOSE_FILE in .env.
+[[action]]
+name = "Full backup"
+desc = "database + object storage into backups/ownly-<time> (scripts/backup-ownly.sh)"
+confirm = "yes"
+steps = [
+  { cmd = ["env", "POSTGRES_USER=${POSTGRES_USER}", "POSTGRES_DB=${POSTGRES_DB}", "bash", "scripts/backup-ownly.sh"], label = "scripts/backup-ownly.sh" },
+]
+
+[[action]]
+name = "Restore backup"
+desc = "overwrite the database and blob volumes from a backup folder (scripts/restore-ownly.sh)"
+danger = true
+confirm = "type-name"
+params = { from = { ask = "Backup folder", help = "contains MANIFEST.json, e.g. backups/ownly-20261029-120000", type = "path", default = "backups/" } }
+steps = [
+  { cmd = ["env", "OWNLY_CONFIRM_RESTORE=yes", "POSTGRES_USER=${POSTGRES_USER}", "POSTGRES_DB=${POSTGRES_DB}", "bash", "scripts/restore-ownly.sh", "--from", "${param.from}"], label = "scripts/restore-ownly.sh" },
+]
+
+# The docs' manual step "update the role after rotating": sets the role's password to POSTGRES_PASSWORD.
+[[action]]
+name = "Sync database password"
+desc = "set the Postgres role password to POSTGRES_PASSWORD from .env"
+confirm = "yes"
+steps = [
+  { start = ["postgres"] },
+  { wait = { exec = "postgres", cmd = ["pg_isready", "-q", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"], timeout = 90 } },
+  { sql = { service = "postgres", user = "${POSTGRES_USER}", db = "${POSTGRES_DB}", sql = "ALTER ROLE CURRENT_USER WITH PASSWORD :'pwd';", vars = { pwd = "${POSTGRES_PASSWORD}" } } },
+]
+
+[[action]]
+name = "Check API routes"
+desc = "probe /api/v1 routes; 404/405 means a stale backend image (scripts/check-api-deployment.sh)"
+steps = [
+  { cmd = ["sh", "scripts/check-api-deployment.sh", "${OBJECT_STORAGE_PUBLIC_URL|trim_slash}"], label = "scripts/check-api-deployment.sh" },
+]
+
+[[action]]
+name = "Install git hooks"
+desc = "core.hooksPath=.githooks (blocks commits under nebular-os/)"
+steps = [
+  { cmd = ["sh", "scripts/install-git-hooks.sh"], label = "scripts/install-git-hooks.sh" },
+]
+
+[[checklist]]
+text = "Open ${OBJECT_STORAGE_PUBLIC_URL|trim_slash}/setup and finish the first-run wizard with SETUP_TOKEN from .env (the API also logs it on first boot)"
+
+[[checklist]]
+text = "Register storage node B in Admin → Add Storage Node with http://object-storage-b:9000 and a target capacity"
+when = "OWNLY_STORAGE_NODE_B"
