@@ -9,11 +9,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use super::hardware::{
-    append_full_transcode_encoder_args, HlsHardwareEncode, ResolvedHardwareEncoder,
+    append_full_transcode_encoder_args, append_synced_aac_args, HlsHardwareEncode,
+    ResolvedHardwareEncoder,
 };
 use super::playlist::HLS_SEGMENT_TARGET_SECS_LARGE;
 use super::playlist::{HLS_INIT_FILENAME, HLS_SEGMENT_EXTENSION};
-use super::probe::{fps_to_ffmpeg_rate, CodecProbe, HlsEncodeMode};
+use super::probe::{CodecProbe, HlsEncodeMode};
 use super::segment_crypto::encrypt_hls_segments_dir;
 use crate::media::subprocess::{ffmpeg_transcode_timeout, wait_child_with_timeout};
 
@@ -51,25 +52,19 @@ struct FfmpegSessionParams<'a> {
 }
 
 impl HlsEncoder {
-    /// Human: Remux encrypted HLS on disk into one MP4 (stream copy — no quality loss).
+    /// Human: Remux decrypted HLS on disk into one MP4 (stream copy — no quality loss).
     /// Agent: SPAWNS ffmpeg -i stream.m3u8 -c copy; READS work_dir with key.bin + segments/.
+    /// Agent: SKIPS aac_adtstoasc when init.mp4 is present — that ADTS filter shifts fMP4 audio.
     pub async fn package_hls_to_mp4(work_dir: &Path, output_mp4: &Path) -> anyhow::Result<()> {
         let playlist = work_dir.join("stream.m3u8");
+        let playlist_str = playlist.to_str().context("invalid playlist path")?;
+        let output_str = output_mp4.to_str().context("invalid output path")?;
+        let fmp4 = tokio::fs::try_exists(work_dir.join(HLS_INIT_FILENAME))
+            .await
+            .unwrap_or(false);
+        let args = hls_export_ffmpeg_args(playlist_str, output_str, fmp4);
         let mut child = Command::new("ffmpeg")
-            .args([
-                "-allowed_extensions",
-                "ALL",
-                "-i",
-                playlist.to_str().context("invalid playlist path")?,
-                "-c",
-                "copy",
-                "-bsf:a",
-                "aac_adtstoasc",
-                "-movflags",
-                "+faststart",
-                "-y",
-                output_mp4.to_str().context("invalid output path")?,
-            ])
+            .args(&args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -302,8 +297,8 @@ impl HlsEncoder {
                 append_hls_audio_encode(&mut encode_args);
             }
             HlsEncodeMode::AlignSegmentsRetranscode => {
-                // Human: Repair corrupt source timestamps only when fully re-encoding both tracks.
-                // Agent: PREPENDS +genpts before `-i`; PAIRED with CFR + aresample async.
+                // Human: Re-encode without inventing a new clock — CFR + genpts desyncs the MP4 download.
+                // Agent: NO +genpts; NO forced -r; audio encode does not reset PTS.
                 append_common_input_args(&mut pre_input_args);
                 let large_cap = if segment_target_secs >= HLS_SEGMENT_TARGET_SECS_LARGE {
                     Some(HlsAlignRateCap {
@@ -327,7 +322,7 @@ impl HlsEncoder {
                     },
                 );
                 append_hls_audio_encode(&mut encode_args);
-                append_hls_timestamp_args(&mut encode_args, output_fps);
+                append_hls_timestamp_args(&mut encode_args);
             }
             HlsEncodeMode::FullTranscode => {
                 append_common_input_args(&mut pre_input_args);
@@ -339,7 +334,7 @@ impl HlsEncoder {
                     full_transcode_quality,
                 );
                 append_hls_gop_args(&mut encode_args, output_fps, segment_target_secs);
-                append_hls_timestamp_args(&mut encode_args, output_fps);
+                append_hls_timestamp_args(&mut encode_args);
             }
         }
 
@@ -452,10 +447,43 @@ impl HlsEncoder {
     }
 }
 
-// Human: Input-side flags shared by every HLS ffmpeg session.
-// Agent: APPENDS -fflags +genpts before `-i` to repair missing or corrupt source PTS.
+// Human: Input-side flags for re-encode. Do not invent PTS — +genpts rewrites camera timestamps.
+// Agent: APPENDS +discardcorrupt only; NO +genpts (that desyncs audio from video on download).
 fn append_common_input_args(pre_input: &mut Vec<String>) {
-    pre_input.extend(["-fflags".into(), "+genpts+discardcorrupt".into()]);
+    pre_input.extend(["-fflags".into(), "+discardcorrupt".into()]);
+}
+
+// Human: ffmpeg args for HLS→MP4 export. fMP4 audio is already ASC; ADTS conversion shifts it.
+// Agent: PURE; USED by package_hls_to_mp4. aac_adtstoasc ONLY when the bundle is MPEG-TS.
+fn hls_export_ffmpeg_args(playlist: &str, output_mp4: &str, fmp4: bool) -> Vec<String> {
+    let mut args = vec![
+        "-allowed_extensions".into(),
+        "ALL".into(),
+        "-i".into(),
+        playlist.into(),
+        "-c".into(),
+        "copy".into(),
+    ];
+    if !fmp4 {
+        args.extend(["-bsf:a".into(), "aac_adtstoasc".into()]);
+    }
+    // Human: One shared shift so both tracks stay locked, including AAC priming below zero.
+    // Agent: copytb keeps the segment timebase so PTS is not re-rounded per fragment.
+    args.extend([
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+        "-muxdelay".into(),
+        "0".into(),
+        "-muxpreload".into(),
+        "0".into(),
+        "-copytb".into(),
+        "1".into(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-y".into(),
+        output_mp4.into(),
+    ]);
+    args
 }
 
 // Human: fMP4 HLS muxer — CMAF segments + init.mp4 beside stream.m3u8 for hls.js MSE playback.
@@ -497,38 +525,28 @@ fn append_hls_muxer_args(
     Ok(())
 }
 
-// Human: CFR output + zero mux delay so audio/video PTS stay aligned across fMP4 segments.
-// Agent: APPENDS -fps_mode cfr and -r from probe; SKIPPED on stream-copy remux paths.
-fn append_hls_timestamp_args(encode_args: &mut Vec<String>, fps: f64) {
-    // Human: CFR on the video stream only — avoids forcing the AAC encoder through video `-r`.
-    // Agent: USES :v stream specifiers; PAIRED with probed fps_to_ffmpeg_rate for film NTSC.
+// Human: Keep source frame timing. Forcing CFR on phone VFR changes video length vs audio,
+// and that drift shows up once the cloud package is downloaded as one MP4.
+// Agent: APPENDS fps_mode passthrough; NO -r:v. SKIPPED on stream-copy remux paths.
+fn append_hls_timestamp_args(encode_args: &mut Vec<String>) {
     encode_args.extend([
         "-fps_mode:v".into(),
-        "cfr".into(),
-        "-r:v".into(),
-        fps_to_ffmpeg_rate(fps),
+        "passthrough".into(),
+        "-enc_time_base:v".into(),
+        "-1".into(),
         "-muxdelay".into(),
         "0".into(),
         "-muxpreload".into(),
         "0".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
     ]);
 }
 
-// Human: Always stereo AAC on re-encode paths — avoids drift from copied source audio timestamps.
-// Agent: REPLACES prior AAC stream-copy; USED by AlignSegments and CopyVideoTranscodeAudio.
+// Human: Stereo AAC on the source audio clock — do not pull audio back to PTS zero.
+// Agent: DELEGATES to append_synced_aac_args; USED by AlignSegments and CopyVideoTranscodeAudio.
 fn append_hls_audio_encode(encode_args: &mut Vec<String>) {
-    encode_args.extend([
-        "-c:a".into(),
-        "aac".into(),
-        "-b:a".into(),
-        "128k".into(),
-        "-ac".into(),
-        "2".into(),
-        // Human: Resample audio to the video clock so A/V stay aligned across fMP4 segments.
-        // Agent: async=1 stretches/compresses audio slightly; first_pts=0 anchors at zero.
-        "-af".into(),
-        "aresample=async=1:first_pts=0".into(),
-    ]);
+    append_synced_aac_args(encode_args);
 }
 
 fn append_hls_gop_args(encode_args: &mut Vec<String>, fps: f64, segment_target_secs: f64) {
@@ -682,5 +700,53 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|w| w[0] == "-hls_segment_type" && w[1] == "fmp4"));
+    }
+
+    #[test]
+    fn timestamp_args_keep_source_frame_timing() {
+        let mut args = Vec::new();
+        append_hls_timestamp_args(&mut args);
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-fps_mode:v" && w[1] == "passthrough"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-avoid_negative_ts" && w[1] == "make_zero"));
+        assert!(!args.iter().any(|arg| arg == "-r:v" || arg == "cfr"));
+    }
+
+    #[test]
+    fn audio_encode_does_not_reset_pts() {
+        let mut args = Vec::new();
+        append_hls_audio_encode(&mut args);
+        let joined = args.join(" ");
+        assert!(!joined.contains("aresample"), "{joined}");
+        assert!(!joined.contains("first_pts"), "{joined}");
+        assert!(args.iter().any(|arg| arg == "aac"));
+    }
+
+    #[test]
+    fn common_input_args_do_not_regenerate_pts() {
+        let mut args = Vec::new();
+        append_common_input_args(&mut args);
+        let joined = args.join(" ");
+        assert!(!joined.contains("genpts"), "{joined}");
+        assert!(joined.contains("discardcorrupt"), "{joined}");
+    }
+
+    #[test]
+    fn export_args_skip_adts_filter_for_fmp4() {
+        let fmp4 = hls_export_ffmpeg_args("stream.m3u8", "out.mp4", true);
+        assert!(!fmp4.iter().any(|arg| arg == "aac_adtstoasc"));
+        assert!(fmp4.windows(2).any(|w| w[0] == "-c" && w[1] == "copy"));
+        assert!(fmp4
+            .windows(2)
+            .any(|w| w[0] == "-avoid_negative_ts" && w[1] == "make_zero"));
+        assert!(fmp4.windows(2).any(|w| w[0] == "-copytb" && w[1] == "1"));
+
+        let ts = hls_export_ffmpeg_args("stream.m3u8", "out.mp4", false);
+        assert!(ts
+            .windows(2)
+            .any(|w| w[0] == "-bsf:a" && w[1] == "aac_adtstoasc"));
     }
 }

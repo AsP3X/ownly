@@ -180,6 +180,19 @@ fn nvenc_available() -> bool {
         .is_some_and(|libraries| libraries.contains("libnvidia-encode"))
 }
 
+/// Human: Stereo AAC that keeps the source audio clock.
+/// Agent: NO aresample/first_pts — resetting audio PTS desyncs it from video after HLS storage and MP4 download.
+pub fn append_synced_aac_args(encode_args: &mut Vec<String>) {
+    encode_args.extend([
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "128k".into(),
+        "-ac".into(),
+        "2".into(),
+    ]);
+}
+
 /// Human: Append ffmpeg flags for full H.264 transcode using CPU or a hardware encoder.
 /// Agent: WRITES pre_input (before `-i`) and encode_args (after input path); SHARED audio downmix.
 pub fn append_full_transcode_encoder_args(
@@ -256,18 +269,7 @@ pub fn append_full_transcode_encoder_args(
         }
     }
 
-    encode_args.extend([
-        "-c:a".into(),
-        "aac".into(),
-        "-b:a".into(),
-        "128k".into(),
-        "-ac".into(),
-        "2".into(),
-        // Human: Stretch/compress audio to the video clock so A/V stay aligned across fMP4 segments.
-        // Agent: MATCHES AlignSegments aresample; first_pts=0 anchors audio at timeline zero.
-        "-af".into(),
-        "aresample=async=1:first_pts=0".into(),
-    ]);
+    append_synced_aac_args(encode_args);
 }
 
 #[cfg(test)]
@@ -304,6 +306,11 @@ mod tests {
         );
         assert!(pre.is_empty());
         assert!(encode.iter().any(|arg| arg == "libx264"));
+        let joined = encode.join(" ");
+        assert!(
+            !joined.contains("aresample") && !joined.contains("first_pts"),
+            "audio must stay on the source timeline, got: {joined}"
+        );
     }
 
     #[test]
